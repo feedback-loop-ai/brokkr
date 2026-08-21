@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/schemas/phase-state.json",
+  "title": "Forge phase state and transition journal",
+  "description": "Written only by .scripts/forge-control.py phase-advance. state.json holds current machine state; events.jsonl holds one phaseEvent object per line, append-only.",
+  "definitions": {
+    "blocker": {
+      "type": "object",
+      "required": ["rule", "phase", "reason", "at"],
+      "properties": {
+        "rule": {"type": "string", "description": "Rule id from phase-machine.json"},
+        "phase": {"type": "string"},
+        "reason": {"type": "string"},
+        "at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "heads": {
+      "type": "object",
+      "description": "Repository name to observed HEAD SHA.",
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+    },
+    "clearanceEvent": {
+      "type": "object",
+      "description": "An operator retiring one open hard blocker. Written only by phase-clear; never by an agent. Remediation alone does not retire a hard stop.",
+      "required": ["schema", "kind", "at", "clears", "operator", "reason"],
+      "properties": {
+        "schema": {"const": "forge.phase-event/v1"},
+        "kind": {"const": "clearance"},
+        "at": {"type": "string", "format": "date-time"},
+        "clears": {"type": "string", "description": "Rule id being retired"},
+        "operator": {"type": "string"},
+        "reason": {"type": "string", "minLength": 12},
+        "evidence": {"type": ["string", "null"]}
+      }
+    },
+    "phaseEvent": {
+      "type": "object",
+      "required": ["schema", "at", "from", "result", "rule", "next", "severity", "reason"],
+      "properties": {
+        "schema": {"const": "forge.phase-event/v1"},
+        "at": {"type": "string", "format": "date-time"},
+        "from": {"type": "string"},
+        "result": {"type": "string"},
+        "rule": {"type": "string"},
+        "next": {"type": "string"},
+        "severity": {"enum": ["normal", "flagged", "hard"]},
+        "reason": {"type": "string"},
+        "facts": {
+          "type": "object",
+          "description": "Inputs the table evaluated. consecutive_failures, drift_detected and dirty_worktrees are computed by the script, never supplied by a caller.",
+          "properties": {
+            "consecutive_failures": {"type": "integer", "minimum": 1},
+            "skip_verify": {"type": "boolean"},
+            "fixes_applied": {"type": "boolean"},
+            "has_security_residual": {"type": "boolean"},
+            "high_risk_uncovered": {"type": "boolean"},
+            "max_residual_severity": {"type": ["string", "null"]},
+            "drift_detected": {"type": "boolean"},
+            "dirty_worktrees": {"type": "boolean"}
+          }
+        },
+        "heads": {"$ref": "#/definitions/heads"},
+        "drift": {"type": "array", "items": {"type": "string"}},
+        "dirty": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "type": "object",
+  "required": ["schema", "phase", "shippable"],
+  "properties": {
+    "schema": {"const": "forge.phase-state/v1"},
+    "feature_id": {"type": "string"},
+    "phase": {"type": "string"},
+    "last_result": {"type": ["string", "null"]},
+    "last_rule": {"type": ["string", "null"]},
+    "shippable": {
+      "type": "boolean",
+      "description": "False whenever any hard blocker is open. The push/PR hook in every runtime refuses to act while this is false."
+    },
+    "blockers": {"type": "array", "items": {"$ref": "#/definitions/blocker"}},
+    "flags": {"type": "array", "items": {"type": "object"}},
+    "reviewed_heads": {
+      "$ref": "#/definitions/heads",
+      "description": "HEADs the review panel examined. The drift gate compares live HEADs against these."
+    },
+    "repos": {"type": "array", "items": {"type": "string"}},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

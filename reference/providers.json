@@ -1,0 +1,724 @@
+{
+  "$schema": "./providers.schema.json",
+  "schema_version": 1,
+  "default_profile": "auto",
+  "provider_order": [
+    "codex",
+    "claude",
+    "deepseek",
+    "qwen"
+  ],
+  "providers": {
+    "codex": {
+      "runner": "codex",
+      "auth": "subscription_or_api",
+      "billing_modes": [
+        "subscription",
+        "api"
+      ]
+    },
+    "claude": {
+      "runner": "claude",
+      "auth": "subscription_or_api",
+      "billing_modes": [
+        "subscription",
+        "api"
+      ]
+    },
+    "deepseek": {
+      "runner": "claude_anthropic_compatible",
+      "auth": "api_key",
+      "auth_env": "DEEPSEEK_API_KEY",
+      "billing_modes": [
+        "api"
+      ],
+      "allowed_visibility": [
+        "public"
+      ],
+      "allowed_roles": [
+        "council-seat",
+        "implementer",
+        "fixer",
+        "contract-checker",
+        "gate-auditor"
+      ],
+      "allowed_write_roles": [
+        "implementer",
+        "fixer"
+      ],
+      "denied_roles": [
+        "chief",
+        "stack-runner",
+        "live-tester",
+        "playwright-verifier",
+        "reviewer",
+        "security-reviewer",
+        "finding-verifier",
+        "infrastructure-provisioner",
+        "infrastructure-operator"
+      ],
+      "denied_repositories": [
+        "infrastructure-provisioning",
+        "infrastructure-operations"
+      ],
+      "requires_public_context": true
+    },
+    "qwen": {
+      "runner": "modelstudio_openai_compatible",
+      "auth": "api_key",
+      "auth_env": "DASHSCOPE_API_KEY",
+      "base_url_env": "DASHSCOPE_BASE_URL",
+      "default_base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "allowed_base_url_hosts": [
+        "dashscope.aliyuncs.com",
+        "dashscope-intl.aliyuncs.com",
+        "dashscope-us.aliyuncs.com",
+        "cn-hongkong.dashscope.aliyuncs.com",
+        "coding-intl.dashscope.aliyuncs.com"
+      ],
+      "allowed_base_url_suffixes": [
+        ".maas.aliyuncs.com"
+      ],
+      "billing_modes": [
+        "api"
+      ],
+      "allowed_visibility": [
+        "public"
+      ],
+      "allowed_roles": [
+        "council-seat",
+        "visual-verifier"
+      ],
+      "allowed_write_roles": [],
+      "denied_roles": [
+        "chief",
+        "implementer",
+        "fixer",
+        "contract-checker",
+        "gate-auditor",
+        "stack-runner",
+        "live-tester",
+        "playwright-verifier",
+        "reviewer",
+        "security-reviewer",
+        "finding-verifier",
+        "infrastructure-provisioner",
+        "infrastructure-operator"
+      ],
+      "denied_repositories": [
+        "infrastructure-provisioning",
+        "infrastructure-operations"
+      ],
+      "requires_public_context": true,
+      "council_route": {
+        "provider": "qwen",
+        "model": "qwen3.7-plus",
+        "effort": "max"
+      },
+      "visual_route": {
+        "provider": "qwen",
+        "model": "qwen3.7-plus",
+        "effort": "high"
+      },
+      "allowed_image_media_types": [
+        "image/bmp",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
+        "image/webp",
+        "image/heic"
+      ],
+      "max_images": 32,
+      "max_prompt_bytes": 1048576,
+      "max_image_bytes": 7340032,
+      "max_total_image_bytes": 33554432
+    }
+  },
+  "profiles": {
+    "codex-only": {
+      "providers": [
+        "codex"
+      ],
+      "council": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        }
+      ],
+      "routes": {
+        "chief": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "max"
+          }
+        ],
+        "implementer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          }
+        ],
+        "fixer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          }
+        ],
+        "contract-checker": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "gate-auditor": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-luna",
+            "effort": "low"
+          }
+        ],
+        "stack-runner": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "live-tester": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "playwright-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "visual-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "reviewer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "security-reviewer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh"
+          }
+        ],
+        "finding-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ]
+      }
+    },
+    "claude-only": {
+      "providers": [
+        "claude"
+      ],
+      "council": [
+        {
+          "provider": "claude",
+          "model": "claude-opus-4-8",
+          "effort": "max"
+        },
+        {
+          "provider": "claude",
+          "model": "claude-opus-4-8",
+          "effort": "max"
+        },
+        {
+          "provider": "claude",
+          "model": "claude-opus-4-8",
+          "effort": "max"
+        }
+      ],
+      "routes": {
+        "chief": [
+          {
+            "provider": "claude",
+            "model": "claude-fable-5",
+            "effort": "max",
+            "fallback": {
+              "provider": "claude",
+              "model": "claude-opus-4-8",
+              "effort": "max"
+            }
+          }
+        ],
+        "implementer": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "fixer": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "contract-checker": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          }
+        ],
+        "gate-auditor": [
+          {
+            "provider": "claude",
+            "model": "haiku",
+            "effort": "low"
+          }
+        ],
+        "stack-runner": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          }
+        ],
+        "live-tester": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          }
+        ],
+        "playwright-verifier": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "visual-verifier": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          }
+        ],
+        "reviewer": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          }
+        ],
+        "security-reviewer": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "xhigh"
+          }
+        ],
+        "finding-verifier": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          }
+        ]
+      }
+    },
+    "dual": {
+      "providers": [
+        "codex",
+        "claude"
+      ],
+      "council": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        },
+        {
+          "provider": "claude",
+          "model": "claude-opus-4-8",
+          "effort": "max"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        }
+      ],
+      "routes": {
+        "chief": [
+          {
+            "provider": "claude",
+            "model": "claude-fable-5",
+            "effort": "max",
+            "fallback": {
+              "provider": "claude",
+              "model": "claude-opus-4-8",
+              "effort": "max"
+            }
+          }
+        ],
+        "implementer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "fixer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "contract-checker": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "gate-auditor": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-luna",
+            "effort": "low"
+          },
+          {
+            "provider": "claude",
+            "model": "haiku",
+            "effort": "low"
+          }
+        ],
+        "stack-runner": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "live-tester": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "playwright-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "visual-verifier": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "reviewer": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "security-reviewer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh"
+          },
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "xhigh"
+          }
+        ],
+        "finding-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          }
+        ]
+      }
+    },
+    "full": {
+      "providers": [
+        "codex",
+        "claude",
+        "deepseek"
+      ],
+      "council": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.6-sol",
+          "effort": "max"
+        },
+        {
+          "provider": "claude",
+          "model": "claude-opus-4-8",
+          "effort": "max"
+        },
+        {
+          "provider": "deepseek",
+          "model": "deepseek-v4-pro",
+          "runner_model": "deepseek-v4-pro[1m]",
+          "effort": "max"
+        }
+      ],
+      "routes": {
+        "chief": [
+          {
+            "provider": "claude",
+            "model": "claude-fable-5",
+            "effort": "max",
+            "fallback": {
+              "provider": "claude",
+              "model": "claude-opus-4-8",
+              "effort": "max"
+            }
+          }
+        ],
+        "implementer": [
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "runner_model": "deepseek-v4-pro[1m]",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "fixer": [
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "runner_model": "deepseek-v4-pro[1m]",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "contract-checker": [
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "runner_model": "deepseek-v4-pro[1m]",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          }
+        ],
+        "gate-auditor": [
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "runner_model": "deepseek-v4-pro[1m]",
+            "effort": "low"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-luna",
+            "effort": "low"
+          },
+          {
+            "provider": "claude",
+            "model": "haiku",
+            "effort": "low"
+          }
+        ],
+        "stack-runner": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "live-tester": [
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "medium"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-terra",
+            "effort": "medium"
+          }
+        ],
+        "playwright-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "sonnet",
+            "effort": "high"
+          }
+        ],
+        "visual-verifier": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "reviewer": [
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          },
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          }
+        ],
+        "security-reviewer": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh"
+          },
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "xhigh"
+          }
+        ],
+        "finding-verifier": [
+          {
+            "provider": "codex",
+            "model": "gpt-5.6-sol",
+            "effort": "high"
+          },
+          {
+            "provider": "claude",
+            "model": "claude-opus-4-8",
+            "effort": "high"
+          }
+        ]
+      }
+    }
+  }
+}
