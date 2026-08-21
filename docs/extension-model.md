@@ -71,13 +71,19 @@ overrides, workspace conventions. Alkemio's profile stays private in
 agents-hq; the public repo ships an example. Discovery via entry points,
 same as executors.
 
+## Resolved
+
+1. **Phases are a list, not a DAG** — ruled 2026-08-21, see
+   [decision 0002](decisions/0002-linear-outer-machine.md). The outer
+   machine stays a linear FSM (constitutional). Concurrency exists in
+   exactly two sanctioned forms: seat/sub-machine parallelism inside
+   executors, and auxiliary tracks that join at barriers (default: ship,
+   via the `aux-tracks-joined` precondition) and can never cause a
+   transition. Speculative verify/review overlap and per-repo phase
+   progression are pre-emptively rejected.
+
 ## Open questions for discussion
 
-1. **Are phases a list or a DAG?** Today the table is linear-with-loops.
-   Parallel phases (e.g. docs generation alongside review) would make the
-   journal a partial order — real power, real complexity. Proposal: keep
-   the outer machine linear; parallelism lives *inside* executors, which
-   already fan out seats. Revisit only with a concrete need.
 2. **Sub-machines**: inner loops (waves × contracts × fix rounds) should
    graduate from executor code to their own small tables — same format,
    journaled as sub-events. When?
