@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://feedback-loop.ai/forge/council-clash.schema.json",
+  "type": "object",
+  "required": ["seat", "objections", "final_answers"],
+  "properties": {
+    "seat": {"enum": ["simplifier", "systems-architect", "operator", "experience-architect"]},
+    "objections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target_seat", "assumption", "why_load_bearing"],
+        "properties": {
+          "target_seat": {"enum": ["simplifier", "systems-architect", "operator", "experience-architect"]},
+          "assumption": {"type": "string"},
+          "why_load_bearing": {"type": "string"},
+          "evidence": {"type": "string"}
+        }
+      }
+    },
+    "concessions": {"type": "array", "items": {"type": "object"}},
+    "revised": {"type": "object"},
+    "final_answers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "answer"],
+        "properties": {
+          "id": {"type": "string"},
+          "question": {"type": "string"},
+          "answer": {"type": "string"}
+        }
+      }
+    }
+  }
+}

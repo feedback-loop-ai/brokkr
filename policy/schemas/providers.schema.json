@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://feedback-loop.ai/forge/providers.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "default_profile",
+    "provider_order",
+    "providers",
+    "profiles"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "default_profile": {
+      "const": "auto"
+    },
+    "provider_order": {
+      "type": "array",
+      "items": {
+        "enum": ["codex", "claude", "deepseek", "qwen"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "providers": {
+      "type": "object",
+      "required": [
+        "codex",
+        "claude",
+        "deepseek",
+        "qwen"
+      ],
+      "properties": {
+        "codex": {
+          "$ref": "#/$defs/provider"
+        },
+        "claude": {
+          "$ref": "#/$defs/provider"
+        },
+        "deepseek": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/provider"
+            },
+            {
+              "type": "object",
+              "required": [
+                "auth_env",
+                "allowed_visibility",
+                "allowed_roles",
+                "allowed_write_roles",
+                "denied_roles",
+                "denied_repositories",
+                "requires_public_context"
+              ]
+            }
+          ]
+        },
+        "qwen": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/provider"
+            },
+            {
+              "type": "object",
+              "required": [
+                "auth_env",
+                "base_url_env",
+                "default_base_url",
+                "allowed_base_url_hosts",
+                "allowed_base_url_suffixes",
+                "allowed_visibility",
+                "allowed_roles",
+                "allowed_write_roles",
+                "denied_roles",
+                "denied_repositories",
+                "requires_public_context",
+                "council_route",
+                "visual_route",
+                "allowed_image_media_types",
+                "max_images",
+                "max_prompt_bytes",
+                "max_image_bytes",
+                "max_total_image_bytes"
+              ]
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "object",
+      "required": [
+        "codex-only",
+        "claude-only",
+        "dual",
+        "full"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "providers",
+          "council",
+          "routes"
+        ],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "codex",
+                "claude",
+                "deepseek",
+                "qwen"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "council": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/$defs/route"
+            }
+          },
+          "routes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/route"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "required": [
+        "runner",
+        "auth",
+        "billing_modes"
+      ],
+      "properties": {
+        "runner": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "string"
+        },
+        "billing_modes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "auth_env": {
+          "type": "string"
+        },
+        "base_url_env": {
+          "type": "string"
+        },
+        "default_base_url": {
+          "type": "string"
+        },
+        "allowed_base_url_hosts": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "allowed_base_url_suffixes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "allowed_visibility": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "public"
+            ]
+          }
+        },
+        "allowed_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowed_write_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "denied_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "denied_repositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires_public_context": {
+          "const": true
+        },
+        "council_route": {
+          "$ref": "#/$defs/qwenRoute"
+        },
+        "visual_route": {
+          "$ref": "#/$defs/qwenRoute"
+        },
+        "allowed_image_media_types": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "max_images": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_prompt_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_image_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_total_image_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "qwenRoute": {
+      "allOf": [
+        {"$ref": "#/$defs/route"},
+        {
+          "type": "object",
+          "properties": {
+            "provider": {"const": "qwen"}
+          }
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "effort"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "codex",
+            "claude",
+            "deepseek",
+            "qwen"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "fallback": {
+          "$ref": "#/$defs/route"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
