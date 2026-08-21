@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alkem.io/forge/council-position.schema.json",
+  "type": "object",
+  "required": ["seat", "summary", "affected_repos", "open_questions"],
+  "properties": {
+    "seat": {"enum": ["simplifier", "systems-architect", "operator", "experience-architect"]},
+    "approach_title": {"type": "string"},
+    "summary": {"type": "string"},
+    "affected_repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "role": {"type": "string"},
+          "wave": {"type": "number"}
+        }
+      }
+    },
+    "contracts": {"type": "array", "items": {"type": "object"}},
+    "risk_register": {"type": "array", "items": {"type": "object"}},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "my_answer"],
+        "properties": {
+          "id": {"type": "string"},
+          "question": {"type": "string"},
+          "my_answer": {"type": "string"},
+          "confidence": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    },
+    "what_would_make_me_wrong": {"type": "array", "items": {"type": "string"}},
+    "objections_expected": {"type": "array", "items": {"type": "string"}}
+  }
+}

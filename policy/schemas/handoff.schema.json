@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alkem.io/forge/handoff.schema.json",
+  "type": "object",
+  "required": [
+    "schema",
+    "run_id",
+    "invocation_id",
+    "phase",
+    "role",
+    "provider",
+    "model_requested",
+    "model_actual",
+    "effort_requested",
+    "effort_actual",
+    "runner",
+    "billing_mode",
+    "session_fingerprint",
+    "prompt_schema",
+    "repository_scope",
+    "parents",
+    "body_sha256",
+    "content_sha256",
+    "status",
+    "usage",
+    "cost",
+    "repository_heads",
+    "started_at",
+    "completed_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "forge.handoff/v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "invocation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "enum": [
+        "codex",
+        "claude",
+        "deepseek",
+        "qwen",
+        "deterministic"
+      ]
+    },
+    "model_requested": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_actual": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effort_requested": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effort_actual": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "billing_mode": {
+      "enum": [
+        "subscription",
+        "api",
+        "none",
+        "unknown"
+      ]
+    },
+    "session_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "prompt_schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository_scope": {
+      "type": "object",
+      "required": [
+        "visibility",
+        "repositories"
+      ],
+      "properties": {
+        "visibility": {
+          "enum": [
+            "public",
+            "private",
+            "mixed",
+            "none",
+            "unknown"
+          ]
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "parents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "body_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "blocked",
+        "superseded"
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "required": [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens"
+      ],
+      "properties": {
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cache_read_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cache_write_tokens": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "cost": {
+      "type": "object",
+      "required": [
+        "currency",
+        "amount",
+        "basis",
+        "estimated"
+      ],
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "amount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "basis": {
+          "type": "string"
+        },
+        "estimated": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "repository_heads": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "completed_at": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

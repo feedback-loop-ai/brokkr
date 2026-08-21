@@ -1,0 +1,398 @@
+{
+  "schema": "forge.phase-machine/v1",
+  "description": "A finite state machine over Forge's delivery phases -- deterministic transition table for the Forge outer loop. Shared by the Claude Code, Codex, and opencode runtimes through .scripts/forge-control.py. Rules are evaluated in array order and the FIRST match wins; every phase's deny rules precede its allow rules, so a hard stop cannot be out-competed by a permissive rule later in the list. Rule ids are cited by both SKILL.md files -- changing a ruling here changes it for every runtime.",
+  "phases": [
+    "intake",
+    "architecture",
+    "worktrees",
+    "implement",
+    "verify",
+    "review",
+    "regression",
+    "ship",
+    "done",
+    "stop"
+  ],
+  "initial": "intake",
+  "terminal": [
+    "done",
+    "stop"
+  ],
+  "shippable_from": [
+    "review",
+    "regression"
+  ],
+  "computed_inputs": {
+    "consecutive_failures": "Replayed from events.jsonl per phase; never accepted from the caller.",
+    "drift": "Repo HEADs at decision time compared against the heads recorded by the most recent review advance; never accepted from the caller.",
+    "reviewed_heads": "Persisted by the review transition, consumed by the ship gate."
+  },
+  "rules": [
+    {
+      "id": "INTAKE-OK",
+      "from": "intake",
+      "result": "resolved",
+      "next": "architecture",
+      "reason": "Provider profile resolved and persisted."
+    },
+    {
+      "id": "ARCH-FAIL-TWICE",
+      "from": "architecture",
+      "result": "failed",
+      "when": {
+        "consecutive_failures_gte": 2
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Architect failed twice; stop and report artifacts so far.",
+      "source": "SKILL.md Failure & stop conditions: 'Architect fails twice -> stop'"
+    },
+    {
+      "id": "ARCH-RETRY",
+      "from": "architecture",
+      "result": "failed",
+      "next": "architecture",
+      "reason": "First architect failure; one re-run with the specific gap named is permitted."
+    },
+    {
+      "id": "ARCH-COUNCIL-FAILED",
+      "from": "architecture",
+      "result": "council-failed",
+      "next": "architecture",
+      "reason": "Fewer than two council seats returned; fall back to the solo chief and record it.",
+      "source": "SKILL.md Phase A: 'council-failed (<2 seats) -> fall back to solo chief, noted'"
+    },
+    {
+      "id": "ARCH-OK",
+      "from": "architecture",
+      "result": "complete",
+      "next": "worktrees",
+      "requires_artifacts": [
+        "spec.md",
+        "plan.md",
+        "repos.yaml"
+      ],
+      "reason": "Architecture contract complete and analyze-clean."
+    },
+    {
+      "id": "WORKTREES-OK",
+      "from": "worktrees",
+      "result": "created",
+      "next": "implement",
+      "reason": "Every affected repo has a worktree on feat/<id>."
+    },
+    {
+      "id": "IMPL-BROKEN-TWICE",
+      "from": "implement",
+      "result": "broken",
+      "when": {
+        "consecutive_failures_gte": 2
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Two consecutive broken implement runs; stop and report rather than thrash.",
+      "source": "SKILL.md Phase I: 'Two consecutive broken runs -> stop and report; don't thrash'"
+    },
+    {
+      "id": "IMPL-BROKEN-RETRY",
+      "from": "implement",
+      "result": "broken",
+      "next": "implement",
+      "reason": "First broken run; re-run with resumeFromRunId after addressing the blocker."
+    },
+    {
+      "id": "IMPL-BLOCKED",
+      "from": "implement",
+      "result": "blocked",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "A repo implementer reported blocked; finish others, report the blocker, never silently drop a repo.",
+      "source": "SKILL.md Failure & stop conditions: 'A repo's implementer reports blocked'"
+    },
+    {
+      "id": "IMPL-OK-SKIP-VERIFY",
+      "from": "implement",
+      "result": "complete",
+      "when": {
+        "skip_verify": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "--skip-verify given; Phase V and V' are skipped and must be recorded in bold in the ledger and every PR body.",
+      "source": "SKILL.md Phase V: '--skip-verify skips this phase and V' entirely'"
+    },
+    {
+      "id": "IMPL-OK",
+      "from": "implement",
+      "result": "complete",
+      "next": "verify",
+      "reason": "All waves implemented, contracts checked, gates audited."
+    },
+    {
+      "id": "VERIFY-FAIL",
+      "from": "verify",
+      "result": "fail",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Failures survived the fix rounds; not shippable.",
+      "source": "SKILL.md Phase V: 'fail -> failures survived the fix rounds; stop and report'"
+    },
+    {
+      "id": "VERIFY-STACK-CONFLICT",
+      "from": "verify",
+      "result": "stack-conflict",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Well-known ports occupied in exclusive mode. Nothing was killed and no data touched; free the ports and --resume --from verify. Never ship around it.",
+      "source": "SKILL.md Phase V: 'Never ship around it'"
+    },
+    {
+      "id": "VERIFY-ENV-DEGRADED-ALLOWED",
+      "from": "verify",
+      "result": "env-degraded",
+      "when": {
+        "skip_verify": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "Tracks produced no signal but --skip-verify was explicitly given.",
+      "source": "SKILL.md Phase V: 'env-degraded -> treat as fail unless the user said --skip-verify'"
+    },
+    {
+      "id": "VERIFY-ENV-DEGRADED",
+      "from": "verify",
+      "result": "env-degraded",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Some tracks produced no signal; treated as fail unless --skip-verify was given.",
+      "source": "SKILL.md Phase V: 'env-degraded -> treat as fail unless the user said --skip-verify'"
+    },
+    {
+      "id": "VERIFY-RISK-UNMITIGATED",
+      "from": "verify",
+      "result": "pass",
+      "when": {
+        "high_risk_uncovered": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "Passing, but high-level at-risk/unmitigated register entries carry forward as residual findings -- report, do not bury.",
+      "source": "SKILL.md Phase V: 'at-risk/unmitigated entries of level high are treated like residual findings'"
+    },
+    {
+      "id": "VERIFY-PASS",
+      "from": "verify",
+      "result": "pass",
+      "next": "review",
+      "reason": "Live pyramid green; reviewers will read live-verified code."
+    },
+    {
+      "id": "VERIFY-NOT-APPLICABLE",
+      "from": "verify",
+      "result": "not-applicable",
+      "next": "review",
+      "reason": "Architect declared no runnable tracks (docs/infra-only); the explicit decision is recorded.",
+      "source": "SKILL.md Phase V: 'not-applicable -> proceed; the ledger records the explicit decision'"
+    },
+    {
+      "id": "REVIEW-SECURITY-HOLD",
+      "from": "review",
+      "result": "security-hold",
+      "next": "stop",
+      "severity": "hard",
+      "terminal_for_ship": true,
+      "reason": "Unresolved high-severity security findings. NEVER ship. Risk acceptance is the operator's, never an agent's.",
+      "source": "SKILL.md Phase R: 'security-hold -> never ship'"
+    },
+    {
+      "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "max_residual_severity_above": "medium"
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Residual severity above medium; not shippable.",
+      "source": "SKILL.md Phase R: 'Anything higher -> do not ship; report'"
+    },
+    {
+      "id": "REVIEW-RESIDUAL-SECURITY",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Security residuals never qualify for the proceed-as-tracked-debt path regardless of severity.",
+      "source": "SKILL.md Phase R: 'proceeding is allowed only for non-security residuals of severity <= medium'"
+    },
+    {
+      "id": "REVIEW-RESIDUAL-OK",
+      "from": "review",
+      "result": "residual",
+      "next": "regression",
+      "severity": "flagged",
+      "reason": "Non-security residuals at or below medium; proceed only as tracked debt listed in the ledger and every PR body.",
+      "source": "SKILL.md Phase R: 'proceeding is allowed only for non-security residuals of severity <= medium; list them in the PR bodies and the ledger as tracked debt'"
+    },
+    {
+      "id": "REVIEW-UNVERIFIED-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "clean-unverified",
+      "when": {
+        "max_residual_severity_above": "medium"
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Unverified findings above medium severity; not shippable.",
+      "source": "SKILL.md Phase R: 'clean-unverified or residual -> proceeding is allowed only for non-security residuals of severity <= medium ... Anything higher -> do not ship; report'"
+    },
+    {
+      "id": "REVIEW-UNVERIFIED-SECURITY",
+      "from": "review",
+      "result": "clean-unverified",
+      "when": {
+        "has_security_residual": true
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Security findings that could not be verified never qualify for the tracked-debt path.",
+      "source": "SKILL.md Phase R: 'only for non-security residuals' -- binds clean-unverified and residual jointly"
+    },
+    {
+      "id": "REVIEW-CLEAN-UNVERIFIED",
+      "from": "review",
+      "result": "clean-unverified",
+      "next": "regression",
+      "severity": "flagged",
+      "reason": "Findings could not be verified to exhaustion; same tracked-debt handling as residual.",
+      "source": "SKILL.md Phase R: 'clean-unverified or residual -> ... list them in the PR bodies and the ledger as tracked debt'"
+    },
+    {
+      "id": "REVIEW-CLEAN-NO-FIXES",
+      "from": "review",
+      "result": "clean",
+      "when": {
+        "fixes_applied": false
+      },
+      "next": "ship",
+      "reason": "Review clean and no code changed; Phase V evidence stands, V' is skipped.",
+      "source": "SKILL.md Phase V-prime: 'If R applied no fixes, skip V'"
+    },
+    {
+      "id": "REVIEW-CLEAN",
+      "from": "review",
+      "result": "clean",
+      "next": "regression",
+      "reason": "Review clean but fixes were applied; scoped live regression is required."
+    },
+    {
+      "id": "REGRESSION-PASS",
+      "from": "regression",
+      "result": "pass",
+      "next": "ship",
+      "reason": "Scoped regression green."
+    },
+    {
+      "id": "REGRESSION-NOT-APPLICABLE",
+      "from": "regression",
+      "result": "not-applicable",
+      "next": "ship",
+      "reason": "No runnable tracks to regress."
+    },
+    {
+      "id": "REGRESSION-FAIL",
+      "from": "regression",
+      "result": "fail",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Regression non-pass is non-shippable; same strict handling as Phase V.",
+      "source": "SKILL.md Phase V-prime: 'Anything else -> same strict handling as Phase V'"
+    },
+    {
+      "id": "SHIP-DRIFT",
+      "from": "ship",
+      "result": "ready",
+      "when": {
+        "drift_detected": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "Worktree or spec SHAs moved after the panel's verdict. Re-arm a scoped spec-compliance review (security rides along, non-removable) before this is treated as review-clean again. Flagged rather than hard: the prose defines this as a recoverable re-arm, and ship_gate's live no-drift check -- recomputed from real HEADs on every call -- remains the fail-closed authority.",
+      "source": "SKILL.md Failure & stop conditions: 'Post-review drift gate'"
+    },
+    {
+      "id": "SHIP-DIRTY",
+      "from": "ship",
+      "result": "ready",
+      "when": {
+        "dirty_worktrees": true
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "A dirty worktree at ship time is a defect: implementers commit their work.",
+      "source": "SKILL.md Phase S: 'a dirty tree here is a defect'"
+    },
+    {
+      "id": "SHIP-OK",
+      "from": "ship",
+      "result": "ready",
+      "next": "done",
+      "reason": "Clean worktrees, shippable review status, passing or not-applicable verification, no drift. Push and open PRs; never merge."
+    },
+    {
+      "id": "SHIP-COMPLETE",
+      "from": "ship",
+      "result": "shipped",
+      "next": "done",
+      "reason": "PRs open; human gates remain open by design."
+    }
+  ],
+  "ship_preconditions": {
+    "description": "Enforced by forge-control.py ship_gate(), which the PreToolUse hooks and the per-worktree git pre-push hook both call. Each id maps to a check in that function; a test asserts none is silently dropped.",
+    "checks": [
+      {
+        "id": "phase-is-shipping",
+        "detail": "journal-derived phase is 'ship' or 'done'"
+      },
+      {
+        "id": "state-shippable",
+        "detail": "cached state does not contradict shippability"
+      },
+      {
+        "id": "cache-agrees-with-journal",
+        "detail": "state.json does not contradict the append-only journal (evidence of hand-editing)"
+      },
+      {
+        "id": "no-open-blocker",
+        "detail": "no hard blocker open in the append-only journal"
+      },
+      {
+        "id": "sequence-contiguous",
+        "detail": "intact path from initial, incl. a review and a verify that CONCLUDED (severity != hard) rather than merely being entered -- or an explicit verify skip"
+      },
+      {
+        "id": "no-drift",
+        "detail": "worktree HEADs match the SHAs recorded at review time"
+      },
+      {
+        "id": "no-dirty-worktree",
+        "detail": "no uncommitted changes in any feature worktree"
+      },
+      {
+        "id": "feature-identity",
+        "detail": "journal belongs to this feature and no other ledger holds it"
+      },
+      {
+        "id": "commits-signed",
+        "detail": "every feature commit carries a signature (deferred signing must actually have run)"
+      },
+      {
+        "id": "journal-anchored",
+        "detail": "the journal matches the immutable refs/forge/<feature-id> commit that recorded each transition"
+      }
+    ]
+  }
+}
