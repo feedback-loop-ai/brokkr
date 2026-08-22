@@ -1,0 +1,42 @@
+{
+  "name": "self",
+  "policy": "policy.json",
+  "protected_phase": "review",
+  "seats": {
+    "intake": {
+      "role": "roles/intake.md",
+      "results": ["resolved"],
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]
+      }
+    },
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": ["complete", "broken", "blocked"],
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]
+      }
+    },
+    "verify": {
+      "role": "roles/verifier.md",
+      "results": ["pass", "fail"],
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]
+      }
+    },
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": ["clean", "residual", "security-hold"],
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]
+      }
+    },
+    "ship": {
+      "role": "roles/shipper.md",
+      "results": ["ready"],
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]
+      }
+    }
+  }
+}

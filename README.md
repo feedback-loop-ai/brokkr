@@ -54,6 +54,10 @@ Determinism laws:
 
 | Path | What it is |
 |---|---|
+| `crates/` | The Rust engine — `forge-core` (pure), `forge-store`, `forge-protocol`, `forge-runtime`, `forge-cli` — building the one `forge` binary. |
+| `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
+| `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
+| `fixtures/` · `tools/` | The oracle-generated evaluator behavior corpus and its generator. |
 | `policy/phase-machine.json` | The production transition table (imported from agents-hq `workspace#028`). |
 | `policy/schemas/` | JSON Schemas: phase state, handoffs, council position/clash/adjudication, providers. |
 | `src/forge/` | The Python policy oracle. `machine.py` is the implemented pure evaluator used for Rust parity work. |
@@ -63,12 +67,28 @@ Determinism laws:
 
 ## Status
 
-Architecture accepted; implementation remains a skeleton plus the Python pure
-core. The next sequence is: freeze the event/bundle/driver contracts → port and
-differential-test the evaluator in Rust → build the SQLite journal and durable
-runtime → prove the whole machine with `FakeDriver` → port review as the first
-real vertical slice. See the
-[delivery sequence](docs/target-architecture.md#delivery-sequence).
+The engine is implemented through delivery-sequence step 5 and machine-proved:
+frozen v1 contracts, the pure core at differential parity with the Python
+oracle (97-case corpus), the append-only SQLite journal, the durable effect
+runtime with crash recovery, `forge-driver/v1` with a scripted fake driver,
+and the `forge` CLI (compile · run · resume · operator · inspect · replay ·
+export · verify-run). Scope per [decision
+0005](docs/decisions/0005-self-forging-first-scope.md): no UI, no containers,
+no signing service, single-seat executors — all additive later behind the
+frozen contracts.
+
+The `bundles/self` bundle plus the headless Claude Code driver make the engine
+self-hosting on this repository: seats implement, verify, review (security
+riding along, non-removable), and ship under the linear table, while the
+operator keeps push and merge authority. Next: drive the first real change
+here end to end —
+
+```
+cargo run -p forge-cli -- run --bundle bundles/self --repo . --feature "..."
+```
+
+— then the Alkemio vertical slice
+([delivery sequence](docs/target-architecture.md#delivery-sequence)).
 
 Private for now; the OSS boundary decision (naming, license, threat-model
 README, sanitized example profile) comes after the engine drives a real feature
