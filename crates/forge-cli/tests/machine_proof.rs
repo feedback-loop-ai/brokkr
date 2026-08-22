@@ -121,6 +121,14 @@ impl Workspace {
     }
 
     fn forge(&self, args: &[&str]) -> (Option<i32>, Value, String) {
+        let (code, stdout, stderr) = self.forge_raw(args);
+        let value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+        (code, value, stderr)
+    }
+
+    /// Like `forge`, but returns stdout verbatim for commands whose
+    /// output is not JSON (e.g. the tab-separated `runs` listing).
+    fn forge_raw(&self, args: &[&str]) -> (Option<i32>, String, String) {
         let out = Command::new(forge_bin())
             .args(args)
             .current_dir(self.path())
@@ -128,8 +136,7 @@ impl Workspace {
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-        let value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
-        (out.status.code(), value, stderr)
+        (out.status.code(), stdout, stderr)
     }
 
     fn run(&self) -> (Option<i32>, Value, String) {
@@ -308,6 +315,50 @@ fn vanished_driver_parks_indeterminate_and_operator_retry_completes() {
     ]);
     assert_eq!(code, Some(0));
     assert_eq!(summary["status"], "completed");
+}
+
+#[test]
+fn runs_lists_completed_run_with_status_and_phase() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+
+    let db = ws.db();
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with(&run_id))
+        .expect("runs output has a line for the run");
+    let cols: Vec<&str> = line.split('\t').collect();
+    assert_eq!(cols.len(), 5, "run_id, feature, created_at, status, phase: {line}");
+    assert_eq!(cols[0], run_id);
+    assert_eq!(cols[1], "proof feature");
+    assert_eq!(cols[3], "completed");
+    assert_eq!(cols[4], "done");
+}
+
+#[test]
+fn runs_lists_parked_run_as_awaiting_operator_at_its_phase() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([{"behavior": "vanish"}]);
+    let ws = Workspace::new(script);
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+
+    let db = ws.db();
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with(&run_id))
+        .expect("runs output has a line for the run");
+    let cols: Vec<&str> = line.split('\t').collect();
+    assert_eq!(cols.len(), 5, "run_id, feature, created_at, status, phase: {line}");
+    assert_eq!(cols[3], "awaiting_operator");
+    assert_eq!(cols[4], "implement", "the phase the operator must act on");
 }
 
 #[test]

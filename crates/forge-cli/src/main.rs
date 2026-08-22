@@ -100,16 +100,20 @@ enum Cmd {
     },
 }
 
+fn status_str(status: &Status) -> &'static str {
+    match status {
+        Status::Running => "running",
+        Status::AwaitingOperator => "awaiting_operator",
+        Status::Completed => "completed",
+        Status::Stopped => "stopped",
+    }
+}
+
 fn summarize(state: &RunState) -> Value {
     json!({
         "run_id": state.run_id,
         "seq": state.seq,
-        "status": match state.status {
-            Status::Running => "running",
-            Status::AwaitingOperator => "awaiting_operator",
-            Status::Completed => "completed",
-            Status::Stopped => "stopped",
-        },
+        "status": status_str(&state.status),
         "phase": state.phase,
         "cursor": format!("{:?}", state.cursor),
         "park_reason": state.park_reason,
@@ -244,7 +248,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Runs { db } => {
             let store = Store::open(&db)?;
             for (run_id, feature, created_at) in store.list_runs()? {
-                println!("{run_id}\t{feature}\t{created_at}");
+                let state = fold(&store.load(&run_id)?)?;
+                println!(
+                    "{run_id}\t{feature}\t{created_at}\t{}\t{}",
+                    status_str(&state.status),
+                    state.phase.as_deref().unwrap_or("-")
+                );
             }
             Ok(ExitCode::SUCCESS)
         }
