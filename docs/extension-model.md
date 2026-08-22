@@ -1,7 +1,8 @@
 # Extension model — nodes, seats, and what may never be unplugged
 
-**Status**: draft for discussion (2026-08-21). This is the proposal seeded by
-the extraction conversation; nothing here is locked.
+**Status**: partially accepted. Decisions 0002 and 0003 lock the outer-machine,
+runtime, and extension boundaries; the remaining deferred choices are listed
+below.
 
 Two different things get called "adding an agent", and they extend at two
 different layers. Keeping them separate is the core of the model.
@@ -14,9 +15,10 @@ A **phase** is a node in `policy/phase-machine.json` plus a registered
 
 1. A table diff: the new phase in `phases`, its rules spliced into the
    ordered rule list (deny rules first), reviewed like any policy change.
-2. An executor registered under the phase's name — via Python entry point
-   (`[project.entry-points."forge.executors"]`) so third-party packages can
-   ship executors without forking the engine.
+2. An executor definition in the pinned Forge bundle. It names a declarative
+   inner topology and its result schema. Executable leaf capabilities run out
+   of process through `forge-driver/v1`, so an extension can use any language
+   without entering the authoritative process.
 
 Removing a phase is a table diff that re-routes the rules around it. The
 engine never hardcodes the phase sequence; it only knows `initial`,
@@ -49,7 +51,7 @@ Seats are **data, not code**: a seat definition bundles
 | `class` | Capacity class, not a model name: `background` / `workhorse` / `frontier` (LaneTally resolves the actual provider; model-blindness is wire-level). |
 | `trust` | `trusted` / `policy-confined` / `public-evidence-only` — decides what the engine mounts into the sandbox. |
 | `result_schema` | The typed result the seat must return (decision 0001 governs violations). |
-| `driver` | Which harness runs it (`surface`, `claude-code`, `codex`, `fake`). |
+| `driver` | Which harness runs it (`surface`, `cordis`, `claude-code`, `codex`, `fake`, or another protocol-conformant driver). |
 
 Executors consume *seat sets* from configuration: the review executor runs
 "one seat per repo × dimension in `review.dimensions`"; the council executor
@@ -68,8 +70,8 @@ runs "the seats listed in `council.seats`". So:
 A **profile** packages what a given codebase needs: contract-check
 definitions, verification tracks, the security-catalog overlay, seat-set
 overrides, workspace conventions. Alkemio's profile stays private in
-agents-hq; the public repo ships an example. Discovery via entry points,
-same as executors.
+agents-hq; the public repo ships an example. Profiles are declarative bundle
+content with stable ids and content digests, not imported executable plugins.
 
 ## Resolved
 
@@ -82,15 +84,36 @@ same as executors.
    transition. Speculative verify/review overlap and per-repo phase
    progression are pre-emptively rejected.
 
+2. **The production extension boundary is declarative data plus isolated
+   drivers** — ruled 2026-08-22, see
+   [decision 0003](decisions/0003-native-rust-runtime.md). Forge ships as one
+   native Rust executable. Third-party harness code speaks a versioned
+   protocol out of process; containers are optional seat isolation.
+
+3. **Sub-machines are declarative inner topologies** — inner loops are
+   event-sourced graphs built from bounded primitives such as seats, joins,
+   loops, gates, tools, and nested machines. They emit one schema-bound result
+   to the linear outer FSM.
+
+4. **Seat identity belongs to the pinned Forge bundle** — every seat has a
+   stable id used by the journal, driver protocol, and LaneTally joins.
+   LaneTally owns cost and funding truth, not orchestration identity.
+
+5. **Version identity is content-addressed** — a run pins engine, event,
+   database and driver protocol versions plus digests for its policy, topology,
+   profile, roles, schemas, executors, and container images. Resume uses the
+   exact bundle or refuses.
+
 ## Open questions for discussion
 
-2. **Sub-machines**: inner loops (waves × contracts × fix rounds) should
-   graduate from executor code to their own small tables — same format,
-   journaled as sub-events. When?
-3. **Seat identity in the ledger**: seats need stable ids for LaneTally
-   run-id joins and for eval-earned substitution ("this seat, at this class,
-   succeeded N of M times at cost X"). Where does the seat registry live —
-   engine config or LaneTally?
-4. **Versioning**: a table/schema/seat-set version triple pinned in the
-   journal header, so a resumed run replays under the policy it started
-   with, not the policy that exists now.
+1. **Authored policy syntax**: retain JSON, adopt TOML, or accept both and
+   compile to one canonical representation?
+2. **Signing and anchoring**: how are operator keys distributed, and which
+   external anchor supplements the repository digest?
+3. **Remote execution**: what transport carries `forge-driver/v1` when a seat
+   is not local?
+4. **Store expansion threshold**: what demonstrated multi-host requirement is
+   sufficient to add a PostgreSQL event-store implementation?
+
+The complete accepted blueprint is in
+[target-architecture.md](target-architecture.md).
