@@ -1,5 +1,6 @@
 [package]
 name = "forge-cli"
+description = "The forge binary: compile, run, resume, operator, inspect, replay, export, verify-run."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,3 +10,13 @@ name = "forge"
 path = "src/main.rs"
 
 [dependencies]
+forge-core = { workspace = true }
+forge-store = { workspace = true }
+forge-protocol = { workspace = true }
+forge-runtime = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
