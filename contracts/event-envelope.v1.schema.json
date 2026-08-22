@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/event-envelope.v1.json",
+  "title": "Forge event envelope v1",
+  "type": "object",
+  "required": [
+    "run_id",
+    "seq",
+    "event_id",
+    "event_schema_version",
+    "type",
+    "payload",
+    "causation_id",
+    "correlation_id",
+    "recorded_at",
+    "previous_hash",
+    "event_hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_schema_version": { "const": 1 },
+    "type": {
+      "enum": [
+        "run/started",
+        "phase/entered",
+        "effect/requested",
+        "effect/started",
+        "effect/checkpointed",
+        "effect/succeeded",
+        "effect/failed",
+        "effect/indeterminate",
+        "transition/decided",
+        "operator/commanded",
+        "operator/accepted",
+        "operator/rejected",
+        "run/parked",
+        "run/completed",
+        "run/stopped"
+      ]
+    },
+    "payload": { "type": "object" },
+    "causation_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "attempt_id": { "type": ["string", "null"] },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "previous_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "event_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/driver-protocol.v1.json",
+  "title": "forge-driver/v1 message family",
+  "description": "NDJSON, one message per line. engine->driver on stdin, driver->engine on stdout. stdout is protocol-only; stderr is captured as an artifact. Unknown types and schema-invalid messages fail closed.",
+  "oneOf": [
+    { "$ref": "#/definitions/hello" },
+    { "$ref": "#/definitions/start" },
+    { "$ref": "#/definitions/resume" },
+    { "$ref": "#/definitions/cancel" },
+    { "$ref": "#/definitions/shutdown" },
+    { "$ref": "#/definitions/capabilities" },
+    { "$ref": "#/definitions/accepted" },
+    { "$ref": "#/definitions/checkpoint" },
+    { "$ref": "#/definitions/result" },
+    { "$ref": "#/definitions/cancelled" }
+  ],
+  "definitions": {
+    "base": {
+      "type": "object",
+      "required": ["proto", "msg_id", "type"],
+      "properties": {
+        "proto": { "const": "forge-driver/v1" },
+        "msg_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hello": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "hello" },
+        "engine_version": { "type": "string" }
+      },
+      "required": ["type", "engine_version"]
+    },
+    "capabilities": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "capabilities" },
+        "driver": { "type": "string" },
+        "version": { "type": "string" },
+        "supports": {
+          "type": "array",
+          "items": { "enum": ["resume", "checkpoint", "cancel"] }
+        }
+      },
+      "required": ["type", "driver", "version", "supports"]
+    },
+    "start": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "start" },
+        "effect_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "seat": { "type": "string" },
+        "input": { "type": "object" }
+      },
+      "required": ["type", "effect_id", "attempt_id", "seat", "input"]
+    },
+    "resume": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "resume" },
+        "effect_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "session_ref": { "type": "string" }
+      },
+      "required": ["type", "effect_id", "attempt_id", "session_ref"]
+    },
+    "cancel": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "cancel" },
+        "effect_id": { "type": "string" }
+      },
+      "required": ["type", "effect_id"]
+    },
+    "shutdown": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": { "type": { "const": "shutdown" } },
+      "required": ["type"]
+    },
+    "accepted": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "accepted" },
+        "effect_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "session_ref": { "type": ["string", "null"] }
+      },
+      "required": ["type", "effect_id", "attempt_id"]
+    },
+    "checkpoint": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "checkpoint" },
+        "effect_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "effect_id", "attempt_id", "data"]
+    },
+    "result": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "result" },
+        "effect_id": { "type": "string" },
+        "attempt_id": { "type": "string" },
+        "status": { "enum": ["succeeded", "failed"] },
+        "result": { "type": ["object", "null"] },
+        "error": { "type": ["string", "null"] }
+      },
+      "required": ["type", "effect_id", "attempt_id", "status"]
+    },
+    "cancelled": {
+      "allOf": [{ "$ref": "#/definitions/base" }],
+      "properties": {
+        "type": { "const": "cancelled" },
+        "effect_id": { "type": "string" }
+      },
+      "required": ["type", "effect_id"]
+    }
+  }
+}

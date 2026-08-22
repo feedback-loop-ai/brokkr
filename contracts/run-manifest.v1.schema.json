@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v1.json",
+  "title": "Forge run manifest v1",
+  "description": "Pins the exact bundle a run executes. Digests are identity; names are display metadata. Resume refuses a digest mismatch.",
+  "type": "object",
+  "required": [
+    "engine",
+    "event_schema",
+    "database_schema",
+    "driver_protocol",
+    "bundle_name",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "engine": { "type": "string" },
+    "event_schema": { "const": 1 },
+    "database_schema": { "const": 1 },
+    "driver_protocol": { "const": 1 },
+    "bundle_name": { "type": "string" },
+    "files": {
+      "type": "object",
+      "description": "bundle-relative path -> sha256 hex digest of file bytes",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+      "minProperties": 1
+    }
+  }
+}
