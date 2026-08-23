@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use forge_core::canonical::sha256_bytes;
-use forge_core::policy::Machine;
+use forge_core::policy::{Machine, BOOLEAN_INPUTS, SEVERITY_INPUTS};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
@@ -29,12 +29,26 @@ pub enum CompileError {
     Policy(#[from] forge_core::PolicyError),
 }
 
+/// Inputs the engine owns. A seat may never supply or declare these:
+/// journal-computed truth is never accepted from a caller (README law 2).
+pub const ENGINE_OWNED_INPUTS: [&str; 4] = [
+    "consecutive_failures",
+    "drift_detected",
+    "dirty_worktrees",
+    "reviewed_heads",
+];
+
 #[derive(Debug, Clone)]
 pub struct Seat {
     pub role_path: PathBuf,
     pub results: Vec<String>,
     pub command: Vec<String>,
     pub limits: Limits,
+    /// Typed facts this seat may supply (decision 0007). Anything else a
+    /// seat sends is dropped before evaluation and never enters the
+    /// journal record. Defaults to the non-engine-owned inputs the
+    /// phase's own rules reference.
+    pub inputs: Vec<String>,
 }
 
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
@@ -189,6 +203,53 @@ impl Bundle {
                     limits
                 }
             };
+            // Input provenance (decision 0007): every input the phase's
+            // rules reference must be engine-computed or supplied by
+            // this seat's declaration; a declaration may only name known,
+            // non-engine-owned evaluator inputs.
+            let referenced = referenced_seat_inputs(&table, phase);
+            let inputs = match raw.get("inputs") {
+                None => referenced.clone(),
+                Some(declared) => {
+                    let declared = declared
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect::<Vec<_>>()
+                        })
+                        .ok_or_else(|| {
+                            CompileError::Invalid(format!(
+                                "seat '{phase}' inputs must be an array of strings"
+                            ))
+                        })?;
+                    for name in &declared {
+                        if ENGINE_OWNED_INPUTS.contains(&name.as_str()) {
+                            return Err(CompileError::Invalid(format!(
+                                "seat '{phase}' declares engine-owned input '{name}'; \
+                                 journal-computed truth is never accepted from a seat"
+                            )));
+                        }
+                        if !declarable_input(name) {
+                            return Err(CompileError::Invalid(format!(
+                                "seat '{phase}' declares unknown input '{name}'; known: \
+                                 the evaluator's closed vocabulary minus engine-owned"
+                            )));
+                        }
+                    }
+                    for needed in &referenced {
+                        if !declared.contains(needed) {
+                            return Err(CompileError::Invalid(format!(
+                                "phase '{phase}' rules reference input '{needed}' but \
+                                 seat '{phase}' does not declare it; the rule could \
+                                 never fire from seat data"
+                            )));
+                        }
+                    }
+                    declared
+                }
+            };
             seats.insert(
                 phase.clone(),
                 Seat {
@@ -196,6 +257,7 @@ impl Bundle {
                     results,
                     command,
                     limits,
+                    inputs,
                 },
             );
         }
@@ -260,6 +322,40 @@ fn assert_phase_unavoidable(
         }
     }
     Ok(())
+}
+
+fn declarable_input(name: &str) -> bool {
+    !ENGINE_OWNED_INPUTS.contains(&name)
+        && (BOOLEAN_INPUTS.contains(&name) || SEVERITY_INPUTS.contains(&name))
+}
+
+/// The non-engine-owned inputs the phase's rules reference: the default
+/// (and minimum) seat declaration.
+fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let Some(rules) = table.get("rules").and_then(Value::as_array) else {
+        return names;
+    };
+    for rule in rules {
+        if rule.get("from").and_then(Value::as_str) != Some(phase) {
+            continue;
+        }
+        let Some(when) = rule.get("when").and_then(Value::as_object) else {
+            continue;
+        };
+        for key in when.keys() {
+            let name = key
+                .strip_suffix("_gte")
+                .or_else(|| key.strip_suffix("_above"))
+                .unwrap_or(key)
+                .to_string();
+            if !ENGINE_OWNED_INPUTS.contains(&name.as_str()) && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    names
 }
 
 fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {

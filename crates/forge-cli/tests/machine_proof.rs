@@ -439,6 +439,70 @@ fn indeterminate_is_never_auto_retried_even_with_attempts_left() {
 }
 
 #[test]
+fn undeclared_seat_inputs_never_reach_the_journal() {
+    // Provenance (decision 0007): the review phase's rules reference
+    // fixes_applied / has_security_residual / max_residual_severity, so
+    // those are the seat's implied declaration; anything else it claims
+    // is dropped before evaluation and never recorded.
+    let mut script = happy_script();
+    script["seats"]["review"] = json!([{"behavior": "succeed", "result": {
+        "result": "clean",
+        "inputs": {"fixes_applied": false,
+                    "high_risk_uncovered": true,
+                    "skip_verify": true}
+    }}]);
+    let ws = Workspace::new(script);
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+
+    let db = ws.db();
+    let out = ws.path().join("export");
+    ws.forge(&[
+        "export", "--run", &run_id,
+        "--out", out.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    let journal =
+        std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
+    let review_decision = journal
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .find(|e| {
+            e["type"] == "transition/decided" && e["payload"]["from"] == "review"
+        })
+        .expect("review decision in journal");
+    let inputs = &review_decision["payload"]["inputs"];
+    assert_eq!(inputs["fixes_applied"], false);
+    assert!(inputs.get("high_risk_uncovered").is_none(), "inputs: {inputs}");
+    assert!(inputs.get("skip_verify").is_none(), "inputs: {inputs}");
+}
+
+#[test]
+fn compile_rejects_provenance_violations() {
+    let cases: [(Value, &str); 3] = [
+        (json!(["consecutive_failures"]), "engine-owned"),
+        (json!(["made_up_fact"]), "unknown input"),
+        // Rules from review reference has_security_residual and
+        // max_residual_severity; declaring only fixes_applied starves them.
+        (json!(["fixes_applied"]), "does not declare"),
+    ];
+    for (declaration, expected) in cases {
+        let ws = Workspace::new(happy_script());
+        let bundle = ws.bundle_dir();
+        let config_path = bundle.join("bundle.json");
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["seats"]["review"]["inputs"] = declaration.clone();
+        std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+        let (code, _, stderr) =
+            ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+        assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
+        assert!(stderr.contains(expected), "declaration {declaration}: {stderr}");
+    }
+}
+
+#[test]
 fn resume_refuses_an_edited_bundle() {
     let mut script = happy_script();
     script["seats"]["implement"] = json!([{"behavior": "vanish"}]);
