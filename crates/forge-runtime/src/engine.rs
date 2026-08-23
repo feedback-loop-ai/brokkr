@@ -18,17 +18,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::bundle::{Bundle, ENGINE_VERSION};
-
-/// Inputs the engine owns. A seat-supplied value for any of these is
-/// dropped before evaluation: journal-computed truth is never accepted
-/// from a caller (README law 2).
-const ENGINE_OWNED_INPUTS: [&str; 4] = [
-    "consecutive_failures",
-    "drift_detected",
-    "dirty_worktrees",
-    "reviewed_heads",
-];
+use crate::bundle::{Bundle, ENGINE_OWNED_INPUTS, ENGINE_VERSION};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -494,7 +484,9 @@ impl Engine {
         let object = raw_result.as_object().expect("checked above");
         let result = object["result"].as_str().expect("checked above").to_string();
 
-        // Seat-supplied facts, minus everything the engine owns.
+        // Seat-supplied facts: everything the engine owns is dropped, and
+        // only the seat's DECLARED inputs survive (decision 0007) — an
+        // undeclared claim never reaches the table or the journal record.
         let mut inputs: Map<String, Value> = object
             .get("inputs")
             .and_then(Value::as_object)
@@ -503,6 +495,7 @@ impl Engine {
         for owned in ENGINE_OWNED_INPUTS {
             inputs.remove(owned);
         }
+        inputs.retain(|key, _| seat.inputs.iter().any(|declared| declared == key));
         // Journal-computed inputs overlay (never accepted from the seat).
         for (key, value) in computed_inputs(state, &phase, &result) {
             inputs.insert(key, value);
