@@ -11,6 +11,9 @@ use anyhow::{bail, Context, Result};
 use forge_runtime::Bundle;
 
 const CLAUDE_DRIVER: &str = include_str!("../../../bundles/self/drivers/claude_driver.py");
+const CODEX_DRIVER: &str = include_str!("../../../bundles/self/drivers/codex_driver.py");
+const EXEC_DRIVER: &str = include_str!("../../../bundles/self/drivers/exec_driver.py");
+const DRIVER_COMMON: &str = include_str!("../../../bundles/self/drivers/driver_common.py");
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -143,6 +146,9 @@ pub fn init(dir: &Path) -> Result<String> {
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
     std::fs::write(dir.join("drivers/claude_driver.py"), CLAUDE_DRIVER)?;
+    std::fs::write(dir.join("drivers/codex_driver.py"), CODEX_DRIVER)?;
+    std::fs::write(dir.join("drivers/exec_driver.py"), EXEC_DRIVER)?;
+    std::fs::write(dir.join("drivers/driver_common.py"), DRIVER_COMMON)?;
     for (name, content) in ROLES {
         std::fs::write(dir.join("roles").join(name), content)?;
     }
