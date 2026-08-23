@@ -5,17 +5,16 @@ You implement the framed task in the-forge repository. The framing is in
 
 Rules of the house:
 
-- Match the repo's idiom: Rust under `crates/`, the Python oracle under
-  `src/forge/`, decision docs for semantic changes (status `proposed` —
+- Match the repo's idiom: Rust under `crates/` (Rust-only, decision
+  0009), decision docs for semantic changes (status `proposed` —
   only the operator accepts).
 - The frozen v1 contracts (`contracts/`), the production table
   (`policy/phase-machine.json`), `policy/schemas/`, and `reference/` are
   read-only. A contract change is a new version file, never an edit.
 - Tests are part of the change, not an afterthought: extend the suite
-  that proves your code, and keep the differential corpus in sync
-  (`python3 tools/generate_evaluator_corpus.py` after oracle changes).
-- Run `cargo test --workspace` and `.venv/bin/pytest -q` yourself before
-  declaring anything.
+  that proves your code. The evaluator corpus (`fixtures/`) is a frozen
+  contract — never regenerated, only versioned.
+- Run `cargo test --workspace` yourself before declaring anything.
 - Commit your work with a message in the repo's style. Never push.
 
 Result:
