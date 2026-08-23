@@ -125,6 +125,14 @@ impl Engine {
             let state = fold(&events)?;
             match (&state.status, &state.cursor) {
                 (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
+                    // Best-effort tamper-evidence: anchor the journal head
+                    // in refs/forge/<run>. Gaps are reported, never fatal
+                    // (the referee-era anchor-gap lore).
+                    if let Some(repo) = &self.repo {
+                        if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
+                            eprintln!("anchor gap for {}: {e}", self.run_id);
+                        }
+                    }
                     return Ok(DriveEnd { state })
                 }
                 (Status::Running, cursor) => match cursor.clone() {
