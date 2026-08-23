@@ -48,11 +48,28 @@ fn status_str(status: &Status) -> &'static str {
     }
 }
 
+/// DNS-rebinding guard: a remote page can make the victim's browser
+/// resolve an attacker domain to 127.0.0.1 and read journals unless the
+/// Host header is pinned to loopback names. Reject everything else.
+pub fn request_allowed(method: &str, host: Option<&str>) -> bool {
+    if method != "GET" {
+        return false;
+    }
+    let Some(host) = host else { return false };
+    let name = host.rsplit_once(':').map(|(n, _)| n).unwrap_or(host);
+    matches!(name, "127.0.0.1" | "localhost" | "[::1]")
+}
+
 /// Pure request handling: path in, response out. The TCP loop below is a
 /// thin shell around this, which is what the tests exercise.
 pub fn handle(db: &PathBuf, path: &str) -> Response {
     if path == "/" {
         return ok("text/html; charset=utf-8", PAGE.to_string());
+    }
+    if !db.is_file() {
+        // Reads never create: a missing database is a 404, not an
+        // initialized empty store.
+        return not_found("database");
     }
     let store = match Store::open(db) {
         Ok(store) => store,
@@ -121,8 +138,30 @@ fn serve_client(db: PathBuf, stream: TcpStream) {
     if reader.read_line(&mut line).is_err() {
         return;
     }
+    let method = line.split_whitespace().next().unwrap_or("").to_string();
     let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
+    let mut host: Option<String> = None;
+    let mut header = String::new();
+    loop {
+        header.clear();
+        match reader.read_line(&mut header) {
+            Ok(0) => break,
+            Ok(_) if header.trim().is_empty() => break,
+            Ok(_) => {
+                if let Some(value) = header.to_ascii_lowercase().strip_prefix("host:") {
+                    host = Some(value.trim().to_string());
+                }
+            }
+            Err(_) => return,
+        }
+    }
     let mut stream = stream;
+    if !request_allowed(&method, host.as_deref()) {
+        let _ = stream.write_all(
+            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        return;
+    }
 
     if let Some(run_id) = path.strip_prefix("/sse/") {
         let run_id = run_id.to_string();
@@ -134,12 +173,16 @@ fn serve_client(db: PathBuf, stream: TcpStream) {
         let mut last = u64::MAX; // always push one initial event
         loop {
             let seq = head_seq(&db, &run_id);
-            if seq != last {
+            let message = if seq != last {
                 last = seq;
-                let message = format!("data: {}\n\n", json!({"seq": seq}));
-                if stream.write_all(message.as_bytes()).is_err() {
-                    return; // client went away
-                }
+                format!("data: {}\n\n", json!({"seq": seq}))
+            } else {
+                // Heartbeat comment: reaps disconnected clients within a
+                // poll interval instead of leaking a thread per viewer.
+                ": ping\n\n".to_string()
+            };
+            if stream.write_all(message.as_bytes()).is_err() {
+                return; // client went away
             }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
@@ -216,5 +259,23 @@ mod tests {
 
         assert_eq!(handle(&db, "/api/run/nope").status, "404 Not Found");
         assert_eq!(handle(&db, "/definitely-not").status, "404 Not Found");
+    }
+
+    #[test]
+    fn rebinding_and_methods_are_rejected_and_reads_never_create() {
+        // DNS-rebinding guard: only loopback Host names, only GET.
+        assert!(request_allowed("GET", Some("127.0.0.1:8383")));
+        assert!(request_allowed("GET", Some("localhost")));
+        assert!(request_allowed("GET", Some("[::1]:9000")));
+        assert!(!request_allowed("GET", Some("evil.example.com")));
+        assert!(!request_allowed("GET", Some("evil.example.com:8383")));
+        assert!(!request_allowed("GET", None));
+        assert!(!request_allowed("POST", Some("127.0.0.1")));
+
+        // A read of a missing database is a 404, not a created store.
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("absent.db");
+        assert_eq!(handle(&db, "/api/runs").status, "404 Not Found");
+        assert!(!db.exists(), "reads must never create the database");
     }
 }
