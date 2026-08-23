@@ -1,6 +1,9 @@
 //! `forge` — the one shipped binary (decision 0003). No UI, no required
 //! services: one executable, one workspace database.
 
+mod doctor;
+mod init;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -22,6 +25,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Scaffold a minimal reviewable bundle and prove it compiles.
+    Init { dir: PathBuf },
+    /// Verify tools, drivers, the workspace database, and optionally a
+    /// bundle, without executing any agent.
+    Doctor {
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+    },
     /// Validate a bundle and print its pinned manifest and digest.
     Compile {
         #[arg(long)]
@@ -145,6 +158,23 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
+        Cmd::Init { dir } => {
+            let digest = init::init(&dir)?;
+            eprintln!(
+                "initialized reviewable bundle at {} (digest {digest})",
+                dir.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Doctor { bundle, db } => {
+            let report = doctor::doctor(bundle.as_deref(), &db);
+            println!("{}", report.render());
+            Ok(if report.healthy {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
+        }
         Cmd::Compile { bundle } => {
             let bundle = Bundle::compile(&bundle)?;
             println!(
