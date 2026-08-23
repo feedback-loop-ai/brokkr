@@ -40,6 +40,11 @@ pub struct Engine {
     pub run_id: String,
     pub feature: String,
     pub repo: Option<PathBuf>,
+    /// The event_id every append chains to as `causation_id` — refreshed
+    /// to the journal head each drive iteration, then to each event this
+    /// iteration appends, so causal links mirror the engine's actual
+    /// decision order (rendered by the UI timeline).
+    current_cause: Option<String>,
 }
 
 #[derive(Debug)]
@@ -79,6 +84,7 @@ impl Engine {
             run_id,
             feature: feature.to_string(),
             repo,
+            current_cause: None,
         })
     }
 
@@ -107,6 +113,7 @@ impl Engine {
             run_id: run_id.to_string(),
             feature,
             repo,
+            current_cause: None,
         })
     }
 
@@ -114,6 +121,7 @@ impl Engine {
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
         loop {
             let events = self.store.load(&self.run_id)?;
+            self.current_cause = events.last().map(|e| e.event_id.clone());
             let state = fold(&events)?;
             match (&state.status, &state.cursor) {
                 (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
@@ -216,9 +224,15 @@ impl Engine {
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
-        Ok(self
-            .store
-            .append_next(&self.run_id, event_type, payload, None, attempt_id)?)
+        let envelope = self.store.append_next(
+            &self.run_id,
+            event_type,
+            payload,
+            self.current_cause.clone(),
+            attempt_id,
+        )?;
+        self.current_cause = Some(envelope.event_id.clone());
+        Ok(envelope)
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
@@ -433,7 +447,7 @@ impl Engine {
                                     "attempt_id": attempt_id,
                                     "checkpoint": data,
                                 }),
-                                None,
+                                self.current_cause.clone(),
                                 Some(attempt_id.clone()),
                             ) {
                                 checkpoint_error = Some(e.into());
@@ -752,7 +766,7 @@ pub fn operator_command(
     reason: &str,
 ) -> Result<(), EngineError> {
     let command_id = Uuid::new_v4().to_string();
-    store.append_next(
+    let commanded = store.append_next(
         run_id,
         EventType::OperatorCommanded,
         json!({"command_id": command_id, "command": command, "args": {}, "operator": operator}),
@@ -763,7 +777,7 @@ pub fn operator_command(
         run_id,
         EventType::OperatorAccepted,
         json!({"command_id": command_id, "operator": operator, "reason": reason}),
-        None,
+        Some(commanded.event_id),
         None,
     )?;
     Ok(())
