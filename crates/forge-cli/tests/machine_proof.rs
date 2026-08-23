@@ -58,8 +58,16 @@ const POLICY: &str = r#"{
     {"id": "SHIP-DIRTY", "from": "ship", "result": "ready",
      "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
      "reason": "Dirty tree at ship time is a defect."},
-    {"id": "SHIP-OK", "from": "ship", "result": "ready", "next": "done",
-     "reason": "Clean, reviewed, verified; ship."}
+    {"id": "SHIP-READY", "from": "ship", "result": "ready", "next": "ship",
+     "reason": "Gates passed and ledger written; confirm close-out and report shipped."},
+    {"id": "SHIPPED-DRIFT", "from": "ship", "result": "shipped",
+     "when": {"drift_detected": true}, "next": "review", "severity": "flagged",
+     "reason": "HEAD moved between ready and close-out; re-arm a scoped review."},
+    {"id": "SHIPPED-DIRTY", "from": "ship", "result": "shipped",
+     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
+     "reason": "Dirty tree at close-out is a defect."},
+    {"id": "SHIP-COMPLETE", "from": "ship", "result": "shipped", "next": "done",
+     "reason": "Close-out confirmed: clean, reviewed, verified; done."}
   ]
 }"#;
 
@@ -99,7 +107,7 @@ impl Workspace {
                 "implement": seat(vec!["complete", "broken", "blocked"]),
                 "verify": seat(vec!["pass", "fail"]),
                 "review": seat(vec!["clean", "residual", "security-hold"]),
-                "ship": seat(vec!["ready"]),
+                "ship": seat(vec!["ready", "shipped"]),
             }
         });
         std::fs::write(
@@ -179,7 +187,10 @@ fn happy_script() -> Value {
         "verify": [{"behavior": "succeed", "result": {"result": "pass"}}],
         "review": [{"behavior": "succeed",
                     "result": {"result": "clean", "inputs": {"fixes_applied": false}}}],
-        "ship": [{"behavior": "succeed", "result": {"result": "ready"}}],
+        "ship": [
+            {"behavior": "succeed", "result": {"result": "ready"}},
+            {"behavior": "succeed", "result": {"result": "shipped"}},
+        ],
     }})
 }
 
@@ -210,6 +221,25 @@ fn full_delivery_completes_exports_and_replays() {
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
     assert_eq!(verified["state"]["status"], "completed");
+}
+
+#[test]
+fn ready_alone_never_reaches_done() {
+    // A ship seat that only ever reports `ready` loops back into ship
+    // via SHIP-READY and never completes: `shipped` is the sole entry
+    // into done. The second scripted attempt vanishes the driver, so
+    // the run parks indeterminate at ship — anywhere but done.
+    let mut script = happy_script();
+    script["seats"]["ship"] = json!([
+        {"behavior": "succeed", "result": {"result": "ready"}},
+        {"behavior": "vanish"},
+    ]);
+    let ws = Workspace::new(script);
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2), "ready alone must not complete the run");
+    assert_eq!(summary["status"], "awaiting_operator");
+    assert_eq!(summary["phase"], "ship");
+    assert_eq!(summary["last_decision"]["rule_id"], "SHIP-READY");
 }
 
 #[test]
