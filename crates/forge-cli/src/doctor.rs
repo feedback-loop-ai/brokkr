@@ -73,13 +73,20 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
         Some(v) => report.ok("python3", v),
         None => report.missing("python3", "required by the claude-code driver".into()),
     }
-    // Optional: only needed when a bundle actually uses the claude driver.
-    match tool_version("claude") {
-        Some(v) => report.ok("claude", v),
-        None => report.warn(
-            "claude",
-            "not found — seats using the claude-code driver will fail to spawn".into(),
-        ),
+    // Optional: each agent CLI matters only to bundles whose seats use
+    // its driver.
+    for (tool, driver) in [
+        ("claude", "claude-code"),
+        ("codex", "codex"),
+        ("dsh", "exec (dsh/Surface profiles)"),
+    ] {
+        match tool_version(tool) {
+            Some(v) => report.ok(tool, v),
+            None => report.warn(
+                tool,
+                format!("not found — seats using the {driver} driver will fail to spawn"),
+            ),
+        }
     }
 
     match Store::open(db) {
