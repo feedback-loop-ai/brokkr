@@ -27,47 +27,88 @@
   <p>Read-only surface: this page submits no commands and writes nothing
   (decision 0003, constitutional boundary 6).</p></div>
 <script>
+// SECURITY DISCIPLINE: journal content is seat/driver-authored and
+// untrusted. Nothing journal-derived ever reaches innerHTML — all
+// dynamic content is set through textContent (el(); badge classes come
+// from a fixed allowlist, never from data).
 let active = null, source = null;
+
+const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+function badge(text, status) {
+  const cls = KNOWN_STATUS.includes(status) ? ' ' + status : '';
+  return el('span', 'badge' + cls, text);
+}
 
 async function loadRuns() {
   const runs = await (await fetch('/api/runs')).json();
   const list = document.getElementById('runlist');
-  list.innerHTML = '';
+  list.replaceChildren();
   for (const run of runs.reverse()) {
-    const el = document.createElement('div');
-    el.className = 'run' + (run.run_id === active ? ' active' : '');
-    el.innerHTML = `<div class="id">${run.run_id}</div>
-      <span class="badge ${run.status}">${run.status ?? '?'}</span>
-      <span class="badge">${run.phase ?? '-'}</span>
-      <span class="badge">seq ${run.seq ?? 0}</span>`;
-    el.onclick = () => select(run.run_id);
-    list.appendChild(el);
+    const item = el('div', 'run' + (run.run_id === active ? ' active' : ''));
+    item.appendChild(el('div', 'id', run.run_id));
+    item.appendChild(badge(run.status ?? '?', run.status));
+    item.appendChild(document.createTextNode(' '));
+    item.appendChild(badge(run.phase ?? '-'));
+    item.appendChild(document.createTextNode(' '));
+    item.appendChild(badge('seq ' + (run.seq ?? 0)));
+    item.onclick = () => select(run.run_id);
+    list.appendChild(item);
   }
+}
+
+function row(cells) {
+  const tr = el('tr');
+  for (const cell of cells) tr.appendChild(cell);
+  return tr;
 }
 
 async function loadDetail(id) {
   const data = await (await fetch('/api/run/' + encodeURIComponent(id))).json();
   const s = data.summary ?? {};
   const byId = {};
-  for (const e of data.events) byId[e.event_id] = e.seq;
-  const rows = data.events.map(e => {
+  for (const e of data.events ?? []) byId[e.event_id] = e.seq;
+
+  const detail = document.getElementById('detail');
+  detail.replaceChildren();
+  detail.appendChild(el('h1', null, s.run_id ?? id));
+  const line = el('p');
+  line.appendChild(badge(s.status ?? '?', s.status));
+  line.appendChild(document.createTextNode(' '));
+  line.appendChild(badge('phase ' + (s.phase ?? '-')));
+  detail.appendChild(line);
+  if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
+  detail.appendChild(el('pre', null, JSON.stringify(s.last_decision ?? {}, null, 2)));
+
+  const table = el('table');
+  table.appendChild(row([
+    el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
+    el('th', null, 'payload'), el('th', null, 'recorded'),
+  ]));
+  for (const e of data.events ?? []) {
     const p = e.payload || {};
     const label = p.rule_id ?? p.phase ?? p.result ?? p.command ?? p.reason ?? '';
-    const cause = e.causation_id && byId[e.causation_id]
-      ? `<span class="cause">&larr; ${byId[e.causation_id]}</span>` : '';
-    return `<tr><td>${e.seq} ${cause}</td><td>${e.type}</td>
-      <td>${label ?? ''}</td><td class="payload">${JSON.stringify(p)}</td>
-      <td>${e.recorded_at}</td></tr>`;
-  }).join('');
-  document.getElementById('detail').innerHTML = `
-    <h1>${s.run_id ?? id}</h1>
-    <p><span class="badge ${s.status}">${s.status}</span>
-       <span class="badge">phase ${s.phase ?? '-'}</span>
-       ${s.park_reason ? `<span class="badge awaiting_operator">parked</span>` : ''}</p>
-    ${s.park_reason ? `<pre>${s.park_reason}</pre>` : ''}
-    <pre>${JSON.stringify(s.last_decision ?? {}, null, 2)}</pre>
-    <table><tr><th>seq &larr;cause</th><th>type</th><th>label</th>
-      <th>payload</th><th>recorded</th></tr>${rows}</table>`;
+    const seqCell = el('td', null, e.seq);
+    if (e.causation_id && byId[e.causation_id]) {
+      seqCell.appendChild(document.createTextNode(' '));
+      seqCell.appendChild(el('span', 'cause', '← ' + byId[e.causation_id]));
+    }
+    table.appendChild(row([
+      seqCell,
+      el('td', null, e.type),
+      el('td', null, label),
+      el('td', 'payload', JSON.stringify(p)),
+      el('td', null, e.recorded_at),
+    ]));
+  }
+  detail.appendChild(table);
 }
 
 function select(id) {
