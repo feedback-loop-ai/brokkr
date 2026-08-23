@@ -136,8 +136,46 @@ impl Engine {
                         self.append(EventType::PhaseEntered, json!({"phase": phase}), None)?;
                     }
                     Cursor::RequestEffect => self.request_or_finish(&state)?,
-                    Cursor::ExecuteEffect { effect_id, seat } => {
-                        self.execute(&events, &state, &effect_id, &seat)?
+                    Cursor::ExecuteEffect {
+                        effect_id,
+                        seat,
+                        failed_attempts,
+                    } => {
+                        let limits = self
+                            .bundle
+                            .seats
+                            .get(&seat)
+                            .map(|s| s.limits)
+                            .unwrap_or_default();
+                        if failed_attempts >= limits.max_attempts {
+                            // Bounded retry exhausted (decision 0006):
+                            // park with the last recorded error.
+                            let last_error = events
+                                .iter()
+                                .rev()
+                                .find(|e| {
+                                    e.event_type == EventType::EffectFailed
+                                        && e.payload.get("effect_id").and_then(Value::as_str)
+                                            == Some(effect_id.as_str())
+                                })
+                                .and_then(|e| e.payload.get("error").and_then(Value::as_str))
+                                .unwrap_or("no error recorded")
+                                .to_string();
+                            self.append(
+                                EventType::RunParked,
+                                json!({
+                                    "reason": format!(
+                                        "effect {effect_id} failed {failed_attempts} of {} \
+                                         attempt(s); last error: {last_error}",
+                                        limits.max_attempts
+                                    ),
+                                    "evidence": {},
+                                }),
+                                None,
+                            )?;
+                        } else {
+                            self.execute(&events, &state, &effect_id, &seat)?
+                        }
                     }
                     Cursor::EffectInFlight {
                         effect_id,
@@ -326,7 +364,8 @@ impl Engine {
 
         let workdir = self.workdir();
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
-        let spawned = DriverProcess::spawn(&seat.command, &workdir);
+        let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
+        let spawned = DriverProcess::spawn(&seat.command, &workdir, Some(deadline));
         let report = match spawned {
             Err(e) => {
                 self.append(
