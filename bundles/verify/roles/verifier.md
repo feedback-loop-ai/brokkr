@@ -7,10 +7,7 @@ no code, fix nothing, commit nothing: one honest run is the signal.
 Always run, from the repository root:
 
 1. `cargo test --workspace` — the full Rust suite.
-2. `.venv/bin/pytest -q` — the Python suite.
-3. `python3 tools/generate_evaluator_corpus.py` then
-   `git status --porcelain fixtures/` — no corpus drift.
-4. `cargo run -p forge-cli -- compile --bundle bundles/self` and
+2. `cargo run -p forge-cli -- compile --bundle bundles/self` and
    `cargo run -p forge-cli -- compile --bundle bundles/verify` — both
    bundles compile under the constitutional lint.
 

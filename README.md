@@ -29,16 +29,17 @@ outer loop. Here the machine **is** the outer loop.
 
 The production shape is established by
 [decision 0003](docs/decisions/0003-native-rust-runtime.md) and detailed in
-[the target architecture](docs/target-architecture.md). The Python evaluator
-currently in this repository is the executable policy specification and parity
-oracle for that implementation.
+[the target architecture](docs/target-architecture.md). The Python evaluator that served as
+executable policy specification during the port is retired to
+`reference/oracle/` (decision 0009); the frozen evaluator corpus under
+`fixtures/` carries its behavior as contract.
 
 Determinism laws:
 
 1. **Decisions are pure.** Given the same journal, the next action is always
    the same. All transition logic lives in a data table
-   (`policy/phase-machine.json`), currently evaluated first-match-wins by
-   `src/forge/machine.py`. Changing a ruling is a reviewed one-line diff.
+   (`policy/phase-machine.json`), evaluated first-match-wins by
+   `forge-core`. Changing a ruling is a reviewed one-line diff.
 2. **State is derived, never mutated.** `state = fold(events)`.
    Resume is replay. Counters (`consecutive_failures`, drift, reviewed
    heads) are journal-computed, never accepted from a caller.
@@ -57,12 +58,10 @@ Determinism laws:
 | `crates/` | The Rust engine — `forge-core` (pure), `forge-store`, `forge-protocol`, `forge-runtime`, `forge-cli` — building the one `forge` binary. |
 | `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
 | `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
-| `fixtures/` · `tools/` | The oracle-generated evaluator behavior corpus and its generator. |
+| `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The production transition table (imported from agents-hq `workspace#028`). |
 | `policy/schemas/` | JSON Schemas: phase state, handoffs, council position/clash/adjudication, providers. |
-| `src/forge/` | The Python policy oracle. `machine.py` is the implemented pure evaluator used for Rust parity work. |
-| `tests/` | Behavior + property tests against the real production table. |
-| `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the Claude Workflow JS phase drivers, the `vf-*` agent charters, the skill prose, `providers.json`. Read-only; mined, then retired. |
+| `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the retired Python oracle (`reference/oracle/`), the Claude Workflow JS phase drivers, the `vf-*` agent charters, the skill prose, `providers.json`. Read-only; mined, then retired. |
 | `docs/` | Accepted decisions, the target architecture, and the extension model. |
 
 ## Status

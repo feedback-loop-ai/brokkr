@@ -68,17 +68,13 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
         Some(v) => report.ok("git", v),
         None => report.missing("git", "required for worktree, drift, and dirty gates".into()),
     }
-    // Required by the bundled Claude Code driver.
-    match tool_version("python3") {
-        Some(v) => report.ok("python3", v),
-        None => report.missing("python3", "required by the claude-code driver".into()),
-    }
     // Optional: each agent CLI matters only to bundles whose seats use
-    // its driver.
+    // its driver (the built-in adapters live in this binary).
     for (tool, driver) in [
         ("claude", "claude-code"),
         ("codex", "codex"),
         ("dsh", "exec (dsh/Surface profiles)"),
+        ("python3", "exec (script templates)"),
     ] {
         match tool_version(tool) {
             Some(v) => report.ok(tool, v),
