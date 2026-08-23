@@ -1,0 +1,69 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,   name: forge-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, name: forge-linux-aarch64 }
+          - { os: macos-latest,    name: forge-macos-arm64 }
+          - { os: macos-13,        name: forge-macos-x86_64 }
+          - { os: windows-latest,  name: forge-windows-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo build --release -p forge-cli
+      - name: package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar czf "dist/${{ matrix.name }}.tar.gz" -C target/release forge
+          shasum -a 256 "dist/${{ matrix.name }}.tar.gz" > "dist/${{ matrix.name }}.tar.gz.sha256"
+      - name: package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path target/release/forge.exe -DestinationPath "dist/${{ matrix.name }}.zip"
+          (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: aggregate checksums
+        run: |
+          cd dist
+          cat *.sha256 > SHA256SUMS
+          rm *.sha256
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            One native binary per platform — no Python, no Node, no services.
+            Verify downloads against SHA256SUMS. See ARCHITECTURE.md and
+            docs/decisions/ for what this engine is and why.

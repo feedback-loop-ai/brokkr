@@ -602,6 +602,10 @@ fn confined_seat_completes_inside_a_container() {
     // Gated: needs a working docker. The intake seat's fake driver runs
     // inside ubuntu:24.04 with the workdir and bundle mounted; everything
     // else is the trusted native class.
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipping: linux containers only");
+        return;
+    }
     let docker_ok = std::process::Command::new("docker")
         .arg("info")
         .output()
