@@ -244,6 +244,19 @@ fn full_delivery_completes_exports_and_replays() {
     assert_eq!(code, Some(0));
     assert_eq!(verified["chain"], "verified");
     assert_eq!(verified["state"]["status"], "completed");
+
+    // Causal threading: every engine-appended event names its cause.
+    let exported = std::fs::read_to_string(&journal).unwrap();
+    for line in exported.lines() {
+        let event: Value = serde_json::from_str(line).unwrap();
+        if event["seq"].as_u64().unwrap() > 1 {
+            assert!(
+                event["causation_id"].is_string(),
+                "event {} has no causation_id",
+                event["seq"]
+            );
+        }
+    }
 }
 
 #[test]
