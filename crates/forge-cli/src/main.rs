@@ -135,6 +135,15 @@ enum Cmd {
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
     },
+    /// Run a built-in forge-driver/v1 adapter (claude | codex | exec).
+    /// Bundles reference these as {forge} driver <kind> -- <extra args>.
+    Driver {
+        kind: String,
+        /// Arguments after -- pass to the agent CLI (claude/codex) or
+        /// form the command template (exec).
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
     FakeDriver {
@@ -392,6 +401,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     state.phase.as_deref().unwrap_or("-")
                 );
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Driver { kind, args } => {
+            let kind = forge_protocol::adapters::AdapterKind::parse(&kind)
+                .ok_or_else(|| anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, exec"))?;
+            let extra = args.iter().position(|a| a == "--")
+                .map(|i| args[i + 1..].to_vec())
+                .unwrap_or(args);
+            forge_protocol::adapters::serve(kind, extra)?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::FakeDriver { script, state } => {
