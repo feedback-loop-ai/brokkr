@@ -18,7 +18,9 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::bundle::{Aggregate, Bundle, PanelMember, SeatBody, ENGINE_OWNED_INPUTS, ENGINE_VERSION};
+use crate::bundle::{
+    Aggregate, Bundle, Confine, PanelMember, SeatBody, ENGINE_OWNED_INPUTS, ENGINE_VERSION,
+};
 use forge_core::policy::SEVERITY_ORDER;
 use forge_protocol::AttemptReport;
 
@@ -416,7 +418,11 @@ impl Engine {
 
         let (members, aggregate, command) = match &seat.body {
             SeatBody::Panel { members, aggregate } => (members.clone(), Some(*aggregate), Vec::new()),
-            SeatBody::Single { command, .. } => (Vec::new(), None, command.clone()),
+            SeatBody::Single { command, confine, .. } => (
+                Vec::new(),
+                None,
+                confined_command(command, confine.as_ref(), &self.workdir(), &self.bundle.dir),
+            ),
         };
         if let Some(aggregate) = aggregate {
             return self.execute_panel(
@@ -540,7 +546,12 @@ impl Engine {
                         "context": panel_input["context"],
                     });
                     let member_seat = format!("{seat_name}:{}", member.name);
-                    let command = member.command.clone();
+                    let command = confined_command(
+                        &member.command,
+                        member.confine.as_ref(),
+                        &workdir,
+                        &self.bundle.dir,
+                    );
                     let name = member.name.clone();
                     let workdir = workdir.clone();
                     scope.spawn(move || {
@@ -873,6 +884,44 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
             json!({"result": worst.1, "inputs": inputs, "notes": meta})
         }
     }
+}
+
+/// Wrap a driver command for the policy-confined trust class: pinned
+/// image, stdio through, workdir mounted writable at the same path (so
+/// role/result paths stay valid), bundle dir read-only, extra declared
+/// mounts read-only, network off unless granted. Absence of confinement
+/// is the trusted class: a native child process.
+pub fn confined_command(
+    command: &[String],
+    confine: Option<&Confine>,
+    workdir: &std::path::Path,
+    bundle_dir: &std::path::Path,
+) -> Vec<String> {
+    let Some(confine) = confine else {
+        return command.to_vec();
+    };
+    let mut wrapped = vec![
+        "docker".to_string(),
+        "run".to_string(),
+        "--rm".to_string(),
+        "-i".to_string(),
+        "-v".to_string(),
+        format!("{}:{}", workdir.display(), workdir.display()),
+        "-v".to_string(),
+        format!("{}:{}:ro", bundle_dir.display(), bundle_dir.display()),
+        "-w".to_string(),
+        workdir.display().to_string(),
+    ];
+    if !confine.network {
+        wrapped.push("--network=none".to_string());
+    }
+    for mount in &confine.mounts {
+        wrapped.push("-v".to_string());
+        wrapped.push(format!("{mount}:{mount}:ro"));
+    }
+    wrapped.push(confine.image.clone());
+    wrapped.extend(command.iter().cloned());
+    wrapped
 }
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {
