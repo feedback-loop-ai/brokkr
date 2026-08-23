@@ -428,7 +428,13 @@ fn parse_command(dir: &Path, what: &str, raw: &Value) -> Result<Vec<String>, Com
             a.iter()
                 .filter_map(Value::as_str)
                 .map(|part| {
-                    // "./"-prefixed entries are bundle-relative.
+                    // "{forge}" is this engine's own executable (built-in
+                    // drivers); "./"-prefixed entries are bundle-relative.
+                    if part == "{forge}" {
+                        return std::env::current_exe()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|_| "forge".to_string());
+                    }
                     match part.strip_prefix("./") {
                         Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
                         None => part.to_string(),

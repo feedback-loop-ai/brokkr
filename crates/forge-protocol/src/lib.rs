@@ -6,6 +6,7 @@
 //! that goes away after `accepted` without a `result` leaves the attempt
 //! indeterminate — never converted to success, never silently retried.
 
+pub mod adapters;
 pub mod fake;
 pub mod process;
 

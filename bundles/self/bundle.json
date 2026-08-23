@@ -5,43 +5,123 @@
   "seats": {
     "intake": {
       "role": "roles/intake.md",
-      "results": ["resolved"],
-      "limits": { "max_attempts": 2, "timeout_seconds": 1800 },
+      "results": [
+        "resolved"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
       "driver": {
-        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"]
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
       }
     },
     "implement": {
       "role": "roles/implementer.md",
-      "results": ["complete", "broken", "blocked"],
-      "limits": { "max_attempts": 2, "timeout_seconds": 5400 },
+      "results": [
+        "complete",
+        "broken",
+        "blocked"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
       "driver": {
-        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"]
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
       }
     },
     "verify": {
       "role": "roles/verifier.md",
-      "results": ["pass", "fail"],
-      "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
       "driver": {
-        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"]
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
       }
     },
     "review": {
       "role": "roles/reviewer.md",
-      "results": ["clean", "residual", "security-hold"],
-      "inputs": ["fixes_applied", "has_security_residual", "max_residual_severity"],
-      "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "inputs": [
+        "fixes_applied",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
       "driver": {
-        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"]
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
       }
     },
     "ship": {
       "role": "roles/shipper.md",
-      "results": ["ready", "shipped"],
-      "limits": { "max_attempts": 2, "timeout_seconds": 1800 },
+      "results": [
+        "ready",
+        "shipped"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
       "driver": {
-        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"]
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
       }
     }
   }

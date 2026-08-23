@@ -10,10 +10,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use forge_runtime::Bundle;
 
-const CLAUDE_DRIVER: &str = include_str!("../../../bundles/self/drivers/claude_driver.py");
-const CODEX_DRIVER: &str = include_str!("../../../bundles/self/drivers/codex_driver.py");
-const EXEC_DRIVER: &str = include_str!("../../../bundles/self/drivers/exec_driver.py");
-const DRIVER_COMMON: &str = include_str!("../../../bundles/self/drivers/driver_common.py");
+// Drivers are built into the forge binary itself (decision 0009):
+// scaffolds reference them as {forge} driver <kind>.
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
@@ -84,31 +82,31 @@ const BUNDLE: &str = r#"{
       "role": "roles/intake.md",
       "results": ["resolved"],
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]}
+      "driver": {"command": ["{forge}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "implement": {
       "role": "roles/implementer.md",
       "results": ["complete", "broken", "blocked"],
       "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]}
+      "driver": {"command": ["{forge}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "verify": {
       "role": "roles/verifier.md",
       "results": ["pass", "fail"],
       "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]}
+      "driver": {"command": ["{forge}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "review": {
       "role": "roles/reviewer.md",
       "results": ["clean", "residual", "security-hold"],
       "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]}
+      "driver": {"command": ["{forge}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "ship": {
       "role": "roles/shipper.md",
       "results": ["ready", "shipped"],
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits"]}
+      "driver": {"command": ["{forge}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     }
   }
 }
@@ -142,13 +140,8 @@ pub fn init(dir: &Path) -> Result<String> {
         bail!("{} already contains a bundle.json; refusing to overwrite", dir.display());
     }
     std::fs::create_dir_all(dir.join("roles"))?;
-    std::fs::create_dir_all(dir.join("drivers"))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
-    std::fs::write(dir.join("drivers/claude_driver.py"), CLAUDE_DRIVER)?;
-    std::fs::write(dir.join("drivers/codex_driver.py"), CODEX_DRIVER)?;
-    std::fs::write(dir.join("drivers/exec_driver.py"), EXEC_DRIVER)?;
-    std::fs::write(dir.join("drivers/driver_common.py"), DRIVER_COMMON)?;
     for (name, content) in ROLES {
         std::fs::write(dir.join("roles").join(name), content)?;
     }
