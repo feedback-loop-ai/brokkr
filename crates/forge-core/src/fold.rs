@@ -33,13 +33,21 @@ pub enum Cursor {
     /// The engine must request the current phase's effect (or finish the
     /// run when the current phase is terminal in the pinned policy).
     RequestEffect,
-    /// An effect is requested and durable but no attempt has started.
-    ExecuteEffect { effect_id: String, seat: String },
+    /// An effect is requested and durable with no attempt in flight.
+    /// `failed_attempts` counts terminally failed attempts so far; the
+    /// engine retries up to the seat's declared limit (decision 0006) or
+    /// appends run/parked here when the limit is exhausted.
+    ExecuteEffect {
+        effect_id: String,
+        seat: String,
+        failed_attempts: u64,
+    },
     /// An attempt is in flight (or was, when the process last died).
     EffectInFlight {
         effect_id: String,
         attempt_id: String,
         seat: String,
+        failed_attempts: u64,
     },
     /// A succeeded result awaits its policy decision.
     Decide { effect_id: String, result: Value },
@@ -180,6 +188,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             state.cursor = Cursor::ExecuteEffect {
                 effect_id: payload_str(event, "effect_id")?,
                 seat: payload_str(event, "seat")?,
+                failed_attempts: 0,
             };
             Ok(())
         }
@@ -188,11 +197,16 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             let effect_id = payload_str(event, "effect_id")?;
             let attempt_id = payload_str(event, "attempt_id")?;
             match &state.cursor {
-                Cursor::ExecuteEffect { effect_id: open, seat } if *open == effect_id => {
+                Cursor::ExecuteEffect {
+                    effect_id: open,
+                    seat,
+                    failed_attempts,
+                } if *open == effect_id => {
                     state.cursor = Cursor::EffectInFlight {
                         effect_id,
                         attempt_id,
                         seat: seat.clone(),
+                        failed_attempts: *failed_attempts,
                     };
                     Ok(())
                 }
@@ -228,7 +242,33 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             }
         }
 
-        EffectFailed | EffectIndeterminate => {
+        EffectFailed => {
+            // A determinate failure returns the effect to the executable
+            // position; the ENGINE decides retry-or-park against the
+            // seat's declared attempt limit (decision 0006).
+            let effect_id = payload_str(event, "effect_id")?;
+            match &state.cursor {
+                Cursor::EffectInFlight {
+                    effect_id: open,
+                    seat,
+                    failed_attempts,
+                    ..
+                } if *open == effect_id => {
+                    state.cursor = Cursor::ExecuteEffect {
+                        effect_id,
+                        seat: seat.clone(),
+                        failed_attempts: failed_attempts + 1,
+                    };
+                    Ok(())
+                }
+                _ => Err(out_of_place(state)),
+            }
+        }
+
+        EffectIndeterminate => {
+            // Completion could not be established: NEVER auto-retried —
+            // a retry could silently re-pay for or duplicate completed
+            // work. Always parks into operator judgment.
             let effect_id = payload_str(event, "effect_id")?;
             let matches_open = matches!(
                 &state.cursor,
@@ -237,25 +277,18 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 // A requested-but-never-started effect can be closed as
                 // indeterminate during crash recovery.
                 &state.cursor,
-                Cursor::ExecuteEffect { effect_id: open, .. }
-                    if *open == effect_id && event.event_type == EffectIndeterminate
+                Cursor::ExecuteEffect { effect_id: open, .. } if *open == effect_id
             );
             if !matches_open {
                 return Err(out_of_place(state));
             }
-            let kind = if event.event_type == EffectFailed {
-                "failed"
-            } else {
-                "indeterminate"
-            };
             let detail = event
                 .payload
-                .get("error")
-                .or_else(|| event.payload.get("reason"))
+                .get("reason")
                 .and_then(Value::as_str)
                 .unwrap_or("no detail recorded");
             state.cursor = Cursor::Park {
-                reason: format!("effect {effect_id} {kind}: {detail}"),
+                reason: format!("effect {effect_id} indeterminate: {detail}"),
             };
             Ok(())
         }
@@ -346,7 +379,12 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
         }
 
         RunParked => {
-            if !matches!(&state.cursor, Cursor::Park { .. }) {
+            // Legal at Park, and at ExecuteEffect when the engine has
+            // exhausted the seat's attempt limit (decision 0006).
+            if !matches!(
+                &state.cursor,
+                Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
+            ) {
                 return Err(out_of_place(state));
             }
             state.status = Status::AwaitingOperator;

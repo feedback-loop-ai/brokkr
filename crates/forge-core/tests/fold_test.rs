@@ -118,7 +118,12 @@ fn failed_effect_demands_park_and_operator_retry_reopens() {
         json!({"effect_id": "fx", "attempt_id": "a1", "error": "driver crashed"}),
     );
     let state = fold(&journal.events).unwrap();
-    assert!(matches!(state.cursor, Cursor::Park { .. }));
+    // A determinate failure returns to the executable position with the
+    // attempt counted; the engine decides retry-or-park (decision 0006).
+    assert!(matches!(
+        state.cursor,
+        Cursor::ExecuteEffect { failed_attempts: 1, .. }
+    ));
 
     journal.append(EventType::RunParked, json!({"reason": "effect fx failed", "evidence": {}}));
     let state = fold(&journal.events).unwrap();
