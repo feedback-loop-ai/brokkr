@@ -630,6 +630,21 @@ fn confined_seat_completes_inside_a_container() {
 }
 
 #[test]
+fn panel_member_out_of_vocabulary_parks_never_coerces() {
+    let mut script = happy_script();
+    script["seats"]["verify:unit"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:integration"] =
+        json!([{"behavior": "succeed", "result": {"result": "banana"}}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2), "out-of-vocabulary never coerces to fail (law 0001)");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(reason.contains("schema"), "park reason: {reason}");
+}
+
+#[test]
 fn compile_rejects_bad_panels() {
     // One member.
     let ws = Workspace::new(happy_script());
