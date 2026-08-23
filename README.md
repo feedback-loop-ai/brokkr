@@ -77,6 +77,16 @@ resume · operator · inspect · replay · export · verify-run · runs). Scope 
 containers, no signing service, single-seat executors — all additive later
 behind the frozen contracts. CI builds a release `forge` binary artifact.
 
+The second wave (decision
+[0008](docs/decisions/0008-second-wave-scope.md)) delivered the 0005
+deferrals: the full driver fleet (claude · codex · exec for dsh/Surface,
+ssh-remote, any template harness) behind one conformance suite, parallel
+panels with declared deterministic aggregates, the embedded read-only UI
+(`forge ui`) over a causally-threaded journal, git-ref journal anchoring,
+container confinement for policy-confined seats, and the `forge costs`
+LaneTally join surface — each slice verified after merge by the forge's
+own verification agents (`bundles/verify`).
+
 Unattended autonomy is bounded, never open-ended:
 
 - per-seat attempt limits and deadlines — a hung or transiently failing
