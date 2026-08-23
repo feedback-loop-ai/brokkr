@@ -28,6 +28,14 @@ struct Cli {
 enum Cmd {
     /// Scaffold a minimal reviewable bundle and prove it compiles.
     Init { dir: PathBuf },
+    /// Per-seat cost and session accounting from journal checkpoints —
+    /// the LaneTally join surface (stable seat ids, journal-derived).
+    Costs {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+    },
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
     Anchor {
@@ -188,6 +196,66 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 "initialized reviewable bundle at {} (digest {digest})",
                 dir.display()
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Costs { run, db } => {
+            let store = Store::open(&db)?;
+            let events = store.load(&run)?;
+            let mut effect_seat: std::collections::BTreeMap<String, String> =
+                std::collections::BTreeMap::new();
+            let mut seats: std::collections::BTreeMap<String, (u64, u64, f64)> =
+                std::collections::BTreeMap::new();
+            for event in &events {
+                let payload = &event.payload;
+                match event.event_type {
+                    forge_core::EventType::EffectRequested => {
+                        if let (Some(id), Some(seat)) = (
+                            payload.get("effect_id").and_then(Value::as_str),
+                            payload.get("seat").and_then(Value::as_str),
+                        ) {
+                            effect_seat.insert(id.to_string(), seat.to_string());
+                        }
+                    }
+                    forge_core::EventType::EffectStarted => {
+                        if let Some(seat) = payload
+                            .get("effect_id")
+                            .and_then(Value::as_str)
+                            .and_then(|id| effect_seat.get(id))
+                        {
+                            seats.entry(seat.clone()).or_default().0 += 1;
+                        }
+                    }
+                    forge_core::EventType::EffectCheckpointed => {
+                        let seat = payload
+                            .get("effect_id")
+                            .and_then(Value::as_str)
+                            .and_then(|id| effect_seat.get(id))
+                            .cloned();
+                        if let Some(seat) = seat {
+                            let checkpoint = &payload["checkpoint"];
+                            let entry = seats.entry(seat).or_default();
+                            entry.1 += checkpoint.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
+                            entry.2 += checkpoint
+                                .get("total_cost_usd")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let total: f64 = seats.values().map(|(_, _, c)| c).sum();
+            let report: serde_json::Map<String, Value> = seats
+                .into_iter()
+                .map(|(seat, (attempts, turns, cost))| {
+                    (seat, json!({"attempts": attempts, "turns": turns, "cost_usd": cost}))
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json!({
+                "run_id": run,
+                "seats": report,
+                "total_cost_usd": total,
+            }))?);
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Anchor { run, db, repo, check } => {
