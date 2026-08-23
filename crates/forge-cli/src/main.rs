@@ -3,6 +3,7 @@
 
 mod doctor;
 mod init;
+mod ui;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -27,6 +28,16 @@ struct Cli {
 enum Cmd {
     /// Scaffold a minimal reviewable bundle and prove it compiles.
     Init { dir: PathBuf },
+    /// Serve the embedded read-only surface on loopback.
+    Ui {
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        #[arg(long, default_value_t = 8383)]
+        port: u16,
+        /// Open the system browser after binding.
+        #[arg(long)]
+        open: bool,
+    },
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
     Doctor {
@@ -164,6 +175,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 "initialized reviewable bundle at {} (digest {digest})",
                 dir.display()
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Ui { db, port, open } => {
+            ui::serve(db, port, open)?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Doctor { bundle, db } => {
