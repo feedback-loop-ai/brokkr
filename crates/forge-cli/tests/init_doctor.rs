@@ -62,6 +62,14 @@ fn doctor_reports_health_and_validates_a_bundle() {
     assert_eq!(code, Some(0), "doctor output: {stdout}");
     assert!(stdout.contains("git"));
     assert!(stdout.contains("bundle"));
+    // The pinned contract versions are part of the health report.
+    assert!(
+        stdout.contains("contracts: engine")
+            && stdout.contains("event_schema")
+            && stdout.contains("database_schema")
+            && stdout.contains("driver_protocol"),
+        "doctor output: {stdout}"
+    );
     assert!(!stdout.contains("MISSING  git"));
 
     // A broken bundle turns the report unhealthy.

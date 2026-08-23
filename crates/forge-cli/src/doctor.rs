@@ -51,6 +51,18 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
         lines: Vec::new(),
     };
 
+    // The pinned contract versions this binary was built against.
+    report.ok(
+        "contracts",
+        format!(
+            "engine {}, event_schema {}, database_schema {}, driver_protocol {}",
+            forge_runtime::ENGINE_VERSION,
+            forge_runtime::bundle::EVENT_SCHEMA,
+            forge_store::DATABASE_SCHEMA,
+            forge_runtime::bundle::DRIVER_PROTOCOL,
+        ),
+    );
+
     // Required: the engine's own effects use git (drift/dirty gates).
     match tool_version("git") {
         Some(v) => report.ok("git", v),
