@@ -527,11 +527,13 @@ fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
     }
     paths.sort();
     for path in paths {
+        // Manifest keys are bundle identity: platform-independent by
+        // construction (windows separators would fork the digest).
         let rel = path
             .strip_prefix(dir)
             .expect("walked under dir")
             .to_string_lossy()
-            .into_owned();
+            .replace('\\', "/");
         files.insert(rel, Value::String(sha256_bytes(&std::fs::read(&path)?)));
     }
     Ok(json!({
