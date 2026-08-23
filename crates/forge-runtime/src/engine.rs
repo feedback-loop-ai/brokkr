@@ -18,7 +18,9 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::bundle::{Bundle, ENGINE_OWNED_INPUTS, ENGINE_VERSION};
+use crate::bundle::{Aggregate, Bundle, PanelMember, SeatBody, ENGINE_OWNED_INPUTS, ENGINE_VERSION};
+use forge_core::policy::SEVERITY_ORDER;
+use forge_protocol::AttemptReport;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -270,22 +272,50 @@ impl Engine {
             EngineError::Other(format!("no seat for phase '{phase}' (compile enforces this)"))
         })?;
         let workdir = self.workdir();
-        Ok(json!({
-            "feature": self.feature,
-            "phase": phase,
-            "seat": phase,
-            "role_path": seat.role_path.to_string_lossy(),
-            "workdir": workdir.to_string_lossy(),
-            "result_path": workdir
-                .join(".forge/results")
-                .join(format!("{effect_id}.json"))
-                .to_string_lossy(),
-            "allowed_results": seat.results,
-            "context": {
-                "run_id": self.run_id,
-                "last_decision": state.last_decision,
-            },
-        }))
+        let context = json!({
+            "run_id": self.run_id,
+            "last_decision": state.last_decision,
+        });
+        match &seat.body {
+            SeatBody::Single { role_path, .. } => Ok(json!({
+                "feature": self.feature,
+                "phase": phase,
+                "seat": phase,
+                "role_path": role_path.to_string_lossy(),
+                "workdir": workdir.to_string_lossy(),
+                "result_path": workdir
+                    .join(".forge/results")
+                    .join(format!("{effect_id}.json"))
+                    .to_string_lossy(),
+                "allowed_results": seat.results,
+                "context": context,
+            })),
+            SeatBody::Panel { members, aggregate } => {
+                let mut member_map = Map::new();
+                for member in members {
+                    member_map.insert(
+                        member.name.clone(),
+                        json!({
+                            "role_path": member.role_path.to_string_lossy(),
+                            "result_path": workdir
+                                .join(".forge/results")
+                                .join(format!("{effect_id}-{}.json", member.name))
+                                .to_string_lossy(),
+                        }),
+                    );
+                }
+                Ok(json!({
+                    "feature": self.feature,
+                    "phase": phase,
+                    "seat": phase,
+                    "aggregate": format!("{aggregate:?}"),
+                    "workdir": workdir.to_string_lossy(),
+                    "members": Value::Object(member_map),
+                    "allowed_results": seat.results,
+                    "context": context,
+                }))
+            }
+        }
     }
 
     fn workdir(&self) -> PathBuf {
@@ -340,6 +370,12 @@ impl Engine {
 
         let seat = self.bundle.seats[seat_name].clone();
         let attempt_id = Uuid::new_v4().to_string();
+        let driver_label = match &seat.body {
+            SeatBody::Single { command, .. } => command[0].clone(),
+            SeatBody::Panel { members, aggregate } => {
+                format!("panel[{}]:{aggregate:?}", members.len())
+            }
+        };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         self.append(
@@ -347,7 +383,7 @@ impl Engine {
             json!({
                 "effect_id": effect_id,
                 "attempt_id": attempt_id,
-                "driver": seat.command[0],
+                "driver": driver_label,
             }),
             Some(attempt_id.clone()),
         )?;
@@ -355,7 +391,17 @@ impl Engine {
         let workdir = self.workdir();
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
         let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
-        let spawned = DriverProcess::spawn(&seat.command, &workdir, Some(deadline));
+
+        let (members, aggregate, command) = match &seat.body {
+            SeatBody::Panel { members, aggregate } => (members.clone(), Some(*aggregate), Vec::new()),
+            SeatBody::Single { command, .. } => (Vec::new(), None, command.clone()),
+        };
+        if let Some(aggregate) = aggregate {
+            return self.execute_panel(
+                effect_id, &attempt_id, seat_name, &members, aggregate, &input, deadline,
+            );
+        }
+        let spawned = DriverProcess::spawn(&command, &workdir, Some(deadline));
         let report = match spawned {
             Err(e) => {
                 self.append(
@@ -435,6 +481,152 @@ impl Engine {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// Run a parallel panel INSIDE one effect (decision 0002): members
+    /// execute concurrently, join as a barrier in declared order, each
+    /// member's outcome is journaled as checkpoint evidence, and the
+    /// declared deterministic aggregate produces the single typed result
+    /// the outer machine sees. Any indeterminate member makes the whole
+    /// attempt indeterminate (park); otherwise any failed member fails
+    /// the attempt (retryable under 0006).
+    #[allow(clippy::too_many_arguments)]
+    fn execute_panel(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        seat_name: &str,
+        members: &[PanelMember],
+        aggregate: Aggregate,
+        panel_input: &Value,
+        deadline: std::time::Duration,
+    ) -> Result<(), EngineError> {
+        let workdir = self.workdir();
+        let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = members
+                .iter()
+                .map(|member| {
+                    let member_input = json!({
+                        "feature": panel_input["feature"],
+                        "phase": panel_input["phase"],
+                        "seat": format!("{seat_name}:{}", member.name),
+                        "role_path": panel_input["members"][&member.name]["role_path"],
+                        "workdir": panel_input["workdir"],
+                        "result_path": panel_input["members"][&member.name]["result_path"],
+                        "allowed_results": panel_input["allowed_results"],
+                        "context": panel_input["context"],
+                    });
+                    let member_seat = format!("{seat_name}:{}", member.name);
+                    let command = member.command.clone();
+                    let name = member.name.clone();
+                    let workdir = workdir.clone();
+                    scope.spawn(move || {
+                        let report = match DriverProcess::spawn(&command, &workdir, Some(deadline))
+                        {
+                            Err(e) => AttemptReport {
+                                outcome: AttemptOutcome::Failed {
+                                    error: format!("member driver did not spawn: {e}"),
+                                },
+                                session_ref: None,
+                                checkpoints: Vec::new(),
+                                stderr: String::new(),
+                            },
+                            Ok(process) => process.run_attempt(
+                                ENGINE_VERSION,
+                                effect_id,
+                                attempt_id,
+                                &member_seat,
+                                member_input,
+                                |_| {}, // member checkpoints journal after the join
+                            ),
+                        };
+                        (name, report)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("panel member thread"))
+                .collect()
+        });
+
+        // Journal member evidence in declared (stable) order — never
+        // wall-clock completion order.
+        for (name, report) in &reports {
+            let kind = match &report.outcome {
+                AttemptOutcome::Succeeded { .. } => "succeeded",
+                AttemptOutcome::Failed { .. } => "failed",
+                AttemptOutcome::Indeterminate { .. } => "indeterminate",
+            };
+            self.append(
+                EventType::EffectCheckpointed,
+                json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "checkpoint": {
+                        "step": "panel-member-finished",
+                        "member": name,
+                        "outcome": kind,
+                        "session_ref": report.session_ref,
+                        "inner_checkpoints": report.checkpoints.len(),
+                    },
+                }),
+                Some(attempt_id.to_string()),
+            )?;
+        }
+
+        let indeterminate: Vec<&str> = reports
+            .iter()
+            .filter(|(_, r)| matches!(r.outcome, AttemptOutcome::Indeterminate { .. }))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        if !indeterminate.is_empty() {
+            self.append(
+                EventType::EffectIndeterminate,
+                json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "reason": format!(
+                        "panel members {indeterminate:?} could not establish completion"
+                    ),
+                }),
+                Some(attempt_id.to_string()),
+            )?;
+            return Ok(());
+        }
+        let failures: Vec<String> = reports
+            .iter()
+            .filter_map(|(n, r)| match &r.outcome {
+                AttemptOutcome::Failed { error } => Some(format!("{n}: {error}")),
+                _ => None,
+            })
+            .collect();
+        if !failures.is_empty() {
+            self.append(
+                EventType::EffectFailed,
+                json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "error": format!("panel members failed — {}", failures.join("; ")),
+                }),
+                Some(attempt_id.to_string()),
+            )?;
+            return Ok(());
+        }
+        let member_results: Vec<(String, Value)> = reports
+            .into_iter()
+            .map(|(n, r)| match r.outcome {
+                AttemptOutcome::Succeeded { result } => (n, result),
+                _ => unreachable!("filtered above"),
+            })
+            .collect();
+        let aggregated = aggregate_results(aggregate, &member_results);
+        self.append(
+            EventType::EffectSucceeded,
+            json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": aggregated}),
+            Some(attempt_id.to_string()),
+        )?;
         Ok(())
     }
 
@@ -575,6 +767,90 @@ pub fn operator_command(
         None,
     )?;
     Ok(())
+}
+
+/// Deterministic, order-independent aggregation of member results. A
+/// member payload without a readable result string poisons the aggregate
+/// into a marker the engine's own schema validation parks with the full
+/// member evidence attached — never coerced (law 0001). A member result
+/// outside the vocabulary ranks WORST and flows to decide(), whose
+/// declared-results check parks it with evidence.
+fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value {
+    let mut notes = Map::new();
+    let mut verdicts = Map::new();
+    let mut parsed: Vec<(&str, &str, &Value)> = Vec::new();
+    for (name, payload) in members {
+        if let Some(note) = payload.get("notes") {
+            notes.insert(name.clone(), note.clone());
+        }
+        match payload.get("result").and_then(Value::as_str) {
+            Some(result) => {
+                verdicts.insert(name.clone(), Value::String(result.to_string()));
+                parsed.push((name.as_str(), result, payload));
+            }
+            None => {
+                let evidence: Map<String, Value> =
+                    members.iter().cloned().collect();
+                return json!({
+                    "result": "__member-schema-invalid__",
+                    "notes": {"members": Value::Object(evidence)},
+                });
+            }
+        }
+    }
+    let meta = json!({"members": notes, "verdicts": verdicts});
+    match aggregate {
+        Aggregate::UnanimousPass => {
+            let all_pass = parsed.iter().all(|(_, r, _)| *r == "pass");
+            json!({
+                "result": if all_pass { "pass" } else { "fail" },
+                "notes": meta,
+            })
+        }
+        Aggregate::ReviewPanel => {
+            let rank = |r: &str| match r {
+                "clean" => 0,
+                "residual" => 1,
+                "security-hold" => 2,
+                _ => 3, // unknown ranks worst: fail closed via decide()
+            };
+            let worst = parsed
+                .iter()
+                .max_by_key(|(_, r, _)| rank(r))
+                .expect("panels have members");
+            let mut severity_rank = 0usize;
+            let mut has_security = false;
+            let mut fixes_applied = false;
+            for (_, _, payload) in &parsed {
+                if let Some(inputs) = payload.get("inputs").and_then(Value::as_object) {
+                    if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str)
+                    {
+                        if let Some(i) = SEVERITY_ORDER.iter().position(|x| *x == s) {
+                            severity_rank = severity_rank.max(i);
+                        }
+                    }
+                    has_security |= inputs
+                        .get("has_security_residual")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    fixes_applied |= inputs
+                        .get("fixes_applied")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                }
+            }
+            let mut inputs = Map::new();
+            inputs.insert("fixes_applied".into(), Value::Bool(fixes_applied));
+            if worst.1 == "residual" || severity_rank > 0 {
+                inputs.insert(
+                    "max_residual_severity".into(),
+                    Value::String(SEVERITY_ORDER[severity_rank].to_string()),
+                );
+                inputs.insert("has_security_residual".into(), Value::Bool(has_security));
+            }
+            json!({"result": worst.1, "inputs": inputs, "notes": meta})
+        }
+    }
 }
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {

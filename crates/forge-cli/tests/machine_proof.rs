@@ -178,6 +178,29 @@ impl Workspace {
             json!({"max_attempts": max_attempts, "timeout_seconds": timeout_seconds});
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }
+
+    /// Convert one phase's seat into a panel of fake-driver members
+    /// joined by the named aggregate. Script entries key by
+    /// "<phase>:<member>".
+    fn make_panel(&self, phase: &str, members: &[&str], aggregate: &str) {
+        let path = self.bundle_dir().join("bundle.json");
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let driver = config["seats"][phase]["driver"].clone();
+        let mut panel = serde_json::Map::new();
+        for member in members {
+            panel.insert(
+                member.to_string(),
+                json!({"role": "roles/role.md", "driver": driver}),
+            );
+        }
+        let seat = config["seats"][phase].as_object_mut().unwrap();
+        seat.insert("panel".into(), Value::Object(panel));
+        seat.insert("aggregate".into(), json!(aggregate));
+        seat.remove("role");
+        seat.remove("driver");
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+    }
 }
 
 fn happy_script() -> Value {
@@ -466,6 +489,118 @@ fn indeterminate_is_never_auto_retried_even_with_attempts_left() {
     assert_eq!(code, Some(2), "indeterminate parks into operator judgment, never auto-retries");
     let reason = summary["park_reason"].as_str().unwrap();
     assert!(reason.contains("indeterminate"), "park reason: {reason}");
+}
+
+#[test]
+fn panel_unanimous_pass_completes_with_member_evidence() {
+    let mut script = happy_script();
+    script["seats"]["verify:unit"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:integration"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+
+    // Member outcomes are journaled as checkpoint evidence, in declared
+    // order, under the ONE effect the outer machine saw.
+    let run_id = Workspace::run_id(&stderr);
+    let db = ws.db();
+    let out = ws.path().join("export");
+    ws.forge(&[
+        "export", "--run", &run_id,
+        "--out", out.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    let journal =
+        std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
+    let members: Vec<String> = journal
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .filter(|e| e["payload"]["checkpoint"]["step"] == "panel-member-finished")
+        .map(|e| e["payload"]["checkpoint"]["member"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(members, vec!["integration", "unit"], "declared (sorted) order");
+}
+
+#[test]
+fn panel_one_failing_member_fails_the_phase() {
+    let mut script = happy_script();
+    script["seats"]["verify:unit"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:integration"] =
+        json!([{"behavior": "succeed", "result": {"result": "fail"}}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(3), "unanimous-pass demands unanimity");
+    assert_eq!(summary["last_decision"]["rule_id"], "VERIFY-FAIL");
+}
+
+#[test]
+fn review_panel_worst_member_wins_and_merges_inputs() {
+    let mut script = happy_script();
+    script["seats"]["review:correctness"] = json!([{"behavior": "succeed",
+        "result": {"result": "clean", "inputs": {"fixes_applied": false}}}]);
+    script["seats"]["review:security"] = json!([{"behavior": "succeed",
+        "result": {"result": "residual",
+                   "inputs": {"max_residual_severity": "low",
+                              "has_security_residual": false,
+                              "fixes_applied": false}}}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("review", &["correctness", "security"], "review-panel");
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(0), "residual low proceeds as tracked debt");
+    assert_eq!(summary["status"], "completed");
+}
+
+#[test]
+fn review_panel_security_hold_member_hard_stops() {
+    let mut script = happy_script();
+    script["seats"]["review:correctness"] = json!([{"behavior": "succeed",
+        "result": {"result": "clean", "inputs": {"fixes_applied": false}}}]);
+    script["seats"]["review:security"] =
+        json!([{"behavior": "succeed", "result": {"result": "security-hold"}}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("review", &["correctness", "security"], "review-panel");
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(3), "one security-hold member holds the whole panel");
+    assert_eq!(summary["last_decision"]["rule_id"], "REVIEW-SECURITY-HOLD");
+}
+
+#[test]
+fn panel_member_vanish_parks_the_whole_attempt_indeterminate() {
+    let mut script = happy_script();
+    script["seats"]["verify:unit"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:integration"] = json!([{"behavior": "vanish"}]);
+    let ws = Workspace::new(script);
+    ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(reason.contains("integration"), "park reason: {reason}");
+}
+
+#[test]
+fn compile_rejects_bad_panels() {
+    // One member.
+    let ws = Workspace::new(happy_script());
+    ws.make_panel("verify", &["only"], "unanimous-pass");
+    let bundle = ws.bundle_dir();
+    let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("at least two"), "stderr: {stderr}");
+
+    // Unknown aggregate.
+    let ws = Workspace::new(happy_script());
+    ws.make_panel("verify", &["a", "b"], "vibes");
+    let bundle = ws.bundle_dir();
+    let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("unknown aggregate"), "stderr: {stderr}");
 }
 
 #[test]

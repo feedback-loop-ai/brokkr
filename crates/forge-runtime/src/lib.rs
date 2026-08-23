@@ -5,5 +5,5 @@
 pub mod bundle;
 pub mod engine;
 
-pub use bundle::{Bundle, CompileError, Seat, ENGINE_VERSION};
+pub use bundle::{Aggregate, Bundle, CompileError, PanelMember, Seat, SeatBody, ENGINE_VERSION};
 pub use engine::{operator_command, DriveEnd, Engine, EngineError};

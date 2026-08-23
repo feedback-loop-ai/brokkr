@@ -159,3 +159,16 @@ def test_exec_driver_requires_a_template(tmp_path: Path) -> None:
     result = out[-1]
     assert result["status"] == "failed"
     assert "command template" in result["error"]
+
+
+def test_driver_files_identical_across_bundles() -> None:
+    """The verify bundle ships the same drivers as the self bundle; the
+    forge-verify review flagged that this parity was untested and could
+    drift silently. (The `forge init` embeds are compile-time
+    include_str! of the self-bundle sources, so they cannot drift.)"""
+    verify_drivers = DRIVERS_DIR.parents[1] / "verify/drivers"
+    for name in ["driver_common.py", "claude_driver.py", "codex_driver.py",
+                 "exec_driver.py"]:
+        ours = (DRIVERS_DIR / name).read_bytes()
+        theirs = (verify_drivers / name).read_bytes()
+        assert ours == theirs, f"{name} drifted between bundles/self and bundles/verify"
