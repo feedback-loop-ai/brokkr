@@ -8,7 +8,6 @@ Run, in order, from the repository root:
 
 1. `cargo test --workspace` — the full Rust suite, including the
    machine proof and the differential corpus parity tests.
-   exactly what the oracle generates (no drift).
 2. `cargo run -p forge-cli -- compile --bundle bundles/self` — the self
    bundle must still compile under the constitutional lint.
 
