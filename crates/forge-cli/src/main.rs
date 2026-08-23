@@ -28,6 +28,19 @@ struct Cli {
 enum Cmd {
     /// Scaffold a minimal reviewable bundle and prove it compiles.
     Init { dir: PathBuf },
+    /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
+    /// or verify the existing anchor with --check.
+    Anchor {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Verify instead of writing a new anchor.
+        #[arg(long)]
+        check: bool,
+    },
     /// Serve the embedded read-only surface on loopback.
     Ui {
         #[arg(long, default_value = ".forge/forge.db")]
@@ -175,6 +188,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 "initialized reviewable bundle at {} (digest {digest})",
                 dir.display()
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Anchor { run, db, repo, check } => {
+            let store = Store::open(&db)?;
+            if check {
+                let report = forge_runtime::verify_anchor(&store, &repo, &run)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let sha = forge_runtime::anchor(&store, &repo, &run)?;
+                eprintln!("anchored {run} at {sha}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Ui { db, port, open } => {
