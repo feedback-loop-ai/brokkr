@@ -445,6 +445,9 @@ impl Engine {
             }
             Ok(process) => {
                 let mut checkpoint_error: Option<EngineError> = None;
+                let store = &mut self.store;
+                let current_cause = &mut self.current_cause;
+                let run_id = self.run_id.clone();
                 let report = process.run_attempt(
                     ENGINE_VERSION,
                     effect_id,
@@ -453,18 +456,24 @@ impl Engine {
                     input,
                     |data| {
                         if checkpoint_error.is_none() {
-                            if let Err(e) = self.store.append_next(
-                                &self.run_id,
+                            match store.append_next(
+                                &run_id,
                                 EventType::EffectCheckpointed,
                                 json!({
                                     "effect_id": effect_id,
                                     "attempt_id": attempt_id,
                                     "checkpoint": data,
                                 }),
-                                self.current_cause.clone(),
+                                current_cause.clone(),
                                 Some(attempt_id.clone()),
                             ) {
-                                checkpoint_error = Some(e.into());
+                                // Causal chain advances through checkpoints
+                                // too — the closing effect event names the
+                                // last checkpoint as its cause.
+                                Ok(envelope) => {
+                                    *current_cause = Some(envelope.event_id);
+                                }
+                                Err(e) => checkpoint_error = Some(e.into()),
                             }
                         }
                     },
@@ -785,11 +794,12 @@ pub fn operator_command(
     reason: &str,
 ) -> Result<(), EngineError> {
     let command_id = Uuid::new_v4().to_string();
+    let head_event = store.load(run_id)?.last().map(|e| e.event_id.clone());
     let commanded = store.append_next(
         run_id,
         EventType::OperatorCommanded,
         json!({"command_id": command_id, "command": command, "args": {}, "operator": operator}),
-        None,
+        head_event,
         None,
     )?;
     store.append_next(
@@ -834,6 +844,15 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
     let meta = json!({"members": notes, "verdicts": verdicts});
     match aggregate {
         Aggregate::UnanimousPass => {
+            // Only the declared vocabulary aggregates; anything else is
+            // never coerced to "fail" (law 0001) — it poisons the result
+            // so decide() parks with the member evidence.
+            if parsed.iter().any(|(_, r, _)| *r != "pass" && *r != "fail") {
+                return json!({
+                    "result": "__member-schema-invalid__",
+                    "notes": meta,
+                });
+            }
             let all_pass = parsed.iter().all(|(_, r, _)| *r == "pass");
             json!({
                 "result": if all_pass { "pass" } else { "fail" },
