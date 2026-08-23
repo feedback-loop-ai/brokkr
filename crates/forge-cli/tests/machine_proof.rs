@@ -598,6 +598,38 @@ fn panel_member_vanish_parks_the_whole_attempt_indeterminate() {
 }
 
 #[test]
+fn confined_seat_completes_inside_a_container() {
+    // Gated: needs a working docker. The intake seat's fake driver runs
+    // inside ubuntu:24.04 with the workdir and bundle mounted; everything
+    // else is the trusted native class.
+    let docker_ok = std::process::Command::new("docker")
+        .arg("info")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !docker_ok {
+        eprintln!("skipping: docker unavailable");
+        return;
+    }
+    let ws = Workspace::new(happy_script());
+    let bundle = ws.bundle_dir();
+    let config_path = bundle.join("bundle.json");
+    let mut config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    // The fake driver binary lives outside workdir/bundle: declare its
+    // directory as an extra read-only mount.
+    let bin_dir = std::path::Path::new(forge_bin()).parent().unwrap();
+    config["seats"]["intake"]["driver"]["confine"] = json!({
+        "image": "ubuntu:24.04",
+        "mounts": [bin_dir.to_str().unwrap()],
+    });
+    std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+}
+
+#[test]
 fn compile_rejects_bad_panels() {
     // One member.
     let ws = Workspace::new(happy_script());

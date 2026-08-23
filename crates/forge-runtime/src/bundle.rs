@@ -50,6 +50,18 @@ pub struct Seat {
     pub body: SeatBody,
 }
 
+/// Optional container confinement for a driver (the policy-confined
+/// trust class): the command runs inside a pinned image with only the
+/// declared mounts, network off unless granted. Absence = trusted
+/// native process. Data, like everything else about a seat.
+#[derive(Debug, Clone)]
+pub struct Confine {
+    pub image: String,
+    pub network: bool,
+    /// Extra read-only mounts beyond the workdir and bundle dir.
+    pub mounts: Vec<String>,
+}
+
 /// One agent session, or a parallel panel joined by a declared
 /// deterministic rule (decision 0002's two sanctioned forms: this is
 /// concurrency INSIDE the executor — one effect, one typed result at
@@ -59,6 +71,7 @@ pub enum SeatBody {
     Single {
         role_path: PathBuf,
         command: Vec<String>,
+        confine: Option<Confine>,
     },
     Panel {
         members: Vec<PanelMember>,
@@ -71,6 +84,7 @@ pub struct PanelMember {
     pub name: String,
     pub role_path: PathBuf,
     pub command: Vec<String>,
+    pub confine: Option<Confine>,
 }
 
 /// Deterministic, order-independent aggregation rules — a closed
@@ -235,6 +249,7 @@ impl Bundle {
                         name: name.clone(),
                         role_path,
                         command,
+                        confine: parse_confine(&format!("{phase}:{name}"), member_raw)?,
                     });
                 }
                 SeatBody::Panel { members, aggregate }
@@ -242,6 +257,7 @@ impl Bundle {
                 SeatBody::Single {
                     role_path: parse_role(&dir, phase, raw)?,
                     command: parse_command(&dir, phase, raw)?,
+                    confine: parse_confine(phase, raw)?,
                 }
             };
             let limits = match raw.get("limits") {
@@ -422,6 +438,37 @@ fn parse_command(dir: &Path, what: &str, raw: &Value) -> Result<Vec<String>, Com
         })
         .filter(|c: &Vec<String>| !c.is_empty())
         .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))
+}
+
+fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileError> {
+    let Some(raw_confine) = raw.get("driver").and_then(|d| d.get("confine")) else {
+        return Ok(None);
+    };
+    let object = raw_confine.as_object().ok_or_else(|| {
+        CompileError::Invalid(format!("seat '{what}' driver.confine must be an object"))
+    })?;
+    let image = object
+        .get("image")
+        .and_then(Value::as_str)
+        .filter(|i| !i.is_empty())
+        .ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{what}' confine needs a non-empty image"))
+        })?
+        .to_string();
+    let network = object.get("network").and_then(Value::as_bool).unwrap_or(false);
+    let mounts = object
+        .get("mounts")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default();
+    for key in object.keys() {
+        if !["image", "network", "mounts"].contains(&key.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' confine has unknown key '{key}'"
+            )));
+        }
+    }
+    Ok(Some(Confine { image, network, mounts }))
 }
 
 fn declarable_input(name: &str) -> bool {
