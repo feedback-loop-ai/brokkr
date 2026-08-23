@@ -40,15 +40,65 @@ pub const ENGINE_OWNED_INPUTS: [&str; 4] = [
 
 #[derive(Debug, Clone)]
 pub struct Seat {
-    pub role_path: PathBuf,
     pub results: Vec<String>,
-    pub command: Vec<String>,
     pub limits: Limits,
     /// Typed facts this seat may supply (decision 0007). Anything else a
     /// seat sends is dropped before evaluation and never enters the
     /// journal record. Defaults to the non-engine-owned inputs the
     /// phase's own rules reference.
     pub inputs: Vec<String>,
+    pub body: SeatBody,
+}
+
+/// One agent session, or a parallel panel joined by a declared
+/// deterministic rule (decision 0002's two sanctioned forms: this is
+/// concurrency INSIDE the executor — one effect, one typed result at
+/// the boundary; members are journaled as checkpoint evidence).
+#[derive(Debug, Clone)]
+pub enum SeatBody {
+    Single {
+        role_path: PathBuf,
+        command: Vec<String>,
+    },
+    Panel {
+        members: Vec<PanelMember>,
+        aggregate: Aggregate,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct PanelMember {
+    pub name: String,
+    pub role_path: PathBuf,
+    pub command: Vec<String>,
+}
+
+/// Deterministic, order-independent aggregation rules — a closed
+/// vocabulary, like conditions: named in data, implemented in the
+/// engine, never arbitrary code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aggregate {
+    /// "pass" only when every member reports "pass"; otherwise "fail".
+    UnanimousPass,
+    /// Worst-member-wins over clean < residual < security-hold; severity
+    /// is the max, security and fixes flags are OR-ed.
+    ReviewPanel,
+}
+
+impl Aggregate {
+    fn parse(name: &str) -> Option<Aggregate> {
+        match name {
+            "unanimous-pass" => Some(Aggregate::UnanimousPass),
+            "review-panel" => Some(Aggregate::ReviewPanel),
+            _ => None,
+        }
+    }
+    fn required_results(&self) -> &'static [&'static str] {
+        match self {
+            Aggregate::UnanimousPass => &["pass", "fail"],
+            Aggregate::ReviewPanel => &["clean", "residual", "security-hold"],
+        }
+    }
 }
 
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
@@ -122,16 +172,6 @@ impl Bundle {
                     "seat '{phase}' names a phase the policy does not have"
                 )));
             }
-            let role_rel = raw
-                .get("role")
-                .and_then(Value::as_str)
-                .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' missing 'role'")))?;
-            let role_path = dir.join(role_rel);
-            if !role_path.is_file() {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{phase}' role file '{role_rel}' does not exist"
-                )));
-            }
             let results = raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -157,26 +197,53 @@ impl Bundle {
                     )));
                 }
             }
-            let command = raw
-                .get("driver")
-                .and_then(|d| d.get("command"))
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(|part| {
-                            // "./"-prefixed entries are bundle-relative.
-                            match part.strip_prefix("./") {
-                                Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
-                                None => part.to_string(),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .filter(|c| !c.is_empty())
-                .ok_or_else(|| {
-                    CompileError::Invalid(format!("seat '{phase}' needs driver.command"))
+            let body = if let Some(panel) = raw.get("panel") {
+                let members_raw = panel.as_object().ok_or_else(|| {
+                    CompileError::Invalid(format!("seat '{phase}' panel must be an object"))
                 })?;
+                if members_raw.len() < 2 {
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{phase}' panel needs at least two members; \
+                         a one-member panel is a single seat"
+                    )));
+                }
+                let aggregate_name = raw
+                    .get("aggregate")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        CompileError::Invalid(format!("seat '{phase}' panel needs 'aggregate'"))
+                    })?;
+                let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "seat '{phase}' unknown aggregate '{aggregate_name}'; known: \
+                         unanimous-pass, review-panel"
+                    ))
+                })?;
+                for required in aggregate.required_results() {
+                    if !results.iter().any(|r| r == required) {
+                        return Err(CompileError::Invalid(format!(
+                            "seat '{phase}' aggregate '{aggregate_name}' can emit \
+                             '{required}' but the seat does not declare it"
+                        )));
+                    }
+                }
+                let mut members = Vec::with_capacity(members_raw.len());
+                for (name, member_raw) in members_raw {
+                    let role_path = parse_role(&dir, &format!("{phase}:{name}"), member_raw)?;
+                    let command = parse_command(&dir, &format!("{phase}:{name}"), member_raw)?;
+                    members.push(PanelMember {
+                        name: name.clone(),
+                        role_path,
+                        command,
+                    });
+                }
+                SeatBody::Panel { members, aggregate }
+            } else {
+                SeatBody::Single {
+                    role_path: parse_role(&dir, phase, raw)?,
+                    command: parse_command(&dir, phase, raw)?,
+                }
+            };
             let limits = match raw.get("limits") {
                 None => Limits::default(),
                 Some(raw_limits) => {
@@ -253,11 +320,10 @@ impl Bundle {
             seats.insert(
                 phase.clone(),
                 Seat {
-                    role_path,
                     results,
-                    command,
                     limits,
                     inputs,
+                    body,
                 },
             );
         }
@@ -322,6 +388,40 @@ fn assert_phase_unavoidable(
         }
     }
     Ok(())
+}
+
+fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileError> {
+    let role_rel = raw
+        .get("role")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' missing 'role'")))?;
+    let role_path = dir.join(role_rel);
+    if !role_path.is_file() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' role file '{role_rel}' does not exist"
+        )));
+    }
+    Ok(role_path)
+}
+
+fn parse_command(dir: &Path, what: &str, raw: &Value) -> Result<Vec<String>, CompileError> {
+    raw.get("driver")
+        .and_then(|d| d.get("command"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|part| {
+                    // "./"-prefixed entries are bundle-relative.
+                    match part.strip_prefix("./") {
+                        Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
+                        None => part.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|c: &Vec<String>| !c.is_empty())
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))
 }
 
 fn declarable_input(name: &str) -> bool {

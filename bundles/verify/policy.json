@@ -48,12 +48,21 @@
       "reason": "Security residuals never qualify as an acceptable verification outcome."
     },
     {
+      "id": "REVIEW-RESIDUAL-FIXED",
+      "from": "review",
+      "result": "residual",
+      "when": { "fixes_applied": true },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "The read-only reviewer claims it changed code on a residual verdict: charter violation, park-grade defect in the verification itself."
+    },
+    {
       "id": "REVIEW-RESIDUAL-OK",
       "from": "review",
       "result": "residual",
       "next": "done",
       "severity": "flagged",
-      "reason": "Non-security residuals at or below medium: verified with named tracked debt."
+      "reason": "Non-security residuals at or below medium: verified with named tracked debt. Omitted severity inputs fall here flagged — the operator reads the notes."
     },
     {
       "id": "REVIEW-CLEAN",
