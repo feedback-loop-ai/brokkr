@@ -161,6 +161,15 @@ impl Workspace {
             .trim()
             .to_string()
     }
+
+    fn set_seat_limits(&self, phase: &str, max_attempts: u64, timeout_seconds: u64) {
+        let path = self.bundle_dir().join("bundle.json");
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        config["seats"][phase]["limits"] =
+            json!({"max_attempts": max_attempts, "timeout_seconds": timeout_seconds});
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+    }
 }
 
 fn happy_script() -> Value {
@@ -370,6 +379,63 @@ fn protocol_garbage_fails_closed_and_parks() {
     assert_eq!(code, Some(2));
     let reason = summary["park_reason"].as_str().unwrap();
     assert!(reason.contains("unreadable driver message"), "park reason: {reason}");
+}
+
+#[test]
+fn transient_driver_failure_retries_within_limit_and_completes() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([
+        {"behavior": "fail", "error": "transient boom"},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+    ]);
+    let ws = Workspace::new(script);
+    ws.set_seat_limits("implement", 2, 3600);
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(0), "one automated retry within the declared limit");
+    assert_eq!(summary["status"], "completed");
+}
+
+#[test]
+fn exhausted_attempt_limit_parks_with_last_error() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([
+        {"behavior": "fail", "error": "boom one"},
+        {"behavior": "fail", "error": "boom two"},
+    ]);
+    let ws = Workspace::new(script);
+    ws.set_seat_limits("implement", 2, 3600);
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(reason.contains("failed 2 of 2 attempt(s)"), "park reason: {reason}");
+    assert!(reason.contains("boom two"), "park reason: {reason}");
+}
+
+#[test]
+fn hung_driver_is_killed_at_its_deadline() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([{"behavior": "hang"}]);
+    let ws = Workspace::new(script);
+    ws.set_seat_limits("implement", 1, 1);
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2), "a hung seat must never hang the run");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(reason.contains("deadline"), "park reason: {reason}");
+}
+
+#[test]
+fn indeterminate_is_never_auto_retried_even_with_attempts_left() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([
+        {"behavior": "vanish"},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+    ]);
+    let ws = Workspace::new(script);
+    ws.set_seat_limits("implement", 3, 3600);
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(2), "indeterminate parks into operator judgment, never auto-retries");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(reason.contains("indeterminate"), "park reason: {reason}");
 }
 
 #[test]

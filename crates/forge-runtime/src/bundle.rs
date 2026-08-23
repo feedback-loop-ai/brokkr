@@ -34,6 +34,24 @@ pub struct Seat {
     pub role_path: PathBuf,
     pub results: Vec<String>,
     pub command: Vec<String>,
+    pub limits: Limits,
+}
+
+/// Per-seat autonomy limits (decision 0006). Defaults keep the old
+/// behavior: one attempt, one-hour deadline.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    pub max_attempts: u64,
+    pub timeout_seconds: u64,
+}
+
+impl Default for Limits {
+    fn default() -> Limits {
+        Limits {
+            max_attempts: 1,
+            timeout_seconds: 3600,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -145,12 +163,39 @@ impl Bundle {
                 .ok_or_else(|| {
                     CompileError::Invalid(format!("seat '{phase}' needs driver.command"))
                 })?;
+            let limits = match raw.get("limits") {
+                None => Limits::default(),
+                Some(raw_limits) => {
+                    let object = raw_limits.as_object().ok_or_else(|| {
+                        CompileError::Invalid(format!("seat '{phase}' limits must be an object"))
+                    })?;
+                    let mut limits = Limits::default();
+                    for (key, value) in object {
+                        let number = value.as_u64().filter(|n| *n >= 1).ok_or_else(|| {
+                            CompileError::Invalid(format!(
+                                "seat '{phase}' limits.{key} must be an integer >= 1"
+                            ))
+                        })?;
+                        match key.as_str() {
+                            "max_attempts" => limits.max_attempts = number,
+                            "timeout_seconds" => limits.timeout_seconds = number,
+                            other => {
+                                return Err(CompileError::Invalid(format!(
+                                    "seat '{phase}' has unknown limit '{other}'"
+                                )))
+                            }
+                        }
+                    }
+                    limits
+                }
+            };
             seats.insert(
                 phase.clone(),
                 Seat {
                     role_path,
                     results,
                     command,
+                    limits,
                 },
             );
         }
