@@ -67,27 +67,37 @@ Determinism laws:
 
 ## Status
 
-The engine is implemented through delivery-sequence step 5 and machine-proved:
-frozen v1 contracts, the pure core at differential parity with the Python
-oracle (97-case corpus), the append-only SQLite journal, the durable effect
-runtime with crash recovery, `forge-driver/v1` with a scripted fake driver,
-and the `forge` CLI (compile · run · resume · operator · inspect · replay ·
-export · verify-run). Scope per [decision
-0005](docs/decisions/0005-self-forging-first-scope.md): no UI, no containers,
-no signing service, single-seat executors — all additive later behind the
-frozen contracts.
+The engine is implemented, machine-proved, and self-hosting: frozen v1
+contracts, the pure core at differential parity with the Python oracle
+(97-case corpus), the append-only SQLite journal, the durable effect runtime
+with crash recovery, `forge-driver/v1` with scripted-fake and headless
+Claude Code drivers, and the `forge` CLI (init · doctor · compile · run ·
+resume · operator · inspect · replay · export · verify-run · runs). Scope per
+[decision 0005](docs/decisions/0005-self-forging-first-scope.md): no UI, no
+containers, no signing service, single-seat executors — all additive later
+behind the frozen contracts. CI builds a release `forge` binary artifact.
 
-The `bundles/self` bundle plus the headless Claude Code driver make the engine
-self-hosting on this repository: seats implement, verify, review (security
-riding along, non-removable), and ship under the linear table, while the
-operator keeps push and merge authority. Next: drive the first real change
-here end to end —
+Unattended autonomy is bounded, never open-ended:
+
+- per-seat attempt limits and deadlines — a hung or transiently failing
+  seat session retries within its declared budget or parks; indeterminate
+  outcomes always park
+  ([decision 0006](docs/decisions/0006-bounded-attempts-and-deadlines.md));
+- input provenance — every evaluation input is engine-computed or
+  seat-declared in the reviewed bundle; anything else is dropped before it
+  reaches the table or the journal
+  ([decision 0007](docs/decisions/0007-input-provenance.md)).
+
+The `bundles/self` bundle makes the engine deliver its own changes here:
+seats implement, verify, review (security riding along, non-removable), and
+ship under the linear table, while the operator keeps push and merge
+authority. The first self-forged changes have landed —
 
 ```
 cargo run -p forge-cli -- run --bundle bundles/self --repo . --feature "..."
 ```
 
-— then the Alkemio vertical slice
+— next is the Alkemio vertical slice
 ([delivery sequence](docs/target-architecture.md#delivery-sequence)).
 
 Private for now; the OSS boundary decision (naming, license, threat-model
