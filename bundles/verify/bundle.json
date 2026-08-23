@@ -1,0 +1,24 @@
+{
+  "name": "verify",
+  "policy": "policy.json",
+  "protected_phase": "review",
+  "seats": {
+    "verify": {
+      "role": "roles/verifier.md",
+      "results": ["pass", "fail"],
+      "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"]
+      }
+    },
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": ["clean", "residual", "security-hold"],
+      "inputs": ["fixes_applied", "has_security_residual", "max_residual_severity"],
+      "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
+      "driver": {
+        "command": ["python3", "./drivers/claude_driver.py", "--", "--permission-mode", "acceptEdits", "--allowedTools", "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"]
+      }
+    }
+  }
+}
