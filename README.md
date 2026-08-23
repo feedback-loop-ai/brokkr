@@ -27,8 +27,10 @@ outer loop. Here the machine **is** the outer loop.
        LaneTally Core: funding lanes · default-deny keys · cost truth
 ```
 
-The production shape is established by
-[decision 0003](docs/decisions/0003-native-rust-runtime.md) and detailed in
+The implemented system is described in [ARCHITECTURE.md](ARCHITECTURE.md);
+its production shape was established by
+[decision 0003](docs/decisions/0003-native-rust-runtime.md) and the
+pre-implementation blueprint in
 [the target architecture](docs/target-architecture.md). The Python evaluator that served as
 executable policy specification during the port is retired to
 `reference/oracle/` (decision 0009); the frozen evaluator corpus under
@@ -55,6 +57,7 @@ Determinism laws:
 
 | Path | What it is |
 |---|---|
+| `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, bundles, verification layers. |
 | `crates/` | The Rust engine — `forge-core` (pure), `forge-store`, `forge-protocol`, `forge-runtime`, `forge-cli` — building the one `forge` binary. |
 | `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
 | `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
