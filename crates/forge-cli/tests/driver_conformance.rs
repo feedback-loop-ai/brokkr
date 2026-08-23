@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 //! Conformance for the built-in adapters (`forge driver <kind>`) — the
 //! Rust port of the retired Python suite. Shims stand in for the agent
 //! CLIs; conformance means capabilities on hello, accepted + checkpoint
