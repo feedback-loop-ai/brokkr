@@ -109,6 +109,12 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
                         stdout.flush()?;
                         return Ok(());
                     }
+                    "hang" => {
+                        // Accepted, then silence: the engine's deadline
+                        // watchdog must kill this attempt.
+                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                        return Ok(());
+                    }
                     _ => return Ok(()), // "vanish": exit without a result
                 }
             }

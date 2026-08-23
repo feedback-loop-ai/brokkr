@@ -73,6 +73,15 @@ a v2 event.
 - `open_effect`: exactly one effect may be outstanding
   (`effect/requested`..`effect/started` without a terminal attempt fact).
   A second `effect/requested` while one is open fails fold closed.
+- Attempts within an effect (decision 0006): an `effect/failed` returns the
+  open effect to the executable position with its failure counted; the
+  engine may start a fresh attempt (`effect/started` again, new
+  `attempt_id`) up to the seat's declared limit, or append `run/parked`
+  directly from that position when the limit is exhausted. Each attempt
+  still carries exactly one terminal fact. An `effect/indeterminate` NEVER
+  re-attempts automatically — completion could not be established, so a
+  retry could silently duplicate or re-pay for completed work; it always
+  parks.
 - Replay of the same valid journal is byte-deterministic: same state, same
   pending action.
 

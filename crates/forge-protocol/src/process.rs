@@ -1,10 +1,17 @@
 //! Subprocess transport for `forge-driver/v1`: spawn the driver command,
 //! handshake, send `start`, and drive the attempt to a terminal outcome.
 //! Every protocol violation degrades to `Failed` (driver defect, retry
-//! is a new attempt); a silent exit degrades to `Indeterminate`.
+//! is a new attempt); a silent exit degrades to `Indeterminate`; a
+//! deadline expiry kills the driver and degrades to `Failed` — the kill
+//! makes non-completion determinate, so bounded retry stays safe
+//! (decision 0006).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::Value;
 use thiserror::Error;
@@ -23,14 +30,25 @@ pub enum SpawnError {
 }
 
 pub struct DriverProcess {
-    child: Child,
+    child: Arc<Mutex<Child>>,
     stdin: std::process::ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
     stderr_thread: std::thread::JoinHandle<String>,
+    timed_out: Arc<AtomicBool>,
+    /// Dropping this disarms the watchdog.
+    watchdog_disarm: Option<mpsc::Sender<()>>,
+    deadline: Option<Duration>,
 }
 
 impl DriverProcess {
-    pub fn spawn(command: &[String], workdir: &std::path::Path) -> Result<Self, SpawnError> {
+    /// Spawn the driver. With a deadline, a watchdog kills the child when
+    /// it expires; the attempt then reports Failed(timeout) rather than
+    /// hanging the run forever.
+    pub fn spawn(
+        command: &[String],
+        workdir: &std::path::Path,
+        deadline: Option<Duration>,
+    ) -> Result<Self, SpawnError> {
         let (program, args) = command.split_first().ok_or(SpawnError::EmptyCommand)?;
         let mut child = Command::new(program)
             .args(args)
@@ -51,11 +69,30 @@ impl DriverProcess {
             let _ = stderr.read_to_string(&mut buf);
             buf
         });
+        let child = Arc::new(Mutex::new(child));
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let watchdog_disarm = deadline.map(|deadline| {
+            let (tx, rx) = mpsc::channel::<()>();
+            let child = Arc::clone(&child);
+            let timed_out = Arc::clone(&timed_out);
+            std::thread::spawn(move || {
+                if let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
+                    timed_out.store(true, Ordering::SeqCst);
+                    if let Ok(mut child) = child.lock() {
+                        let _ = child.kill();
+                    }
+                }
+            });
+            tx
+        });
         Ok(DriverProcess {
             child,
             stdin,
             stdout,
             stderr_thread,
+            timed_out,
+            watchdog_disarm,
+            deadline,
         })
     }
 
@@ -93,16 +130,46 @@ impl DriverProcess {
         }
     }
 
-    fn finish(mut self, outcome: AttemptOutcome, session_ref: Option<String>, checkpoints: Vec<Value>) -> AttemptReport {
+    fn finish(
+        mut self,
+        outcome: AttemptOutcome,
+        session_ref: Option<String>,
+        checkpoints: Vec<Value>,
+    ) -> AttemptReport {
+        // Disarm the watchdog before shutdown so a slow exit is not killed.
+        drop(self.watchdog_disarm.take());
         let _ = self.send(Body::Shutdown);
         drop(self.stdin);
-        let _ = self.child.wait();
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.wait();
+        }
         let stderr = self.stderr_thread.join().unwrap_or_default();
         AttemptReport {
             outcome,
             session_ref,
             checkpoints,
             stderr,
+        }
+    }
+
+    /// The outcome for an EOF: a deadline kill is a determinate failure
+    /// (we killed it before any result); anything else depends on
+    /// whether the attempt was accepted.
+    fn eof_outcome(&self, accepted: bool) -> AttemptOutcome {
+        if self.timed_out.load(Ordering::SeqCst) {
+            let secs = self.deadline.map(|d| d.as_secs()).unwrap_or_default();
+            return AttemptOutcome::Failed {
+                error: format!("attempt exceeded its {secs}s deadline and was killed"),
+            };
+        }
+        let reason = if accepted {
+            "driver exited after accepting, before a result — attempt \
+             cannot be established as complete"
+        } else {
+            "driver exited before accepting the attempt"
+        };
+        AttemptOutcome::Indeterminate {
+            reason: reason.into(),
         }
     }
 
@@ -137,13 +204,8 @@ impl DriverProcess {
             Some(Ok(other)) => fail!("expected capabilities, got {:?}", other.body),
             Some(Err(e)) => fail!("{e}"),
             None => {
-                return self.finish(
-                    AttemptOutcome::Indeterminate {
-                        reason: "driver exited before capabilities".into(),
-                    },
-                    None,
-                    Vec::new(),
-                )
+                let outcome = self.eof_outcome(false);
+                return self.finish(outcome, None, Vec::new());
             }
         }
         if let Err(e) = self.send(Body::Start {
@@ -172,7 +234,11 @@ impl DriverProcess {
                         accepted = true;
                         session_ref = sref;
                     }
-                    Body::Checkpoint { data, effect_id: eid, .. } => {
+                    Body::Checkpoint {
+                        data,
+                        effect_id: eid,
+                        ..
+                    } => {
                         if eid != effect_id {
                             fail!("checkpoint for foreign effect '{eid}'");
                         }
@@ -206,19 +272,8 @@ impl DriverProcess {
                 },
                 Some(Err(e)) => fail!("{e}"),
                 None => {
-                    let reason = if accepted {
-                        "driver exited after accepting, before a result — attempt \
-                         cannot be established as complete"
-                    } else {
-                        "driver exited before accepting the attempt"
-                    };
-                    return self.finish(
-                        AttemptOutcome::Indeterminate {
-                            reason: reason.into(),
-                        },
-                        session_ref,
-                        checkpoints,
-                    );
+                    let outcome = self.eof_outcome(accepted);
+                    return self.finish(outcome, session_ref, checkpoints);
                 }
             }
         }
