@@ -14,30 +14,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,   name: forge-linux-x86_64 }
-          - { os: ubuntu-24.04-arm, name: forge-linux-aarch64 }
-          - { os: macos-latest,    name: forge-macos-arm64 }
-          - { os: macos-13,        name: forge-macos-x86_64 }
-          - { os: windows-latest,  name: forge-windows-x86_64 }
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: forge-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: forge-linux-aarch64 }
+          - { os: macos-latest,     target: aarch64-apple-darwin,      name: forge-macos-arm64 }
+          # macos-13 (Intel runners) is retired: cross-compile from arm64.
+          - { os: macos-latest,     target: x86_64-apple-darwin,       name: forge-macos-x86_64, cross: true }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    name: forge-windows-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
-      - run: cargo build --release -p forge-cli
+      - name: test (native legs only)
+        if: matrix.cross != true
+        run: cargo test --workspace
+      - run: cargo build --release -p forge-cli --target ${{ matrix.target }}
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          tar czf "dist/${{ matrix.name }}.tar.gz" -C target/release forge
+          tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" forge
           shasum -a 256 "dist/${{ matrix.name }}.tar.gz" > "dist/${{ matrix.name }}.tar.gz.sha256"
       - name: package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path target/release/forge.exe -DestinationPath "dist/${{ matrix.name }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/forge.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
           (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
