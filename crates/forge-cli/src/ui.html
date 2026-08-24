@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>forge</title>
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%2345e08c' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
     color-scheme: dark;
@@ -44,9 +45,31 @@
   .cause { color: var(--dim); font-size: .85em; }
   pre { background: var(--panel); border: 1px solid var(--line); padding: .6rem;
         border-radius: 8px; overflow-x: auto; }
+  /* The forge-in-progress pulse: rail nodes strike in sequence while any
+     run is live; still otherwise. */
+  #mark circle { transform-box: fill-box; transform-origin: center; }
+  @keyframes forge-strike {
+    0%, 100% { opacity: .55; transform: scale(1); }
+    45% { opacity: 1; transform: scale(1.45); }
+  }
+  @keyframes forge-halo {
+    0% { opacity: .6; transform: scale(1); }
+    100% { opacity: 0; transform: scale(3.2); }
+  }
+  body.forging .rail-n { animation: forge-strike 1.8s ease-in-out infinite; }
+  body.forging .rail-n2 { animation-delay: .3s; }
+  body.forging .rail-t { animation: forge-strike 1.8s ease-in-out .6s infinite; }
+  body.forging .rail-halo { animation: forge-halo 1.8s ease-out .6s infinite; }
 </style>
 <div id="brand">
-  <svg width="20" height="20" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M6 22h22" stroke="#3a3654" stroke-width="2"/><circle cx="10" cy="22" r="3" fill="#7c5cff"/><circle cx="19" cy="22" r="3" fill="#7c5cff"/><circle cx="33" cy="22" r="5" fill="#45e08c"/></svg>
+  <svg id="mark" width="24" height="24" viewBox="0 0 44 44" fill="none" aria-hidden="true">
+    <rect x="3" y="3" width="38" height="38" rx="7" stroke="#45e08c" stroke-width="2.5"/>
+    <path d="M10 28h9l-3 6h12l-3-6h9v-5H12l-2-6h24" stroke="#45e08c" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle class="rail-n" cx="15" cy="11" r="2.2" fill="#7c5cff"/>
+    <circle class="rail-n rail-n2" cx="22" cy="11" r="2.2" fill="#7c5cff"/>
+    <circle class="rail-t" cx="30" cy="11" r="3" fill="#45e08c"/>
+    <circle class="rail-halo" cx="30" cy="11" r="3" fill="none" stroke="#45e08c" stroke-width="1.4" opacity="0"/>
+  </svg>
   <span class="word"><span class="the">the_</span>FORGE</span>
   <span class="tag">&gt; the machine is the outer loop_</span>
 </div>
@@ -62,6 +85,16 @@
 // dynamic content is set through textContent (el(); badge classes come
 // from a fixed allowlist, never from data).
 let active = null, source = null;
+
+// Favicon pair: phosphor seal at rest, violet seal while forging — the
+// tab itself signals a live run (the 16px answer to the pulse).
+const FAVICON_IDLE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%2345e08c' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E";
+const FAVICON_FORGING = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%237c5cff' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E";
+
+function setForging(forging) {
+  document.body.classList.toggle('forging', forging);
+  document.getElementById('favicon').href = forging ? FAVICON_FORGING : FAVICON_IDLE;
+}
 
 const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
 
@@ -79,6 +112,7 @@ function badge(text, status) {
 
 async function loadRuns() {
   const runs = await (await fetch('/api/runs')).json();
+  setForging(runs.some((run) => run.status === 'running'));
   const list = document.getElementById('runlist');
   list.replaceChildren();
   for (const run of runs.reverse()) {
