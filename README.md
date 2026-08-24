@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.svg" width="132" alt="The Forge — sealed anvil mark, terminal rail node pulsing"></p>
+
 # The Forge
 
 *The machine is the outer loop. Struck, not spun.*
