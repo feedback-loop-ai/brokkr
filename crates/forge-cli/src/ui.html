@@ -2,30 +2,60 @@
 <meta charset="utf-8">
 <title>forge</title>
 <style>
-  :root { color-scheme: light dark; --line: #8884; --accent: #7c5cff; }
-  body { font: 14px/1.5 ui-monospace, monospace; margin: 0; display: flex; height: 100vh; }
-  #runs { width: 340px; border-right: 1px solid var(--line); overflow-y: auto; padding: .5rem; }
+  :root {
+    color-scheme: dark;
+    --void: #12101a; --panel: #1a1726; --line: #2c2840;
+    --text: #e8e6f0; --dim: #8b87a0;
+    --violet: #7c5cff; --phosphor: #45e08c; --park: #f0b15a; --halt: #ff6b5e;
+  }
+  body { font: 14px/1.5 'JetBrains Mono', ui-monospace, monospace; margin: 0;
+         display: flex; flex-direction: column; height: 100vh;
+         background: var(--void); color: var(--text); }
+  #brand { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  #brand .word { font-size: 15px; letter-spacing: 0.06em; font-weight: 700; }
+  #brand .word .the { color: var(--dim); font-weight: 400; }
+  #brand .tag { margin-left: auto; font-size: 11px; color: var(--phosphor);
+                letter-spacing: 0.08em; }
+  #cols { display: flex; flex: 1; min-height: 0; }
+  #runs { width: 340px; border-right: 1px solid var(--line); overflow-y: auto;
+          padding: .5rem; }
   #detail { flex: 1; overflow-y: auto; padding: 1rem; }
   h1 { font-size: 1rem; margin: .3rem 0 .8rem; }
-  .run { padding: .45rem .5rem; border: 1px solid var(--line); border-radius: 6px;
-         margin-bottom: .4rem; cursor: pointer; }
-  .run:hover, .run.active { border-color: var(--accent); }
+  .run { padding: .45rem .5rem; border: 1px solid var(--line); border-radius: 8px;
+         margin-bottom: .4rem; cursor: pointer; background: var(--panel); }
+  .run:hover, .run.active { border-color: var(--violet); }
   .run .id { font-weight: 600; word-break: break-all; }
-  .badge { display: inline-block; padding: 0 .45em; border-radius: 999px;
-           border: 1px solid var(--line); font-size: .85em; }
-  .completed { color: #2e9e5b; } .stopped { color: #d05050; }
-  .awaiting_operator { color: #d09a3e; } .running { color: var(--accent); }
+  .badge { display: inline-block; padding: 0 .5em; border-radius: 999px;
+           border: 1px solid var(--line); font-size: .85em; color: var(--dim); }
+  .completed { color: var(--phosphor); border-color: rgba(69,224,140,.45);
+               background: rgba(69,224,140,.10); }
+  .stopped { color: var(--halt); border-color: rgba(255,107,94,.45);
+             background: rgba(255,107,94,.10); }
+  .awaiting_operator { color: var(--park); border-color: rgba(240,177,90,.45);
+                       background: rgba(240,177,90,.10); }
+  .running { color: var(--violet); border-color: rgba(124,92,255,.45);
+             background: rgba(124,92,255,.10); }
   table { border-collapse: collapse; width: 100%; margin-top: .8rem; }
   td, th { border-bottom: 1px solid var(--line); padding: .3rem .5rem;
            text-align: left; vertical-align: top; }
-  td.payload { max-width: 46rem; overflow-wrap: anywhere; color: #888; }
-  .cause { color: #888; font-size: .85em; }
-  pre { background: #8881; padding: .6rem; border-radius: 6px; overflow-x: auto; }
+  th { color: var(--dim); font-weight: 600; }
+  td.payload { max-width: 46rem; overflow-wrap: anywhere; color: var(--dim); }
+  .cause { color: var(--dim); font-size: .85em; }
+  pre { background: var(--panel); border: 1px solid var(--line); padding: .6rem;
+        border-radius: 8px; overflow-x: auto; }
 </style>
-<div id="runs"><h1>forge — runs</h1><div id="runlist">loading…</div></div>
+<div id="brand">
+  <svg width="20" height="20" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M6 22h22" stroke="#3a3654" stroke-width="2"/><circle cx="10" cy="22" r="3" fill="#7c5cff"/><circle cx="19" cy="22" r="3" fill="#7c5cff"/><circle cx="33" cy="22" r="5" fill="#45e08c"/></svg>
+  <span class="word"><span class="the">the_</span>FORGE</span>
+  <span class="tag">&gt; the machine is the outer loop_</span>
+</div>
+<div id="cols">
+<div id="runs"><h1>runs</h1><div id="runlist">loading…</div></div>
 <div id="detail"><h1>select a run</h1>
   <p>Read-only surface: this page submits no commands and writes nothing
   (decision 0003, constitutional boundary 6).</p></div>
+</div>
 <script>
 // SECURITY DISCIPLINE: journal content is seat/driver-authored and
 // untrusted. Nothing journal-derived ever reaches innerHTML — all
