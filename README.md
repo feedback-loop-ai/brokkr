@@ -1,5 +1,7 @@
 # The Forge
 
+*The machine is the outer loop. Struck, not spun.*
+
 **A deterministic delivery engine for autonomous multi-agent software
 delivery.** The outermost layer is a pure, event-sourced phase state machine;
 agent sessions (Claude Code, Codex, dsh/LaneTally Surface, any harness) are
