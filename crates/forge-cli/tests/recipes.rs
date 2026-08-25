@@ -307,6 +307,46 @@ fn add_of_a_non_compiling_bundle_cleans_up_and_fails() {
 }
 
 #[test]
+fn add_refuses_the_ext_transport_that_would_execute_a_command() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    // Ends with `.git` so it classifies as a git source; the ext
+    // transport would run `sh -c` if git were allowed to use it.
+    let marker = ws.path().join("pwned");
+    let url = format!("ext::sh -c \"touch {}\" x.git", marker.display());
+
+    let (code, _, _) = ws.forge(&[
+        "recipes", "add", &url,
+        "--name", "evil",
+        "--dir", rdir.to_str().unwrap(),
+    ]);
+    assert_ne!(code, Some(0), "ext transport must be refused");
+    assert!(!marker.exists(), "the ext command must never execute");
+    assert!(!rdir.join("evil").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn add_refuses_symlinks_and_removes_the_partial_copy() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    let src = ws.path().join("sneaky");
+    ws.write_recipe(&src);
+    let secret = ws.path().join("secret.txt");
+    std::fs::write(&secret, "not for the library").unwrap();
+    std::os::unix::fs::symlink(&secret, src.join("zz-link")).unwrap();
+
+    let (code, _, stderr) = ws.forge(&[
+        "recipes", "add", src.to_str().unwrap(),
+        "--name", "sneaky",
+        "--dir", rdir.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("symlink"), "names the refusal: {stderr}");
+    assert!(!rdir.join("sneaky").exists(), "the partial copy is removed");
+}
+
+#[test]
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let ws = Ws::new();
     let rdir = ws.recipes_dir();
