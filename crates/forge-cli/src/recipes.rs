@@ -133,14 +133,23 @@ fn bundle_root(clone: &Path) -> Result<PathBuf> {
 }
 
 /// Recursive copy, skipping `.git` so a cloned recipe lands as plain
-/// reviewable files, not a nested repository.
+/// reviewable files, not a nested repository. Symlinks are refused:
+/// following one would copy whatever it points at (possibly outside the
+/// source) into the committable library.
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
+        let kind = entry.file_type()?;
         let source = entry.path();
         let dest = to.join(entry.file_name());
-        if source.is_dir() {
+        if kind.is_symlink() {
+            bail!(
+                "refusing to copy symlink {}: a recipe must be plain files",
+                source.display()
+            );
+        }
+        if kind.is_dir() {
             if entry.file_name() == ".git" {
                 continue;
             }
@@ -150,6 +159,15 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Copy into `dest`, removing the partial copy if anything fails —
+/// otherwise an aborted install would squat on the name and make every
+/// retry fail with "already exists".
+fn copy_into(from: &Path, dest: &Path) -> Result<()> {
+    copy_dir(from, dest).inspect_err(|_| {
+        let _ = std::fs::remove_dir_all(dest);
+    })
 }
 
 /// Install a recipe: clone or copy into `<dir>/<name>`, then
@@ -168,7 +186,11 @@ pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
     if is_git_source(source) {
         let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
         let clone = tmp.path().join("clone");
+        // `--` stops option injection; `protocol.ext.allow=never` stops
+        // the ext transport, which would otherwise execute an arbitrary
+        // command from a source like `ext::sh -c ... x.git`.
         let out = Command::new("git")
+            .args(["-c", "protocol.ext.allow=never"])
             .args(["clone", "--depth", "1", "--"])
             .arg(source)
             .arg(&clone)
@@ -181,11 +203,11 @@ pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
             );
         }
         let root = bundle_root(&clone)?;
-        copy_dir(&root, &dest)?;
+        copy_into(&root, &dest)?;
     } else {
         let src = Path::new(source);
         anyhow::ensure!(src.is_dir(), "source {source} is not a directory");
-        copy_dir(src, &dest)?;
+        copy_into(src, &dest)?;
     }
 
     match Bundle::compile(&dest) {
