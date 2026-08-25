@@ -104,6 +104,14 @@ Unattended autonomy is bounded, never open-ended:
   reaches the table or the journal
   ([decision 0007](docs/decisions/0007-input-provenance.md)).
 
+Delivery strategies are **composable recipes** (decision
+[0010](docs/decisions/0010-composable-recipes.md)): `forge recipes
+list|add` manage a digest-identified library (installable from git),
+`forge run --recipe` swaps the strategy, `forge rerun` replays a past
+run's feature under another recipe, and `forge compare` renders the
+aligned verdict — trails, divergence point, per-seat costs — as a pure
+read over two journals.
+
 The `bundles/self` bundle makes the engine deliver its own changes here:
 seats implement, verify, review (security riding along, non-removable), and
 ship under the linear table, while the operator keeps push and merge
