@@ -443,7 +443,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Runs { db } => {
             let store = Store::open(&db)?;
-            for (run_id, feature, created_at) in store.list_runs()? {
+            let runs = store.list_runs()?;
+            let count = runs.len();
+            for (run_id, feature, created_at) in runs {
                 let state = fold(&store.load(&run_id)?)?;
                 println!(
                     "{run_id}\t{feature}\t{created_at}\t{}\t{}",
@@ -451,6 +453,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     state.phase.as_deref().unwrap_or("-")
                 );
             }
+            println!("{count} runs");
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Driver { kind, args } => {
