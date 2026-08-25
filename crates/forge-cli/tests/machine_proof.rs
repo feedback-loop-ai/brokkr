@@ -412,6 +412,11 @@ fn runs_lists_completed_run_with_status_and_phase() {
     assert_eq!(cols[1], "proof feature");
     assert_eq!(cols[3], "completed");
     assert_eq!(cols[4], "done");
+    assert_eq!(
+        stdout.lines().last(),
+        Some("1 runs"),
+        "summary line counts the listed runs: {stdout}"
+    );
 }
 
 #[test]
