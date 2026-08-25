@@ -3,13 +3,14 @@
 
 mod doctor;
 mod init;
+mod recipes;
 mod ui;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 use forge_core::fold::{fold, RunState, Status};
 use forge_runtime::{operator_command, Bundle, Engine};
 use forge_store::Store;
@@ -73,9 +74,15 @@ enum Cmd {
         bundle: PathBuf,
     },
     /// Start a new run and drive it until it parks or finishes.
+    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
     Run {
         #[arg(long)]
-        bundle: PathBuf,
+        bundle: Option<PathBuf>,
+        /// Named recipe, resolved to <recipes-dir>/<name>.
+        #[arg(long)]
+        recipe: Option<String>,
+        #[arg(long, default_value = "recipes")]
+        recipes_dir: PathBuf,
         #[arg(long)]
         feature: String,
         #[arg(long, default_value = ".forge/forge.db")]
@@ -84,15 +91,27 @@ enum Cmd {
         repo: Option<PathBuf>,
     },
     /// Resume an existing run under its exact pinned bundle.
+    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
     Resume {
         #[arg(long)]
-        bundle: PathBuf,
+        bundle: Option<PathBuf>,
+        /// Named recipe, resolved to <recipes-dir>/<name>.
+        #[arg(long)]
+        recipe: Option<String>,
+        #[arg(long, default_value = "recipes")]
+        recipes_dir: PathBuf,
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
+    },
+    /// The recipe library: bundle directories as named, swappable
+    /// delivery strategies.
+    Recipes {
+        #[command(subcommand)]
+        command: RecipesCmd,
     },
     /// Record an operator command (retry | stop) as journal events.
     Operator {
@@ -151,6 +170,24 @@ enum Cmd {
         script: PathBuf,
         #[arg(long)]
         state: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecipesCmd {
+    /// List recipes under --dir plus the built-in bundles; broken ones
+    /// print a warning line, never abort the listing.
+    List {
+        #[arg(long, default_value = "recipes")]
+        dir: PathBuf,
+    },
+    /// Install a recipe from a local path or a git URL into <dir>/<name>.
+    Add {
+        source: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "recipes")]
+        dir: PathBuf,
     },
 }
 
@@ -307,11 +344,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Run {
             bundle,
+            recipe,
+            recipes_dir,
             feature,
             db,
             repo,
         } => {
-            let bundle = Bundle::compile(&bundle)?;
+            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = Engine::start(store, bundle, &feature, repo)?;
             eprintln!("run started: {}", engine.run_id);
@@ -320,11 +359,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Resume {
             bundle,
+            recipe,
+            recipes_dir,
             run,
             db,
             repo,
         } => {
-            let bundle = Bundle::compile(&bundle)?;
+            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             let end = engine.drive()?;
@@ -410,6 +451,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 .map(|i| args[i + 1..].to_vec())
                 .unwrap_or(args);
             forge_protocol::adapters::serve(kind, extra)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Recipes { command } => {
+            match command {
+                RecipesCmd::List { dir } => recipes::list(&dir)?,
+                RecipesCmd::Add { source, name, dir } => recipes::add(&source, &name, &dir)?,
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::FakeDriver { script, state } => {
