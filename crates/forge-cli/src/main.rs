@@ -107,6 +107,25 @@ enum Cmd {
         #[arg(long)]
         repo: Option<PathBuf>,
     },
+    /// Re-run a past run's feature as a NEW run under another bundle or
+    /// recipe, so outcomes can be compared by run id. No stored linkage.
+    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
+    Rerun {
+        /// The source run whose feature is re-run.
+        #[arg(long)]
+        run: String,
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+        /// Named recipe, resolved to <recipes-dir>/<name>.
+        #[arg(long)]
+        recipe: Option<String>,
+        #[arg(long, default_value = "recipes")]
+        recipes_dir: PathBuf,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
     /// The recipe library: bundle directories as named, swappable
     /// delivery strategies.
     Recipes {
@@ -368,6 +387,36 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
+            let end = engine.drive()?;
+            Ok(finish(&end.state))
+        }
+        Cmd::Rerun {
+            run,
+            bundle,
+            recipe,
+            recipes_dir,
+            db,
+            repo,
+        } => {
+            let store = Store::open(&db)?;
+            let events = store
+                .load(&run)
+                .with_context(|| format!("loading source run '{run}'"))?;
+            let feature = events
+                .first()
+                .filter(|e| e.event_type == forge_core::EventType::RunStarted)
+                .and_then(|e| e.payload.get("feature"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
+                })?
+                .to_string();
+            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            let mut engine = Engine::start(store, bundle, &feature, repo)?;
+            eprintln!(
+                "rerun of {run} as {} under {}",
+                engine.run_id, engine.bundle.name
+            );
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }

@@ -731,6 +731,87 @@ fn compile_rejects_provenance_violations() {
     }
 }
 
+/// Plain recursive copy for building variant bundles in tests.
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let dest = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &dest);
+        } else {
+            std::fs::copy(entry.path(), &dest).unwrap();
+        }
+    }
+}
+
+#[test]
+fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let source = Workspace::run_id(&stderr);
+
+    // A variant of the test bundle: same machine and seats, benignly
+    // different role text — a different manifest, hence a real rerun
+    // under a different delivery strategy.
+    let variant = ws.path().join("bundle-variant");
+    copy_dir(&ws.bundle_dir(), &variant);
+    std::fs::write(variant.join("roles/role.md"), "# variant role\n").unwrap();
+
+    let db = ws.db();
+    let (code, summary, stderr) = ws.forge(&[
+        "rerun", "--run", &source,
+        "--bundle", variant.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    assert_eq!(summary["phase"], "done");
+    assert_eq!(summary["feature"], "proof feature", "feature copied from the source run");
+
+    let prefix = format!("rerun of {source} as ");
+    let line = stderr
+        .lines()
+        .find(|l| l.starts_with(&prefix))
+        .unwrap_or_else(|| panic!("rerun announcement on stderr: {stderr}"));
+    let rerun_id = line[prefix.len()..]
+        .split(' ')
+        .next()
+        .expect("new run id in announcement")
+        .to_string();
+    assert_ne!(rerun_id, source, "a rerun is a NEW run, never the source");
+    assert!(line.ends_with(" under proof"), "bundle name in announcement: {line}");
+
+    // Both runs are independent journal entries.
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    for run_id in [&source, &rerun_id] {
+        let row = stdout
+            .lines()
+            .find(|l| l.starts_with(run_id.as_str()))
+            .unwrap_or_else(|| panic!("runs output has a line for {run_id}: {stdout}"));
+        let cols: Vec<&str> = row.split('\t').collect();
+        assert_eq!(cols[1], "proof feature");
+        assert_eq!(cols[3], "completed");
+        assert_eq!(cols[4], "done");
+    }
+}
+
+#[test]
+fn rerun_of_nonexistent_run_errors() {
+    let ws = Workspace::new(happy_script());
+    let bundle = ws.bundle_dir();
+    let db = ws.db();
+    let (code, _, stderr) = ws.forge(&[
+        "rerun", "--run", "no-such-run",
+        "--bundle", bundle.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("no-such-run"), "stderr names the missing run: {stderr}");
+}
+
 #[test]
 fn resume_refuses_an_edited_bundle() {
     let mut script = happy_script();
