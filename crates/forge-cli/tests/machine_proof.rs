@@ -799,6 +799,109 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
 }
 
 #[test]
+fn compare_aligns_two_runs_and_finds_the_review_divergence() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_a = Workspace::run_id(&stderr);
+
+    // A variant bundle whose review returns residual low instead of
+    // clean: its seats read a second script through a second state dir,
+    // which both isolates the fake driver's attempt counters and makes
+    // the manifest digest honestly differ (same_recipe: false).
+    let variant = ws.path().join("bundle-variant");
+    copy_dir(&ws.bundle_dir(), &variant);
+    let mut script = happy_script();
+    script["seats"]["review"] = json!([{"behavior": "succeed", "result": {
+        "result": "residual",
+        "inputs": {"max_residual_severity": "low", "has_security_residual": false}
+    }}]);
+    let script_path = ws.path().join("script-variant.json");
+    std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
+    let state = ws.path().join("state-variant");
+    std::fs::create_dir_all(&state).unwrap();
+    let config_path = variant.join("bundle.json");
+    let mut config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    for (_, seat) in config["seats"].as_object_mut().unwrap() {
+        seat["driver"]["command"] = json!([
+            forge_bin(), "fake-driver",
+            "--script", script_path.to_string_lossy(),
+            "--state", state.to_string_lossy(),
+        ]);
+    }
+    std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+
+    let db = ws.db();
+    let (code, summary, stderr) = ws.forge(&[
+        "rerun", "--run", &run_a,
+        "--bundle", variant.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    let prefix = format!("rerun of {run_a} as ");
+    let run_b = stderr
+        .lines()
+        .find(|l| l.starts_with(&prefix))
+        .unwrap_or_else(|| panic!("rerun announcement on stderr: {stderr}"))[prefix.len()..]
+        .split(' ')
+        .next()
+        .expect("new run id in announcement")
+        .to_string();
+
+    let (code, report, stderr) =
+        ws.forge(&["compare", &run_a, &run_b, "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+
+    // Per-run sections: identity, fold summary, trail, numbers present.
+    // Fake-driver checkpoints carry no cost, so assert presence/type only.
+    for id in [&run_a, &run_b] {
+        let run = &report["runs"][id.as_str()];
+        assert_eq!(run["feature"], "proof feature");
+        assert_eq!(run["bundle_name"], "proof");
+        assert!(run["manifest"]["sha256"].is_string(), "run {id}: {run}");
+        assert_eq!(run["status"], "completed");
+        assert_eq!(run["phase"], "done");
+        assert_eq!(run["park_reason"], Value::Null);
+        assert!(run["total_cost_usd"].is_number(), "run {id}: {run}");
+        assert!(run["events"].as_u64().unwrap() > 0);
+        assert!(run["first_recorded_at"].is_string(), "run {id}: {run}");
+        assert!(run["last_recorded_at"].is_string(), "run {id}: {run}");
+        assert!(
+            run["seats"]["review"]["attempts"].as_u64().unwrap() >= 1,
+            "run {id}: {run}"
+        );
+        assert_eq!(run["phases_visited"]["ship"], 2, "ready then shipped: {run}");
+    }
+    assert_eq!(
+        report["runs"][run_a.as_str()]["decision_trail"],
+        json!(["INTAKE-OK", "IMPL-OK", "VERIFY-PASS",
+               "REVIEW-CLEAN-NO-FIXES", "SHIP-READY", "SHIP-COMPLETE"])
+    );
+    assert_eq!(
+        report["runs"][run_b.as_str()]["decision_trail"][3],
+        "REVIEW-RESIDUAL-OK"
+    );
+
+    let cmp = &report["comparison"];
+    assert_eq!(cmp["same_feature"], true);
+    assert_eq!(cmp["same_recipe"], false, "variant manifest must differ");
+    assert_eq!(cmp["status_pair"], json!(["completed", "completed"]));
+    assert_eq!(cmp["first_divergence"]["index"], 3, "comparison: {cmp}");
+    assert_eq!(cmp["first_divergence"]["a"], "REVIEW-CLEAN-NO-FIXES");
+    assert_eq!(cmp["first_divergence"]["b"], "REVIEW-RESIDUAL-OK");
+    assert!(cmp["cost_delta_usd"].is_number(), "comparison: {cmp}");
+    assert!(cmp["attempts_delta"].is_number(), "comparison: {cmp}");
+
+    // Either run missing is a clear exit-1 error naming the run.
+    let (code, _, stderr) =
+        ws.forge(&["compare", "no-such-run", &run_b, "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("no-such-run"), "stderr names the missing run: {stderr}");
+}
+
+#[test]
 fn rerun_of_nonexistent_run_errors() {
     let ws = Workspace::new(happy_script());
     let bundle = ws.bundle_dir();
