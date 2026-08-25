@@ -169,7 +169,8 @@ pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
         let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
         let clone = tmp.path().join("clone");
         let out = Command::new("git")
-            .args(["clone", "--depth", "1", source])
+            .args(["clone", "--depth", "1", "--"])
+            .arg(source)
             .arg(&clone)
             .output()
             .context("running git clone")?;
