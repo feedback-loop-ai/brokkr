@@ -185,7 +185,7 @@ function buildParticipants(events) {
     if (e.type === 'effect/started') {
       effect.attempts += 1;
       effect.open = p.attempt_id;
-    } else if (TERMINAL_STATUS[e.type] && p.attempt_id === effect.open) {
+    } else if (Object.hasOwn(TERMINAL_STATUS, e.type) && p.attempt_id === effect.open) {
       effect.open = null;
       effect.terminal = TERMINAL_STATUS[e.type];
       effect.terminalEvent = e;
@@ -213,7 +213,7 @@ function buildParticipants(events) {
     // the effect's terminal status so a concluded run never shows a
     // member stuck on "working".
     const effectStatus = part.effect.open ? 'working' : (part.effect.terminal ?? 'working');
-    part.status = (part.member && STATUS_CLASS[part.memberOutcome])
+    part.status = (part.member && Object.hasOwn(STATUS_CLASS, part.memberOutcome))
       ? part.memberOutcome : effectStatus;
     part.attempts = part.effect.attempts;
   }
