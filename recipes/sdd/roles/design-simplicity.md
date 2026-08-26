@@ -17,4 +17,7 @@ bigger design would cost.
 
 Result: `pass` with `notes` naming the position file you wrote. `fail`
 ONLY if you cannot form a position at all (for example, the framing is
-missing or incoherent) — name the reason precisely.
+missing or incoherent) — name the reason precisely. Your result
+vocabulary is exactly `pass`/`fail`: the generic result contract below
+lists the seat-level vocabulary (`designed`/`fail`), which applies only
+to the sequence's final validation step, never to you.
