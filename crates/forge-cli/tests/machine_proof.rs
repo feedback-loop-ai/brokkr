@@ -243,6 +243,55 @@ impl Workspace {
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }
 
+    /// Attach a `requires_artifacts` declaration to one policy rule.
+    fn set_rule_requires_artifacts(&self, rule_id: &str, artifacts: &[&str]) {
+        let path = self.bundle_dir().join("policy.json");
+        let mut policy: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let rule = policy["rules"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["id"] == rule_id)
+            .unwrap_or_else(|| panic!("no rule {rule_id}"));
+        rule["requires_artifacts"] = json!(artifacts);
+        std::fs::write(&path, serde_json::to_string(&policy).unwrap()).unwrap();
+    }
+
+    /// A run workdir distinct from the harness root (which holds the db
+    /// and bundle), so replay proofs can delete it outright.
+    fn workdir(&self) -> PathBuf {
+        let dir = self.path().join("work");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn run_in_workdir(&self) -> (Option<i32>, Value, String) {
+        let bundle = self.bundle_dir();
+        let db = self.db();
+        let work = self.workdir();
+        self.forge(&[
+            "run",
+            "--bundle", bundle.to_str().unwrap(),
+            "--feature", "proof feature",
+            "--db", db.to_str().unwrap(),
+            "--repo", work.to_str().unwrap(),
+        ])
+    }
+
+    fn resume_in_workdir(&self, run_id: &str) -> (Option<i32>, Value, String) {
+        let bundle = self.bundle_dir();
+        let db = self.db();
+        let work = self.workdir();
+        self.forge(&[
+            "resume",
+            "--run", run_id,
+            "--bundle", bundle.to_str().unwrap(),
+            "--db", db.to_str().unwrap(),
+            "--repo", work.to_str().unwrap(),
+        ])
+    }
+
     /// Export the run's journal and parse it into events.
     fn exported_events(&self, run_id: &str) -> Vec<Value> {
         let db = self.db();
@@ -1238,4 +1287,273 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
     let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("constitutionally rejected"), "stderr: {stderr}");
+}
+
+/// The one implement decision in a run's journal.
+fn implement_decision(events: &[Value]) -> Value {
+    events
+        .iter()
+        .find(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "implement")
+        .expect("implement decision in journal")
+        .clone()
+}
+
+#[test]
+fn missing_artifact_fails_closed_and_no_subsequent_seat_runs() {
+    // AC-1: an advancing ruling naming an absent artifact parks with the
+    // canonical evidence; the phase never advances, no seat attests.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    let (code, summary, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    assert_eq!(summary["status"], "awaiting_operator");
+    assert_eq!(summary["phase"], "implement");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.contains("requires_artifacts unmet for rule IMPL-OK: missing: spec.md"),
+        "park reason: {reason}"
+    );
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let payload = implement_decision(&events)["payload"].clone();
+    assert_eq!(payload["rule_id"], "IMPL-OK", "the rule DID match; a gate block is not NoRule");
+    assert_eq!(payload["result"], "complete");
+    assert_eq!(payload["next"], Value::Null, "fails closed");
+    assert_eq!(payload["severity"], Value::Null, "no transition taken, no severity");
+    assert_eq!(
+        payload["problem"],
+        "requires_artifacts unmet for rule IMPL-OK: missing: spec.md"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "phase/entered" && e["payload"]["phase"] == "verify"),
+        "the phase never advances"
+    );
+}
+
+#[test]
+fn empty_and_directory_artifacts_park_with_their_classes() {
+    // AC-2: presence is not enough — a zero-byte file and a directory
+    // each fail closed under their own class.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    std::fs::write(ws.workdir().join("spec.md"), "").unwrap();
+    let (code, summary, _) = ws.run_in_workdir();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.contains("requires_artifacts unmet for rule IMPL-OK: empty: spec.md"),
+        "park reason: {reason}"
+    );
+
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    std::fs::create_dir(ws.workdir().join("spec.md")).unwrap();
+    let (code, summary, _) = ws.run_in_workdir();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.contains("requires_artifacts unmet for rule IMPL-OK: not-a-file: spec.md"),
+        "park reason: {reason}"
+    );
+}
+
+#[test]
+fn invalid_entries_fail_closed_without_resolving() {
+    // AC-3: traversal and reserved-syntax entries are class `invalid` at
+    // decide time — even when the traversal target exists, it never
+    // resolves.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["../escape", "{slug}"]);
+    std::fs::write(ws.path().join("escape"), "present outside the workdir").unwrap();
+    let (code, summary, _) = ws.run_in_workdir();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.contains(
+            "requires_artifacts unmet for rule IMPL-OK: invalid: ../escape; invalid: {slug}"
+        ),
+        "park reason: {reason}"
+    );
+}
+
+#[test]
+fn multiple_failures_produce_one_park_in_table_order() {
+    // AC-4: the gate reports the COMPLETE failure list in declaration
+    // order — the operator fixes one park, not three sequential ones.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md", "plan.md", "repos.yaml"]);
+    std::fs::write(ws.workdir().join("plan.md"), "").unwrap();
+    std::fs::create_dir(ws.workdir().join("repos.yaml")).unwrap();
+    let (code, summary, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(2));
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.contains(
+            "requires_artifacts unmet for rule IMPL-OK: \
+             missing: spec.md; empty: plan.md; not-a-file: repos.yaml"
+        ),
+        "park reason: {reason}"
+    );
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let parks = events
+        .iter()
+        .filter(|e| e["type"] == "transition/decided" && !e["payload"]["problem"].is_null())
+        .count();
+    assert_eq!(parks, 1, "one park carries all the evidence");
+}
+
+#[test]
+fn artifacts_present_advance_is_byte_equivalent_to_ungated() {
+    // AC-5: on the pass path the gate leaves no residue — the decided
+    // payload matches an artifact-free rule's advance byte for byte.
+    let gated = Workspace::new(happy_script());
+    gated.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    std::fs::write(gated.workdir().join("spec.md"), "# spec\n").unwrap();
+    let (code, summary, stderr) = gated.run_in_workdir();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    let gated_payload =
+        implement_decision(&gated.exported_events(&Workspace::run_id(&stderr)))["payload"].clone();
+
+    let plain = Workspace::new(happy_script());
+    let (code, _, stderr) = plain.run_in_workdir();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let plain_payload =
+        implement_decision(&plain.exported_events(&Workspace::run_id(&stderr)))["payload"].clone();
+
+    assert_eq!(
+        serde_json::to_string(&gated_payload).unwrap(),
+        serde_json::to_string(&plain_payload).unwrap(),
+        "the pass path leaves no residue"
+    );
+}
+
+#[test]
+fn gate_park_recovers_via_operator_retry_consuming_no_attempt_budget() {
+    // AC-6: park -> retry -> the seat re-runs -> the gate re-probes ->
+    // advance. max_attempts 1 proves the gate park consumed none of the
+    // seat's budget (a gate park is not a seat failure, decision 0006).
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([
+        {"behavior": "succeed", "result": {"result": "complete"}},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+    ]);
+    let ws = Workspace::new(script);
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    ws.set_seat_limits("implement", 1, 3600);
+    let (code, summary, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    assert_eq!(summary["status"], "awaiting_operator");
+    let run_id = Workspace::run_id(&stderr);
+
+    std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
+    let db = ws.db();
+    let (code, _, _) = ws.forge(&[
+        "operator", "retry", "--run", &run_id,
+        "--reason", "artifacts supplied",
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0));
+    let (code, summary, stderr) = ws.resume_in_workdir(&run_id);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+}
+
+#[test]
+fn gate_decisions_replay_with_the_workdir_deleted() {
+    // AC-7: the decided payload is the durable record of the gate's
+    // observation; replay folds it and never touches the workdir.
+    // The parked run.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    let (code, _, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(2));
+    let run_id = Workspace::run_id(&stderr);
+    std::fs::remove_dir_all(ws.workdir()).unwrap();
+    let db = ws.db();
+    let (code, replay, _) =
+        ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0));
+    assert_eq!(replay["replay"], "deterministic");
+
+    // The advanced run, with export/verify stability per the
+    // full_delivery_completes_exports_and_replays pattern.
+    let ws = Workspace::new(happy_script());
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
+    let (code, summary, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    let run_id = Workspace::run_id(&stderr);
+    std::fs::remove_dir_all(ws.workdir()).unwrap();
+    let db = ws.db();
+    let (code, replay, _) =
+        ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0));
+    assert_eq!(replay["replay"], "deterministic");
+    let out = ws.path().join("export");
+    let (code, _, _) = ws.forge(&[
+        "export", "--run", &run_id,
+        "--out", out.to_str().unwrap(),
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0));
+    let journal = out.join(format!("{run_id}.ndjson"));
+    let (code, verified, _) = ws.forge(&["verify-run", journal.to_str().unwrap()]);
+    assert_eq!(code, Some(0));
+    assert_eq!(verified["chain"], "verified");
+    assert_eq!(verified["state"]["status"], "completed");
+}
+
+#[test]
+fn gate_park_resets_consecutive_failures() {
+    // AC-8, pinned: the blocked decision carries the seat's actual
+    // result (`complete`, not a FAILURE_RESULT), so the fold resets the
+    // phase's failure counter — the counter tracks seat failures, and
+    // the seat succeeded; the gate blocked. A stale counter would make
+    // the post-retry `broken` read 2 and hard-stop via IMPL-BROKEN-TWICE.
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([
+        {"behavior": "succeed", "result": {"result": "broken"}},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+        {"behavior": "succeed", "result": {"result": "broken"}},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+    ]);
+    let ws = Workspace::new(script);
+    ws.set_rule_requires_artifacts("IMPL-OK", &["spec.md"]);
+    let (code, summary, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    assert_eq!(summary["status"], "awaiting_operator");
+    let run_id = Workspace::run_id(&stderr);
+
+    std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
+    let db = ws.db();
+    let (code, _, _) = ws.forge(&[
+        "operator", "retry", "--run", &run_id,
+        "--reason", "artifacts supplied",
+        "--db", db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0));
+    let (code, summary, stderr) = ws.resume_in_workdir(&run_id);
+    assert_eq!(code, Some(0), "a reset counter retries; a stale one hard-stops: {stderr}");
+    assert_eq!(summary["status"], "completed");
+
+    let events = ws.exported_events(&run_id);
+    let implement_rules: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "implement")
+        .map(|e| &e["payload"])
+        .collect();
+    let trail: Vec<&Value> = implement_rules.iter().map(|p| &p["rule_id"]).collect();
+    assert_eq!(
+        trail,
+        vec!["IMPL-BROKEN-RETRY", "IMPL-OK", "IMPL-BROKEN-RETRY", "IMPL-OK"],
+        "never IMPL-BROKEN-TWICE"
+    );
+    assert_eq!(
+        implement_rules[2]["inputs"]["consecutive_failures"], 1,
+        "the gate park reset the counter before the post-retry broken"
+    );
 }

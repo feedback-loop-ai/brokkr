@@ -16,7 +16,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   the reserved characters `{ } $ < >`, `..`/absolute rejection,
   symlink-followed and dangling-symlink cases, multi-failure ordering,
   and the exact rendered string.
-- [ ] **T2 — Wire the gate into the `Outcome::Ruling` arm**
+- [x] **T2 — Wire the gate into the `Outcome::Ruling` arm**
   (`engine.rs:1079`): bind `requires_artifacts`; empty failure list →
   today's advancing payload byte-identical; otherwise blocked payload
   (`rule_id` retained, `next: null`, `severity: null`, `inputs`
@@ -24,18 +24,18 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-1 machine proof (missing artifact → park with exact
   payload values, no subsequent seat) and AC-5 (artifacts present →
   advance byte-equivalent to an artifact-free rule).
-- [ ] **T3 — Edge-class machine proofs.** Zero-byte file (`empty`),
+- [x] **T3 — Edge-class machine proofs.** Zero-byte file (`empty`),
   directory (`not-a-file`), and `../escape` / `{slug}` entries
   (`invalid`) each park with the canonical problem string.
   *Proven by*: AC-2 and AC-3 machine proofs.
-- [ ] **T4 — Multi-failure proof.** One rule, three failing artifacts →
+- [x] **T4 — Multi-failure proof.** One rule, three failing artifacts →
   a single park listing all three in table order.
   *Proven by*: AC-4 machine proof.
-- [ ] **T5 — Recovery-loop proof.** Park → operator `retry` → seat
+- [x] **T5 — Recovery-loop proof.** Park → operator `retry` → seat
   re-runs → artifacts now present → advance; no attempt budget
   consumed by the gate park.
   *Proven by*: AC-6 machine proof.
-- [ ] **T6 — Replay and counter-semantics proofs.** Replay both the
+- [x] **T6 — Replay and counter-semantics proofs.** Replay both the
   parked and advanced runs with the workdir deleted; assert state
   reproduction and export stability
   (`full_delivery_completes_exports_and_replays` pattern); assert the
