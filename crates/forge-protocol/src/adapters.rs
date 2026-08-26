@@ -162,11 +162,13 @@ fn fold_stream_event(
                 "tool".into(),
                 Value::String(tool.chars().take(80).collect()),
             );
-            let target = ["file_path", "command", "url"].iter().find_map(|key| {
-                tool_use
-                    .pointer(&format!("/input/{key}"))
-                    .and_then(Value::as_str)
-            });
+            // file_path ONLY: commands and URLs can embed inline secrets,
+            // and the journal is append-only — the forge-verify review
+            // hard-stopped on exactly this (run verify-…-917996f5). Full
+            // detail belongs to the resumable transcript, not the record.
+            let target = tool_use
+                .pointer("/input/file_path")
+                .and_then(Value::as_str);
             if let Some(target) = target {
                 checkpoint.insert(
                     "target".into(),
