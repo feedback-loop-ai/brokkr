@@ -43,6 +43,7 @@
   th { color: var(--dim); font-weight: 600; }
   td.payload { max-width: 46rem; overflow-wrap: anywhere; color: var(--dim); }
   .cause { color: var(--dim); font-size: .85em; }
+  .live { color: var(--phosphor); margin: .3rem 0; }
   pre { background: var(--panel); border: 1px solid var(--line); padding: .6rem;
         border-radius: 8px; overflow-x: auto; }
   /* The forge-in-progress pulse: rail nodes strike in sequence while any
@@ -150,6 +151,39 @@ async function loadDetail(id) {
   detail.appendChild(line);
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
   detail.appendChild(el('pre', null, JSON.stringify(s.last_decision ?? {}, null, 2)));
+
+  // Live seat telemetry: while an attempt is open (an effect/started
+  // with no later terminal effect event), show one activity line built
+  // from the newest seat-turn checkpoint of that attempt. Disappears
+  // when the attempt concludes; SSE re-renders keep it current.
+  const events = data.events ?? [];
+  const TERMINAL = ['effect/succeeded', 'effect/failed', 'effect/indeterminate'];
+  let open = null;
+  for (const e of events) {
+    const p = e.payload || {};
+    if (e.type === 'effect/started') {
+      open = { effect_id: p.effect_id, attempt_id: p.attempt_id };
+    } else if (open && TERMINAL.includes(e.type) &&
+               p.effect_id === open.effect_id && p.attempt_id === open.attempt_id) {
+      open = null;
+    }
+  }
+  if (open) {
+    let seat = '?', turnCp = null;
+    for (const e of events) {
+      const p = e.payload || {};
+      if (e.type === 'effect/requested' && p.effect_id === open.effect_id && p.seat) {
+        seat = p.seat;
+      }
+      if (e.type === 'effect/checkpointed' && p.effect_id === open.effect_id &&
+          p.attempt_id === open.attempt_id && (p.checkpoint || {}).step === 'seat-turn') {
+        turnCp = p.checkpoint;
+      }
+    }
+    detail.appendChild(el('p', 'live', turnCp
+      ? seat + ' · turn ' + turnCp.turn + ' · ' + turnCp.tool
+      : seat + ' · working'));
+  }
 
   const table = el('table');
   table.appendChild(row([

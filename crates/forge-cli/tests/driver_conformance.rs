@@ -30,6 +30,21 @@ printf '{"type":"result","session_id":"s1","num_turns":1,"total_cost_usd":0.0}\n
 printf 'session id: deadbeef1234\n'
 "#;
 
+// The claude flavor speaks stream-json: an init with the session id, two
+// tool-using assistant turns, a noise line the adapter must drop, and a
+// final result with the session totals — while still honoring the
+// result-file contract.
+const CLAUDE_STREAM_SHIM: &str = r#"#!/bin/sh
+prompt=$(cat)
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+printf '{"type":"system","subtype":"init","session_id":"stream-1"}\n'
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
+printf 'not json, ignorable noise\n'
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}}]}}\n'
+printf '{"type":"result","num_turns":2,"total_cost_usd":0.125}\n'
+"#;
+
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
 
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
@@ -97,21 +112,50 @@ fn all_adapters<'a>(shim: &'a Path) -> Vec<(&'static str, Vec<String>)> {
 
 #[test]
 fn conformance_across_all_builtin_adapters() {
-    for (case, shim_body) in [("obedient", OBEDIENT_SHIM), ("silent", SILENT_SHIM)] {
+    for case in ["obedient", "silent"] {
         let dir = tempfile::tempdir().unwrap();
-        let shim = make_shim(dir.path(), shim_body);
+        let shim = make_shim(dir.path(), if case == "obedient" { OBEDIENT_SHIM } else { SILENT_SHIM });
+        let claude_dir = dir.path().join("claude-stream");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let claude_shim = make_shim(&claude_dir, CLAUDE_STREAM_SHIM);
         for (label, args) in all_adapters(&shim) {
+            // The claude adapter streams its session: its obedient shim
+            // speaks stream-json and yields two seat-turn checkpoints
+            // before the session-finished one.
+            let claude = label == "claude";
+            let shim = if claude && case == "obedient" { &claude_shim } else { &shim };
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            let out = drive(&args, &shim, dir.path());
+            let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> =
                 out.iter().map(|m| m["type"].as_str().unwrap()).collect();
-            assert_eq!(
-                kinds,
-                ["capabilities", "accepted", "checkpoint", "result"],
-                "{label}/{case}: {kinds:?}"
-            );
+            let expected: &[&str] = if claude && case == "obedient" {
+                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "result"]
+            } else {
+                &["capabilities", "accepted", "checkpoint", "result"]
+            };
+            assert_eq!(kinds, expected, "{label}/{case}: {kinds:?}");
             for message in &out {
                 assert_eq!(message["proto"], "forge-driver/v1", "{label}");
+            }
+            if claude && case == "obedient" {
+                assert_eq!(
+                    out[2]["data"],
+                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
+                           "target": "src/lib.rs"}),
+                    "{label}: {}", out[2]
+                );
+                assert_eq!(
+                    out[3]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
+                           "target": "src/main.rs"}),
+                    "{label}: {}", out[3]
+                );
+                let finished = &out[4]["data"];
+                assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
+                assert_eq!(finished["session_id"], "stream-1", "{label}");
+                assert_eq!(finished["num_turns"], 2, "{label}");
+                assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
+                assert_eq!(finished["exit_code"], 0, "{label}");
             }
             let result = out.last().unwrap();
             if case == "obedient" {

@@ -11,7 +11,7 @@
 //! Env overrides for conformance shims: FORGE_CLAUDE_BIN,
 //! FORGE_CODEX_BIN, FORGE_EXEC_NAME.
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
@@ -124,7 +124,74 @@ fn run_cli(
         .map_err(|e| format!("agent CLI did not conclude: {e}"))
 }
 
-fn invoke(kind: AdapterKind, extra: &[String], prompt: &str, input: &Value) -> Result<Invocation, String> {
+/// One parsed claude stream-json line folded into the seat's telemetry:
+/// `system`/`init` and `result` feed `session_meta`; an `assistant`
+/// message with a `tool_use` block becomes one seat-turn checkpoint.
+/// Privacy invariant (journal is evidence, not transcript): checkpoints
+/// carry turn index, tool name, and a ≤80-char target only — never
+/// message text, thinking, or full tool inputs.
+fn fold_stream_event(
+    event: &Value,
+    assistant_turns: &mut u64,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) {
+    match event.get("type").and_then(Value::as_str) {
+        Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
+            if let Some(session_id) = event.get("session_id") {
+                session_meta.insert("session_id".into(), session_id.clone());
+            }
+        }
+        Some("assistant") => {
+            *assistant_turns += 1;
+            let blocks = event
+                .pointer("/message/content")
+                .and_then(Value::as_array);
+            let Some(tool_use) = blocks.and_then(|blocks| {
+                blocks
+                    .iter()
+                    .find(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
+            }) else {
+                return;
+            };
+            let mut checkpoint = Map::new();
+            checkpoint.insert("step".into(), Value::String("seat-turn".into()));
+            checkpoint.insert("turn".into(), Value::from(*assistant_turns));
+            checkpoint.insert(
+                "tool".into(),
+                tool_use.get("name").cloned().unwrap_or(Value::String(String::new())),
+            );
+            let target = ["file_path", "command", "url"].iter().find_map(|key| {
+                tool_use
+                    .pointer(&format!("/input/{key}"))
+                    .and_then(Value::as_str)
+            });
+            if let Some(target) = target {
+                checkpoint.insert(
+                    "target".into(),
+                    Value::String(target.chars().take(80).collect()),
+                );
+            }
+            emit(&Value::Object(checkpoint));
+        }
+        Some("result") => {
+            for key in ["num_turns", "total_cost_usd"] {
+                if let Some(value) = event.get(key) {
+                    session_meta.insert(key.to_string(), value.clone());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn invoke(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
     let workdir = input
         .get("workdir")
         .and_then(Value::as_str)
@@ -134,25 +201,59 @@ fn invoke(kind: AdapterKind, extra: &[String], prompt: &str, input: &Value) -> R
         AdapterKind::Claude => {
             let bin =
                 std::env::var("FORGE_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
-            let mut command = vec![bin, "-p".into(), "--output-format".into(), "json".into()];
+            let mut command = vec![
+                bin,
+                "-p".into(),
+                "--output-format".into(),
+                "stream-json".into(),
+                "--verbose".into(),
+            ];
             command.extend(extra.iter().cloned());
-            let out = run_cli(&command, Some(prompt), &workdir)?;
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let mut session_meta = Map::new();
-            for line in stdout.trim().lines().rev() {
-                if let Ok(Value::Object(parsed)) = serde_json::from_str::<Value>(line) {
-                    for key in ["session_id", "num_turns", "total_cost_usd"] {
-                        if let Some(value) = parsed.get(key) {
-                            session_meta.insert(key.to_string(), value.clone());
-                        }
-                    }
-                    break;
-                }
+            let (program, args) = command
+                .split_first()
+                .ok_or_else(|| "empty command".to_string())?;
+            let mut child = Command::new(program)
+                .args(args)
+                .current_dir(if workdir.is_empty() { "." } else { &workdir })
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
+            {
+                let mut stdin = child.stdin.take().expect("piped");
+                stdin
+                    .write_all(prompt.as_bytes())
+                    .map_err(|e| format!("could not write the prompt: {e}"))?;
             }
+            // stderr drains on its own thread so a chatty session cannot
+            // deadlock the stdout stream we are folding live.
+            let stderr_pipe = child.stderr.take().expect("piped");
+            let stderr_thread = std::thread::spawn(move || {
+                let mut captured = String::new();
+                let mut pipe = stderr_pipe;
+                let _ = pipe.read_to_string(&mut captured);
+                captured
+            });
+            let stdout = child.stdout.take().expect("piped");
+            let mut session_meta = Map::new();
+            let mut assistant_turns = 0u64;
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                // Unparseable stream lines are noise, never repaired
+                // (decision 0001).
+                let Ok(event) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                fold_stream_event(&event, &mut assistant_turns, &mut session_meta, emit);
+            }
+            let status = child
+                .wait()
+                .map_err(|e| format!("agent CLI did not conclude: {e}"))?;
             Ok(Invocation {
-                exit_code: out.status.code().unwrap_or(-1),
+                exit_code: status.code().unwrap_or(-1),
                 session_meta,
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                stderr: stderr_thread.join().unwrap_or_default(),
             })
         }
         AdapterKind::Codex => {
@@ -238,7 +339,15 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     }
 
     let prompt = compose_prompt(&input);
-    let invocation = match invoke(kind, extra, &prompt, &input) {
+    // Streamed telemetry: each seat-turn the claude arm folds out of
+    // stream-json becomes a live protocol checkpoint on this attempt.
+    let invocation = match invoke(kind, extra, &prompt, &input, &mut |data: &Value| {
+        send(Body::Checkpoint {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            data: data.clone(),
+        });
+    }) {
         Ok(invocation) => invocation,
         Err(error) => {
             send(Body::Result {
