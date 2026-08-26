@@ -9,9 +9,12 @@ delivery.** The outermost layer is a pure, event-sourced phase state machine;
 agent sessions (Claude Code, Codex, dsh/LaneTally Surface, any harness) are
 leaf effects whose outputs are typed results — never decisions.
 
-Extracted from the Alkemio workspace Forge (`agents-hq` specs 018 + 028),
-where the phase machine began life as a *referee* checking an LLM-driven
-outer loop. Here the machine **is** the outer loop.
+The Forge is a standalone engine (decision
+[0011](docs/decisions/0011-standalone-identity.md)). It grew out of a
+private workspace where the phase machine began life as a *referee*
+checking an LLM-driven outer loop — that heritage lives, read-only,
+under [`reference/`](reference/). Here the machine **is** the outer
+loop.
 
 > Agent output never decides a transition. Prompt content never decides who
 > pays (that's [LaneTally](https://github.com/feedback-loop-ai/lanetally)'s
@@ -66,8 +69,7 @@ Determinism laws:
 | `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
 | `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
-| `policy/phase-machine.json` | The production transition table (imported from agents-hq `workspace#028`). |
-| `policy/schemas/` | JSON Schemas: phase state, handoffs, council position/clash/adjudication, providers. |
+| `policy/phase-machine.json` | The heritage transition table the engine was extracted around — retained as the strict evaluator's differential-test fixture (the frozen corpus derives from it). |
 | `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the retired Python oracle (`reference/oracle/`), the Claude Workflow JS phase drivers, the `vf-*` agent charters, the skill prose, `providers.json`. Read-only; mined, then retired. |
 | `docs/` | Accepted decisions, the target architecture, and the extension model. |
 
@@ -121,9 +123,10 @@ authority. The first self-forged changes have landed —
 cargo run -p forge-cli -- run --bundle bundles/self --repo . --feature "..."
 ```
 
-— next is the Alkemio vertical slice
+— next is the first external workspace profile
 ([delivery sequence](docs/target-architecture.md#delivery-sequence)).
 
 Private for now; the OSS boundary decision (naming, license, threat-model
-README, sanitized example profile) comes after the engine drives a real feature
-end to end in the Alkemio workspace.
+README) comes after the engine drives a real feature end to end in an
+external workspace. `forge init` already scaffolds the sanitized example
+recipe.
