@@ -1,0 +1,227 @@
+{
+  "name": "sdd",
+  "policy": "policy.json",
+  "protected_phase": "review",
+  "seats": {
+    "intake": {
+      "role": "roles/intake.md",
+      "results": [
+        "resolved"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+        ]
+      }
+    },
+    "design": {
+      "results": [
+        "designed",
+        "fail"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "positions",
+          "aggregate": "unanimous-pass",
+          "panel": {
+            "simplicity": {
+              "role": "roles/design-simplicity.md",
+              "driver": {
+                "command": [
+                  "{forge}",
+                  "driver",
+                  "claude",
+                  "--",
+                  "--permission-mode",
+                  "acceptEdits",
+                  "--allowedTools",
+                  "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+                ]
+              }
+            },
+            "robustness": {
+              "role": "roles/design-robustness.md",
+              "driver": {
+                "command": [
+                  "{forge}",
+                  "driver",
+                  "claude",
+                  "--",
+                  "--permission-mode",
+                  "acceptEdits",
+                  "--allowedTools",
+                  "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "chief",
+          "role": "roles/design-chief.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "claude",
+              "--",
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+            ]
+          }
+        },
+        {
+          "name": "speckit-check",
+          "role": "roles/speckit-check.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "exec",
+              "--",
+              "bash",
+              "recipes/sdd/drivers/speckit_check.sh",
+              "{prompt_file}"
+            ]
+          }
+        }
+      ]
+    },
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
+      "driver": {
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+        ]
+      }
+    },
+    "verify": {
+      "role": "roles/verifier.md",
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+        ]
+      }
+    },
+    "review": {
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "inputs": [
+        "fixes_applied",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "aggregate": "review-panel",
+      "panel": {
+        "spec-compliance": {
+          "role": "roles/review-spec-compliance.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "claude",
+              "--",
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+            ]
+          }
+        },
+        "security": {
+          "role": "roles/review-security.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "claude",
+              "--",
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+            ]
+          }
+        }
+      }
+    },
+    "ship": {
+      "role": "roles/shipper.md",
+      "results": [
+        "ready",
+        "shipped"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{forge}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+        ]
+      }
+    }
+  }
+}
