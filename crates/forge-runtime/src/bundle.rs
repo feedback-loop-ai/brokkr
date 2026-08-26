@@ -62,12 +62,38 @@ pub struct Confine {
     pub mounts: Vec<String>,
 }
 
-/// One agent session, or a parallel panel joined by a declared
-/// deterministic rule (decision 0002's two sanctioned forms: this is
-/// concurrency INSIDE the executor — one effect, one typed result at
-/// the boundary; members are journaled as checkpoint evidence).
+/// One agent session, a parallel panel joined by a declared
+/// deterministic rule, or a serial sequence of named steps (decision
+/// 0002's sanctioned forms: composition INSIDE the executor — one
+/// effect, one typed result at the boundary; inner structure is
+/// journaled as checkpoint evidence).
 #[derive(Debug, Clone)]
 pub enum SeatBody {
+    Single {
+        role_path: PathBuf,
+        command: Vec<String>,
+        confine: Option<Confine>,
+    },
+    Panel {
+        members: Vec<PanelMember>,
+        aggregate: Aggregate,
+    },
+    /// Named steps run one after another INSIDE one effect: later steps
+    /// see earlier steps' result objects as context, and the FINAL
+    /// step's result is the effect's single typed result.
+    Sequence { steps: Vec<SequenceStep> },
+}
+
+#[derive(Debug, Clone)]
+pub struct SequenceStep {
+    pub name: String,
+    pub body: StepBody,
+}
+
+/// A sequence step's body: one driver, or a panel joined by a declared
+/// aggregate — the same two forms a seat itself may take.
+#[derive(Debug, Clone)]
+pub enum StepBody {
     Single {
         role_path: PathBuf,
         command: Vec<String>,
@@ -211,48 +237,22 @@ impl Bundle {
                     )));
                 }
             }
-            let body = if let Some(panel) = raw.get("panel") {
-                let members_raw = panel.as_object().ok_or_else(|| {
-                    CompileError::Invalid(format!("seat '{phase}' panel must be an object"))
-                })?;
-                if members_raw.len() < 2 {
-                    return Err(CompileError::Invalid(format!(
-                        "seat '{phase}' panel needs at least two members; \
-                         a one-member panel is a single seat"
-                    )));
-                }
-                let aggregate_name = raw
-                    .get("aggregate")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        CompileError::Invalid(format!("seat '{phase}' panel needs 'aggregate'"))
-                    })?;
-                let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "seat '{phase}' unknown aggregate '{aggregate_name}'; known: \
-                         unanimous-pass, review-panel"
-                    ))
-                })?;
-                for required in aggregate.required_results() {
-                    if !results.iter().any(|r| r == required) {
-                        return Err(CompileError::Invalid(format!(
-                            "seat '{phase}' aggregate '{aggregate_name}' can emit \
-                             '{required}' but the seat does not declare it"
-                        )));
-                    }
-                }
-                let mut members = Vec::with_capacity(members_raw.len());
-                for (name, member_raw) in members_raw {
-                    let role_path = parse_role(&dir, &format!("{phase}:{name}"), member_raw)?;
-                    let command = parse_command(&dir, &format!("{phase}:{name}"), member_raw)?;
-                    members.push(PanelMember {
-                        name: name.clone(),
-                        role_path,
-                        command,
-                        confine: parse_confine(&format!("{phase}:{name}"), member_raw)?,
-                    });
-                }
+            let has_single = raw.get("role").is_some() || raw.get("driver").is_some();
+            let has_panel = raw.get("panel").is_some();
+            let has_sequence = raw.get("sequence").is_some();
+            if [has_single, has_panel, has_sequence].iter().filter(|f| **f).count() > 1 {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{phase}' must be exactly one of role+driver, panel, \
+                     or sequence"
+                )));
+            }
+            let body = if has_panel {
+                let (members, aggregate) = parse_panel(&dir, phase, raw, Some(&results))?;
                 SeatBody::Panel { members, aggregate }
+            } else if has_sequence {
+                SeatBody::Sequence {
+                    steps: parse_sequence(&dir, phase, raw, &results)?,
+                }
             } else {
                 SeatBody::Single {
                     role_path: parse_role(&dir, phase, raw)?,
@@ -404,6 +404,131 @@ fn assert_phase_unavoidable(
         }
     }
     Ok(())
+}
+
+/// Parse a panel body (`"panel": {…members…}, "aggregate": "…"`) at
+/// `what` — a seat's phase or a sequence step's `<phase>:<step>` label.
+/// `declared_results` is checked to cover the aggregate's vocabulary
+/// when Some: always for a seat-level panel (its aggregate reaches
+/// decide()), but for a panel STEP only when it is the FINAL step — a
+/// non-final step's aggregate output never reaches decide(), it only
+/// feeds later steps as context.
+fn parse_panel(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    declared_results: Option<&[String]>,
+) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
+    let members_raw = raw
+        .get("panel")
+        .and_then(Value::as_object)
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' panel must be an object")))?;
+    if members_raw.len() < 2 {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' panel needs at least two members; \
+             a one-member panel is a single seat"
+        )));
+    }
+    let aggregate_name = raw
+        .get("aggregate")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{what}' panel needs 'aggregate'"))
+        })?;
+    let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
+        CompileError::Invalid(format!(
+            "seat '{what}' unknown aggregate '{aggregate_name}'; known: \
+             unanimous-pass, review-panel"
+        ))
+    })?;
+    if let Some(results) = declared_results {
+        for required in aggregate.required_results() {
+            if !results.iter().any(|r| r == required) {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' aggregate '{aggregate_name}' can emit \
+                     '{required}' but the seat does not declare it"
+                )));
+            }
+        }
+    }
+    let mut members = Vec::with_capacity(members_raw.len());
+    for (name, member_raw) in members_raw {
+        let role_path = parse_role(dir, &format!("{what}:{name}"), member_raw)?;
+        let command = parse_command(dir, &format!("{what}:{name}"), member_raw)?;
+        members.push(PanelMember {
+            name: name.clone(),
+            role_path,
+            command,
+            confine: parse_confine(&format!("{what}:{name}"), member_raw)?,
+        });
+    }
+    Ok((members, aggregate))
+}
+
+/// Parse a sequence body: named steps, each a single driver or a panel,
+/// run serially inside one effect. At least two steps (a one-step
+/// sequence is a single seat); names unique case-insensitively.
+fn parse_sequence(
+    dir: &Path,
+    phase: &str,
+    raw: &Value,
+    results: &[String],
+) -> Result<Vec<SequenceStep>, CompileError> {
+    let steps_raw = raw
+        .get("sequence")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{phase}' sequence must be an array"))
+        })?;
+    if steps_raw.len() < 2 {
+        return Err(CompileError::Invalid(format!(
+            "seat '{phase}' sequence needs at least two steps; \
+             a one-step sequence is a single seat"
+        )));
+    }
+    let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
+    for (index, step_raw) in steps_raw.iter().enumerate() {
+        let name = step_raw
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| {
+                CompileError::Invalid(format!(
+                    "seat '{phase}' sequence step {index} needs a non-empty 'name'"
+                ))
+            })?;
+        if steps.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{phase}' sequence has duplicate step name '{name}' \
+                 (step names are case-insensitive)"
+            )));
+        }
+        let what = format!("{phase}:{name}");
+        let has_single = step_raw.get("role").is_some() || step_raw.get("driver").is_some();
+        let has_panel = step_raw.get("panel").is_some();
+        if has_single && has_panel {
+            return Err(CompileError::Invalid(format!(
+                "sequence step '{what}' must be exactly one of role+driver or panel"
+            )));
+        }
+        let body = if has_panel {
+            let final_step = index + 1 == steps_raw.len();
+            let (members, aggregate) =
+                parse_panel(dir, &what, step_raw, final_step.then_some(results))?;
+            StepBody::Panel { members, aggregate }
+        } else {
+            StepBody::Single {
+                role_path: parse_role(dir, &what, step_raw)?,
+                command: parse_command(dir, &what, step_raw)?,
+                confine: parse_confine(&what, step_raw)?,
+            }
+        };
+        steps.push(SequenceStep {
+            name: name.to_string(),
+            body,
+        });
+    }
+    Ok(steps)
 }
 
 fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileError> {
