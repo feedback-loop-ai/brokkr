@@ -15,10 +15,13 @@ Enacted:
 - The origin-specific heritage material (the delivery skill prose, the
   seat charters, the security catalog) is deleted outright, including
   from history (`git filter-repo` path purge). What remains under
-  `reference/` is genuinely generic: the referee-era control plane, the
-  retired oracle, the handoff protocol, provider config, the workflow
-  drivers, and the recorded schemas — scrubbed of origin identifiers,
-  schema `$id`s re-homed under feedback-loop.ai/forge/heritage/.
+  `reference/` is documents only: the durable-handoff protocol lore and
+  the recorded schemas (ids re-homed under
+  feedback-loop.ai/forge/heritage/). All heritage CODE — the referee-era
+  control plane, the retired oracle, era drivers and provider config —
+  is removed the same day at the operator's direction: the frozen
+  corpus, not the oracle, is the contract, and the lessons live in the
+  decisions and the engine.
 - Every historical blob and commit message is rewritten to neutral
   wording; all commit shas change; `main` and tags are force-pushed and
   the v0.1.0 release re-cut from the rewritten history.

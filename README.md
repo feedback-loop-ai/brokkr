@@ -69,7 +69,7 @@ Determinism laws:
 | `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the engine was extracted around — retained as the strict evaluator's differential-test fixture (the frozen corpus derives from it). |
-| `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the retired Python oracle (`reference/oracle/`), the Claude Workflow JS phase drivers, `providers.json`. Read-only; mined, then retired. |
+| `reference/` | Read-only heritage documents: the durable-handoff protocol lore and the recorded referee-era JSON Schemas. All heritage code (referee control plane, retired oracle, era drivers) is removed — decisions 0009/0011 record it. |
 | `docs/` | Accepted decisions, the target architecture, and the extension model. |
 
 ## Status
