@@ -4,7 +4,7 @@
 //! next action purely from `fold(journal)` + the pinned bundle; nothing
 //! in here decides a transition — only the policy does.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use forge_core::envelope::EventType;
@@ -1080,16 +1080,45 @@ impl Engine {
                 rule_id,
                 next_phase,
                 severity,
+                requires_artifacts,
                 ..
-            } => json!({
-                "from": phase,
-                "result": result,
-                "rule_id": rule_id,
-                "next": next_phase,
-                "severity": severity,
-                "inputs": inputs,
-                "problem": null,
-            }),
+            } => {
+                // Artifact gate: an advancing ruling that names artifacts
+                // advances only if each exists as a non-empty regular file
+                // in the workdir, probed exactly once, here, at decide
+                // time. A miss fails closed through the park path — no
+                // seat is asked, no seat attests (decision 0001).
+                let failures = if requires_artifacts.is_empty() {
+                    Vec::new()
+                } else {
+                    artifact_failures(&self.workdir(), &requires_artifacts)
+                };
+                if failures.is_empty() {
+                    json!({
+                        "from": phase,
+                        "result": result,
+                        "rule_id": rule_id,
+                        "next": next_phase,
+                        "severity": severity,
+                        "inputs": inputs,
+                        "problem": null,
+                    })
+                } else {
+                    // Severity is a property of a taken transition; none
+                    // is taken. rule_id stays: the rule DID match, and
+                    // that identity distinguishes a gate block from
+                    // NoRule in the journal.
+                    json!({
+                        "from": phase,
+                        "result": result,
+                        "rule_id": rule_id,
+                        "next": null,
+                        "severity": null,
+                        "inputs": inputs,
+                        "problem": artifact_problem(&rule_id, &failures),
+                    })
+                }
+            }
             Outcome::NoRule { problem } => json!({
                 "from": phase,
                 "result": result,
@@ -1361,6 +1390,50 @@ fn manifest_diff(pinned: &Value, current: &Value) -> String {
     }
 }
 
+/// The `requires_artifacts` gate's verdict: every failing entry with its
+/// class, in table order — the complete list, not first-fail, so one park
+/// carries all the evidence. Empty means the gate passes. Entries are
+/// strictly static workdir-relative paths, verified verbatim: no
+/// substitution, no tokens (`{ } $ < >` are reserved, not assigned), and
+/// nothing that could resolve outside the workdir. Every probe error
+/// fails closed. This is the only place the gate touches the filesystem.
+fn artifact_failures(workdir: &Path, required: &[String]) -> Vec<(String, &'static str)> {
+    let mut failures = Vec::new();
+    for entry in required {
+        let lexically_valid = !entry.is_empty()
+            && !entry.starts_with('/')
+            && !entry.contains(['\\', '\0', '{', '}', '$', '<', '>'])
+            && !entry.split('/').any(|component| component == "." || component == "..");
+        let class = if !lexically_valid {
+            Some("invalid")
+        } else {
+            // metadata, not symlink_metadata: the gate asserts presence
+            // of content, not provenance — a dangling symlink is missing.
+            match std::fs::metadata(workdir.join(entry)) {
+                Err(_) => Some("missing"),
+                Ok(meta) if !meta.is_file() => Some("not-a-file"),
+                Ok(meta) if meta.len() == 0 => Some("empty"),
+                Ok(_) => None,
+            }
+        };
+        if let Some(class) = class {
+            failures.push((entry.clone(), class));
+        }
+    }
+    failures
+}
+
+/// The single producer of the gate's journal-borne evidence string —
+/// machine-stable contract, pinned character-exact by spec and proof.
+fn artifact_problem(rule_id: &str, failures: &[(String, &'static str)]) -> String {
+    let list = failures
+        .iter()
+        .map(|(entry, class)| format!("{class}: {entry}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("requires_artifacts unmet for rule {rule_id}: {list}")
+}
+
 fn git_head(repo: &std::path::Path) -> Option<String> {
     let out = Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -1380,4 +1453,140 @@ fn git_dirty(repo: &std::path::Path) -> bool {
         .output()
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(true) // unreadable repo counts as dirty: fail closed
+}
+
+#[cfg(test)]
+mod artifact_gate_tests {
+    use super::{artifact_failures, artifact_problem};
+
+    fn classes(workdir: &std::path::Path, entries: &[&str]) -> Vec<(String, &'static str)> {
+        let required: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+        artifact_failures(workdir, &required)
+    }
+
+    #[test]
+    fn present_non_empty_file_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("spec.md"), "content").unwrap();
+        assert!(classes(dir.path(), &["spec.md"]).is_empty());
+    }
+
+    #[test]
+    fn nested_path_passes_and_absent_nested_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+        std::fs::write(dir.path().join("docs/plan.md"), "x").unwrap();
+        assert!(classes(dir.path(), &["docs/plan.md"]).is_empty());
+        assert_eq!(
+            classes(dir.path(), &["docs/other.md"]),
+            vec![("docs/other.md".to_string(), "missing")]
+        );
+    }
+
+    #[test]
+    fn absent_file_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            classes(dir.path(), &["spec.md"]),
+            vec![("spec.md".to_string(), "missing")]
+        );
+    }
+
+    #[test]
+    fn zero_byte_file_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("spec.md"), "").unwrap();
+        assert_eq!(
+            classes(dir.path(), &["spec.md"]),
+            vec![("spec.md".to_string(), "empty")]
+        );
+    }
+
+    #[test]
+    fn directory_is_not_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("spec.md")).unwrap();
+        assert_eq!(
+            classes(dir.path(), &["spec.md"]),
+            vec![("spec.md".to_string(), "not-a-file")]
+        );
+    }
+
+    #[test]
+    fn lexical_predicate_fails_closed_as_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        // Traversal, absolute, current-dir component, backslash, NUL,
+        // empty — none ever reaches the filesystem.
+        for entry in ["../escape", "a/../b", "..", "/etc/hosts", "./spec.md", ".",
+                      "a\\b", "a\0b", ""] {
+            assert_eq!(
+                classes(dir.path(), &[entry]),
+                vec![(entry.to_string(), "invalid")],
+                "entry {entry:?} must be invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_characters_are_fenced() {
+        let dir = tempfile::tempdir().unwrap();
+        for entry in ["{slug}", "specs/{slug}/spec.md", "$HOME", "a<b", "a>b", "x}y"] {
+            assert_eq!(
+                classes(dir.path(), &[entry]),
+                vec![(entry.to_string(), "invalid")],
+                "entry {entry:?} must be invalid"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_followed_and_dangling_reads_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("real.md"), "content").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real.md"), dir.path().join("link.md"))
+            .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("gone.md"), dir.path().join("dangling.md"))
+            .unwrap();
+        assert!(classes(dir.path(), &["link.md"]).is_empty(), "content presence, not provenance");
+        assert_eq!(
+            classes(dir.path(), &["dangling.md"]),
+            vec![("dangling.md".to_string(), "missing")]
+        );
+    }
+
+    #[test]
+    fn failures_keep_table_order_across_classes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("empty.md"), "").unwrap();
+        std::fs::create_dir(dir.path().join("dir.md")).unwrap();
+        std::fs::write(dir.path().join("ok.md"), "x").unwrap();
+        assert_eq!(
+            classes(dir.path(), &["gone.md", "empty.md", "{slug}", "ok.md", "dir.md"]),
+            vec![
+                ("gone.md".to_string(), "missing"),
+                ("empty.md".to_string(), "empty"),
+                ("{slug}".to_string(), "invalid"),
+                ("dir.md".to_string(), "not-a-file"),
+            ]
+        );
+    }
+
+    #[test]
+    fn problem_string_is_character_exact() {
+        let failures = vec![
+            ("spec.md".to_string(), "missing"),
+            ("plan.md".to_string(), "empty"),
+            ("{slug}".to_string(), "invalid"),
+        ];
+        assert_eq!(
+            artifact_problem("ARCH-OK", &failures),
+            "requires_artifacts unmet for rule ARCH-OK: \
+             missing: spec.md; empty: plan.md; invalid: {slug}"
+        );
+        assert_eq!(
+            artifact_problem("R1", &[("spec.md".to_string(), "missing")]),
+            "requires_artifacts unmet for rule R1: missing: spec.md"
+        );
+    }
 }

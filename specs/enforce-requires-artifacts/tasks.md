@@ -6,7 +6,7 @@
 Ordered; each task names the test that proves it. Acceptance-criteria
 numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
 
-- [ ] **T1 — Pure helpers in `engine.rs`.** Add
+- [x] **T1 — Pure helpers in `engine.rs`.** Add
   `artifact_failures(workdir, required)` (lexical predicate + one
   `fs::metadata` probe per entry, classes
   `missing`/`empty`/`not-a-file`/`invalid`, complete list in table
