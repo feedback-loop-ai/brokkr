@@ -5,127 +5,112 @@
 *The machine is the outer loop. Struck, not spun.*
 
 **A deterministic delivery engine for autonomous multi-agent software
-delivery.** The outermost layer is a pure, event-sourced phase state machine;
-agent sessions (Claude Code, Codex, dsh/LaneTally Surface, any harness) are
-leaf effects whose outputs are typed results — never decisions.
+delivery.** The outermost layer is a pure, event-sourced phase state
+machine; agent sessions (Claude Code, Codex, any harness speaking the
+driver protocol) are leaf effects whose outputs are typed results —
+never decisions. Every claim the system makes — done, verified, parked,
+stopped, paid — is a journaled, replayable, anchored fact.
 
-The Forge is a standalone engine (decision
-[0011](docs/decisions/0011-standalone-identity.md)). It began life as a *referee*
-checking an LLM-driven outer loop — that heritage lives, read-only,
-under [`reference/`](reference/). Here the machine **is** the outer
-loop.
-
-> Agent output never decides a transition. Prompt content never decides who
-> pays (that's [LaneTally](https://github.com/feedback-loop-ai/lanetally)'s
+> Agent output never decides a transition. Prompt content never decides
+> who pays (that's [LaneTally](https://github.com/feedback-loop-ai/lanetally)'s
 > law, one layer down). The same value, stacked.
 
-## Architecture
+## What it does
+
+You hand the Forge a feature and a **recipe** (a delivery strategy:
+policy table, seats, charters, limits, drivers — reviewable text,
+identified by content digest). The engine drives real agent sessions
+through the recipe's phases — implement, verify, review, ship — ruling
+on each typed result with a pinned first-match-wins policy. Unknowns
+never advance: schema violations, unmatched results, exhausted retries,
+and security findings park or stop the run with raw evidence attached.
+The operator's judgment enters only as signed journal events.
 
 ```
-┌─ Forge (one native Rust binary + bundled SQLite + embedded UI) ───┐
-│  pure core: fold(journal) → state; evaluate(table, state, result) │
-│  durable runtime: outbox · scheduler · recovery · audit          │
-│  declarative phase executors and inner agent topologies          │
-└──────────────┬────────────────────────────────────────────────────┘
-               ▼ versioned, language-neutral driver protocol
-       native process · OCI container · remote · Cordis/DSH
-               ▼ spawns seats (confined workspace mount × class)
-       LaneTally Core: funding lanes · default-deny keys · cost truth
+forge run --recipe fast --repo . --feature "…"     # deliver
+forge ui                                            # watch it live
+forge rerun --run <id> --recipe panel-review        # swap the strategy
+forge compare <a> <b>                               # journal-backed A/B
 ```
 
-The implemented system is described in [ARCHITECTURE.md](ARCHITECTURE.md);
-its production shape was established by
-[decision 0003](docs/decisions/0003-native-rust-runtime.md) and the
-pre-implementation blueprint in
-[the target architecture](docs/target-architecture.md). The Python evaluator that served as
-executable policy specification during the port is retired to
-`reference/oracle/` (decision 0009); the frozen evaluator corpus under
-`fixtures/` carries its behavior as contract.
+- **Live telemetry**: seats stream per-turn checkpoints (turn, tool,
+  file-path-only target — never prose, never commands: the journal is
+  evidence, not transcript). Parallel review panels stream both members
+  side by side. The full session transcript stays one
+  `claude --resume <session_id>` away.
+- **The strategy loop** (decision 0010): a library of recipes
+  (`forge recipes list|add`, installable from git), swap by name,
+  re-run a past feature under another recipe, compare outcomes —
+  decision trails with first divergence, per-seat costs, verdict
+  deltas. A pure read over two journals; works on live runs.
+- **Bounded autonomy** (decisions 0006/0007): per-seat attempt limits
+  and deadlines; determinate failures retry, indeterminate outcomes
+  always park; every evaluation input is engine-computed or
+  seat-declared — everything else is dropped before it reaches the
+  table or the record.
+- **Self-hosting**: the Forge delivers its own changes (`bundles/self`)
+  and verifies every delivered slice with its own adversarial agents
+  (`bundles/verify`) — which have hard-stopped their author's work on
+  real security findings, twice. The operator keeps push and merge
+  authority.
 
-Determinism laws:
+## Determinism laws
 
-1. **Decisions are pure.** Given the same journal, the next action is always
-   the same. All transition logic lives in a data table
-   (`policy/phase-machine.json`), evaluated first-match-wins by
-   `forge-core`. Changing a ruling is a reviewed one-line diff.
-2. **State is derived, never mutated.** `state = fold(events)`.
-   Resume is replay. Counters (`consecutive_failures`, drift, reviewed
-   heads) are journal-computed, never accepted from a caller.
-3. **No LLM repair of the control plane** (decision 0001). An executor
-   result that fails schema validation, or a `(phase, result)` pair no rule
-   matches, parks the run in `awaiting-operator` with the raw evidence
-   attached. It is never guessed at, coerced, or handed to a model to fix.
-4. **Human gates are control states.** `awaiting-operator(gate_id)` parks the
-   current delivery phase and cannot be exited without an operator event —
-   approval is a signed journal entry, not a prose convention.
+1. **Decisions are pure.** Given the same journal and pinned bundle,
+   the next action is always the same. Transition logic is a data table
+   evaluated first-match-wins by `forge-core`; changing a ruling is a
+   reviewed one-line diff.
+2. **State is derived, never mutated.** `state = fold(events)`; resume
+   is replay; counters, drift, and reviewed heads are journal-computed,
+   never accepted from a caller.
+3. **No LLM repair of the control plane** (decision 0001). Invalid
+   results park in `awaiting_operator` with the raw evidence — never
+   guessed at, coerced, or handed to a model to fix.
+4. **Human gates are control states.** Parks exit only through operator
+   events; approval is a journal entry, not a prose convention.
+
+## Install & operate
+
+One native binary — no Python, no Node, no services. Grab a
+[release](../../releases) (linux x86_64/aarch64, macOS arm64/x86_64,
+windows; verify against `SHA256SUMS`), then:
+
+```
+forge init my-bundle        # scaffold a reviewable starter recipe
+forge doctor                # tools, agent CLIs, database, contracts
+forge run …                 # deliver (exit 0 done · 2 parked · 3 stopped)
+forge inspect · replay · export · verify-run · anchor · costs · runs
+```
+
+`forge ui` serves an embedded, loopback-only, read-only surface: runs,
+live seat activity, the causal event timeline. `forge anchor` records
+journal heads in `refs/forge/<run>` commit chains — tamper evidence.
+`forge costs` reports per-seat attempts, turns, and USD — the LaneTally
+join surface.
 
 ## Repo layout
 
 | Path | What it is |
 |---|---|
-| `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, bundles, verification layers. |
-| `crates/` | The Rust engine — `forge-core` (pure), `forge-store`, `forge-protocol`, `forge-runtime`, `forge-cli` — building the one `forge` binary. |
+| `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, verification layers. |
+| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/exec adapters) · `forge-runtime` · `forge-cli`. |
 | `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
-| `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
+| `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
+| `recipes/` | The user recipe library (`fast`, `panel-review`, yours). |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
-| `policy/phase-machine.json` | The heritage transition table the engine was extracted around — retained as the strict evaluator's differential-test fixture (the frozen corpus derives from it). |
-| `reference/` | Read-only heritage documents: the durable-handoff protocol lore and the recorded referee-era JSON Schemas. All heritage code (referee control plane, retired oracle, era drivers) is removed — decisions 0009/0011 record it. |
-| `docs/` | Accepted decisions, the target architecture, and the extension model. |
+| `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
+| `docs/decisions/` | The constitution: numbered operator rulings 0001–0011. |
+| `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
 
-## Status
+## Verification
 
-The engine is implemented, machine-proved, and self-hosting: frozen v1
-contracts, the pure core at differential parity with the Python oracle
-(97-case corpus), the append-only SQLite journal, the durable effect runtime
-with crash recovery, `forge-driver/v1` with scripted-fake and headless
-Claude Code drivers, and the `forge` CLI (init · doctor · compile · run ·
-resume · operator · inspect · replay · export · verify-run · runs). Scope per
-[decision 0005](docs/decisions/0005-self-forging-first-scope.md): no UI, no
-containers, no signing service, single-seat executors — all additive later
-behind the frozen contracts. CI builds a release `forge` binary artifact.
+Four layers, each mechanical: the 97-case differential corpus pins the
+evaluator; the machine-proof suite drives the real binary through every
+failure mode (30+ scenarios, three OSes, coverage-gated CI); self-forge
+runs deliver changes under the full constitution; and the verify agents
+adversarially review every landed slice — their verdicts are journaled
+runs like any other.
 
-The second wave (decision
-[0008](docs/decisions/0008-second-wave-scope.md)) delivered the 0005
-deferrals: the full driver fleet (claude · codex · exec for dsh/Surface,
-ssh-remote, any template harness) behind one conformance suite, parallel
-panels with declared deterministic aggregates, the embedded read-only UI
-(`forge ui`) over a causally-threaded journal, git-ref journal anchoring,
-container confinement for policy-confined seats, and the `forge costs`
-LaneTally join surface — each slice verified after merge by the forge's
-own verification agents (`bundles/verify`).
-
-Unattended autonomy is bounded, never open-ended:
-
-- per-seat attempt limits and deadlines — a hung or transiently failing
-  seat session retries within its declared budget or parks; indeterminate
-  outcomes always park
-  ([decision 0006](docs/decisions/0006-bounded-attempts-and-deadlines.md));
-- input provenance — every evaluation input is engine-computed or
-  seat-declared in the reviewed bundle; anything else is dropped before it
-  reaches the table or the journal
-  ([decision 0007](docs/decisions/0007-input-provenance.md)).
-
-Delivery strategies are **composable recipes** (decision
-[0010](docs/decisions/0010-composable-recipes.md)): `forge recipes
-list|add` manage a digest-identified library (installable from git),
-`forge run --recipe` swaps the strategy, `forge rerun` replays a past
-run's feature under another recipe, and `forge compare` renders the
-aligned verdict — trails, divergence point, per-seat costs — as a pure
-read over two journals.
-
-The `bundles/self` bundle makes the engine deliver its own changes here:
-seats implement, verify, review (security riding along, non-removable), and
-ship under the linear table, while the operator keeps push and merge
-authority. The first self-forged changes have landed —
-
-```
-cargo run -p forge-cli -- run --bundle bundles/self --repo . --feature "..."
-```
-
-— next is the first external workspace profile
-([delivery sequence](docs/target-architecture.md#delivery-sequence)).
-
-Private for now; the OSS boundary decision (naming, license, threat-model
-README) comes after the engine drives a real feature end to end in an
-external workspace. `forge init` already scaffolds the sanitized example
-recipe.
+Private for now; the OSS boundary decision (naming, license,
+threat-model README) comes after the engine drives a real feature end
+to end in an external workspace.
