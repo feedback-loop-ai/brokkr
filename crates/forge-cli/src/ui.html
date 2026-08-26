@@ -63,6 +63,31 @@
   body.forging .rail-n2 { animation-delay: .3s; }
   body.forging .rail-t { animation: forge-strike 1.8s ease-in-out .6s infinite; }
   body.forging .rail-halo { animation: forge-halo 1.8s ease-out .6s infinite; }
+  /* The loops view: outer phase rail + inner loop mini-rail. Node state
+     classes are a fixed allowlist below; journal strings only ever reach
+     SVG <text> via textContent. The pulse reuses the brand keyframes but
+     is gated on the SELECTED run's status, not body.forging. */
+  .loops { margin: .7rem 0 .3rem; overflow-x: auto; }
+  .loops svg { display: block; overflow: visible; }
+  .loops .rail-line { stroke: var(--line); stroke-width: 2; }
+  .loops .hit { cursor: pointer; }
+  .loops text { font: 10px 'JetBrains Mono', ui-monospace, monospace;
+                fill: var(--dim); }
+  .loops text.revisit { font-size: 9px; fill: var(--park); }
+  .loops .on-visited { fill: var(--violet); }
+  .loops .on-phosphor { fill: var(--phosphor); }
+  .loops .on-park { fill: var(--park); }
+  .loops .on-halt { fill: var(--halt); }
+  .loops .in-active { fill: var(--violet); }
+  .loops .sel-ring { fill: none; stroke: var(--dim); stroke-width: 1.2;
+                     stroke-dasharray: 3 2; }
+  .loops .halo { fill: none; stroke: var(--phosphor); stroke-width: 1.4;
+                 opacity: 0; }
+  .loops .loop-pulse, .loops .halo-on { transform-box: fill-box;
+                                        transform-origin: center; }
+  .loops .loop-pulse { animation: forge-strike 1.8s ease-in-out infinite; }
+  .loops .halo-on { animation: forge-halo 1.8s ease-out infinite; }
+  .loops .sub { color: var(--dim); font-size: .85em; margin: .15rem 0; }
 </style>
 <div id="brand">
   <svg id="mark" width="24" height="24" viewBox="0 0 44 44" fill="none" aria-hidden="true">
@@ -87,7 +112,7 @@
 // untrusted. Nothing journal-derived ever reaches innerHTML — all
 // dynamic content is set through textContent (el(); badge classes come
 // from a fixed allowlist, never from data).
-let active = null, source = null, activeParticipant = null;
+let active = null, source = null, activeParticipant = null, selectedPhase = null;
 
 // Favicon pair: phosphor seal at rest, violet seal while forging — the
 // tab itself signals a live run (the 16px answer to the pulse).
@@ -104,6 +129,15 @@ const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+// SVG children need the SVG namespace — el()'s createElement would
+// produce inert HTML elements. Same textContent discipline as el().
+function svgEl(tag, className, text) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (className) node.setAttribute('class', className);
   if (text !== undefined && text !== null) node.textContent = String(text);
   return node;
 }
@@ -220,6 +254,247 @@ function buildParticipants(events) {
   return participants;
 }
 
+// The loops view. Outer rail: one node per phase in first-visit order
+// (phase/entered events); the selected phase's inner structure renders
+// beneath as a mini-rail. Observed events only — declared-but-unstarted
+// topology is never invented. State -> class is a fixed table; journal
+// strings only reach SVG <text> via textContent.
+function renderLoops(detail, events, summary, participants, id, data) {
+  const phases = new Map(); // name -> visit count, in first-visit order
+  for (const e of events) {
+    if (e.type !== 'phase/entered') continue;
+    const name = (e.payload || {}).phase;
+    if (typeof name !== 'string') continue;
+    phases.set(name, (phases.get(name) ?? 0) + 1);
+  }
+  if (phases.size === 0) return;
+  // Outer selection survives SSE re-renders like activeParticipant does,
+  // and clears itself if the phase vanishes on refetch.
+  if (selectedPhase && !phases.has(selectedPhase)) selectedPhase = null;
+  const names = [...phases.keys()];
+  const current = typeof summary.phase === 'string' && phases.has(summary.phase)
+    ? summary.phase : names[names.length - 1];
+  const selected = selectedPhase ?? current;
+  const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
+  const pulsing = status === 'running';
+
+  const wrap = el('div', 'loops');
+  const SP = 104, X0 = 46, Y = 22;
+  const svg = svgEl('svg');
+  svg.setAttribute('width', X0 * 2 + SP * (names.length - 1));
+  svg.setAttribute('height', 62);
+  if (names.length > 1) {
+    const line = svgEl('line', 'rail-line');
+    line.setAttribute('x1', X0);
+    line.setAttribute('y1', Y);
+    line.setAttribute('x2', X0 + SP * (names.length - 1));
+    line.setAttribute('y2', Y);
+    svg.appendChild(line);
+  }
+  names.forEach((name, i) => {
+    const x = X0 + SP * i;
+    const isCurrent = name === current;
+    // Fixed allowlist: visited violet; the current node keys off the
+    // allowlisted run status (terminal phase phosphor when completed,
+    // halt when stopped, park while awaiting the operator).
+    const cls = !isCurrent ? 'on-visited'
+      : status === 'stopped' ? 'on-halt'
+      : status === 'awaiting_operator' ? 'on-park'
+      : 'on-phosphor';
+    const g = svgEl('g', 'hit');
+    if (name === selected) {
+      const ring = svgEl('circle', 'sel-ring');
+      ring.setAttribute('cx', x);
+      ring.setAttribute('cy', Y);
+      ring.setAttribute('r', 11);
+      g.appendChild(ring);
+    }
+    if (isCurrent && pulsing) {
+      const halo = svgEl('circle', 'halo halo-on');
+      halo.setAttribute('cx', x);
+      halo.setAttribute('cy', Y);
+      halo.setAttribute('r', 7);
+      g.appendChild(halo);
+    }
+    const node = svgEl('circle', cls + (isCurrent && pulsing ? ' loop-pulse' : ''));
+    node.setAttribute('cx', x);
+    node.setAttribute('cy', Y);
+    node.setAttribute('r', isCurrent ? 7 : 5.5);
+    g.appendChild(node);
+    const label = svgEl('text', null, name);
+    label.setAttribute('x', x);
+    label.setAttribute('y', Y + 22);
+    label.setAttribute('text-anchor', 'middle');
+    g.appendChild(label);
+    const visits = phases.get(name);
+    if (visits > 1) {
+      const rev = svgEl('text', 'revisit', 'x' + visits);
+      rev.setAttribute('x', x);
+      rev.setAttribute('y', Y + 34);
+      rev.setAttribute('text-anchor', 'middle');
+      g.appendChild(rev);
+    }
+    g.onclick = () => { selectedPhase = name; renderDetail(id, data); };
+    svg.appendChild(g);
+  });
+  wrap.appendChild(svg);
+  renderInner(wrap, events, participants, selected, pulsing, id, data);
+  detail.appendChild(wrap);
+}
+
+// Inner loop for one phase, derived from its NEWEST effect. Sequence
+// steps run serially: order comes from sequence-step-finished
+// checkpoints (the FINAL step emits none — it concludes in the effect's
+// own terminal event, exactly as the seats console rules). Member tags
+// '<step>' are single steps; '<step>:<member>' stacks panel members at
+// that step's position. Without any observed step order, member-tagged
+// participants stack as one parallel panel; otherwise the seat is a
+// single node.
+function renderInner(wrap, events, participants, phase, pulsing, id, data) {
+  wrap.appendChild(el('div', 'sub', 'inner loop · ' + phase));
+  let effectId = null;
+  for (const e of events) {
+    const p = e.payload || {};
+    if (e.type === 'effect/requested' && p.effect_id && p.phase === phase) {
+      effectId = p.effect_id;
+    }
+  }
+  if (!effectId) {
+    wrap.appendChild(el('div', 'sub', 'no effect observed yet'));
+    return;
+  }
+  const finished = []; // step order established by sequence-step-finished
+  const tags = [];     // member tags in first-observed order
+  for (const e of events) {
+    if (e.type !== 'effect/checkpointed') continue;
+    const p = e.payload || {};
+    if (p.effect_id !== effectId) continue;
+    const cp = p.checkpoint || {};
+    if (cp.step === 'sequence-step-finished') {
+      if (typeof cp.step_name === 'string' && !finished.includes(cp.step_name)) {
+        finished.push(cp.step_name);
+      }
+    } else if (typeof cp.member === 'string' && !tags.includes(cp.member)) {
+      tags.push(cp.member);
+    }
+  }
+  // A participant's own panel-member-finished outcome rules first; a
+  // finished step is phosphor even though its participant inherits the
+  // effect's terminal status; otherwise the effect terminal decides,
+  // else the node is active (checkpoints arriving, no terminal yet).
+  const OUTCOME_STATE = { succeeded: 'finished', failed: 'failed',
+                          indeterminate: 'indeterminate' };
+  const state = (part, stepDone) => {
+    if (part && Object.hasOwn(OUTCOME_STATE, part.memberOutcome)) {
+      return OUTCOME_STATE[part.memberOutcome];
+    }
+    if (stepDone) return 'finished';
+    if (part && Object.hasOwn(OUTCOME_STATE, part.status)) {
+      return OUTCOME_STATE[part.status];
+    }
+    return 'active';
+  };
+  const node = (label, tag, stepDone) => {
+    const key = tag === null ? effectId : effectId + ':' + tag;
+    return { label, key, state: state(participants.get(key), stepDone) };
+  };
+  const columns = [];
+  if (finished.length > 0) {
+    const steps = [...finished];
+    const stepTags = new Map(); // step -> panel member tags at that step
+    for (const tag of tags) {
+      const cut = tag.indexOf(':');
+      const step = cut === -1 ? tag : tag.slice(0, cut);
+      if (!steps.includes(step)) steps.push(step);
+      if (cut !== -1) {
+        if (!stepTags.has(step)) stepTags.set(step, []);
+        stepTags.get(step).push(tag);
+      }
+    }
+    for (const step of steps) {
+      const members = stepTags.get(step);
+      const done = finished.includes(step);
+      columns.push(members
+        ? { label: step,
+            nodes: members.map((t) => node(t.slice(step.length + 1), t, done)) }
+        : { label: null, nodes: [node(step, step, done)] });
+    }
+  } else if (tags.length > 0) {
+    columns.push({ label: null, nodes: tags.map((t) => node(t, t, false)) });
+  } else {
+    const seat = participants.get(effectId);
+    columns.push({ label: null,
+                   nodes: [node(seat ? seat.label : phase, null, false)] });
+  }
+
+  const STATE_CLASS = { finished: 'on-phosphor', active: 'in-active',
+                        failed: 'on-halt', indeterminate: 'on-park' };
+  const SP = 116, X0 = 46, Y0 = 20, ROW = 26;
+  const maxStack = Math.max(...columns.map((c) => c.nodes.length));
+  const svg = svgEl('svg');
+  svg.setAttribute('width', X0 * 2 + SP * (columns.length - 1) + 60);
+  svg.setAttribute('height', Y0 + (maxStack - 1) * ROW + 40);
+  if (columns.length > 1) {
+    const line = svgEl('line', 'rail-line');
+    line.setAttribute('x1', X0);
+    line.setAttribute('y1', Y0);
+    line.setAttribute('x2', X0 + SP * (columns.length - 1));
+    line.setAttribute('y2', Y0);
+    svg.appendChild(line);
+  }
+  columns.forEach((col, i) => {
+    const x = X0 + SP * i;
+    const stacked = col.nodes.length > 1;
+    if (stacked) {
+      const drop = svgEl('line', 'rail-line');
+      drop.setAttribute('x1', x);
+      drop.setAttribute('y1', Y0);
+      drop.setAttribute('x2', x);
+      drop.setAttribute('y2', Y0 + (col.nodes.length - 1) * ROW);
+      svg.appendChild(drop);
+    }
+    col.nodes.forEach((n, j) => {
+      const y = Y0 + j * ROW;
+      const g = svgEl('g', 'hit');
+      const live = n.state === 'active' && pulsing;
+      if (live) {
+        const halo = svgEl('circle', 'halo halo-on');
+        halo.setAttribute('cx', x);
+        halo.setAttribute('cy', y);
+        halo.setAttribute('r', 5.5);
+        g.appendChild(halo);
+      }
+      const c = svgEl('circle', STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
+      c.setAttribute('cx', x);
+      c.setAttribute('cy', y);
+      c.setAttribute('r', 5.5);
+      g.appendChild(c);
+      const t = svgEl('text', null, n.label);
+      if (stacked) {
+        t.setAttribute('x', x + 12);
+        t.setAttribute('y', y + 3);
+      } else {
+        t.setAttribute('x', x);
+        t.setAttribute('y', y + 20);
+        t.setAttribute('text-anchor', 'middle');
+      }
+      g.appendChild(t);
+      if (participants.has(n.key)) {
+        g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
+      }
+      svg.appendChild(g);
+    });
+    if (col.label) {
+      const step = svgEl('text', null, col.label);
+      step.setAttribute('x', x);
+      step.setAttribute('y', Y0 + (col.nodes.length - 1) * ROW + 20);
+      step.setAttribute('text-anchor', 'middle');
+      svg.appendChild(step);
+    }
+  });
+  wrap.appendChild(svg);
+}
+
 async function loadDetail(id) {
   const data = await (await fetch('/api/run/' + encodeURIComponent(id))).json();
   renderDetail(id, data);
@@ -227,7 +502,9 @@ async function loadDetail(id) {
 
 function renderDetail(id, data) {
   const s = data.summary ?? {};
-  const byId = {};
+  // Null-prototype: event ids are journal-authored, so a crafted
+  // '__proto__' id must not resolve to Object.prototype on lookup.
+  const byId = Object.create(null);
   for (const e of data.events ?? []) byId[e.event_id] = e.seq;
 
   const detail = document.getElementById('detail');
@@ -238,6 +515,14 @@ function renderDetail(id, data) {
   line.appendChild(document.createTextNode(' '));
   line.appendChild(badge('phase ' + (s.phase ?? '-')));
   detail.appendChild(line);
+
+  // The loops view (outer phase rail + inner mini-rail) and everything
+  // below share one participant derivation per render.
+  const events = data.events ?? [];
+  const participants = buildParticipants(events);
+  if (activeParticipant && !participants.has(activeParticipant)) activeParticipant = null;
+  renderLoops(detail, events, s, participants, id, data);
+
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
   detail.appendChild(el('pre', null, JSON.stringify(s.last_decision ?? {}, null, 2)));
 
@@ -247,7 +532,6 @@ function renderDetail(id, data) {
   // single seat; member-tagged ones (panel members) get 'seat:member'.
   // Disappears when the attempt concludes; SSE re-renders keep it
   // current.
-  const events = data.events ?? [];
   const TERMINAL = ['effect/succeeded', 'effect/failed', 'effect/indeterminate'];
   let open = null;
   for (const e of events) {
@@ -289,9 +573,8 @@ function renderDetail(id, data) {
   // Seats console: per-participant table above the events table. Rows
   // drill down into that participant's progress; the selected key lives
   // in activeParticipant so the drill-down survives SSE re-renders, and
-  // clears itself if the participant vanishes after a refetch.
-  const participants = buildParticipants(events);
-  if (activeParticipant && !participants.has(activeParticipant)) activeParticipant = null;
+  // clears itself if the participant vanishes after a refetch (ruled
+  // above, where participants are derived).
   if (participants.size > 0) {
     const seats = el('table');
     seats.appendChild(row([
@@ -396,6 +679,7 @@ function renderDetail(id, data) {
 function select(id) {
   active = id;
   activeParticipant = null; // drill-down selection is per-run
+  selectedPhase = null;     // outer-rail selection is per-run too
   loadRuns();
   loadDetail(id);
   if (source) source.close();
