@@ -534,13 +534,58 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
     ]);
     let journal =
         std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
-    let members: Vec<String> = journal
+    let events: Vec<Value> = journal
         .lines()
         .map(|l| serde_json::from_str::<Value>(l).unwrap())
-        .filter(|e| e["payload"]["checkpoint"]["step"] == "panel-member-finished")
-        .map(|e| e["payload"]["checkpoint"]["member"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(members, vec!["integration", "unit"], "declared (sorted) order");
+
+    // Each member's live checkpoint (the fake driver's 'working' step)
+    // streams into the journal member-tagged, BEFORE the attempt's
+    // terminal effect event. Cross-member arrival order is wall-clock
+    // and nondeterministic — compare the member set, not a sequence.
+    let live: Vec<(usize, &Value)> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| {
+            e["payload"]["checkpoint"]["step"] == "working"
+                && e["payload"]["checkpoint"]["member"].is_string()
+        })
+        .collect();
+    let live_members: std::collections::BTreeSet<&str> = live
+        .iter()
+        .map(|(_, e)| e["payload"]["checkpoint"]["member"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        live_members,
+        ["integration", "unit"].into_iter().collect(),
+        "both members' checkpoints journal live, member-tagged"
+    );
+    let attempt_id = live[0].1["payload"]["attempt_id"].clone();
+    let terminal = events
+        .iter()
+        .position(|e| e["type"] == "effect/succeeded" && e["payload"]["attempt_id"] == attempt_id)
+        .expect("panel attempt has a terminal effect event");
+    let last_live = live.iter().map(|(i, _)| *i).max().unwrap();
+    assert!(
+        last_live < terminal,
+        "live checkpoints land before the terminal event, not post-join"
+    );
+
+    // Member outcomes are journaled as checkpoint evidence, in declared
+    // order, AFTER the live checkpoints, under the ONE effect the outer
+    // machine saw.
+    let summaries: Vec<(usize, &str)> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e["payload"]["checkpoint"]["step"] == "panel-member-finished")
+        .map(|(i, e)| (i, e["payload"]["checkpoint"]["member"].as_str().unwrap()))
+        .collect();
+    let summary_members: Vec<&str> = summaries.iter().map(|(_, m)| *m).collect();
+    assert_eq!(summary_members, vec!["integration", "unit"], "declared (sorted) order");
+    assert!(
+        summaries.iter().all(|(i, _)| *i > last_live),
+        "summaries journal post-join, after the live stream"
+    );
 }
 
 #[test]

@@ -153,9 +153,11 @@ async function loadDetail(id) {
   detail.appendChild(el('pre', null, JSON.stringify(s.last_decision ?? {}, null, 2)));
 
   // Live seat telemetry: while an attempt is open (an effect/started
-  // with no later terminal effect event), show one activity line built
-  // from the newest seat-turn checkpoint of that attempt. Disappears
-  // when the attempt concludes; SSE re-renders keep it current.
+  // with no later terminal effect event), show one activity line PER
+  // live participant. Checkpoints without a member field belong to the
+  // single seat; member-tagged ones (panel members) get 'seat:member'.
+  // Disappears when the attempt concludes; SSE re-renders keep it
+  // current.
   const events = data.events ?? [];
   const TERMINAL = ['effect/succeeded', 'effect/failed', 'effect/indeterminate'];
   let open = null;
@@ -169,20 +171,30 @@ async function loadDetail(id) {
     }
   }
   if (open) {
-    let seat = '?', turnCp = null;
+    let seat = '?';
+    const participants = new Map(); // label -> newest seat-turn checkpoint (or null)
     for (const e of events) {
       const p = e.payload || {};
       if (e.type === 'effect/requested' && p.effect_id === open.effect_id && p.seat) {
         seat = p.seat;
       }
       if (e.type === 'effect/checkpointed' && p.effect_id === open.effect_id &&
-          p.attempt_id === open.attempt_id && (p.checkpoint || {}).step === 'seat-turn') {
-        turnCp = p.checkpoint;
+          p.attempt_id === open.attempt_id) {
+        const cp = p.checkpoint || {};
+        const label = cp.member ? seat + ':' + cp.member : seat;
+        if (cp.step === 'seat-turn') {
+          participants.set(label, cp);
+        } else if (!participants.get(label)) {
+          participants.set(label, null);
+        }
       }
     }
-    detail.appendChild(el('p', 'live', turnCp
-      ? seat + ' · turn ' + turnCp.turn + ' · ' + turnCp.tool
-      : seat + ' · working'));
+    if (participants.size === 0) participants.set(seat, null);
+    for (const [label, turnCp] of participants) {
+      detail.appendChild(el('p', 'live', turnCp
+        ? label + ' · turn ' + turnCp.turn + ' · ' + turnCp.tool
+        : label + ' · working'));
+    }
   }
 
   const table = el('table');

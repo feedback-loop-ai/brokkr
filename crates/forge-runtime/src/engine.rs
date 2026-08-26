@@ -540,7 +540,15 @@ impl Engine {
         deadline: std::time::Duration,
     ) -> Result<(), EngineError> {
         let workdir = self.workdir();
+        // Split the borrows: member threads read the bundle dir, while the
+        // main-thread receive loop below needs the store and causal cursor.
+        let store = &mut self.store;
+        let current_cause = &mut self.current_cause;
+        let run_id = self.run_id.clone();
+        let bundle_dir = &self.bundle.dir;
+        let mut checkpoint_error: Option<EngineError> = None;
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
+            let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
             let handles: Vec<_> = members
                 .iter()
                 .map(|member| {
@@ -559,10 +567,12 @@ impl Engine {
                         &member.command,
                         member.confine.as_ref(),
                         &workdir,
-                        &self.bundle.dir,
+                        bundle_dir,
                     );
                     let name = member.name.clone();
+                    let checkpoint_name = member.name.clone();
                     let workdir = workdir.clone();
+                    let sender = sender.clone();
                     scope.spawn(move || {
                         let report = match DriverProcess::spawn(&command, &workdir, Some(deadline))
                         {
@@ -580,18 +590,61 @@ impl Engine {
                                 attempt_id,
                                 &member_seat,
                                 member_input,
-                                |_| {}, // member checkpoints journal after the join
+                                // Live telemetry: hand each checkpoint to the
+                                // main thread — the store has one writer.
+                                |data| {
+                                    let _ = sender
+                                        .send((checkpoint_name.clone(), data.clone()));
+                                },
                             ),
                         };
                         (name, report)
                     })
                 })
                 .collect();
+            // The main thread journals live member checkpoints as they
+            // arrive (wall-clock order — checkpoints are temporal evidence,
+            // nothing aggregates from them). Dropping our sender makes the
+            // loop end when the last member finishes emitting. On append
+            // error, latch and keep draining — an abandoned channel must
+            // not deadlock the members.
+            drop(sender);
+            for (member, checkpoint) in receiver {
+                if checkpoint_error.is_some() {
+                    continue;
+                }
+                let checkpoint = match checkpoint {
+                    Value::Object(mut object) => {
+                        object.insert("member".into(), Value::String(member));
+                        Value::Object(object)
+                    }
+                    other => json!({"member": member, "value": other}),
+                };
+                match store.append_next(
+                    &run_id,
+                    EventType::EffectCheckpointed,
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "checkpoint": checkpoint,
+                    }),
+                    current_cause.clone(),
+                    Some(attempt_id.to_string()),
+                ) {
+                    Ok(envelope) => {
+                        *current_cause = Some(envelope.event_id);
+                    }
+                    Err(e) => checkpoint_error = Some(e.into()),
+                }
+            }
             handles
                 .into_iter()
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
+        if let Some(e) = checkpoint_error {
+            return Err(e);
+        }
 
         // Journal member evidence in declared (stable) order — never
         // wall-clock completion order.
