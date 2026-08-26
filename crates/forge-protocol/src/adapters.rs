@@ -128,8 +128,8 @@ fn run_cli(
 /// `system`/`init` and `result` feed `session_meta`; an `assistant`
 /// message with a `tool_use` block becomes one seat-turn checkpoint.
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
-/// carry turn index, tool name, and a ≤80-char target only — never
-/// message text, thinking, or full tool inputs.
+/// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
+/// never message text, thinking, or full tool inputs.
 fn fold_stream_event(
     event: &Value,
     assistant_turns: &mut u64,
@@ -157,9 +157,10 @@ fn fold_stream_event(
             let mut checkpoint = Map::new();
             checkpoint.insert("step".into(), Value::String("seat-turn".into()));
             checkpoint.insert("turn".into(), Value::from(*assistant_turns));
+            let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
             checkpoint.insert(
                 "tool".into(),
-                tool_use.get("name").cloned().unwrap_or(Value::String(String::new())),
+                Value::String(tool.chars().take(80).collect()),
             );
             let target = ["file_path", "command", "url"].iter().find_map(|key| {
                 tool_use
@@ -230,10 +231,10 @@ fn invoke(
             // deadlock the stdout stream we are folding live.
             let stderr_pipe = child.stderr.take().expect("piped");
             let stderr_thread = std::thread::spawn(move || {
-                let mut captured = String::new();
+                let mut captured = Vec::new();
                 let mut pipe = stderr_pipe;
-                let _ = pipe.read_to_string(&mut captured);
-                captured
+                let _ = pipe.read_to_end(&mut captured);
+                String::from_utf8_lossy(&captured).into_owned()
             });
             let stdout = child.stdout.take().expect("piped");
             let mut session_meta = Map::new();
@@ -360,10 +361,14 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
             return;
         }
     };
-    eprint!(
-        "{}",
-        &invocation.stderr[invocation.stderr.len().saturating_sub(4000)..]
-    );
+    let stderr_tail_start = {
+        let mut start = invocation.stderr.len().saturating_sub(4000);
+        while !invocation.stderr.is_char_boundary(start) {
+            start -= 1;
+        }
+        start
+    };
+    eprint!("{}", &invocation.stderr[stderr_tail_start..]);
     let mut checkpoint = Map::new();
     checkpoint.insert(
         "step".into(),
