@@ -19,7 +19,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::bundle::{
-    Aggregate, Bundle, Confine, PanelMember, SeatBody, ENGINE_OWNED_INPUTS, ENGINE_VERSION,
+    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody,
+    ENGINE_OWNED_INPUTS, ENGINE_VERSION,
 };
 use forge_core::policy::SEVERITY_ORDER;
 use forge_protocol::AttemptReport;
@@ -339,6 +340,59 @@ impl Engine {
                     "context": context,
                 }))
             }
+            SeatBody::Sequence { steps } => {
+                // The requested-time input enumerates the WHOLE sequence;
+                // per-step driver inputs are derived from it
+                // deterministically at execution time. Step ORDER is
+                // load-bearing (steps run serially, and the digest must
+                // rebuild identically): an array carries it — a JSON
+                // object would sort its keys.
+                let step_values: Vec<Value> = steps
+                    .iter()
+                    .map(|step| match &step.body {
+                        StepBody::Single { role_path, .. } => json!({
+                            "name": step.name,
+                            "role_path": role_path.to_string_lossy(),
+                            "result_path": workdir
+                                .join(".forge/results")
+                                .join(format!("{effect_id}-{}.json", step.name))
+                                .to_string_lossy(),
+                        }),
+                        StepBody::Panel { members, aggregate } => {
+                            let mut member_map = Map::new();
+                            for member in members {
+                                member_map.insert(
+                                    member.name.clone(),
+                                    json!({
+                                        "role_path": member.role_path.to_string_lossy(),
+                                        "result_path": workdir
+                                            .join(".forge/results")
+                                            .join(format!(
+                                                "{effect_id}-{}-{}.json",
+                                                step.name, member.name
+                                            ))
+                                            .to_string_lossy(),
+                                    }),
+                                );
+                            }
+                            json!({
+                                "name": step.name,
+                                "aggregate": format!("{aggregate:?}"),
+                                "members": Value::Object(member_map),
+                            })
+                        }
+                    })
+                    .collect();
+                Ok(json!({
+                    "feature": self.feature,
+                    "phase": phase,
+                    "seat": phase,
+                    "workdir": workdir.to_string_lossy(),
+                    "steps": step_values,
+                    "allowed_results": seat.results,
+                    "context": context,
+                }))
+            }
         }
     }
 
@@ -399,6 +453,7 @@ impl Engine {
             SeatBody::Panel { members, aggregate } => {
                 format!("panel[{}]:{aggregate:?}", members.len())
             }
+            SeatBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
         };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
@@ -416,83 +471,55 @@ impl Engine {
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
         let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
 
-        let (members, aggregate, command) = match &seat.body {
-            SeatBody::Panel { members, aggregate } => (members.clone(), Some(*aggregate), Vec::new()),
-            SeatBody::Single { command, confine, .. } => (
-                Vec::new(),
-                None,
-                confined_command(command, confine.as_ref(), &self.workdir(), &self.bundle.dir),
+        match &seat.body {
+            SeatBody::Panel { members, aggregate } => self.execute_panel(
+                effect_id, &attempt_id, seat_name, members, *aggregate, &input, deadline,
             ),
-        };
-        if let Some(aggregate) = aggregate {
-            return self.execute_panel(
-                effect_id, &attempt_id, seat_name, &members, aggregate, &input, deadline,
-            );
+            SeatBody::Sequence { steps } => {
+                self.execute_sequence(effect_id, &attempt_id, seat_name, steps, &input, deadline)
+            }
+            SeatBody::Single { command, confine, .. } => {
+                let command =
+                    confined_command(command, confine.as_ref(), &workdir, &self.bundle.dir);
+                let run = self.run_driver(
+                    effect_id, &attempt_id, seat_name, &command, input, deadline, None,
+                )?;
+                self.conclude_single(effect_id, &attempt_id, run)
+            }
         }
-        let spawned = DriverProcess::spawn(&command, &workdir, Some(deadline));
-        let report = match spawned {
-            Err(e) => {
+    }
+
+    /// Conclude a single-driver attempt with its terminal effect event.
+    /// The stderr tail rides on failed/indeterminate outcomes; a spawn
+    /// failure has no stderr and carries none.
+    fn conclude_single(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        run: DriverRun,
+    ) -> Result<(), EngineError> {
+        let report = match run {
+            DriverRun::SpawnFailed(error) => {
                 self.append(
                     EventType::EffectFailed,
                     json!({
                         "effect_id": effect_id,
                         "attempt_id": attempt_id,
-                        "error": format!("driver did not spawn: {e}"),
+                        "error": error,
                     }),
-                    Some(attempt_id),
+                    Some(attempt_id.to_string()),
                 )?;
                 return Ok(());
             }
-            Ok(process) => {
-                let mut checkpoint_error: Option<EngineError> = None;
-                let store = &mut self.store;
-                let current_cause = &mut self.current_cause;
-                let run_id = self.run_id.clone();
-                let report = process.run_attempt(
-                    ENGINE_VERSION,
-                    effect_id,
-                    &attempt_id,
-                    seat_name,
-                    input,
-                    |data| {
-                        if checkpoint_error.is_none() {
-                            match store.append_next(
-                                &run_id,
-                                EventType::EffectCheckpointed,
-                                json!({
-                                    "effect_id": effect_id,
-                                    "attempt_id": attempt_id,
-                                    "checkpoint": data,
-                                }),
-                                current_cause.clone(),
-                                Some(attempt_id.clone()),
-                            ) {
-                                // Causal chain advances through checkpoints
-                                // too — the closing effect event names the
-                                // last checkpoint as its cause.
-                                Ok(envelope) => {
-                                    *current_cause = Some(envelope.event_id);
-                                }
-                                Err(e) => checkpoint_error = Some(e.into()),
-                            }
-                        }
-                    },
-                );
-                if let Some(e) = checkpoint_error {
-                    return Err(e);
-                }
-                report
-            }
+            DriverRun::Ran(report) => report,
         };
-
-        let stderr_tail: String = report.stderr.chars().rev().take(2000).collect::<String>()
-            .chars().rev().collect();
+        let stderr_tail = stderr_tail(&report.stderr);
         match report.outcome {
             AttemptOutcome::Succeeded { result } => {
                 self.append(
                     EventType::EffectSucceeded,
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-                    Some(attempt_id),
+                    Some(attempt_id.to_string()),
                 )?;
             }
             AttemptOutcome::Failed { error } => {
@@ -503,7 +530,7 @@ impl Engine {
                         "attempt_id": attempt_id,
                         "error": format!("{error}; stderr tail: {stderr_tail}"),
                     }),
-                    Some(attempt_id),
+                    Some(attempt_id.to_string()),
                 )?;
             }
             AttemptOutcome::Indeterminate { reason } => {
@@ -514,11 +541,75 @@ impl Engine {
                         "attempt_id": attempt_id,
                         "reason": format!("{reason}; stderr tail: {stderr_tail}"),
                     }),
-                    Some(attempt_id),
+                    Some(attempt_id.to_string()),
                 )?;
             }
         }
         Ok(())
+    }
+
+    /// Spawn one driver and run one attempt, journaling its live
+    /// checkpoints as they stream — member-tagged when `member_tag`
+    /// names a sequence step. Appends NO terminal effect event: the
+    /// caller owns the attempt's conclusion.
+    #[allow(clippy::too_many_arguments)]
+    fn run_driver(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        driver_seat: &str,
+        command: &[String],
+        input: Value,
+        deadline: std::time::Duration,
+        member_tag: Option<&str>,
+    ) -> Result<DriverRun, EngineError> {
+        let workdir = self.workdir();
+        let process = match DriverProcess::spawn(command, &workdir, Some(deadline)) {
+            Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
+            Ok(process) => process,
+        };
+        let mut checkpoint_error: Option<EngineError> = None;
+        let store = &mut self.store;
+        let current_cause = &mut self.current_cause;
+        let run_id = self.run_id.clone();
+        let report = process.run_attempt(
+            ENGINE_VERSION,
+            effect_id,
+            attempt_id,
+            driver_seat,
+            input,
+            |data| {
+                if checkpoint_error.is_none() {
+                    let checkpoint = match member_tag {
+                        None => data.clone(),
+                        Some(tag) => tag_member(data.clone(), tag),
+                    };
+                    match store.append_next(
+                        &run_id,
+                        EventType::EffectCheckpointed,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "checkpoint": checkpoint,
+                        }),
+                        current_cause.clone(),
+                        Some(attempt_id.to_string()),
+                    ) {
+                        // Causal chain advances through checkpoints
+                        // too — the closing effect event names the
+                        // last checkpoint as its cause.
+                        Ok(envelope) => {
+                            *current_cause = Some(envelope.event_id);
+                        }
+                        Err(e) => checkpoint_error = Some(e.into()),
+                    }
+                }
+            },
+        );
+        if let Some(e) = checkpoint_error {
+            return Err(e);
+        }
+        Ok(DriverRun::Ran(report))
     }
 
     /// Run a parallel panel INSIDE one effect (decision 0002): members
@@ -539,43 +630,123 @@ impl Engine {
         panel_input: &Value,
         deadline: std::time::Duration,
     ) -> Result<(), EngineError> {
+        let runs = self.member_runs(
+            seat_name,
+            members,
+            &panel_input["members"],
+            panel_input,
+            &panel_input["context"],
+        );
+        let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
+        self.journal_panel_members(effect_id, attempt_id, &reports, "")?;
+        match panel_outcome(aggregate, reports) {
+            AttemptOutcome::Indeterminate { reason } => {
+                self.append(
+                    EventType::EffectIndeterminate,
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "reason": reason,
+                    }),
+                    Some(attempt_id.to_string()),
+                )?;
+            }
+            AttemptOutcome::Failed { error } => {
+                self.append(
+                    EventType::EffectFailed,
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "error": error,
+                    }),
+                    Some(attempt_id.to_string()),
+                )?;
+            }
+            AttemptOutcome::Succeeded { result } => {
+                self.append(
+                    EventType::EffectSucceeded,
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+                    Some(attempt_id.to_string()),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Derive one driver invocation per panel member from the
+    /// requested-time input: `members_meta` holds the per-member
+    /// role/result paths, `driver_seat_prefix` is the seat name (or
+    /// `<seat>:<step>` inside a sequence), and `context` already carries
+    /// any accumulated prior step results.
+    fn member_runs(
+        &self,
+        driver_seat_prefix: &str,
+        members: &[PanelMember],
+        members_meta: &Value,
+        seat_input: &Value,
+        context: &Value,
+    ) -> Vec<MemberRun> {
         let workdir = self.workdir();
-        // Split the borrows: member threads read the bundle dir, while the
+        members
+            .iter()
+            .map(|member| MemberRun {
+                name: member.name.clone(),
+                driver_seat: format!("{driver_seat_prefix}:{}", member.name),
+                command: confined_command(
+                    &member.command,
+                    member.confine.as_ref(),
+                    &workdir,
+                    &self.bundle.dir,
+                ),
+                input: json!({
+                    "feature": seat_input["feature"],
+                    "phase": seat_input["phase"],
+                    "seat": format!("{driver_seat_prefix}:{}", member.name),
+                    "role_path": members_meta[&member.name]["role_path"],
+                    "workdir": seat_input["workdir"],
+                    "result_path": members_meta[&member.name]["result_path"],
+                    "allowed_results": seat_input["allowed_results"],
+                    "context": context,
+                }),
+            })
+            .collect()
+    }
+
+    /// Run panel members concurrently INSIDE one attempt, journaling
+    /// live member checkpoints as they arrive, and return the reports in
+    /// declared order. Appends NO terminal effect event. `tag_prefix` is
+    /// empty for a seat-level panel and `<step>:` inside a sequence, so
+    /// the journaled member tag reads `<member>` or `<step>:<member>`.
+    fn run_panel(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        runs: &[MemberRun],
+        deadline: std::time::Duration,
+        tag_prefix: &str,
+    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+        let workdir = self.workdir();
+        // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
-        let bundle_dir = &self.bundle.dir;
         let mut checkpoint_error: Option<EngineError> = None;
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
-            let handles: Vec<_> = members
+            let handles: Vec<_> = runs
                 .iter()
-                .map(|member| {
-                    let member_input = json!({
-                        "feature": panel_input["feature"],
-                        "phase": panel_input["phase"],
-                        "seat": format!("{seat_name}:{}", member.name),
-                        "role_path": panel_input["members"][&member.name]["role_path"],
-                        "workdir": panel_input["workdir"],
-                        "result_path": panel_input["members"][&member.name]["result_path"],
-                        "allowed_results": panel_input["allowed_results"],
-                        "context": panel_input["context"],
-                    });
-                    let member_seat = format!("{seat_name}:{}", member.name);
-                    let command = confined_command(
-                        &member.command,
-                        member.confine.as_ref(),
-                        &workdir,
-                        bundle_dir,
-                    );
-                    let name = member.name.clone();
-                    let checkpoint_name = member.name.clone();
+                .map(|run| {
+                    let name = run.name.clone();
+                    let checkpoint_name = format!("{tag_prefix}{}", run.name);
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report = match DriverProcess::spawn(&command, &workdir, Some(deadline))
-                        {
+                        let report = match DriverProcess::spawn(
+                            &run.command,
+                            &workdir,
+                            Some(deadline),
+                        ) {
                             Err(e) => AttemptReport {
                                 outcome: AttemptOutcome::Failed {
                                     error: format!("member driver did not spawn: {e}"),
@@ -588,8 +759,8 @@ impl Engine {
                                 ENGINE_VERSION,
                                 effect_id,
                                 attempt_id,
-                                &member_seat,
-                                member_input,
+                                &run.driver_seat,
+                                run.input.clone(),
                                 // Live telemetry: hand each checkpoint to the
                                 // main thread — the store has one writer.
                                 |data| {
@@ -613,13 +784,7 @@ impl Engine {
                 if checkpoint_error.is_some() {
                     continue;
                 }
-                let checkpoint = match checkpoint {
-                    Value::Object(mut object) => {
-                        object.insert("member".into(), Value::String(member));
-                        Value::Object(object)
-                    }
-                    other => json!({"member": member, "value": other}),
-                };
+                let checkpoint = tag_member(checkpoint, &member);
                 match store.append_next(
                     &run_id,
                     EventType::EffectCheckpointed,
@@ -645,10 +810,19 @@ impl Engine {
         if let Some(e) = checkpoint_error {
             return Err(e);
         }
+        Ok(reports)
+    }
 
-        // Journal member evidence in declared (stable) order — never
-        // wall-clock completion order.
-        for (name, report) in &reports {
+    /// Journal member outcomes as checkpoint evidence in declared
+    /// (stable) order — never wall-clock completion order.
+    fn journal_panel_members(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        reports: &[(String, AttemptReport)],
+        tag_prefix: &str,
+    ) -> Result<(), EngineError> {
+        for (name, report) in reports {
             let kind = match &report.outcome {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
                 AttemptOutcome::Failed { .. } => "failed",
@@ -661,7 +835,7 @@ impl Engine {
                     "attempt_id": attempt_id,
                     "checkpoint": {
                         "step": "panel-member-finished",
-                        "member": name,
+                        "member": format!("{tag_prefix}{name}"),
                         "outcome": kind,
                         "session_ref": report.session_ref,
                         "inner_checkpoints": report.checkpoints.len(),
@@ -670,58 +844,152 @@ impl Engine {
                 Some(attempt_id.to_string()),
             )?;
         }
+        Ok(())
+    }
 
-        let indeterminate: Vec<&str> = reports
-            .iter()
-            .filter(|(_, r)| matches!(r.outcome, AttemptOutcome::Indeterminate { .. }))
-            .map(|(n, _)| n.as_str())
-            .collect();
-        if !indeterminate.is_empty() {
-            self.append(
-                EventType::EffectIndeterminate,
-                json!({
-                    "effect_id": effect_id,
-                    "attempt_id": attempt_id,
-                    "reason": format!(
-                        "panel members {indeterminate:?} could not establish completion"
-                    ),
-                }),
-                Some(attempt_id.to_string()),
-            )?;
-            return Ok(());
+    /// Run named steps one after another INSIDE one attempt (decision
+    /// 0002's serial form). Per-step driver inputs are derived
+    /// deterministically from the requested-time seat input; earlier
+    /// steps' result objects reach later steps as
+    /// `context.prior_results`. Any step failing fails the WHOLE attempt
+    /// (0006-retryable — a retry restarts from step 1); an indeterminate
+    /// step parks it. The FINAL step's result object is the effect's
+    /// single typed result — decide() validates it exactly as today.
+    fn execute_sequence(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        seat_name: &str,
+        steps: &[SequenceStep],
+        seq_input: &Value,
+        deadline: std::time::Duration,
+    ) -> Result<(), EngineError> {
+        let mut prior_results = Map::new();
+        for (index, step) in steps.iter().enumerate() {
+            let step_meta = &seq_input["steps"][index];
+            let context = {
+                let mut context = seq_input["context"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+                context.insert("prior_results".into(), Value::Object(prior_results.clone()));
+                Value::Object(context)
+            };
+            let outcome = match &step.body {
+                StepBody::Single { command, confine, .. } => {
+                    let driver_seat = format!("{seat_name}:{}", step.name);
+                    let input = json!({
+                        "feature": seq_input["feature"],
+                        "phase": seq_input["phase"],
+                        "seat": driver_seat,
+                        "role_path": step_meta["role_path"],
+                        "workdir": seq_input["workdir"],
+                        "result_path": step_meta["result_path"],
+                        "allowed_results": seq_input["allowed_results"],
+                        "context": context,
+                    });
+                    let command = confined_command(
+                        command,
+                        confine.as_ref(),
+                        &self.workdir(),
+                        &self.bundle.dir,
+                    );
+                    match self.run_driver(
+                        effect_id,
+                        attempt_id,
+                        &driver_seat,
+                        &command,
+                        input,
+                        deadline,
+                        Some(&step.name),
+                    )? {
+                        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
+                        DriverRun::Ran(report) => {
+                            // The step driver's stderr tail rides on the
+                            // attempt's terminal event, as a single
+                            // seat's does.
+                            let tail = stderr_tail(&report.stderr);
+                            match report.outcome {
+                                AttemptOutcome::Succeeded { result } => {
+                                    AttemptOutcome::Succeeded { result }
+                                }
+                                AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
+                                    error: format!("{error}; stderr tail: {tail}"),
+                                },
+                                AttemptOutcome::Indeterminate { reason } => {
+                                    AttemptOutcome::Indeterminate {
+                                        reason: format!("{reason}; stderr tail: {tail}"),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                StepBody::Panel { members, aggregate } => {
+                    let tag_prefix = format!("{}:", step.name);
+                    let runs = self.member_runs(
+                        &format!("{seat_name}:{}", step.name),
+                        members,
+                        &step_meta["members"],
+                        seq_input,
+                        &context,
+                    );
+                    let reports =
+                        self.run_panel(effect_id, attempt_id, &runs, deadline, &tag_prefix)?;
+                    self.journal_panel_members(effect_id, attempt_id, &reports, &tag_prefix)?;
+                    panel_outcome(*aggregate, reports)
+                }
+            };
+            let result = match outcome {
+                AttemptOutcome::Succeeded { result } => result,
+                AttemptOutcome::Failed { error } => {
+                    self.append(
+                        EventType::EffectFailed,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "error": format!("sequence step '{}': {error}", step.name),
+                        }),
+                        Some(attempt_id.to_string()),
+                    )?;
+                    return Ok(());
+                }
+                AttemptOutcome::Indeterminate { reason } => {
+                    self.append(
+                        EventType::EffectIndeterminate,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "reason": format!("sequence step '{}': {reason}", step.name),
+                        }),
+                        Some(attempt_id.to_string()),
+                    )?;
+                    return Ok(());
+                }
+            };
+            if index + 1 == steps.len() {
+                self.append(
+                    EventType::EffectSucceeded,
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+                    Some(attempt_id.to_string()),
+                )?;
+            } else {
+                self.append(
+                    EventType::EffectCheckpointed,
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "checkpoint": {
+                            "step": "sequence-step-finished",
+                            "step_name": step.name,
+                            "result": result,
+                        },
+                    }),
+                    Some(attempt_id.to_string()),
+                )?;
+                prior_results.insert(step.name.clone(), result);
+            }
         }
-        let failures: Vec<String> = reports
-            .iter()
-            .filter_map(|(n, r)| match &r.outcome {
-                AttemptOutcome::Failed { error } => Some(format!("{n}: {error}")),
-                _ => None,
-            })
-            .collect();
-        if !failures.is_empty() {
-            self.append(
-                EventType::EffectFailed,
-                json!({
-                    "effect_id": effect_id,
-                    "attempt_id": attempt_id,
-                    "error": format!("panel members failed — {}", failures.join("; ")),
-                }),
-                Some(attempt_id.to_string()),
-            )?;
-            return Ok(());
-        }
-        let member_results: Vec<(String, Value)> = reports
-            .into_iter()
-            .map(|(n, r)| match r.outcome {
-                AttemptOutcome::Succeeded { result } => (n, result),
-                _ => unreachable!("filtered above"),
-            })
-            .collect();
-        let aggregated = aggregate_results(aggregate, &member_results);
-        self.append(
-            EventType::EffectSucceeded,
-            json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": aggregated}),
-            Some(attempt_id.to_string()),
-        )?;
         Ok(())
     }
 
@@ -863,6 +1131,79 @@ pub fn operator_command(
         None,
     )?;
     Ok(())
+}
+
+/// A driver invocation that got as far as running, or one that never
+/// spawned. Spawn failures carry no stderr, and their terminal error
+/// grows no stderr tail — the distinction keeps event payloads exactly
+/// as they were before this enum existed.
+enum DriverRun {
+    SpawnFailed(String),
+    Ran(AttemptReport),
+}
+
+/// One panel member's derived driver invocation: the `seat` string the
+/// driver sees, the (possibly confined) command, and its input.
+struct MemberRun {
+    name: String,
+    driver_seat: String,
+    command: Vec<String>,
+    input: Value,
+}
+
+/// Tag a checkpoint payload with the member/step it came from — the
+/// `member` field the seats console groups by.
+fn tag_member(checkpoint: Value, member: &str) -> Value {
+    match checkpoint {
+        Value::Object(mut object) => {
+            object.insert("member".into(), Value::String(member.to_string()));
+            Value::Object(object)
+        }
+        other => json!({"member": member, "value": other}),
+    }
+}
+
+fn stderr_tail(stderr: &str) -> String {
+    stderr.chars().rev().take(2000).collect::<String>().chars().rev().collect()
+}
+
+/// Join member reports into the attempt's single outcome: any
+/// indeterminate member parks the whole attempt; otherwise any failed
+/// member fails it (retryable under 0006); otherwise the declared
+/// aggregate produces the one typed result.
+fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) -> AttemptOutcome {
+    let indeterminate: Vec<&str> = reports
+        .iter()
+        .filter(|(_, r)| matches!(r.outcome, AttemptOutcome::Indeterminate { .. }))
+        .map(|(n, _)| n.as_str())
+        .collect();
+    if !indeterminate.is_empty() {
+        return AttemptOutcome::Indeterminate {
+            reason: format!("panel members {indeterminate:?} could not establish completion"),
+        };
+    }
+    let failures: Vec<String> = reports
+        .iter()
+        .filter_map(|(n, r)| match &r.outcome {
+            AttemptOutcome::Failed { error } => Some(format!("{n}: {error}")),
+            _ => None,
+        })
+        .collect();
+    if !failures.is_empty() {
+        return AttemptOutcome::Failed {
+            error: format!("panel members failed — {}", failures.join("; ")),
+        };
+    }
+    let member_results: Vec<(String, Value)> = reports
+        .into_iter()
+        .map(|(n, r)| match r.outcome {
+            AttemptOutcome::Succeeded { result } => (n, result),
+            _ => unreachable!("filtered above"),
+        })
+        .collect();
+    AttemptOutcome::Succeeded {
+        result: aggregate_results(aggregate, &member_results),
+    }
 }
 
 /// Deterministic, order-independent aggregation of member results. A

@@ -201,6 +201,63 @@ impl Workspace {
         seat.remove("driver");
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }
+
+    /// Convert one phase's seat into a sequence of fake-driver steps. A
+    /// spec {"name": N} becomes a single step; {"name": N, "members":
+    /// [...], "aggregate": A} a panel step. Script entries key by
+    /// "<phase>:<step>" (single) and "<phase>:<step>:<member>" (panel).
+    fn make_sequence(&self, phase: &str, specs: &[Value]) {
+        let path = self.bundle_dir().join("bundle.json");
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let driver = config["seats"][phase]["driver"].clone();
+        let steps: Vec<Value> = specs
+            .iter()
+            .map(|spec| {
+                let name = spec["name"].as_str().unwrap();
+                match spec.get("members") {
+                    None => json!({
+                        "name": name, "role": "roles/role.md", "driver": driver.clone(),
+                    }),
+                    Some(members) => {
+                        let mut panel = serde_json::Map::new();
+                        for member in members.as_array().unwrap() {
+                            panel.insert(
+                                member.as_str().unwrap().to_string(),
+                                json!({"role": "roles/role.md", "driver": driver.clone()}),
+                            );
+                        }
+                        json!({
+                            "name": name,
+                            "panel": panel,
+                            "aggregate": spec["aggregate"],
+                        })
+                    }
+                }
+            })
+            .collect();
+        let seat = config["seats"][phase].as_object_mut().unwrap();
+        seat.insert("sequence".into(), json!(steps));
+        seat.remove("role");
+        seat.remove("driver");
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+    }
+
+    /// Export the run's journal and parse it into events.
+    fn exported_events(&self, run_id: &str) -> Vec<Value> {
+        let db = self.db();
+        let out = self.path().join("export");
+        self.forge(&[
+            "export", "--run", run_id,
+            "--out", out.to_str().unwrap(),
+            "--db", db.to_str().unwrap(),
+        ]);
+        std::fs::read_to_string(out.join(format!("{run_id}.ndjson")))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .collect()
+    }
 }
 
 fn happy_script() -> Value {
@@ -715,6 +772,172 @@ fn compile_rejects_bad_panels() {
     let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("unknown aggregate"), "stderr: {stderr}");
+}
+
+#[test]
+fn sequence_final_step_decides_and_steps_checkpoint_in_order() {
+    // Two single steps: the first's result is checkpoint evidence only;
+    // the second's decides the phase (IMPL-OK) exactly as a single seat
+    // would. Step-1's result never has to be in the seat vocabulary.
+    let mut script = happy_script();
+    script["seats"]["implement:draft"] = json!([{"behavior": "succeed",
+        "result": {"result": "drafted", "notes": "positions taken"}}]);
+    script["seats"]["implement:chief"] =
+        json!([{"behavior": "succeed", "result": {"result": "complete"}}]);
+    let ws = Workspace::new(script);
+    ws.make_sequence("implement", &[json!({"name": "draft"}), json!({"name": "chief"})]);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    // Each step's live checkpoints stream member-tagged with the step
+    // name, so the seats console picks steps up unchanged.
+    let live_members: std::collections::BTreeSet<&str> = events
+        .iter()
+        .filter(|e| {
+            e["payload"]["checkpoint"]["step"] == "working"
+                && e["payload"]["checkpoint"]["member"].is_string()
+        })
+        .map(|e| e["payload"]["checkpoint"]["member"].as_str().unwrap())
+        .collect();
+    assert_eq!(live_members, ["chief", "draft"].into_iter().collect());
+
+    // The non-final step's result is journaled as a
+    // sequence-step-finished checkpoint BEFORE the terminal event.
+    let finished = events
+        .iter()
+        .position(|e| e["payload"]["checkpoint"]["step"] == "sequence-step-finished")
+        .expect("step 1 finished checkpoint");
+    let checkpoint = &events[finished]["payload"]["checkpoint"];
+    assert_eq!(checkpoint["step_name"], "draft");
+    assert_eq!(checkpoint["result"]["result"], "drafted");
+    let succeeded = events
+        .iter()
+        .position(|e| {
+            e["type"] == "effect/succeeded"
+                && e["payload"]["result"]["result"] == "complete"
+        })
+        .expect("terminal effect event carries the FINAL step's result");
+    assert!(finished < succeeded, "step checkpoint precedes the terminal event");
+    let decision = events
+        .iter()
+        .find(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "implement")
+        .expect("implement decision");
+    assert_eq!(decision["payload"]["rule_id"], "IMPL-OK");
+}
+
+#[test]
+fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
+    // Step 2 fails on the first attempt: the WHOLE attempt fails
+    // (0006-retryable), and with max_attempts 2 the retry restarts from
+    // step 1. The fake driver counts attempts per seat name, so step 1
+    // is on its second entry during the retry — its single entry repeats.
+    let mut script = happy_script();
+    script["seats"]["implement:one"] =
+        json!([{"behavior": "succeed", "result": {"result": "first"}}]);
+    script["seats"]["implement:two"] = json!([
+        {"behavior": "fail", "error": "chief crashed"},
+        {"behavior": "succeed", "result": {"result": "complete"}},
+    ]);
+    let ws = Workspace::new(script);
+    ws.make_sequence("implement", &[json!({"name": "one"}), json!({"name": "two"})]);
+    ws.set_seat_limits("implement", 2, 3600);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let failed = events
+        .iter()
+        .find(|e| e["type"] == "effect/failed")
+        .expect("first attempt failed");
+    let error = failed["payload"]["error"].as_str().unwrap();
+    assert!(error.contains("sequence step 'two'"), "error names the step: {error}");
+    assert!(error.contains("chief crashed"), "error carries the driver error: {error}");
+    let step_one_runs = events
+        .iter()
+        .filter(|e| {
+            e["payload"]["checkpoint"]["step"] == "sequence-step-finished"
+                && e["payload"]["checkpoint"]["step_name"] == "one"
+        })
+        .count();
+    assert_eq!(step_one_runs, 2, "the retry restarts from step 1, not step 2");
+}
+
+#[test]
+fn sequence_panel_step_tags_member_checkpoints_with_step_prefix() {
+    // A panel step inside a sequence keeps panel semantics internally;
+    // its members' checkpoints are member-tagged "<step>:<member>". The
+    // panel is non-final, so its aggregate vocabulary (pass/fail) need
+    // not appear in the seat's declared results.
+    let mut script = happy_script();
+    script["seats"]["implement:positions:econ"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["implement:positions:legal"] =
+        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["implement:chief"] =
+        json!([{"behavior": "succeed", "result": {"result": "complete"}}]);
+    let ws = Workspace::new(script);
+    ws.make_sequence(
+        "implement",
+        &[
+            json!({"name": "positions", "members": ["econ", "legal"],
+                   "aggregate": "unanimous-pass"}),
+            json!({"name": "chief"}),
+        ],
+    );
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let live_members: std::collections::BTreeSet<&str> = events
+        .iter()
+        .filter(|e| {
+            e["payload"]["checkpoint"]["step"] == "working"
+                && e["payload"]["checkpoint"]["member"].is_string()
+        })
+        .map(|e| e["payload"]["checkpoint"]["member"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        live_members,
+        ["chief", "positions:econ", "positions:legal"].into_iter().collect(),
+        "panel-step members tag as '<step>:<member>'"
+    );
+    let summary_members: Vec<&str> = events
+        .iter()
+        .filter(|e| e["payload"]["checkpoint"]["step"] == "panel-member-finished")
+        .map(|e| e["payload"]["checkpoint"]["member"].as_str().unwrap())
+        .collect();
+    assert_eq!(summary_members, vec!["positions:econ", "positions:legal"]);
+    let finished = events
+        .iter()
+        .find(|e| e["payload"]["checkpoint"]["step"] == "sequence-step-finished")
+        .expect("panel step finished checkpoint");
+    assert_eq!(
+        finished["payload"]["checkpoint"]["result"]["result"], "pass",
+        "the step's recorded result is the panel's aggregate"
+    );
+}
+
+#[test]
+fn compile_rejects_bad_sequences() {
+    // One step.
+    let ws = Workspace::new(happy_script());
+    ws.make_sequence("implement", &[json!({"name": "only"})]);
+    let bundle = ws.bundle_dir();
+    let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("at least two steps"), "stderr: {stderr}");
+
+    // Duplicate step names, case-insensitive.
+    let ws = Workspace::new(happy_script());
+    ws.make_sequence("implement", &[json!({"name": "chief"}), json!({"name": "Chief"})]);
+    let bundle = ws.bundle_dir();
+    let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("duplicate step name"), "stderr: {stderr}");
 }
 
 #[test]

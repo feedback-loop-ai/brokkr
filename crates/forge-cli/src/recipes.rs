@@ -54,6 +54,14 @@ fn seat_summary(bundle: &Bundle) -> String {
                     .collect::<Vec<_>>()
                     .join("+")
             ),
+            SeatBody::Sequence { steps } => format!(
+                "{name}[{}]",
+                steps
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(">")
+            ),
         })
         .collect::<Vec<_>>()
         .join(", ")
