@@ -43,6 +43,8 @@
   th { color: var(--dim); font-weight: 600; }
   td.payload { max-width: 46rem; overflow-wrap: anywhere; color: var(--dim); }
   .cause { color: var(--dim); font-size: .85em; }
+  tr.seat { cursor: pointer; }
+  tr.seat:hover td { background: rgba(124,92,255,.08); }
   .live { color: var(--phosphor); margin: .3rem 0; }
   pre { background: var(--panel); border: 1px solid var(--line); padding: .6rem;
         border-radius: 8px; overflow-x: auto; }
@@ -85,7 +87,7 @@
 // untrusted. Nothing journal-derived ever reaches innerHTML — all
 // dynamic content is set through textContent (el(); badge classes come
 // from a fixed allowlist, never from data).
-let active = null, source = null;
+let active = null, source = null, activeParticipant = null;
 
 // Favicon pair: phosphor seal at rest, violet seal while forging — the
 // tab itself signals a live run (the 16px answer to the pulse).
@@ -135,8 +137,95 @@ function row(cells) {
   return tr;
 }
 
+// Seats console: the participant model derives client-side from the
+// events stream. One participant per seat occurrence (effect/requested);
+// checkpoints carrying a member field split that effect into
+// 'seat:member' participants (panel members); member-less checkpoints
+// belong to the seat itself.
+const TERMINAL_STATUS = {
+  'effect/succeeded': 'succeeded',
+  'effect/failed': 'failed',
+  'effect/indeterminate': 'indeterminate',
+};
+// Derived status -> badge class, a fixed table: journal data never
+// becomes a class name.
+const STATUS_CLASS = {
+  working: 'running',
+  succeeded: 'completed',
+  failed: 'stopped',
+  indeterminate: 'awaiting_operator',
+};
+
+function buildParticipants(events) {
+  const effects = new Map();      // effect_id -> per-effect facts
+  const participants = new Map(); // key -> participant, in first-seen order
+  const ensure = (effect, member) => {
+    const key = member ? effect.effect_id + ':' + member : effect.effect_id;
+    if (!participants.has(key)) {
+      participants.set(key, {
+        key, effect, member,
+        label: member ? effect.seat + ':' + member : effect.seat,
+        turns: null, lastTurn: null, session: null,
+        memberOutcome: null, memberFinishedAt: null, checkpoints: [],
+      });
+    }
+    return participants.get(key);
+  };
+  for (const e of events) {
+    const p = e.payload || {};
+    if (e.type === 'effect/requested' && p.effect_id) {
+      const effect = { effect_id: p.effect_id, seat: p.seat ?? '?',
+                       attempts: 0, open: null, terminal: null, terminalEvent: null };
+      effects.set(p.effect_id, effect);
+      ensure(effect, null);
+      continue;
+    }
+    const effect = effects.get(p.effect_id);
+    if (!effect) continue;
+    if (e.type === 'effect/started') {
+      effect.attempts += 1;
+      effect.open = p.attempt_id;
+    } else if (TERMINAL_STATUS[e.type] && p.attempt_id === effect.open) {
+      effect.open = null;
+      effect.terminal = TERMINAL_STATUS[e.type];
+      effect.terminalEvent = e;
+    } else if (e.type === 'effect/checkpointed') {
+      const cp = p.checkpoint || {};
+      const member = typeof cp.member === 'string' ? cp.member : null;
+      const part = ensure(effect, member);
+      part.checkpoints.push({ cp, seq: e.seq, recorded_at: e.recorded_at });
+      if (cp.step === 'seat-turn') {
+        if (typeof cp.turn === 'number') {
+          part.turns = part.turns === null ? cp.turn : Math.max(part.turns, cp.turn);
+        }
+        part.lastTurn = cp;
+      } else if (typeof cp.step === 'string' && cp.step.endsWith('-session-finished')) {
+        part.session = cp;
+      } else if (cp.step === 'panel-member-finished' && member) {
+        part.memberOutcome = cp.outcome;
+        part.memberFinishedAt = e.recorded_at;
+      }
+    }
+  }
+  for (const part of participants.values()) {
+    // Working while the latest attempt has no terminal event; members
+    // rule on their own panel-member-finished outcome, falling back to
+    // the effect's terminal status so a concluded run never shows a
+    // member stuck on "working".
+    const effectStatus = part.effect.open ? 'working' : (part.effect.terminal ?? 'working');
+    part.status = (part.member && STATUS_CLASS[part.memberOutcome])
+      ? part.memberOutcome : effectStatus;
+    part.attempts = part.effect.attempts;
+  }
+  return participants;
+}
+
 async function loadDetail(id) {
   const data = await (await fetch('/api/run/' + encodeURIComponent(id))).json();
+  renderDetail(id, data);
+}
+
+function renderDetail(id, data) {
   const s = data.summary ?? {};
   const byId = {};
   for (const e of data.events ?? []) byId[e.event_id] = e.seq;
@@ -197,6 +286,89 @@ async function loadDetail(id) {
     }
   }
 
+  // Seats console: per-participant table above the events table. Rows
+  // drill down into that participant's progress; the selected key lives
+  // in activeParticipant so the drill-down survives SSE re-renders, and
+  // clears itself if the participant vanishes after a refetch.
+  const participants = buildParticipants(events);
+  if (activeParticipant && !participants.has(activeParticipant)) activeParticipant = null;
+  if (participants.size > 0) {
+    const seats = el('table');
+    seats.appendChild(row([
+      el('th', null, 'participant'), el('th', null, 'status'),
+      el('th', null, 'attempts'), el('th', null, 'turns'),
+      el('th', null, 'cost'), el('th', null, 'last activity'),
+    ]));
+    for (const part of participants.values()) {
+      const cost = part.session ? part.session.total_cost_usd : undefined;
+      const statusCell = el('td');
+      statusCell.appendChild(badge(part.status, STATUS_CLASS[part.status]));
+      const tr = row([
+        el('td', null, part.label),
+        statusCell,
+        el('td', null, part.attempts),
+        el('td', null, part.turns ?? '-'),
+        el('td', null, typeof cost === 'number' ? '$' + cost.toFixed(4) : '-'),
+        el('td', 'payload', part.lastTurn
+          ? part.lastTurn.tool + (part.lastTurn.target ? ' · ' + part.lastTurn.target : '')
+          : '-'),
+      ]);
+      tr.className = 'seat';
+      tr.onclick = () => { activeParticipant = part.key; renderDetail(id, data); };
+      seats.appendChild(tr);
+    }
+    detail.appendChild(seats);
+  }
+
+  if (activeParticipant) {
+    const part = participants.get(activeParticipant);
+    const back = el('p');
+    const link = el('a', null, '← all events');
+    link.href = '#';
+    link.onclick = (ev) => {
+      ev.preventDefault();
+      activeParticipant = null;
+      renderDetail(id, data);
+    };
+    back.appendChild(link);
+    detail.appendChild(back);
+    const header = el('p');
+    header.appendChild(document.createTextNode(part.label + ' '));
+    header.appendChild(badge(part.status, STATUS_CLASS[part.status]));
+    if (part.session && part.session.session_id !== undefined) {
+      header.appendChild(document.createTextNode(' · session ' + part.session.session_id));
+    }
+    detail.appendChild(header);
+    const stream = el('table');
+    stream.appendChild(row([
+      el('th', null, 'turn'), el('th', null, 'tool'),
+      el('th', null, 'target'), el('th', null, 'recorded'),
+    ]));
+    for (const item of part.checkpoints) {
+      const cp = item.cp;
+      stream.appendChild(row([
+        el('td', null, cp.turn ?? '-'),
+        el('td', null, cp.step === 'seat-turn' ? cp.tool : cp.step),
+        el('td', 'payload', cp.target ?? ''),
+        el('td', null, item.recorded_at),
+      ]));
+    }
+    detail.appendChild(stream);
+    // Terminal line: members conclude on their panel-member-finished
+    // outcome; the seat itself on the effect's terminal event.
+    let terminal = null;
+    if (part.member && part.memberOutcome !== null) {
+      terminal = 'panel-member-finished · ' + part.memberOutcome +
+                 (part.memberFinishedAt ? ' · ' + part.memberFinishedAt : '');
+    } else if (part.effect.terminalEvent) {
+      terminal = part.effect.terminalEvent.type + ' · ' +
+                 part.effect.terminalEvent.recorded_at;
+    }
+    detail.appendChild(el('p', terminal ? null : 'cause',
+                          terminal ?? 'no terminal event yet'));
+    return;
+  }
+
   const table = el('table');
   table.appendChild(row([
     el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
@@ -223,6 +395,7 @@ async function loadDetail(id) {
 
 function select(id) {
   active = id;
+  activeParticipant = null; // drill-down selection is per-run
   loadRuns();
   loadDetail(id);
   if (source) source.close();
