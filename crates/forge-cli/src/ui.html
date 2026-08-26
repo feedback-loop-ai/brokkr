@@ -502,7 +502,9 @@ async function loadDetail(id) {
 
 function renderDetail(id, data) {
   const s = data.summary ?? {};
-  const byId = {};
+  // Null-prototype: event ids are journal-authored, so a crafted
+  // '__proto__' id must not resolve to Object.prototype on lookup.
+  const byId = Object.create(null);
   for (const e of data.events ?? []) byId[e.event_id] = e.seq;
 
   const detail = document.getElementById('detail');
