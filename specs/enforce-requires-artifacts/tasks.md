@@ -41,7 +41,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   (`full_delivery_completes_exports_and_replays` pattern); assert the
   blocked decision resets `consecutive_failures` for the phase.
   *Proven by*: AC-7 and AC-8 machine proofs.
-- [ ] **T7 — Workspace regression sweep.** `cargo test` across the
+- [x] **T7 — Workspace regression sweep.** `cargo test` across the
   whole workspace: differential corpus untouched and green,
   `policy_lint.rs` unchanged and green, forge-core diff empty
   (`git diff --stat crates/forge-core` shows nothing).
