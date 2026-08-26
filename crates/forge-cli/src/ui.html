@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>forge</title>
-<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%2345e08c' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%2345e08c'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E">
 <style>
   :root {
     color-scheme: dark;
@@ -91,8 +91,8 @@ let active = null, source = null, activeParticipant = null;
 
 // Favicon pair: phosphor seal at rest, violet seal while forging — the
 // tab itself signals a live run (the 16px answer to the pulse).
-const FAVICON_IDLE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%2345e08c' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E";
-const FAVICON_FORGING = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Crect width='44' height='44' rx='10' fill='%2312101a'/%3E%3Crect x='3' y='3' width='38' height='38' rx='8' fill='none' stroke='%237c5cff' stroke-width='5'/%3E%3Cpath d='M12 26h8l-2 6h12l-2-6h6v-6H12l-2-5h24' fill='none' stroke='%2345e08c' stroke-width='6' stroke-linejoin='round'/%3E%3C/svg%3E";
+const FAVICON_IDLE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%2345e08c'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E";
+const FAVICON_FORGING = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%237c5cff'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E";
 
 function setForging(forging) {
   document.body.classList.toggle('forging', forging);
