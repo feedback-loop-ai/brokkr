@@ -69,8 +69,9 @@ runs "the seats listed in `council.seats`". So:
 
 A **profile** packages what a given codebase needs: contract-check
 definitions, verification tracks, the security-catalog overlay, seat-set
-overrides, workspace conventions. the origin workspace's profile stays private in
-origin-workspace; the public repo ships an example. Profiles are declarative bundle
+overrides, workspace conventions. A host workspace's profile stays in
+that workspace; this repo ships the example via `forge init` and the
+recipe library (decision 0010). Profiles are declarative bundle
 content with stable ids and content digests, not imported executable plugins.
 
 ## Resolved
