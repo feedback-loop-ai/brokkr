@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://feedback-loop.ai/forge/council-adjudication.schema.json",
+  "$id": "https://feedback-loop.ai/forge/heritage/council-adjudication.schema.json",
   "type": "object",
   "required": ["agreed", "contested"],
   "properties": {

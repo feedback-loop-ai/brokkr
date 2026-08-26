@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://feedback-loop.ai/forge/schemas/phase-state.json",
+  "$id": "https://feedback-loop.ai/forge/heritage/schemas/phase-state.json",
   "title": "Forge phase state and transition journal",
   "description": "Written only by .scripts/forge-control.py phase-advance. state.json holds current machine state; events.jsonl holds one phaseEvent object per line, append-only.",
   "definitions": {

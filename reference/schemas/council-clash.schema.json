@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://feedback-loop.ai/forge/council-clash.schema.json",
+  "$id": "https://feedback-loop.ai/forge/heritage/council-clash.schema.json",
   "type": "object",
   "required": ["seat", "objections", "final_answers"],
   "properties": {
