@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://feedback-loop.ai/forge/handoff.schema.json",
+  "$id": "https://feedback-loop.ai/forge/heritage/handoff.schema.json",
   "type": "object",
   "required": [
     "schema",

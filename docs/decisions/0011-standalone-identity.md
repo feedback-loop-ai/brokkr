@@ -1,39 +1,37 @@
-# 0011 — Standalone identity: the heritage is a directory, not a dependency
+# 0011 — Standalone identity: no origin, only heritage
 
-**Status**: accepted (operator ruling, 2026-08-26 — "this project has
-nothing to do with the origin workspace")
+**Status**: accepted (operator ruling, 2026-08-26; strengthened the same
+day to full obliteration)
 
 ## Ruling
 
-The Forge is a standalone product. The workspace it was extracted from
-is heritage, and heritage is confined to `reference/` — read-only
-provenance (the referee-era control plane, the retired oracle, the
-original charters and skill prose, and now the recorded referee-era
-JSON Schemas, relocated from `policy/schemas/`).
+The Forge is a standalone product with no reference to the workspace it
+was extracted from — not in the tree, not in the documentation, and not
+in git history. The referee-checking-an-LLM-loop idea the engine grew
+from is not novel to any workspace; this project is its own.
 
-What this changes:
+Enacted:
 
-- Living documents (README, extension model) no longer name the origin
-  workspace or point the roadmap at it. The forward roadmap item
-  formerly called "the the origin workspace vertical slice / profile" (decisions
-  0003, 0005, 0008 and the target architecture) is SUPERSEDED as: **the
-  first external workspace profile** — same milestone, no privileged
-  workspace. Accepted decision documents themselves are historical
-  record and are not rewritten.
-- `policy/phase-machine.json` stays, byte-identical, under a new
-  description of what it now is: the heritage transition table the
-  engine was extracted around, retained as the strict evaluator's
-  differential-test fixture — the frozen corpus derives from it, so its
-  stability is contract, not nostalgia. The "upstream parity" rationale
-  is void; the read-only rule stands on the corpus instead.
-- Nothing in the engine, bundles, contracts, or tests referenced the
-  relocated schemas; the differential suite reads only the heritage
-  table, whose bytes are unchanged.
+- The origin-specific heritage material (the delivery skill prose, the
+  seat charters, the security catalog) is deleted outright, including
+  from history (`git filter-repo` path purge). What remains under
+  `reference/` is genuinely generic: the referee-era control plane, the
+  retired oracle, the handoff protocol, provider config, the workflow
+  drivers, and the recorded schemas — scrubbed of origin identifiers,
+  schema `$id`s re-homed under feedback-loop.ai/forge/heritage/.
+- Every historical blob and commit message is rewritten to neutral
+  wording; all commit shas change; `main` and tags are force-pushed and
+  the v0.1.0 release re-cut from the rewritten history.
+- `policy/phase-machine.json` remains byte-identical: it never named
+  the origin, and the frozen evaluator corpus derives from it — its
+  stability is contract.
+- The forward roadmap item is **the first external workspace profile**;
+  no workspace is privileged.
 
 ## Why
 
 Provenance earned its place while the engine was a port with a parity
-obligation. That obligation ended at decision 0009; keeping the origin
-in the product's forward-facing voice after that misstates what this
-is: a general deterministic delivery engine whose first users are its
-own repository and whatever workspace adopts a profile next.
+obligation; that ended at decision 0009. A standalone product's history
+should read as its own. The journals of pre-rewrite runs reference
+pre-rewrite commit shas — those journals are local operational
+evidence, unaffected and honest about when they were recorded.

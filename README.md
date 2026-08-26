@@ -10,8 +10,7 @@ agent sessions (Claude Code, Codex, dsh/LaneTally Surface, any harness) are
 leaf effects whose outputs are typed results — never decisions.
 
 The Forge is a standalone engine (decision
-[0011](docs/decisions/0011-standalone-identity.md)). It grew out of a
-private workspace where the phase machine began life as a *referee*
+[0011](docs/decisions/0011-standalone-identity.md)). It began life as a *referee*
 checking an LLM-driven outer loop — that heritage lives, read-only,
 under [`reference/`](reference/). Here the machine **is** the outer
 loop.
@@ -70,7 +69,7 @@ Determinism laws:
 | `bundles/self/` | The self-delivery bundle: trimmed linear table, seat charters, headless Claude Code driver. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the engine was extracted around — retained as the strict evaluator's differential-test fixture (the frozen corpus derives from it). |
-| `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the retired Python oracle (`reference/oracle/`), the Claude Workflow JS phase drivers, the `vf-*` agent charters, the skill prose, `providers.json`. Read-only; mined, then retired. |
+| `reference/` | The pre-extraction implementation, imported verbatim for parity work: `forge-control.py` (referee-era control plane), the retired Python oracle (`reference/oracle/`), the Claude Workflow JS phase drivers, `providers.json`. Read-only; mined, then retired. |
 | `docs/` | Accepted decisions, the target architecture, and the extension model. |
 
 ## Status

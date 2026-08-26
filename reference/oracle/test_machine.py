@@ -1,7 +1,7 @@
 """Property, behavior, and lint tests for the pure phase-machine core.
 
-The imported table under policy/phase-machine.json is the real production
-table from the the origin workspace workspace — these tests are the beginning of the
+The imported table under policy/phase-machine.json is the heritage production
+table — these tests are the beginning of the
 parity harness. The loader-rejection tests double as the first slice of the
 constitutional policy lint (docs/extension-model.md): a malformed table
 refuses to LOAD; it never degrades into rules that silently stop matching.

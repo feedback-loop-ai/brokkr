@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://feedback-loop.ai/forge/council-position.schema.json",
+  "$id": "https://feedback-loop.ai/forge/heritage/council-position.schema.json",
   "type": "object",
   "required": ["seat", "summary", "affected_repos", "open_questions"],
   "properties": {
