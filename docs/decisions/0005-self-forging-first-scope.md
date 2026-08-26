@@ -7,7 +7,7 @@ by Claude under that ruling and amendable by the operator)
 
 The first implementation target is the smallest engine that can drive its
 own further development in this repository (delivery-sequence step 10,
-pulled forward): the full the origin workspace-shaped machinery is not built until the
+pulled forward): the full polyrepo-shaped machinery is not built until the
 loop is proven here. The operator's ruling: the polyrepo-shaped phases —
 live stack verification above all — do not make sense for a one-repo engine
 build, and nothing that does not make sense here gets built now.
@@ -36,7 +36,7 @@ Deferred, all additive behind the frozen v1 contracts: the embedded UI
 (acceptance criteria already require the engine to be UI-independent),
 container and remote runners, the signing/anchoring service, multi-seat
 topologies (`parallel`/`join`/`loop`/`submachine`), Codex/Cordis drivers,
-LaneTally integration, and the the origin workspace profile.
+LaneTally integration, and the origin-workspace profile.
 
 ## Why
 
@@ -57,5 +57,5 @@ LaneTally integration, and the the origin workspace profile.
 - The self bundle's phase table is bundle data, not a fork of the imported
   production table; `policy/phase-machine.json` remains untouched upstream
   parity material.
-- The the origin workspace vertical slice (delivery-sequence step 6 as originally
+- The origin-workspace vertical slice (delivery-sequence step 6 as originally
   ordered) follows once the self-loop has delivered real changes here.

@@ -57,7 +57,7 @@ journaled runs like any other):
 - **Deep LaneTally integration** (default-deny per-seat credentials
   fetched at spawn): lands on the driver-command boundary as bundle
   data when LaneTally's key API is pinned.
-- **The the origin workspace profile and vertical slice**: lives in the origin-workspace
+- **The origin-workspace profile and vertical slice**: lives in its own
   workspace; it is the next campaign, not a gap in this one.
 - **Looper as the dispatch layer above the forge**: the composition is
   designed (Looper decides what and when a human is needed; the forge
