@@ -125,8 +125,9 @@ fn run_cli(
 }
 
 /// One parsed claude stream-json line folded into the seat's telemetry:
-/// `system`/`init` and `result` feed `session_meta`; an `assistant`
-/// message with a `tool_use` block becomes one seat-turn checkpoint.
+/// `system`/`init` and `result` feed `session_meta`; each `tool_use`
+/// block of an `assistant` message becomes one seat-turn checkpoint,
+/// in block order, all carrying the message's turn number.
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
@@ -147,35 +148,33 @@ fn fold_stream_event(
             let blocks = event
                 .pointer("/message/content")
                 .and_then(Value::as_array);
-            let Some(tool_use) = blocks.and_then(|blocks| {
-                blocks
-                    .iter()
-                    .find(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"))
-            }) else {
-                return;
-            };
-            let mut checkpoint = Map::new();
-            checkpoint.insert("step".into(), Value::String("seat-turn".into()));
-            checkpoint.insert("turn".into(), Value::from(*assistant_turns));
-            let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
-            checkpoint.insert(
-                "tool".into(),
-                Value::String(tool.chars().take(80).collect()),
-            );
-            // file_path ONLY: commands and URLs can embed inline secrets,
-            // and the journal is append-only — the forge-verify review
-            // hard-stopped on exactly this (run verify-…-917996f5). Full
-            // detail belongs to the resumable transcript, not the record.
-            let target = tool_use
-                .pointer("/input/file_path")
-                .and_then(Value::as_str);
-            if let Some(target) = target {
+            let tool_uses = blocks.into_iter().flatten().filter(|b| {
+                b.get("type").and_then(Value::as_str) == Some("tool_use")
+            });
+            for tool_use in tool_uses {
+                let mut checkpoint = Map::new();
+                checkpoint.insert("step".into(), Value::String("seat-turn".into()));
+                checkpoint.insert("turn".into(), Value::from(*assistant_turns));
+                let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
                 checkpoint.insert(
-                    "target".into(),
-                    Value::String(target.chars().take(80).collect()),
+                    "tool".into(),
+                    Value::String(tool.chars().take(80).collect()),
                 );
+                // file_path ONLY: commands and URLs can embed inline secrets,
+                // and the journal is append-only — the forge-verify review
+                // hard-stopped on exactly this (run verify-…-917996f5). Full
+                // detail belongs to the resumable transcript, not the record.
+                let target = tool_use
+                    .pointer("/input/file_path")
+                    .and_then(Value::as_str);
+                if let Some(target) = target {
+                    checkpoint.insert(
+                        "target".into(),
+                        Value::String(target.chars().take(80).collect()),
+                    );
+                }
+                emit(&Value::Object(checkpoint));
             }
-            emit(&Value::Object(checkpoint));
         }
         Some("result") => {
             for key in ["num_turns", "total_cost_usd"] {

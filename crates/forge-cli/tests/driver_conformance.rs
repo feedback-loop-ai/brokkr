@@ -31,9 +31,9 @@ printf 'session id: deadbeef1234\n'
 "#;
 
 // The claude flavor speaks stream-json: an init with the session id, two
-// tool-using assistant turns, a noise line the adapter must drop, and a
-// final result with the session totals — while still honoring the
-// result-file contract.
+// tool-using assistant turns (the second carrying two tool_use blocks in
+// one message), a noise line the adapter must drop, and a final result
+// with the session totals — while still honoring the result-file contract.
 const CLAUDE_STREAM_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
@@ -41,7 +41,7 @@ target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 printf '{"type":"system","subtype":"init","session_id":"stream-1"}\n'
 printf '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
 printf 'not json, ignorable noise\n'
-printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}}]}}\n'
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
 printf '{"type":"result","num_turns":2,"total_cost_usd":0.125}\n'
 "#;
 
@@ -120,7 +120,8 @@ fn conformance_across_all_builtin_adapters() {
         let claude_shim = make_shim(&claude_dir, CLAUDE_STREAM_SHIM);
         for (label, args) in all_adapters(&shim) {
             // The claude adapter streams its session: its obedient shim
-            // speaks stream-json and yields two seat-turn checkpoints
+            // speaks stream-json and yields three seat-turn checkpoints
+            // (one per tool_use block, the last two sharing a turn)
             // before the session-finished one.
             let claude = label == "claude";
             let shim = if claude && case == "obedient" { &claude_shim } else { &shim };
@@ -129,7 +130,7 @@ fn conformance_across_all_builtin_adapters() {
             let kinds: Vec<&str> =
                 out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if claude && case == "obedient" {
-                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "result"]
+                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "result"]
             } else {
                 &["capabilities", "accepted", "checkpoint", "result"]
             };
@@ -150,7 +151,13 @@ fn conformance_across_all_builtin_adapters() {
                            "target": "src/main.rs"}),
                     "{label}: {}", out[3]
                 );
-                let finished = &out[4]["data"];
+                assert_eq!(
+                    out[4]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
+                           "target": "src/out.rs"}),
+                    "{label}: {}", out[4]
+                );
+                let finished = &out[5]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
                 assert_eq!(finished["session_id"], "stream-1", "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
