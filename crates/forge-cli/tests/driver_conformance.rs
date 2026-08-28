@@ -90,6 +90,9 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         .arg("driver")
         .args(kind_args)
         .env("FORGE_CLAUDE_BIN", shim)
+        // Pinned unconditionally: no conformance test may ever spawn a
+        // real claude-lanetally on a LaneTally-equipped machine.
+        .env("FORGE_LANETALLY_BIN", shim)
         .env("FORGE_CODEX_BIN", shim)
         .env("FORGE_DSH_BIN", shim)
         .stdin(Stdio::piped())
@@ -118,6 +121,7 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
 fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     vec![
         ("claude", vec!["claude".into()]),
+        ("lanetally", vec!["lanetally".into()]),
         ("codex", vec!["codex".into()]),
         ("dsh", vec!["dsh".into()]),
         (
@@ -164,10 +168,14 @@ fn conformance_across_all_builtin_adapters() {
             // (one per tool_use block, the last two sharing a turn)
             // before the session-finished one.
             let claude = label == "claude";
+            // The lanetally leg reuses CLAUDE_STREAM_SHIM verbatim: the
+            // reuse IS the argv-compatibility proof — the wrapper is
+            // driven exactly as the claude binary would be.
+            let lanetally = label == "lanetally";
             let codex = label == "codex";
             let dsh = label == "dsh";
             let exec = label.starts_with("exec");
-            let shim = if claude && case == "obedient" {
+            let shim = if (claude || lanetally) && case == "obedient" {
                 &claude_shim
             } else if codex && case == "obedient" {
                 &codex_shim
@@ -177,7 +185,7 @@ fn conformance_across_all_builtin_adapters() {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
-            let expected: &[&str] = if claude && case == "obedient" {
+            let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
                 &[
                     "capabilities",
                     "accepted",
@@ -243,6 +251,44 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
+                // The capture guard is kind-scoped: only lanetally's
+                // finished checkpoint ever carries the marker.
+                assert!(finished.get("capture").is_none(), "{label}: {finished}");
+            } else if lanetally && case == "obedient" {
+                // Same stream, same fold, same disciplines as claude —
+                // plus the constant ledger-capture marker and the
+                // list-price cost flowing through unchanged.
+                assert_eq!(
+                    out[2]["data"],
+                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
+                           "target": "src/lib.rs"}),
+                    "{label}: {}",
+                    out[2]
+                );
+                assert_eq!(
+                    out[3]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
+                           "target": "src/main.rs"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
+                           "target": "src/out.rs"}),
+                    "{label}: {}",
+                    out[4]
+                );
+                let finished = &out[5]["data"];
+                assert_eq!(
+                    finished["step"], "claude-lanetally-session-finished",
+                    "{label}"
+                );
+                assert_eq!(finished["capture"], "lanetally", "{label}: {finished}");
+                assert_eq!(finished["session_id"], "stream-1", "{label}");
+                assert_eq!(finished["num_turns"], 2, "{label}");
+                assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
+                assert_eq!(finished["exit_code"], 0, "{label}");
             } else if codex && case == "obedient" {
                 assert_eq!(
                     out[2]["data"],
@@ -292,6 +338,7 @@ fn adapters_name_themselves_and_exec_requires_template() {
     let shim = make_shim(dir.path(), OBEDIENT_SHIM);
     let expected = [
         ("claude", "claude-code"),
+        ("lanetally", "claude-lanetally"),
         ("codex", "codex"),
         ("dsh", "deepseek-harness"),
         ("exec-stdin", "exec"),
@@ -311,9 +358,43 @@ fn adapters_name_themselves_and_exec_requires_template() {
         .contains("command template"));
 }
 
+// Records its argv, then emits the claude stream shape with an
+// adversarial `"capture":"evil"` smuggled into the result event: the
+// run_seat source literal must still win on the finished checkpoint.
+const LANETALLY_ADVERSARIAL_SHIM: &str = r#"#!/bin/sh
+printf '%s\n' "$*" > lanetally-argv.txt
+prompt=$(cat)
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+printf '{"type":"system","subtype":"init","session_id":"adv-1"}\n'
+printf '{"type":"result","num_turns":1,"total_cost_usd":0.5,"capture":"evil"}\n'
+"#;
+
+#[test]
+fn lanetally_argv_is_claude_shaped_and_the_capture_constant_survives_adversarial_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), LANETALLY_ADVERSARIAL_SHIM);
+    let out = drive(&["lanetally"], &shim, dir.path());
+    // The wrapper is invoked exactly as claude would be: the stream-json
+    // argv, prompt on stdin (the shim finds the result path only if the
+    // prompt arrived there — the succeeded result below proves it).
+    let argv = std::fs::read_to_string(dir.path().join("lanetally-argv.txt")).unwrap();
+    assert_eq!(argv.trim_end(), "-p --output-format stream-json --verbose");
+    let finished = &out[out.len() - 2]["data"];
+    assert_eq!(finished["step"], "claude-lanetally-session-finished");
+    // The constant is inserted after the session_meta extend: no
+    // stream-derived key can shadow it.
+    assert_eq!(finished["capture"], "lanetally", "{finished}");
+    assert_eq!(finished["total_cost_usd"], 0.5, "{finished}");
+    let result = out.last().unwrap();
+    assert_eq!(result["status"], "succeeded", "{result}");
+}
+
 // ------------------------------------------------------------------
 // Sealed secret bindings (decision 0012): injection discipline and the
-// masking choke point, exercised against the real exec adapter.
+// masking choke point, exercised against the real exec adapter — and,
+// for the result-payload surface, against the lanetally adapter through
+// the same shared run_seat choke point.
 // ------------------------------------------------------------------
 
 const SECRET_VALUE: &str = "tok3n+v4lue!7";
@@ -345,11 +426,13 @@ fn write_store(dir: &Path, lines: &str) -> PathBuf {
     store
 }
 
-/// Drive the exec adapter over one attempt with secret bindings in the
-/// start input, returning the protocol messages and the driver's own
-/// stderr (which carries the masked child-stderr re-emit).
-fn drive_exec_with_secrets(
-    template: &[&str],
+/// Drive an adapter over one attempt with secret bindings in the start
+/// input, returning the protocol messages and the driver's own stderr
+/// (which carries the masked child-stderr re-emit). `driver_args` is
+/// everything after `forge driver` — e.g. `["exec", "--", template…]`
+/// or `["lanetally"]`.
+fn drive_with_secrets(
+    driver_args: &[&str],
     workdir: &Path,
     store: &Path,
     secrets: &[&str],
@@ -374,7 +457,7 @@ fn drive_exec_with_secrets(
         json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
     ];
     let mut command = Command::new(forge_bin());
-    command.args(["driver", "exec", "--"]).args(template);
+    command.arg("driver").args(driver_args);
     for (key, value) in parent_env {
         command.env(key, value);
     }
@@ -410,8 +493,8 @@ fn exec_injects_via_env_only_and_masks_the_stderr_reemit() {
         dir.path(),
         &format!("API_TOKEN={SECRET_VALUE}\nUNREF=unref-value-99\n"),
     );
-    let (out, stderr) = drive_exec_with_secrets(
-        &[shim.to_str().unwrap(), "{{secret:API_TOKEN}}"],
+    let (out, stderr) = drive_with_secrets(
+        &["exec", "--", shim.to_str().unwrap(), "{{secret:API_TOKEN}}"],
         dir.path(),
         &store,
         &["API_TOKEN", "UNREF"],
@@ -448,8 +531,8 @@ fn exec_missing_secret_refuses_before_spawn_naming_name_and_path() {
     let dir = tempfile::tempdir().unwrap();
     let shim = make_shim(dir.path(), SECRET_PROBE_SHIM);
     let store = write_store(dir.path(), "OTHER=some-other-value\n");
-    let (out, _) = drive_exec_with_secrets(
-        &[shim.to_str().unwrap()],
+    let (out, _) = drive_with_secrets(
+        &["exec", "--", shim.to_str().unwrap()],
         dir.path(),
         &store,
         &["API_TOKEN"],
@@ -481,12 +564,49 @@ fn exec_masks_the_child_written_result_payload() {
     let dir = tempfile::tempdir().unwrap();
     let shim = make_shim(dir.path(), NOTES_LEAK_SHIM);
     let store = write_store(dir.path(), &format!("API_TOKEN={SECRET_VALUE}\n"));
-    let (out, _) = drive_exec_with_secrets(
-        &[shim.to_str().unwrap()],
+    let (out, _) = drive_with_secrets(
+        &["exec", "--", shim.to_str().unwrap()],
         dir.path(),
         &store,
         &["API_TOKEN"],
         &[],
+    );
+    let result = out.last().unwrap();
+    assert_eq!(result["status"], "succeeded", "{result}");
+    assert_eq!(result["result"]["notes"], "leaked [secret:API_TOKEN]");
+    assert!(
+        !serde_json::to_string(result)
+            .unwrap()
+            .contains(SECRET_VALUE),
+        "{result}"
+    );
+}
+
+#[test]
+fn lanetally_result_payload_reaches_the_shared_masking_choke_point() {
+    // The claude/lanetally arm injects no secret env (bindings feed only
+    // the exec arm's spawn), so a shim echoing $API_TOKEN would leak
+    // nothing and prove nothing: the store's known plaintext is baked
+    // literally into the result notes instead, and run_seat's shared
+    // known-plaintext masking — zero lanetally-specific code — must
+    // catch it on the way into the journal.
+    let dir = tempfile::tempdir().unwrap();
+    let leak_shim = format!(
+        r#"#!/bin/sh
+prompt=$(cat)
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+printf '{{"result": "resolved", "notes": "leaked {SECRET_VALUE}"}}' > "$target"
+printf '{{"type":"result","num_turns":1,"total_cost_usd":0.0}}\n'
+"#
+    );
+    let shim = make_shim(dir.path(), &leak_shim);
+    let store = write_store(dir.path(), &format!("API_TOKEN={SECRET_VALUE}\n"));
+    let (out, _) = drive_with_secrets(
+        &["lanetally"],
+        dir.path(),
+        &store,
+        &["API_TOKEN"],
+        &[("FORGE_LANETALLY_BIN", shim.to_str().unwrap())],
     );
     let result = out.last().unwrap();
     assert_eq!(result["status"], "succeeded", "{result}");

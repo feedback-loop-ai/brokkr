@@ -31,14 +31,14 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-5 — the adversarial `"capture":"evil"` shim leg (T7)
   and the claude `finished.get("capture").is_none()` negative
   assertion; plus a unit test on the insert-after-extend ordering.
-- [ ] **T5 — Pin `FORGE_LANETALLY_BIN` in `drive()`.** Unconditional
+- [x] **T5 — Pin `FORGE_LANETALLY_BIN` in `drive()`.** Unconditional
   `.env("FORGE_LANETALLY_BIN", shim)` beside the three siblings
   (`driver_conformance.rs:92-94`), in the same commit as the first
   lanetally test.
   *Proven by*: AC-6 — no conformance test can spawn a real
   `claude-lanetally`; verifiable by inspection plus the battery running
   green with no wrapper installed.
-- [ ] **T6 — Battery membership.** `all_adapters()` gains
+- [x] **T6 — Battery membership.** `all_adapters()` gains
   `("lanetally", vec!["lanetally"])` with its own explicit label branch:
   obedient (`CLAUDE_STREAM_SHIM` verbatim — the argv-compatibility
   proof) asserts the claude shape plus
@@ -47,21 +47,21 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   exit_code 0, succeeded; silent asserts failed with "no result file";
   `adapters_name_themselves…` gains `("lanetally", "claude-lanetally")`.
   *Proven by*: AC-1, AC-4 — the battery itself.
-- [ ] **T7 — Adversarial shim leg.** New `LANETALLY_ADVERSARIAL_SHIM`
+- [x] **T7 — Adversarial shim leg.** New `LANETALLY_ADVERSARIAL_SHIM`
   records its argv and emits the stream shape with `"capture":"evil"`
   in the `result` event; test asserts
   `-p --output-format stream-json --verbose` arrived (prompt on stdin)
   and the finished checkpoint still says `capture:"lanetally"`.
   *Proven by*: AC-3 (argv shape) and AC-5 (shadowing) — this task IS
   those assertions.
-- [ ] **T8 — Masking through the shared choke point.** Generalize
+- [x] **T8 — Masking through the shared choke point.** Generalize
   `drive_exec_with_secrets` to accept driver args; new leak shim baking
   the store's known plaintext literally into its result notes (never
   `$API_TOKEN` — the claude/lanetally arm injects no secret env);
   assert `[secret:API_TOKEN]` present AND plaintext absent in the full
   result message. Zero new masking code.
   *Proven by*: AC-7 — this task IS the assertion.
-- [ ] **T9 — Cost-flow regression.** Test that `seat_costs`
+- [x] **T9 — Cost-flow regression.** Test that `seat_costs`
   (`compare.rs`) sums `total_cost_usd` from a session-finished
   checkpoint carrying `capture`, with zero production changes to
   `compare.rs`, `forge costs`, or the UI.
