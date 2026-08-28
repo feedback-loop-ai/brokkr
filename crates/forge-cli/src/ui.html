@@ -64,6 +64,9 @@
   /* Target cells hold short (tail-first) paths: keep them on one line
      and let the .tbl container scroll instead of letter-wrapping. */
   td.target { color: var(--dim); }
+  /* Label cells wrap: one long member-tagged step name must not claim
+     column width the (longer, clamped) payload needs more. */
+  td.label { max-width: 15rem; white-space: normal; overflow-wrap: anywhere; }
   /* Deliberate absence (a value the journal never carries) renders as a
      dim mark, not an empty cell that reads as broken data. */
   td .absent { color: var(--dim); opacity: .55; }
@@ -843,7 +846,7 @@ function renderDetail(id, data) {
     table.appendChild(row([
       seqCell,
       el('td', null, e.type),
-      cell(label),
+      cell(label, 'label'),
       payloadCell(JSON.stringify(p)),
       el('td', null, e.recorded_at),
     ]));
