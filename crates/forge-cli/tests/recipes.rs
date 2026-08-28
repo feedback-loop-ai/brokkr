@@ -176,8 +176,14 @@ impl Ws {
 
 fn git(cwd: &Path, args: &[&str]) {
     let out = Command::new("git")
-        .args(["-c", "user.email=forge@test", "-c", "user.name=forge",
-               "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.email=forge@test",
+            "-c",
+            "user.name=forge",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(cwd)
         .output()
@@ -203,8 +209,7 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     let digest = compiled["digest"].as_str().unwrap();
 
-    let (code, stdout, stderr) =
-        ws.forge(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.forge(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
     assert_eq!(code, Some(0), "a broken recipe must not abort: {stderr}");
 
     let line = stdout
@@ -213,10 +218,18 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         .expect("listing line for the valid recipe");
     let cols: Vec<&str> = line.split('\t').collect();
     assert_eq!(cols.len(), 5, "name, digest, phases, seats, path: {line}");
-    assert_eq!(cols[1], &digest[..12], "short digest is the manifest digest prefix");
+    assert_eq!(
+        cols[1],
+        &digest[..12],
+        "short digest is the manifest digest prefix"
+    );
     assert!(cols[1].chars().all(|c| c.is_ascii_hexdigit()));
     assert_eq!(cols[2], "7 phases");
-    assert!(cols[3].contains("review[correctness+security]"), "seats: {}", cols[3]);
+    assert!(
+        cols[3].contains("review[correctness+security]"),
+        "seats: {}",
+        cols[3]
+    );
     assert!(cols[3].contains("implement"), "seats: {}", cols[3]);
     assert!(cols[4].ends_with("good"), "source path: {}", cols[4]);
 
@@ -224,7 +237,10 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         .lines()
         .find(|l| l.starts_with("warning:") && l.contains("broken"))
         .expect("warning line for the broken recipe");
-    assert!(warning.contains("missing 'policy'"), "warning names the error: {warning}");
+    assert!(
+        warning.contains("missing 'policy'"),
+        "warning names the error: {warning}"
+    );
 
     // Built-ins don't exist under the temp CWD: warnings, not errors.
     assert!(stdout.contains("warning: self"), "stdout: {stdout}");
@@ -239,20 +255,22 @@ fn add_from_local_path_installs_and_lists() {
     ws.write_recipe(&src);
 
     let (code, _, stderr) = ws.forge(&[
-        "recipes", "add", src.to_str().unwrap(),
-        "--name", "mine",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "mine",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("added recipe 'mine'"), "stderr: {stderr}");
     assert!(rdir.join("mine/bundle.json").is_file());
 
-    let (code, _, stderr) =
-        ws.forge(&["compile", "--bundle", rdir.join("mine").to_str().unwrap()]);
+    let (code, _, stderr) = ws.forge(&["compile", "--bundle", rdir.join("mine").to_str().unwrap()]);
     assert_eq!(code, Some(0), "installed copy compiles: {stderr}");
 
-    let (code, stdout, _) =
-        ws.forge(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    let (code, stdout, _) = ws.forge(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert!(
         stdout.lines().any(|l| l.starts_with("mine\t")),
@@ -276,13 +294,20 @@ fn add_from_git_url_clones_and_installs_without_network() {
     let url = format!("file://{}", repo.display());
 
     let (code, _, stderr) = ws.forge(&[
-        "recipes", "add", &url,
-        "--name", "cloned",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        &url,
+        "--name",
+        "cloned",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(rdir.join("cloned/bundle.json").is_file());
-    assert!(!rdir.join("cloned/.git").exists(), "recipes are plain files, not repos");
+    assert!(
+        !rdir.join("cloned/.git").exists(),
+        "recipes are plain files, not repos"
+    );
 
     let (code, _, stderr) =
         ws.forge(&["compile", "--bundle", rdir.join("cloned").to_str().unwrap()]);
@@ -297,12 +322,19 @@ fn add_of_a_non_compiling_bundle_cleans_up_and_fails() {
     ws.write_broken(&src);
 
     let (code, _, stderr) = ws.forge(&[
-        "recipes", "add", src.to_str().unwrap(),
-        "--name", "bad",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "bad",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains("missing 'policy'"), "prints the compile error: {stderr}");
+    assert!(
+        stderr.contains("missing 'policy'"),
+        "prints the compile error: {stderr}"
+    );
     assert!(!rdir.join("bad").exists(), "the rejected copy is removed");
 }
 
@@ -316,9 +348,13 @@ fn add_refuses_the_ext_transport_that_would_execute_a_command() {
     let url = format!("ext::sh -c \"touch {}\" x.git", marker.display());
 
     let (code, _, _) = ws.forge(&[
-        "recipes", "add", &url,
-        "--name", "evil",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        &url,
+        "--name",
+        "evil",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_ne!(code, Some(0), "ext transport must be refused");
     assert!(!marker.exists(), "the ext command must never execute");
@@ -337,9 +373,13 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
     std::os::unix::fs::symlink(&secret, src.join("zz-link")).unwrap();
 
     let (code, _, stderr) = ws.forge(&[
-        "recipes", "add", src.to_str().unwrap(),
-        "--name", "sneaky",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "sneaky",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(stderr.contains("symlink"), "names the refusal: {stderr}");
@@ -353,19 +393,27 @@ fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let src = ws.path().join("src-bundle");
     ws.write_recipe(&src);
     let (code, _, stderr) = ws.forge(&[
-        "recipes", "add", src.to_str().unwrap(),
-        "--name", "good",
-        "--dir", rdir.to_str().unwrap(),
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "good",
+        "--dir",
+        rdir.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
 
     let db = ws.path().join("forge.db");
     let (code, stdout, stderr) = ws.forge(&[
         "run",
-        "--recipe", "good",
-        "--recipes-dir", rdir.to_str().unwrap(),
-        "--feature", "recipe feature",
-        "--db", db.to_str().unwrap(),
+        "--recipe",
+        "good",
+        "--recipes-dir",
+        rdir.to_str().unwrap(),
+        "--feature",
+        "recipe feature",
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let summary: Value = serde_json::from_str(&stdout).unwrap();
@@ -375,17 +423,20 @@ fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     // Exactly one of --bundle/--recipe: both is a usage error...
     let (code, _, stderr) = ws.forge(&[
         "run",
-        "--bundle", src.to_str().unwrap(),
-        "--recipe", "good",
-        "--feature", "f",
-        "--db", db.to_str().unwrap(),
+        "--bundle",
+        src.to_str().unwrap(),
+        "--recipe",
+        "good",
+        "--feature",
+        "f",
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_ne!(code, Some(0));
     assert!(stderr.contains("cannot be used with"), "stderr: {stderr}");
 
     // ...and neither is too.
-    let (code, _, stderr) =
-        ws.forge(&["run", "--feature", "f", "--db", db.to_str().unwrap()]);
+    let (code, _, stderr) = ws.forge(&["run", "--feature", "f", "--db", db.to_str().unwrap()]);
     assert_ne!(code, Some(0));
     assert!(stderr.contains("required"), "stderr: {stderr}");
 }

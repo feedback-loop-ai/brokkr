@@ -26,12 +26,12 @@ fn rule(overrides: Value) -> Value {
 #[test]
 fn loader_rejects_malformed_conditions() {
     for when in [
-        json!({"has_security_residualz": true}),  // the recorded typo incident
-        json!({"skip_verify": "yes"}),            // non-bool threshold
+        json!({"has_security_residualz": true}), // the recorded typo incident
+        json!({"skip_verify": "yes"}),           // non-bool threshold
         json!({"consecutive_failures_gte": "2"}), // counter not numeric
-        json!({"retries_gte": 2}),                // undeclared counter
+        json!({"retries_gte": 2}),               // undeclared counter
         json!({"max_residual_severity_above": "banana"}), // unknown severity
-        json!({"severity_above": "medium"}),      // undeclared severity axis
+        json!({"severity_above": "medium"}),     // undeclared severity axis
     ] {
         let table = minimal_table(json!([rule(json!({"when": when}))]));
         assert!(Machine::from_table(&table).is_err(), "accepted: {when}");

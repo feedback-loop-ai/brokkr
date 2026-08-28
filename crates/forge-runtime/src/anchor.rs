@@ -31,38 +31,41 @@ pub enum AnchorError {
     NoAnchor(String),
 }
 
+fn git_io<T>(result: std::io::Result<T>, verb: &'static str) -> Result<T, AnchorError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => Err(AnchorError::Git {
+            verb,
+            detail: error.to_string(),
+        }),
+    }
+}
+
 fn git(repo: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, AnchorError> {
     use std::io::Write;
     let mut command = Command::new("git");
     command.args(args).current_dir(repo);
     let out = if let Some(input) = stdin {
-        let mut child = command
+        let child = command
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| AnchorError::Git { verb: "spawn", detail: e.to_string() })?;
-        child
+            .spawn();
+        let mut child = git_io(child, "spawn")?;
+        let write = child
             .stdin
             .take()
             .expect("piped")
-            .write_all(input.as_bytes())
-            .map_err(|e| AnchorError::Git { verb: "write", detail: e.to_string() })?;
-        child
-            .wait_with_output()
-            .map_err(|e| AnchorError::Git { verb: "wait", detail: e.to_string() })?
+            .write_all(input.as_bytes());
+        git_io(write, "write")?;
+        git_io(child.wait_with_output(), "wait")?
     } else {
-        command
-            .output()
-            .map_err(|e| AnchorError::Git { verb: "run", detail: e.to_string() })?
+        git_io(command.output(), "run")?
     };
     if !out.status.success() {
         return Err(AnchorError::Git {
             verb: "command",
-            detail: format!(
-                "{args:?}: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
+            detail: format!("{args:?}: {}", String::from_utf8_lossy(&out.stderr).trim()),
         });
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -77,7 +80,12 @@ fn ref_name(run_id: &str) -> String {
 pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, AnchorError> {
     let (seq, head_hash) = store.head_hash(run_id)?;
     let reference = ref_name(run_id);
-    let parent = git(repo, &["rev-parse", "--verify", "--quiet", &reference], None).ok();
+    let parent = git(
+        repo,
+        &["rev-parse", "--verify", "--quiet", &reference],
+        None,
+    )
+    .ok();
     let message = json!({
         "anchor": "forge.journal-anchor/v1",
         "run_id": run_id,
@@ -99,8 +107,12 @@ pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, Anchor
 /// anchor) from agreement; either way the caller gets the facts.
 pub fn verify(store: &Store, repo: &Path, run_id: &str) -> Result<Value, AnchorError> {
     let reference = ref_name(run_id);
-    let tip = git(repo, &["rev-parse", "--verify", "--quiet", &reference], None)
-        .map_err(|_| AnchorError::NoAnchor(run_id.to_string()))?;
+    let tip = git(
+        repo,
+        &["rev-parse", "--verify", "--quiet", &reference],
+        None,
+    )
+    .map_err(|_| AnchorError::NoAnchor(run_id.to_string()))?;
     let message = git(repo, &["log", "-1", "--format=%B", &tip], None)?;
     let recorded: Value = serde_json::from_str(message.trim())
         .map_err(|e| AnchorError::Mismatch(format!("unreadable anchor message: {e}")))?;
@@ -124,3 +136,6 @@ pub fn verify(store: &Store, repo: &Path, run_id: &str) -> Result<Value, AnchorE
         "verdict": "anchored",
     }))
 }
+
+#[cfg(test)]
+mod tests;

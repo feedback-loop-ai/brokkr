@@ -14,6 +14,9 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
+
 [workspace.dependencies]
 forge-core = { path = "crates/forge-core" }
 forge-store = { path = "crates/forge-store" }

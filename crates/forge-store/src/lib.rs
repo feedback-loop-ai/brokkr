@@ -82,14 +82,16 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(10))?;
         conn.execute_batch(MIGRATION_V1)?;
+        let schema = DATABASE_SCHEMA.to_string();
         conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
-            params![DATABASE_SCHEMA.to_string()],
+            [&schema],
         )?;
-        let found: String =
-            conn.query_row("SELECT value FROM meta WHERE key = 'database_schema'", [], |r| {
-                r.get(0)
-            })?;
+        let found: String = conn.query_row(
+            "SELECT value FROM meta WHERE key = 'database_schema'",
+            [],
+            |row| row.get(0),
+        )?;
         let found: u32 = found.parse().unwrap_or(0);
         if found != DATABASE_SCHEMA {
             return Err(StoreError::SchemaMismatch { found });
@@ -106,23 +108,21 @@ impl Store {
     ) -> Result<(), StoreError> {
         let existing: Option<String> = self
             .conn
-            .query_row("SELECT run_id FROM runs WHERE run_id = ?1", params![run_id], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT run_id FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |r| r.get(0),
+            )
             .optional()?;
         if existing.is_some() {
             return Err(StoreError::RunExists(run_id.to_string()));
         }
+        let manifest = serde_json::to_string(manifest)?;
+        let created_at = now_rfc3339();
         self.conn.execute(
             "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                run_id,
-                feature,
-                bundle_name,
-                serde_json::to_string(manifest)?,
-                now_rfc3339(),
-            ],
+            params![run_id, feature, bundle_name, manifest, created_at],
         )?;
         Ok(())
     }
@@ -130,9 +130,11 @@ impl Store {
     pub fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
         let raw: Option<String> = self
             .conn
-            .query_row("SELECT manifest FROM runs WHERE run_id = ?1", params![run_id], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT manifest FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |r| r.get(0),
+            )
             .optional()?;
         let raw = raw.ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
         Ok(serde_json::from_str(&raw)?)
@@ -176,7 +178,9 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let head: Option<(i64, String)> = tx
             .query_row(
                 "SELECT seq, event_hash FROM events WHERE run_id = ?1
@@ -204,15 +208,11 @@ impl Store {
             event_hash: String::new(),
         }
         .sealed();
+        let serialized = serde_json::to_string(&envelope)?;
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
              VALUES (?1, ?2, ?3, ?4)",
-            params![
-                run_id,
-                envelope.seq as i64,
-                envelope.event_hash,
-                serde_json::to_string(&envelope)?,
-            ],
+            params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
         )?;
         if inserted == 0 {
             return Err(StoreError::AppendConflict { seq: envelope.seq });
@@ -289,91 +289,4 @@ fn now_rfc3339() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn store() -> (tempfile::TempDir, Store) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("forge.db")).unwrap();
-        (dir, store)
-    }
-
-    #[test]
-    fn append_load_roundtrip_and_chain() {
-        let (_dir, mut store) = store();
-        store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
-        store
-            .append_next(
-                "r1",
-                EventType::RunStarted,
-                json!({"feature": "feat", "manifest": {}}),
-                None,
-                None,
-            )
-            .unwrap();
-        store
-            .append_next("r1", EventType::PhaseEntered, json!({"phase": "intake"}), None, None)
-            .unwrap();
-        let events = store.load("r1").unwrap();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[1].previous_hash, events[0].event_hash);
-        let state = forge_core::fold(&events).unwrap();
-        assert_eq!(state.phase.as_deref(), Some("intake"));
-    }
-
-    #[test]
-    fn events_are_append_only() {
-        let (_dir, mut store) = store();
-        store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
-        store
-            .append_next(
-                "r1",
-                EventType::RunStarted,
-                json!({"feature": "feat", "manifest": {}}),
-                None,
-                None,
-            )
-            .unwrap();
-        let update = store.conn.execute("UPDATE events SET envelope = 'x'", []);
-        assert!(update.is_err(), "update must be rejected by trigger");
-        let delete = store.conn.execute("DELETE FROM events", []);
-        assert!(delete.is_err(), "delete must be rejected by trigger");
-    }
-
-    #[test]
-    fn duplicate_run_and_missing_run_fail() {
-        let (_dir, mut store) = store();
-        store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
-        assert!(matches!(
-            store.create_run("r1", "feat", "self", &json!({"files": {}})),
-            Err(StoreError::RunExists(_))
-        ));
-        assert!(matches!(store.load("nope"), Err(StoreError::RunNotFound(_))));
-    }
-
-    #[test]
-    fn export_verifies_offline() {
-        let (_dir, mut store) = store();
-        store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
-        store
-            .append_next(
-                "r1",
-                EventType::RunStarted,
-                json!({"feature": "feat", "manifest": {}}),
-                None,
-                None,
-            )
-            .unwrap();
-        store
-            .append_next("r1", EventType::PhaseEntered, json!({"phase": "intake"}), None, None)
-            .unwrap();
-        let ndjson = store.export_ndjson("r1").unwrap();
-        let state = verify_export(&ndjson).unwrap();
-        assert_eq!(state.seq, 2);
-
-        // A tampered export fails closed.
-        let tampered = ndjson.replace("intake", "ship");
-        assert!(matches!(verify_export(&tampered), Err(VerifyError::Chain(_))));
-    }
-}
+mod tests;

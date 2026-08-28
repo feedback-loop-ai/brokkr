@@ -56,7 +56,13 @@ fn attempt_in_flight_at_restart_parks_indeterminate() {
     // Simulate the journal of a process that died mid-attempt.
     engine
         .store
-        .append_next(&run_id, EventType::PhaseEntered, json!({"phase": "intake"}), None, None)
+        .append_next(
+            &run_id,
+            EventType::PhaseEntered,
+            json!({"phase": "intake"}),
+            None,
+            None,
+        )
         .unwrap();
     engine
         .store
@@ -99,7 +105,13 @@ fn requested_effect_with_stale_input_refuses_to_execute() {
 
     engine
         .store
-        .append_next(&run_id, EventType::PhaseEntered, json!({"phase": "intake"}), None, None)
+        .append_next(
+            &run_id,
+            EventType::PhaseEntered,
+            json!({"phase": "intake"}),
+            None,
+            None,
+        )
         .unwrap();
     // Requested under a digest the rebuilt input cannot match.
     engine

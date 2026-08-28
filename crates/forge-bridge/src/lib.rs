@@ -199,11 +199,12 @@ impl ProducerTransport for HttpTransport {
                 "transport origin does not match the sealed callback audience".into(),
             ));
         }
-        data(self.request(
+        let response = self.request(
             "POST",
             "/api/v1/delivery/forge-producers/registrations",
             Some(json!({"dispatch": dispatch, "runManifest": run_manifest})),
-        )?)
+        )?;
+        data(response)
     }
 
     fn submit(&mut self, event: &ProducerEvent) -> Result<bool, BridgeError> {
@@ -212,14 +213,15 @@ impl ProducerTransport for HttpTransport {
         struct ResultBody {
             replayed: bool,
         }
-        let body: ResultBody = data(self.request(
+        let response = self.request(
             "POST",
             &format!(
                 "/api/v1/delivery/forge-producers/{}/events",
                 event.registration_id
             ),
             Some(serde_json::to_value(event).expect("event serializes")),
-        )?)?;
+        )?;
+        let body: ResultBody = data(response)?;
         Ok(body.replayed)
     }
 
@@ -228,11 +230,12 @@ impl ProducerTransport for HttpTransport {
         registration_id: &str,
         after: u64,
     ) -> Result<Vec<ProducerCommand>, BridgeError> {
-        data(self.request(
+        let response = self.request(
             "GET",
             &format!("/api/v1/delivery/forge-producers/{registration_id}/commands?after={after}"),
             None,
-        )?)
+        )?;
+        data(response)
     }
 
     fn acknowledge_command(
@@ -240,14 +243,15 @@ impl ProducerTransport for HttpTransport {
         registration_id: &str,
         receipt: &CommandReceipt,
     ) -> Result<(), BridgeError> {
-        let _: Value = data(self.request(
+        let response = self.request(
             "POST",
             &format!(
                 "/api/v1/delivery/forge-producers/{registration_id}/commands/{}/receipt",
                 receipt.command_id
             ),
             Some(serde_json::to_value(receipt).expect("receipt serializes")),
-        )?)?;
+        )?;
+        let _: Value = data(response)?;
         Ok(())
     }
 }
@@ -298,7 +302,9 @@ fn safe_checkpoint(checkpoint: &Value) -> Value {
         );
     }
     if let Some(cost) = checkpoint.get("total_cost_usd").and_then(Value::as_f64) {
-        if cost.is_finite() && cost >= 0.0 {
+        // serde_json::Number cannot represent NaN or infinity, so a parsed
+        // f64 is already finite; only the policy's non-negative bound remains.
+        if cost >= 0.0 {
             output.insert("forge_observed_cost_usd".into(), Value::from(cost));
         }
     }
@@ -688,338 +694,4 @@ impl<T: ProducerTransport> Bridge<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use forge_core::canonical::ZERO_HASH;
-    use forge_core::dispatch::{
-        build_run_manifest_v2, ActorBinding, BudgetBinding, DispatchBounds, LooperBinding,
-        ProducerBinding, RecipeBinding, RepositoryBinding, DISPATCH_SCHEMA_V2, PRODUCER_EFFECTS,
-    };
-    use time::format_description::well_known::Rfc3339;
-
-    fn fixture() -> (Value, DispatchEnvelopeV2, OffsetDateTime) {
-        let bundle = json!({
-            "engine":"0.2.0", "event_schema":1, "database_schema":1,
-            "driver_protocol":1, "bundle_name":"fast",
-            "files":{"bundle.json":"a".repeat(64)}
-        });
-        let recipe_sha = canonical::sha256_hex(&bundle);
-        let dispatch = DispatchEnvelopeV2 {
-            schema: DISPATCH_SCHEMA_V2.into(),
-            envelope_id: "envelope-1".into(),
-            forge_run_id: "forge-run-1".into(),
-            issued_at: "2026-08-28T08:00:00Z".into(),
-            expires_at: "2026-08-28T09:00:00Z".into(),
-            canonical_digest: String::new(),
-            looper: LooperBinding {
-                organization_id: "org-1".into(),
-                product_id: "product-1".into(),
-                story_id: "story-1".into(),
-                delivery_run_id: "delivery-1".into(),
-                request_grant_id: "grant-1".into(),
-                feature_path: "084-f".into(),
-                immutable_inputs_sha256: "a".repeat(64),
-            },
-            actor: ActorBinding {
-                principal_kind: "api_key".into(),
-                principal_id: "key-1".into(),
-                actor_kind: "service".into(),
-                actor_id: "forge".into(),
-                accountable_operator_id: "operator-1".into(),
-                authority_source: "looper-grant".into(),
-                operating_profile: "bounded".into(),
-            },
-            repository: RepositoryBinding {
-                owner: "feedback-loop-ai".into(),
-                name: "looper".into(),
-                base_sha: "b".repeat(64),
-                candidate_sha: None,
-                workspace_class: "isolated".into(),
-                target_environment: "dogfood".into(),
-            },
-            recipe: RecipeBinding {
-                name: "fast".into(),
-                compiled_sha256: recipe_sha,
-            },
-            budget: BudgetBinding {
-                lane_tally_run_id: "lane-1".into(),
-                reservation_id: Some("reservation-1".into()),
-                cost_state: "known".into(),
-                ceiling_microunits: Some(1000),
-                currency: Some("USD".into()),
-            },
-            producer: ProducerBinding {
-                registration_id: "registration-1".into(),
-                token_reference: "key-1".into(),
-                callback_audience: "https://dogfood.feedback-loop.ai".into(),
-                accepting_service_id: "looper-api".into(),
-                runtime_id: "runtime-1".into(),
-                producer_release: "forge@test".into(),
-                protocol_version: 1,
-                starting_cursor: 0,
-            },
-            allowed_effects: PRODUCER_EFFECTS
-                .iter()
-                .map(|value| (*value).into())
-                .collect(),
-            forbidden_actions: vec![
-                "grant_create".into(),
-                "grant_widen".into(),
-                "artifact_decide".into(),
-                "workflow_advance".into(),
-                "release_promote".into(),
-            ],
-            bounds: DispatchBounds {
-                max_attempts: 3,
-                max_parallel_effects: 2,
-                max_event_bytes: 65_536,
-                max_events_per_ten_seconds: 20,
-                replay_retention_seconds: 604_800,
-                safe_stop: "boundary".into(),
-                cancellation: "fenced".into(),
-            },
-            evidence_requirements: vec!["ordered_hash_chain".into()],
-            attestation_requirement: "self_reported".into(),
-        }
-        .sealed();
-        let manifest = build_run_manifest_v2(&bundle, dispatch.clone()).unwrap();
-        let now = OffsetDateTime::parse("2026-08-28T08:30:00Z", &Rfc3339).unwrap();
-        (manifest, dispatch, now)
-    }
-
-    #[derive(Default)]
-    struct MockTransport {
-        state: Option<RegistrationState>,
-        events: Vec<ProducerEvent>,
-        commands: Vec<ProducerCommand>,
-        receipts: Vec<CommandReceipt>,
-    }
-
-    impl ProducerTransport for MockTransport {
-        fn register(
-            &mut self,
-            dispatch: &DispatchEnvelopeV2,
-            _: &Value,
-        ) -> Result<RegistrationState, BridgeError> {
-            Ok(self
-                .state
-                .get_or_insert_with(|| RegistrationState {
-                    registration_id: dispatch.producer.registration_id.clone(),
-                    status: "active".into(),
-                    last_forge_sequence: 0,
-                    last_event_hash: ZERO_HASH.into(),
-                })
-                .clone())
-        }
-
-        fn submit(&mut self, event: &ProducerEvent) -> Result<bool, BridgeError> {
-            if self
-                .events
-                .iter()
-                .any(|prior| prior.event_hash == event.event_hash)
-            {
-                return Ok(true);
-            }
-            self.events.push(event.clone());
-            self.state = Some(RegistrationState {
-                registration_id: event.registration_id.clone(),
-                status: "active".into(),
-                last_forge_sequence: event.forge_sequence,
-                last_event_hash: event.event_hash.clone(),
-            });
-            Ok(false)
-        }
-
-        fn commands(&mut self, _: &str, after: u64) -> Result<Vec<ProducerCommand>, BridgeError> {
-            Ok(self
-                .commands
-                .iter()
-                .filter(|command| command.cursor > after)
-                .cloned()
-                .collect())
-        }
-
-        fn acknowledge_command(
-            &mut self,
-            _: &str,
-            receipt: &CommandReceipt,
-        ) -> Result<(), BridgeError> {
-            self.receipts.push(receipt.clone());
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn sync_replays_from_server_cursor_without_sqlite_or_transcript_exposure() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-        let (manifest, _, now) = fixture();
-        store
-            .create_run("forge-run-1", "084-f", "fast", &manifest)
-            .unwrap();
-        store
-            .append_next(
-                "forge-run-1",
-                EventType::EffectCheckpointed,
-                json!({
-                    "effect_id":"effect-1", "attempt_id":"attempt-1",
-                    "checkpoint": {
-                        "step":"item-completed", "tool":"command_execution",
-                        "command":"print-secret", "output":"private", "target":"/private/repo/file.rs",
-                        "session_id":"secret-session", "input_tokens":21,
-                    }
-                }),
-                None,
-                Some("attempt-1".into()),
-            )
-            .unwrap();
-        let mut bridge = Bridge::new(MockTransport::default());
-        let first = bridge.sync_once(&mut store, "forge-run-1", now, 0).unwrap();
-        assert_eq!(first.submitted, 1);
-        let second = bridge.sync_once(&mut store, "forge-run-1", now, 0).unwrap();
-        assert_eq!(second.submitted, 0);
-        let transport = bridge.into_transport();
-        let encoded = serde_json::to_string(&transport.events[0]).unwrap();
-        assert!(!encoded.contains("print-secret"));
-        assert!(!encoded.contains("private/repo"));
-        assert!(!encoded.contains("secret-session"));
-        assert!(encoded.contains("target_sha256"));
-        assert_eq!(transport.events[0].cost.state, "reconciliation-pending");
-        assert_eq!(transport.events[0].cost.lane_tally_run_id, "lane-1");
-    }
-
-    #[test]
-    fn server_cursor_hash_must_be_a_prefix_of_the_verified_journal() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-        let (manifest, _, now) = fixture();
-        store
-            .create_run("forge-run-1", "084-f", "fast", &manifest)
-            .unwrap();
-        store
-            .append_next(
-                "forge-run-1",
-                EventType::RunCompleted,
-                json!({}),
-                None,
-                None,
-            )
-            .unwrap();
-        let transport = MockTransport {
-            state: Some(RegistrationState {
-                registration_id: "registration-1".into(),
-                status: "active".into(),
-                last_forge_sequence: 1,
-                last_event_hash: "f".repeat(64),
-            }),
-            ..Default::default()
-        };
-        let error = Bridge::new(transport)
-            .sync_once(&mut store, "forge-run-1", now, 0)
-            .unwrap_err();
-        assert!(matches!(error, BridgeError::RegistrationMismatch));
-    }
-
-    #[test]
-    fn terminal_registration_is_a_clean_idempotent_sync_boundary() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-        let (manifest, _, now) = fixture();
-        store
-            .create_run("forge-run-1", "084-f", "fast", &manifest)
-            .unwrap();
-        let completed = store
-            .append_next(
-                "forge-run-1",
-                EventType::RunCompleted,
-                json!({}),
-                None,
-                None,
-            )
-            .unwrap();
-        let transport = MockTransport {
-            state: Some(RegistrationState {
-                registration_id: "registration-1".into(),
-                status: "terminal".into(),
-                last_forge_sequence: completed.seq,
-                last_event_hash: completed.event_hash,
-            }),
-            ..Default::default()
-        };
-        let report = Bridge::new(transport)
-            .sync_once(&mut store, "forge-run-1", now, 9)
-            .unwrap();
-        assert_eq!(report.submitted, 0);
-        assert_eq!(report.last_command_cursor, 9);
-        assert_eq!(report.last_forge_sequence, 1);
-    }
-
-    #[test]
-    fn one_shot_command_reports_sanitized_disposition_before_receipt() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-        let (manifest, _, now) = fixture();
-        store
-            .create_run("forge-run-1", "084-f", "fast", &manifest)
-            .unwrap();
-        for (event_type, payload, attempt_id) in [
-            (EventType::RunStarted, json!({"manifest":{}}), None),
-            (EventType::PhaseEntered, json!({"phase":"implement"}), None),
-            (
-                EventType::EffectRequested,
-                json!({"effect_id":"effect-1", "seat":"implementer"}),
-                None,
-            ),
-            (
-                EventType::EffectStarted,
-                json!({"effect_id":"effect-1", "attempt_id":"attempt-1"}),
-                Some("attempt-1".into()),
-            ),
-            (
-                EventType::EffectIndeterminate,
-                json!({"effect_id":"effect-1", "attempt_id":"attempt-1"}),
-                Some("attempt-1".into()),
-            ),
-            (
-                EventType::RunParked,
-                json!({"reason":"executor_lost"}),
-                None,
-            ),
-        ] {
-            store
-                .append_next("forge-run-1", event_type, payload, None, attempt_id)
-                .unwrap();
-        }
-        let (expected_forge_sequence, expected_event_hash) =
-            store.head_hash("forge-run-1").unwrap();
-        let transport = MockTransport {
-            commands: vec![ProducerCommand {
-                cursor: 1,
-                id: "command-1".into(),
-                command: "stop".into(),
-                expected_forge_sequence,
-                expected_event_hash,
-                actor: "user:operator-1".into(),
-                reason: "operator requested stop".into(),
-            }],
-            ..Default::default()
-        };
-        let mut bridge = Bridge::new(transport);
-        let report = bridge.sync_once(&mut store, "forge-run-1", now, 0).unwrap();
-        assert_eq!(report.commands, 1);
-        assert_eq!(report.submitted, 8);
-        let transport = bridge.into_transport();
-        assert_eq!(transport.receipts.len(), 1);
-        assert_eq!(transport.receipts[0].outcome, "accepted");
-        let commanded = transport
-            .events
-            .iter()
-            .find(|event| event.payload.get("command_kind").is_some())
-            .unwrap();
-        assert_eq!(commanded.payload["command_kind"], "stop");
-        assert!(commanded.payload.get("command").is_none());
-        assert!(!serde_json::to_string(commanded)
-            .unwrap()
-            .contains("operator requested stop"));
-    }
-}
+mod tests;

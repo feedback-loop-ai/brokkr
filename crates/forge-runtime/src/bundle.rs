@@ -245,7 +245,12 @@ impl Bundle {
             let has_single = raw.get("role").is_some() || raw.get("driver").is_some();
             let has_panel = raw.get("panel").is_some();
             let has_sequence = raw.get("sequence").is_some();
-            if [has_single, has_panel, has_sequence].iter().filter(|f| **f).count() > 1 {
+            if [has_single, has_panel, has_sequence]
+                .iter()
+                .filter(|f| **f)
+                .count()
+                > 1
+            {
                 return Err(CompileError::Invalid(format!(
                     "seat '{phase}' must be exactly one of role+driver, panel, \
                      or sequence"
@@ -253,8 +258,7 @@ impl Bundle {
             }
             let secrets = parse_secrets(phase, raw)?;
             let body = if has_panel {
-                let (members, aggregate) =
-                    parse_panel(&dir, phase, raw, Some(&results), &secrets)?;
+                let (members, aggregate) = parse_panel(&dir, phase, raw, Some(&results), &secrets)?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
@@ -386,14 +390,19 @@ fn assert_phase_unavoidable(
     table: &Value,
     protected: &str,
 ) -> Result<(), CompileError> {
-    let rules = table["rules"].as_array().expect("validated by Machine::from_table");
+    let rules = table["rules"]
+        .as_array()
+        .expect("validated by Machine::from_table");
     let mut reachable = vec![machine.initial.clone()];
     let mut frontier = vec![machine.initial.clone()];
     while let Some(node) = frontier.pop() {
         for rule in rules {
             let from = rule["from"].as_str().unwrap_or_default();
             let next = rule["next"].as_str().unwrap_or_default();
-            if from == node && from != protected && next != protected {
+            // `frontier` never contains the protected phase: it is excluded
+            // from every push below. Therefore `from != protected` follows
+            // from `from == node` and need not be re-tested.
+            if from == node && next != protected {
                 let next = next.to_string();
                 if !reachable.contains(&next) {
                     reachable.push(next.clone());
@@ -441,9 +450,7 @@ fn parse_panel(
     let aggregate_name = raw
         .get("aggregate")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{what}' panel needs 'aggregate'"))
-        })?;
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' panel needs 'aggregate'")))?;
     let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
         CompileError::Invalid(format!(
             "seat '{what}' unknown aggregate '{aggregate_name}'; known: \
@@ -563,12 +570,16 @@ fn parse_secrets(phase: &str, raw: &Value) -> Result<Vec<String>, CompileError> 
         return Ok(Vec::new());
     };
     let declared = declared.as_array().ok_or_else(|| {
-        CompileError::Invalid(format!("seat '{phase}' secrets must be an array of strings"))
+        CompileError::Invalid(format!(
+            "seat '{phase}' secrets must be an array of strings"
+        ))
     })?;
     let mut names: Vec<String> = Vec::with_capacity(declared.len());
     for item in declared {
         let name = item.as_str().ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' secrets must be an array of strings"))
+            CompileError::Invalid(format!(
+                "seat '{phase}' secrets must be an array of strings"
+            ))
         })?;
         forge_protocol::secret::validate_name(name)
             .map_err(|e| CompileError::Invalid(format!("seat '{phase}': {e}")))?;
@@ -602,11 +613,10 @@ fn parse_command(
     // legal: env-only consumers (gh reading GH_TOKEN) take no argv
     // reference at all.
     for part in &parts {
-        let refs = forge_protocol::secret::scan_secret_refs(part).map_err(|e| {
-            CompileError::Invalid(format!("seat '{what}' command template: {e}"))
-        })?;
+        let refs = forge_protocol::secret::scan_secret_refs(part)
+            .map_err(|e| CompileError::Invalid(format!("seat '{what}' command template: {e}")))?;
         for name in refs {
-            if !secrets.iter().any(|declared| *declared == name) {
+            if !secrets.contains(&name) {
                 return Err(CompileError::Invalid(format!(
                     "seat '{what}' command template references undeclared secret \
                      '{name}'; declare it in the seat's 'secrets' list \
@@ -621,9 +631,7 @@ fn parse_command(
             // "{forge}" is this engine's own executable (built-in
             // drivers); "./"-prefixed entries are bundle-relative.
             if part == "{forge}" {
-                return std::env::current_exe()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| "forge".to_string());
+                return forge_executable(std::env::current_exe());
             }
             match part.strip_prefix("./") {
                 Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
@@ -631,6 +639,13 @@ fn parse_command(
             }
         })
         .collect())
+}
+
+fn forge_executable(current: std::io::Result<PathBuf>) -> String {
+    match current {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => "forge".to_string(),
+    }
 }
 
 fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileError> {
@@ -648,11 +663,19 @@ fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileErro
             CompileError::Invalid(format!("seat '{what}' confine needs a non-empty image"))
         })?
         .to_string();
-    let network = object.get("network").and_then(Value::as_bool).unwrap_or(false);
+    let network = object
+        .get("network")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mounts = object
         .get("mounts")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     for key in object.keys() {
         if !["image", "network", "mounts"].contains(&key.as_str()) {
@@ -661,7 +684,11 @@ fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileErro
             )));
         }
     }
-    Ok(Some(Confine { image, network, mounts }))
+    Ok(Some(Confine {
+        image,
+        network,
+        mounts,
+    }))
 }
 
 fn declarable_input(name: &str) -> bool {
@@ -746,152 +773,7 @@ fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
 }
 
 #[cfg(test)]
-mod secret_binding_tests {
-    use super::*;
-    use serde_json::json;
+mod secret_binding_tests;
 
-    const POLICY: &str = r#"{
-      "schema": "forge.phase-machine/v1",
-      "phases": ["work", "review", "done", "stop"],
-      "initial": "work",
-      "terminal": ["done", "stop"],
-      "shippable_from": ["review"],
-      "rules": [
-        {"id": "W-OK", "from": "work", "result": "built", "next": "review",
-         "reason": "work concluded"},
-        {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
-         "reason": "review concluded"}
-      ]
-    }"#;
-
-    /// A minimal compilable bundle whose `work` seat carries the given
-    /// declaration and command template.
-    fn write_bundle(dir: &Path, secrets: Value, command: Value) -> PathBuf {
-        let bundle = dir.join("bundle");
-        std::fs::create_dir_all(bundle.join("roles")).unwrap();
-        std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
-        std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-        let mut work = json!({
-            "role": "roles/role.md",
-            "results": ["built"],
-            "driver": {"command": command},
-        });
-        if !secrets.is_null() {
-            work["secrets"] = secrets;
-        }
-        let config = json!({
-            "name": "secrets-lint",
-            "policy": "policy.json",
-            "seats": {
-                "work": work,
-                "review": {
-                    "role": "roles/role.md",
-                    "results": ["clean"],
-                    "driver": {"command": ["true"]},
-                },
-            }
-        });
-        std::fs::write(
-            bundle.join("bundle.json"),
-            serde_json::to_string_pretty(&config).unwrap(),
-        )
-        .unwrap();
-        bundle
-    }
-
-    fn compile_error(secrets: Value, command: Value) -> String {
-        let dir = tempfile::tempdir().unwrap();
-        match Bundle::compile(&write_bundle(dir.path(), secrets, command)) {
-            Ok(_) => panic!("expected a compile refusal"),
-            Err(e) => e.to_string(),
-        }
-    }
-
-    #[test]
-    fn declared_and_referenced_template_compiles() {
-        let dir = tempfile::tempdir().unwrap();
-        let bundle = write_bundle(
-            dir.path(),
-            json!(["GH_TOKEN"]),
-            json!(["bash", "-c", "curl -H 'auth: {{secret:GH_TOKEN}}' x"]),
-        );
-        let compiled = Bundle::compile(&bundle).unwrap();
-        assert_eq!(compiled.seats["work"].secrets, vec!["GH_TOKEN"]);
-    }
-
-    #[test]
-    fn declared_but_unreferenced_compiles() {
-        // The lint is one-directional (referenced => declared): env-only
-        // consumers like `gh` reading GH_TOKEN take no argv reference.
-        let dir = tempfile::tempdir().unwrap();
-        let bundle = write_bundle(dir.path(), json!(["GH_TOKEN"]), json!(["gh", "pr", "list"]));
-        assert_eq!(
-            Bundle::compile(&bundle).unwrap().seats["work"].secrets,
-            vec!["GH_TOKEN"]
-        );
-    }
-
-    #[test]
-    fn undeclared_reference_refuses_naming_the_secret() {
-        let error = compile_error(Value::Null, json!(["echo", "{{secret:GH_TOKEN}}"]));
-        assert!(error.contains("undeclared secret 'GH_TOKEN'"), "{error}");
-    }
-
-    #[test]
-    fn malformed_references_refuse_at_compile() {
-        for (part, why) in [
-            ("{{secret:gh_token}}", "lowercase"),
-            ("{{secret:}}", "empty"),
-            ("{{ secret:GH_TOKEN }}", "interior whitespace"),
-            ("{{secret:GH_TOKEN", "unclosed"),
-        ] {
-            let error = compile_error(json!(["GH_TOKEN"]), json!(["echo", part]));
-            assert!(
-                error.contains("malformed secret reference"),
-                "{why} ({part:?}): {error}"
-            );
-        }
-    }
-
-    #[test]
-    fn ill_formed_and_denylisted_declarations_refuse() {
-        let error = compile_error(json!(["gh_token"]), json!(["true"]));
-        assert!(error.contains("[A-Z][A-Z0-9_]*"), "{error}");
-        for name in ["PATH", "FORGE_X"] {
-            let error = compile_error(json!([name]), json!(["true"]));
-            assert!(error.contains("denylisted"), "{name}: {error}");
-            assert!(error.contains(name), "{name}: {error}");
-        }
-        let error = compile_error(json!(["GH_TOKEN", "GH_TOKEN"]), json!(["true"]));
-        assert!(error.contains("twice"), "{error}");
-    }
-
-    #[test]
-    fn secrets_env_inside_the_bundle_dir_refuses() {
-        let dir = tempfile::tempdir().unwrap();
-        let bundle = write_bundle(dir.path(), Value::Null, json!(["true"]));
-        std::fs::write(bundle.join("secrets.env"), "GH_TOKEN=oops\n").unwrap();
-        let error = Bundle::compile(&bundle).unwrap_err().to_string();
-        assert!(error.contains("secrets.env"), "{error}");
-        assert!(error.contains("outside the bundle"), "{error}");
-    }
-
-    #[test]
-    fn rotation_never_changes_the_manifest_digest() {
-        // End to end: set -> compile -> rotate the value -> compile ->
-        // digests byte-equal. Holds because the store lives OUTSIDE the
-        // bundle dir and digests carry names only.
-        let dir = tempfile::tempdir().unwrap();
-        let store = dir.path().join(".forge/secrets.env");
-        forge_protocol::secret::store_set(&store, "GH_TOKEN", "first-value").unwrap();
-        let bundle = write_bundle(
-            dir.path(),
-            json!(["GH_TOKEN"]),
-            json!(["bash", "-c", "echo {{secret:GH_TOKEN}}"]),
-        );
-        let before = Bundle::compile(&bundle).unwrap().manifest_digest();
-        forge_protocol::secret::store_set(&store, "GH_TOKEN", "rotated-value").unwrap();
-        let after = Bundle::compile(&bundle).unwrap().manifest_digest();
-        assert_eq!(before, after, "rotation must never change a digest");
-    }
-}
+#[cfg(test)]
+mod tests;

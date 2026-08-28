@@ -169,7 +169,11 @@ impl Machine {
                         requires_artifacts: rule.requires_artifacts.clone(),
                     }
                 }
-                Err(problem) => return Outcome::NoRule { problem: Some(problem) },
+                Err(problem) => {
+                    return Outcome::NoRule {
+                        problem: Some(problem),
+                    }
+                }
             }
         }
         Outcome::NoRule { problem: None }
@@ -213,7 +217,9 @@ fn parse_rule(raw: &Value, phases: &[String], terminal: &[String]) -> Result<Rul
         return Err(PolicyError(format!("rule {id} references unknown phase")));
     }
     if terminal.contains(&from) {
-        return Err(PolicyError(format!("rule {id} leaves terminal phase '{from}'")));
+        return Err(PolicyError(format!(
+            "rule {id} leaves terminal phase '{from}'"
+        )));
     }
     let severity = match obj.get("severity") {
         None => "normal".to_string(),
@@ -285,15 +291,12 @@ fn parse_condition(rule_id: &str, key: &str, expected: &Value) -> Result<Conditi
                  known: {SEVERITY_INPUTS:?}"
             )));
         }
-        let threshold_rank = expected
-            .as_str()
-            .and_then(severity_rank)
-            .ok_or_else(|| {
-                PolicyError(format!(
-                    "rule {rule_id}: condition '{key}' threshold {expected} not in \
+        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
+            PolicyError(format!(
+                "rule {rule_id}: condition '{key}' threshold {expected} not in \
                      {SEVERITY_ORDER:?}"
-                ))
-            })?;
+            ))
+        })?;
         return Ok(Condition::SeverityAbove {
             name: name.to_string(),
             threshold_rank,
@@ -324,20 +327,18 @@ fn parse_condition(rule_id: &str, key: &str, expected: &Value) -> Result<Conditi
 fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<bool, String> {
     for condition in when {
         match condition {
-            Condition::CounterGte { name, threshold } => {
-                match inputs.get(name) {
-                    None | Some(Value::Null) => return Ok(false),
-                    Some(Value::Number(n)) => {
-                        let actual = n.as_f64().ok_or_else(|| {
-                            format!("{name} must be a number, got {n}")
-                        })?;
-                        if actual < *threshold {
-                            return Ok(false);
-                        }
+            Condition::CounterGte { name, threshold } => match inputs.get(name) {
+                None | Some(Value::Null) => return Ok(false),
+                Some(Value::Number(n)) => {
+                    // serde_json rejects non-finite numbers at construction,
+                    // so every Number is representable through this API.
+                    let actual = n.as_f64().expect("JSON numbers are finite");
+                    if actual < *threshold {
+                        return Ok(false);
                     }
-                    Some(other) => return Err(format!("{name} must be a number, got {other}")),
                 }
-            }
+                Some(other) => return Err(format!("{name} must be a number, got {other}")),
+            },
             Condition::SeverityAbove {
                 name,
                 threshold_rank,
@@ -346,11 +347,7 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
                 Some(Value::String(s)) => match severity_rank(s) {
                     Some(rank) if rank > *threshold_rank => {}
                     Some(_) => return Ok(false),
-                    None => {
-                        return Err(format!(
-                            "{name} severity '{s}' not in {SEVERITY_ORDER:?}"
-                        ))
-                    }
+                    None => return Err(format!("{name} severity '{s}' not in {SEVERITY_ORDER:?}")),
                 },
                 Some(other) => {
                     return Err(format!("{name} severity {other} not in {SEVERITY_ORDER:?}"))
@@ -369,3 +366,6 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests;

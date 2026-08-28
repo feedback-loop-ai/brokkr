@@ -9,7 +9,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use forge_core::fold::{fold, Status};
 use forge_store::Store;
@@ -62,7 +62,7 @@ pub fn request_allowed(method: &str, host: Option<&str>) -> bool {
 
 /// Pure request handling: path in, response out. The TCP loop below is a
 /// thin shell around this, which is what the tests exercise.
-pub fn handle(db: &PathBuf, path: &str) -> Response {
+pub fn handle(db: &Path, path: &str) -> Response {
     if path == "/" {
         return ok("text/html; charset=utf-8", PAGE.to_string());
     }
@@ -122,44 +122,58 @@ pub fn handle(db: &PathBuf, path: &str) -> Response {
     not_found(path)
 }
 
-fn head_seq(db: &PathBuf, run_id: &str) -> u64 {
+fn head_seq(db: &Path, run_id: &str) -> u64 {
     Store::open(db)
         .and_then(|s| s.head_hash(run_id))
         .map(|(seq, _)| seq)
         .unwrap_or(0)
 }
 
-fn serve_client(db: PathBuf, stream: TcpStream) {
-    let mut reader = BufReader::new(match stream.try_clone() {
-        Ok(s) => s,
-        Err(_) => return,
-    });
+fn read_request(reader: &mut impl BufRead) -> std::io::Result<(String, String, Option<String>)> {
     let mut line = String::new();
-    if reader.read_line(&mut line).is_err() {
-        return;
-    }
+    reader.read_line(&mut line)?;
     let method = line.split_whitespace().next().unwrap_or("").to_string();
     let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
     let mut host: Option<String> = None;
     let mut header = String::new();
     loop {
         header.clear();
-        match reader.read_line(&mut header) {
-            Ok(0) => break,
-            Ok(_) if header.trim().is_empty() => break,
-            Ok(_) => {
+        match reader.read_line(&mut header)? {
+            0 => break,
+            _ if header.trim().is_empty() => break,
+            _ => {
                 if let Some(value) = header.to_ascii_lowercase().strip_prefix("host:") {
                     host = Some(value.trim().to_string());
                 }
             }
-            Err(_) => return,
         }
     }
-    let mut stream = stream;
+    Ok((method, path, host))
+}
+
+fn serve_client(db: PathBuf, stream: TcpStream) {
+    serve_client_with_limit(db, stream, None)
+}
+
+fn serve_client_with_limit(db: PathBuf, stream: TcpStream, sse_limit: Option<usize>) {
+    let mut reader = BufReader::new(&stream);
+    let mut writer = &stream;
+    serve_io(&db, &mut reader, &mut writer, sse_limit);
+}
+
+fn serve_io(
+    db: &Path,
+    reader: &mut impl BufRead,
+    stream: &mut impl Write,
+    sse_limit: Option<usize>,
+) {
+    let request = read_request(reader);
+    let Ok((method, path, host)) = request else {
+        return;
+    };
     if !request_allowed(&method, host.as_deref()) {
-        let _ = stream.write_all(
-            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
+        let _ = stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return;
     }
 
@@ -171,8 +185,9 @@ fn serve_client(db: PathBuf, stream: TcpStream) {
             return;
         }
         let mut last = u64::MAX; // always push one initial event
+        let mut sent = 0usize;
         loop {
-            let seq = head_seq(&db, &run_id);
+            let seq = head_seq(db, &run_id);
             let message = if seq != last {
                 last = seq;
                 format!("data: {}\n\n", json!({"seq": seq}))
@@ -184,11 +199,15 @@ fn serve_client(db: PathBuf, stream: TcpStream) {
             if stream.write_all(message.as_bytes()).is_err() {
                 return; // client went away
             }
+            sent += 1;
+            if sse_limit.is_some_and(|limit| sent >= limit) {
+                return;
+            }
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     }
 
-    let response = handle(&db, &path);
+    let response = handle(db, &path);
     let payload = format!(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
          Connection: close\r\n\r\n{}",
@@ -200,82 +219,38 @@ fn serve_client(db: PathBuf, stream: TcpStream) {
     let _ = stream.write_all(payload.as_bytes());
 }
 
-/// Bind loopback and serve until killed. Returns the bound port (0 in
-/// `port` picks an ephemeral one).
-pub fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
-    let listener = TcpListener::bind(("127.0.0.1", port))?;
+fn open_system_browser(url: &str) {
+    let program = std::env::var("FORGE_BROWSER_BIN").unwrap_or("xdg-open".to_string());
+    let _ = std::process::Command::new(program).arg(url).spawn();
+}
+
+fn serve_listener(
+    db: PathBuf,
+    listener: TcpListener,
+    open_browser: bool,
+    connection_limit: Option<usize>,
+    mut opener: impl FnMut(&str),
+) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
-    eprintln!("forge ui: http://127.0.0.1:{bound}/ (read-only; Ctrl-C to stop)");
+    let url = format!("http://127.0.0.1:{bound}/");
+    eprintln!("forge ui: {url} (read-only; Ctrl-C to stop)");
     if open_browser {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(format!("http://127.0.0.1:{bound}/"))
-            .spawn();
+        opener(&url);
     }
-    for stream in listener.incoming().flatten() {
+    let limit = connection_limit.unwrap_or(usize::MAX);
+    for stream in listener.incoming().flatten().take(limit) {
         let db = db.clone();
         std::thread::spawn(move || serve_client(db, stream));
     }
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use forge_core::envelope::EventType;
-    use serde_json::json;
-
-    fn fixture() -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("forge.db");
-        let mut store = Store::open(&db).unwrap();
-        store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
-        store
-            .append_next("r1", EventType::RunStarted,
-                json!({"feature": "feat", "manifest": {}}), None, None)
-            .unwrap();
-        store
-            .append_next("r1", EventType::PhaseEntered,
-                json!({"phase": "intake"}), None, None)
-            .unwrap();
-        (dir, db)
-    }
-
-    #[test]
-    fn page_runs_and_run_detail_serve_read_only() {
-        let (_dir, db) = fixture();
-        let page = handle(&db, "/");
-        assert_eq!(page.status, "200 OK");
-        assert!(page.body.contains("<title>forge</title>"));
-
-        let runs = handle(&db, "/api/runs");
-        let parsed: Value = serde_json::from_str(&runs.body).unwrap();
-        assert_eq!(parsed[0]["run_id"], "r1");
-        assert_eq!(parsed[0]["phase"], "intake");
-
-        let detail = handle(&db, "/api/run/r1");
-        let parsed: Value = serde_json::from_str(&detail.body).unwrap();
-        assert_eq!(parsed["summary"]["status"], "running");
-        assert_eq!(parsed["events"].as_array().unwrap().len(), 2);
-
-        assert_eq!(handle(&db, "/api/run/nope").status, "404 Not Found");
-        assert_eq!(handle(&db, "/definitely-not").status, "404 Not Found");
-    }
-
-    #[test]
-    fn rebinding_and_methods_are_rejected_and_reads_never_create() {
-        // DNS-rebinding guard: only loopback Host names, only GET.
-        assert!(request_allowed("GET", Some("127.0.0.1:8383")));
-        assert!(request_allowed("GET", Some("localhost")));
-        assert!(request_allowed("GET", Some("[::1]:9000")));
-        assert!(!request_allowed("GET", Some("evil.example.com")));
-        assert!(!request_allowed("GET", Some("evil.example.com:8383")));
-        assert!(!request_allowed("GET", None));
-        assert!(!request_allowed("POST", Some("127.0.0.1")));
-
-        // A read of a missing database is a 404, not a created store.
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("absent.db");
-        assert_eq!(handle(&db, "/api/runs").status, "404 Not Found");
-        assert!(!db.exists(), "reads must never create the database");
-    }
+/// Bind loopback and serve until killed. Returns the bound port (0 in
+/// `port` picks an ephemeral one).
+pub fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
+    let listener = TcpListener::bind(("127.0.0.1", port))?;
+    serve_listener(db, listener, open_browser, None, open_system_browser)
 }
+
+#[cfg(test)]
+mod tests;

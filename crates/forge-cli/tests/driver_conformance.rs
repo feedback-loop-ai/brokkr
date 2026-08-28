@@ -103,7 +103,11 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
     }
     drop(stdin);
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let _ = std::fs::remove_file(&result_path);
     String::from_utf8_lossy(&out.stdout)
         .lines()
@@ -111,16 +115,28 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         .collect()
 }
 
-fn all_adapters<'a>(shim: &'a Path) -> Vec<(&'static str, Vec<String>)> {
+fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     vec![
         ("claude", vec!["claude".into()]),
         ("codex", vec!["codex".into()]),
         ("dsh", vec!["dsh".into()]),
-        ("exec-stdin", vec!["exec".into(), "--".into(), shim.to_string_lossy().into_owned()]),
-        ("exec-promptfile", vec![
-            "exec".into(), "--".into(),
-            shim.to_string_lossy().into_owned(), "{prompt_file}".into(),
-        ]),
+        (
+            "exec-stdin",
+            vec![
+                "exec".into(),
+                "--".into(),
+                shim.to_string_lossy().into_owned(),
+            ],
+        ),
+        (
+            "exec-promptfile",
+            vec![
+                "exec".into(),
+                "--".into(),
+                shim.to_string_lossy().into_owned(),
+                "{prompt_file}".into(),
+            ],
+        ),
     ]
 }
 
@@ -128,7 +144,14 @@ fn all_adapters<'a>(shim: &'a Path) -> Vec<(&'static str, Vec<String>)> {
 fn conformance_across_all_builtin_adapters() {
     for case in ["obedient", "silent"] {
         let dir = tempfile::tempdir().unwrap();
-        let shim = make_shim(dir.path(), if case == "obedient" { OBEDIENT_SHIM } else { SILENT_SHIM });
+        let shim = make_shim(
+            dir.path(),
+            if case == "obedient" {
+                OBEDIENT_SHIM
+            } else {
+                SILENT_SHIM
+            },
+        );
         let claude_dir = dir.path().join("claude-stream");
         std::fs::create_dir_all(&claude_dir).unwrap();
         let claude_shim = make_shim(&claude_dir, CLAUDE_STREAM_SHIM);
@@ -153,16 +176,38 @@ fn conformance_across_all_builtin_adapters() {
             };
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             let out = drive(&args, shim, dir.path());
-            let kinds: Vec<&str> =
-                out.iter().map(|m| m["type"].as_str().unwrap()).collect();
+            let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if claude && case == "obedient" {
-                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "result"]
+                &[
+                    "capabilities",
+                    "accepted",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "result",
+                ]
             } else if codex && case == "obedient" {
-                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "result"]
+                &[
+                    "capabilities",
+                    "accepted",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "result",
+                ]
             } else if dsh || exec {
                 // exec: the exec-started template checkpoint (decision
                 // 0012 amendment) then session-finished.
-                &["capabilities", "accepted", "checkpoint", "checkpoint", "result"]
+                &[
+                    "capabilities",
+                    "accepted",
+                    "checkpoint",
+                    "checkpoint",
+                    "result",
+                ]
             } else {
                 &["capabilities", "accepted", "checkpoint", "result"]
             };
@@ -175,19 +220,22 @@ fn conformance_across_all_builtin_adapters() {
                     out[2]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs"}),
-                    "{label}: {}", out[2]
+                    "{label}: {}",
+                    out[2]
                 );
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs"}),
-                    "{label}: {}", out[3]
+                    "{label}: {}",
+                    out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
                            "target": "src/out.rs"}),
-                    "{label}: {}", out[4]
+                    "{label}: {}",
+                    out[4]
                 );
                 let finished = &out[5]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
@@ -196,7 +244,10 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
             } else if codex && case == "obedient" {
-                assert_eq!(out[2]["data"], json!({"step":"turn-started", "turn":1, "harness":"codex"}));
+                assert_eq!(
+                    out[2]["data"],
+                    json!({"step":"turn-started", "turn":1, "harness":"codex"})
+                );
                 assert_eq!(out[3]["data"]["tool"], "command_execution");
                 assert!(out[3]["data"].get("command").is_none());
                 assert_eq!(out[5]["data"]["input_tokens"], 21);
@@ -240,8 +291,11 @@ fn adapters_name_themselves_and_exec_requires_template() {
     let dir = tempfile::tempdir().unwrap();
     let shim = make_shim(dir.path(), OBEDIENT_SHIM);
     let expected = [
-        ("claude", "claude-code"), ("codex", "codex"), ("dsh", "deepseek-harness"),
-        ("exec-stdin", "exec"), ("exec-promptfile", "exec"),
+        ("claude", "claude-code"),
+        ("codex", "codex"),
+        ("dsh", "deepseek-harness"),
+        ("exec-stdin", "exec"),
+        ("exec-promptfile", "exec"),
     ];
     for ((label, args), (_, name)) in all_adapters(&shim).iter().zip(expected) {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -251,7 +305,10 @@ fn adapters_name_themselves_and_exec_requires_template() {
     let out = drive(&["exec"], &shim, dir.path());
     let result = out.last().unwrap();
     assert_eq!(result["status"], "failed");
-    assert!(result["error"].as_str().unwrap().contains("command template"));
+    assert!(result["error"]
+        .as_str()
+        .unwrap()
+        .contains("command template"));
 }
 
 // ------------------------------------------------------------------
@@ -333,7 +390,11 @@ fn drive_exec_with_secrets(
     }
     drop(stdin);
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let parsed = String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
@@ -405,7 +466,10 @@ fn exec_missing_secret_refuses_before_spawn_naming_name_and_path() {
     let error = result["error"].as_str().unwrap();
     assert!(error.contains("API_TOKEN"), "{error}");
     assert!(error.contains("secrets.env"), "{error}");
-    assert!(!error.contains("some-other-value"), "never the contents: {error}");
+    assert!(
+        !error.contains("some-other-value"),
+        "never the contents: {error}"
+    );
     assert!(
         !dir.path().join("env.txt").exists(),
         "the child must never have spawned"
@@ -428,7 +492,9 @@ fn exec_masks_the_child_written_result_payload() {
     assert_eq!(result["status"], "succeeded", "{result}");
     assert_eq!(result["result"]["notes"], "leaked [secret:API_TOKEN]");
     assert!(
-        !serde_json::to_string(result).unwrap().contains(SECRET_VALUE),
+        !serde_json::to_string(result)
+            .unwrap()
+            .contains(SECRET_VALUE),
         "{result}"
     );
 }

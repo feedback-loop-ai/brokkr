@@ -137,7 +137,10 @@ const ROLES: [(&str, &str); 5] = [
 
 pub fn init(dir: &Path) -> Result<String> {
     if dir.join("bundle.json").exists() {
-        bail!("{} already contains a bundle.json; refusing to overwrite", dir.display());
+        bail!(
+            "{} already contains a bundle.json; refusing to overwrite",
+            dir.display()
+        );
     }
     std::fs::create_dir_all(dir.join("roles"))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;

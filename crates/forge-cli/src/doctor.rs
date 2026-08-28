@@ -3,7 +3,7 @@
 //! fail the check; optional ones warn. Acceptance criterion: a user can
 //! see what is missing before a run wastes a model session on it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use forge_runtime::Bundle;
@@ -45,7 +45,15 @@ fn tool_version(program: &str) -> Option<String> {
     )
 }
 
-pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
+pub fn doctor(bundle: Option<&Path>, db: &Path) -> Report {
+    doctor_with_probe(bundle, db, tool_version)
+}
+
+fn doctor_with_probe(
+    bundle: Option<&Path>,
+    db: &Path,
+    probe: fn(&str) -> Option<String>,
+) -> Report {
     let mut report = Report {
         healthy: true,
         lines: Vec::new(),
@@ -64,9 +72,12 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
     );
 
     // Required: the engine's own effects use git (drift/dirty gates).
-    match tool_version("git") {
+    match probe("git") {
         Some(v) => report.ok("git", v),
-        None => report.missing("git", "required for worktree, drift, and dirty gates".into()),
+        None => report.missing(
+            "git",
+            "required for worktree, drift, and dirty gates".into(),
+        ),
     }
     // Optional: each agent CLI matters only to bundles whose seats use
     // its driver (the built-in adapters live in this binary).
@@ -76,7 +87,7 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
         ("dsh", "deepseek-harness"),
         ("python3", "exec (script templates)"),
     ] {
-        match tool_version(tool) {
+        match probe(tool) {
             Some(v) => report.ok(tool, v),
             None => report.warn(
                 tool,
@@ -86,7 +97,10 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
     }
 
     match Store::open(db) {
-        Ok(_) => report.ok("database", format!("{} opens (WAL, append-only triggers)", db.display())),
+        Ok(_) => report.ok(
+            "database",
+            format!("{} opens (WAL, append-only triggers)", db.display()),
+        ),
         Err(e) => report.missing("database", format!("{}: {e}", db.display())),
     }
 
@@ -94,7 +108,11 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
         match Bundle::compile(dir) {
             Ok(bundle) => report.ok(
                 "bundle",
-                format!("'{}' compiles, digest {}", bundle.name, bundle.manifest_digest()),
+                format!(
+                    "'{}' compiles, digest {}",
+                    bundle.name,
+                    bundle.manifest_digest()
+                ),
             ),
             Err(e) => report.missing("bundle", format!("{}: {e}", dir.display())),
         }
@@ -102,3 +120,6 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
 
     report
 }
+
+#[cfg(test)]
+mod tests;
