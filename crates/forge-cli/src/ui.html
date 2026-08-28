@@ -20,29 +20,23 @@
                 letter-spacing: 0.08em; }
   #cols { display: flex; flex: 1; min-height: 0; }
   #runs { width: clamp(220px, 26vw, 340px); flex-shrink: 0;
-          border-right: 1px solid var(--line); overflow-y: auto;
-          padding: .5rem; }
+          overflow-y: auto; padding: .5rem; }
   #detail { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem; }
   h1 { font-size: 1rem; margin: .3rem 0 .8rem; }
   .run { padding: .45rem .5rem; border: 1px solid var(--line); border-radius: 8px;
          margin-bottom: .4rem; cursor: pointer; background: var(--panel); }
   .run:hover, .run.active { border-color: var(--violet); }
   .run .id { font-weight: 600; overflow-wrap: anywhere; }
-  /* The whole runs pane collapses once a run is chosen: a thin rail
-     gives the detail view the full width. The handle is a discreet
-     pill on the pane's edge, vertically centered. */
-  #runs { position: relative; }
-  #runsToggle { position: absolute; top: 50%; right: 3px;
-                transform: translateY(-50%);
-                background: var(--panel); border: 1px solid var(--line);
-                color: var(--dim); border-radius: 999px; font: inherit;
-                font-size: 11px; line-height: 1; cursor: pointer;
-                padding: .9em .25em; opacity: .45; }
-  #runsToggle:hover { opacity: 1; border-color: var(--violet);
-                      color: var(--text); }
-  #runs.collapsed { width: 26px; padding: 0; cursor: pointer; }
-  #runs.collapsed #runlist, #runs.collapsed h1 { display: none; }
-  #runs.collapsed #runsToggle { right: 50%; transform: translate(50%, -50%); }
+  /* The whole runs pane collapses once a run is chosen: the pane hides
+     and the divider strip stays as the reopen affordance. The chevron
+     lives ON the divider between the panes — it can never overlap the
+     run list. */
+  #divider { flex: none; width: 14px; border-right: 1px solid var(--line);
+             display: flex; align-items: center; justify-content: center;
+             cursor: pointer; color: var(--dim); user-select: none; }
+  #divider:hover { color: var(--text); background: rgba(124,92,255,.08); }
+  #runsToggle { font-size: 11px; opacity: .7; }
+  #runs.collapsed { display: none; }
   /* Collapsed run rows: one line, status dot + ellipsized id. */
   .run.row { display: flex; align-items: center; gap: 8px;
              padding: .3rem .5rem; }
@@ -181,7 +175,8 @@
   <span class="tag">&gt; the machine is the outer loop_</span>
 </div>
 <div id="cols">
-<div id="runs"><h1>runs</h1><div id="runlist">loading…</div><button id="runsToggle" title="collapse the runs pane">«</button></div>
+<div id="runs"><h1>runs</h1><div id="runlist">loading…</div></div>
+<div id="divider" title="collapse the runs pane"><span id="runsToggle">«</span></div>
 <div id="detail"><h1>select a run</h1>
   <p>Read-only surface: this page submits no commands and writes nothing
   (decision 0003, constitutional boundary 6).</p></div>
@@ -196,10 +191,9 @@ let rawJournal = false; // events table mode: decision trail (default) or raw
 let runsCollapsed = false; // the runs pane folds to a rail once a run is chosen
 
 function applyRunsPane() {
-  const pane = document.getElementById('runs');
-  pane.classList.toggle('collapsed', runsCollapsed);
+  document.getElementById('runs').classList.toggle('collapsed', runsCollapsed);
   document.getElementById('runsToggle').textContent = runsCollapsed ? '»' : '«';
-  document.getElementById('runsToggle').title = runsCollapsed
+  document.getElementById('divider').title = runsCollapsed
     ? 'expand the runs pane' : 'collapse the runs pane';
 }
 
@@ -1257,17 +1251,9 @@ function select(id) {
   source.onmessage = () => { loadDetail(id); loadRuns(); };
 }
 
-document.getElementById('runsToggle').onclick = (ev) => {
-  ev.stopPropagation();
+document.getElementById('divider').onclick = () => {
   runsCollapsed = !runsCollapsed;
   applyRunsPane();
-};
-// The collapsed rail itself is one big expand target.
-document.getElementById('runs').onclick = () => {
-  if (runsCollapsed) {
-    runsCollapsed = false;
-    applyRunsPane();
-  }
 };
 
 loadRuns();
