@@ -95,6 +95,10 @@ enum Cmd {
         /// bounds are pinned into an immutable run-manifest/v2.
         #[arg(long)]
         dispatch: Option<PathBuf>,
+        /// Operator-side secrets store for seats with declared bindings
+        /// (default <workdir>/.forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
     /// Resume an existing run under its exact pinned bundle.
     #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
@@ -112,6 +116,10 @@ enum Cmd {
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Operator-side secrets store for seats with declared bindings
+        /// (default <workdir>/.forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
     /// Re-run a past run's feature as a NEW run under another bundle or
     /// recipe, so outcomes can be compared by run id. No stored linkage.
@@ -131,6 +139,10 @@ enum Cmd {
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Operator-side secrets store for seats with declared bindings
+        /// (default <workdir>/.forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
     /// Compare two runs' aligned outcomes: decision trails, first
     /// divergence, phases visited, per-seat costs. Read-only.
@@ -145,6 +157,13 @@ enum Cmd {
     Recipes {
         #[command(subcommand)]
         command: RecipesCmd,
+    },
+    /// Manage the operator-side secrets store (decision 0012): bundles
+    /// and journals carry NAMES only; values live in this env-format
+    /// file outside version control. There is no value-printing verb.
+    Secrets {
+        #[command(subcommand)]
+        command: SecretsCmd,
     },
     /// Record an operator command (retry | stop) as journal events.
     Operator {
@@ -220,6 +239,28 @@ enum Cmd {
         script: PathBuf,
         #[arg(long)]
         state: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretsCmd {
+    /// Bind NAME to a value read from STDIN (never argv — the CLI obeys
+    /// its own injection discipline). Creates the store 0600.
+    Set {
+        name: String,
+        #[arg(long, default_value = ".forge/secrets.env")]
+        secrets_file: PathBuf,
+    },
+    /// Print bound names, one per line — names, never values.
+    List {
+        #[arg(long, default_value = ".forge/secrets.env")]
+        secrets_file: PathBuf,
+    },
+    /// Remove NAME from the store.
+    Remove {
+        name: String,
+        #[arg(long, default_value = ".forge/secrets.env")]
+        secrets_file: PathBuf,
     },
 }
 
@@ -351,6 +392,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             db,
             repo,
             dispatch,
+            secrets_file,
         } => {
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
@@ -364,6 +406,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 Engine::start(store, bundle, &feature, repo)?
             };
+            engine.secrets_file = secrets_file;
             eprintln!("run started: {}", engine.run_id);
             let end = engine.drive()?;
             Ok(finish(&end.state))
@@ -375,10 +418,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             run,
             db,
             repo,
+            secrets_file,
         } => {
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
+            engine.secrets_file = secrets_file;
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }
@@ -389,6 +434,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             recipes_dir,
             db,
             repo,
+            secrets_file,
         } => {
             let store = Store::open(&db)?;
             let events = store
@@ -405,6 +451,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 .to_string();
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let mut engine = Engine::start(store, bundle, &feature, repo)?;
+            engine.secrets_file = secrets_file;
             eprintln!(
                 "rerun of {run} as {} under {}",
                 engine.run_id, engine.bundle.name
@@ -546,6 +593,43 @@ fn run(cli: Cli) -> Result<ExitCode> {
             match command {
                 RecipesCmd::List { dir } => recipes::list(&dir)?,
                 RecipesCmd::Add { source, name, dir } => recipes::add(&source, &name, &dir)?,
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Secrets { command } => {
+            use forge_protocol::secret;
+            match command {
+                SecretsCmd::Set { name, secrets_file } => {
+                    let value = std::io::read_to_string(std::io::stdin())
+                        .context("reading the secret value from stdin")?;
+                    // stdin values arrive newline-terminated; the value
+                    // itself must be single-line (validated in the store).
+                    let value = value.strip_suffix('\n').unwrap_or(&value);
+                    let value = value.strip_suffix('\r').unwrap_or(value);
+                    let warning = secret::store_set(&secrets_file, &name, value)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    if let Some(warning) = warning {
+                        eprintln!("{warning}");
+                    }
+                    eprintln!("set {name} in {}", secrets_file.display());
+                }
+                SecretsCmd::List { secrets_file } => {
+                    for name in
+                        secret::store_names(&secrets_file).map_err(|e| anyhow::anyhow!(e))?
+                    {
+                        println!("{name}");
+                    }
+                }
+                SecretsCmd::Remove { name, secrets_file } => {
+                    let removed = secret::store_remove(&secrets_file, &name)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    anyhow::ensure!(
+                        removed,
+                        "no secret named '{name}' in {}",
+                        secrets_file.display()
+                    );
+                    eprintln!("removed {name} from {}", secrets_file.display());
+                }
             }
             Ok(ExitCode::SUCCESS)
         }

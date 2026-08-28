@@ -1557,3 +1557,314 @@ fn gate_park_resets_consecutive_failures() {
         "the gate park reset the counter before the post-retry broken"
     );
 }
+
+// ------------------------------------------------------------------
+// Sealed secret bindings (decision 0012): the forge secrets CLI, the
+// layer-6 journal invariant, and the single-call-site grep gate.
+// ------------------------------------------------------------------
+
+/// Run forge with a stdin payload (forge secrets set reads the value
+/// from stdin, never argv).
+fn forge_stdin(cwd: &Path, args: &[&str], payload: &str) -> (Option<i32>, String, String) {
+    use std::io::Write;
+    let mut child = Command::new(forge_bin())
+        .args(args)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn secrets_cli_round_trips_and_never_prints_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("sub/secrets.env");
+    let store_arg = store.to_str().unwrap();
+    let (code, _, stderr) = forge_stdin(
+        dir.path(),
+        &["secrets", "set", "GH_TOKEN", "--secrets-file", store_arg],
+        "tokenvalue-alpha\n",
+    );
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let (code, _, _) = forge_stdin(
+        dir.path(),
+        &["secrets", "set", "API_KEY", "--secrets-file", store_arg],
+        "keyvalue-beta\n",
+    );
+    assert_eq!(code, Some(0));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&store).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "created 0600");
+    }
+    let (code, stdout, stderr) = forge_stdin(
+        dir.path(),
+        &["secrets", "list", "--secrets-file", store_arg],
+        "",
+    );
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(stdout, "API_KEY\nGH_TOKEN\n", "names only, sorted");
+    for value in ["tokenvalue-alpha", "keyvalue-beta"] {
+        assert!(!stdout.contains(value) && !stderr.contains(value), "list printed a value");
+    }
+    let (code, _, _) = forge_stdin(
+        dir.path(),
+        &["secrets", "remove", "GH_TOKEN", "--secrets-file", store_arg],
+        "",
+    );
+    assert_eq!(code, Some(0));
+    let (code, _, stderr) = forge_stdin(
+        dir.path(),
+        &["secrets", "remove", "GH_TOKEN", "--secrets-file", store_arg],
+        "",
+    );
+    assert_eq!(code, Some(1), "removing an absent name is an error");
+    assert!(stderr.contains("GH_TOKEN"), "stderr: {stderr}");
+
+    // Refusal classes at set: empty, multi-line, too short, denylisted
+    // name, grammar-violating name.
+    for (name, payload) in [
+        ("EMPTY", "\n"),
+        ("MULTI", "two\nlines\n"),
+        ("SHORT", "abc\n"),
+        ("PATH", "longenough\n"),
+        ("FORGE_X", "longenough\n"),
+        ("lower", "longenough\n"),
+    ] {
+        let (code, _, stderr) = forge_stdin(
+            dir.path(),
+            &["secrets", "set", name, "--secrets-file", store_arg],
+            payload,
+        );
+        assert_eq!(code, Some(1), "set {name} must refuse: {stderr}");
+    }
+    // Short-but-legal warns and succeeds.
+    let (code, _, stderr) = forge_stdin(
+        dir.path(),
+        &["secrets", "set", "WARN1", "--secrets-file", store_arg],
+        "seven77\n",
+    );
+    assert_eq!(code, Some(0));
+    assert!(stderr.contains("warning"), "stderr: {stderr}");
+}
+
+#[cfg(unix)]
+mod journal_invariant {
+    use super::*;
+
+    const SECRET_VALUE: &str = "tok3n+v4lue!R7x";
+
+    /// A child that leaks the bound value through every listed channel:
+    /// every needle encoding on stdout AND stderr (from needles.txt in
+    /// the workdir), plus the raw env value and its literal argv in the
+    /// result notes. `exit_code` distinguishes the succeeding proof from
+    /// the failing one (which exercises the stderr-tail journal path).
+    fn leaky_script(exit_code: i32) -> String {
+        format!(
+            "#!/bin/sh\n\
+             prompt=$(cat)\n\
+             target=$(printf '%s\\n' \"$prompt\" | sed -n 's/^    \\(.*\\.json\\)$/\\1/p' | head -1)\n\
+             cat needles.txt\n\
+             cat needles.txt 1>&2\n\
+             printf '{{\"result\": \"complete\", \"notes\": \"argv=%s env=%s leaks=%s\"}}' \\\n\
+               \"$1\" \"$API_TOKEN\" \"$(tr '\\n' ' ' < needles.txt)\" > \"$target\"\n\
+             exit {exit_code}\n"
+        )
+    }
+
+    /// Swap one phase's fake-driver seat for a real exec seat with a
+    /// declared secret binding and a {{secret:NAME}} template reference.
+    fn make_exec_seat(ws: &Workspace, phase: &str, script: &Path) {
+        let path = ws.bundle_dir().join("bundle.json");
+        let mut config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let results = config["seats"][phase]["results"].clone();
+        config["seats"][phase] = json!({
+            "role": "roles/role.md",
+            "results": results,
+            "secrets": ["API_TOKEN"],
+            "driver": {"command": [
+                forge_bin(), "driver", "exec", "--",
+                script.to_string_lossy(), "{{secret:API_TOKEN}}",
+            ]},
+        });
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+    }
+
+    fn write_executable(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, body).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Stage the workspace: bind the secret, write every needle the
+    /// shared constant produces into the workdir for the child to leak,
+    /// and return (workspace, store path, template string).
+    fn stage(exit_code: i32) -> (Workspace, PathBuf, String) {
+        let ws = Workspace::new(happy_script());
+        let script = ws.path().join("leaky.sh");
+        write_executable(&script, &leaky_script(exit_code));
+        make_exec_seat(&ws, "implement", &script);
+        let store = ws.path().join("secrets.env");
+        forge_protocol::secret::store_set(&store, "API_TOKEN", SECRET_VALUE).unwrap();
+        // The child prints the needles the SAME shared constant defines —
+        // the proof and the masker cannot drift apart.
+        let mut needles = Vec::new();
+        for (_, encode) in forge_protocol::secret::NEEDLE_ENCODINGS {
+            needles.extend_from_slice(&encode(SECRET_VALUE.as_bytes()));
+            needles.push(b'\n');
+        }
+        std::fs::write(ws.workdir().join("needles.txt"), needles).unwrap();
+        let template = format!("{} {}", script.display(), "{{secret:API_TOKEN}}");
+        (ws, store, template)
+    }
+
+    fn run_with_secrets(ws: &Workspace, store: &Path) -> (Option<i32>, Value, String) {
+        let bundle = ws.bundle_dir();
+        let db = ws.db();
+        let work = ws.workdir();
+        ws.forge(&[
+            "run",
+            "--bundle", bundle.to_str().unwrap(),
+            "--feature", "proof feature",
+            "--db", db.to_str().unwrap(),
+            "--repo", work.to_str().unwrap(),
+            "--secrets-file", store.to_str().unwrap(),
+        ])
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// Byte-scan the exported journal for the value in every listed
+    /// encoding, iterating the shared needle constant. Zero hits or fail.
+    fn assert_journal_sealed(ws: &Workspace, run_id: &str) -> Vec<u8> {
+        let db = ws.db();
+        let out = ws.path().join("export");
+        ws.forge(&[
+            "export", "--run", run_id,
+            "--out", out.to_str().unwrap(),
+            "--db", db.to_str().unwrap(),
+        ]);
+        let journal = std::fs::read(out.join(format!("{run_id}.ndjson"))).unwrap();
+        for (label, encode) in forge_protocol::secret::NEEDLE_ENCODINGS {
+            let needle = encode(SECRET_VALUE.as_bytes());
+            assert!(
+                !contains(&journal, &needle),
+                "journal leaks the bound value as {label}"
+            );
+        }
+        journal
+    }
+
+    #[test]
+    fn succeeding_leaky_child_puts_nothing_in_the_journal() {
+        let (ws, store, template) = stage(0);
+        let (code, summary, stderr) = run_with_secrets(&ws, &store);
+        assert_eq!(code, Some(0), "stderr: {stderr}");
+        assert_eq!(summary["status"], "completed");
+        let run_id = Workspace::run_id(&stderr);
+        let journal = assert_journal_sealed(&ws, &run_id);
+        let text = String::from_utf8_lossy(&journal);
+
+        // The proof must not be vacuous: the child DID leak, and the
+        // leak reached the journal masked (EffectSucceeded result notes).
+        assert!(text.contains("[secret:API_TOKEN]"), "masking engaged");
+        assert!(
+            text.contains("argv=$API_TOKEN"),
+            "argv carried the env reference, never the value"
+        );
+
+        // Checkpoint-target amendment: the UNRESOLVED template is the
+        // exec effect's journaled target, within the 80-char clamp; the
+        // resolved command line appears in no envelope.
+        let events: Vec<Value> = text
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .collect();
+        let started = events
+            .iter()
+            .find(|e| e["payload"]["checkpoint"]["step"] == "exec-started")
+            .expect("exec-started checkpoint in journal");
+        let target = started["payload"]["checkpoint"]["target"].as_str().unwrap();
+        assert_eq!(target, template.chars().take(80).collect::<String>());
+        assert!(target.chars().count() <= 80);
+        let resolved = template.replace("{{secret:API_TOKEN}}", "$API_TOKEN");
+        assert!(
+            !contains(&journal, resolved.as_bytes()),
+            "the resolved command line is never journaled"
+        );
+    }
+
+    #[test]
+    fn failing_leaky_child_keeps_the_stderr_tail_sealed() {
+        let (ws, store, _) = stage(3);
+        let (code, summary, stderr) = run_with_secrets(&ws, &store);
+        assert_eq!(code, Some(2), "stderr: {stderr}");
+        assert_eq!(summary["status"], "awaiting_operator");
+        let reason = summary["park_reason"].as_str().unwrap();
+        assert!(reason.contains("exited 3"), "park reason: {reason}");
+        // The stderr tail rode the failure into the journal — masked.
+        assert!(
+            reason.contains("[secret:API_TOKEN]"),
+            "the masked stderr tail is the evidence: {reason}"
+        );
+        let run_id = Workspace::run_id(&stderr);
+        assert_journal_sealed(&ws, &run_id);
+    }
+}
+
+#[test]
+fn expose_for_spawn_has_exactly_one_production_call_site() {
+    // Layer 4's single-egress property, enforced by grep as decision
+    // 0012 prescribes: the plaintext accessor is CALLED exactly once
+    // outside secret.rs — the exec adapter's spawn injector.
+    let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let needle: String = ["expose_for", "_spawn("].concat();
+    let mut call_sites: Vec<(PathBuf, usize)> = Vec::new();
+    let mut stack = vec![crates_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
+                // Production code only: each crate's src/ tree, minus
+                // the trust-boundary module itself.
+                && path.components().any(|c| c.as_os_str() == "src")
+                && path.file_name().and_then(|n| n.to_str()) != Some("secret.rs")
+            {
+                let content = std::fs::read_to_string(&path).unwrap();
+                let count = content.matches(&needle).count();
+                if count > 0 {
+                    call_sites.push((path, count));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        call_sites.iter().map(|(_, n)| n).sum::<usize>(),
+        1,
+        "exactly one call site outside secret.rs: {call_sites:?}"
+    );
+    assert!(
+        call_sites[0].0.ends_with("forge-protocol/src/adapters.rs"),
+        "the one call site is the exec spawn injector: {call_sites:?}"
+    );
+}
