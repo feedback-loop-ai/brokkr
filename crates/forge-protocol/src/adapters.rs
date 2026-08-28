@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+use crate::secret;
 use crate::{Body, Message, ResultStatus};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -102,16 +103,31 @@ fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
 ) -> Result<std::process::Output, String> {
     let (program, args) = command
         .split_first()
         .ok_or_else(|| "empty command".to_string())?;
-    let mut child = Command::new(program)
+    let mut invocation = Command::new(program);
+    invocation
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Injection discipline (decision 0012, layer 3): values reach the
+    // child ONLY through its environment, resolved at spawn time — never
+    // argv (/proc/*/cmdline is world-readable), never the template. This
+    // is the sole production call site of expose_for_spawn, CI-grep
+    // pinned. A declared name overrides any pre-existing env entry: the
+    // declaration is in the reviewed charter, so a collision is visible
+    // at review time.
+    for binding in bindings {
+        let value = std::str::from_utf8(binding.secret().expose_for_spawn())
+            .map_err(|_| format!("secret '{}' is not valid UTF-8", binding.name()))?;
+        invocation.env(binding.name(), value);
+    }
+    let mut child = invocation
         .spawn()
         .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
     if let Some(payload) = stdin_payload {
@@ -266,6 +282,7 @@ fn invoke(
     extra: &[String],
     prompt: &str,
     input: &Value,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let workdir = input
@@ -393,7 +410,7 @@ fn invoke(
             let mut command = vec![bin, "--profile".into(), "headless".into()];
             command.extend(extra.iter().cloned());
             command.push(prompt.into());
-            let out = run_cli(&command, None, &workdir)?;
+            let out = run_cli(&command, None, &workdir, &[])?;
             let mut session_meta = Map::new();
             session_meta.insert("harness".into(), Value::String("deepseek".into()));
             session_meta.insert("profile".into(), Value::String("headless".into()));
@@ -407,6 +424,14 @@ fn invoke(
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
             }
+            // Checkpoint-target amendment (decision 0012): the
+            // UNRESOLVED template — the exact artifact the compile lint
+            // proved value-free — is journalable within the 80-char
+            // clamp. Resolved command lines, URLs, and prose never are.
+            emit(&json!({
+                "step": "exec-started",
+                "target": extra.join(" ").chars().take(80).collect::<String>(),
+            }));
             let mut prompt_file: Option<tempfile::NamedTempFile> = None;
             if extra.iter().any(|part| part.contains("{prompt_file}")) {
                 let mut file = tempfile::Builder::new()
@@ -424,20 +449,48 @@ fn invoke(
                 .unwrap_or_default();
             let command: Vec<String> = extra
                 .iter()
-                .map(|part| {
-                    part.replace("{workdir}", &workdir)
-                        .replace("{prompt_file}", &prompt_path)
-                })
+                .map(|part| resolve_exec_part(part, &workdir, &prompt_path, bindings))
                 .collect();
             let stdin_payload = if prompt_file.is_none() { Some(prompt) } else { None };
-            let out = run_cli(&command, stdin_payload, &workdir)?;
+            let out = run_cli(&command, stdin_payload, &workdir, bindings)?;
+            // Known-plaintext masking choke point (decision 0012, layer
+            // 5), on RAW captured bytes before any string conversion.
+            // stdout is captured-and-dropped today; stderr is re-emitted
+            // by run_seat and journaled as the stderr tail on failure —
+            // the path that fires exactly when a credentialed command
+            // prints the offending header.
+            let stderr = secret::mask_bytes(&out.stderr, bindings);
             Ok(Invocation {
                 exit_code: out.status.code().unwrap_or(-1),
                 session_meta: Map::new(),
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                stderr: String::from_utf8_lossy(&stderr).into_owned(),
             })
         }
     }
+}
+
+/// Resolve one exec template part: `{workdir}`, `{prompt_file}`, and
+/// each declared `{{secret:NAME}}` → the literal shell env reference
+/// `$NAME` — never the value. `$NAME` expands only when the template
+/// itself invokes a shell (`bash -c '…'`); env injection is the
+/// mechanism that always works, and no `sh -c` wrapping is added (it
+/// would change quoting semantics for every existing exec bundle).
+fn resolve_exec_part(
+    part: &str,
+    workdir: &str,
+    prompt_path: &str,
+    bindings: &[secret::BoundSecret],
+) -> String {
+    let mut part = part
+        .replace("{workdir}", workdir)
+        .replace("{prompt_file}", prompt_path);
+    for binding in bindings {
+        part = part.replace(
+            &format!("{{{{secret:{}}}}}", binding.name()),
+            &format!("${}", binding.name()),
+        );
+    }
+    part
 }
 
 fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl FnMut(Body)) {
@@ -458,10 +511,42 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
         let _ = std::fs::create_dir_all(parent);
     }
 
+    // Sealed secret bindings (decision 0012): every DECLARED name is
+    // resolved before spawn — template references are only the optional
+    // argv-side spelling. A missing name (or unreadable store) refuses
+    // the attempt determinately, naming the secret and the store path,
+    // never an empty-string injection.
+    let declared: Vec<String> = input
+        .get("secrets")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default();
+    let bindings = if declared.is_empty() {
+        Vec::new()
+    } else {
+        let store = input
+            .get("secrets_file")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match secret::resolve_bindings(std::path::Path::new(store), &declared) {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                send(Body::Result {
+                    effect_id,
+                    attempt_id,
+                    status: ResultStatus::Failed,
+                    result: None,
+                    error: Some(error),
+                });
+                return;
+            }
+        }
+    };
+
     let prompt = compose_prompt(&input);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
-    let invocation = match invoke(kind, extra, &prompt, &input, &mut |data: &Value| {
+    let invocation = match invoke(kind, extra, &prompt, &input, &bindings, &mut |data: &Value| {
         send(Body::Checkpoint {
             effect_id: effect_id.clone(),
             attempt_id: attempt_id.clone(),
@@ -511,7 +596,7 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
         });
         return;
     }
-    let Ok(raw) = std::fs::read_to_string(&result_path) else {
+    let Ok(raw) = std::fs::read(&result_path) else {
         send(Body::Result {
             effect_id,
             attempt_id,
@@ -521,6 +606,13 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
         });
         return;
     };
+    // Masking choke point, third surface (decision 0012, layer 5): the
+    // child-written result payload rides Body::Result into the
+    // append-only journal via EffectSucceeded — a child that echoes
+    // $TOKEN into its notes must not put plaintext there. Raw bytes
+    // first, string conversion second.
+    let raw = secret::mask_bytes(&raw, &bindings);
+    let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
     // raw evidence (decision 0001); adapters repair nothing.
     let seat_result = serde_json::from_str::<Value>(&raw)
@@ -577,4 +669,66 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(name: &str, value: &str) -> secret::BoundSecret {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("secrets.env");
+        secret::store_set(&store, name, value).unwrap();
+        secret::resolve_bindings(&store, &[name.to_string()])
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap()
+    }
+
+    #[test]
+    fn exec_template_resolves_secret_refs_to_env_references_never_values() {
+        let bindings = vec![binding("GH_TOKEN", "tok3n+v4lue!")];
+        let resolved = resolve_exec_part(
+            "curl -H 'auth: {{secret:GH_TOKEN}}' {workdir}/x",
+            "/w",
+            "",
+            &bindings,
+        );
+        assert_eq!(resolved, "curl -H 'auth: $GH_TOKEN' /w/x");
+        assert!(!resolved.contains("tok3n"), "the value never enters argv text");
+    }
+
+    #[test]
+    fn exec_template_leaves_undeclared_refs_untouched() {
+        // Compile refuses these in real bundles; standalone driver use
+        // must still never invent a resolution.
+        let resolved = resolve_exec_part("{{secret:OTHER}}", "/w", "", &[]);
+        assert_eq!(resolved, "{{secret:OTHER}}");
+    }
+
+    #[test]
+    fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
+        // The 0012 amendment leaves the claude fold untouched: a Bash
+        // tool_use (model-authored command) journals NO target; only
+        // input.file_path ever becomes one.
+        let mut turns = 0;
+        let mut meta = Map::new();
+        let mut emitted: Vec<Value> = Vec::new();
+        let event = json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash",
+             "input": {"command": "curl -H 'auth: hunter22' https://x"}},
+            {"type": "tool_use", "name": "Edit",
+             "input": {"file_path": "src/lib.rs"}},
+        ]}});
+        fold_stream_event(&event, &mut turns, &mut meta, &mut |c| emitted.push(c.clone()));
+        assert_eq!(emitted.len(), 2);
+        assert_eq!(emitted[0]["tool"], "Bash");
+        assert!(emitted[0].get("target").is_none(), "{}", emitted[0]);
+        assert!(
+            !serde_json::to_string(&emitted[0]).unwrap().contains("hunter22"),
+            "the command text never reaches the checkpoint"
+        );
+        assert_eq!(emitted[1]["target"], "src/lib.rs");
+    }
 }
