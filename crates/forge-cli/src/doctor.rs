@@ -80,18 +80,28 @@ fn doctor_with_probe(
         ),
     }
     // Optional: each agent CLI matters only to bundles whose seats use
-    // its driver (the built-in adapters live in this binary).
-    for (tool, driver) in [
-        ("claude", "claude-code"),
-        ("codex", "codex"),
-        ("dsh", "deepseek-harness"),
-        ("python3", "exec (script templates)"),
+    // its driver (the built-in adapters live in this binary). A hint,
+    // where present, names the expected install and the override — the
+    // fleet must work on machines without the tool, so these stay
+    // warnings, never hard failures.
+    for (tool, driver, hint) in [
+        ("claude", "claude-code", ""),
+        (
+            "claude-lanetally",
+            "claude-lanetally",
+            " (LaneTally's session-capture wrapper, expected at \
+             ~/.local/bin/claude-lanetally; set FORGE_LANETALLY_BIN to an \
+             absolute path if ~/.local/bin is not on PATH)",
+        ),
+        ("codex", "codex", ""),
+        ("dsh", "deepseek-harness", ""),
+        ("python3", "exec (script templates)", ""),
     ] {
         match probe(tool) {
             Some(v) => report.ok(tool, v),
             None => report.warn(
                 tool,
-                format!("not found — seats using the {driver} driver will fail to spawn"),
+                format!("not found — seats using the {driver} driver will fail to spawn{hint}"),
             ),
         }
     }
