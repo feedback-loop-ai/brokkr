@@ -28,6 +28,17 @@
          margin-bottom: .4rem; cursor: pointer; background: var(--panel); }
   .run:hover, .run.active { border-color: var(--violet); }
   .run .id { font-weight: 600; overflow-wrap: anywhere; }
+  /* Collapsed run rows: one line, status dot + ellipsized id. */
+  .run.row { display: flex; align-items: center; gap: 8px;
+             padding: .3rem .5rem; }
+  .run.row .line { overflow: hidden; text-overflow: ellipsis;
+                   white-space: nowrap; min-width: 0; }
+  .run .dot { width: 8px; height: 8px; border-radius: 999px; flex: none;
+              background: var(--dim); }
+  .run .dot.completed { background: var(--phosphor); }
+  .run .dot.stopped { background: var(--halt); }
+  .run .dot.awaiting_operator { background: var(--park); }
+  .run .dot.running { background: var(--violet); }
   .badge { display: inline-block; padding: 0 .5em; border-radius: 999px;
            border: 1px solid var(--line); font-size: .85em; color: var(--dim); }
   .completed { color: var(--phosphor); border-color: rgba(69,224,140,.45);
@@ -310,13 +321,27 @@ async function loadRuns() {
   const list = document.getElementById('runlist');
   list.replaceChildren();
   for (const run of runs.reverse()) {
-    const item = el('div', 'run' + (run.run_id === active ? ' active' : ''));
-    item.appendChild(el('div', 'id', run.run_id));
-    item.appendChild(badge(run.status ?? '?', run.status));
-    item.appendChild(document.createTextNode(' '));
-    item.appendChild(badge(run.phase ?? '-'));
-    item.appendChild(document.createTextNode(' '));
-    item.appendChild(badge('seq ' + (run.seq ?? 0)));
+    // A run is selected once — unselected rows collapse to one line
+    // (status dot + id, details in the tooltip); only the active run
+    // expands to its full card.
+    const isActive = run.run_id === active;
+    const item = el('div', 'run' + (isActive ? ' active' : ' row'));
+    if (isActive) {
+      item.appendChild(el('div', 'id', run.run_id));
+      item.appendChild(badge(run.status ?? '?', run.status));
+      item.appendChild(document.createTextNode(' '));
+      item.appendChild(badge(run.phase ?? '-'));
+      item.appendChild(document.createTextNode(' '));
+      item.appendChild(badge('seq ' + (run.seq ?? 0)));
+    } else {
+      const dot = el('span', 'dot' +
+        (KNOWN_STATUS.includes(run.status) ? ' ' + run.status : ''));
+      item.appendChild(dot);
+      const idEl = el('span', 'id line', run.run_id);
+      item.appendChild(idEl);
+      item.title = run.run_id + '\n' + (run.status ?? '?') +
+        ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
+    }
     item.onclick = () => select(run.run_id);
     list.appendChild(item);
   }
