@@ -66,11 +66,11 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   checkpoint carrying `capture`, with zero production changes to
   `compare.rs`, `forge costs`, or the UI.
   *Proven by*: AC-8 — the test, plus an empty diff on those surfaces.
-- [ ] **T10 — CLI surface in `crates/forge-cli/src/main.rs`.**
+- [x] **T10 — CLI surface in `crates/forge-cli/src/main.rs`.**
   Unknown-driver error (:616) and `Driver` help text (:226,230) gain
   `lanetally`.
   *Proven by*: AC-9 — a CLI test asserting both strings list it.
-- [ ] **T11 — Doctor row in `crates/forge-cli/src/doctor.rs`.** Probe
+- [x] **T11 — Doctor row in `crates/forge-cli/src/doctor.rs`.** Probe
   tuple grows an optional hint; the `claude-lanetally` warning names
   `~/.local/bin/claude-lanetally` and the `FORGE_LANETALLY_BIN`
   override; the four existing warning strings stay byte-identical.

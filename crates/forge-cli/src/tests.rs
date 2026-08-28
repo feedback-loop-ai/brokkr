@@ -113,13 +113,26 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     }))
     .is_err());
 
-    assert!(run(cli(Cmd::Driver {
+    let unknown_driver = run(cli(Cmd::Driver {
         kind: "unknown".into(),
         args: Vec::new(),
     }))
     .unwrap_err()
-    .to_string()
-    .contains("unknown driver"));
+    .to_string();
+    assert!(unknown_driver.contains("unknown driver"));
+    // The known-driver list and the Driver help text both name the
+    // whole fleet, lanetally included.
+    for driver in ["claude", "lanetally", "codex", "dsh", "exec"] {
+        assert!(unknown_driver.contains(driver), "{unknown_driver}");
+    }
+    use clap::CommandFactory;
+    let driver_help = Cli::command()
+        .find_subcommand("driver")
+        .unwrap()
+        .clone()
+        .render_help()
+        .to_string();
+    assert!(driver_help.contains("lanetally"), "{driver_help}");
 
     let mut store = Store::open(&db).unwrap();
     store

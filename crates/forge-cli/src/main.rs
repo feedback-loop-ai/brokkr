@@ -223,12 +223,13 @@ enum Cmd {
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
     },
-    /// Run a built-in forge-driver/v1 adapter (claude | codex | dsh | exec).
+    /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {forge} driver <kind> -- <extra args>.
     Driver {
         kind: String,
-        /// Arguments after -- pass to the agent CLI (claude/codex/dsh) or
-        /// form the command template (exec).
+        /// Arguments after -- pass to the agent CLI
+        /// (claude/lanetally/codex/dsh) or form the command template
+        /// (exec).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -613,7 +614,9 @@ fn run_with(
         }
         Cmd::Driver { kind, args } => {
             let kind = forge_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
-                anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, dsh, exec")
+                anyhow::anyhow!(
+                    "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec"
+                )
             })?;
             let extra = driver_extra_args(args);
             forge_protocol::adapters::serve(kind, extra)?;
