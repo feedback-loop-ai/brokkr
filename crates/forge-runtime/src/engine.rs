@@ -53,6 +53,12 @@ pub struct Engine {
     /// iteration appends, so causal links mirror the engine's actual
     /// decision order (rendered by the UI timeline).
     current_cause: Option<String>,
+    /// Operator-side secrets store override (decision 0012). Defaults to
+    /// `<workdir>/.forge/secrets.env`. The engine only ever threads this
+    /// PATH (plus declared names) into the driver start input — values
+    /// are resolved by the exec driver at spawn time; no store read
+    /// exists anywhere in forge-runtime.
+    pub secrets_file: Option<PathBuf>,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -128,6 +134,7 @@ impl Engine {
             feature: feature.to_string(),
             repo,
             current_cause: None,
+            secrets_file: None,
         })
     }
 
@@ -160,6 +167,7 @@ impl Engine {
             feature: feature.to_string(),
             repo,
             current_cause: None,
+            secrets_file: None,
         })
     }
 
@@ -194,6 +202,7 @@ impl Engine {
             feature,
             repo,
             current_cause: None,
+            secrets_file: None,
         })
     }
 
@@ -378,8 +387,8 @@ impl Engine {
             "run_id": self.run_id,
             "last_decision": state.last_decision,
         });
-        match &seat.body {
-            SeatBody::Single { role_path, .. } => Ok(json!({
+        let mut input = match &seat.body {
+            SeatBody::Single { role_path, .. } => json!({
                 "feature": self.feature,
                 "phase": phase,
                 "seat": phase,
@@ -391,7 +400,7 @@ impl Engine {
                     .to_string_lossy(),
                 "allowed_results": seat.results,
                 "context": context,
-            })),
+            }),
             SeatBody::Panel { members, aggregate } => {
                 let mut member_map = Map::new();
                 for member in members {
@@ -406,7 +415,7 @@ impl Engine {
                         }),
                     );
                 }
-                Ok(json!({
+                json!({
                     "feature": self.feature,
                     "phase": phase,
                     "seat": phase,
@@ -415,7 +424,7 @@ impl Engine {
                     "members": Value::Object(member_map),
                     "allowed_results": seat.results,
                     "context": context,
-                }))
+                })
             }
             SeatBody::Sequence { steps } => {
                 // The requested-time input enumerates the WHOLE sequence;
@@ -460,7 +469,7 @@ impl Engine {
                         }
                     })
                     .collect();
-                Ok(json!({
+                json!({
                     "feature": self.feature,
                     "phase": phase,
                     "seat": phase,
@@ -468,15 +477,34 @@ impl Engine {
                     "steps": step_values,
                     "allowed_results": seat.results,
                     "context": context,
-                }))
+                })
             }
+        };
+        // Sealed secret bindings (decision 0012): the engine threads
+        // exactly two facts to the driver — the declared NAMES and the
+        // store PATH, both journal-safe. Values are resolved at spawn
+        // time inside the exec driver; no store read exists anywhere in
+        // forge-runtime. Absent when the seat binds nothing, so
+        // pre-0012 bundles rebuild byte-identical seat inputs.
+        if !seat.secrets.is_empty() {
+            input["secrets"] = json!(seat.secrets);
+            input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
         }
+        Ok(input)
     }
 
     fn workdir(&self) -> PathBuf {
         self.repo
             .clone()
             .unwrap_or_else(|| std::env::current_dir().expect("cwd"))
+    }
+
+    /// The operator-side store path threaded to drivers: the CLI
+    /// override, or `<workdir>/.forge/secrets.env`.
+    fn secrets_store_path(&self) -> PathBuf {
+        self.secrets_file
+            .clone()
+            .unwrap_or_else(|| self.workdir().join(".forge/secrets.env"))
     }
 
     fn execute(
@@ -766,16 +794,8 @@ impl Engine {
         let workdir = self.workdir();
         members
             .iter()
-            .map(|member| MemberRun {
-                name: member.name.clone(),
-                driver_seat: format!("{driver_seat_prefix}:{}", member.name),
-                command: confined_command(
-                    &member.command,
-                    member.confine.as_ref(),
-                    &workdir,
-                    &self.bundle.dir,
-                ),
-                input: json!({
+            .map(|member| {
+                let mut input = json!({
                     "feature": seat_input["feature"],
                     "phase": seat_input["phase"],
                     "seat": format!("{driver_seat_prefix}:{}", member.name),
@@ -784,7 +804,19 @@ impl Engine {
                     "result_path": members_meta[&member.name]["result_path"],
                     "allowed_results": seat_input["allowed_results"],
                     "context": context,
-                }),
+                });
+                copy_secret_binding_facts(&mut input, seat_input);
+                MemberRun {
+                    name: member.name.clone(),
+                    driver_seat: format!("{driver_seat_prefix}:{}", member.name),
+                    command: confined_command(
+                        &member.command,
+                        member.confine.as_ref(),
+                        &workdir,
+                        &self.bundle.dir,
+                    ),
+                    input,
+                }
             })
             .collect()
     }
@@ -955,7 +987,7 @@ impl Engine {
             let outcome = match &step.body {
                 StepBody::Single { command, confine, .. } => {
                     let driver_seat = format!("{seat_name}:{}", step.name);
-                    let input = json!({
+                    let mut input = json!({
                         "feature": seq_input["feature"],
                         "phase": seq_input["phase"],
                         "seat": driver_seat,
@@ -965,6 +997,7 @@ impl Engine {
                         "allowed_results": seq_input["allowed_results"],
                         "context": context,
                     });
+                    copy_secret_binding_facts(&mut input, seq_input);
                     let command = confined_command(
                         command,
                         confine.as_ref(),
@@ -1388,6 +1421,16 @@ struct MemberRun {
     input: Value,
 }
 
+/// Copy the seat-level secret-binding facts (decision 0012: declared
+/// names + store path, never values) into a derived member/step driver
+/// input, when the seat binds any.
+fn copy_secret_binding_facts(input: &mut Value, seat_input: &Value) {
+    if let Some(secrets) = seat_input.get("secrets") {
+        input["secrets"] = secrets.clone();
+        input["secrets_file"] = seat_input["secrets_file"].clone();
+    }
+}
+
 /// Tag a checkpoint payload with the member/step it came from — the
 /// `member` field the seats console groups by.
 fn tag_member(checkpoint: Value, member: &str) -> Value {
@@ -1796,5 +1839,132 @@ mod artifact_gate_tests {
             artifact_problem("R1", &[("spec.md".to_string(), "missing")]),
             "requires_artifacts unmet for rule R1: missing: spec.md"
         );
+    }
+}
+
+#[cfg(test)]
+mod secret_threading_tests {
+    use super::*;
+
+    const POLICY: &str = r#"{
+      "schema": "forge.phase-machine/v1",
+      "phases": ["work", "review", "done", "stop"],
+      "initial": "work",
+      "terminal": ["done", "stop"],
+      "shippable_from": ["review"],
+      "rules": [
+        {"id": "W-OK", "from": "work", "result": "built", "next": "review",
+         "reason": "work concluded"},
+        {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
+         "reason": "review concluded"}
+      ]
+    }"#;
+
+    /// An engine over a compiled two-seat bundle; `work` optionally
+    /// declares secret bindings.
+    fn engine_with(dir: &std::path::Path, secrets: Option<Vec<&str>>) -> Engine {
+        let bundle_dir = dir.join("bundle");
+        std::fs::create_dir_all(bundle_dir.join("roles")).unwrap();
+        std::fs::write(bundle_dir.join("policy.json"), POLICY).unwrap();
+        std::fs::write(bundle_dir.join("roles/role.md"), "# role\n").unwrap();
+        let mut work = json!({
+            "role": "roles/role.md",
+            "results": ["built"],
+            "driver": {"command": ["true"]},
+        });
+        if let Some(secrets) = secrets {
+            work["secrets"] = json!(secrets);
+        }
+        let config = json!({
+            "name": "threading",
+            "policy": "policy.json",
+            "seats": {
+                "work": work,
+                "review": {
+                    "role": "roles/role.md",
+                    "results": ["clean"],
+                    "driver": {"command": ["true"]},
+                },
+            }
+        });
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            serde_json::to_string(&config).unwrap(),
+        )
+        .unwrap();
+        let bundle = Bundle::compile(&bundle_dir).unwrap();
+        let store = Store::open(&dir.join("forge.db")).unwrap();
+        Engine::start(store, bundle, "threading proof", Some(dir.join("work"))).unwrap()
+    }
+
+    fn work_input(engine: &Engine) -> Value {
+        let state = fold(&engine.store.load(&engine.run_id).unwrap()).unwrap();
+        engine.seat_input(&state, "work", "fx").unwrap()
+    }
+
+    #[test]
+    fn declared_names_and_store_path_ride_the_driver_input() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("work")).unwrap();
+        let engine = engine_with(dir.path(), Some(vec!["GH_TOKEN", "API_KEY"]));
+        let input = work_input(&engine);
+        assert_eq!(input["secrets"], json!(["GH_TOKEN", "API_KEY"]));
+        let store_path = input["secrets_file"].as_str().unwrap();
+        assert!(
+            std::path::Path::new(store_path).ends_with(".forge/secrets.env"),
+            "default store path under the workdir: {store_path}"
+        );
+        assert!(
+            store_path.starts_with(dir.path().join("work").to_str().unwrap()),
+            "workdir-relative default: {store_path}"
+        );
+    }
+
+    #[test]
+    fn secrets_file_override_wins_over_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("work")).unwrap();
+        let mut engine = engine_with(dir.path(), Some(vec!["GH_TOKEN"]));
+        engine.secrets_file = Some(dir.path().join("elsewhere.env"));
+        let input = work_input(&engine);
+        assert_eq!(
+            input["secrets_file"].as_str().unwrap(),
+            dir.path().join("elsewhere.env").to_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn seats_without_bindings_carry_no_secret_keys() {
+        // Pre-0012 bundles must rebuild byte-identical seat inputs, or
+        // resumed runs would refuse on a digest mismatch.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("work")).unwrap();
+        let engine = engine_with(dir.path(), None);
+        let input = work_input(&engine);
+        assert!(input.get("secrets").is_none(), "{input}");
+        assert!(input.get("secrets_file").is_none(), "{input}");
+    }
+
+    #[test]
+    fn forge_runtime_production_code_never_touches_the_secret_store() {
+        // Grep-style invariant: resolution lives in the exec driver, so
+        // no store-reading function is ever named in forge-runtime's
+        // production code (test modules after #[cfg(test)] excluded).
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for entry in std::fs::read_dir(&src).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap();
+            let production = source.split("#[cfg(test)]").next().unwrap();
+            for needle in ["resolve_bindings", "read_store", "store_names", "store_set"] {
+                assert!(
+                    !production.contains(needle),
+                    "{} names secret-store function '{needle}' in production code",
+                    path.display()
+                );
+            }
+        }
     }
 }

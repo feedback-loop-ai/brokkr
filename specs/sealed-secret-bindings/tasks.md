@@ -43,7 +43,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   manifest; store outside the bundle dir.
   *Proven by*: AC-4 — set → compile → rotate value → compile →
   `manifest_digest` byte-equal, end to end.
-- [ ] **T6 — Engine threading in
+- [x] **T6 — Engine threading in
   `crates/forge-runtime/src/engine.rs`.** Declared names + store path
   ride the exec driver `start` input; no store read in
   `forge-runtime`.
