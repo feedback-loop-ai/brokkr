@@ -333,6 +333,7 @@ function buildParticipants(events) {
     const p = e.payload || {};
     if (e.type === 'effect/requested' && p.effect_id) {
       const effect = { effect_id: p.effect_id, seat: p.seat ?? '?',
+                       phase: typeof p.phase === 'string' ? p.phase : null,
                        attempts: 0, open: null, terminal: null, terminalEvent: null };
       effects.set(p.effect_id, effect);
       ensure(effect, null);
@@ -466,7 +467,12 @@ function renderLoops(detail, events, summary, participants, id, data) {
       rev.setAttribute('text-anchor', 'middle');
       g.appendChild(rev);
     }
-    g.onclick = () => { selectedPhase = name; renderDetail(id, data); };
+    // Click selects (and filters the consoles below to) the phase;
+    // clicking the selected phase again clears the selection.
+    g.onclick = () => {
+      selectedPhase = selectedPhase === name ? null : name;
+      renderDetail(id, data);
+    };
     svg.appendChild(g);
   });
   wrap.appendChild(svg);
@@ -658,6 +664,25 @@ function renderDetail(id, data) {
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
   detail.appendChild(decisionStrip(s.last_decision));
 
+  // An explicitly selected phase scopes the consoles below: seats to
+  // effects requested in that phase, events to that phase's traffic.
+  // Clicking the selected node again (or the × here) clears the scope.
+  const phaseFilter = selectedPhase;
+  if (phaseFilter) {
+    const chip = el('p', 'ruling');
+    chip.appendChild(badge('phase · ' + phaseFilter));
+    chip.appendChild(document.createTextNode(' '));
+    const clear = el('a', null, '× show all phases');
+    clear.href = '#';
+    clear.onclick = (ev) => {
+      ev.preventDefault();
+      selectedPhase = null;
+      renderDetail(id, data);
+    };
+    chip.appendChild(clear);
+    detail.appendChild(chip);
+  }
+
   // Live seat telemetry: while an attempt is open (an effect/started
   // with no later terminal effect event), show one activity line PER
   // live participant. Checkpoints without a member field belong to the
@@ -707,14 +732,16 @@ function renderDetail(id, data) {
   // in activeParticipant so the drill-down survives SSE re-renders, and
   // clears itself if the participant vanishes after a refetch (ruled
   // above, where participants are derived).
-  if (participants.size > 0) {
+  const shownParts = [...participants.values()]
+    .filter((part) => !phaseFilter || part.effect.phase === phaseFilter);
+  if (shownParts.length > 0) {
     const seats = el('table');
     seats.appendChild(row([
       el('th', null, 'participant'), el('th', null, 'status'),
       el('th', null, 'attempts'), el('th', null, 'turns'),
       el('th', null, 'cost'), el('th', null, 'last activity'),
     ]));
-    for (const part of participants.values()) {
+    for (const part of shownParts) {
       let cost = part.session ? part.session.total_cost_usd : undefined;
       let turns = part.turns;
       // A panel/sequence seat carries no telemetry of its own — its
@@ -828,8 +855,24 @@ function renderDetail(id, data) {
     el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
     el('th', null, 'payload'), el('th', null, 'recorded'),
   ]));
+  // Phase scope for the events grid: an event belongs to the selected
+  // phase if it names it (phase/entered, effect/requested), left it
+  // (a decision's `from`), or rides an effect requested in it.
+  const phaseEffects = new Set();
+  if (phaseFilter) {
+    for (const e of events) {
+      const p = e.payload || {};
+      if (e.type === 'effect/requested' && p.phase === phaseFilter && p.effect_id) {
+        phaseEffects.add(p.effect_id);
+      }
+    }
+  }
   for (const e of data.events ?? []) {
     const p = e.payload || {};
+    if (phaseFilter && p.phase !== phaseFilter && p.from !== phaseFilter &&
+        !(p.effect_id && phaseEffects.has(p.effect_id))) {
+      continue;
+    }
     // First STRING wins — effect results are objects (their inner
     // .result token is the label), and nothing non-string may reach the
     // cell, or it renders as '[object Object]'.
