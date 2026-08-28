@@ -86,6 +86,10 @@ fn parse_millis_reads_journal_stamps_and_refuses_everything_else() {
     assert_eq!(parse_millis("2026x01-02T00:00:00Z"), None, "separator");
     assert_eq!(parse_millis("20a6-01-02T00:00:00Z"), None, "digit");
     assert_eq!(parse_millis("1970-01-01T00:00:00XYZ"), None, "offset");
-    assert_eq!(parse_millis("1970-01-01T00:00:00.5"), None, "no zone at all");
+    assert_eq!(
+        parse_millis("1970-01-01T00:00:00.5"),
+        None,
+        "no zone at all"
+    );
     assert_eq!(parse_millis(""), None);
 }

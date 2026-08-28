@@ -534,27 +534,29 @@ fn runs_lists_completed_run_with_status_and_phase() {
     let run_id = Workspace::run_id(&stderr);
 
     let db = ws.db();
-    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    // Machines read --json, which emits the view model verbatim; the
+    // human form is a clamped line, pinned by render.rs's goldens.
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with(&run_id))
-        .expect("runs output has a line for the run");
-    let cols: Vec<&str> = line.split('\t').collect();
-    assert_eq!(
-        cols.len(),
-        5,
-        "run_id, feature, created_at, status, phase: {line}"
-    );
-    assert_eq!(cols[0], run_id);
-    assert_eq!(cols[1], "proof feature");
-    assert_eq!(cols[3], "completed");
-    assert_eq!(cols[4], "done");
-    assert_eq!(
-        stdout.lines().last(),
-        Some("1 runs"),
-        "summary line counts the listed runs: {stdout}"
-    );
+    let view: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(view["view_version"], 1);
+    assert_eq!(view["count"], 1, "the count the trailer used to print");
+    let row = &view["runs"][0];
+    assert_eq!(row["run_id"], run_id.as_str());
+    assert_eq!(row["feature"], "proof feature");
+    assert_eq!(row["status"], "completed");
+    assert_eq!(row["status_known"], true);
+    assert_eq!(row["phase"], "done");
+
+    // The human form: one clamped line per run, and no trailer.
+    let (code, human, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(human.lines().count(), 1, "one line per run: {human}");
+    let line = human.lines().next().unwrap();
+    assert!(line.starts_with(&run_id), "{line}");
+    assert!(line.contains("completed"), "{line}");
+    assert!(line.contains("done"), "{line}");
+    assert!(!human.contains("1 runs"), "the trailer moved to --json");
 }
 
 #[test]
@@ -567,20 +569,20 @@ fn runs_lists_parked_run_as_awaiting_operator_at_its_phase() {
     let run_id = Workspace::run_id(&stderr);
 
     let db = ws.db();
-    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with(&run_id))
-        .expect("runs output has a line for the run");
-    let cols: Vec<&str> = line.split('\t').collect();
+    let view: Value = serde_json::from_str(&stdout).unwrap();
+    let row = view["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["run_id"] == run_id.as_str())
+        .expect("the run is listed");
+    assert_eq!(row["status"], "awaiting_operator");
     assert_eq!(
-        cols.len(),
-        5,
-        "run_id, feature, created_at, status, phase: {line}"
+        row["phase"], "implement",
+        "the phase the operator must act on"
     );
-    assert_eq!(cols[3], "awaiting_operator");
-    assert_eq!(cols[4], "implement", "the phase the operator must act on");
 }
 
 #[test]
@@ -1205,17 +1207,19 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
     );
 
     // Both runs are independent journal entries.
-    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
+    let view: Value = serde_json::from_str(&stdout).unwrap();
     for run_id in [&source, &rerun_id] {
-        let row = stdout
-            .lines()
-            .find(|l| l.starts_with(run_id.as_str()))
-            .unwrap_or_else(|| panic!("runs output has a line for {run_id}: {stdout}"));
-        let cols: Vec<&str> = row.split('\t').collect();
-        assert_eq!(cols[1], "proof feature");
-        assert_eq!(cols[3], "completed");
-        assert_eq!(cols[4], "done");
+        let row = view["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["run_id"] == run_id.as_str())
+            .unwrap_or_else(|| panic!("runs output has a row for {run_id}: {stdout}"));
+        assert_eq!(row["feature"], "proof feature");
+        assert_eq!(row["status"], "completed");
+        assert_eq!(row["phase"], "done");
     }
 }
 
@@ -2052,4 +2056,133 @@ fn expose_for_spawn_has_exactly_one_production_call_site() {
         call_sites[0].0.ends_with("forge-protocol/src/adapters.rs"),
         "the one call site is the exec spawn injector: {call_sites:?}"
     );
+}
+
+#[test]
+fn inspect_and_watch_read_the_run_from_the_one_derivation() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+    let path = ws.db();
+    let db = path.to_str().unwrap();
+
+    // --json emits the view model verbatim, and `.summary` is today's
+    // `forge inspect` output: all nine keys, `cursor` included.
+    let (code, view, stderr) = ws.forge(&["inspect", "--run", &run_id, "--json", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(view["view_version"], 1);
+    let summary = &view["summary"];
+    for key in [
+        "run_id",
+        "seq",
+        "status",
+        "phase",
+        "cursor",
+        "park_reason",
+        "consecutive_failures",
+        "last_decision",
+        "feature",
+    ] {
+        assert!(summary.get(key).is_some(), "summarize() key {key}");
+    }
+    assert_eq!(summary["status"], "completed");
+    assert_eq!(summary["run_id"], run_id.as_str());
+
+    // The human readout: header, ruling, seats, trail, and the tree.
+    let (code, human, stderr) = ws.forge_raw(&["inspect", "--run", &run_id, "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(human.starts_with(&format!("run  {run_id}\n")), "{human}");
+    for section in ["ruling  ", "seats", "trail", "graph", "→ "] {
+        assert!(human.contains(section), "{section} missing from:\n{human}");
+    }
+    assert!(!human.contains('\x1b'), "no ANSI down a pipe");
+
+    // Scoping mirrors the console's clicks, and the two are exclusive.
+    let (code, scoped, stderr) =
+        ws.forge_raw(&["inspect", "--run", &run_id, "--phase", "intake", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(scoped.contains("  intake ×"), "{scoped}");
+    assert!(!scoped.contains("  verify ×"), "scoped out: {scoped}");
+    let (code, seated, stderr) =
+        ws.forge_raw(&["inspect", "--run", &run_id, "--seat", "verify", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(seated.contains("  verify ×"), "{seated}");
+    let (code, _, stderr) = ws.forge_raw(&[
+        "inspect", "--run", &run_id, "--phase", "intake", "--seat", "intake", "--db", db,
+    ]);
+    assert_ne!(code, Some(0), "the two scopes are mutually exclusive");
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+
+    // A value matching nothing exits nonzero naming the valid ones: an
+    // empty table would read as "this phase did nothing".
+    let (code, _, stderr) = ws.forge_raw(&[
+        "inspect", "--run", &run_id, "--phase", "nowhere", "--db", db,
+    ]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("visited phases:"), "{stderr}");
+    let (code, _, stderr) =
+        ws.forge_raw(&["inspect", "--run", &run_id, "--seat", "nobody", "--db", db]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("participants:"), "{stderr}");
+
+    // watch --once: one frame, no trail, timestamped because stdout is
+    // a pipe, and the journal is byte-identical afterwards.
+    let before = ws.forge_raw(&["export", "--run", &run_id, "--out", "before", "--db", db]);
+    assert_eq!(before.0, Some(0), "stderr: {}", before.2);
+    let (code, frame, stderr) = ws.forge_raw(&["watch", "--run", &run_id, "--once", "--db", db]);
+    assert_eq!(code, Some(0), "a completed run exits 0: {stderr}");
+    assert!(frame.starts_with("── "), "appended, timestamped: {frame}");
+    assert!(!frame.contains('\x1b'), "no ANSI down a pipe: {frame:?}");
+    assert!(
+        frame.contains("seats") && frame.contains("graph"),
+        "{frame}"
+    );
+    assert!(!frame.contains("\ntrail\n"), "a frame carries no trail");
+    let after = ws.forge_raw(&["export", "--run", &run_id, "--out", "after", "--db", db]);
+    assert_eq!(after.0, Some(0), "stderr: {}", after.2);
+    assert_eq!(
+        std::fs::read_to_string(ws.path().join(format!("before/{run_id}.ndjson"))).unwrap(),
+        std::fs::read_to_string(ws.path().join(format!("after/{run_id}.ndjson"))).unwrap(),
+        "watch never writes the journal"
+    );
+
+    // Garbage in --interval is rejected rather than defaulted silently.
+    let (code, _, stderr) = ws.forge_raw(&[
+        "watch",
+        "--run",
+        &run_id,
+        "--once",
+        "--interval",
+        "soon",
+        "--db",
+        db,
+    ]);
+    assert_ne!(code, Some(0));
+    assert!(stderr.contains("invalid value"), "{stderr}");
+}
+
+#[test]
+fn watch_exits_on_a_park_with_the_reason_first() {
+    let mut script = happy_script();
+    script["seats"]["implement"] = json!([{"behavior": "vanish"}]);
+    let ws = Workspace::new(script);
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+    let path = ws.db();
+    let db = path.to_str().unwrap();
+
+    // A park admits no further events until a human acts, so "keep
+    // watching" would be an unbounded CI hang.
+    let (code, frame, stderr) = ws.forge_raw(&["watch", "--run", &run_id, "--db", db]);
+    assert_eq!(code, Some(2), "parked is finish()'s exit 2: {stderr}");
+    let park = frame
+        .lines()
+        .find(|line| line.starts_with("park  "))
+        .unwrap_or_else(|| panic!("the park reason leads the frame: {frame}"));
+    assert!(park.len() > "park  ".len(), "{park}");
+    let seats = frame.lines().position(|line| line == "seats");
+    let parked = frame.lines().position(|line| line.starts_with("park  "));
+    assert!(parked < seats, "the reason comes before the seats: {frame}");
 }

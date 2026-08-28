@@ -5,8 +5,10 @@ mod compare;
 mod doctor;
 mod init;
 mod recipes;
+mod render;
 mod ui;
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -176,12 +178,39 @@ enum Cmd {
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
     },
-    /// Explain a run: status, phase, cursor, last ruling, blockers.
+    /// Explain a run: header, ruling, seats, decision trail, and the
+    /// phase graph as a tree. `--phase` and `--seat` are the scoping
+    /// verbs the console's clicks became; `--json` emits the view model.
+    #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect {
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
+        /// Emit the view model verbatim — this is what scripts read.
+        #[arg(long)]
+        json: bool,
+        /// Scope the readout to one phase.
+        #[arg(long)]
+        phase: Option<String>,
+        /// Scope the readout to one seat, by label or participant key.
+        #[arg(long)]
+        seat: Option<String>,
+    },
+    /// Watch a run live: redraw the graph, seats, last ruling and seat
+    /// activity whenever the journal head moves; exit when the run
+    /// reaches a terminal status. Read-only, like every other readout.
+    Watch {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        /// Print one frame and exit.
+        #[arg(long)]
+        once: bool,
+        /// Poll interval in milliseconds (floored at 100).
+        #[arg(long = "interval", default_value_t = 750)]
+        interval_ms: u64,
     },
     /// Rebuild state from the journal twice and verify determinism.
     Replay {
@@ -218,10 +247,14 @@ enum Cmd {
         #[arg(long, default_value_t = 750)]
         interval_ms: u64,
     },
-    /// List runs in the workspace database.
+    /// List runs in the workspace database: one clamped line per run,
+    /// newest first. `--json` emits the view model for scripts.
     Runs {
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
+        /// Emit the view model verbatim — this is what scripts read.
+        #[arg(long)]
+        json: bool,
     },
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {forge} driver <kind> -- <extra args>.
@@ -306,17 +339,115 @@ fn summarize(state: &RunState) -> Value {
     })
 }
 
-fn finish(state: &RunState) -> ExitCode {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&summarize(state)).unwrap()
-    );
-    match state.status {
+/// Exit codes: 0 completed · 2 parked (operator needed) · 3 stopped ·
+/// 1 still running. One mapping, shared by `finish` and `watch`.
+fn status_exit(status: &Status) -> ExitCode {
+    match status {
         Status::Completed => ExitCode::SUCCESS,
         Status::AwaitingOperator => ExitCode::from(2),
         Status::Stopped => ExitCode::from(3),
         Status::Running => ExitCode::from(1),
     }
+}
+
+fn finish(state: &RunState) -> ExitCode {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summarize(state)).unwrap()
+    );
+    status_exit(&state.status)
+}
+
+/// The one clock read that keeps the derivation pure: `forge-view` has
+/// no clock, so `now` arrives as a parameter.
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("the clock formats as RFC 3339")
+}
+
+/// One `watch` frame: clear-and-home on a tty, an appended timestamped
+/// frame otherwise so pipes and CI logs read as a timeline. The redraw
+/// is unconditional — the alternative needs `LINES`, which is usually
+/// unset, so a height gate would mean never redrawing at all. A frame
+/// taller than the terminal shows its tail.
+fn write_frame(
+    out: &mut dyn std::io::Write,
+    frame: &str,
+    is_tty: bool,
+    clock: &mut dyn FnMut() -> String,
+) -> Result<()> {
+    // Every frame ends in a newline and `Stdout` is line-buffered, so
+    // there is nothing here for an explicit flush to do.
+    if is_tty {
+        write!(out, "\x1b[2J\x1b[H{frame}")?;
+    } else {
+        write!(out, "── {} ──\n{frame}", clock())?;
+    }
+    Ok(())
+}
+
+/// A transient store error (SQLITE_BUSY while a `forge run` holds the
+/// write lock) is a frame that says so, not an exit. A persistent one
+/// exits nonzero.
+const WATCH_TRANSIENT_FRAMES: usize = 5;
+
+/// Poll the journal head and redraw when it moves, comparing **both**
+/// seq and hash: a rewritten journal at equal seq is the tamper case
+/// `anchor` exists for, and `watch` should redraw rather than sit blind.
+#[allow(clippy::too_many_arguments)]
+fn watch_loop(
+    db: &std::path::Path,
+    run: &str,
+    interval_ms: u64,
+    is_tty: bool,
+    style: &render::Style,
+    out: &mut dyn std::io::Write,
+    clock: &mut dyn FnMut() -> String,
+    sleep: &mut dyn FnMut(u64),
+    max_iterations: usize,
+) -> Result<ExitCode> {
+    let mut last: Option<(u64, String)> = None;
+    let mut failures = 0usize;
+    for iteration in 0..max_iterations {
+        if iteration > 0 {
+            sleep(interval_ms.max(100));
+        }
+        let head = Store::open(db).and_then(|store| store.head_hash(run).map(|h| (h, store)));
+        match head {
+            Ok((head, store)) => {
+                failures = 0;
+                if last.as_ref() != Some(&head) {
+                    last = Some(head);
+                    let events = store.load(run)?;
+                    let state = fold(&events).ok();
+                    let view = forge_view::run_view(&events, state.as_ref());
+                    let frame = render::inspect(&view, None, false, style);
+                    write_frame(out, &frame, is_tty, clock)?;
+                    if let Some(state) = state {
+                        // A park admits no further events until a human
+                        // acts, so "keep watching" is an unbounded CI
+                        // hang. The park reason printed first is the
+                        // frame's own header.
+                        if state.status != Status::Running {
+                            return Ok(status_exit(&state.status));
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                failures += 1;
+                let frame = format!("the journal is not readable right now: {error}\n");
+                write_frame(out, &frame, is_tty, clock)?;
+                anyhow::ensure!(
+                    failures < WATCH_TRANSIENT_FRAMES,
+                    "giving up on {} after {failures} unreadable polls: {error}",
+                    db.display()
+                );
+            }
+        }
+    }
+    Ok(ExitCode::from(1))
 }
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
@@ -338,13 +469,14 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
-    run_with(cli, ui::serve, None)
+    run_with(cli, ui::serve, None, None)
 }
 
 fn run_with(
     cli: Cli,
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
     bridge_iteration_limit: Option<usize>,
+    watch_iteration_limit: Option<usize>,
 ) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { dir } => {
@@ -503,11 +635,58 @@ fn run_with(
             eprintln!("recorded operator {command}; continue with: forge resume --run {run}");
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Inspect { run, db } => {
+        Cmd::Inspect {
+            run,
+            db,
+            json,
+            phase,
+            seat,
+        } => {
             let store = Store::open(&db)?;
-            let state = fold(&store.load(&run)?)?;
-            println!("{}", serde_json::to_string_pretty(&summarize(&state))?);
+            let events = store.load(&run)?;
+            let state = fold(&events)?;
+            let view = forge_view::run_view(&events, Some(&state));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+            // clap's ArgGroup already rules the two mutually exclusive.
+            let scope = match (phase, seat) {
+                (Some(phase), _) => Some(render::Scope::Phase(phase)),
+                (None, Some(seat)) => Some(render::Scope::Seat(seat)),
+                (None, None) => None,
+            };
+            let lens = render::lens_for(&view, scope.as_ref()).map_err(anyhow::Error::msg)?;
+            print!(
+                "{}",
+                render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
+            );
             Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Watch {
+            run,
+            db,
+            once,
+            interval_ms,
+        } => {
+            let style = render::Style::detect();
+            let is_tty = std::io::stdout().is_terminal();
+            let iterations = if once {
+                1
+            } else {
+                watch_iteration_limit.unwrap_or(usize::MAX)
+            };
+            watch_loop(
+                &db,
+                &run,
+                interval_ms,
+                is_tty,
+                &style,
+                &mut std::io::stdout(),
+                &mut now_rfc3339,
+                &mut |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
+                iterations,
+            )
         }
         Cmd::Replay { run, db } => {
             let store = Store::open(&db)?;
@@ -597,19 +776,33 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Runs { db } => {
+        Cmd::Runs { db, json } => {
             let store = Store::open(&db)?;
-            let runs = store.list_runs()?;
-            let count = runs.len();
-            for (run_id, feature, created_at) in runs {
+            let mut folded = Vec::new();
+            for (run_id, feature, created_at) in store.list_runs()? {
                 let state = fold(&store.load(&run_id)?)?;
-                println!(
-                    "{run_id}\t{feature}\t{created_at}\t{}\t{}",
-                    status_str(&state.status),
-                    state.phase.as_deref().unwrap_or("-")
+                folded.push((run_id, feature, created_at, state));
+            }
+            let entries: Vec<forge_view::RunEntry> = folded
+                .iter()
+                .map(
+                    |(run_id, feature, created_at, state)| forge_view::RunEntry {
+                        run_id,
+                        feature,
+                        created_at,
+                        state: Some(state),
+                    },
+                )
+                .collect();
+            let view = forge_view::run_rows(&entries);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+            } else {
+                print!(
+                    "{}",
+                    render::runs(&view, &now_rfc3339(), &render::Style::detect())
                 );
             }
-            println!("{count} runs");
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Driver { kind, args } => {

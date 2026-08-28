@@ -1,0 +1,498 @@
+use super::*;
+use forge_core::fold::{Cursor, RunState, Status};
+use forge_core::{EventEnvelope, EventType};
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+
+const T0: &str = "2026-01-01T00:00:00Z";
+const T1: &str = "2026-01-01T00:00:05Z";
+const T2: &str = "2026-01-01T00:02:03Z";
+const NOW: &str = "2026-01-01T00:07:03Z";
+
+fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
+    EventEnvelope {
+        run_id: "run-7".to_string(),
+        seq,
+        event_id: format!("ev{seq}"),
+        event_schema_version: 1,
+        event_type,
+        payload,
+        causation_id: None,
+        correlation_id: "corr".to_string(),
+        attempt_id: None,
+        recorded_at: at.to_string(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
+    }
+}
+
+fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunState {
+    RunState {
+        run_id: "run-7".to_string(),
+        seq: 14,
+        last_hash: "hash".to_string(),
+        status,
+        phase: Some("design".to_string()),
+        cursor: Cursor::Idle,
+        consecutive_failures: BTreeMap::new(),
+        reviewed_heads: None,
+        last_decision: decision,
+        park_reason: park.map(str::to_string),
+        feature: Some("one derivation, two surfaces".to_string()),
+        pending_command: None,
+    }
+}
+
+/// An intake seat that concluded, then a design sequence with a parallel
+/// step still running: a fork, a sequential step, a ruling and a live
+/// seat, all in one run.
+fn journal() -> Vec<EventEnvelope> {
+    vec![
+        ev(
+            1,
+            EventType::RunStarted,
+            json!({"feature": "one derivation, two surfaces"}),
+            T0,
+        ),
+        ev(2, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff-i", "seat": "intake", "phase": "intake"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff-i", "attempt_id": "att1"}),
+            T0,
+        ),
+        ev(
+            5,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-i", "attempt_id": "att1",
+                   "checkpoint": {"step": "seat-turn", "turn": 3, "tool": "Read",
+                                  "target": "docs/decisions/0013.md"}}),
+            T0,
+        ),
+        ev(
+            6,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-i", "attempt_id": "att1",
+                   "checkpoint": {"step": "claude-session-finished",
+                                  "session_id": "sess-a", "total_cost_usd": 0.03125}}),
+            T1,
+        ),
+        ev(
+            7,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff-i", "attempt_id": "att1",
+                   "result": {"result": "intook"}}),
+            T2,
+        ),
+        ev(
+            8,
+            EventType::TransitionDecided,
+            json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",
+                   "next": "design", "result": "intook"}),
+            T2,
+        ),
+        ev(9, EventType::PhaseEntered, json!({"phase": "design"}), T2),
+        ev(
+            10,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff-d", "seat": "design", "phase": "design"}),
+            T2,
+        ),
+        ev(
+            11,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff-d", "attempt_id": "att2"}),
+            T2,
+        ),
+        ev(
+            12,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-d", "attempt_id": "att2",
+                   "checkpoint": {"member": "positions:simplicity",
+                                  "step": "panel-member-finished", "outcome": "succeeded"}}),
+            T2,
+        ),
+        ev(
+            13,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-d", "attempt_id": "att2",
+                   "checkpoint": {"member": "positions:robustness",
+                                  "step": "panel-member-finished", "outcome": "succeeded"}}),
+            T2,
+        ),
+        ev(
+            14,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-d", "attempt_id": "att2",
+                   "checkpoint": {"step": "sequence-step-finished",
+                                  "step_name": "positions"}}),
+            T2,
+        ),
+        ev(
+            15,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff-d", "attempt_id": "att2",
+                   "checkpoint": {"member": "chief", "step": "seat-turn", "turn": 2,
+                                  "tool": "Write"}}),
+            T2,
+        ),
+    ]
+}
+
+fn view(park: Option<&str>) -> forge_view::RunView {
+    let events = journal();
+    let ruled = state(
+        Status::Running,
+        park,
+        Some(
+            json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",
+                    "next": "design", "result": "intook"}),
+        ),
+    );
+    forge_view::run_view(&events, Some(&ruled))
+}
+
+fn runs_view() -> forge_view::RunsView {
+    let older = state(Status::Completed, None, None);
+    let newer = state(Status::Running, None, None);
+    let entries = [
+        forge_view::RunEntry {
+            run_id: "run-old",
+            feature: "an older feature whose text runs well past any terminal width \
+                      and must be clamped rather than wrapped",
+            created_at: T0,
+            state: Some(&older),
+        },
+        forge_view::RunEntry {
+            run_id: "run-7",
+            feature: "one derivation, two surfaces",
+            created_at: T1,
+            state: Some(&newer),
+        },
+    ];
+    forge_view::run_rows(&entries)
+}
+
+// ------------------------------------------------------------- AC-22
+
+#[test]
+fn control_characters_never_reach_the_terminal() {
+    // The journal is seat-authored: a \r plus spaces overwrites the line
+    // above, and \x1b]0; retitles the operator's terminal. A hostile
+    // result token could otherwise forge a ruling line, continuously,
+    // under `watch`.
+    let hostile = "ok\r\x1b[2Jforged\x1b]0;pwned\x07";
+    let safe = Safe::new(hostile);
+    assert_eq!(safe.as_str(), "ok[2Jforged]0;pwned");
+    assert!(!safe.as_str().contains('\x1b'));
+    assert!(!safe.as_str().contains('\r'));
+    assert!(!safe.as_str().contains('\x07'));
+    // Width arithmetic runs on the SANITIZED text, so an escape
+    // sequence cannot smuggle invisible columns.
+    assert_eq!(safe.width(), 19);
+    assert_eq!(Safe::new("abc").padded(6), "abc   ");
+    assert_eq!(Safe::new("abcdef").padded(3), "abcdef", "never truncates");
+    // C1 and DEL go too.
+    assert_eq!(Safe::new("a\u{7f}b\u{9b}c").as_str(), "abc");
+}
+
+#[test]
+fn a_hostile_feature_and_result_token_render_as_inert_text() {
+    let hostile = state(Status::Running, None, None);
+    let entries = [forge_view::RunEntry {
+        run_id: "r\x1b[31m1",
+        feature: "feature\rforged",
+        created_at: T0,
+        state: Some(&hostile),
+    }];
+    let rows = forge_view::run_rows(&entries);
+    let out = runs(&rows, NOW, &Style::plain(80));
+    assert!(!out.contains('\x1b'), "{out:?}");
+    assert!(!out.contains('\r'), "{out:?}");
+    assert!(out.contains("r[31m1"));
+    assert!(out.contains("featureforged"));
+}
+
+// ------------------------------------------------------------- AC-23
+
+#[test]
+fn width_and_colour_come_from_the_environment_through_pure_rules() {
+    assert_eq!(width_from(None), 80);
+    assert_eq!(width_from(Some("")), 80);
+    assert_eq!(width_from(Some("abc")), 80);
+    assert_eq!(width_from(Some("0")), 20, "clamped up");
+    assert_eq!(width_from(Some("100000")), 1000, "clamped down");
+    assert_eq!(width_from(Some("120")), 120);
+
+    assert!(color_enabled(true, false, false));
+    assert!(!color_enabled(false, false, false), "not a terminal");
+    assert!(!color_enabled(true, true, false), "NO_COLOR");
+    assert!(!color_enabled(true, false, true), "TERM=dumb");
+
+    assert_eq!(status_code("completed"), GREEN);
+    assert_eq!(status_code("succeeded"), GREEN);
+    assert_eq!(status_code("stopped"), RED);
+    assert_eq!(status_code("failed"), RED);
+    assert_eq!(status_code("running"), BOLD);
+    assert_eq!(status_code("working"), BOLD);
+    assert_eq!(status_code("indeterminate"), DIM);
+
+    // Colour is a post-processing wrap of an already-rendered plain
+    // string: the goldens all run plain and this proves the wrapping.
+    let coloured = Style {
+        color: true,
+        width: 100,
+    };
+    assert_eq!(tint("ok", GREEN, &coloured), "\x1b[32mok\x1b[0m");
+    assert_eq!(tint("ok", GREEN, &Style::plain(100)), "ok");
+    let painted = runs(&runs_view(), NOW, &coloured);
+    assert!(painted.contains("\x1b[1mrunning"), "{painted:?}");
+    assert!(painted.contains("\x1b[32mcompleted"), "{painted:?}");
+    let inspected = inspect(&view(None), None, true, &coloured);
+    assert!(inspected.contains("\x1b[1mrunning"), "{inspected:?}");
+    // The tree markers are content, not colour, so they are
+    // unconditional: the model already emits Σ, ↓, … and — in pre-baked
+    // text, and an ASCII mode would need a second derivation of each.
+    assert!(inspected.contains('⑂') && inspected.contains('→'));
+    let plain = inspect(&view(None), None, true, &Style::plain(100));
+    assert!(plain.contains('⑂') && plain.contains('→'));
+    assert!(!plain.contains('\x1b'));
+}
+
+#[test]
+fn a_multibyte_feature_truncates_on_a_char_boundary() {
+    let running = state(Status::Running, None, None);
+    let entries = [forge_view::RunEntry {
+        run_id: "r1",
+        feature: "ééééééééééééééééééééééééééééééééééééééééééééééééé",
+        created_at: T0,
+        state: Some(&running),
+    }];
+    let out = runs(&forge_view::run_rows(&entries), NOW, &Style::plain(40));
+    assert!(out.ends_with("…\n"), "{out:?}");
+    assert!(out.is_char_boundary(out.len() - 1));
+}
+
+// ------------------------------------------------------------- AC-19
+
+#[test]
+fn forge_runs_is_one_clamped_line_per_run_newest_first() {
+    let wide = runs(&runs_view(), NOW, &Style::plain(120));
+    assert_eq!(
+        wide,
+        "run-7   running   design seq 14 6m58s one derivation, two surfaces\n\
+         run-old completed design seq 14 7m03s an older feature whose text runs well past any terminal width and must be clamped…\n"
+    );
+    // At the clamp boundary the feature loses its tail to an ellipsis.
+    let narrow = runs(&runs_view(), NOW, &Style::plain(48));
+    assert_eq!(
+        narrow,
+        "run-7   running   design seq 14 6m58s one deriv…\n\
+         run-old completed design seq 14 7m03s an older …\n"
+    );
+    // Below eight remaining columns the feature is omitted rather than
+    // mangled into two characters and an ellipsis.
+    let cramped = runs(&runs_view(), NOW, &Style::plain(44));
+    assert_eq!(
+        cramped,
+        "run-7   running   design seq 14 6m58s\n\
+         run-old completed design seq 14 7m03s\n"
+    );
+    // No `N runs` trailer: the count survives in --json.
+    assert!(!wide.contains("2 runs"));
+    assert_eq!(runs_view().count, 2);
+}
+
+#[test]
+fn a_run_whose_journal_does_not_fold_still_lists() {
+    let entries = [forge_view::RunEntry {
+        run_id: "r1",
+        feature: "unfoldable",
+        created_at: "not a time",
+        state: None,
+    }];
+    let out = runs(&forge_view::run_rows(&entries), NOW, &Style::plain(80));
+    assert_eq!(out, "r1 ? - seq - — unfoldable\n");
+}
+
+// ------------------------------------------------------------- AC-20
+
+#[test]
+fn forge_inspect_is_a_human_readout_with_a_terminal_tree() {
+    let out = inspect(&view(None), None, true, &Style::plain(100));
+    assert_eq!(
+        out,
+        "\
+run  run-7
+     running · phase design · seq 14
+ruling  INTAKE-OK  intake → design · intook
+live  design:positions:simplicity · working
+live  design:positions:robustness · working
+live  design · working
+live  design:chief · turn 2 · Write
+
+seats
+  participant                 status    attempts turns cost    activity
+  intake                      succeeded 1        3     $0.0313 intook · 2m03s
+  design                      working   1        Σ 2   —       3 members ↓
+  design:positions:simplicity succeeded 1        —     —       0s
+  design:positions:robustness succeeded 1        —     —       0s
+  design:chief                working   1        2     —       Write
+
+trail
+  1 run/started        one derivation, two surfaces…
+  2 phase/entered      intake
+  7 effect/succeeded   intake · intook
+  8 transition/decided INTAKE-OK intake → design · intook
+  9 phase/entered      design
+
+graph
+  intake ×1
+    → intake · finished
+  design ×1  ←current
+    ⑂ positions
+      simplicity · finished
+      robustness · finished
+    → chief · active
+"
+    );
+}
+
+#[test]
+fn a_park_reason_prints_before_everything_the_operator_would_act_on() {
+    let out = inspect(
+        &view(Some("needs a human")),
+        None,
+        false,
+        &Style::plain(100),
+    );
+    let head: Vec<&str> = out.lines().take(4).collect();
+    assert_eq!(head[2], "park  needs a human");
+    assert!(!out.contains("trail"), "a watch frame carries no trail");
+}
+
+#[test]
+fn scoping_flags_mirror_the_consoles_clicks() {
+    let view = view(None);
+    let by_phase = lens_for(&view, Some(&Scope::Phase("intake".into())))
+        .unwrap()
+        .unwrap();
+    let scoped = inspect(&view, Some(&by_phase), true, &Style::plain(100));
+    assert_eq!(
+        scoped,
+        "\
+run  run-7
+     running · phase design · seq 14
+ruling  INTAKE-OK  intake → design · intook
+live  design:positions:simplicity · working
+live  design:positions:robustness · working
+live  design · working
+live  design:chief · turn 2 · Write
+
+seats
+  participant status    attempts turns cost    activity
+  intake      succeeded 1        3     $0.0313 intook · 2m03s
+
+trail
+  2 phase/entered      intake
+  7 effect/succeeded   intake · intook
+  8 transition/decided INTAKE-OK intake → design · intook
+
+graph
+  intake ×1
+    → intake · finished
+"
+    );
+
+    // --seat matches EVERY occurrence, by label or by exact key.
+    let by_label = lens_for(&view, Some(&Scope::Seat("design:chief".into())))
+        .unwrap()
+        .unwrap();
+    let seat = inspect(&view, Some(&by_label), false, &Style::plain(100));
+    assert!(seat.contains("design:chief working"), "{seat}");
+    assert!(!seat.contains("\n  intake  "), "{seat}");
+    let by_key = lens_for(&view, Some(&Scope::Seat("eff-d:chief".into())))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        inspect(&view, Some(&by_key), false, &Style::plain(100)),
+        seat
+    );
+
+    // No scope at all is no lens.
+    assert!(lens_for(&view, None).unwrap().is_none());
+
+    // A value matching nothing exits nonzero naming the valid ones: an
+    // empty table would read as "this phase did nothing".
+    let missing = lens_for(&view, Some(&Scope::Phase("nowhere".into())))
+        .err()
+        .unwrap();
+    assert_eq!(
+        missing,
+        "no phase 'nowhere' in this run; visited phases: intake, design"
+    );
+    let unseated = lens_for(&view, Some(&Scope::Seat("nobody".into())))
+        .err()
+        .unwrap();
+    assert!(unseated.starts_with("no seat 'nobody' in this run; participants: intake, design"));
+}
+
+#[test]
+fn an_empty_run_still_renders_a_header() {
+    // A journal that does not fold carries no summary — never a guessed
+    // one — and there is nothing else to draw.
+    let empty = forge_view::run_view(&[], None);
+    assert_eq!(
+        inspect(&empty, None, true, &Style::plain(80)),
+        "run  — this journal does not fold\n"
+    );
+}
+
+#[test]
+fn a_ruling_with_a_problem_prints_it_under_the_ruling_line() {
+    let events = journal();
+    let stopped = state(
+        Status::Stopped,
+        None,
+        Some(
+            json!({"rule_id": "HARD-STOP", "severity": "hard", "from": "design",
+                    "problem": "the seat refused"}),
+        ),
+    );
+    let view = forge_view::run_view(&events, Some(&stopped));
+    let out = inspect(&view, None, false, &Style::plain(80));
+    assert!(out.contains("ruling  HARD-STOP  design → ?\n"), "{out}");
+    assert!(out.contains("        the seat refused\n"), "{out}");
+}
+
+#[test]
+fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
+    // A scope that keeps no seats prints no seats table — but it still
+    // prints the trail and the tree, because "this phase did nothing"
+    // is a claim about a run, not an empty table.
+    let events = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "review"}), T0),
+    ];
+    let view = forge_view::run_view(&events, None);
+    let lens = lens_for(&view, Some(&Scope::Phase("review".into())))
+        .unwrap()
+        .unwrap();
+    let out = inspect(&view, Some(&lens), true, &Style::plain(80));
+    assert_eq!(
+        out,
+        "run  — this journal does not fold\n\
+         \n\
+         trail\n\
+         \x20 2 phase/entered review\n\
+         \n\
+         graph\n\
+         \x20 review ×1  ←current\n"
+    );
+}

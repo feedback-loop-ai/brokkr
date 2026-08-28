@@ -127,7 +127,7 @@ of this feature, not an afterthought at the end.
 
 ## Movement 3 — the CLI
 
-- [ ] **T16 — `render.rs` foundations.** `Safe(String)` with a private
+- [x] **T16 — `render.rs` foundations.** `Safe(String)` with a private
   field and a sanitizing constructor (C0/C1 and `\x7f` stripped before
   any width math); `Style { color, width }` with `COLUMNS` parsed to
   `Option`, defaulted 80, clamped `[20, 1000]`; colour as a
@@ -138,13 +138,13 @@ of this feature, not an afterthought at the end.
   `"100000"`, a multi-byte truncation that does not panic, colour on and
   off, `⑂`/`→` present in every variant).
 
-- [ ] **T17 — `render::runs()` and `Cmd::Runs`.** One clamped line per
+- [x] **T17 — `render::runs()` and `Cmd::Runs`.** One clamped line per
   run, newest first, batch-sized columns, feature dropped below 8
   remaining columns, no trailer; `--json` emits `RunsView`.
   *Proven by*: AC-19 — goldens at several widths including the clamp
   boundary and the drop boundary.
 
-- [ ] **T18 — `render::inspect()` and `Cmd::Inspect`.** Header, ruling
+- [x] **T18 — `render::inspect()` and `Cmd::Inspect`.** Header, ruling
   line, park reason when present, six-column seats table, decision
   trail, and the phase tree (`→` for a single-node column, `⑂` for a
   fork, the marker alone when a fork column has no label).
@@ -156,7 +156,7 @@ of this feature, not an afterthought at the end.
   exclusion rejection; the no-match nonzero; and the equality
   `forge inspect --json | jq .summary` == today's `forge inspect`.
 
-- [ ] **T19 — Migrate the `machine_proof.rs` pins** at ~:537-557,
+- [x] **T19 — Migrate the `machine_proof.rs` pins** at ~:537-557,
   ~:570-585 and ~:1208-1215 from the five-column tab shape and the
   `"1 runs"` trailer to `--json`, not to human output.
   *Proven by*: AC-19 and AC-24 — `cargo test --workspace --all-features`
@@ -164,7 +164,7 @@ of this feature, not an afterthought at the end.
 
 ## Movement 4 — `watch`
 
-- [ ] **T20 — `Cmd::Watch`.** Poll `head_hash` comparing seq **and**
+- [x] **T20 — `Cmd::Watch`.** Poll `head_hash` comparing seq **and**
   hash; redraw `inspect(.., trail = false, ..)`; `--once`; `--interval`
   with the existing 100ms floor and garbage rejected; tty redraw via
   `\x1b[2J\x1b[H`, non-tty appending timestamped frames with no ANSI;

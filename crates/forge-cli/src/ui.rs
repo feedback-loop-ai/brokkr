@@ -104,12 +104,14 @@ pub fn handle(db: &Path, path: &str) -> Response {
         }
         let entries: Vec<forge_view::RunEntry> = folded
             .iter()
-            .map(|(run_id, feature, created_at, state)| forge_view::RunEntry {
-                run_id,
-                feature,
-                created_at,
-                state: state.as_ref(),
-            })
+            .map(
+                |(run_id, feature, created_at, state)| forge_view::RunEntry {
+                    run_id,
+                    feature,
+                    created_at,
+                    state: state.as_ref(),
+                },
+            )
             .collect();
         let view = forge_view::run_rows(&entries);
         return ok(
@@ -160,9 +162,8 @@ pub fn handle(db: &Path, path: &str) -> Response {
 /// This is a loopback-only, operator-local surface — the same trust as
 /// `claude --resume <id>` in a terminal.
 fn session_transcript(id: &str) -> Response {
-    let valid = !id.is_empty()
-        && id.len() <= 64
-        && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
+    let valid =
+        !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
     if !valid {
         return not_found("session");
     }
@@ -223,8 +224,7 @@ fn session_transcript(id: &str) -> Response {
                             }
                         }
                         Some("tool_use") => {
-                            let name =
-                                part.get("name").and_then(Value::as_str).unwrap_or("?");
+                            let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
                             let target = part
                                 .pointer("/input/file_path")
                                 .and_then(Value::as_str)
