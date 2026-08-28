@@ -838,8 +838,11 @@ function renderDetail(id, data) {
   // in activeParticipant so the drill-down survives SSE re-renders, and
   // clears itself if the participant vanishes after a refetch (ruled
   // above, where participants are derived).
+  // A drilled participant (inner-node or row click) scopes the seats
+  // grid to that participant, exactly as a selected phase scopes it.
   const shownParts = [...participants.values()]
-    .filter((part) => !phaseFilter || part.effect.phase === phaseFilter);
+    .filter((part) => !phaseFilter || part.effect.phase === phaseFilter)
+    .filter((part) => !activeParticipant || part.key === activeParticipant);
   if (shownParts.length > 0) {
     const seats = el('table');
     seats.appendChild(row([
