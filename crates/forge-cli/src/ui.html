@@ -28,6 +28,16 @@
          margin-bottom: .4rem; cursor: pointer; background: var(--panel); }
   .run:hover, .run.active { border-color: var(--violet); }
   .run .id { font-weight: 600; overflow-wrap: anywhere; }
+  /* The whole runs pane collapses once a run is chosen: a thin rail
+     with a chevron gives the detail view the full width. */
+  #runs h1 { display: flex; align-items: center; justify-content: space-between; }
+  #runsToggle { background: none; border: 1px solid var(--line); color: var(--dim);
+                border-radius: 6px; font: inherit; cursor: pointer;
+                padding: 0 .45em; line-height: 1.4; }
+  #runsToggle:hover { border-color: var(--violet); color: var(--text); }
+  #runs.collapsed { width: 40px; padding: .5rem .35rem; cursor: pointer; }
+  #runs.collapsed #runlist, #runs.collapsed .pane-title { display: none; }
+  #runs.collapsed h1 { justify-content: center; }
   /* Collapsed run rows: one line, status dot + ellipsized id. */
   .run.row { display: flex; align-items: center; gap: 8px;
              padding: .3rem .5rem; }
@@ -166,7 +176,7 @@
   <span class="tag">&gt; the machine is the outer loop_</span>
 </div>
 <div id="cols">
-<div id="runs"><h1>runs</h1><div id="runlist">loading…</div></div>
+<div id="runs"><h1><span class="pane-title">runs</span><button id="runsToggle" title="collapse the runs pane">«</button></h1><div id="runlist">loading…</div></div>
 <div id="detail"><h1>select a run</h1>
   <p>Read-only surface: this page submits no commands and writes nothing
   (decision 0003, constitutional boundary 6).</p></div>
@@ -178,6 +188,15 @@
 // from a fixed allowlist, never from data).
 let active = null, source = null, activeParticipant = null, selectedPhase = null;
 let rawJournal = false; // events table mode: decision trail (default) or raw
+let runsCollapsed = false; // the runs pane folds to a rail once a run is chosen
+
+function applyRunsPane() {
+  const pane = document.getElementById('runs');
+  pane.classList.toggle('collapsed', runsCollapsed);
+  document.getElementById('runsToggle').textContent = runsCollapsed ? '»' : '«';
+  document.getElementById('runsToggle').title = runsCollapsed
+    ? 'expand the runs pane' : 'collapse the runs pane';
+}
 
 // Favicon pair: phosphor seal at rest, violet seal while forging — the
 // tab itself signals a live run (the 16px answer to the pulse).
@@ -342,7 +361,12 @@ async function loadRuns() {
       item.title = run.run_id + '\n' + (run.status ?? '?') +
         ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
     }
-    item.onclick = () => select(run.run_id);
+    item.onclick = (ev) => {
+      // Don't bubble into the pane's expand-on-click handler — the
+      // selection itself is what collapses the pane.
+      ev.stopPropagation();
+      select(run.run_id);
+    };
     list.appendChild(item);
   }
 }
@@ -1216,6 +1240,8 @@ function renderDetail(id, data) {
 
 function select(id) {
   active = id;
+  runsCollapsed = true; // a run is selected once — give detail the width
+  applyRunsPane();
   activeParticipant = null; // drill-down selection is per-run
   selectedPhase = null;     // outer-rail selection is per-run too
   rawJournal = false;       // journal mode resets to the trail per-run
@@ -1225,6 +1251,19 @@ function select(id) {
   source = new EventSource('/sse/' + encodeURIComponent(id));
   source.onmessage = () => { loadDetail(id); loadRuns(); };
 }
+
+document.getElementById('runsToggle').onclick = (ev) => {
+  ev.stopPropagation();
+  runsCollapsed = !runsCollapsed;
+  applyRunsPane();
+};
+// The collapsed rail itself is one big expand target.
+document.getElementById('runs').onclick = () => {
+  if (runsCollapsed) {
+    runsCollapsed = false;
+    applyRunsPane();
+  }
+};
 
 loadRuns();
 setInterval(loadRuns, 5000);
