@@ -18,6 +18,7 @@ forge-bridge = { workspace = true }
 forge-store = { workspace = true }
 forge-protocol = { workspace = true }
 forge-runtime = { workspace = true }
+forge-view = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
