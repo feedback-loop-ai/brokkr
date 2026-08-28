@@ -72,20 +72,20 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-9 — unresolved-template target within clamp,
   resolved-line-never-journaled, claude-fold file-path-only, model
   Bash target-less (one test per clause).
-- [ ] **T10 — `forge secrets` CLI in
+- [x] **T10 — `forge secrets` CLI in
   `crates/forge-cli/src/main.rs`.** `set` (value via stdin) / `list`
   (names only) / `remove`; `--secrets-file` on secrets subcommands and
   run entry points; no `get`.
   *Proven by*: AC-3 CLI-level tests — round-trip through the binary,
   `list` output contains no value bytes, override flag honored.
-- [ ] **T11 — Layer-6 machine proof in
+- [x] **T11 — Layer-6 machine proof in
   `crates/forge-cli/tests/machine_proof.rs`.** Scripted child leaks
   the bound value in every listed encoding via stdout, stderr, and
   result notes; byte-scan of every journal envelope iterating the
   shared needle constant; zero hits or fail — for a succeeding and a
   failing child.
   *Proven by*: AC-8 (this task IS the proof).
-- [ ] **T12 — Workspace regression sweep.** `cargo test` across all
+- [x] **T12 — Workspace regression sweep.** `cargo test` across all
   crates; frozen surfaces byte-untouched.
   *Proven by*: AC-10 — full suite green plus empty
   `git diff --stat` for `reference/`, `fixtures/`, `contracts/`,
