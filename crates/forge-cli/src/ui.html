@@ -29,15 +29,20 @@
   .run:hover, .run.active { border-color: var(--violet); }
   .run .id { font-weight: 600; overflow-wrap: anywhere; }
   /* The whole runs pane collapses once a run is chosen: a thin rail
-     with a chevron gives the detail view the full width. */
-  #runs h1 { display: flex; align-items: center; justify-content: space-between; }
-  #runsToggle { background: none; border: 1px solid var(--line); color: var(--dim);
-                border-radius: 6px; font: inherit; cursor: pointer;
-                padding: 0 .45em; line-height: 1.4; }
-  #runsToggle:hover { border-color: var(--violet); color: var(--text); }
-  #runs.collapsed { width: 40px; padding: .5rem .35rem; cursor: pointer; }
-  #runs.collapsed #runlist, #runs.collapsed .pane-title { display: none; }
-  #runs.collapsed h1 { justify-content: center; }
+     gives the detail view the full width. The handle is a discreet
+     pill on the pane's edge, vertically centered. */
+  #runs { position: relative; }
+  #runsToggle { position: absolute; top: 50%; right: 3px;
+                transform: translateY(-50%);
+                background: var(--panel); border: 1px solid var(--line);
+                color: var(--dim); border-radius: 999px; font: inherit;
+                font-size: 11px; line-height: 1; cursor: pointer;
+                padding: .9em .25em; opacity: .45; }
+  #runsToggle:hover { opacity: 1; border-color: var(--violet);
+                      color: var(--text); }
+  #runs.collapsed { width: 26px; padding: 0; cursor: pointer; }
+  #runs.collapsed #runlist, #runs.collapsed h1 { display: none; }
+  #runs.collapsed #runsToggle { right: 50%; transform: translate(50%, -50%); }
   /* Collapsed run rows: one line, status dot + ellipsized id. */
   .run.row { display: flex; align-items: center; gap: 8px;
              padding: .3rem .5rem; }
@@ -176,7 +181,7 @@
   <span class="tag">&gt; the machine is the outer loop_</span>
 </div>
 <div id="cols">
-<div id="runs"><h1><span class="pane-title">runs</span><button id="runsToggle" title="collapse the runs pane">«</button></h1><div id="runlist">loading…</div></div>
+<div id="runs"><h1>runs</h1><div id="runlist">loading…</div><button id="runsToggle" title="collapse the runs pane">«</button></div>
 <div id="detail"><h1>select a run</h1>
   <p>Read-only surface: this page submits no commands and writes nothing
   (decision 0003, constitutional boundary 6).</p></div>
