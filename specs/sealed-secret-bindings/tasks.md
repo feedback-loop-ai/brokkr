@@ -50,7 +50,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: a unit test on the driver-input shape and a grep-style
   test asserting no secret-store call sites in `forge-runtime`; AC-8
   exercises the wiring end to end.
-- [ ] **T7 — Spawn-time resolution + injection in
+- [x] **T7 — Spawn-time resolution + injection in
   `crates/forge-protocol/src/adapters.rs`.** Exec arm resolves
   `{{secret:NAME}}` → `$NAME` in template text; opens the store,
   resolves every declared name, refuses determinately (naming the
@@ -60,13 +60,13 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-5 — argv-never-contains-value,
   env-contains-value, unreferenced-name-still-injected,
   missing-name-pre-spawn-refusal, override tests.
-- [ ] **T8 — Masking choke point in the exec arm.** Captured stdout,
+- [x] **T8 — Masking choke point in the exec arm.** Captured stdout,
   stderr, and the child-written result payload masked on raw bytes
   before the stderr re-emit (`adapters.rs:490`), before checkpoints,
   before `Body::Result`.
   *Proven by*: unit tests on each masked surface; AC-8 machine proof
   covers all three paths through the journal.
-- [ ] **T9 — Checkpoint-target amendment.** Exec effects journal the
+- [x] **T9 — Checkpoint-target amendment.** Exec effects journal the
   pre-substitution charter template (80-char clamp) as target; claude
   fold and model-Bash postures untouched.
   *Proven by*: AC-9 — unresolved-template target within clamp,
