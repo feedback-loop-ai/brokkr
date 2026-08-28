@@ -49,6 +49,34 @@ fn seat_costs_ignore_unjoined_and_malformed_effect_evidence() {
 }
 
 #[test]
+fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
+    // The lanetally driver's session-finished checkpoint carries an
+    // extra constant `capture` field; the aggregation keys off
+    // num_turns/total_cost_usd only, so the cost flows through with
+    // zero production changes here, in `forge costs`, or in the UI.
+    let events = vec![
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"fx"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"claude-lanetally-session-finished",
+                "capture":"lanetally",
+                "num_turns":2, "total_cost_usd":0.125}}),
+        ),
+    ];
+    let (costs, total) = seat_costs(&events);
+    assert_eq!(
+        costs["implement"],
+        json!({"attempts": 1, "turns": 2, "cost_usd": 0.125})
+    );
+    assert_eq!(total, 0.125);
+}
+
+#[test]
 fn run_facts_ignores_missing_display_only_phase_join() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
