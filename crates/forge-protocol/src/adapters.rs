@@ -1,4 +1,5 @@
-//! Built-in driver adapters: `forge driver <claude|codex|dsh|exec>`.
+//! Built-in driver adapters:
+//! `forge driver <claude|lanetally|codex|dsh|exec>`.
 //!
 //! The Rust port of the retired Python adapters (decision 0009) — same
 //! protocol behavior, same prompt composition, same result-file
@@ -9,7 +10,8 @@
 //! repair anything.
 //!
 //! Env overrides for conformance shims: FORGE_CLAUDE_BIN,
-//! FORGE_CODEX_BIN, FORGE_DSH_BIN, FORGE_EXEC_NAME.
+//! FORGE_LANETALLY_BIN, FORGE_CODEX_BIN, FORGE_DSH_BIN,
+//! FORGE_EXEC_NAME.
 
 use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
@@ -24,6 +26,7 @@ const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterKind {
     Claude,
+    Lanetally,
     Codex,
     Dsh,
     Exec,
@@ -33,6 +36,7 @@ impl AdapterKind {
     pub fn parse(name: &str) -> Option<AdapterKind> {
         match name {
             "claude" => Some(AdapterKind::Claude),
+            "lanetally" => Some(AdapterKind::Lanetally),
             "codex" => Some(AdapterKind::Codex),
             "dsh" => Some(AdapterKind::Dsh),
             "exec" => Some(AdapterKind::Exec),
@@ -43,6 +47,10 @@ impl AdapterKind {
     fn driver_name(&self) -> String {
         match self {
             AdapterKind::Claude => "claude-code".to_string(),
+            // The Claude Code harness through LaneTally's session-capture
+            // wrapper; the ledger discriminator is the checkpoint's
+            // `capture` field, never this (forgeable) step-name stem.
+            AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
             AdapterKind::Exec => {
@@ -318,6 +326,76 @@ fn stage_prompt(prompt: &str) -> Result<tempfile::NamedTempFile, String> {
     )
 }
 
+/// The claude stream-json invocation, parameterized ONLY by the harness
+/// binary (never an `AdapterKind` — the claude and lanetally arms must
+/// stay byte-identical in behavior, so kind-specific drift is
+/// unrepresentable here). Three invariants, each load-bearing:
+/// stdout is folded LIVE line-by-line (checkpoints are streamed
+/// telemetry — converging on `wait_with_output` buffering is a rejected
+/// design); stderr drains on its own thread so a chatty session — or a
+/// chatty wrapper layer — cannot deadlock the stdout fold; unparseable
+/// stream lines are noise, never repaired (decision 0001), which is
+/// what makes wrapper-interleaved non-JSON output safe.
+fn invoke_stream_json(
+    bin: String,
+    extra: &[String],
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let mut command = vec![
+        bin,
+        "-p".into(),
+        "--output-format".into(),
+        "stream-json".into(),
+        "--verbose".into(),
+    ];
+    command.extend(extra.iter().cloned());
+    let (program, args) = (&command[0], &command[1..]);
+    let child = Command::new(program)
+        .args(args)
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = io_context(child, "could not invoke the agent CLI")?;
+    {
+        let mut stdin = child.stdin.take().expect("piped");
+        io_context(
+            stdin.write_all(prompt.as_bytes()),
+            "could not write the prompt",
+        )?;
+    }
+    // stderr drains on its own thread so a chatty session cannot
+    // deadlock the stdout stream we are folding live.
+    let stderr_pipe = child.stderr.take().expect("piped");
+    let stderr_thread = std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut pipe = stderr_pipe;
+        let _ = pipe.read_to_end(&mut captured);
+        String::from_utf8_lossy(&captured).into_owned()
+    });
+    let stdout = child.stdout.take().expect("piped");
+    let mut session_meta = Map::new();
+    let mut assistant_turns = 0u64;
+    for line in std::io::BufReader::new(stdout).lines() {
+        let Ok(line) = line else { break };
+        // Unparseable stream lines are noise, never repaired
+        // (decision 0001).
+        let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        fold_stream_event(&event, &mut assistant_turns, &mut session_meta, emit);
+    }
+    let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    Ok(Invocation {
+        exit_code: status.code().unwrap_or(-1),
+        session_meta,
+        stderr: stderr_thread.join().unwrap_or_default(),
+    })
+}
+
 fn invoke(
     kind: AdapterKind,
     extra: &[String],
@@ -345,60 +423,25 @@ fn invoke_with_stager(
         .unwrap_or("")
         .to_string();
     match kind {
-        AdapterKind::Claude => {
-            let bin = adapter_binary("FORGE_CLAUDE_BIN", "claude");
-            let mut command = vec![
-                bin,
-                "-p".into(),
-                "--output-format".into(),
-                "stream-json".into(),
-                "--verbose".into(),
-            ];
-            command.extend(extra.iter().cloned());
-            let (program, args) = (&command[0], &command[1..]);
-            let child = Command::new(program)
-                .args(args)
-                .current_dir(if workdir.is_empty() { "." } else { &workdir })
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn();
-            let mut child = io_context(child, "could not invoke the agent CLI")?;
-            {
-                let mut stdin = child.stdin.take().expect("piped");
-                io_context(
-                    stdin.write_all(prompt.as_bytes()),
-                    "could not write the prompt",
-                )?;
-            }
-            // stderr drains on its own thread so a chatty session cannot
-            // deadlock the stdout stream we are folding live.
-            let stderr_pipe = child.stderr.take().expect("piped");
-            let stderr_thread = std::thread::spawn(move || {
-                let mut captured = Vec::new();
-                let mut pipe = stderr_pipe;
-                let _ = pipe.read_to_end(&mut captured);
-                String::from_utf8_lossy(&captured).into_owned()
-            });
-            let stdout = child.stdout.take().expect("piped");
-            let mut session_meta = Map::new();
-            let mut assistant_turns = 0u64;
-            for line in std::io::BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                // Unparseable stream lines are noise, never repaired
-                // (decision 0001).
-                let Ok(event) = serde_json::from_str::<Value>(&line) else {
-                    continue;
-                };
-                fold_stream_event(&event, &mut assistant_turns, &mut session_meta, emit);
-            }
-            let status = io_context(child.wait(), "agent CLI did not conclude")?;
-            Ok(Invocation {
-                exit_code: status.code().unwrap_or(-1),
-                session_meta,
-                stderr: stderr_thread.join().unwrap_or_default(),
-            })
-        }
+        AdapterKind::Claude => invoke_stream_json(
+            adapter_binary("FORGE_CLAUDE_BIN", "claude"),
+            extra,
+            prompt,
+            &workdir,
+            emit,
+        ),
+        // Same harness, same stream: LaneTally's wrapper is
+        // argv-compatible with claude (including stream-json), so the
+        // only difference IS the binary. No spawn-time fallback to plain
+        // `claude` when the wrapper is missing — that would silently
+        // un-capture sessions; doctor is the advisory surface.
+        AdapterKind::Lanetally => invoke_stream_json(
+            adapter_binary("FORGE_LANETALLY_BIN", "claude-lanetally"),
+            extra,
+            prompt,
+            &workdir,
+            emit,
+        ),
         AdapterKind::Codex => {
             let bin = adapter_binary("FORGE_CODEX_BIN", "codex");
             let mut command = vec![
@@ -637,6 +680,14 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     );
     checkpoint.insert("exit_code".into(), Value::from(invocation.exit_code));
     checkpoint.extend(invocation.session_meta);
+    // Ledger-capture marker: a source-literal CONSTANT, never
+    // data-derived, inserted AFTER the session_meta extend so
+    // last-write-wins guarantees no stream-derived key can ever shadow
+    // it. "Priceable in the LaneTally ledger", not "priced" —
+    // total_cost_usd above stays the harness-reported list price.
+    if kind == AdapterKind::Lanetally {
+        checkpoint.insert("capture".into(), Value::String("lanetally".into()));
+    }
     send(Body::Checkpoint {
         effect_id: effect_id.clone(),
         attempt_id: attempt_id.clone(),

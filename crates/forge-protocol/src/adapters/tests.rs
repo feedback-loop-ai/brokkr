@@ -70,11 +70,16 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
 #[test]
 fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert_eq!(AdapterKind::parse("claude"), Some(AdapterKind::Claude));
+    assert_eq!(
+        AdapterKind::parse("lanetally"),
+        Some(AdapterKind::Lanetally)
+    );
     assert_eq!(AdapterKind::parse("codex"), Some(AdapterKind::Codex));
     assert_eq!(AdapterKind::parse("dsh"), Some(AdapterKind::Dsh));
     assert_eq!(AdapterKind::parse("exec"), Some(AdapterKind::Exec));
     assert_eq!(AdapterKind::parse("invented"), None);
     assert_eq!(AdapterKind::Claude.driver_name(), "claude-code");
+    assert_eq!(AdapterKind::Lanetally.driver_name(), "claude-lanetally");
     assert_eq!(AdapterKind::Codex.driver_name(), "codex");
     assert_eq!(AdapterKind::Dsh.driver_name(), "deepseek-harness");
     assert_eq!(AdapterKind::Exec.driver_name(), "exec");
@@ -340,6 +345,59 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         Some(value) => std::env::set_var("FORGE_CODEX_BIN", value),
         None => std::env::remove_var("FORGE_CODEX_BIN"),
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    // A stand-in wrapper whose result event tries to smuggle a
+    // stream-derived `capture`: the run_seat source literal is inserted
+    // AFTER the session_meta extend, so it wins by last-write-wins even
+    // if the fold ever widens to copy such a key.
+    let shim = executable(
+        dir.path(),
+        "stream-shim",
+        "#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\",\"num_turns\":1,\
+         \"total_cost_usd\":0.5,\"capture\":\"evil\"}\\n'\n",
+    );
+    let result = dir.path().join("result.json");
+    std::fs::write(&result, "{\"result\": \"complete\"}").unwrap();
+    let start = json!({
+        "effect_id":"fx", "attempt_id":"a1",
+        "input": {"workdir": dir.path(), "result_path": result,
+                  "allowed_results": ["complete"]}
+    });
+    let prior_lanetally = std::env::var_os("FORGE_LANETALLY_BIN");
+    let prior_claude = std::env::var_os("FORGE_CLAUDE_BIN");
+    std::env::set_var("FORGE_LANETALLY_BIN", &shim);
+    std::env::set_var("FORGE_CLAUDE_BIN", &shim);
+    let mut bodies = Vec::new();
+    run_seat(AdapterKind::Lanetally, &[], &start, &mut |b| bodies.push(b));
+    run_seat(AdapterKind::Claude, &[], &start, &mut |b| bodies.push(b));
+    match prior_lanetally {
+        Some(value) => std::env::set_var("FORGE_LANETALLY_BIN", value),
+        None => std::env::remove_var("FORGE_LANETALLY_BIN"),
+    }
+    match prior_claude {
+        Some(value) => std::env::set_var("FORGE_CLAUDE_BIN", value),
+        None => std::env::remove_var("FORGE_CLAUDE_BIN"),
+    }
+    let finished: Vec<&Value> = bodies
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } => Some(data),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(finished.len(), 2);
+    assert_eq!(finished[0]["step"], "claude-lanetally-session-finished");
+    assert_eq!(finished[0]["capture"], "lanetally");
+    assert_eq!(finished[0]["total_cost_usd"], 0.5);
+    // The guard is kind-scoped: claude's checkpoint carries no capture.
+    assert_eq!(finished[1]["step"], "claude-code-session-finished");
+    assert!(finished[1].get("capture").is_none(), "{}", finished[1]);
 }
 
 struct BrokenReader;

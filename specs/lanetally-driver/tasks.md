@@ -6,13 +6,13 @@
 Ordered; each task names the test that proves it. Acceptance-criteria
 numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
 
-- [ ] **T1 — `AdapterKind::Lanetally` in
+- [x] **T1 — `AdapterKind::Lanetally` in
   `crates/forge-protocol/src/adapters.rs`.** Variant; `parse("lanetally")`;
   `driver_name() = "claude-lanetally"`; module doc comment env list
   gains `FORGE_LANETALLY_BIN`.
   *Proven by*: AC-1 unit tests beside the code (parse row, name row)
   and the `adapters_name_themselves…` row (T6).
-- [ ] **T2 — Factor `invoke_stream_json`.** Move the
+- [x] **T2 — Factor `invoke_stream_json`.** Move the
   `AdapterKind::Claude` arm of `invoke_with_stager` (:348-401) verbatim
   into a private binary-parameterized helper (live fold, stderr-drain
   thread, decision-0001 noise pass-through preserved;
@@ -20,11 +20,11 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   body); the claude arm becomes a one-liner.
   *Proven by*: AC-3 — the existing claude conformance assertions pass
   literally unedited (the regression guard on the factoring).
-- [ ] **T3 — The lanetally arm.** One-liner calling the helper with
+- [x] **T3 — The lanetally arm.** One-liner calling the helper with
   `adapter_binary("FORGE_LANETALLY_BIN", "claude-lanetally")`.
   *Proven by*: AC-2 and AC-4 — the obedient battery leg (T6) drives it
   through `FORGE_LANETALLY_BIN` pointed at the scripted stand-in.
-- [ ] **T4 — The `capture` constant in `run_seat`.** Kind-guarded
+- [x] **T4 — The `capture` constant in `run_seat`.** Kind-guarded
   insert of `capture: "lanetally"` immediately AFTER
   `checkpoint.extend(invocation.session_meta)` (:633-639) — a source
   literal, one site, last-write-wins over any stream key.
