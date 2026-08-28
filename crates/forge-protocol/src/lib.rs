@@ -9,6 +9,7 @@
 pub mod adapters;
 pub mod fake;
 pub mod process;
+pub mod secret;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
