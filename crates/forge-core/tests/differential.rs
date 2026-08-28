@@ -56,7 +56,11 @@ fn corpus_parity_with_python_oracle() {
                 } => {
                     assert_eq!(rule_id, expect["rule_id"].as_str().unwrap(), "case: {case}");
                     assert_eq!(next_phase, expect["next"].as_str().unwrap(), "case: {case}");
-                    assert_eq!(severity, expect["severity"].as_str().unwrap(), "case: {case}");
+                    assert_eq!(
+                        severity,
+                        expect["severity"].as_str().unwrap(),
+                        "case: {case}"
+                    );
                     assert!(RULING_SEVERITIES.contains(&severity.as_str()));
                 }
                 other => panic!("expected ruling, got {other:?} for case: {case}"),
@@ -89,13 +93,18 @@ fn table_wide_lint_matches_python_suite() {
     let machine = production_machine();
     let rules = table["rules"].as_array().unwrap();
     for rule in rules {
-        let severity = rule.get("severity").and_then(Value::as_str).unwrap_or("normal");
+        let severity = rule
+            .get("severity")
+            .and_then(Value::as_str)
+            .unwrap_or("normal");
         if severity == "hard" {
             assert_eq!(rule["next"], "stop", "rule {}", rule["id"]);
         }
         if severity == "flagged" {
             assert!(
-                !machine.terminal.contains(&rule["next"].as_str().unwrap().to_string()),
+                !machine
+                    .terminal
+                    .contains(&rule["next"].as_str().unwrap().to_string()),
                 "rule {}",
                 rule["id"]
             );
@@ -110,9 +119,7 @@ fn table_wide_lint_matches_python_suite() {
     let mut frontier = vec![machine.initial.clone()];
     while let Some(node) = frontier.pop() {
         for rule in rules {
-            if rule["from"] == node.as_str()
-                && rule["from"] != "review"
-                && rule["next"] != "review"
+            if rule["from"] == node.as_str() && rule["from"] != "review" && rule["next"] != "review"
             {
                 let next = rule["next"].as_str().unwrap().to_string();
                 if !reachable.contains(&next) {

@@ -99,6 +99,24 @@ struct Invocation {
     stderr: String,
 }
 
+fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => Err(format!("{context}: {error}")),
+    }
+}
+
+fn adapter_binary(variable: &str, fallback: &str) -> String {
+    std::env::var(variable).unwrap_or_else(|_| fallback.to_string())
+}
+
+fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
+    io_context(
+        writer.write_all(payload.as_bytes()),
+        "could not write the prompt",
+    )
+}
+
 fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
@@ -123,24 +141,20 @@ fn run_cli(
     // declaration is in the reviewed charter, so a collision is visible
     // at review time.
     for binding in bindings {
-        let value = std::str::from_utf8(binding.secret().expose_for_spawn())
-            .map_err(|_| format!("secret '{}' is not valid UTF-8", binding.name()))?;
+        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
+            Ok(value) => value,
+            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
+        };
         invocation.env(binding.name(), value);
     }
-    let mut child = invocation
-        .spawn()
-        .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
+    let mut child = io_context(invocation.spawn(), "could not invoke the agent CLI")?;
     if let Some(payload) = stdin_payload {
         let mut stdin = child.stdin.take().expect("piped");
-        stdin
-            .write_all(payload.as_bytes())
-            .map_err(|e| format!("could not write the prompt: {e}"))?;
+        write_prompt(&mut stdin, payload)?;
     } else {
         drop(child.stdin.take());
     }
-    child
-        .wait_with_output()
-        .map_err(|e| format!("agent CLI did not conclude: {e}"))
+    io_context(child.wait_with_output(), "agent CLI did not conclude")
 }
 
 /// One parsed claude stream-json line folded into the seat's telemetry:
@@ -164,12 +178,11 @@ fn fold_stream_event(
         }
         Some("assistant") => {
             *assistant_turns += 1;
-            let blocks = event
-                .pointer("/message/content")
-                .and_then(Value::as_array);
-            let tool_uses = blocks.into_iter().flatten().filter(|b| {
-                b.get("type").and_then(Value::as_str) == Some("tool_use")
-            });
+            let blocks = event.pointer("/message/content").and_then(Value::as_array);
+            let tool_uses = blocks
+                .into_iter()
+                .flatten()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"));
             for tool_use in tool_uses {
                 let mut checkpoint = Map::new();
                 checkpoint.insert("step".into(), Value::String("seat-turn".into()));
@@ -183,9 +196,7 @@ fn fold_stream_event(
                 // and the journal is append-only — the forge-verify review
                 // hard-stopped on exactly this (run verify-…-917996f5). Full
                 // detail belongs to the resumable transcript, not the record.
-                let target = tool_use
-                    .pointer("/input/file_path")
-                    .and_then(Value::as_str);
+                let target = tool_use.pointer("/input/file_path").and_then(Value::as_str);
                 if let Some(target) = target {
                     checkpoint.insert(
                         "target".into(),
@@ -277,6 +288,36 @@ fn fold_codex_event(
     }
 }
 
+fn stage_prompt_with<Create, WritePrompt>(
+    prompt: &str,
+    create: Create,
+    write_prompt: WritePrompt,
+) -> Result<tempfile::NamedTempFile, String>
+where
+    Create: FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
+    WritePrompt: FnOnce(&mut tempfile::NamedTempFile, &[u8]) -> std::io::Result<()>,
+{
+    let mut file = io_context(create(), "could not stage the prompt")?;
+    io_context(
+        write_prompt(&mut file, prompt.as_bytes()),
+        "could not stage the prompt",
+    )?;
+    Ok(file)
+}
+
+fn stage_prompt(prompt: &str) -> Result<tempfile::NamedTempFile, String> {
+    stage_prompt_with(
+        prompt,
+        || {
+            tempfile::Builder::new()
+                .prefix("forge-prompt-")
+                .suffix(".md")
+                .tempfile()
+        },
+        |file, bytes| file.write_all(bytes),
+    )
+}
+
 fn invoke(
     kind: AdapterKind,
     extra: &[String],
@@ -285,6 +326,19 @@ fn invoke(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    invoke_with_stager(kind, extra, prompt, input, bindings, emit, stage_prompt)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn invoke_with_stager(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+    mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
+) -> Result<Invocation, String> {
     let workdir = input
         .get("workdir")
         .and_then(Value::as_str)
@@ -292,8 +346,7 @@ fn invoke(
         .to_string();
     match kind {
         AdapterKind::Claude => {
-            let bin =
-                std::env::var("FORGE_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+            let bin = adapter_binary("FORGE_CLAUDE_BIN", "claude");
             let mut command = vec![
                 bin,
                 "-p".into(),
@@ -302,22 +355,21 @@ fn invoke(
                 "--verbose".into(),
             ];
             command.extend(extra.iter().cloned());
-            let (program, args) = command
-                .split_first()
-                .ok_or_else(|| "empty command".to_string())?;
-            let mut child = Command::new(program)
+            let (program, args) = (&command[0], &command[1..]);
+            let child = Command::new(program)
                 .args(args)
                 .current_dir(if workdir.is_empty() { "." } else { &workdir })
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
+                .spawn();
+            let mut child = io_context(child, "could not invoke the agent CLI")?;
             {
                 let mut stdin = child.stdin.take().expect("piped");
-                stdin
-                    .write_all(prompt.as_bytes())
-                    .map_err(|e| format!("could not write the prompt: {e}"))?;
+                io_context(
+                    stdin.write_all(prompt.as_bytes()),
+                    "could not write the prompt",
+                )?;
             }
             // stderr drains on its own thread so a chatty session cannot
             // deadlock the stdout stream we are folding live.
@@ -340,9 +392,7 @@ fn invoke(
                 };
                 fold_stream_event(&event, &mut assistant_turns, &mut session_meta, emit);
             }
-            let status = child
-                .wait()
-                .map_err(|e| format!("agent CLI did not conclude: {e}"))?;
+            let status = io_context(child.wait(), "agent CLI did not conclude")?;
             Ok(Invocation {
                 exit_code: status.code().unwrap_or(-1),
                 session_meta,
@@ -350,7 +400,7 @@ fn invoke(
             })
         }
         AdapterKind::Codex => {
-            let bin = std::env::var("FORGE_CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
+            let bin = adapter_binary("FORGE_CODEX_BIN", "codex");
             let mut command = vec![
                 bin,
                 "exec".into(),
@@ -359,23 +409,21 @@ fn invoke(
                 workdir.clone(),
             ];
             command.extend(extra.iter().cloned());
-            let (program, args) = command
-                .split_first()
-                .ok_or_else(|| "empty command".to_string())?;
-            let mut child = Command::new(program)
+            let (program, args) = (&command[0], &command[1..]);
+            let child = Command::new(program)
                 .args(args)
                 .current_dir(if workdir.is_empty() { "." } else { &workdir })
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
-            child
-                .stdin
-                .take()
-                .expect("piped")
-                .write_all(prompt.as_bytes())
-                .map_err(|e| format!("could not write the prompt: {e}"))?;
+                .spawn();
+            let mut child = io_context(child, "could not invoke the agent CLI")?;
+            let mut stdin = child.stdin.take().expect("piped");
+            io_context(
+                stdin.write_all(prompt.as_bytes()),
+                "could not write the prompt",
+            )?;
+            drop(stdin);
             let stderr_pipe = child.stderr.take().expect("piped");
             let stderr_thread = std::thread::spawn(move || {
                 let mut captured = Vec::new();
@@ -391,9 +439,7 @@ fn invoke(
                     fold_codex_event(&event, &mut turn, &mut session_meta, emit);
                 }
             }
-            let status = child
-                .wait()
-                .map_err(|e| format!("agent CLI did not conclude: {e}"))?;
+            let status = io_context(child.wait(), "agent CLI did not conclude")?;
             Ok(Invocation {
                 exit_code: status.code().unwrap_or(-1),
                 session_meta,
@@ -401,7 +447,7 @@ fn invoke(
             })
         }
         AdapterKind::Dsh => {
-            let bin = std::env::var("FORGE_DSH_BIN").unwrap_or_else(|_| "dsh".to_string());
+            let bin = adapter_binary("FORGE_DSH_BIN", "dsh");
             emit(&json!({
                 "step":"harness-started",
                 "harness":"deepseek",
@@ -434,14 +480,7 @@ fn invoke(
             }));
             let mut prompt_file: Option<tempfile::NamedTempFile> = None;
             if extra.iter().any(|part| part.contains("{prompt_file}")) {
-                let mut file = tempfile::Builder::new()
-                    .prefix("forge-prompt-")
-                    .suffix(".md")
-                    .tempfile()
-                    .map_err(|e| format!("could not stage the prompt: {e}"))?;
-                file.write_all(prompt.as_bytes())
-                    .map_err(|e| format!("could not stage the prompt: {e}"))?;
-                prompt_file = Some(file);
+                prompt_file = Some(stage(prompt)?);
             }
             let prompt_path = prompt_file
                 .as_ref()
@@ -451,7 +490,11 @@ fn invoke(
                 .iter()
                 .map(|part| resolve_exec_part(part, &workdir, &prompt_path, bindings))
                 .collect();
-            let stdin_payload = if prompt_file.is_none() { Some(prompt) } else { None };
+            let stdin_payload = if prompt_file.is_none() {
+                Some(prompt)
+            } else {
+                None
+            };
             let out = run_cli(&command, stdin_payload, &workdir, bindings)?;
             // Known-plaintext masking choke point (decision 0012, layer
             // 5), on RAW captured bytes before any string conversion.
@@ -493,8 +536,16 @@ fn resolve_exec_part(
     part
 }
 
+fn stderr_tail_start(stderr: &str) -> usize {
+    let mut start = stderr.len().saturating_sub(4000);
+    while !stderr.is_char_boundary(start) {
+        start -= 1;
+    }
+    start
+}
+
 fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl FnMut(Body)) {
-    let input = start.get("input").cloned().unwrap_or_else(|| json!({}));
+    let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
     send(Body::Accepted {
@@ -519,7 +570,12 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     let declared: Vec<String> = input
         .get("secrets")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     let bindings = if declared.is_empty() {
         Vec::new()
@@ -546,13 +602,20 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     let prompt = compose_prompt(&input);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
-    let invocation = match invoke(kind, extra, &prompt, &input, &bindings, &mut |data: &Value| {
-        send(Body::Checkpoint {
-            effect_id: effect_id.clone(),
-            attempt_id: attempt_id.clone(),
-            data: data.clone(),
-        });
-    }) {
+    let invocation = match invoke(
+        kind,
+        extra,
+        &prompt,
+        &input,
+        &bindings,
+        &mut |data: &Value| {
+            send(Body::Checkpoint {
+                effect_id: effect_id.clone(),
+                attempt_id: attempt_id.clone(),
+                data: data.clone(),
+            });
+        },
+    ) {
         Ok(invocation) => invocation,
         Err(error) => {
             send(Body::Result {
@@ -565,13 +628,7 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
             return;
         }
     };
-    let stderr_tail_start = {
-        let mut start = invocation.stderr.len().saturating_sub(4000);
-        while !invocation.stderr.is_char_boundary(start) {
-            start -= 1;
-        }
-        start
-    };
+    let stderr_tail_start = stderr_tail_start(&invocation.stderr);
     eprint!("{}", &invocation.stderr[stderr_tail_start..]);
     let mut checkpoint = Map::new();
     checkpoint.insert(
@@ -615,8 +672,10 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
     // raw evidence (decision 0001); adapters repair nothing.
-    let seat_result = serde_json::from_str::<Value>(&raw)
-        .unwrap_or_else(|e| json!({"__unparseable_result_file__": e.to_string()}));
+    let seat_result = match serde_json::from_str::<Value>(&raw) {
+        Ok(result) => result,
+        Err(error) => json!({"__unparseable_result_file__": error.to_string()}),
+    };
     send(Body::Result {
         effect_id,
         attempt_id,
@@ -629,17 +688,20 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
 /// The adapter main loop over stdio: hello/capabilities, start→seat,
 /// cancel/shutdown. `extra` are the args after `--` in the bundle's
 /// driver command.
-pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
+fn serve_io(
+    kind: AdapterKind,
+    extra: &[String],
+    input: impl BufRead,
+    mut output: impl Write,
+) -> std::io::Result<()> {
     let mut send = |body: Body| {
-        if let Ok(line) = serde_json::to_string(&Message::new(body)) {
-            let _ = stdout.write_all(line.as_bytes());
-            let _ = stdout.write_all(b"\n");
-            let _ = stdout.flush();
-        }
+        let line = serde_json::to_string(&Message::new(body))
+            .expect("the closed protocol message vocabulary serializes");
+        let _ = output.write_all(line.as_bytes());
+        let _ = output.write_all(b"\n");
+        let _ = output.flush();
     };
-    for line in stdin.lock().lines() {
+    for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
@@ -653,7 +715,7 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
                 version: ADAPTER_VERSION.to_string(),
                 supports: vec![],
             }),
-            Some("start") => run_seat(kind, &extra, &message, &mut send),
+            Some("start") => run_seat(kind, extra, &message, &mut send),
             Some("cancel") => {
                 send(Body::Cancelled {
                     effect_id: message
@@ -671,64 +733,9 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn binding(name: &str, value: &str) -> secret::BoundSecret {
-        let dir = tempfile::tempdir().unwrap();
-        let store = dir.path().join("secrets.env");
-        secret::store_set(&store, name, value).unwrap();
-        secret::resolve_bindings(&store, &[name.to_string()])
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap()
-    }
-
-    #[test]
-    fn exec_template_resolves_secret_refs_to_env_references_never_values() {
-        let bindings = vec![binding("GH_TOKEN", "tok3n+v4lue!")];
-        let resolved = resolve_exec_part(
-            "curl -H 'auth: {{secret:GH_TOKEN}}' {workdir}/x",
-            "/w",
-            "",
-            &bindings,
-        );
-        assert_eq!(resolved, "curl -H 'auth: $GH_TOKEN' /w/x");
-        assert!(!resolved.contains("tok3n"), "the value never enters argv text");
-    }
-
-    #[test]
-    fn exec_template_leaves_undeclared_refs_untouched() {
-        // Compile refuses these in real bundles; standalone driver use
-        // must still never invent a resolution.
-        let resolved = resolve_exec_part("{{secret:OTHER}}", "/w", "", &[]);
-        assert_eq!(resolved, "{{secret:OTHER}}");
-    }
-
-    #[test]
-    fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
-        // The 0012 amendment leaves the claude fold untouched: a Bash
-        // tool_use (model-authored command) journals NO target; only
-        // input.file_path ever becomes one.
-        let mut turns = 0;
-        let mut meta = Map::new();
-        let mut emitted: Vec<Value> = Vec::new();
-        let event = json!({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Bash",
-             "input": {"command": "curl -H 'auth: hunter22' https://x"}},
-            {"type": "tool_use", "name": "Edit",
-             "input": {"file_path": "src/lib.rs"}},
-        ]}});
-        fold_stream_event(&event, &mut turns, &mut meta, &mut |c| emitted.push(c.clone()));
-        assert_eq!(emitted.len(), 2);
-        assert_eq!(emitted[0]["tool"], "Bash");
-        assert!(emitted[0].get("target").is_none(), "{}", emitted[0]);
-        assert!(
-            !serde_json::to_string(&emitted[0]).unwrap().contains("hunter22"),
-            "the command text never reaches the checkpoint"
-        );
-        assert_eq!(emitted[1]["target"], "src/lib.rs");
-    }
+pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
+    serve_io(kind, &extra, std::io::stdin().lock(), std::io::stdout())
 }
+
+#[cfg(test)]
+mod tests;

@@ -14,7 +14,12 @@ fn git_repo(dir: &std::path::Path) {
         vec!["config", "user.name", "t"],
         vec!["config", "commit.gpgsign", "false"],
     ] {
-        assert!(Command::new("git").args(&args).current_dir(dir).status().unwrap().success());
+        assert!(Command::new("git")
+            .args(&args)
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success());
     }
 }
 
@@ -24,10 +29,17 @@ fn anchor_verifies_detects_movement_and_chains() {
     git_repo(dir.path());
     let db = dir.path().join("forge.db");
     let mut store = Store::open(&db).unwrap();
-    store.create_run("r1", "feat", "self", &json!({"files": {}})).unwrap();
     store
-        .append_next("r1", EventType::RunStarted,
-            json!({"feature": "feat", "manifest": {}}), None, None)
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
         .unwrap();
 
     let first = anchor(&store, dir.path(), "r1").unwrap();
@@ -37,11 +49,20 @@ fn anchor_verifies_detects_movement_and_chains() {
 
     // The journal moves: the stale anchor is detected, never accepted.
     store
-        .append_next("r1", EventType::PhaseEntered, json!({"phase": "intake"}), None, None)
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "intake"}),
+            None,
+            None,
+        )
         .unwrap();
     match verify_anchor(&store, dir.path(), "r1") {
         Err(AnchorError::Mismatch(detail)) => {
-            assert!(detail.contains("journal moved") || detail.contains("moved after"), "{detail}")
+            assert!(
+                detail.contains("journal moved") || detail.contains("moved after"),
+                "{detail}"
+            )
         }
         other => panic!("expected mismatch, got {other:?}"),
     }

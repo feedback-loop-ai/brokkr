@@ -306,12 +306,23 @@ fn summarize(state: &RunState) -> Value {
 }
 
 fn finish(state: &RunState) -> ExitCode {
-    println!("{}", serde_json::to_string_pretty(&summarize(state)).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summarize(state)).unwrap()
+    );
     match state.status {
         Status::Completed => ExitCode::SUCCESS,
         Status::AwaitingOperator => ExitCode::from(2),
         Status::Stopped => ExitCode::from(3),
         Status::Running => ExitCode::from(1),
+    }
+}
+
+fn driver_extra_args(args: Vec<String>) -> Vec<String> {
+    if let Some(index) = args.iter().position(|arg| arg == "--") {
+        args[index + 1..].to_vec()
+    } else {
+        args
     }
 }
 
@@ -326,6 +337,14 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
+    run_with(cli, ui::serve, None)
+}
+
+fn run_with(
+    cli: Cli,
+    serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
+    bridge_iteration_limit: Option<usize>,
+) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { dir } => {
             let digest = init::init(&dir)?;
@@ -339,14 +358,22 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let store = Store::open(&db)?;
             let events = store.load(&run)?;
             let (report, total) = compare::seat_costs(&events);
-            println!("{}", serde_json::to_string_pretty(&json!({
-                "run_id": run,
-                "seats": report,
-                "total_cost_usd": total,
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "run_id": run,
+                    "seats": report,
+                    "total_cost_usd": total,
+                }))?
+            );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Anchor { run, db, repo, check } => {
+        Cmd::Anchor {
+            run,
+            db,
+            repo,
+            check,
+        } => {
             let store = Store::open(&db)?;
             if check {
                 let report = forge_runtime::verify_anchor(&store, &repo, &run)?;
@@ -358,7 +385,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Ui { db, port, open } => {
-            ui::serve(db, port, open)?;
+            serve_ui(db, port, open)?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Doctor { bundle, db } => {
@@ -470,7 +497,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 "operator command must be 'retry' or 'stop'"
             );
             let mut store = Store::open(&db)?;
-            let operator = std::env::var("USER").unwrap_or_else(|_| "operator".into());
+            let operator = std::env::var("USER").unwrap_or("operator".into());
             operator_command(&mut store, &run, &command, &operator, &reason)?;
             eprintln!("recorded operator {command}; continue with: forge resume --run {run}");
             Ok(ExitCode::SUCCESS)
@@ -488,12 +515,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let second = format!("{:?}", fold(&events)?);
             anyhow::ensure!(first == second, "replay was not deterministic");
             let state = fold(&events)?;
-            println!("{}", serde_json::to_string_pretty(&json!({
-                "events": events.len(),
-                "chain": "verified",
-                "replay": "deterministic",
-                "state": summarize(&state),
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "events": events.len(),
+                    "chain": "verified",
+                    "replay": "deterministic",
+                    "state": summarize(&state),
+                }))?
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Export { run, out, db } => {
@@ -511,13 +541,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::VerifyRun { file } => {
-            let ndjson = std::fs::read_to_string(&file)
-                .with_context(|| format!("reading {}", file.display()))?;
+            let ndjson =
+                std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
             let state = forge_store::verify_export(&ndjson)?;
-            println!("{}", serde_json::to_string_pretty(&json!({
-                "chain": "verified",
-                "state": summarize(&state),
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "chain": "verified",
+                    "state": summarize(&state),
+                }))?
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Bridge {
@@ -534,6 +567,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let transport = forge_bridge::HttpTransport::new(looper_url, token);
             let mut bridge = forge_bridge::Bridge::new(transport);
             let mut command_cursor = 0;
+            let mut iteration = 0usize;
             loop {
                 let mut store = Store::open(&db)?;
                 let report = bridge.sync_once(
@@ -554,7 +588,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         "last_forge_sequence": report.last_forge_sequence,
                     }))?
                 );
-                if !follow {
+                iteration += 1;
+                if !follow || bridge_iteration_limit.is_some_and(|limit| iteration >= limit) {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(interval_ms.max(100)));
@@ -577,11 +612,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Driver { kind, args } => {
-            let kind = forge_protocol::adapters::AdapterKind::parse(&kind)
-                .ok_or_else(|| anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, dsh, exec"))?;
-            let extra = args.iter().position(|a| a == "--")
-                .map(|i| args[i + 1..].to_vec())
-                .unwrap_or(args);
+            let kind = forge_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
+                anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, dsh, exec")
+            })?;
+            let extra = driver_extra_args(args);
             forge_protocol::adapters::serve(kind, extra)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -614,15 +648,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     eprintln!("set {name} in {}", secrets_file.display());
                 }
                 SecretsCmd::List { secrets_file } => {
-                    for name in
-                        secret::store_names(&secrets_file).map_err(|e| anyhow::anyhow!(e))?
-                    {
+                    for name in secret::store_names(&secrets_file).map_err(anyhow::Error::msg)? {
                         println!("{name}");
                     }
                 }
                 SecretsCmd::Remove { name, secrets_file } => {
-                    let removed = secret::store_remove(&secrets_file, &name)
-                        .map_err(|e| anyhow::anyhow!(e))?;
+                    let removed =
+                        secret::store_remove(&secrets_file, &name).map_err(anyhow::Error::msg)?;
                     anyhow::ensure!(
                         removed,
                         "no secret named '{name}' in {}",
@@ -639,3 +671,6 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

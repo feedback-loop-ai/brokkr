@@ -279,3 +279,6 @@ impl DriverProcess {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

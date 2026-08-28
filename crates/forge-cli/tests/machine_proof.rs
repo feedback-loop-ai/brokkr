@@ -272,10 +272,14 @@ impl Workspace {
         let work = self.workdir();
         self.forge(&[
             "run",
-            "--bundle", bundle.to_str().unwrap(),
-            "--feature", "proof feature",
-            "--db", db.to_str().unwrap(),
-            "--repo", work.to_str().unwrap(),
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--feature",
+            "proof feature",
+            "--db",
+            db.to_str().unwrap(),
+            "--repo",
+            work.to_str().unwrap(),
         ])
     }
 
@@ -285,10 +289,14 @@ impl Workspace {
         let work = self.workdir();
         self.forge(&[
             "resume",
-            "--run", run_id,
-            "--bundle", bundle.to_str().unwrap(),
-            "--db", db.to_str().unwrap(),
-            "--repo", work.to_str().unwrap(),
+            "--run",
+            run_id,
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--db",
+            db.to_str().unwrap(),
+            "--repo",
+            work.to_str().unwrap(),
         ])
     }
 
@@ -297,9 +305,13 @@ impl Workspace {
         let db = self.db();
         let out = self.path().join("export");
         self.forge(&[
-            "export", "--run", run_id,
-            "--out", out.to_str().unwrap(),
-            "--db", db.to_str().unwrap(),
+            "export",
+            "--run",
+            run_id,
+            "--out",
+            out.to_str().unwrap(),
+            "--db",
+            db.to_str().unwrap(),
         ]);
         std::fs::read_to_string(out.join(format!("{run_id}.ndjson")))
             .unwrap()
@@ -333,16 +345,19 @@ fn full_delivery_completes_exports_and_replays() {
     let run_id = Workspace::run_id(&stderr);
 
     let db = ws.db();
-    let (code, replay, _) =
-        ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
     let out = ws.path().join("export");
     let (code, _, _) = ws.forge(&[
-        "export", "--run", &run_id,
-        "--out", out.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "export",
+        "--run",
+        &run_id,
+        "--out",
+        out.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     let journal = out.join(format!("{run_id}.ndjson"));
@@ -463,7 +478,11 @@ fn seat_supplied_engine_inputs_are_dropped() {
     ]);
     let ws = Workspace::new(script);
     let (code, summary, _) = ws.run();
-    assert_eq!(code, Some(0), "first broken must RETRY (counter=1), not hard-stop");
+    assert_eq!(
+        code,
+        Some(0),
+        "first broken must RETRY (counter=1), not hard-stop"
+    );
     assert_eq!(summary["status"], "completed");
 }
 
@@ -483,16 +502,25 @@ fn vanished_driver_parks_indeterminate_and_operator_retry_completes() {
 
     let db = ws.db();
     let (code, _, _) = ws.forge(&[
-        "operator", "retry", "--run", &run_id,
-        "--reason", "scripted retry",
-        "--db", db.to_str().unwrap(),
+        "operator",
+        "retry",
+        "--run",
+        &run_id,
+        "--reason",
+        "scripted retry",
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     let bundle = ws.bundle_dir();
     let (code, summary, _) = ws.forge(&[
-        "resume", "--run", &run_id,
-        "--bundle", bundle.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "resume",
+        "--run",
+        &run_id,
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     assert_eq!(summary["status"], "completed");
@@ -513,7 +541,11 @@ fn runs_lists_completed_run_with_status_and_phase() {
         .find(|l| l.starts_with(&run_id))
         .expect("runs output has a line for the run");
     let cols: Vec<&str> = line.split('\t').collect();
-    assert_eq!(cols.len(), 5, "run_id, feature, created_at, status, phase: {line}");
+    assert_eq!(
+        cols.len(),
+        5,
+        "run_id, feature, created_at, status, phase: {line}"
+    );
     assert_eq!(cols[0], run_id);
     assert_eq!(cols[1], "proof feature");
     assert_eq!(cols[3], "completed");
@@ -542,7 +574,11 @@ fn runs_lists_parked_run_as_awaiting_operator_at_its_phase() {
         .find(|l| l.starts_with(&run_id))
         .expect("runs output has a line for the run");
     let cols: Vec<&str> = line.split('\t').collect();
-    assert_eq!(cols.len(), 5, "run_id, feature, created_at, status, phase: {line}");
+    assert_eq!(
+        cols.len(),
+        5,
+        "run_id, feature, created_at, status, phase: {line}"
+    );
     assert_eq!(cols[3], "awaiting_operator");
     assert_eq!(cols[4], "implement", "the phase the operator must act on");
 }
@@ -555,7 +591,10 @@ fn protocol_garbage_fails_closed_and_parks() {
     let (code, summary, _) = ws.run();
     assert_eq!(code, Some(2));
     let reason = summary["park_reason"].as_str().unwrap();
-    assert!(reason.contains("unreadable driver message"), "park reason: {reason}");
+    assert!(
+        reason.contains("unreadable driver message"),
+        "park reason: {reason}"
+    );
 }
 
 #[test]
@@ -568,7 +607,11 @@ fn transient_driver_failure_retries_within_limit_and_completes() {
     let ws = Workspace::new(script);
     ws.set_seat_limits("implement", 2, 3600);
     let (code, summary, _) = ws.run();
-    assert_eq!(code, Some(0), "one automated retry within the declared limit");
+    assert_eq!(
+        code,
+        Some(0),
+        "one automated retry within the declared limit"
+    );
     assert_eq!(summary["status"], "completed");
 }
 
@@ -584,7 +627,10 @@ fn exhausted_attempt_limit_parks_with_last_error() {
     let (code, summary, _) = ws.run();
     assert_eq!(code, Some(2));
     let reason = summary["park_reason"].as_str().unwrap();
-    assert!(reason.contains("failed 2 of 2 attempt(s)"), "park reason: {reason}");
+    assert!(
+        reason.contains("failed 2 of 2 attempt(s)"),
+        "park reason: {reason}"
+    );
     assert!(reason.contains("boom two"), "park reason: {reason}");
 }
 
@@ -610,7 +656,11 @@ fn indeterminate_is_never_auto_retried_even_with_attempts_left() {
     let ws = Workspace::new(script);
     ws.set_seat_limits("implement", 3, 3600);
     let (code, summary, _) = ws.run();
-    assert_eq!(code, Some(2), "indeterminate parks into operator judgment, never auto-retries");
+    assert_eq!(
+        code,
+        Some(2),
+        "indeterminate parks into operator judgment, never auto-retries"
+    );
     let reason = summary["park_reason"].as_str().unwrap();
     assert!(reason.contains("indeterminate"), "park reason: {reason}");
 }
@@ -618,8 +668,7 @@ fn indeterminate_is_never_auto_retried_even_with_attempts_left() {
 #[test]
 fn panel_unanimous_pass_completes_with_member_evidence() {
     let mut script = happy_script();
-    script["seats"]["verify:unit"] =
-        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:unit"] = json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
     script["seats"]["verify:integration"] =
         json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
     let ws = Workspace::new(script);
@@ -634,12 +683,15 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
     let db = ws.db();
     let out = ws.path().join("export");
     ws.forge(&[
-        "export", "--run", &run_id,
-        "--out", out.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "export",
+        "--run",
+        &run_id,
+        "--out",
+        out.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
-    let journal =
-        std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
+    let journal = std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
     let events: Vec<Value> = journal
         .lines()
         .map(|l| serde_json::from_str::<Value>(l).unwrap())
@@ -687,7 +739,11 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
         .map(|(i, e)| (i, e["payload"]["checkpoint"]["member"].as_str().unwrap()))
         .collect();
     let summary_members: Vec<&str> = summaries.iter().map(|(_, m)| *m).collect();
-    assert_eq!(summary_members, vec!["integration", "unit"], "declared (sorted) order");
+    assert_eq!(
+        summary_members,
+        vec!["integration", "unit"],
+        "declared (sorted) order"
+    );
     assert!(
         summaries.iter().all(|(i, _)| *i > last_live),
         "summaries journal post-join, after the live stream"
@@ -697,8 +753,7 @@ fn panel_unanimous_pass_completes_with_member_evidence() {
 #[test]
 fn panel_one_failing_member_fails_the_phase() {
     let mut script = happy_script();
-    script["seats"]["verify:unit"] =
-        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:unit"] = json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
     script["seats"]["verify:integration"] =
         json!([{"behavior": "succeed", "result": {"result": "fail"}}]);
     let ws = Workspace::new(script);
@@ -735,15 +790,18 @@ fn review_panel_security_hold_member_hard_stops() {
     let ws = Workspace::new(script);
     ws.make_panel("review", &["correctness", "security"], "review-panel");
     let (code, summary, _) = ws.run();
-    assert_eq!(code, Some(3), "one security-hold member holds the whole panel");
+    assert_eq!(
+        code,
+        Some(3),
+        "one security-hold member holds the whole panel"
+    );
     assert_eq!(summary["last_decision"]["rule_id"], "REVIEW-SECURITY-HOLD");
 }
 
 #[test]
 fn panel_member_vanish_parks_the_whole_attempt_indeterminate() {
     let mut script = happy_script();
-    script["seats"]["verify:unit"] =
-        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:unit"] = json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
     script["seats"]["verify:integration"] = json!([{"behavior": "vanish"}]);
     let ws = Workspace::new(script);
     ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
@@ -792,14 +850,17 @@ fn confined_seat_completes_inside_a_container() {
 #[test]
 fn panel_member_out_of_vocabulary_parks_never_coerces() {
     let mut script = happy_script();
-    script["seats"]["verify:unit"] =
-        json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
+    script["seats"]["verify:unit"] = json!([{"behavior": "succeed", "result": {"result": "pass"}}]);
     script["seats"]["verify:integration"] =
         json!([{"behavior": "succeed", "result": {"result": "banana"}}]);
     let ws = Workspace::new(script);
     ws.make_panel("verify", &["unit", "integration"], "unanimous-pass");
     let (code, summary, _) = ws.run();
-    assert_eq!(code, Some(2), "out-of-vocabulary never coerces to fail (law 0001)");
+    assert_eq!(
+        code,
+        Some(2),
+        "out-of-vocabulary never coerces to fail (law 0001)"
+    );
     let reason = summary["park_reason"].as_str().unwrap();
     assert!(reason.contains("schema"), "park reason: {reason}");
 }
@@ -834,7 +895,10 @@ fn sequence_final_step_decides_and_steps_checkpoint_in_order() {
     script["seats"]["implement:chief"] =
         json!([{"behavior": "succeed", "result": {"result": "complete"}}]);
     let ws = Workspace::new(script);
-    ws.make_sequence("implement", &[json!({"name": "draft"}), json!({"name": "chief"})]);
+    ws.make_sequence(
+        "implement",
+        &[json!({"name": "draft"}), json!({"name": "chief"})],
+    );
     let (code, summary, stderr) = ws.run();
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(summary["status"], "completed");
@@ -864,11 +928,13 @@ fn sequence_final_step_decides_and_steps_checkpoint_in_order() {
     let succeeded = events
         .iter()
         .position(|e| {
-            e["type"] == "effect/succeeded"
-                && e["payload"]["result"]["result"] == "complete"
+            e["type"] == "effect/succeeded" && e["payload"]["result"]["result"] == "complete"
         })
         .expect("terminal effect event carries the FINAL step's result");
-    assert!(finished < succeeded, "step checkpoint precedes the terminal event");
+    assert!(
+        finished < succeeded,
+        "step checkpoint precedes the terminal event"
+    );
     let decision = events
         .iter()
         .find(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "implement")
@@ -890,7 +956,10 @@ fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
         {"behavior": "succeed", "result": {"result": "complete"}},
     ]);
     let ws = Workspace::new(script);
-    ws.make_sequence("implement", &[json!({"name": "one"}), json!({"name": "two"})]);
+    ws.make_sequence(
+        "implement",
+        &[json!({"name": "one"}), json!({"name": "two"})],
+    );
     ws.set_seat_limits("implement", 2, 3600);
     let (code, summary, stderr) = ws.run();
     assert_eq!(code, Some(0), "stderr: {stderr}");
@@ -902,8 +971,14 @@ fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
         .find(|e| e["type"] == "effect/failed")
         .expect("first attempt failed");
     let error = failed["payload"]["error"].as_str().unwrap();
-    assert!(error.contains("sequence step 'two'"), "error names the step: {error}");
-    assert!(error.contains("chief crashed"), "error carries the driver error: {error}");
+    assert!(
+        error.contains("sequence step 'two'"),
+        "error names the step: {error}"
+    );
+    assert!(
+        error.contains("chief crashed"),
+        "error carries the driver error: {error}"
+    );
     let step_one_runs = events
         .iter()
         .filter(|e| {
@@ -911,7 +986,10 @@ fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
                 && e["payload"]["checkpoint"]["step_name"] == "one"
         })
         .count();
-    assert_eq!(step_one_runs, 2, "the retry restarts from step 1, not step 2");
+    assert_eq!(
+        step_one_runs, 2,
+        "the retry restarts from step 1, not step 2"
+    );
 }
 
 #[test]
@@ -951,7 +1029,9 @@ fn sequence_panel_step_tags_member_checkpoints_with_step_prefix() {
         .collect();
     assert_eq!(
         live_members,
-        ["chief", "positions:econ", "positions:legal"].into_iter().collect(),
+        ["chief", "positions:econ", "positions:legal"]
+            .into_iter()
+            .collect(),
         "panel-step members tag as '<step>:<member>'"
     );
     let summary_members: Vec<&str> = events
@@ -982,7 +1062,10 @@ fn compile_rejects_bad_sequences() {
 
     // Duplicate step names, case-insensitive.
     let ws = Workspace::new(happy_script());
-    ws.make_sequence("implement", &[json!({"name": "chief"}), json!({"name": "Chief"})]);
+    ws.make_sequence(
+        "implement",
+        &[json!({"name": "chief"}), json!({"name": "Chief"})],
+    );
     let bundle = ws.bundle_dir();
     let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
@@ -1010,22 +1093,26 @@ fn undeclared_seat_inputs_never_reach_the_journal() {
     let db = ws.db();
     let out = ws.path().join("export");
     ws.forge(&[
-        "export", "--run", &run_id,
-        "--out", out.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "export",
+        "--run",
+        &run_id,
+        "--out",
+        out.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
-    let journal =
-        std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
+    let journal = std::fs::read_to_string(out.join(format!("{run_id}.ndjson"))).unwrap();
     let review_decision = journal
         .lines()
         .map(|l| serde_json::from_str::<Value>(l).unwrap())
-        .find(|e| {
-            e["type"] == "transition/decided" && e["payload"]["from"] == "review"
-        })
+        .find(|e| e["type"] == "transition/decided" && e["payload"]["from"] == "review")
         .expect("review decision in journal");
     let inputs = &review_decision["payload"]["inputs"];
     assert_eq!(inputs["fixes_applied"], false);
-    assert!(inputs.get("high_risk_uncovered").is_none(), "inputs: {inputs}");
+    assert!(
+        inputs.get("high_risk_uncovered").is_none(),
+        "inputs: {inputs}"
+    );
     assert!(inputs.get("skip_verify").is_none(), "inputs: {inputs}");
 }
 
@@ -1046,10 +1133,12 @@ fn compile_rejects_provenance_violations() {
             serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         config["seats"]["review"]["inputs"] = declaration.clone();
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-        let (code, _, stderr) =
-            ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
+        let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
-        assert!(stderr.contains(expected), "declaration {declaration}: {stderr}");
+        assert!(
+            stderr.contains(expected),
+            "declaration {declaration}: {stderr}"
+        );
     }
 }
 
@@ -1083,14 +1172,21 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
 
     let db = ws.db();
     let (code, summary, stderr) = ws.forge(&[
-        "rerun", "--run", &source,
-        "--bundle", variant.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "rerun",
+        "--run",
+        &source,
+        "--bundle",
+        variant.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(summary["status"], "completed");
     assert_eq!(summary["phase"], "done");
-    assert_eq!(summary["feature"], "proof feature", "feature copied from the source run");
+    assert_eq!(
+        summary["feature"], "proof feature",
+        "feature copied from the source run"
+    );
 
     let prefix = format!("rerun of {source} as ");
     let line = stderr
@@ -1103,7 +1199,10 @@ fn rerun_completes_under_variant_bundle_and_lists_both_runs() {
         .expect("new run id in announcement")
         .to_string();
     assert_ne!(rerun_id, source, "a rerun is a NEW run, never the source");
-    assert!(line.ends_with(" under proof"), "bundle name in announcement: {line}");
+    assert!(
+        line.ends_with(" under proof"),
+        "bundle name in announcement: {line}"
+    );
 
     // Both runs are independent journal entries.
     let (code, stdout, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
@@ -1147,18 +1246,25 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     for (_, seat) in config["seats"].as_object_mut().unwrap() {
         seat["driver"]["command"] = json!([
-            forge_bin(), "fake-driver",
-            "--script", script_path.to_string_lossy(),
-            "--state", state.to_string_lossy(),
+            forge_bin(),
+            "fake-driver",
+            "--script",
+            script_path.to_string_lossy(),
+            "--state",
+            state.to_string_lossy(),
         ]);
     }
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
 
     let db = ws.db();
     let (code, summary, stderr) = ws.forge(&[
-        "rerun", "--run", &run_a,
-        "--bundle", variant.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "rerun",
+        "--run",
+        &run_a,
+        "--bundle",
+        variant.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(summary["status"], "completed");
@@ -1194,12 +1300,21 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
             run["seats"]["review"]["attempts"].as_u64().unwrap() >= 1,
             "run {id}: {run}"
         );
-        assert_eq!(run["phases_visited"]["ship"], 2, "ready then shipped: {run}");
+        assert_eq!(
+            run["phases_visited"]["ship"], 2,
+            "ready then shipped: {run}"
+        );
     }
     assert_eq!(
         report["runs"][run_a.as_str()]["decision_trail"],
-        json!(["INTAKE-OK", "IMPL-OK", "VERIFY-PASS",
-               "REVIEW-CLEAN-NO-FIXES", "SHIP-READY", "SHIP-COMPLETE"])
+        json!([
+            "INTAKE-OK",
+            "IMPL-OK",
+            "VERIFY-PASS",
+            "REVIEW-CLEAN-NO-FIXES",
+            "SHIP-READY",
+            "SHIP-COMPLETE"
+        ])
     );
     assert_eq!(
         report["runs"][run_b.as_str()]["decision_trail"][3],
@@ -1217,10 +1332,18 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
     assert!(cmp["attempts_delta"].is_number(), "comparison: {cmp}");
 
     // Either run missing is a clear exit-1 error naming the run.
-    let (code, _, stderr) =
-        ws.forge(&["compare", "no-such-run", &run_b, "--db", db.to_str().unwrap()]);
+    let (code, _, stderr) = ws.forge(&[
+        "compare",
+        "no-such-run",
+        &run_b,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains("no-such-run"), "stderr names the missing run: {stderr}");
+    assert!(
+        stderr.contains("no-such-run"),
+        "stderr names the missing run: {stderr}"
+    );
 }
 
 #[test]
@@ -1229,12 +1352,19 @@ fn rerun_of_nonexistent_run_errors() {
     let bundle = ws.bundle_dir();
     let db = ws.db();
     let (code, _, stderr) = ws.forge(&[
-        "rerun", "--run", "no-such-run",
-        "--bundle", bundle.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "rerun",
+        "--run",
+        "no-such-run",
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains("no-such-run"), "stderr names the missing run: {stderr}");
+    assert!(
+        stderr.contains("no-such-run"),
+        "stderr names the missing run: {stderr}"
+    );
 }
 
 #[test]
@@ -1250,11 +1380,19 @@ fn resume_refuses_an_edited_bundle() {
     let db = ws.db();
     let bundle = ws.bundle_dir();
     let (code, _, stderr) = ws.forge(&[
-        "resume", "--run", &run_id,
-        "--bundle", bundle.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "resume",
+        "--run",
+        &run_id,
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
-    assert_eq!(code, Some(1), "an active run never silently changes its bundle");
+    assert_eq!(
+        code,
+        Some(1),
+        "an active run never silently changes its bundle"
+    );
     assert!(stderr.contains("different bundle"), "stderr: {stderr}");
     assert!(stderr.contains("roles/role.md"), "stderr: {stderr}");
 }
@@ -1286,7 +1424,10 @@ fn compile_rejects_uncovered_results_and_review_bypass() {
     std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
     let (code, _, stderr) = ws.forge(&["compile", "--bundle", bundle.to_str().unwrap()]);
     assert_eq!(code, Some(1));
-    assert!(stderr.contains("constitutionally rejected"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("constitutionally rejected"),
+        "stderr: {stderr}"
+    );
 }
 
 /// The one implement decision in a run's journal.
@@ -1316,10 +1457,17 @@ fn missing_artifact_fails_closed_and_no_subsequent_seat_runs() {
 
     let events = ws.exported_events(&Workspace::run_id(&stderr));
     let payload = implement_decision(&events)["payload"].clone();
-    assert_eq!(payload["rule_id"], "IMPL-OK", "the rule DID match; a gate block is not NoRule");
+    assert_eq!(
+        payload["rule_id"], "IMPL-OK",
+        "the rule DID match; a gate block is not NoRule"
+    );
     assert_eq!(payload["result"], "complete");
     assert_eq!(payload["next"], Value::Null, "fails closed");
-    assert_eq!(payload["severity"], Value::Null, "no transition taken, no severity");
+    assert_eq!(
+        payload["severity"],
+        Value::Null,
+        "no transition taken, no severity"
+    );
     assert_eq!(
         payload["problem"],
         "requires_artifacts unmet for rule IMPL-OK: missing: spec.md"
@@ -1451,9 +1599,14 @@ fn gate_park_recovers_via_operator_retry_consuming_no_attempt_budget() {
     std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
     let db = ws.db();
     let (code, _, _) = ws.forge(&[
-        "operator", "retry", "--run", &run_id,
-        "--reason", "artifacts supplied",
-        "--db", db.to_str().unwrap(),
+        "operator",
+        "retry",
+        "--run",
+        &run_id,
+        "--reason",
+        "artifacts supplied",
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     let (code, summary, stderr) = ws.resume_in_workdir(&run_id);
@@ -1473,8 +1626,7 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
     let db = ws.db();
-    let (code, replay, _) =
-        ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
 
@@ -1489,15 +1641,18 @@ fn gate_decisions_replay_with_the_workdir_deleted() {
     let run_id = Workspace::run_id(&stderr);
     std::fs::remove_dir_all(ws.workdir()).unwrap();
     let db = ws.db();
-    let (code, replay, _) =
-        ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
+    let (code, replay, _) = ws.forge(&["replay", "--run", &run_id, "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0));
     assert_eq!(replay["replay"], "deterministic");
     let out = ws.path().join("export");
     let (code, _, _) = ws.forge(&[
-        "export", "--run", &run_id,
-        "--out", out.to_str().unwrap(),
-        "--db", db.to_str().unwrap(),
+        "export",
+        "--run",
+        &run_id,
+        "--out",
+        out.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     let journal = out.join(format!("{run_id}.ndjson"));
@@ -1531,13 +1686,22 @@ fn gate_park_resets_consecutive_failures() {
     std::fs::write(ws.workdir().join("spec.md"), "# spec\n").unwrap();
     let db = ws.db();
     let (code, _, _) = ws.forge(&[
-        "operator", "retry", "--run", &run_id,
-        "--reason", "artifacts supplied",
-        "--db", db.to_str().unwrap(),
+        "operator",
+        "retry",
+        "--run",
+        &run_id,
+        "--reason",
+        "artifacts supplied",
+        "--db",
+        db.to_str().unwrap(),
     ]);
     assert_eq!(code, Some(0));
     let (code, summary, stderr) = ws.resume_in_workdir(&run_id);
-    assert_eq!(code, Some(0), "a reset counter retries; a stale one hard-stops: {stderr}");
+    assert_eq!(
+        code,
+        Some(0),
+        "a reset counter retries; a stale one hard-stops: {stderr}"
+    );
     assert_eq!(summary["status"], "completed");
 
     let events = ws.exported_events(&run_id);
@@ -1549,7 +1713,12 @@ fn gate_park_resets_consecutive_failures() {
     let trail: Vec<&Value> = implement_rules.iter().map(|p| &p["rule_id"]).collect();
     assert_eq!(
         trail,
-        vec!["IMPL-BROKEN-RETRY", "IMPL-OK", "IMPL-BROKEN-RETRY", "IMPL-OK"],
+        vec![
+            "IMPL-BROKEN-RETRY",
+            "IMPL-OK",
+            "IMPL-BROKEN-RETRY",
+            "IMPL-OK"
+        ],
         "never IMPL-BROKEN-TWICE"
     );
     assert_eq!(
@@ -1620,7 +1789,10 @@ fn secrets_cli_round_trips_and_never_prints_values() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(stdout, "API_KEY\nGH_TOKEN\n", "names only, sorted");
     for value in ["tokenvalue-alpha", "keyvalue-beta"] {
-        assert!(!stdout.contains(value) && !stderr.contains(value), "list printed a value");
+        assert!(
+            !stdout.contains(value) && !stderr.contains(value),
+            "list printed a value"
+        );
     }
     let (code, _, _) = forge_stdin(
         dir.path(),
@@ -1740,11 +1912,16 @@ mod journal_invariant {
         let work = ws.workdir();
         ws.forge(&[
             "run",
-            "--bundle", bundle.to_str().unwrap(),
-            "--feature", "proof feature",
-            "--db", db.to_str().unwrap(),
-            "--repo", work.to_str().unwrap(),
-            "--secrets-file", store.to_str().unwrap(),
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--feature",
+            "proof feature",
+            "--db",
+            db.to_str().unwrap(),
+            "--repo",
+            work.to_str().unwrap(),
+            "--secrets-file",
+            store.to_str().unwrap(),
         ])
     }
 
@@ -1758,9 +1935,13 @@ mod journal_invariant {
         let db = ws.db();
         let out = ws.path().join("export");
         ws.forge(&[
-            "export", "--run", run_id,
-            "--out", out.to_str().unwrap(),
-            "--db", db.to_str().unwrap(),
+            "export",
+            "--run",
+            run_id,
+            "--out",
+            out.to_str().unwrap(),
+            "--db",
+            db.to_str().unwrap(),
         ]);
         let journal = std::fs::read(out.join(format!("{run_id}.ndjson"))).unwrap();
         for (label, encode) in forge_protocol::secret::NEEDLE_ENCODINGS {
@@ -1849,6 +2030,10 @@ fn expose_for_spawn_has_exactly_one_production_call_site() {
                 // the trust-boundary module itself.
                 && path.components().any(|c| c.as_os_str() == "src")
                 && path.file_name().and_then(|n| n.to_str()) != Some("secret.rs")
+                && !path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "tests.rs" || n.ends_with("_tests.rs"))
             {
                 let content = std::fs::read_to_string(&path).unwrap();
                 let count = content.matches(&needle).count();
