@@ -76,12 +76,12 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   override; the four existing warning strings stay byte-identical.
   *Proven by*: AC-10 — `doctor/tests.rs`: missing→warning-with-path,
   present→ok, existing-warnings-unchanged.
-- [ ] **T12 — Docs.** `ARCHITECTURE.md` (~:104) and
+- [x] **T12 — Docs.** `ARCHITECTURE.md` (~:104) and
   `docs/extension-model.md` (~:54) list lanetally with the one honest
   cost-provenance sentence (list price stays; ledger-priceable; join
   deferred until readplane exposes a session query).
   *Proven by*: AC-11 — review against the framed sentence.
-- [ ] **T13 — Workspace regression sweep.** `cargo test --workspace`;
+- [x] **T13 — Workspace regression sweep.** `cargo test --workspace`;
   frozen surfaces byte-untouched.
   *Proven by*: AC-12 — full suite green plus empty `git diff --stat`
   for `reference/`, `fixtures/`, `contracts/`, `policy/`.
