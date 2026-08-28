@@ -81,8 +81,9 @@ pub fn list(dir: &Path) -> Result<()> {
             for sub in subdirs {
                 let name = sub
                     .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| sub.display().to_string());
+                    .expect("read_dir child path has a final component")
+                    .to_string_lossy()
+                    .into_owned();
                 candidates.push((name, sub));
             }
         }
@@ -233,3 +234,6 @@ pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

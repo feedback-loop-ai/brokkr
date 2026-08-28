@@ -31,7 +31,14 @@ fn confined_command_wraps_and_trusted_passes_through() {
     assert!(rendered.contains("-v /extra:/extra:ro"));
     assert!(rendered.ends_with("ubuntu:24.04 python3 /b/drivers/x.py"));
 
-    let open = Confine { image: "img".into(), network: true, mounts: vec![] };
+    let open = Confine {
+        image: "img".into(),
+        network: true,
+        mounts: vec![],
+    };
     let rendered = confined_command(&command, Some(&open), workdir, bundle).join(" ");
-    assert!(!rendered.contains("--network=none"), "granted network is not cut");
+    assert!(
+        !rendered.contains("--network=none"),
+        "granted network is not cut"
+    );
 }

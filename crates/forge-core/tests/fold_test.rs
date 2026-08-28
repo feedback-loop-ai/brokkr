@@ -1,9 +1,9 @@
 //! Fold behavior: protocol-shape enforcement, counters, replay
 //! determinism, and the crash-recovery cursor positions.
 
+use forge_core::canonical::ZERO_HASH;
 use forge_core::envelope::{verify_chain, EventEnvelope, EventType};
 use forge_core::fold::{computed_inputs, fold, Cursor, FoldError, Status};
-use forge_core::canonical::ZERO_HASH;
 use serde_json::{json, Value};
 
 struct Journal {
@@ -122,10 +122,16 @@ fn failed_effect_demands_park_and_operator_retry_reopens() {
     // attempt counted; the engine decides retry-or-park (decision 0006).
     assert!(matches!(
         state.cursor,
-        Cursor::ExecuteEffect { failed_attempts: 1, .. }
+        Cursor::ExecuteEffect {
+            failed_attempts: 1,
+            ..
+        }
     ));
 
-    journal.append(EventType::RunParked, json!({"reason": "effect fx failed", "evidence": {}}));
+    journal.append(
+        EventType::RunParked,
+        json!({"reason": "effect fx failed", "evidence": {}}),
+    );
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.status, Status::AwaitingOperator);
     assert_eq!(state.cursor, Cursor::Idle);

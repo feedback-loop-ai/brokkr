@@ -134,7 +134,11 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
-        feature: first.payload.get("feature").and_then(Value::as_str).map(str::to_string),
+        feature: first
+            .payload
+            .get("feature")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         pending_command: None,
     };
 
@@ -226,15 +230,18 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
         EffectSucceeded => {
             let effect_id = payload_str(event, "effect_id")?;
             match &state.cursor {
-                Cursor::EffectInFlight { effect_id: open, .. } if *open == effect_id => {
-                    let result = event
-                        .payload
-                        .get("result")
-                        .cloned()
-                        .ok_or(FoldError::BadPayload {
-                            seq: event.seq,
-                            field: "result".into(),
-                        })?;
+                Cursor::EffectInFlight {
+                    effect_id: open, ..
+                } if *open == effect_id => {
+                    let result =
+                        event
+                            .payload
+                            .get("result")
+                            .cloned()
+                            .ok_or(FoldError::BadPayload {
+                                seq: event.seq,
+                                field: "result".into(),
+                            })?;
                     state.cursor = Cursor::Decide { effect_id, result };
                     Ok(())
                 }
@@ -420,10 +427,10 @@ pub fn computed_inputs(state: &RunState, phase: &str, result: &str) -> Map<Strin
     let mut inputs = Map::new();
     if FAILURE_RESULTS.contains(&result) {
         let prior = state.consecutive_failures.get(phase).copied().unwrap_or(0);
-        inputs.insert(
-            "consecutive_failures".to_string(),
-            Value::from(prior + 1),
-        );
+        inputs.insert("consecutive_failures".to_string(), Value::from(prior + 1));
     }
     inputs
 }
+
+#[cfg(test)]
+mod tests;

@@ -51,7 +51,10 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                 if let Some(seat) = seat {
                     let checkpoint = &payload["checkpoint"];
                     let entry = seats.entry(seat).or_default();
-                    entry.1 += checkpoint.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
+                    entry.1 += checkpoint
+                        .get("num_turns")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
                     entry.2 += checkpoint
                         .get("total_cost_usd")
                         .and_then(Value::as_f64)
@@ -65,7 +68,10 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
     let report: Map<String, Value> = seats
         .into_iter()
         .map(|(seat, (attempts, turns, cost))| {
-            (seat, json!({"attempts": attempts, "turns": turns, "cost_usd": cost}))
+            (
+                seat,
+                json!({"attempts": attempts, "turns": turns, "cost_usd": cost}),
+            )
         })
         .collect();
     (report, total)
@@ -85,11 +91,11 @@ struct RunFacts {
 fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
     let events = store
         .load(run_id)
-        .with_context(|| format!("loading run '{run_id}'"))?;
+        .context(format!("loading run '{run_id}'"))?;
     let manifest = store
         .manifest(run_id)
-        .with_context(|| format!("loading manifest for run '{run_id}'"))?;
-    let state = fold(&events).with_context(|| format!("folding run '{run_id}'"))?;
+        .context(format!("loading manifest for run '{run_id}'"))?;
+    let state = fold(&events).context(format!("folding run '{run_id}'"))?;
 
     let feature = events
         .first()
@@ -206,3 +212,6 @@ pub fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

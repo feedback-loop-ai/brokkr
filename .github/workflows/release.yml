@@ -4,12 +4,57 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-
 jobs:
+  verify:
+    name: release admission
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: tag matches the workspace release version
+        shell: bash
+        run: |
+          expected="v$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          test "${GITHUB_REF_NAME}" = "${expected}"
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --all-features --locked
+      - name: producer and frozen-contract release verification
+        run: |
+          cargo run --locked -p forge-cli -- compile --bundle bundles/self
+          cargo run --locked -p forge-cli -- compile --bundle bundles/verify
+          cargo test --locked -p forge-bridge
+          cargo test --locked -p forge-cli --test driver_conformance
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  coverage:
+    name: exact release coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/coverage-exact.sh
+
   build:
     name: build (${{ matrix.name }})
+    needs: [verify, coverage]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -27,16 +72,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: test (native legs only)
-        if: matrix.cross != true
-        run: cargo test --workspace
-      - run: cargo build --release -p forge-cli --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p forge-cli --target ${{ matrix.target }}
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
           tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" forge
-          shasum -a 256 "dist/${{ matrix.name }}.tar.gz" > "dist/${{ matrix.name }}.tar.gz.sha256"
+          cd dist
+          shasum -a 256 "${{ matrix.name }}.tar.gz" > "${{ matrix.name }}.tar.gz.sha256"
       - name: package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -44,6 +87,10 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "target/${{ matrix.target }}/release/forge.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
           (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
+      - name: attest packaged binary and checksum
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
@@ -53,6 +100,10 @@ jobs:
     name: publish release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -61,14 +112,20 @@ jobs:
       - name: aggregate checksums
         run: |
           cd dist
+          sha256sum -c *.sha256
           cat *.sha256 > SHA256SUMS
           rm *.sha256
           ls -la
+      - name: attest aggregate checksum manifest
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
           body: |
             One native binary per platform — no Python, no Node, no services.
-            Verify downloads against SHA256SUMS. See ARCHITECTURE.md and
-            docs/decisions/ for what this engine is and why.
+            Verify downloads against SHA256SUMS, then verify signed GitHub
+            build provenance with `gh attestation verify <asset> -R ${{ github.repository }}`.
+            See ARCHITECTURE.md and docs/decisions/ for what this engine is and why.

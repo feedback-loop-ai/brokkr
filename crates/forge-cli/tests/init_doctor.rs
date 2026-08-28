@@ -26,7 +26,10 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(stderr.contains("digest"), "stderr: {stderr}");
 
     // The scaffold passes the same compile gate as any bundle.
-    let (code, stdout, stderr) = forge(&["compile", "--bundle", bundle.to_str().unwrap()], dir.path());
+    let (code, stdout, stderr) = forge(
+        &["compile", "--bundle", bundle.to_str().unwrap()],
+        dir.path(),
+    );
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stdout.contains("\"starter\""));
 
@@ -75,7 +78,13 @@ fn doctor_reports_health_and_validates_a_bundle() {
     // A broken bundle turns the report unhealthy.
     std::fs::write(bundle.join("policy.json"), "{}").unwrap();
     let (code, stdout, _) = forge(
-        &["doctor", "--bundle", bundle.to_str().unwrap(), "--db", db.to_str().unwrap()],
+        &[
+            "doctor",
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--db",
+            db.to_str().unwrap(),
+        ],
         dir.path(),
     );
     assert_eq!(code, Some(1), "doctor output: {stdout}");

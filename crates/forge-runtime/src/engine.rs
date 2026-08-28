@@ -7,10 +7,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use forge_core::envelope::EventType;
 use forge_core::dispatch::{
     build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
 };
+use forge_core::envelope::EventType;
 use forge_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
 use forge_core::policy::Outcome;
 use forge_core::EventEnvelope;
@@ -22,8 +22,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::bundle::{
-    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody,
-    ENGINE_OWNED_INPUTS, ENGINE_VERSION,
+    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_OWNED_INPUTS,
+    ENGINE_VERSION,
 };
 use forge_core::policy::SEVERITY_ORDER;
 use forge_protocol::AttemptReport;
@@ -192,9 +192,7 @@ impl Engine {
             });
         }
         let events = store.load(run_id)?;
-        let feature = fold(&events)?
-            .feature
-            .unwrap_or_else(|| "unknown".to_string());
+        let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
         Ok(Engine {
             store,
             bundle,
@@ -222,97 +220,110 @@ impl Engine {
                             eprintln!("anchor gap for {}: {e}", self.run_id);
                         }
                     }
-                    return Ok(DriveEnd { state })
+                    return Ok(DriveEnd { state });
                 }
-                (Status::Running, cursor) => match cursor.clone() {
-                    Cursor::Start => {
-                        let initial = self.bundle.machine.initial.clone();
-                        self.append(EventType::PhaseEntered, json!({"phase": initial}), None)?;
-                    }
-                    Cursor::EnterPhase { phase } => {
-                        self.append(EventType::PhaseEntered, json!({"phase": phase}), None)?;
-                    }
-                    Cursor::RequestEffect => self.request_or_finish(&state)?,
-                    Cursor::ExecuteEffect {
-                        effect_id,
-                        seat,
-                        failed_attempts,
-                    } => {
-                        let limits = self
-                            .bundle
-                            .seats
-                            .get(&seat)
-                            .map(|s| s.limits)
-                            .unwrap_or_default();
-                        if failed_attempts >= limits.max_attempts {
-                            // Bounded retry exhausted (decision 0006):
-                            // park with the last recorded error.
-                            let last_error = events
-                                .iter()
-                                .rev()
-                                .find(|e| {
-                                    e.event_type == EventType::EffectFailed
-                                        && e.payload.get("effect_id").and_then(Value::as_str)
-                                            == Some(effect_id.as_str())
-                                })
-                                .and_then(|e| e.payload.get("error").and_then(Value::as_str))
-                                .unwrap_or("no error recorded")
-                                .to_string();
-                            self.append(
-                                EventType::RunParked,
-                                json!({
-                                    "reason": format!(
-                                        "effect {effect_id} failed {failed_attempts} of {} \
-                                         attempt(s); last error: {last_error}",
-                                        limits.max_attempts
-                                    ),
-                                    "evidence": {},
-                                }),
-                                None,
-                            )?;
-                        } else {
-                            self.execute(&events, &state, &effect_id, &seat)?
-                        }
-                    }
-                    Cursor::EffectInFlight {
-                        effect_id,
-                        attempt_id,
-                        ..
-                    } => {
-                        // Fresh process, no live driver: completion cannot be
-                        // established. Park rather than guess or re-pay.
-                        self.append(
-                            EventType::EffectIndeterminate,
-                            json!({
-                                "effect_id": effect_id,
-                                "attempt_id": attempt_id,
-                                "reason": "engine restarted while the attempt was in \
-                                           flight; completion cannot be established",
-                            }),
-                            Some(attempt_id),
-                        )?;
-                    }
-                    Cursor::Decide { effect_id, result } => {
-                        self.decide(&state, &effect_id, result)?
-                    }
-                    Cursor::Park { reason } => {
-                        self.append(
-                            EventType::RunParked,
-                            json!({"reason": reason, "evidence": {}}),
-                            None,
-                        )?;
-                    }
-                    Cursor::Stop => {
-                        self.append(
-                            EventType::RunStopped,
-                            json!({"reason": "operator stop accepted"}),
-                            None,
-                        )?;
-                    }
-                    Cursor::Idle => return Ok(DriveEnd { state }),
-                },
+                (Status::Running, _) => {
+                    self.advance_running(&events, state)?;
+                }
             }
         }
+    }
+
+    fn advance_running(
+        &mut self,
+        events: &[EventEnvelope],
+        state: RunState,
+    ) -> Result<(), EngineError> {
+        match state.cursor.clone() {
+            Cursor::Start => {
+                let initial = self.bundle.machine.initial.clone();
+                self.append(EventType::PhaseEntered, json!({"phase": initial}), None)?;
+            }
+            Cursor::EnterPhase { phase } => {
+                self.append(EventType::PhaseEntered, json!({"phase": phase}), None)?;
+            }
+            Cursor::RequestEffect => self.request_or_finish(&state)?,
+            Cursor::ExecuteEffect {
+                effect_id,
+                seat,
+                failed_attempts,
+            } => {
+                let limits = self
+                    .bundle
+                    .seats
+                    .get(&seat)
+                    .map(|seat| seat.limits)
+                    .unwrap_or_default();
+                if failed_attempts >= limits.max_attempts {
+                    // Bounded retry exhausted (decision 0006): park with the
+                    // last recorded error.
+                    let last_error = events
+                        .iter()
+                        .rev()
+                        .find(|event| {
+                            event.event_type == EventType::EffectFailed
+                                && event.payload.get("effect_id").and_then(Value::as_str)
+                                    == Some(effect_id.as_str())
+                        })
+                        .and_then(|event| event.payload.get("error").and_then(Value::as_str))
+                        .unwrap_or("no error recorded")
+                        .to_string();
+                    self.append(
+                        EventType::RunParked,
+                        json!({
+                            "reason": format!(
+                                "effect {effect_id} failed {failed_attempts} of {} attempt(s); \
+                                 last error: {last_error}",
+                                limits.max_attempts
+                            ),
+                            "evidence": {},
+                        }),
+                        None,
+                    )?;
+                } else {
+                    self.execute(events, &state, &effect_id, &seat)?
+                }
+            }
+            Cursor::EffectInFlight {
+                effect_id,
+                attempt_id,
+                ..
+            } => {
+                // Fresh process, no live driver: completion cannot be
+                // established. Park rather than guess or re-pay.
+                self.append(
+                    EventType::EffectIndeterminate,
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "reason": "engine restarted while the attempt was in flight; \
+                                   completion cannot be established",
+                    }),
+                    Some(attempt_id),
+                )?;
+            }
+            Cursor::Decide { effect_id, result } => self.decide(&state, &effect_id, result)?,
+            Cursor::Park { reason } => {
+                self.append(
+                    EventType::RunParked,
+                    json!({"reason": reason, "evidence": {}}),
+                    None,
+                )?;
+            }
+            Cursor::Stop => {
+                self.append(
+                    EventType::RunStopped,
+                    json!({"reason": "operator stop accepted"}),
+                    None,
+                )?;
+            }
+            Cursor::Idle => {
+                return Err(EngineError::Other(
+                    "running state reached the terminal idle cursor".into(),
+                ))
+            }
+        }
+        Ok(())
     }
 
     fn append(
@@ -345,7 +356,7 @@ impl Engine {
                     .and_then(|d| d.get("rule_id"))
                     .and_then(Value::as_str)
                     .map(|r| format!("hard stop ruled by {r}"))
-                    .unwrap_or_else(|| "stopped".to_string());
+                    .unwrap_or("stopped".to_string());
                 self.append(EventType::RunStopped, json!({"reason": reason}), None)?;
             } else {
                 self.append(EventType::RunCompleted, json!({}), None)?;
@@ -380,7 +391,9 @@ impl Engine {
         effect_id: &str,
     ) -> Result<Value, EngineError> {
         let seat = self.bundle.seats.get(phase).ok_or_else(|| {
-            EngineError::Other(format!("no seat for phase '{phase}' (compile enforces this)"))
+            EngineError::Other(format!(
+                "no seat for phase '{phase}' (compile enforces this)"
+            ))
         })?;
         let workdir = self.workdir();
         let context = json!({
@@ -578,16 +591,30 @@ impl Engine {
 
         match &seat.body {
             SeatBody::Panel { members, aggregate } => self.execute_panel(
-                effect_id, &attempt_id, seat_name, members, *aggregate, &input, deadline,
+                effect_id,
+                &attempt_id,
+                seat_name,
+                members,
+                *aggregate,
+                &input,
+                deadline,
             ),
             SeatBody::Sequence { steps } => {
                 self.execute_sequence(effect_id, &attempt_id, seat_name, steps, &input, deadline)
             }
-            SeatBody::Single { command, confine, .. } => {
+            SeatBody::Single {
+                command, confine, ..
+            } => {
                 let command =
                     confined_command(command, confine.as_ref(), &workdir, &self.bundle.dir);
                 let run = self.run_driver(
-                    effect_id, &attempt_id, seat_name, &command, input, deadline, None,
+                    effect_id,
+                    &attempt_id,
+                    seat_name,
+                    &command,
+                    input,
+                    deadline,
+                    None,
                 )?;
                 self.conclude_single(effect_id, &attempt_id, run)
             }
@@ -851,33 +878,30 @@ impl Engine {
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report = match DriverProcess::spawn(
-                            &run.command,
-                            &workdir,
-                            Some(deadline),
-                        ) {
-                            Err(e) => AttemptReport {
-                                outcome: AttemptOutcome::Failed {
-                                    error: format!("member driver did not spawn: {e}"),
+                        let report =
+                            match DriverProcess::spawn(&run.command, &workdir, Some(deadline)) {
+                                Err(e) => AttemptReport {
+                                    outcome: AttemptOutcome::Failed {
+                                        error: format!("member driver did not spawn: {e}"),
+                                    },
+                                    session_ref: None,
+                                    checkpoints: Vec::new(),
+                                    stderr: String::new(),
                                 },
-                                session_ref: None,
-                                checkpoints: Vec::new(),
-                                stderr: String::new(),
-                            },
-                            Ok(process) => process.run_attempt(
-                                ENGINE_VERSION,
-                                effect_id,
-                                attempt_id,
-                                &run.driver_seat,
-                                run.input.clone(),
-                                // Live telemetry: hand each checkpoint to the
-                                // main thread — the store has one writer.
-                                |data| {
-                                    let _ = sender
-                                        .send((checkpoint_name.clone(), data.clone()));
-                                },
-                            ),
-                        };
+                                Ok(process) => process.run_attempt(
+                                    ENGINE_VERSION,
+                                    effect_id,
+                                    attempt_id,
+                                    &run.driver_seat,
+                                    run.input.clone(),
+                                    // Live telemetry: hand each checkpoint to the
+                                    // main thread — the store has one writer.
+                                    |data| {
+                                        let _ =
+                                            sender.send((checkpoint_name.clone(), data.clone()));
+                                    },
+                                ),
+                            };
                         (name, report)
                     })
                 })
@@ -985,7 +1009,9 @@ impl Engine {
                 Value::Object(context)
             };
             let outcome = match &step.body {
-                StepBody::Single { command, confine, .. } => {
+                StepBody::Single {
+                    command, confine, ..
+                } => {
                     let driver_seat = format!("{seat_name}:{}", step.name);
                     let mut input = json!({
                         "feature": seq_input["feature"],
@@ -1147,7 +1173,10 @@ impl Engine {
         }
 
         let object = raw_result.as_object().expect("checked above");
-        let result = object["result"].as_str().expect("checked above").to_string();
+        let result = object["result"]
+            .as_str()
+            .expect("checked above")
+            .to_string();
 
         // Seat-supplied facts: everything the engine owns is dropped, and
         // only the seat's DECLARED inputs survive (decision 0007) — an
@@ -1274,7 +1303,10 @@ pub fn operator_command(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FencedCommandOutcome {
-    Accepted { head_seq: u64, head_hash: String },
+    Accepted {
+        head_seq: u64,
+        head_hash: String,
+    },
     Rejected {
         reason: String,
         head_seq: u64,
@@ -1286,6 +1318,9 @@ pub enum FencedCommandOutcome {
 /// is supplied by Looper, the expected cursor/hash fences concurrent operator
 /// activity, and both acceptance and rejection become Forge journal evidence
 /// before any control-state effect is possible.
+// The arguments intentionally keep each security-relevant wire field explicit
+// at this narrow trust boundary rather than hiding them in an unvalidated bag.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
@@ -1444,7 +1479,14 @@ fn tag_member(checkpoint: Value, member: &str) -> Value {
 }
 
 fn stderr_tail(stderr: &str) -> String {
-    stderr.chars().rev().take(2000).collect::<String>().chars().rev().collect()
+    stderr
+        .chars()
+        .rev()
+        .take(2000)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect()
 }
 
 /// Join member reports into the attempt's single outcome: any
@@ -1452,35 +1494,26 @@ fn stderr_tail(stderr: &str) -> String {
 /// member fails it (retryable under 0006); otherwise the declared
 /// aggregate produces the one typed result.
 fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) -> AttemptOutcome {
-    let indeterminate: Vec<&str> = reports
-        .iter()
-        .filter(|(_, r)| matches!(r.outcome, AttemptOutcome::Indeterminate { .. }))
-        .map(|(n, _)| n.as_str())
-        .collect();
+    let mut indeterminate = Vec::new();
+    let mut failures = Vec::new();
+    let mut member_results = Vec::new();
+    for (name, report) in reports {
+        match report.outcome {
+            AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
+            AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
+            AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
+        }
+    }
     if !indeterminate.is_empty() {
         return AttemptOutcome::Indeterminate {
             reason: format!("panel members {indeterminate:?} could not establish completion"),
         };
     }
-    let failures: Vec<String> = reports
-        .iter()
-        .filter_map(|(n, r)| match &r.outcome {
-            AttemptOutcome::Failed { error } => Some(format!("{n}: {error}")),
-            _ => None,
-        })
-        .collect();
     if !failures.is_empty() {
         return AttemptOutcome::Failed {
             error: format!("panel members failed — {}", failures.join("; ")),
         };
     }
-    let member_results: Vec<(String, Value)> = reports
-        .into_iter()
-        .map(|(n, r)| match r.outcome {
-            AttemptOutcome::Succeeded { result } => (n, result),
-            _ => unreachable!("filtered above"),
-        })
-        .collect();
     AttemptOutcome::Succeeded {
         result: aggregate_results(aggregate, &member_results),
     }
@@ -1506,8 +1539,7 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
                 parsed.push((name.as_str(), result, payload));
             }
             None => {
-                let evidence: Map<String, Value> =
-                    members.iter().cloned().collect();
+                let evidence: Map<String, Value> = members.iter().cloned().collect();
                 return json!({
                     "result": "__member-schema-invalid__",
                     "notes": {"members": Value::Object(evidence)},
@@ -1549,8 +1581,7 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
             let mut fixes_applied = false;
             for (_, _, payload) in &parsed {
                 if let Some(inputs) = payload.get("inputs").and_then(Value::as_object) {
-                    if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str)
-                    {
+                    if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str) {
                         if let Some(i) = SEVERITY_ORDER.iter().position(|x| *x == s) {
                             severity_rank = severity_rank.max(i);
                         }
@@ -1619,8 +1650,14 @@ pub fn confined_command(
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {
     let empty = Map::new();
-    let pinned_files = pinned.get("files").and_then(Value::as_object).unwrap_or(&empty);
-    let current_files = current.get("files").and_then(Value::as_object).unwrap_or(&empty);
+    let pinned_files = pinned
+        .get("files")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty);
+    let current_files = current
+        .get("files")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty);
     let mut diffs = Vec::new();
     for (path, digest) in pinned_files {
         match current_files.get(path) {
@@ -1654,7 +1691,9 @@ fn artifact_failures(workdir: &Path, required: &[String]) -> Vec<(String, &'stat
         let lexically_valid = !entry.is_empty()
             && !entry.starts_with('/')
             && !entry.contains(['\\', '\0', '{', '}', '$', '<', '>'])
-            && !entry.split('/').any(|component| component == "." || component == "..");
+            && !entry
+                .split('/')
+                .any(|component| component == "." || component == "..");
         let class = if !lexically_valid {
             Some("invalid")
         } else {
@@ -1707,264 +1746,10 @@ fn git_dirty(repo: &std::path::Path) -> bool {
 }
 
 #[cfg(test)]
-mod artifact_gate_tests {
-    use super::{artifact_failures, artifact_problem};
-
-    fn classes(workdir: &std::path::Path, entries: &[&str]) -> Vec<(String, &'static str)> {
-        let required: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
-        artifact_failures(workdir, &required)
-    }
-
-    #[test]
-    fn present_non_empty_file_passes() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("spec.md"), "content").unwrap();
-        assert!(classes(dir.path(), &["spec.md"]).is_empty());
-    }
-
-    #[test]
-    fn nested_path_passes_and_absent_nested_is_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
-        std::fs::write(dir.path().join("docs/plan.md"), "x").unwrap();
-        assert!(classes(dir.path(), &["docs/plan.md"]).is_empty());
-        assert_eq!(
-            classes(dir.path(), &["docs/other.md"]),
-            vec![("docs/other.md".to_string(), "missing")]
-        );
-    }
-
-    #[test]
-    fn absent_file_is_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            classes(dir.path(), &["spec.md"]),
-            vec![("spec.md".to_string(), "missing")]
-        );
-    }
-
-    #[test]
-    fn zero_byte_file_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("spec.md"), "").unwrap();
-        assert_eq!(
-            classes(dir.path(), &["spec.md"]),
-            vec![("spec.md".to_string(), "empty")]
-        );
-    }
-
-    #[test]
-    fn directory_is_not_a_file() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("spec.md")).unwrap();
-        assert_eq!(
-            classes(dir.path(), &["spec.md"]),
-            vec![("spec.md".to_string(), "not-a-file")]
-        );
-    }
-
-    #[test]
-    fn lexical_predicate_fails_closed_as_invalid() {
-        let dir = tempfile::tempdir().unwrap();
-        // Traversal, absolute, current-dir component, backslash, NUL,
-        // empty — none ever reaches the filesystem.
-        for entry in ["../escape", "a/../b", "..", "/etc/hosts", "./spec.md", ".",
-                      "a\\b", "a\0b", ""] {
-            assert_eq!(
-                classes(dir.path(), &[entry]),
-                vec![(entry.to_string(), "invalid")],
-                "entry {entry:?} must be invalid"
-            );
-        }
-    }
-
-    #[test]
-    fn reserved_characters_are_fenced() {
-        let dir = tempfile::tempdir().unwrap();
-        for entry in ["{slug}", "specs/{slug}/spec.md", "$HOME", "a<b", "a>b", "x}y"] {
-            assert_eq!(
-                classes(dir.path(), &[entry]),
-                vec![(entry.to_string(), "invalid")],
-                "entry {entry:?} must be invalid"
-            );
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn symlinks_are_followed_and_dangling_reads_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("real.md"), "content").unwrap();
-        std::os::unix::fs::symlink(dir.path().join("real.md"), dir.path().join("link.md"))
-            .unwrap();
-        std::os::unix::fs::symlink(dir.path().join("gone.md"), dir.path().join("dangling.md"))
-            .unwrap();
-        assert!(classes(dir.path(), &["link.md"]).is_empty(), "content presence, not provenance");
-        assert_eq!(
-            classes(dir.path(), &["dangling.md"]),
-            vec![("dangling.md".to_string(), "missing")]
-        );
-    }
-
-    #[test]
-    fn failures_keep_table_order_across_classes() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("empty.md"), "").unwrap();
-        std::fs::create_dir(dir.path().join("dir.md")).unwrap();
-        std::fs::write(dir.path().join("ok.md"), "x").unwrap();
-        assert_eq!(
-            classes(dir.path(), &["gone.md", "empty.md", "{slug}", "ok.md", "dir.md"]),
-            vec![
-                ("gone.md".to_string(), "missing"),
-                ("empty.md".to_string(), "empty"),
-                ("{slug}".to_string(), "invalid"),
-                ("dir.md".to_string(), "not-a-file"),
-            ]
-        );
-    }
-
-    #[test]
-    fn problem_string_is_character_exact() {
-        let failures = vec![
-            ("spec.md".to_string(), "missing"),
-            ("plan.md".to_string(), "empty"),
-            ("{slug}".to_string(), "invalid"),
-        ];
-        assert_eq!(
-            artifact_problem("ARCH-OK", &failures),
-            "requires_artifacts unmet for rule ARCH-OK: \
-             missing: spec.md; empty: plan.md; invalid: {slug}"
-        );
-        assert_eq!(
-            artifact_problem("R1", &[("spec.md".to_string(), "missing")]),
-            "requires_artifacts unmet for rule R1: missing: spec.md"
-        );
-    }
-}
+mod artifact_gate_tests;
 
 #[cfg(test)]
-mod secret_threading_tests {
-    use super::*;
+mod secret_threading_tests;
 
-    const POLICY: &str = r#"{
-      "schema": "forge.phase-machine/v1",
-      "phases": ["work", "review", "done", "stop"],
-      "initial": "work",
-      "terminal": ["done", "stop"],
-      "shippable_from": ["review"],
-      "rules": [
-        {"id": "W-OK", "from": "work", "result": "built", "next": "review",
-         "reason": "work concluded"},
-        {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
-         "reason": "review concluded"}
-      ]
-    }"#;
-
-    /// An engine over a compiled two-seat bundle; `work` optionally
-    /// declares secret bindings.
-    fn engine_with(dir: &std::path::Path, secrets: Option<Vec<&str>>) -> Engine {
-        let bundle_dir = dir.join("bundle");
-        std::fs::create_dir_all(bundle_dir.join("roles")).unwrap();
-        std::fs::write(bundle_dir.join("policy.json"), POLICY).unwrap();
-        std::fs::write(bundle_dir.join("roles/role.md"), "# role\n").unwrap();
-        let mut work = json!({
-            "role": "roles/role.md",
-            "results": ["built"],
-            "driver": {"command": ["true"]},
-        });
-        if let Some(secrets) = secrets {
-            work["secrets"] = json!(secrets);
-        }
-        let config = json!({
-            "name": "threading",
-            "policy": "policy.json",
-            "seats": {
-                "work": work,
-                "review": {
-                    "role": "roles/role.md",
-                    "results": ["clean"],
-                    "driver": {"command": ["true"]},
-                },
-            }
-        });
-        std::fs::write(
-            bundle_dir.join("bundle.json"),
-            serde_json::to_string(&config).unwrap(),
-        )
-        .unwrap();
-        let bundle = Bundle::compile(&bundle_dir).unwrap();
-        let store = Store::open(&dir.join("forge.db")).unwrap();
-        Engine::start(store, bundle, "threading proof", Some(dir.join("work"))).unwrap()
-    }
-
-    fn work_input(engine: &Engine) -> Value {
-        let state = fold(&engine.store.load(&engine.run_id).unwrap()).unwrap();
-        engine.seat_input(&state, "work", "fx").unwrap()
-    }
-
-    #[test]
-    fn declared_names_and_store_path_ride_the_driver_input() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("work")).unwrap();
-        let engine = engine_with(dir.path(), Some(vec!["GH_TOKEN", "API_KEY"]));
-        let input = work_input(&engine);
-        assert_eq!(input["secrets"], json!(["GH_TOKEN", "API_KEY"]));
-        let store_path = input["secrets_file"].as_str().unwrap();
-        assert!(
-            std::path::Path::new(store_path).ends_with(".forge/secrets.env"),
-            "default store path under the workdir: {store_path}"
-        );
-        assert!(
-            store_path.starts_with(dir.path().join("work").to_str().unwrap()),
-            "workdir-relative default: {store_path}"
-        );
-    }
-
-    #[test]
-    fn secrets_file_override_wins_over_the_default() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("work")).unwrap();
-        let mut engine = engine_with(dir.path(), Some(vec!["GH_TOKEN"]));
-        engine.secrets_file = Some(dir.path().join("elsewhere.env"));
-        let input = work_input(&engine);
-        assert_eq!(
-            input["secrets_file"].as_str().unwrap(),
-            dir.path().join("elsewhere.env").to_str().unwrap()
-        );
-    }
-
-    #[test]
-    fn seats_without_bindings_carry_no_secret_keys() {
-        // Pre-0012 bundles must rebuild byte-identical seat inputs, or
-        // resumed runs would refuse on a digest mismatch.
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("work")).unwrap();
-        let engine = engine_with(dir.path(), None);
-        let input = work_input(&engine);
-        assert!(input.get("secrets").is_none(), "{input}");
-        assert!(input.get("secrets_file").is_none(), "{input}");
-    }
-
-    #[test]
-    fn forge_runtime_production_code_never_touches_the_secret_store() {
-        // Grep-style invariant: resolution lives in the exec driver, so
-        // no store-reading function is ever named in forge-runtime's
-        // production code (test modules after #[cfg(test)] excluded).
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        for entry in std::fs::read_dir(&src).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).unwrap();
-            let production = source.split("#[cfg(test)]").next().unwrap();
-            for needle in ["resolve_bindings", "read_store", "store_names", "store_set"] {
-                assert!(
-                    !production.contains(needle),
-                    "{} names secret-store function '{needle}' in production code",
-                    path.display()
-                );
-            }
-        }
-    }
-}
+#[cfg(test)]
+mod tests;

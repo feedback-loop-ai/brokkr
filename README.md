@@ -76,7 +76,7 @@ forge compare <a> <b>                               # journal-backed A/B
 
 One native binary — no Python, no Node, no services. Grab a
 [release](../../releases) (linux x86_64/aarch64, macOS arm64/x86_64,
-windows; verify against `SHA256SUMS`), then:
+windows; verify against `SHA256SUMS` and the signed GitHub build attestation), then:
 
 ```
 forge init my-bundle        # scaffold a reviewable starter recipe
@@ -120,6 +120,14 @@ failure mode (30+ scenarios, three OSes, coverage-gated CI); self-forge
 runs deliver changes under the full constitution; and the verify agents
 adversarially review every landed slice — their verdicts are journaled
 runs like any other.
+
+Release admission additionally requires canonical formatting, warning-free
+Clippy across all targets and features, a RustSec dependency audit, literal
+nonzero 100% source-line/branch/function coverage, frozen/additive contract
+compilation, producer-bridge conformance, and a checksum-verified platform
+matrix. Release archives and `SHA256SUMS` carry GitHub Sigstore build-provenance
+attestations; verify an asset with
+`gh attestation verify <asset> -R feedback-loop-ai/the-forge`.
 
 Private for now; the OSS boundary decision (naming, license,
 threat-model README) comes after the engine drives a real feature end

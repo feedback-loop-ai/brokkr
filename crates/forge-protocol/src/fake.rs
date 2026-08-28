@@ -50,16 +50,30 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
     let script: Value = serde_json::from_str(&std::fs::read_to_string(script_path)?)?;
     std::fs::create_dir_all(state_dir)?;
     let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
+    run_fake_session(
+        &script,
+        state_dir,
+        stdin.lock(),
+        std::io::stdout(),
+        std::thread::park,
+    )
+}
 
+fn run_fake_session(
+    script: &Value,
+    state_dir: &Path,
+    input: impl BufRead,
+    mut output: impl Write,
+    mut hang: impl FnMut(),
+) -> std::io::Result<()> {
     let mut send = |body: Body| -> std::io::Result<()> {
         let line = serde_json::to_string(&Message::new(body))?;
-        stdout.write_all(line.as_bytes())?;
-        stdout.write_all(b"\n")?;
-        stdout.flush()
+        output.write_all(line.as_bytes())?;
+        output.write_all(b"\n")?;
+        output.flush()
     };
 
-    for line in stdin.lock().lines() {
+    for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
@@ -89,7 +103,10 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
                     .unwrap_or(0);
                 std::fs::write(&counter_file, (attempt_index + 1).to_string())?;
 
-                let entries = script["seats"][&seat].as_array().cloned().unwrap_or_default();
+                let entries = script["seats"][&seat]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
                 let entry = entries
                     .get(attempt_index)
                     .or_else(|| entries.last())
@@ -129,14 +146,14 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
                         })?;
                     }
                     "garbage" => {
-                        stdout.write_all(b"this is not a protocol message\n")?;
-                        stdout.flush()?;
+                        output.write_all(b"this is not a protocol message\n")?;
+                        output.flush()?;
                         return Ok(());
                     }
                     "hang" => {
                         // Accepted, then silence: the engine's deadline
                         // watchdog must kill this attempt.
-                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                        hang();
                         return Ok(());
                     }
                     _ => return Ok(()), // "vanish": exit without a result
@@ -152,3 +169,6 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
