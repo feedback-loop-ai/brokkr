@@ -109,8 +109,15 @@
   .loops .in-active { fill: var(--violet); }
   .loops .sel-ring { fill: none; stroke: var(--dim); stroke-width: 1.2;
                      stroke-dasharray: 3 2; }
-  .loops .cap { fill: none; stroke: var(--line); stroke-width: 1.2; }
-  .loops .cap-sel { stroke: var(--dim); stroke-dasharray: 4 3; }
+  /* Graph grammar: arrowed edges read as "then" (sequence); forked
+     lanes leaving and rejoining the rail read as parallel members —
+     the join is the dependency. */
+  .loops .edge { stroke: var(--line); stroke-width: 2; marker-end: url(#arr); }
+  .loops .arr-tip { fill: var(--dim); }
+  .loops .lane { fill: none; }
+  .loops .seg-hit { fill: transparent; }
+  .loops .seg-sel { fill: rgba(124,92,255,.06); stroke: var(--dim);
+                    stroke-dasharray: 4 3; pointer-events: none; }
   .loops text.phase { font-weight: 700; fill: var(--text); opacity: .75; }
   .loops text.phase-sel { fill: var(--violet); opacity: 1; }
   .loops .halo { fill: none; stroke: var(--phosphor); stroke-width: 1.4;
@@ -410,55 +417,89 @@ function renderLoops(detail, events, summary, participants, id, data) {
   const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
   const pulsing = status === 'running';
 
-  // Layout pass: a plain phase takes a node's width; a structured one
-  // a capsule wide enough for its inner columns.
-  const GAP = 26, PAD = 24, SP_IN = 92, Y = 30, ROW = 22;
-  let cursor = 16;
-  const segs = names.map((name) => {
-    const columns = innerColumns(events, participants, name);
-    const capsule = !!columns &&
-      (columns.length > 1 || columns[0].nodes.length > 1);
-    let seg;
-    if (capsule) {
-      // Stacked columns draw member labels to the RIGHT of their
-      // nodes; the column advance and the capsule edge must leave
-      // room for the widest one (~6.5px per mono glyph).
-      const labelW = (c) => c.nodes.length > 1
-        ? Math.max(...c.nodes.map((n) => n.label.length)) * 6.5 + 24 : 0;
-      const xs = [];
-      let cx = cursor + PAD;
-      columns.forEach((c, i) => {
-        xs.push(cx);
-        if (i < columns.length - 1) cx += Math.max(SP_IN, labelW(c));
-      });
-      const stack = Math.max(...columns.map((c) => c.nodes.length));
-      seg = { name, capsule, columns, xs, stack,
-              x0: xs[0] - 17,
-              x1: xs[xs.length - 1] + Math.max(17, labelW(columns[columns.length - 1])) };
-      seg.cx = (seg.x0 + seg.x1) / 2;
-      cursor = seg.x1;
+  // Geometry: ONE center rail. Sequential work sits on the rail joined
+  // by arrowed edges ("then"); a panel forks into symmetric lanes that
+  // rejoin the rail (parallel members; the join is the dependency).
+  // All step labels share one baseline, phase names another.
+  const LANE = 26, TOP = 14, COL_GAP = 30, PHASE_GAP = 44;
+  const mono = (s) => String(s).length * 6.3;
+  const segsRaw = names.map((name) => ({
+    name, columns: innerColumns(events, participants, name),
+  }));
+  const maxHalf = LANE * Math.max(0, ...segsRaw.map((s) => s.columns
+    ? Math.max(...s.columns.map((c) => (c.nodes.length - 1) / 2)) : 0));
+  const Y = TOP + Math.ceil(maxHalf) + 8;
+  const stepLabelY = Y + maxHalf + 22;
+  const nameY = stepLabelY + 18;
+
+  let cursor = 12;
+  const segs = segsRaw.map(({ name, columns }) => {
+    const seg = { name, cols: [], x0: cursor };
+    const plain = !columns ||
+      (columns.length === 1 && columns[0].nodes.length === 1);
+    if (plain) {
+      const w = Math.max(28, mono(name) + 6);
+      seg.plain = true;
+      seg.cx = cursor + w / 2;
+      seg.entry = seg.cx - 9;
+      seg.exit = seg.cx + 9;
+      cursor += w;
     } else {
-      seg = { name, capsule, cx: cursor + PAD, stack: 1 };
-      cursor = seg.cx + PAD - 8;
+      columns.forEach((col, i) => {
+        if (i > 0) cursor += COL_GAP;
+        const n = col.nodes.length;
+        if (n === 1) {
+          const w = Math.max(30, mono(col.nodes[0].label) + 6,
+                             col.label ? mono(col.label) + 6 : 0);
+          seg.cols.push({ col, fork: false, x: cursor + w / 2,
+                          entry: cursor + w / 2 - 8, exit: cursor + w / 2 + 8 });
+          cursor += w;
+        } else {
+          const labelW = Math.max(...col.nodes.map((nd) => mono(nd.label)));
+          const w = 26 + 10 + labelW + 16 + 14;
+          seg.cols.push({ col, fork: true, x0: cursor, x1: cursor + w,
+                          nodeX: cursor + 26, entry: cursor, exit: cursor + w });
+          cursor += w;
+        }
+      });
+      seg.entry = seg.cols[0].entry;
+      seg.exit = seg.cols[seg.cols.length - 1].exit;
+      seg.cx = (seg.x0 + cursor) / 2;
     }
-    cursor += GAP;
+    seg.x1 = cursor;
+    cursor += PHASE_GAP;
     return seg;
   });
-  const maxStack = Math.max(...segs.map((s) => s.stack));
-  const depth = Y + (maxStack - 1) * ROW;
-  const nameY = depth + 44;
 
   const wrap = el('div', 'loops');
   const svg = svgEl('svg');
-  svg.setAttribute('width', cursor);
-  svg.setAttribute('height', nameY + 26);
-  const first = segs[0], last = segs[segs.length - 1];
-  const rail = svgEl('line', 'rail-line');
-  rail.setAttribute('x1', first.capsule ? first.xs[0] : first.cx);
-  rail.setAttribute('y1', Y);
-  rail.setAttribute('x2', last.capsule ? last.xs[last.xs.length - 1] : last.cx);
-  rail.setAttribute('y2', Y);
-  svg.appendChild(rail);
+  svg.setAttribute('width', cursor - PHASE_GAP + 12);
+  svg.setAttribute('height', nameY + 24);
+  const defs = svgEl('defs');
+  const marker = svgEl('marker');
+  marker.setAttribute('id', 'arr');
+  marker.setAttribute('viewBox', '0 0 8 8');
+  marker.setAttribute('refX', 7);
+  marker.setAttribute('refY', 4);
+  // userSpaceOnUse: a fixed 7px head instead of scaling with the 2px
+  // stroke (which rendered clunky 13px triangles).
+  marker.setAttribute('markerUnits', 'userSpaceOnUse');
+  marker.setAttribute('markerWidth', 7);
+  marker.setAttribute('markerHeight', 7);
+  marker.setAttribute('orient', 'auto');
+  const tipPath = svgEl('path', 'arr-tip');
+  tipPath.setAttribute('d', 'M0 0 L8 4 L0 8 Z');
+  marker.appendChild(tipPath);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+  const edge = (xa, xb) => {
+    const l = svgEl('line', 'edge');
+    l.setAttribute('x1', xa);
+    l.setAttribute('y1', Y);
+    l.setAttribute('x2', xb);
+    l.setAttribute('y2', Y);
+    svg.appendChild(l);
+  };
 
   // Native tooltip: phase, visit count, and — on the current phase —
   // the last ruling, so the graph explains itself on hover.
@@ -477,132 +518,140 @@ function renderLoops(detail, events, summary, participants, id, data) {
     selectedPhase = selectedPhase === name ? null : name;
     renderDetail(id, data);
   };
-  const nameText = (seg, isCurrent) => {
-    const g = svgEl('g', 'hit');
-    g.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
-    const label = svgEl('text', 'phase' +
+
+  segs.forEach((seg, i) => {
+    const isCurrent = seg.name === current;
+    if (i > 0) edge(segs[i - 1].exit, seg.entry);
+
+    // Background hit zone: click anywhere in the phase to scope. Drawn
+    // first so nodes stay on top for their own clicks.
+    const hitG = svgEl('g', 'hit');
+    hitG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    const hit = svgEl('rect', 'seg-hit');
+    hit.setAttribute('x', seg.x0 - 10);
+    hit.setAttribute('y', TOP - 8);
+    hit.setAttribute('width', seg.x1 - seg.x0 + 20);
+    hit.setAttribute('height', nameY - TOP + 24);
+    hitG.appendChild(hit);
+    hitG.onclick = togglePhase(seg.name);
+    svg.appendChild(hitG);
+
+    if (seg.plain) {
+      const cls = !isCurrent ? 'on-visited'
+        : status === 'stopped' ? 'on-halt'
+        : status === 'awaiting_operator' ? 'on-park'
+        : 'on-phosphor';
+      if (isCurrent && pulsing) {
+        const halo = svgEl('circle', 'halo halo-on');
+        halo.setAttribute('cx', seg.cx);
+        halo.setAttribute('cy', Y);
+        halo.setAttribute('r', 7);
+        svg.appendChild(halo);
+      }
+      const node = svgEl('circle', cls + (isCurrent && pulsing ? ' loop-pulse' : ''));
+      node.setAttribute('cx', seg.cx);
+      node.setAttribute('cy', Y);
+      node.setAttribute('r', isCurrent ? 7 : 5.5);
+      svg.appendChild(node);
+    } else {
+      seg.cols.forEach((c, j) => {
+        if (j > 0) edge(seg.cols[j - 1].exit, c.entry);
+        const drawNode = (n, x, y) => {
+          const g = svgEl('g', 'hit');
+          const live = n.state === 'active' && pulsing;
+          if (live) {
+            const halo = svgEl('circle', 'halo halo-on');
+            halo.setAttribute('cx', x);
+            halo.setAttribute('cy', y);
+            halo.setAttribute('r', 5);
+            g.appendChild(halo);
+          }
+          const cn = svgEl('circle',
+            INNER_STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
+          cn.setAttribute('cx', x);
+          cn.setAttribute('cy', y);
+          cn.setAttribute('r', 5);
+          g.appendChild(cn);
+          if (participants.has(n.key)) {
+            g.appendChild(svgEl('title', null, n.label + ' — open participant'));
+            g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
+          }
+          svg.appendChild(g);
+          return g;
+        };
+        if (!c.fork) {
+          const g = drawNode(c.col.nodes[0], c.x, Y);
+          const t = svgEl('text', null, c.col.label ?? c.col.nodes[0].label);
+          t.setAttribute('x', c.x);
+          t.setAttribute('y', stepLabelY);
+          t.setAttribute('text-anchor', 'middle');
+          g.appendChild(t);
+        } else {
+          const n = c.col.nodes.length;
+          c.col.nodes.forEach((nd, k) => {
+            const ly = Y + (k - (n - 1) / 2) * LANE;
+            const laneP = svgEl('path', 'rail-line lane');
+            laneP.setAttribute('d', 'M' + c.x0 + ' ' + Y +
+              ' L' + (c.x0 + 14) + ' ' + ly +
+              ' L' + (c.x1 - 14) + ' ' + ly +
+              ' L' + c.x1 + ' ' + Y);
+            svg.appendChild(laneP);
+            const g = drawNode(nd, c.nodeX, ly);
+            const t = svgEl('text', null, nd.label);
+            t.setAttribute('x', c.nodeX + 10);
+            t.setAttribute('y', ly + 3.5);
+            g.appendChild(t);
+          });
+          if (c.col.label) {
+            const t = svgEl('text', null, c.col.label);
+            t.setAttribute('x', (c.x0 + c.x1) / 2);
+            t.setAttribute('y', stepLabelY);
+            t.setAttribute('text-anchor', 'middle');
+            svg.appendChild(t);
+          }
+        }
+      });
+    }
+
+    // Selected phase: dashed outline + tint over the whole segment.
+    if (seg.name === selectedPhase) {
+      const sel = svgEl('rect', 'seg-sel');
+      sel.setAttribute('x', seg.x0 - 10);
+      sel.setAttribute('y', TOP - 8);
+      sel.setAttribute('width', seg.x1 - seg.x0 + 20);
+      sel.setAttribute('height', nameY - TOP + 24);
+      sel.setAttribute('rx', 10);
+      svg.appendChild(sel);
+    }
+
+    // Phase name on its own shared baseline; current phase takes the
+    // run-status color, selected takes violet.
+    const stateCls = !isCurrent ? ''
+      : status === 'stopped' ? ' on-halt'
+      : status === 'awaiting_operator' ? ' on-park'
+      : ' on-phosphor';
+    const nameG = svgEl('g', 'hit');
+    nameG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    const label = svgEl('text', 'phase' + stateCls +
       (seg.name === selectedPhase ? ' phase-sel' : ''), seg.name);
     label.setAttribute('x', seg.cx);
     label.setAttribute('y', nameY);
     label.setAttribute('text-anchor', 'middle');
-    g.appendChild(label);
+    nameG.appendChild(label);
     const visits = phases.get(seg.name);
     if (visits > 1) {
       const rev = svgEl('text', 'revisit', 'x' + visits);
       rev.setAttribute('x', seg.cx);
       rev.setAttribute('y', nameY + 12);
       rev.setAttribute('text-anchor', 'middle');
-      g.appendChild(rev);
+      nameG.appendChild(rev);
     }
-    g.onclick = togglePhase(seg.name);
-    return g;
-  };
-
-  for (const seg of segs) {
-    const isCurrent = seg.name === current;
-    if (!seg.capsule) {
-      // A plain phase: one node. Fixed allowlist — visited violet; the
-      // current node keys off the allowlisted run status.
-      const cls = !isCurrent ? 'on-visited'
-        : status === 'stopped' ? 'on-halt'
-        : status === 'awaiting_operator' ? 'on-park'
-        : 'on-phosphor';
-      const g = svgEl('g', 'hit');
-      g.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
-      if (seg.name === selectedPhase) {
-        const ring = svgEl('circle', 'sel-ring');
-        ring.setAttribute('cx', seg.cx);
-        ring.setAttribute('cy', Y);
-        ring.setAttribute('r', 11);
-        g.appendChild(ring);
-      }
-      if (isCurrent && pulsing) {
-        const halo = svgEl('circle', 'halo halo-on');
-        halo.setAttribute('cx', seg.cx);
-        halo.setAttribute('cy', Y);
-        halo.setAttribute('r', 7);
-        g.appendChild(halo);
-      }
-      const node = svgEl('circle', cls + (isCurrent && pulsing ? ' loop-pulse' : ''));
-      node.setAttribute('cx', seg.cx);
-      node.setAttribute('cy', Y);
-      node.setAttribute('r', isCurrent ? 7 : 5.5);
-      g.appendChild(node);
-      g.onclick = togglePhase(seg.name);
-      svg.appendChild(g);
-      svg.appendChild(nameText(seg, isCurrent));
-      continue;
-    }
-    // A structured phase: capsule outline around its inner columns,
-    // all sitting directly on the main rail.
-    const capDepth = Y + (seg.stack - 1) * ROW;
-    const rectG = svgEl('g', 'hit');
-    rectG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
-    const rect = svgEl('rect', 'cap' +
-      (seg.name === selectedPhase ? ' cap-sel' : ''));
-    rect.setAttribute('x', seg.x0);
-    rect.setAttribute('y', Y - 14);
-    rect.setAttribute('width', seg.x1 - seg.x0);
-    rect.setAttribute('height', capDepth - Y + 28);
-    rect.setAttribute('rx', 13);
-    rectG.appendChild(rect);
-    rectG.onclick = togglePhase(seg.name);
-    svg.appendChild(rectG);
-    seg.columns.forEach((col, i) => {
-      const x = seg.xs[i];
-      const stacked = col.nodes.length > 1;
-      if (stacked) {
-        const drop = svgEl('line', 'rail-line');
-        drop.setAttribute('x1', x);
-        drop.setAttribute('y1', Y);
-        drop.setAttribute('x2', x);
-        drop.setAttribute('y2', Y + (col.nodes.length - 1) * ROW);
-        svg.appendChild(drop);
-      }
-      col.nodes.forEach((n, j) => {
-        const y = Y + j * ROW;
-        const g = svgEl('g', 'hit');
-        const live = n.state === 'active' && pulsing;
-        if (live) {
-          const halo = svgEl('circle', 'halo halo-on');
-          halo.setAttribute('cx', x);
-          halo.setAttribute('cy', y);
-          halo.setAttribute('r', 5);
-          g.appendChild(halo);
-        }
-        const c = svgEl('circle',
-          INNER_STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
-        c.setAttribute('cx', x);
-        c.setAttribute('cy', y);
-        c.setAttribute('r', 5);
-        g.appendChild(c);
-        const t = svgEl('text', null, n.label);
-        if (stacked) {
-          t.setAttribute('x', x + 10);
-          t.setAttribute('y', y + 3);
-        } else {
-          t.setAttribute('x', x);
-          t.setAttribute('y', capDepth + 24);
-          t.setAttribute('text-anchor', 'middle');
-        }
-        g.appendChild(t);
-        if (participants.has(n.key)) {
-          g.appendChild(svgEl('title', null, n.label + ' — open participant'));
-          g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
-        }
-        svg.appendChild(g);
-      });
-      if (col.label) {
-        const step = svgEl('text', null, col.label);
-        step.setAttribute('x', x);
-        step.setAttribute('y', capDepth + 24);
-        step.setAttribute('text-anchor', 'middle');
-        svg.appendChild(step);
-      }
-    });
-    svg.appendChild(nameText(seg, isCurrent));
-  }
+    nameG.onclick = togglePhase(seg.name);
+    svg.appendChild(nameG);
+  });
   wrap.appendChild(svg);
+  wrap.appendChild(el('div', 'sub',
+    '→ sequential · forked lanes run in parallel and rejoin before the next step · click a phase to scope the tables'));
   detail.appendChild(wrap);
 }
 
