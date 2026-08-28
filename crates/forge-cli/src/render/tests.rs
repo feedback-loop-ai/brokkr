@@ -444,6 +444,25 @@ graph
 }
 
 #[test]
+fn scope_miss_errors_are_escape_free() {
+    // Error paths reach the operator's tty through anyhow, so they obey
+    // the module invariant like every print path: the operator-typed
+    // scope AND the journal-derived names it lists are sanitized. A
+    // hostile recipe naming a seat "\x1b]0;pwned\x07" must not retitle
+    // the terminal of anyone who mistypes a scope.
+    let view = view(None);
+    for scope in [
+        Scope::Phase("no\x1b[2Jpe\r".into()),
+        Scope::Seat("no\x1b]0;pwned\x07body".into()),
+    ] {
+        let message = lens_for(&view, Some(&scope)).err().unwrap();
+        assert!(!message.contains('\x1b'), "escape survived: {message:?}");
+        assert!(!message.contains('\r'), "carriage return survived");
+        assert!(!message.contains('\x07'), "bell survived");
+    }
+}
+
+#[test]
 fn an_empty_run_still_renders_a_header() {
     // A journal that does not fold carries no summary — never a guessed
     // one — and there is nothing else to draw.

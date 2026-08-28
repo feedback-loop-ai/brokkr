@@ -222,13 +222,17 @@ pub fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, S
         Scope::Phase(name) => {
             let known = view.phases.iter().any(|phase| phase.name == *name);
             if !known {
-                let valid: Vec<&str> = view
+                let valid: Vec<String> = view
                     .phases
                     .iter()
-                    .map(|phase| phase.name.as_str())
+                    .map(|phase| Safe::new(&phase.name).as_str().to_string())
                     .collect();
+                // Error paths honour the module invariant too: these
+                // strings reach the operator's tty through anyhow, so
+                // the scope name and every phase name are sanitized.
                 return Err(format!(
-                    "no phase '{name}' in this run; visited phases: {}",
+                    "no phase '{}' in this run; visited phases: {}",
+                    Safe::new(name).as_str(),
                     valid.join(", ")
                 ));
             }
@@ -249,14 +253,15 @@ pub fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, S
                 .filter(|part| part.label == *label || part.key == *label)
                 .collect();
             if matched.is_empty() {
-                let mut valid: Vec<&str> = view
+                let mut valid: Vec<String> = view
                     .participants
                     .iter()
-                    .map(|part| part.label.as_str())
+                    .map(|part| Safe::new(&part.label).as_str().to_string())
                     .collect();
                 valid.dedup();
                 return Err(format!(
-                    "no seat '{label}' in this run; participants: {}",
+                    "no seat '{}' in this run; participants: {}",
+                    Safe::new(label).as_str(),
                     valid.join(", ")
                 ));
             }
