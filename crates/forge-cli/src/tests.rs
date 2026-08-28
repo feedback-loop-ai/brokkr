@@ -88,6 +88,9 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         run(cli(Cmd::Inspect {
             run: "r1".into(),
             db: db.clone(),
+            json: false,
+            phase: None,
+            seat: None,
         }))
         .unwrap(),
         ExitCode::SUCCESS
@@ -206,6 +209,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
             seen = Some((actual_db, port, open));
             Ok(())
         },
+        None,
         None,
     )
     .unwrap();
@@ -390,14 +394,15 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         }),
         ui::serve,
         Some(1),
+        None,
     )
     .is_err());
     assert_eq!(
-        run_with(cli(command(false)), ui::serve, None).unwrap(),
+        run_with(cli(command(false)), ui::serve, None, None).unwrap(),
         ExitCode::SUCCESS
     );
     assert_eq!(
-        run_with(cli(command(true)), ui::serve, Some(2)).unwrap(),
+        run_with(cli(command(true)), ui::serve, Some(2), None).unwrap(),
         ExitCode::SUCCESS
     );
     std::env::remove_var(&token_name);
@@ -428,4 +433,379 @@ fn state_constructor_keeps_the_running_cursor_shape_explicit() {
         pending_command: None,
     };
     assert_eq!(summarize(&state)["status"], "running");
+}
+
+/// A stdout that always refuses: the frame writer's error path is real
+/// (a closed pipe), not decoration.
+struct ClosedPipe;
+
+impl Write for ClosedPipe {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("closed pipe"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn fixed_clock() -> String {
+    "2026-01-01T00:00:00Z".to_string()
+}
+
+#[test]
+fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
+    let style = render::Style::plain(80);
+
+    // Two polls with nothing moving: one frame, one sleep at the 100ms
+    // floor, and the run is still running so the loop simply ends.
+    let mut frames = Vec::new();
+    let mut ticks: Vec<u64> = Vec::new();
+    let code = {
+        let mut sleep = |ms: u64| ticks.push(ms);
+        watch_loop(
+            &db,
+            "r1",
+            5,
+            false,
+            &style,
+            &mut frames,
+            &mut fixed_clock,
+            &mut sleep,
+            2,
+        )
+        .unwrap()
+    };
+    assert_eq!(code, ExitCode::from(1), "a running run exhausts the poll");
+    let text = String::from_utf8(frames).unwrap();
+    assert_eq!(text.matches("── 2026-01-01T00:00:00Z ──").count(), 1);
+    assert!(!text.contains('\x1b'), "a pipe gets no ANSI: {text:?}");
+    assert!(text.contains("graph"), "{text}");
+    assert!(!text.contains("trail"), "a frame carries no trail: {text}");
+    assert_eq!(ticks, vec![100], "--interval is floored at 100ms");
+
+    // A seq change redraws.
+    let mut frames = Vec::new();
+    let mut appended = false;
+    {
+        let mut sleep = |_: u64| {
+            if !appended {
+                appended = true;
+                Store::open(&db)
+                    .unwrap()
+                    .append_next(
+                        "r1",
+                        EventType::EffectRequested,
+                        json!({"effect_id": "eff1", "seat": "work", "phase": "work"}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+            }
+        };
+        watch_loop(
+            &db,
+            "r1",
+            1000,
+            false,
+            &style,
+            &mut frames,
+            &mut fixed_clock,
+            &mut sleep,
+            2,
+        )
+        .unwrap();
+    }
+    let text = String::from_utf8(frames).unwrap();
+    assert_eq!(text.matches("── ").count(), 2, "seq moved, so redraw");
+
+    // A rewritten journal at EQUAL seq is the tamper case `anchor`
+    // exists for: watch compares hash as well as seq and redraws rather
+    // than sitting blind.
+    let tampered = dir.path().join("tampered.db");
+    running_store(&tampered, "r1");
+    let mut frames = Vec::new();
+    let mut rewritten = false;
+    {
+        let mut sleep = |_: u64| {
+            if !rewritten {
+                rewritten = true;
+                std::fs::remove_file(&tampered).unwrap();
+                let mut store = Store::open(&tampered).unwrap();
+                store
+                    .create_run("r1", "other", "test", &json!({"files": {}}))
+                    .unwrap();
+                store
+                    .append_next(
+                        "r1",
+                        EventType::RunStarted,
+                        json!({"feature": "other", "manifest": {}}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                store
+                    .append_next(
+                        "r1",
+                        EventType::PhaseEntered,
+                        json!({"phase": "work"}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+            }
+        };
+        watch_loop(
+            &tampered,
+            "r1",
+            1000,
+            true,
+            &style,
+            &mut frames,
+            &mut fixed_clock,
+            &mut sleep,
+            2,
+        )
+        .unwrap();
+    }
+    let text = String::from_utf8(frames).unwrap();
+    assert_eq!(
+        text.matches("\x1b[2J\x1b[H").count(),
+        2,
+        "same seq, different hash: {text:?}"
+    );
+
+    // Read-only: nothing above appended to the journal this test owns.
+    assert_eq!(
+        Store::open(&tampered).unwrap().export_ndjson("r1").unwrap(),
+        Store::open(&tampered).unwrap().export_ndjson("r1").unwrap()
+    );
+    let store = Store::open(&db).unwrap();
+    let after = store.export_ndjson("r1").unwrap();
+    assert!(after.starts_with(&before), "watch never rewrites history");
+}
+
+#[test]
+fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_closed_pipe() {
+    let dir = tempfile::tempdir().unwrap();
+    let style = render::Style::plain(80);
+    let corrupt = dir.path().join("corrupt.db");
+    std::fs::write(&corrupt, "not sqlite").unwrap();
+
+    // A transient store error is a frame that says so, not an exit.
+    let mut frames = Vec::new();
+    let code = watch_loop(
+        &corrupt,
+        "r1",
+        1000,
+        false,
+        &style,
+        &mut frames,
+        &mut fixed_clock,
+        &mut |_| {},
+        1,
+    )
+    .unwrap();
+    assert_eq!(code, ExitCode::from(1));
+    let text = String::from_utf8(frames).unwrap();
+    assert!(
+        text.contains("the journal is not readable right now"),
+        "{text}"
+    );
+
+    // A persistent one exits nonzero.
+    let mut frames = Vec::new();
+    let error = watch_loop(
+        &corrupt,
+        "r1",
+        1000,
+        false,
+        &style,
+        &mut frames,
+        &mut fixed_clock,
+        &mut |_| {},
+        9,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("unreadable polls"), "{error}");
+
+    // An unknown run: head_hash answers zero, the load does not.
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let missing = watch_loop(
+        &db,
+        "nobody",
+        1000,
+        false,
+        &style,
+        &mut Vec::new(),
+        &mut fixed_clock,
+        &mut |_| {},
+        1,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(missing.contains("nobody"), "{missing}");
+
+    // A journal that does not fold still draws: the frame says what it
+    // can and never guesses a status.
+    let unfoldable = dir.path().join("unfoldable.db");
+    running_store(&unfoldable, "r1");
+    Store::open(&unfoldable)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "again", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let mut frames = Vec::new();
+    watch_loop(
+        &unfoldable,
+        "r1",
+        1000,
+        false,
+        &style,
+        &mut frames,
+        &mut fixed_clock,
+        &mut |_| {},
+        1,
+    )
+    .unwrap();
+    let text = String::from_utf8(frames).unwrap();
+    assert!(text.contains("this journal does not fold"), "{text}");
+
+    // A closed pipe is an error, not a silent no-op.
+    let closed = watch_loop(
+        &db,
+        "r1",
+        1000,
+        false,
+        &style,
+        &mut ClosedPipe,
+        &mut fixed_clock,
+        &mut |_| {},
+        1,
+    );
+    assert!(closed.is_err());
+    let closed_tty = watch_loop(
+        &db,
+        "r1",
+        1000,
+        true,
+        &style,
+        &mut ClosedPipe,
+        &mut fixed_clock,
+        &mut |_| {},
+        1,
+    );
+    assert!(closed_tty.is_err());
+}
+
+#[test]
+fn the_readouts_render_and_scope_from_the_one_derivation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let db_path = db.clone();
+    running_store(&db, "r1");
+
+    for json in [false, true] {
+        assert_eq!(
+            run(cli(Cmd::Runs {
+                db: db.clone(),
+                json,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(
+            run(cli(Cmd::Inspect {
+                run: "r1".into(),
+                db: db.clone(),
+                json,
+                phase: None,
+                seat: None,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+    // The scoping verbs the console's clicks became.
+    assert_eq!(
+        run(cli(Cmd::Inspect {
+            run: "r1".into(),
+            db: db.clone(),
+            json: false,
+            phase: Some("work".into()),
+            seat: None,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    let unknown = run(cli(Cmd::Inspect {
+        run: "r1".into(),
+        db: db.clone(),
+        json: false,
+        phase: None,
+        seat: Some("nobody".into()),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(unknown.contains("no seat 'nobody'"), "{unknown}");
+
+    // `--once` is one frame; the iteration limit stands in for the
+    // operator's Ctrl-C in the looping form.
+    assert_eq!(
+        run_with(
+            cli(Cmd::Watch {
+                run: "r1".into(),
+                db: db.clone(),
+                once: true,
+                interval_ms: 100,
+            }),
+            ui::serve,
+            None,
+            None,
+        )
+        .unwrap(),
+        ExitCode::from(1),
+        "a running run is finish()'s exit 1"
+    );
+    assert_eq!(
+        run_with(
+            cli(Cmd::Watch {
+                run: "r1".into(),
+                db,
+                once: false,
+                interval_ms: 100,
+            }),
+            ui::serve,
+            None,
+            Some(2),
+        )
+        .unwrap(),
+        ExitCode::from(1),
+        "two polls: the second one sleeps first"
+    );
+
+    // The migration, as a checkable equality: `forge inspect --json`
+    // nests today's output under `summary`, all nine keys verbatim and
+    // in the same order, so `| jq .summary` reproduces it byte for byte.
+    let events = Store::open(&db_path).unwrap().load("r1").unwrap();
+    let state = fold(&events).unwrap();
+    let view = forge_view::run_view(&events, Some(&state));
+    assert_eq!(
+        serde_json::to_string_pretty(&view.summary).unwrap(),
+        serde_json::to_string_pretty(&summarize(&state)).unwrap()
+    );
+
+    // The clock the derivation refuses to read.
+    assert!(now_rfc3339().ends_with('Z'));
 }

@@ -291,6 +291,7 @@ dependencies = [
  "forge-protocol",
  "forge-runtime",
  "forge-store",
+ "forge-view",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -347,6 +348,15 @@ dependencies = [
  "thiserror",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "forge-view"
+version = "0.2.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

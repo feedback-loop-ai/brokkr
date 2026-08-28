@@ -358,7 +358,11 @@ forge init                 create a minimal reviewable bundle
 forge doctor               verify tools, drivers, credentials, and sandboxes
 forge compile              validate and hash a bundle
 forge run <feature>        start or resume a run
-forge inspect <run>        explain state and the last ruling
+forge runs                 one clamped line per run, newest first
+forge inspect <run>        explain state, the last ruling, seats, and the
+                           phase graph as a terminal tree (--phase/--seat
+                           scope it; --json emits the view model)
+forge watch <run>          the same readout, live, until the run concludes
 forge replay <run>         rebuild and verify state without effects
 forge ui                   launch the local visual surface
 forge export <run>         write the canonical audit bundle

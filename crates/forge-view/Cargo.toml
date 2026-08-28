@@ -1,0 +1,14 @@
+[package]
+name = "forge-view"
+description = "One derivation behind every forge readout: pure view models over a journal."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+forge-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
