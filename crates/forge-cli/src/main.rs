@@ -90,6 +90,11 @@ enum Cmd {
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Canonical forge-dispatch/v2 JSON. When present the run id,
+        /// Looper/grant correlation, recipe, repository, budget, and producer
+        /// bounds are pinned into an immutable run-manifest/v2.
+        #[arg(long)]
+        dispatch: Option<PathBuf>,
     },
     /// Resume an existing run under its exact pinned bundle.
     #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
@@ -177,16 +182,33 @@ enum Cmd {
     },
     /// Verify an exported journal offline: chain, envelopes, fold.
     VerifyRun { file: PathBuf },
+    /// Synchronize a Looper-bound run over the authenticated producer API.
+    /// The API key is read from an environment variable and is never stored.
+    Bridge {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        #[arg(long)]
+        looper_url: String,
+        #[arg(long, default_value = "LOOPER_API_KEY")]
+        token_env: String,
+        /// Keep tailing the verified journal and command feed.
+        #[arg(long)]
+        follow: bool,
+        #[arg(long, default_value_t = 750)]
+        interval_ms: u64,
+    },
     /// List runs in the workspace database.
     Runs {
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
     },
-    /// Run a built-in forge-driver/v1 adapter (claude | codex | exec).
+    /// Run a built-in forge-driver/v1 adapter (claude | codex | dsh | exec).
     /// Bundles reference these as {forge} driver <kind> -- <extra args>.
     Driver {
         kind: String,
-        /// Arguments after -- pass to the agent CLI (claude/codex) or
+        /// Arguments after -- pass to the agent CLI (claude/codex/dsh) or
         /// form the command template (exec).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -328,10 +350,20 @@ fn run(cli: Cli) -> Result<ExitCode> {
             feature,
             db,
             repo,
+            dispatch,
         } => {
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
-            let mut engine = Engine::start(store, bundle, &feature, repo)?;
+            let mut engine = if let Some(path) = dispatch {
+                let raw = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading dispatch {}", path.display()))?;
+                let envelope: forge_core::dispatch::DispatchEnvelopeV2 =
+                    serde_json::from_str(&raw).context("parsing forge-dispatch/v2")?;
+                envelope.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
+                Engine::start_with_dispatch(store, bundle, &feature, repo, envelope)?
+            } else {
+                Engine::start(store, bundle, &feature, repo)?
+            };
             eprintln!("run started: {}", engine.run_id);
             let end = engine.drive()?;
             Ok(finish(&end.state))
@@ -441,6 +473,47 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }))?);
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Bridge {
+            run,
+            db,
+            looper_url,
+            token_env,
+            follow,
+            interval_ms,
+        } => {
+            let token = std::env::var(&token_env)
+                .with_context(|| format!("reading producer credential from {token_env}"))?;
+            anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
+            let transport = forge_bridge::HttpTransport::new(looper_url, token);
+            let mut bridge = forge_bridge::Bridge::new(transport);
+            let mut command_cursor = 0;
+            loop {
+                let mut store = Store::open(&db)?;
+                let report = bridge.sync_once(
+                    &mut store,
+                    &run,
+                    time::OffsetDateTime::now_utc(),
+                    command_cursor,
+                )?;
+                command_cursor = report.last_command_cursor;
+                println!(
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "run_id": run,
+                        "registered": report.registered,
+                        "submitted": report.submitted,
+                        "replayed": report.replayed,
+                        "commands": report.commands,
+                        "last_forge_sequence": report.last_forge_sequence,
+                    }))?
+                );
+                if !follow {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(interval_ms.max(100)));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Cmd::Runs { db } => {
             let store = Store::open(&db)?;
             let runs = store.list_runs()?;
@@ -458,7 +531,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Driver { kind, args } => {
             let kind = forge_protocol::adapters::AdapterKind::parse(&kind)
-                .ok_or_else(|| anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, exec"))?;
+                .ok_or_else(|| anyhow::anyhow!("unknown driver '{kind}'; known: claude, codex, dsh, exec"))?;
             let extra = args.iter().position(|a| a == "--")
                 .map(|i| args[i + 1..].to_vec())
                 .unwrap_or(args);

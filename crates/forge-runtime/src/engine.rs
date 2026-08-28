@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use forge_core::envelope::EventType;
+use forge_core::dispatch::{
+    build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
+};
 use forge_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
 use forge_core::policy::Outcome;
 use forge_core::EventEnvelope;
@@ -35,6 +38,8 @@ pub enum EngineError {
     ManifestMismatch { run_id: String, detail: String },
     #[error("engine: {0}")]
     Other(String),
+    #[error("dispatch: {0}")]
+    Dispatch(#[from] forge_core::dispatch::DispatchError),
 }
 
 pub struct Engine {
@@ -48,6 +53,41 @@ pub struct Engine {
     /// iteration appends, so causal links mirror the engine's actual
     /// decision order (rendered by the UI timeline).
     current_cause: Option<String>,
+}
+
+fn verify_dispatch_bundle_bounds(
+    dispatch: &DispatchEnvelopeV2,
+    bundle: &Bundle,
+) -> Result<(), DispatchError> {
+    let max_attempts = bundle
+        .seats
+        .values()
+        .map(|seat| seat.limits.max_attempts)
+        .max()
+        .unwrap_or(1);
+    let max_parallel = bundle
+        .seats
+        .values()
+        .map(|seat| match &seat.body {
+            SeatBody::Single { .. } => 1,
+            SeatBody::Panel { members, .. } => members.len(),
+            SeatBody::Sequence { steps } => steps
+                .iter()
+                .map(|step| match &step.body {
+                    StepBody::Single { .. } => 1,
+                    StepBody::Panel { members, .. } => members.len(),
+                })
+                .max()
+                .unwrap_or(1),
+        })
+        .max()
+        .unwrap_or(1);
+    if max_attempts > u64::from(dispatch.bounds.max_attempts)
+        || max_parallel > dispatch.bounds.max_parallel_effects as usize
+    {
+        return Err(DispatchError::UnsafeBounds);
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -91,6 +131,38 @@ impl Engine {
         })
     }
 
+    /// Start a Looper-bound run under the exact Forge run id and immutable
+    /// dispatch envelope. The ordinary bundle manifest remains recoverable
+    /// for resume compatibility, while the stored/exported manifest is v2.
+    pub fn start_with_dispatch(
+        mut store: Store,
+        bundle: Bundle,
+        feature: &str,
+        repo: Option<PathBuf>,
+        dispatch: DispatchEnvelopeV2,
+    ) -> Result<Engine, EngineError> {
+        let run_id = dispatch.forge_run_id.clone();
+        dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
+        verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
+        let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
+        store.create_run(&run_id, feature, &bundle.name, &manifest)?;
+        store.append_next(
+            &run_id,
+            EventType::RunStarted,
+            json!({"feature": feature, "manifest": manifest}),
+            None,
+            None,
+        )?;
+        Ok(Engine {
+            store,
+            bundle,
+            run_id,
+            feature: feature.to_string(),
+            repo,
+            current_cause: None,
+        })
+    }
+
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
     pub fn resume(
         store: Store,
@@ -99,8 +171,13 @@ impl Engine {
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
         let pinned = store.manifest(run_id)?;
-        if pinned != bundle.manifest {
-            let detail = manifest_diff(&pinned, &bundle.manifest);
+        let pinned_bundle = bundle_manifest_from_run(&pinned)?;
+        if let Some(dispatch) = forge_core::dispatch::dispatch_from_run(&pinned)? {
+            dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
+            verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
+        }
+        if pinned_bundle != bundle.manifest {
+            let detail = manifest_diff(&pinned_bundle, &bundle.manifest);
             return Err(EngineError::ManifestMismatch {
                 run_id: run_id.to_string(),
                 detail,
@@ -1160,6 +1237,137 @@ pub fn operator_command(
         None,
     )?;
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FencedCommandOutcome {
+    Accepted { head_seq: u64, head_hash: String },
+    Rejected {
+        reason: String,
+        head_seq: u64,
+        head_hash: String,
+    },
+}
+
+/// Apply a command received through the Looper producer bridge. The command id
+/// is supplied by Looper, the expected cursor/hash fences concurrent operator
+/// activity, and both acceptance and rejection become Forge journal evidence
+/// before any control-state effect is possible.
+pub fn apply_fenced_operator_command(
+    store: &mut Store,
+    run_id: &str,
+    command_id: &str,
+    command: &str,
+    operator: &str,
+    reason: &str,
+    expected_seq: u64,
+    expected_hash: &str,
+) -> Result<FencedCommandOutcome, EngineError> {
+    let events = store.load(run_id)?;
+    if let Some(commanded) = events.iter().find(|event| {
+        event.event_type == EventType::OperatorCommanded
+            && event.payload.get("command_id").and_then(Value::as_str) == Some(command_id)
+    }) {
+        if let Some(disposition) = events.iter().find(|event| {
+            event.seq > commanded.seq
+                && matches!(
+                    event.event_type,
+                    EventType::OperatorAccepted | EventType::OperatorRejected
+                )
+                && event.payload.get("command_id").and_then(Value::as_str) == Some(command_id)
+        }) {
+            return Ok(if disposition.event_type == EventType::OperatorAccepted {
+                FencedCommandOutcome::Accepted {
+                    head_seq: disposition.seq,
+                    head_hash: disposition.event_hash.clone(),
+                }
+            } else {
+                FencedCommandOutcome::Rejected {
+                    reason: disposition
+                        .payload
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("previously_rejected")
+                        .to_string(),
+                    head_seq: disposition.seq,
+                    head_hash: disposition.event_hash.clone(),
+                }
+            });
+        }
+        let rejected = store.append_next(
+            run_id,
+            EventType::OperatorRejected,
+            json!({
+                "command_id": command_id,
+                "operator": operator,
+                "reason": "incomplete_command_replay",
+            }),
+            Some(commanded.event_id.clone()),
+            None,
+        )?;
+        fold(&store.load(run_id)?)?;
+        return Ok(FencedCommandOutcome::Rejected {
+            reason: "incomplete_command_replay".into(),
+            head_seq: rejected.seq,
+            head_hash: rejected.event_hash,
+        });
+    }
+    let state = fold(&events)?;
+    let (head_seq, head_hash) = store.head_hash(run_id)?;
+    let rejection = if command != "retry" && command != "stop" {
+        Some("command_not_allowed")
+    } else if head_seq != expected_seq || head_hash != expected_hash {
+        Some("stale_cursor")
+    } else if state.status != Status::AwaitingOperator {
+        Some("run_not_awaiting_operator")
+    } else {
+        None
+    };
+    let cause = events.last().map(|event| event.event_id.clone());
+    let commanded = store.append_next(
+        run_id,
+        EventType::OperatorCommanded,
+        json!({
+            "command_id": command_id,
+            "command": command,
+            "args": {},
+            "operator": operator,
+        }),
+        cause,
+        None,
+    )?;
+    let disposition = if let Some(rejection) = rejection {
+        store.append_next(
+            run_id,
+            EventType::OperatorRejected,
+            json!({"command_id": command_id, "operator": operator, "reason": rejection}),
+            Some(commanded.event_id),
+            None,
+        )?;
+        let (head_seq, head_hash) = store.head_hash(run_id)?;
+        FencedCommandOutcome::Rejected {
+            reason: rejection.into(),
+            head_seq,
+            head_hash,
+        }
+    } else {
+        store.append_next(
+            run_id,
+            EventType::OperatorAccepted,
+            json!({"command_id": command_id, "operator": operator, "reason": reason}),
+            Some(commanded.event_id),
+            None,
+        )?;
+        let (head_seq, head_hash) = store.head_hash(run_id)?;
+        FencedCommandOutcome::Accepted {
+            head_seq,
+            head_hash,
+        }
+    };
+    // Prove the newly appended pair does not corrupt fold semantics before the
+    // bridge acknowledges it to Looper.
+    fold(&store.load(run_id)?)?;
+    Ok(disposition)
 }
 
 /// A driver invocation that got as far as running, or one that never

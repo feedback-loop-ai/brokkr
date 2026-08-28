@@ -33,9 +33,12 @@ forge rerun --run <id> --recipe panel-review        # swap the strategy
 forge compare <a> <b>                               # journal-backed A/B
 ```
 
-- **Live telemetry**: seats stream per-turn checkpoints (turn, tool,
-  file-path-only target — never prose, never commands: the journal is
-  evidence, not transcript). Parallel review panels stream both members
+- **Live telemetry**: Claude and Codex seats stream bounded per-turn/item
+  checkpoints; DSH emits an explicit harness lifecycle. Checkpoints retain
+  only bounded turn/tool/usage fields or a file-path-only target—never prose,
+  commands, or reasoning; the Looper bridge hashes the target before export.
+  The journal is evidence, not transcript. Parallel
+  review panels stream both members
   side by side. The full session transcript stays one
   `claude --resume <session_id>` away.
 - **The strategy loop** (decision 0010): a library of recipes
@@ -88,13 +91,20 @@ journal heads in `refs/forge/<run>` commit chains — tamper evidence.
 `forge costs` reports per-seat attempts, turns, and USD — the LaneTally
 join surface.
 
+Looper-bound runs start with `forge run --dispatch <forge-dispatch-v2.json>`.
+The immutable dispatch is sealed into the v2 run manifest and therefore travels
+with `forge export`. `forge bridge --run <id> --looper-url <url>` tails only the
+verified public store API and synchronizes ordered evidence plus fenced commands;
+it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
+from a command-line value or the journal.
+
 ## Repo layout
 
 | Path | What it is |
 |---|---|
 | `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, verification layers. |
-| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/exec adapters) · `forge-runtime` · `forge-cli`. |
-| `contracts/` | Frozen v1 contracts: event envelope, fold semantics, `forge-driver/v1`, run manifest. |
+| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-bridge` · `forge-cli`. |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2` and `forge-run-manifest/v2`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `panel-review`, yours). |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |

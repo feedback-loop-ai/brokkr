@@ -1,4 +1,4 @@
-//! Built-in driver adapters: `forge driver <claude|codex|exec>`.
+//! Built-in driver adapters: `forge driver <claude|codex|dsh|exec>`.
 //!
 //! The Rust port of the retired Python adapters (decision 0009) — same
 //! protocol behavior, same prompt composition, same result-file
@@ -9,7 +9,7 @@
 //! repair anything.
 //!
 //! Env overrides for conformance shims: FORGE_CLAUDE_BIN,
-//! FORGE_CODEX_BIN, FORGE_EXEC_NAME.
+//! FORGE_CODEX_BIN, FORGE_DSH_BIN, FORGE_EXEC_NAME.
 
 use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
@@ -24,6 +24,7 @@ const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum AdapterKind {
     Claude,
     Codex,
+    Dsh,
     Exec,
 }
 
@@ -32,6 +33,7 @@ impl AdapterKind {
         match name {
             "claude" => Some(AdapterKind::Claude),
             "codex" => Some(AdapterKind::Codex),
+            "dsh" => Some(AdapterKind::Dsh),
             "exec" => Some(AdapterKind::Exec),
             _ => None,
         }
@@ -41,6 +43,7 @@ impl AdapterKind {
         match self {
             AdapterKind::Claude => "claude-code".to_string(),
             AdapterKind::Codex => "codex".to_string(),
+            AdapterKind::Dsh => "deepseek-harness".to_string(),
             AdapterKind::Exec => {
                 std::env::var("FORGE_EXEC_NAME").unwrap_or_else(|_| "exec".to_string())
             }
@@ -187,6 +190,77 @@ fn fold_stream_event(
     }
 }
 
+/// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
+/// Commands, item bodies, model output, reasoning, and filesystem paths are
+/// intentionally ignored; the journal records progress and usage, not a
+/// transcript.
+fn fold_codex_event(
+    event: &Value,
+    turn: &mut u64,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) {
+    match event.get("type").and_then(Value::as_str) {
+        Some("thread.started") => {
+            if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
+                session_meta.insert(
+                    "session_id".into(),
+                    Value::String(thread_id.chars().take(128).collect()),
+                );
+            }
+        }
+        Some("turn.started") => {
+            *turn += 1;
+            emit(&json!({"step":"turn-started", "turn": *turn, "harness":"codex"}));
+        }
+        Some(kind @ ("item.started" | "item.completed")) => {
+            let item_type = event
+                .pointer("/item/type")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            emit(&json!({
+                "step": if kind == "item.started" { "item-started" } else { "item-completed" },
+                "turn": *turn,
+                "tool": item_type.chars().take(80).collect::<String>(),
+                "harness":"codex",
+            }));
+        }
+        Some("turn.completed") => {
+            let usage = event.get("usage").unwrap_or(&Value::Null);
+            let mut checkpoint = Map::new();
+            checkpoint.insert("step".into(), Value::String("turn-completed".into()));
+            checkpoint.insert("turn".into(), Value::from(*turn));
+            checkpoint.insert("harness".into(), Value::String("codex".into()));
+            for (source, target) in [
+                ("input_tokens", "input_tokens"),
+                ("cached_input_tokens", "cache_read_tokens"),
+                ("output_tokens", "output_tokens"),
+            ] {
+                if let Some(value) = usage.get(source).and_then(Value::as_u64) {
+                    checkpoint.insert(target.into(), Value::from(value));
+                    session_meta.insert(target.into(), Value::from(value));
+                }
+            }
+            emit(&Value::Object(checkpoint));
+        }
+        // Conformance shims and older clients may provide only final metadata.
+        Some("result") => {
+            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
+                session_meta.insert(
+                    "session_id".into(),
+                    Value::String(session_id.chars().take(128).collect()),
+                );
+            }
+            for key in ["num_turns", "total_cost_usd"] {
+                if let Some(value) = event.get(key) {
+                    session_meta.insert(key.into(), value.clone());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn invoke(
     kind: AdapterKind,
     extra: &[String],
@@ -260,25 +334,69 @@ fn invoke(
         }
         AdapterKind::Codex => {
             let bin = std::env::var("FORGE_CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
-            let mut command = vec![bin, "exec".into(), "-C".into(), workdir.clone()];
+            let mut command = vec![
+                bin,
+                "exec".into(),
+                "--json".into(),
+                "-C".into(),
+                workdir.clone(),
+            ];
             command.extend(extra.iter().cloned());
-            let out = run_cli(&command, Some(prompt), &workdir)?;
-            let stdout = String::from_utf8_lossy(&out.stdout);
+            let (program, args) = command
+                .split_first()
+                .ok_or_else(|| "empty command".to_string())?;
+            let mut child = Command::new(program)
+                .args(args)
+                .current_dir(if workdir.is_empty() { "." } else { &workdir })
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("could not invoke the agent CLI: {e}"))?;
+            child
+                .stdin
+                .take()
+                .expect("piped")
+                .write_all(prompt.as_bytes())
+                .map_err(|e| format!("could not write the prompt: {e}"))?;
+            let stderr_pipe = child.stderr.take().expect("piped");
+            let stderr_thread = std::thread::spawn(move || {
+                let mut captured = Vec::new();
+                let mut pipe = stderr_pipe;
+                let _ = pipe.read_to_end(&mut captured);
+                String::from_utf8_lossy(&captured).into_owned()
+            });
             let mut session_meta = Map::new();
-            for line in stdout.lines() {
-                let lower = line.to_ascii_lowercase();
-                if let Some(idx) = lower.find("session id") {
-                    let tail: String = line[idx..]
-                        .chars()
-                        .skip_while(|c| !c.is_ascii_hexdigit())
-                        .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
-                        .collect();
-                    if tail.len() >= 8 {
-                        session_meta.insert("session_id".into(), Value::String(tail));
-                        break;
-                    }
+            let mut turn = 0;
+            for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(event) = serde_json::from_str::<Value>(&line) {
+                    fold_codex_event(&event, &mut turn, &mut session_meta, emit);
                 }
             }
+            let status = child
+                .wait()
+                .map_err(|e| format!("agent CLI did not conclude: {e}"))?;
+            Ok(Invocation {
+                exit_code: status.code().unwrap_or(-1),
+                session_meta,
+                stderr: stderr_thread.join().unwrap_or_default(),
+            })
+        }
+        AdapterKind::Dsh => {
+            let bin = std::env::var("FORGE_DSH_BIN").unwrap_or_else(|_| "dsh".to_string());
+            emit(&json!({
+                "step":"harness-started",
+                "harness":"deepseek",
+                "profile":"headless",
+            }));
+            let mut command = vec![bin, "--profile".into(), "headless".into()];
+            command.extend(extra.iter().cloned());
+            command.push(prompt.into());
+            let out = run_cli(&command, None, &workdir)?;
+            let mut session_meta = Map::new();
+            session_meta.insert("harness".into(), Value::String("deepseek".into()));
+            session_meta.insert("profile".into(), Value::String("headless".into()));
             Ok(Invocation {
                 exit_code: out.status.code().unwrap_or(-1),
                 session_meta,

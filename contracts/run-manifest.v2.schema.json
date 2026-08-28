@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v2.json",
+  "title": "Forge Looper-bound run manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "engine", "event_schema", "database_schema", "driver_protocol", "bundle_name", "files", "bundle_sha256", "dispatch_sha256", "dispatch"],
+  "properties": {
+    "schema": { "const": "forge-run-manifest/v2" },
+    "engine": { "type": "string" },
+    "event_schema": { "const": 1 },
+    "database_schema": { "const": 1 },
+    "driver_protocol": { "const": 1 },
+    "bundle_name": { "type": "string", "minLength": 1 },
+    "files": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" } },
+    "bundle_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "dispatch_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "dispatch": { "$ref": "dispatch-envelope.v2.schema.json" }
+  }
+}

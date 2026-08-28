@@ -11,4 +11,7 @@ pub use bundle::{
     StepBody, ENGINE_VERSION,
 };
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
-pub use engine::{operator_command, DriveEnd, Engine, EngineError};
+pub use engine::{
+    apply_fenced_operator_command, operator_command, DriveEnd, Engine, EngineError,
+    FencedCommandOutcome,
+};
