@@ -47,6 +47,11 @@ pub struct Seat {
     /// journal record. Defaults to the non-engine-owned inputs the
     /// phase's own rules reference.
     pub inputs: Vec<String>,
+    /// Secret NAMES this seat binds (decision 0012) — exactly parallel
+    /// to the 0007 input declaration: declared or dropped. Bundles and
+    /// digests carry names only; values live in the operator-side store
+    /// and are resolved by the exec driver at spawn time, never here.
+    pub secrets: Vec<String>,
     pub body: SeatBody,
 }
 
@@ -246,17 +251,19 @@ impl Bundle {
                      or sequence"
                 )));
             }
+            let secrets = parse_secrets(phase, raw)?;
             let body = if has_panel {
-                let (members, aggregate) = parse_panel(&dir, phase, raw, Some(&results))?;
+                let (members, aggregate) =
+                    parse_panel(&dir, phase, raw, Some(&results), &secrets)?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
-                    steps: parse_sequence(&dir, phase, raw, &results)?,
+                    steps: parse_sequence(&dir, phase, raw, &results, &secrets)?,
                 }
             } else {
                 SeatBody::Single {
                     role_path: parse_role(&dir, phase, raw)?,
-                    command: parse_command(&dir, phase, raw)?,
+                    command: parse_command(&dir, phase, raw, &secrets)?,
                     confine: parse_confine(phase, raw)?,
                 }
             };
@@ -339,6 +346,7 @@ impl Bundle {
                     results,
                     limits,
                     inputs,
+                    secrets,
                     body,
                 },
             );
@@ -418,6 +426,7 @@ fn parse_panel(
     what: &str,
     raw: &Value,
     declared_results: Option<&[String]>,
+    secrets: &[String],
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -454,7 +463,7 @@ fn parse_panel(
     let mut members = Vec::with_capacity(members_raw.len());
     for (name, member_raw) in members_raw {
         let role_path = parse_role(dir, &format!("{what}:{name}"), member_raw)?;
-        let command = parse_command(dir, &format!("{what}:{name}"), member_raw)?;
+        let command = parse_command(dir, &format!("{what}:{name}"), member_raw, secrets)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
@@ -473,6 +482,7 @@ fn parse_sequence(
     phase: &str,
     raw: &Value,
     results: &[String],
+    secrets: &[String],
 ) -> Result<Vec<SequenceStep>, CompileError> {
     let steps_raw = raw
         .get("sequence")
@@ -514,12 +524,12 @@ fn parse_sequence(
         let body = if has_panel {
             let final_step = index + 1 == steps_raw.len();
             let (members, aggregate) =
-                parse_panel(dir, &what, step_raw, final_step.then_some(results))?;
+                parse_panel(dir, &what, step_raw, final_step.then_some(results), secrets)?;
             StepBody::Panel { members, aggregate }
         } else {
             StepBody::Single {
                 role_path: parse_role(dir, &what, step_raw)?,
-                command: parse_command(dir, &what, step_raw)?,
+                command: parse_command(dir, &what, step_raw, secrets)?,
                 confine: parse_confine(&what, step_raw)?,
             }
         };
@@ -545,30 +555,82 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
     Ok(role_path)
 }
 
-fn parse_command(dir: &Path, what: &str, raw: &Value) -> Result<Vec<String>, CompileError> {
-    raw.get("driver")
+/// Parse a seat's declared secret bindings (decision 0012): NAMES only,
+/// grammar plus denylist validated — exactly parallel to the 0007
+/// `inputs` declaration. Values never appear anywhere a bundle can reach.
+fn parse_secrets(phase: &str, raw: &Value) -> Result<Vec<String>, CompileError> {
+    let Some(declared) = raw.get("secrets") else {
+        return Ok(Vec::new());
+    };
+    let declared = declared.as_array().ok_or_else(|| {
+        CompileError::Invalid(format!("seat '{phase}' secrets must be an array of strings"))
+    })?;
+    let mut names: Vec<String> = Vec::with_capacity(declared.len());
+    for item in declared {
+        let name = item.as_str().ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{phase}' secrets must be an array of strings"))
+        })?;
+        forge_protocol::secret::validate_name(name)
+            .map_err(|e| CompileError::Invalid(format!("seat '{phase}': {e}")))?;
+        if names.iter().any(|n| n == name) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{phase}' declares secret '{name}' twice"
+            )));
+        }
+        names.push(name.to_string());
+    }
+    Ok(names)
+}
+
+fn parse_command(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    secrets: &[String],
+) -> Result<Vec<String>, CompileError> {
+    let parts: Vec<&str> = raw
+        .get("driver")
         .and_then(|d| d.get("command"))
         .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|part| {
-                    // "{forge}" is this engine's own executable (built-in
-                    // drivers); "./"-prefixed entries are bundle-relative.
-                    if part == "{forge}" {
-                        return std::env::current_exe()
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|_| "forge".to_string());
-                    }
-                    match part.strip_prefix("./") {
-                        Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
-                        None => part.to_string(),
-                    }
-                })
-                .collect::<Vec<_>>()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .filter(|c: &Vec<&str>| !c.is_empty())
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))?;
+    // Constitutional lint (decision 0012): every `{{secret:` occurrence
+    // in the raw template must be a well-formed, DECLARED reference —
+    // referenced ⇒ declared, and typos fail closed here rather than
+    // riding into argv as literal text. Declared-but-unreferenced is
+    // legal: env-only consumers (gh reading GH_TOKEN) take no argv
+    // reference at all.
+    for part in &parts {
+        let refs = forge_protocol::secret::scan_secret_refs(part).map_err(|e| {
+            CompileError::Invalid(format!("seat '{what}' command template: {e}"))
+        })?;
+        for name in refs {
+            if !secrets.iter().any(|declared| *declared == name) {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' command template references undeclared secret \
+                     '{name}'; declare it in the seat's 'secrets' list \
+                     (undeclared names never resolve)"
+                )));
+            }
+        }
+    }
+    Ok(parts
+        .into_iter()
+        .map(|part| {
+            // "{forge}" is this engine's own executable (built-in
+            // drivers); "./"-prefixed entries are bundle-relative.
+            if part == "{forge}" {
+                return std::env::current_exe()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "forge".to_string());
+            }
+            match part.strip_prefix("./") {
+                Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
+                None => part.to_string(),
+            }
         })
-        .filter(|c: &Vec<String>| !c.is_empty())
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))
+        .collect())
 }
 
 fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileError> {
@@ -646,6 +708,18 @@ fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
             if path.is_dir() {
                 stack.push(path);
             } else if path.is_file() {
+                // A secrets store inside the bundle would ride the
+                // manifest digest: rotation would change the digest AND
+                // the manifest would embed a SHA-256 of the secret file —
+                // an offline-guessing oracle (decision 0012, layer 2).
+                if path.file_name().and_then(|n| n.to_str()) == Some("secrets.env") {
+                    return Err(CompileError::Invalid(format!(
+                        "bundle contains a secrets store '{}'; the store must \
+                         live outside the bundle dir (e.g. .forge/secrets.env) \
+                         so digests carry names only",
+                        path.display()
+                    )));
+                }
                 paths.push(path);
             }
         }
@@ -669,4 +743,155 @@ fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
         "bundle_name": bundle_name,
         "files": Value::Object(files),
     }))
+}
+
+#[cfg(test)]
+mod secret_binding_tests {
+    use super::*;
+    use serde_json::json;
+
+    const POLICY: &str = r#"{
+      "schema": "forge.phase-machine/v1",
+      "phases": ["work", "review", "done", "stop"],
+      "initial": "work",
+      "terminal": ["done", "stop"],
+      "shippable_from": ["review"],
+      "rules": [
+        {"id": "W-OK", "from": "work", "result": "built", "next": "review",
+         "reason": "work concluded"},
+        {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
+         "reason": "review concluded"}
+      ]
+    }"#;
+
+    /// A minimal compilable bundle whose `work` seat carries the given
+    /// declaration and command template.
+    fn write_bundle(dir: &Path, secrets: Value, command: Value) -> PathBuf {
+        let bundle = dir.join("bundle");
+        std::fs::create_dir_all(bundle.join("roles")).unwrap();
+        std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
+        std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
+        let mut work = json!({
+            "role": "roles/role.md",
+            "results": ["built"],
+            "driver": {"command": command},
+        });
+        if !secrets.is_null() {
+            work["secrets"] = secrets;
+        }
+        let config = json!({
+            "name": "secrets-lint",
+            "policy": "policy.json",
+            "seats": {
+                "work": work,
+                "review": {
+                    "role": "roles/role.md",
+                    "results": ["clean"],
+                    "driver": {"command": ["true"]},
+                },
+            }
+        });
+        std::fs::write(
+            bundle.join("bundle.json"),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+        bundle
+    }
+
+    fn compile_error(secrets: Value, command: Value) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        match Bundle::compile(&write_bundle(dir.path(), secrets, command)) {
+            Ok(_) => panic!("expected a compile refusal"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    #[test]
+    fn declared_and_referenced_template_compiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = write_bundle(
+            dir.path(),
+            json!(["GH_TOKEN"]),
+            json!(["bash", "-c", "curl -H 'auth: {{secret:GH_TOKEN}}' x"]),
+        );
+        let compiled = Bundle::compile(&bundle).unwrap();
+        assert_eq!(compiled.seats["work"].secrets, vec!["GH_TOKEN"]);
+    }
+
+    #[test]
+    fn declared_but_unreferenced_compiles() {
+        // The lint is one-directional (referenced => declared): env-only
+        // consumers like `gh` reading GH_TOKEN take no argv reference.
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = write_bundle(dir.path(), json!(["GH_TOKEN"]), json!(["gh", "pr", "list"]));
+        assert_eq!(
+            Bundle::compile(&bundle).unwrap().seats["work"].secrets,
+            vec!["GH_TOKEN"]
+        );
+    }
+
+    #[test]
+    fn undeclared_reference_refuses_naming_the_secret() {
+        let error = compile_error(Value::Null, json!(["echo", "{{secret:GH_TOKEN}}"]));
+        assert!(error.contains("undeclared secret 'GH_TOKEN'"), "{error}");
+    }
+
+    #[test]
+    fn malformed_references_refuse_at_compile() {
+        for (part, why) in [
+            ("{{secret:gh_token}}", "lowercase"),
+            ("{{secret:}}", "empty"),
+            ("{{ secret:GH_TOKEN }}", "interior whitespace"),
+            ("{{secret:GH_TOKEN", "unclosed"),
+        ] {
+            let error = compile_error(json!(["GH_TOKEN"]), json!(["echo", part]));
+            assert!(
+                error.contains("malformed secret reference"),
+                "{why} ({part:?}): {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn ill_formed_and_denylisted_declarations_refuse() {
+        let error = compile_error(json!(["gh_token"]), json!(["true"]));
+        assert!(error.contains("[A-Z][A-Z0-9_]*"), "{error}");
+        for name in ["PATH", "FORGE_X"] {
+            let error = compile_error(json!([name]), json!(["true"]));
+            assert!(error.contains("denylisted"), "{name}: {error}");
+            assert!(error.contains(name), "{name}: {error}");
+        }
+        let error = compile_error(json!(["GH_TOKEN", "GH_TOKEN"]), json!(["true"]));
+        assert!(error.contains("twice"), "{error}");
+    }
+
+    #[test]
+    fn secrets_env_inside_the_bundle_dir_refuses() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = write_bundle(dir.path(), Value::Null, json!(["true"]));
+        std::fs::write(bundle.join("secrets.env"), "GH_TOKEN=oops\n").unwrap();
+        let error = Bundle::compile(&bundle).unwrap_err().to_string();
+        assert!(error.contains("secrets.env"), "{error}");
+        assert!(error.contains("outside the bundle"), "{error}");
+    }
+
+    #[test]
+    fn rotation_never_changes_the_manifest_digest() {
+        // End to end: set -> compile -> rotate the value -> compile ->
+        // digests byte-equal. Holds because the store lives OUTSIDE the
+        // bundle dir and digests carry names only.
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join(".forge/secrets.env");
+        forge_protocol::secret::store_set(&store, "GH_TOKEN", "first-value").unwrap();
+        let bundle = write_bundle(
+            dir.path(),
+            json!(["GH_TOKEN"]),
+            json!(["bash", "-c", "echo {{secret:GH_TOKEN}}"]),
+        );
+        let before = Bundle::compile(&bundle).unwrap().manifest_digest();
+        forge_protocol::secret::store_set(&store, "GH_TOKEN", "rotated-value").unwrap();
+        let after = Bundle::compile(&bundle).unwrap().manifest_digest();
+        assert_eq!(before, after, "rotation must never change a digest");
+    }
 }

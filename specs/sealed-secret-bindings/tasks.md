@@ -31,7 +31,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-1 grammar/scanner vectors; AC-7 masker tests —
   every encoding, multiple overlapping secrets, pass-through text,
   invalid-UTF-8 surroundings.
-- [ ] **T4 — Charter declaration + compile lint in
+- [x] **T4 — Charter declaration + compile lint in
   `crates/forge-runtime/src/bundle.rs`.** Parse `"secrets"` beside the
   0007 `inputs` handling; refuse undeclared references, malformed
   `{{secret:` occurrences, ill-formed or denylisted names, and a
@@ -39,7 +39,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   `CompileError::Invalid` load-time-refusal shape.
   *Proven by*: AC-2 compile tests (each refusal class, plus
   declared-and-referenced and declared-but-unreferenced compiling).
-- [ ] **T5 — Digest stability across rotation.** Names-only in the
+- [x] **T5 — Digest stability across rotation.** Names-only in the
   manifest; store outside the bundle dir.
   *Proven by*: AC-4 — set → compile → rotate value → compile →
   `manifest_digest` byte-equal, end to end.
