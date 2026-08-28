@@ -713,6 +713,7 @@ fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_clo
 fn the_readouts_render_and_scope_from_the_one_derivation() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
+    let db_path = db.clone();
     running_store(&db, "r1");
 
     for json in [false, true] {
@@ -787,10 +788,22 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
             }),
             ui::serve,
             None,
-            Some(1),
+            Some(2),
         )
         .unwrap(),
-        ExitCode::from(1)
+        ExitCode::from(1),
+        "two polls: the second one sleeps first"
+    );
+
+    // The migration, as a checkable equality: `forge inspect --json`
+    // nests today's output under `summary`, all nine keys verbatim and
+    // in the same order, so `| jq .summary` reproduces it byte for byte.
+    let events = Store::open(&db_path).unwrap().load("r1").unwrap();
+    let state = fold(&events).unwrap();
+    let view = forge_view::run_view(&events, Some(&state));
+    assert_eq!(
+        serde_json::to_string_pretty(&view.summary).unwrap(),
+        serde_json::to_string_pretty(&summarize(&state)).unwrap()
     );
 
     // The clock the derivation refuses to read.

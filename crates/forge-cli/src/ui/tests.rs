@@ -342,3 +342,120 @@ fn the_page_paints_and_derives_nothing() {
         assert!(PAGE.contains(kept), "the page still paints with {kept}");
     }
 }
+
+/// The transcript drill (`/api/session/<id>`) is journal-independent and
+/// operator-local: it locates the seat's own Claude transcript by id.
+/// The endpoint predates this change and its responses are untouched;
+/// what it lacked was a test, and the exact-coverage gate is the reason
+/// display truth is being landed in Rust at all.
+#[test]
+fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
+    let missing_db = PathBuf::from("missing.db");
+
+    // The id is validated STRICTLY, before any path is formed: empty,
+    // over-long, and anything outside hex-and-dash are all refused.
+    for bad in ["", "../../etc/passwd", &"a".repeat(65)] {
+        let response = handle(&missing_db, &format!("/api/session/{bad}"));
+        assert_eq!(response.status, "404 Not Found", "id {bad:?}");
+        assert!(response.body.contains("session not found"), "id {bad:?}");
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects");
+    // Two project directories: the first does not hold the file, so the
+    // scan must keep looking rather than conclude on the first miss.
+    std::fs::create_dir_all(projects.join("empty-project")).unwrap();
+    std::fs::create_dir_all(projects.join("real-project")).unwrap();
+
+    let transcript = concat!(
+        // Not JSON at all: skipped, never guessed at.
+        "not json\n",
+        // A record that is neither a user nor an assistant turn.
+        "{\"type\":\"summary\"}\n",
+        // A user turn with no message: no blocks, so no turn.
+        "{\"type\":\"user\"}\n",
+        // String content, with an explicit role and timestamp.
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",",
+        "\"content\":\"the plain form\"},\"timestamp\":\"2026-01-01T00:00:00Z\"}\n",
+        // Block content: prose, whitespace-only prose, a text block with
+        // no text, a tool with a file target, a tool without one, and a
+        // block kind this surface does not render.
+        "{\"type\":\"user\",\"message\":{\"content\":[",
+        "{\"type\":\"text\",\"text\":\"what happened\"},",
+        "{\"type\":\"text\",\"text\":\"   \"},",
+        "{\"type\":\"text\"},",
+        "{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"src/lib.rs\"}},",
+        "{\"type\":\"tool_use\",\"name\":\"Bash\"},",
+        "{\"type\":\"thinking\"}]}}\n",
+    );
+    std::fs::write(projects.join("real-project/abcd-1234.jsonl"), transcript).unwrap();
+
+    // A file that is not valid UTF-8 is unreadable, not repaired.
+    std::fs::write(projects.join("real-project/dead-beef.jsonl"), [0xff, 0xfe]).unwrap();
+
+    // Past the size cap the response is truncated rather than unbounded.
+    let mut oversized =
+        String::from("{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"");
+    oversized.push_str(&"x".repeat(4_000_001));
+    oversized.push_str("\"}}\n");
+    std::fs::write(projects.join("real-project/0000-1111.jsonl"), &oversized).unwrap();
+
+    let previous_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", &home);
+
+    let response = handle(&missing_db, "/api/session/abcd-1234");
+    assert_eq!(response.status, "200 OK");
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["session_id"], "abcd-1234");
+    assert_eq!(parsed["truncated"], false);
+    let turns = parsed["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 2, "two turns carried prose: {}", response.body);
+    assert_eq!(turns[0]["role"], "assistant");
+    assert_eq!(turns[0]["ts"], "2026-01-01T00:00:00Z");
+    assert_eq!(turns[0]["blocks"][0]["text"], "the plain form");
+    // The role falls back to the record type and the stamp to empty.
+    assert_eq!(turns[1]["role"], "user");
+    assert_eq!(turns[1]["ts"], "");
+    let blocks = turns[1]["blocks"].as_array().unwrap();
+    assert_eq!(blocks.len(), 3, "blank prose and unknown kinds drop out");
+    assert_eq!(blocks[0]["kind"], "text");
+    assert_eq!(blocks[0]["text"], "what happened");
+    // Tool markers carry file targets only — never prose or commands.
+    assert_eq!(blocks[1]["kind"], "tool");
+    assert_eq!(blocks[1]["text"], "Read · src/lib.rs");
+    assert_eq!(blocks[2]["text"], "Bash");
+
+    let truncated = handle(&missing_db, "/api/session/0000-1111");
+    let parsed: Value = serde_json::from_str(&truncated.body).unwrap();
+    assert_eq!(parsed["truncated"], true, "the size cap holds");
+    assert!(parsed["turns"].as_array().unwrap().is_empty());
+
+    assert_eq!(
+        handle(&missing_db, "/api/session/dead-beef").status,
+        "404 Not Found",
+        "unreadable bytes are not a transcript"
+    );
+    assert_eq!(
+        handle(&missing_db, "/api/session/9999-9999").status,
+        "404 Not Found",
+        "no such session on this machine"
+    );
+
+    // No projects directory at all: the scan finds nothing and says so.
+    std::env::set_var("HOME", dir.path().join("elsewhere"));
+    assert_eq!(
+        handle(&missing_db, "/api/session/abcd-1234").status,
+        "404 Not Found"
+    );
+
+    // No HOME: there is nowhere to look, and nothing is invented.
+    std::env::remove_var("HOME");
+    assert_eq!(
+        handle(&missing_db, "/api/session/abcd-1234").status,
+        "404 Not Found"
+    );
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    }
+}

@@ -12,7 +12,7 @@ outputs are typed results; only a pinned policy table ever selects a
 transition. Every claim the system makes — done, verified, parked,
 stopped, paid — is a journaled, replayable fact.
 
-## One binary, five crates
+## One binary, six crates
 
 ```
 forge-cli        the shipped `forge` binary: commands, embedded UI, adapters entry
@@ -20,12 +20,20 @@ forge-cli        the shipped `forge` binary: commands, embedded UI, adapters ent
     forge-core   PURE: envelope · canonical hashing · fold · policy evaluation
     forge-store  SQLite journal (append-only, hash-chained) · export · verify
     forge-protocol  forge-driver/v1 · subprocess transport · built-in adapters
+  forge-view     PURE: one display derivation — run rows, participants,
+                 phase topology, decision trail; no I/O, no clock, no
+                 terminal or DOM concept (decision 0013)
 ```
 
 Trust separates the crates, not deployment: `forge-core` performs no
 I/O, clock reads, randomness, or process execution — given the same
 journal and bundle it always returns the same state and ruling.
 Everything effectful sits above it and is journaled around it.
+`forge-view` is pure for a different reason: it is the ONE answer to
+every display question, rendered by `ui.html` as pixels and by
+`render.rs` as text, so the two surfaces cannot drift. Its manifest
+depends on exactly `forge-core`, `serde` and `serde_json`, which makes
+that purity a compile error rather than a review convention.
 
 ## The journal is the run
 

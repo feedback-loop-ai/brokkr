@@ -28,7 +28,8 @@ The operator's judgment enters only as signed journal events.
 
 ```
 forge run --recipe fast --repo . --feature "…"     # deliver
-forge ui                                            # watch it live
+forge watch --run <id>                              # watch it live, in the terminal
+forge ui                                            # watch it live, in a browser
 forge rerun --run <id> --recipe panel-review        # swap the strategy
 forge compare <a> <b>                               # journal-backed A/B
 ```
@@ -82,8 +83,20 @@ windows; verify against `SHA256SUMS` and the signed GitHub build attestation), t
 forge init my-bundle        # scaffold a reviewable starter recipe
 forge doctor                # tools, agent CLIs, database, contracts
 forge run …                 # deliver (exit 0 done · 2 parked · 3 stopped)
-forge inspect · replay · export · verify-run · anchor · costs · runs
+forge runs                  # one clamped line per run, newest first
+forge inspect --run <id>    # header, ruling, seats, trail, phase tree
+forge watch --run <id>      # the same, live, until the run concludes
+forge replay · export · verify-run · anchor · costs
 ```
+
+The readouts share ONE derivation (decision 0013): `forge-view` turns a
+journal into view models, and each surface only renders them — so
+"what did this seat cost" has a single answer, tested once. `runs`,
+`inspect` and `watch` each take `--json` to emit that model verbatim;
+`inspect` takes `--phase` and `--seat` as the scoping verbs the
+console's clicks became. Colour follows `NO_COLOR` and `TERM`, width
+follows `COLUMNS`; without a Unicode-width dependency, CJK and emoji
+columns misalign — stated rather than pretended away.
 
 `forge ui` serves an embedded, loopback-only, read-only surface: runs,
 live seat activity, the causal event timeline. `forge anchor` records
@@ -103,13 +116,13 @@ from a command-line value or the journal.
 | Path | What it is |
 |---|---|
 | `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, verification layers. |
-| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-bridge` · `forge-cli`. |
+| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli`. |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2` and `forge-run-manifest/v2`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `panel-review`, yours). |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
-| `docs/decisions/` | The constitution: numbered operator rulings 0001–0011. |
+| `docs/decisions/` | The constitution: numbered operator rulings 0001–0013. |
 | `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
 
 ## Verification

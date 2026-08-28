@@ -496,3 +496,144 @@ fn a_phase_whose_only_traffic_is_its_entry_drops_the_seats_block() {
          \x20 review ×1  ←current\n"
     );
 }
+
+#[test]
+fn a_panel_without_sequence_steps_forks_under_the_marker_alone() {
+    let events = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "design"}), T0),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "design", "phase": "design"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "checkpoint": {"member": "a", "step": "note"}}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "checkpoint": {"member": "b", "step": "note"}}),
+            T0,
+        ),
+        // A seat whose effect names no phase belongs to no phase scope.
+        ev(
+            5,
+            EventType::EffectRequested,
+            json!({"effect_id": "loose", "seat": "loose"}),
+            T0,
+        ),
+    ];
+    let view = forge_view::run_view(&events, None);
+    let out = inspect(&view, None, false, &Style::plain(80));
+    assert!(
+        out.contains("    ⑂\n"),
+        "a fork column with no label prints the marker alone: {out}"
+    );
+    let lens = lens_for(&view, Some(&Scope::Phase("design".into())))
+        .unwrap()
+        .unwrap();
+    let scoped = inspect(&view, Some(&lens), false, &Style::plain(80));
+    assert!(
+        !scoped.contains("loose"),
+        "a phase-less seat is in no phase scope: {scoped}"
+    );
+}
+
+#[test]
+fn a_step_with_a_single_member_still_reads_as_the_step() {
+    let events = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "design"}), T0),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "design", "phase": "design"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "checkpoint":
+                   {"step": "sequence-step-finished", "step_name": "positions"}}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "checkpoint": {"member": "positions:only", "step": "note"}}),
+            T0,
+        ),
+    ];
+    let view = forge_view::run_view(&events, None);
+    let out = inspect(&view, None, false, &Style::plain(80));
+    assert!(
+        out.contains("    → positions · finished\n"),
+        "the column label wins over the lone node's own: {out}"
+    );
+}
+
+#[test]
+fn a_seat_lens_gathers_every_occurrence_and_survives_a_phase_less_one() {
+    // A re-entered phase really did run that seat twice; hiding one
+    // would be a false statement about the run.
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "one", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectRequested,
+            json!({"effect_id": "two", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        // A third occurrence whose effect names no phase at all.
+        ev(
+            5,
+            EventType::EffectRequested,
+            json!({"effect_id": "three", "seat": "implement"}),
+            T0,
+        ),
+    ];
+    let view = forge_view::run_view(&events, None);
+    let lens = lens_for(&view, Some(&Scope::Seat("implement".into())))
+        .unwrap()
+        .unwrap();
+    assert_eq!(lens.keys.len(), 3, "every occurrence");
+    assert_eq!(lens.phases, vec!["implement".to_string()], "deduped");
+    let out = inspect(&view, Some(&lens), false, &Style::plain(80));
+    assert_eq!(
+        out.lines()
+            .filter(|line| line.starts_with("  implement ") && line.contains("working"))
+            .count(),
+        3,
+        "{out}"
+    );
+}
+
+#[test]
+fn a_run_that_has_not_entered_a_phase_yet_says_so() {
+    let events = journal();
+    let mut early = state(Status::Running, None, None);
+    early.phase = None;
+    let view = forge_view::run_view(&events, Some(&early));
+    let out = inspect(&view, None, false, &Style::plain(80));
+    assert!(out.contains("running · phase - · seq 14"), "{out}");
+}

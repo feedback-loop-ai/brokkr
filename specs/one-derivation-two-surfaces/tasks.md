@@ -178,14 +178,14 @@ of this feature, not an afterthought at the end.
 
 ## Movement 5 — docs and gates
 
-- [ ] **T21 — Docs.** `README.md` (the `crates/` row at :106 and the
+- [x] **T21 — Docs.** `README.md` (the `crates/` row at :106 and the
   command listing), `ARCHITECTURE.md` crate listing,
   `docs/target-architecture.md` :361 — `forge-view`, `forge watch`, and
   the changed `runs`/`inspect` shapes, including the honest note that
   CJK and emoji columns misalign without a width dependency.
   *Proven by*: inspection, plus AC-24.
 
-- [ ] **T22 — Gates green.** `cargo fmt --all --check`; `cargo clippy
+- [x] **T22 — Gates green.** `cargo fmt --all --check`; `cargo clippy
   --workspace --all-targets --all-features -- -D warnings`; `cargo test
   --workspace --all-features`; `bash scripts/coverage-exact.sh`.
   *Proven by*: AC-24 — literal 100% line/branch/function equality with
