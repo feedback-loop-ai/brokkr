@@ -1,6 +1,6 @@
 [package]
-name = "forge-runtime"
-description = "Durable engine loop: bundles, effects, recovery, operator commands."
+name = "forge-bridge"
+description = "Authenticated Looper producer bridge over verified Forge journals."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +8,12 @@ rust-version.workspace = true
 [dependencies]
 forge-core = { workspace = true }
 forge-store = { workspace = true }
-forge-protocol = { workspace = true }
+forge-runtime = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
 time = { workspace = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/dispatch-envelope.v2.json",
+  "title": "Forge Looper dispatch envelope v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "envelope_id", "forge_run_id", "issued_at", "expires_at", "canonical_digest", "looper", "actor", "repository", "recipe", "budget", "producer", "allowed_effects", "forbidden_actions", "bounds", "evidence_requirements", "attestation_requirement"],
+  "properties": {
+    "schema": { "const": "forge-dispatch/v2" },
+    "envelope_id": { "$ref": "#/definitions/bounded" },
+    "forge_run_id": { "$ref": "#/definitions/bounded" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "canonical_digest": { "$ref": "#/definitions/sha256" },
+    "looper": {
+      "type": "object", "additionalProperties": false,
+      "required": ["organization_id", "product_id", "story_id", "delivery_run_id", "request_grant_id", "feature_path", "immutable_inputs_sha256"],
+      "properties": {
+        "organization_id": { "$ref": "#/definitions/bounded" }, "product_id": { "$ref": "#/definitions/bounded" },
+        "story_id": { "$ref": "#/definitions/bounded" }, "delivery_run_id": { "$ref": "#/definitions/bounded" },
+        "request_grant_id": { "$ref": "#/definitions/bounded" }, "feature_path": { "$ref": "#/definitions/bounded" },
+        "immutable_inputs_sha256": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "actor": { "type": "object", "additionalProperties": false, "required": ["principal_kind", "principal_id", "actor_kind", "actor_id", "accountable_operator_id", "authority_source", "operating_profile"], "properties": { "principal_kind": { "const": "api_key" }, "principal_id": { "$ref": "#/definitions/bounded" }, "actor_kind": { "enum": ["accountable_human", "ai_agent", "service", "system_validator"] }, "actor_id": { "$ref": "#/definitions/bounded" }, "accountable_operator_id": { "$ref": "#/definitions/bounded" }, "authority_source": { "const": "looper-grant" }, "operating_profile": { "$ref": "#/definitions/bounded" } } },
+    "repository": { "type": "object", "additionalProperties": false, "required": ["owner", "name", "base_sha", "candidate_sha", "workspace_class", "target_environment"], "properties": { "owner": { "$ref": "#/definitions/bounded" }, "name": { "$ref": "#/definitions/bounded" }, "base_sha": { "$ref": "#/definitions/sha256" }, "candidate_sha": { "anyOf": [{ "$ref": "#/definitions/sha256" }, { "type": "null" }] }, "workspace_class": { "$ref": "#/definitions/bounded" }, "target_environment": { "$ref": "#/definitions/bounded" } } },
+    "recipe": { "type": "object", "additionalProperties": false, "required": ["name", "compiled_sha256"], "properties": { "name": { "$ref": "#/definitions/bounded" }, "compiled_sha256": { "$ref": "#/definitions/sha256" } } },
+    "budget": { "type": "object", "additionalProperties": false, "required": ["lane_tally_run_id", "reservation_id", "cost_state", "ceiling_microunits", "currency"], "properties": { "lane_tally_run_id": { "$ref": "#/definitions/bounded" }, "reservation_id": { "type": ["string", "null"], "maxLength": 512 }, "cost_state": { "enum": ["known", "evidenced-zero", "unknown", "not-applicable", "reconciliation-pending", "final"] }, "ceiling_microunits": { "type": "integer", "minimum": 1 }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" } } },
+    "producer": { "type": "object", "additionalProperties": false, "required": ["registration_id", "token_reference", "callback_audience", "accepting_service_id", "runtime_id", "producer_release", "protocol_version", "starting_cursor"], "properties": { "registration_id": { "$ref": "#/definitions/bounded" }, "token_reference": { "$ref": "#/definitions/bounded" }, "callback_audience": { "$ref": "#/definitions/bounded" }, "accepting_service_id": { "const": "looper-api" }, "runtime_id": { "$ref": "#/definitions/bounded" }, "producer_release": { "$ref": "#/definitions/bounded" }, "protocol_version": { "const": 1 }, "starting_cursor": { "const": 0 } } },
+    "allowed_effects": { "type": "array", "uniqueItems": true, "minItems": 1, "items": { "enum": ["observation", "checkpoint", "report", "intervention_response", "terminal_report"] } },
+    "forbidden_actions": { "type": "array", "uniqueItems": true, "minItems": 5, "items": { "$ref": "#/definitions/bounded" } },
+    "bounds": { "type": "object", "additionalProperties": false, "required": ["max_attempts", "max_parallel_effects", "max_event_bytes", "max_events_per_ten_seconds", "replay_retention_seconds", "safe_stop", "cancellation"], "properties": { "max_attempts": { "type": "integer", "minimum": 1 }, "max_parallel_effects": { "type": "integer", "minimum": 1 }, "max_event_bytes": { "type": "integer", "minimum": 1, "maximum": 65536 }, "max_events_per_ten_seconds": { "type": "integer", "minimum": 1, "maximum": 40 }, "replay_retention_seconds": { "type": "integer", "minimum": 604800 }, "safe_stop": { "enum": ["boundary", "nearest_phase_boundary"] }, "cancellation": { "enum": ["fenced", "fenced_operator_command"] } } },
+    "evidence_requirements": { "type": "array", "minItems": 1, "uniqueItems": true, "contains": { "const": "ordered_hash_chain" }, "items": { "$ref": "#/definitions/bounded" } },
+    "attestation_requirement": { "const": "self_reported" }
+  },
+  "definitions": {
+    "bounded": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

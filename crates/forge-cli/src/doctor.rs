@@ -73,7 +73,7 @@ pub fn doctor(bundle: Option<&Path>, db: &PathBuf) -> Report {
     for (tool, driver) in [
         ("claude", "claude-code"),
         ("codex", "codex"),
-        ("dsh", "exec (dsh/Surface profiles)"),
+        ("dsh", "deepseek-harness"),
         ("python3", "exec (script templates)"),
     ] {
         match tool_version(tool) {

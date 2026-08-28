@@ -1,0 +1,582 @@
+//! Looper-bound dispatch and run-manifest v2 contracts.
+//!
+//! v1 stays frozen. A Looper-started run pins this complete dispatch envelope
+//! inside an immutable v2 run manifest; later bridge invocations recover the
+//! same bytes from the store instead of trusting a mutable side file.
+
+use std::collections::BTreeSet;
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use thiserror::Error;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+use crate::canonical;
+
+pub const DISPATCH_SCHEMA_V2: &str = "forge-dispatch/v2";
+pub const RUN_MANIFEST_SCHEMA_V2: &str = "forge-run-manifest/v2";
+pub const PRODUCER_EFFECTS: [&str; 5] = [
+    "observation",
+    "checkpoint",
+    "report",
+    "intervention_response",
+    "terminal_report",
+];
+const REQUIRED_FORBIDDEN_ACTIONS: [&str; 5] = [
+    "grant_create",
+    "grant_widen",
+    "artifact_decide",
+    "workflow_advance",
+    "release_promote",
+];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LooperBinding {
+    pub organization_id: String,
+    pub product_id: String,
+    pub story_id: String,
+    pub delivery_run_id: String,
+    pub request_grant_id: String,
+    pub feature_path: String,
+    pub immutable_inputs_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActorBinding {
+    pub principal_kind: String,
+    pub principal_id: String,
+    pub actor_kind: String,
+    pub actor_id: String,
+    pub accountable_operator_id: String,
+    pub authority_source: String,
+    pub operating_profile: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryBinding {
+    pub owner: String,
+    pub name: String,
+    pub base_sha: String,
+    pub candidate_sha: Option<String>,
+    pub workspace_class: String,
+    pub target_environment: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecipeBinding {
+    pub name: String,
+    pub compiled_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BudgetBinding {
+    pub lane_tally_run_id: String,
+    pub reservation_id: Option<String>,
+    pub cost_state: String,
+    pub ceiling_microunits: Option<u64>,
+    pub currency: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProducerBinding {
+    pub registration_id: String,
+    pub token_reference: String,
+    pub callback_audience: String,
+    pub accepting_service_id: String,
+    pub runtime_id: String,
+    pub producer_release: String,
+    pub protocol_version: u32,
+    pub starting_cursor: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchBounds {
+    pub max_attempts: u32,
+    pub max_parallel_effects: u32,
+    pub max_event_bytes: u32,
+    pub max_events_per_ten_seconds: u32,
+    pub replay_retention_seconds: u64,
+    pub safe_stop: String,
+    pub cancellation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchEnvelopeV2 {
+    pub schema: String,
+    pub envelope_id: String,
+    pub forge_run_id: String,
+    pub issued_at: String,
+    pub expires_at: String,
+    pub canonical_digest: String,
+    pub looper: LooperBinding,
+    pub actor: ActorBinding,
+    pub repository: RepositoryBinding,
+    pub recipe: RecipeBinding,
+    pub budget: BudgetBinding,
+    pub producer: ProducerBinding,
+    pub allowed_effects: Vec<String>,
+    pub forbidden_actions: Vec<String>,
+    pub bounds: DispatchBounds,
+    pub evidence_requirements: Vec<String>,
+    pub attestation_requirement: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunManifestV2 {
+    pub schema: String,
+    pub engine: String,
+    pub event_schema: u32,
+    pub database_schema: u32,
+    pub driver_protocol: u32,
+    pub bundle_name: String,
+    pub files: Map<String, Value>,
+    pub bundle_sha256: String,
+    pub dispatch_sha256: String,
+    pub dispatch: DispatchEnvelopeV2,
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum DispatchError {
+    #[error("dispatch schema is unsupported")]
+    BadSchema,
+    #[error("dispatch field '{0}' is empty or malformed")]
+    BadField(&'static str),
+    #[error("dispatch time window is invalid or expired")]
+    InvalidTime,
+    #[error("dispatch digest does not match canonical content")]
+    BadDigest,
+    #[error("dispatch recipe digest does not match the compiled bundle")]
+    RecipeMismatch,
+    #[error("dispatch producer effects are not the closed least-scope set")]
+    EffectScope,
+    #[error("dispatch does not forbid every reserved action")]
+    ForbiddenScope,
+    #[error("dispatch execution bounds are unsafe")]
+    UnsafeBounds,
+    #[error("dispatch budget/cost envelope is incomplete")]
+    Budget,
+    #[error("run manifest is not a supported Forge manifest")]
+    BadManifest,
+}
+
+fn is_hex_64(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn nonempty(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+}
+
+fn safe_audience(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    url.scheme() == "https"
+        || (url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost")))
+}
+
+impl DispatchEnvelopeV2 {
+    pub fn compute_digest(&self) -> String {
+        let mut value = serde_json::to_value(self).expect("dispatch serializes");
+        value
+            .as_object_mut()
+            .expect("dispatch is an object")
+            .remove("canonical_digest");
+        canonical::sha256_hex(&value)
+    }
+
+    pub fn sealed(mut self) -> Self {
+        self.canonical_digest = self.compute_digest();
+        self
+    }
+
+    pub fn verify(
+        &self,
+        now: OffsetDateTime,
+        compiled_bundle_sha256: &str,
+    ) -> Result<(), DispatchError> {
+        if self.schema != DISPATCH_SCHEMA_V2 || self.producer.protocol_version != 1 {
+            return Err(DispatchError::BadSchema);
+        }
+        for (name, value) in [
+            ("envelope_id", self.envelope_id.as_str()),
+            ("forge_run_id", self.forge_run_id.as_str()),
+            ("organization_id", self.looper.organization_id.as_str()),
+            ("product_id", self.looper.product_id.as_str()),
+            ("story_id", self.looper.story_id.as_str()),
+            ("delivery_run_id", self.looper.delivery_run_id.as_str()),
+            ("request_grant_id", self.looper.request_grant_id.as_str()),
+            ("feature_path", self.looper.feature_path.as_str()),
+            ("principal_id", self.actor.principal_id.as_str()),
+            ("actor_id", self.actor.actor_id.as_str()),
+            (
+                "accountable_operator_id",
+                self.actor.accountable_operator_id.as_str(),
+            ),
+            ("repository_owner", self.repository.owner.as_str()),
+            ("repository_name", self.repository.name.as_str()),
+            ("recipe_name", self.recipe.name.as_str()),
+            ("lane_tally_run_id", self.budget.lane_tally_run_id.as_str()),
+            ("registration_id", self.producer.registration_id.as_str()),
+            ("token_reference", self.producer.token_reference.as_str()),
+            ("runtime_id", self.producer.runtime_id.as_str()),
+            ("producer_release", self.producer.producer_release.as_str()),
+            ("workspace_class", self.repository.workspace_class.as_str()),
+            (
+                "target_environment",
+                self.repository.target_environment.as_str(),
+            ),
+        ] {
+            if !nonempty(value) {
+                return Err(DispatchError::BadField(name));
+            }
+        }
+        if !is_hex_64(&self.canonical_digest)
+            || !is_hex_64(&self.looper.immutable_inputs_sha256)
+            || !is_hex_64(&self.repository.base_sha)
+            || self
+                .repository
+                .candidate_sha
+                .as_deref()
+                .is_some_and(|sha| !is_hex_64(sha))
+            || !is_hex_64(&self.recipe.compiled_sha256)
+        {
+            return Err(DispatchError::BadField("sha256"));
+        }
+        let issued = OffsetDateTime::parse(&self.issued_at, &Rfc3339)
+            .map_err(|_| DispatchError::InvalidTime)?;
+        let expires = OffsetDateTime::parse(&self.expires_at, &Rfc3339)
+            .map_err(|_| DispatchError::InvalidTime)?;
+        if issued >= expires || now < issued || now >= expires {
+            return Err(DispatchError::InvalidTime);
+        }
+        if self.compute_digest() != self.canonical_digest {
+            return Err(DispatchError::BadDigest);
+        }
+        if self.actor.principal_kind != "api_key"
+            || self.actor.principal_id != self.producer.token_reference
+            || self.actor.authority_source != "looper-grant"
+            || ![
+                "accountable_human",
+                "ai_agent",
+                "service",
+                "system_validator",
+            ]
+            .contains(&self.actor.actor_kind.as_str())
+            || self.producer.accepting_service_id != "looper-api"
+            || self.producer.starting_cursor != 0
+        {
+            return Err(DispatchError::BadField("producer_authority"));
+        }
+        if self.recipe.compiled_sha256 != compiled_bundle_sha256 {
+            return Err(DispatchError::RecipeMismatch);
+        }
+        let effects: BTreeSet<&str> = self.allowed_effects.iter().map(String::as_str).collect();
+        if effects.len() != self.allowed_effects.len()
+            || effects.is_empty()
+            || effects
+                .iter()
+                .any(|effect| !PRODUCER_EFFECTS.contains(effect))
+        {
+            return Err(DispatchError::EffectScope);
+        }
+        let forbidden: BTreeSet<&str> = self.forbidden_actions.iter().map(String::as_str).collect();
+        if forbidden.len() != self.forbidden_actions.len()
+            || forbidden.len() != REQUIRED_FORBIDDEN_ACTIONS.len()
+            || REQUIRED_FORBIDDEN_ACTIONS
+                .iter()
+                .any(|action| !forbidden.contains(action))
+        {
+            return Err(DispatchError::ForbiddenScope);
+        }
+        if self.bounds.max_attempts == 0
+            || self.bounds.max_parallel_effects == 0
+            || self.bounds.max_event_bytes == 0
+            || self.bounds.max_event_bytes > 65_536
+            || self.bounds.max_events_per_ten_seconds == 0
+            || self.bounds.max_events_per_ten_seconds > 40
+            || self.bounds.replay_retention_seconds < 604_800
+            || !["boundary", "nearest_phase_boundary"].contains(&self.bounds.safe_stop.as_str())
+            || !["fenced", "fenced_operator_command"].contains(&self.bounds.cancellation.as_str())
+            || !safe_audience(&self.producer.callback_audience)
+        {
+            return Err(DispatchError::UnsafeBounds);
+        }
+        let cost_state = self.budget.cost_state.as_str();
+        if ![
+            "known",
+            "evidenced-zero",
+            "unknown",
+            "not-applicable",
+            "reconciliation-pending",
+            "final",
+        ]
+        .contains(&cost_state)
+            || self
+                .budget
+                .ceiling_microunits
+                .is_none_or(|value| value == 0)
+            || self.budget.currency.as_deref().is_none_or(|value| {
+                value.len() != 3 || !value.bytes().all(|byte| byte.is_ascii_uppercase())
+            })
+        {
+            return Err(DispatchError::Budget);
+        }
+        let evidence: BTreeSet<&str> = self
+            .evidence_requirements
+            .iter()
+            .map(String::as_str)
+            .collect();
+        if evidence.len() != self.evidence_requirements.len()
+            || !evidence.contains("ordered_hash_chain")
+            || evidence.iter().any(|requirement| !nonempty(requirement))
+            || self.attestation_requirement != "self_reported"
+        {
+            return Err(DispatchError::BadField("evidence_requirements"));
+        }
+        Ok(())
+    }
+}
+
+pub fn build_run_manifest_v2(
+    bundle_manifest: &Value,
+    dispatch: DispatchEnvelopeV2,
+) -> Result<Value, DispatchError> {
+    let object = bundle_manifest
+        .as_object()
+        .ok_or(DispatchError::BadManifest)?;
+    let string = |key: &'static str| {
+        object
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or(DispatchError::BadManifest)
+    };
+    let integer = |key: &'static str| {
+        object
+            .get(key)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(DispatchError::BadManifest)
+    };
+    let files = object
+        .get("files")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or(DispatchError::BadManifest)?;
+    if files.is_empty() {
+        return Err(DispatchError::BadManifest);
+    }
+    let bundle_sha256 = canonical::sha256_hex(bundle_manifest);
+    if dispatch.recipe.compiled_sha256 != bundle_sha256 {
+        return Err(DispatchError::RecipeMismatch);
+    }
+    let engine = string("engine")?;
+    let bundle_name = string("bundle_name")?;
+    let event_schema = integer("event_schema")?;
+    let database_schema = integer("database_schema")?;
+    let driver_protocol = integer("driver_protocol")?;
+    if !nonempty(&engine)
+        || !nonempty(&bundle_name)
+        || event_schema != 1
+        || database_schema != 1
+        || driver_protocol != 1
+    {
+        return Err(DispatchError::BadManifest);
+    }
+    serde_json::to_value(RunManifestV2 {
+        schema: RUN_MANIFEST_SCHEMA_V2.to_string(),
+        engine,
+        event_schema,
+        database_schema,
+        driver_protocol,
+        bundle_name,
+        files,
+        bundle_sha256,
+        dispatch_sha256: dispatch.canonical_digest.clone(),
+        dispatch,
+    })
+    .map_err(|_| DispatchError::BadManifest)
+}
+
+pub fn bundle_manifest_from_run(manifest: &Value) -> Result<Value, DispatchError> {
+    if manifest.get("schema").and_then(Value::as_str) != Some(RUN_MANIFEST_SCHEMA_V2) {
+        return Ok(manifest.clone());
+    }
+    let parsed: RunManifestV2 =
+        serde_json::from_value(manifest.clone()).map_err(|_| DispatchError::BadManifest)?;
+    Ok(serde_json::json!({
+        "engine": parsed.engine,
+        "event_schema": parsed.event_schema,
+        "database_schema": parsed.database_schema,
+        "driver_protocol": parsed.driver_protocol,
+        "bundle_name": parsed.bundle_name,
+        "files": parsed.files,
+    }))
+}
+
+pub fn dispatch_from_run(manifest: &Value) -> Result<Option<DispatchEnvelopeV2>, DispatchError> {
+    if manifest.get("schema").and_then(Value::as_str) != Some(RUN_MANIFEST_SCHEMA_V2) {
+        return Ok(None);
+    }
+    let parsed: RunManifestV2 =
+        serde_json::from_value(manifest.clone()).map_err(|_| DispatchError::BadManifest)?;
+    if parsed.dispatch_sha256 != parsed.dispatch.canonical_digest
+        || parsed.bundle_sha256 != canonical::sha256_hex(&bundle_manifest_from_run(manifest)?)
+    {
+        return Err(DispatchError::BadManifest);
+    }
+    Ok(Some(parsed.dispatch))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fixture(bundle_sha256: &str) -> DispatchEnvelopeV2 {
+        DispatchEnvelopeV2 {
+            schema: DISPATCH_SCHEMA_V2.into(),
+            envelope_id: "11111111-1111-4111-8111-111111111111".into(),
+            forge_run_id: "forge-bound-run".into(),
+            issued_at: "2026-08-28T08:00:00Z".into(),
+            expires_at: "2026-08-28T09:00:00Z".into(),
+            canonical_digest: String::new(),
+            looper: LooperBinding {
+                organization_id: "22222222-2222-4222-8222-222222222222".into(),
+                product_id: "33333333-3333-4333-8333-333333333333".into(),
+                story_id: "44444444-4444-4444-8444-444444444444".into(),
+                delivery_run_id: "55555555-5555-4555-8555-555555555555".into(),
+                request_grant_id: "66666666-6666-4666-8666-666666666666".into(),
+                feature_path: "084-f-live-sse-cost-terminal-evidence".into(),
+                immutable_inputs_sha256: "a".repeat(64),
+            },
+            actor: ActorBinding {
+                principal_kind: "api_key".into(),
+                principal_id: "key-ref".into(),
+                actor_kind: "service".into(),
+                actor_id: "rust-forge".into(),
+                accountable_operator_id: "77777777-7777-4777-8777-777777777777".into(),
+                authority_source: "looper-grant".into(),
+                operating_profile: "bounded-autonomy".into(),
+            },
+            repository: RepositoryBinding {
+                owner: "feedback-loop-ai".into(),
+                name: "looper".into(),
+                base_sha: "b".repeat(64),
+                candidate_sha: None,
+                workspace_class: "isolated-worktree".into(),
+                target_environment: "dogfood".into(),
+            },
+            recipe: RecipeBinding {
+                name: "fast".into(),
+                compiled_sha256: bundle_sha256.into(),
+            },
+            budget: BudgetBinding {
+                lane_tally_run_id: "55555555-5555-4555-8555-555555555555".into(),
+                reservation_id: Some("reservation-1".into()),
+                cost_state: "known".into(),
+                ceiling_microunits: Some(2_000_000),
+                currency: Some("USD".into()),
+            },
+            producer: ProducerBinding {
+                registration_id: "88888888-8888-4888-8888-888888888888".into(),
+                token_reference: "key-ref".into(),
+                callback_audience: "https://dogfood.feedback-loop.ai".into(),
+                accepting_service_id: "looper-api".into(),
+                runtime_id: "runtime-1".into(),
+                producer_release: "forge@candidate".into(),
+                protocol_version: 1,
+                starting_cursor: 0,
+            },
+            allowed_effects: PRODUCER_EFFECTS
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            forbidden_actions: REQUIRED_FORBIDDEN_ACTIONS
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            bounds: DispatchBounds {
+                max_attempts: 3,
+                max_parallel_effects: 4,
+                max_event_bytes: 65_536,
+                max_events_per_ten_seconds: 40,
+                replay_retention_seconds: 604_800,
+                safe_stop: "nearest_phase_boundary".into(),
+                cancellation: "fenced_operator_command".into(),
+            },
+            evidence_requirements: vec!["ordered_hash_chain".into(), "terminal_receipt".into()],
+            attestation_requirement: "self_reported".into(),
+        }
+        .sealed()
+    }
+
+    #[test]
+    fn dispatch_digest_scope_time_and_manifest_are_fenced() {
+        let bundle = json!({
+            "engine":"0.2.0", "event_schema":1, "database_schema":1,
+            "driver_protocol":1, "bundle_name":"fast",
+            "files":{"policy.json":"c".repeat(64)}
+        });
+        let bundle_sha = canonical::sha256_hex(&bundle);
+        let dispatch = fixture(&bundle_sha);
+        let now = OffsetDateTime::parse("2026-08-28T08:30:00Z", &Rfc3339).unwrap();
+        assert_eq!(dispatch.verify(now, &bundle_sha), Ok(()));
+
+        let manifest = build_run_manifest_v2(&bundle, dispatch.clone()).unwrap();
+        assert_eq!(bundle_manifest_from_run(&manifest).unwrap(), bundle);
+        assert_eq!(
+            dispatch_from_run(&manifest).unwrap(),
+            Some(dispatch.clone())
+        );
+
+        let mut changed = dispatch.clone();
+        changed.looper.story_id = "other".into();
+        assert_eq!(
+            changed.verify(now, &bundle_sha),
+            Err(DispatchError::BadDigest)
+        );
+        let mut expired = dispatch.clone();
+        expired.expires_at = "2026-08-28T08:20:00Z".into();
+        expired = expired.sealed();
+        assert_eq!(
+            expired.verify(now, &bundle_sha),
+            Err(DispatchError::InvalidTime)
+        );
+        let mut widened = dispatch.clone();
+        widened.allowed_effects.push("workflow_advance".into());
+        widened = widened.sealed();
+        assert_eq!(
+            widened.verify(now, &bundle_sha),
+            Err(DispatchError::EffectScope)
+        );
+        let mut confused = dispatch;
+        confused.producer.callback_audience = "http://localhost:80@evil.example".into();
+        confused = confused.sealed();
+        assert_eq!(
+            confused.verify(now, &bundle_sha),
+            Err(DispatchError::UnsafeBounds)
+        );
+    }
+}
