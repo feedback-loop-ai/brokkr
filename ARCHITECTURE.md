@@ -101,11 +101,17 @@ sees.
 
 Drivers speak `forge-driver/v1` (NDJSON over stdio; unknown messages
 fail closed; a driver that vanishes after accepting leaves the attempt
-indeterminate). The adapters for Claude Code, Codex, and any
-template-shaped harness (dsh/Surface profiles, ssh-carried remote
-execution, prompt-in/result-file-out CLIs) are built into the binary —
-`{forge} driver <kind>` in bundle data (decision 0009) — while the
-protocol stays language-neutral for third-party drivers. Trust classes
+indeterminate). The adapters for Claude Code (`claude` directly, or
+`lanetally` — the same harness through LaneTally's session-capture
+wrapper), Codex, and any template-shaped harness (dsh/Surface profiles,
+ssh-carried remote execution, prompt-in/result-file-out CLIs) are built
+into the binary — `{forge} driver <kind>` in bundle data (decision
+0009) — while the protocol stays language-neutral for third-party
+drivers. On cost provenance: `total_cost_usd` stays the
+harness-reported list price for both claude and lanetally; LaneTally
+capture makes the session priceable in the LaneTally ledger (marked by
+the checkpoint's constant `capture:"lanetally"`), and the per-session
+actual-cost join is deferred until readplane exposes a session query. Trust classes
 are data too: no confinement is a trusted native child;
 `driver.confine {image, network, mounts}` wraps the command in a
 pinned container with the workdir mounted at the same path.

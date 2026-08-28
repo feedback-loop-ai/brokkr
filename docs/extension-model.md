@@ -51,7 +51,7 @@ Seats are **data, not code**: a seat definition bundles
 | `class` | Capacity class, not a model name: `background` / `workhorse` / `frontier` (LaneTally resolves the actual provider; model-blindness is wire-level). |
 | `trust` | `trusted` / `policy-confined` / `public-evidence-only` — decides what the engine mounts into the sandbox. |
 | `result_schema` | The typed result the seat must return (decision 0001 governs violations). |
-| `driver` | Which harness runs it (`surface`, `cordis`, `claude-code`, `codex`, `fake`, or another protocol-conformant driver). |
+| `driver` | Which harness runs it (`surface`, `cordis`, `claude-code`, `claude-lanetally` — the Claude Code harness through LaneTally's session-capture wrapper: `total_cost_usd` stays the harness-reported list price, capture makes the session priceable in the LaneTally ledger, and the per-session actual-cost join is deferred until readplane exposes a session query — `codex`, `fake`, or another protocol-conformant driver). |
 
 Executors consume *seat sets* from configuration: the review executor runs
 "one seat per repo × dimension in `review.dimensions`"; the council executor
