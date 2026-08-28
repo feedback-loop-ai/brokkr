@@ -262,16 +262,11 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
 
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
+    std::fs::write(&result, "nope").unwrap();
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Exec,
-        &[
-            "sh".into(),
-            "-c".into(),
-            "printf nope > \"$1\"".into(),
-            "sh".into(),
-            result.to_string_lossy().into_owned(),
-        ],
+        &["sh".into(), "-c".into(), "cat >/dev/null".into()],
         &json!({
             "effect_id":"effect",
             "attempt_id":"attempt",

@@ -31,7 +31,7 @@ pub enum SpawnError {
 
 pub struct DriverProcess {
     child: Arc<Mutex<Child>>,
-    stdin: std::process::ChildStdin,
+    stdin: Box<dyn Write>,
     stdout: BufReader<std::process::ChildStdout>,
     stderr_thread: std::thread::JoinHandle<String>,
     timed_out: Arc<AtomicBool>,
@@ -87,7 +87,7 @@ impl DriverProcess {
         });
         Ok(DriverProcess {
             child,
-            stdin,
+            stdin: Box::new(stdin),
             stdout,
             stderr_thread,
             timed_out,
