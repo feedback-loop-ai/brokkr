@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 forge-core = { workspace = true }
+forge-bridge = { workspace = true }
 forge-store = { workspace = true }
 forge-protocol = { workspace = true }
 forge-runtime = { workspace = true }
@@ -18,3 +19,4 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
+time = { workspace = true }

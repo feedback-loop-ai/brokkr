@@ -22,6 +22,7 @@ last=""
 for a in "$@"; do last="$a"; done
 case "$last" in
   *.md) prompt=$(cat "$last") ;;
+  *Result?contract*) prompt=$last ;;
   *) prompt=$(cat) ;;
 esac
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
@@ -43,6 +44,17 @@ printf '{"type":"assistant","message":{"content":[{"type":"text","text":"looking
 printf 'not json, ignorable noise\n'
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
 printf '{"type":"result","num_turns":2,"total_cost_usd":0.125}\n'
+"#;
+
+const CODEX_JSON_SHIM: &str = r#"#!/bin/sh
+prompt=$(cat)
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
+printf '{"type":"turn.started"}\n'
+printf '{"type":"item.started","item":{"type":"command_execution","command":"secret command"}}\n'
+printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"private output"}}\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens":8,"output_tokens":5}}\n'
 "#;
 
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
@@ -79,6 +91,7 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         .args(kind_args)
         .env("FORGE_CLAUDE_BIN", shim)
         .env("FORGE_CODEX_BIN", shim)
+        .env("FORGE_DSH_BIN", shim)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -102,6 +115,7 @@ fn all_adapters<'a>(shim: &'a Path) -> Vec<(&'static str, Vec<String>)> {
     vec![
         ("claude", vec!["claude".into()]),
         ("codex", vec!["codex".into()]),
+        ("dsh", vec!["dsh".into()]),
         ("exec-stdin", vec!["exec".into(), "--".into(), shim.to_string_lossy().into_owned()]),
         ("exec-promptfile", vec![
             "exec".into(), "--".into(),
@@ -118,19 +132,34 @@ fn conformance_across_all_builtin_adapters() {
         let claude_dir = dir.path().join("claude-stream");
         std::fs::create_dir_all(&claude_dir).unwrap();
         let claude_shim = make_shim(&claude_dir, CLAUDE_STREAM_SHIM);
+        let codex_dir = dir.path().join("codex-json");
+        std::fs::create_dir_all(&codex_dir).unwrap();
+        let codex_shim = make_shim(&codex_dir, CODEX_JSON_SHIM);
         for (label, args) in all_adapters(&shim) {
             // The claude adapter streams its session: its obedient shim
             // speaks stream-json and yields three seat-turn checkpoints
             // (one per tool_use block, the last two sharing a turn)
             // before the session-finished one.
             let claude = label == "claude";
-            let shim = if claude && case == "obedient" { &claude_shim } else { &shim };
+            let codex = label == "codex";
+            let dsh = label == "dsh";
+            let shim = if claude && case == "obedient" {
+                &claude_shim
+            } else if codex && case == "obedient" {
+                &codex_shim
+            } else {
+                &shim
+            };
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> =
                 out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if claude && case == "obedient" {
                 &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "result"]
+            } else if codex && case == "obedient" {
+                &["capabilities", "accepted", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "checkpoint", "result"]
+            } else if dsh {
+                &["capabilities", "accepted", "checkpoint", "checkpoint", "result"]
             } else {
                 &["capabilities", "accepted", "checkpoint", "result"]
             };
@@ -163,6 +192,18 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
+            } else if codex && case == "obedient" {
+                assert_eq!(out[2]["data"], json!({"step":"turn-started", "turn":1, "harness":"codex"}));
+                assert_eq!(out[3]["data"]["tool"], "command_execution");
+                assert!(out[3]["data"].get("command").is_none());
+                assert_eq!(out[5]["data"]["input_tokens"], 21);
+                assert_eq!(out[5]["data"]["cache_read_tokens"], 8);
+                assert_eq!(out[6]["data"]["session_id"], "codex-thread-1");
+                assert_eq!(out[6]["data"]["output_tokens"], 5);
+            } else if dsh {
+                assert_eq!(out[2]["data"]["step"], "harness-started");
+                assert_eq!(out[2]["data"]["harness"], "deepseek");
+                assert_eq!(out[3]["data"]["step"], "deepseek-harness-session-finished");
             }
             let result = out.last().unwrap();
             if case == "obedient" {
@@ -184,7 +225,7 @@ fn adapters_name_themselves_and_exec_requires_template() {
     let dir = tempfile::tempdir().unwrap();
     let shim = make_shim(dir.path(), OBEDIENT_SHIM);
     let expected = [
-        ("claude", "claude-code"), ("codex", "codex"),
+        ("claude", "claude-code"), ("codex", "codex"), ("dsh", "deepseek-harness"),
         ("exec-stdin", "exec"), ("exec-promptfile", "exec"),
     ];
     for ((label, args), (_, name)) in all_adapters(&shim).iter().zip(expected) {

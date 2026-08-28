@@ -4,6 +4,7 @@
 //! evaluate always return the same state and ruling.
 
 pub mod canonical;
+pub mod dispatch;
 pub mod envelope;
 pub mod fold;
 pub mod policy;

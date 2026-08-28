@@ -1,4 +1,4 @@
-# Frozen contracts — v1
+# Versioned contracts
 
 **Status**: frozen for the first implementation (delivery-sequence step 1,
 under decisions 0003–0005). A frozen contract changes only by a new numbered
@@ -13,6 +13,21 @@ nothing implements a private variant.
 | Driver protocol | `driver-protocol.v1.schema.json` | forge-protocol, every driver |
 | Run manifest | `run-manifest.v1.schema.json` | forge-store, resume, verify-run |
 | Evaluator behavior | `../fixtures/evaluator/corpus.ndjson` | forge-core differential tests |
+
+The v1 files above remain frozen. Looper-bound delivery adds, without changing
+those bytes:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, forge-core, Forge bridge |
+| Looper-bound run manifest | `run-manifest.v2.schema.json` | forge-runtime, forge-store export/resume, Forge bridge |
+
+The v2 manifest embeds the complete canonical dispatch envelope. The existing
+`runs.manifest` immutability trigger therefore makes Looper correlation,
+request grant, recipe/repository pins, budget reference, runtime, producer
+registration, bounds, forbidden actions, and callback audience part of the
+run's immutable local evidence. A legacy run continues to store and export the
+exact v1 shape.
 
 ## Event envelope
 
