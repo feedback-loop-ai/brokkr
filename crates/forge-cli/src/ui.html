@@ -183,9 +183,19 @@
 </div>
 <script>
 // SECURITY DISCIPLINE: journal content is seat/driver-authored and
-// untrusted. Nothing journal-derived ever reaches innerHTML — all
-// dynamic content is set through textContent (el(); badge classes come
-// from a fixed allowlist, never from data).
+// untrusted. Nothing journal-derived is ever parsed as markup — all
+// dynamic content is set through textContent (el()); class names come
+// from the fixed allowlists below and never from data. A model's
+// *_class field is an INDEX INTO an allowlist, not a class name.
+//
+// DERIVATION DISCIPLINE (decision 0013): this page PAINTS. Every value
+// it shows is a field of the models `forge ui` serves from `forge-view`
+// — the same models `forge inspect` and `forge watch` render as text,
+// so the two surfaces cannot disagree. The page may branch on a model
+// field; it may NOT compute one. A formatter, a duration, a sum, a
+// truncation or a scoping predicate written here is a second
+// derivation; it belongs in `forge-view`, and a test in `ui/tests.rs`
+// fails the day the old helpers come back.
 let active = null, source = null, activeParticipant = null, selectedPhase = null;
 let rawJournal = false; // events table mode: decision trail (default) or raw
 let runsCollapsed = false; // the runs pane folds to a rail once a run is chosen
@@ -209,6 +219,13 @@ function setForging(forging) {
 
 const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
 
+// The two fixed class allowlists. A model carries a closed-set key; the
+// page looks it up here before anything touches className.
+const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
+                      stopped: 'stopped', awaiting_operator: 'awaiting_operator' };
+const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
+                     'on-halt': 'on-halt', 'on-park': 'on-park' };
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -225,9 +242,13 @@ function svgEl(tag, className, text) {
   return node;
 }
 
-function badge(text, status) {
-  const cls = KNOWN_STATUS.includes(status) ? ' ' + status : '';
-  return el('span', 'badge' + cls, text);
+function badge(text, classKey) {
+  const cls = Object.hasOwn(BADGE_CLASS, classKey) ? BADGE_CLASS[classKey] : '';
+  return el('span', cls ? 'badge ' + cls : 'badge', text);
+}
+
+function nodeCls(classKey) {
+  return Object.hasOwn(NODE_CLASS, classKey) ? NODE_CLASS[classKey] : 'in-active';
 }
 
 // A wide table scrolls inside its own container instead of clipping
@@ -238,52 +259,29 @@ function tableWrap(table) {
   return wrap;
 }
 
-// Targets are file paths (record-time ruling); the tail is the
-// informative end, so long ones display tail-first with the full
-// recorded value in the tooltip.
-function shortTarget(target) {
-  if (target.length <= 44) return target;
-  const parts = target.split('/');
-  let tail = parts.pop();
-  while (parts.length > 1 &&
-         tail.length + parts[parts.length - 1].length + 1 <= 40) {
-    tail = parts.pop() + '/' + tail;
-  }
-  return '…/' + tail;
-}
-
-function targetSpan(target) {
-  const short = shortTarget(target);
+// A shortened target displays tail-first with the full recorded value in
+// the tooltip. Both strings come from the model — the shortening rule
+// lives in forge-view, where it is tested.
+function targetSpan(short, full) {
   const span = el('span', null, short);
-  if (short !== target) span.title = target;
+  if (full !== null) span.title = full;
   return span;
-}
-
-// Wall-clock between two journal timestamps, humanized.
-function fmtDur(fromIso, toIso) {
-  const ms = Date.parse(toIso) - Date.parse(fromIso);
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const s = Math.round(ms / 1000);
-  if (s < 60) return s + 's';
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm' + String(s % 60).padStart(2, '0') + 's';
-  return Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') + 'm';
 }
 
 // Deliberate absence (a value the journal never carries) renders as a
 // dim mark with the reason on hover, not an empty cell.
-function absentMark(why) {
-  const mark = el('span', 'absent', '—');
+function absentMark(text, why) {
+  const mark = el('span', 'absent', text);
   if (why) mark.title = why;
   return mark;
 }
 
-function cell(value, cls, why) {
-  const td = el('td', cls);
-  if (value === undefined || value === null || value === '') {
-    td.appendChild(absentMark(why));
+function cell(model, className) {
+  const td = el('td', className);
+  if (model.absent) {
+    td.appendChild(absentMark(model.text, model.note));
   } else {
-    td.textContent = String(value);
+    td.textContent = model.text;
   }
   return td;
 }
@@ -311,34 +309,30 @@ function payloadCell(text) {
 // names a class), the phase transition, the result. The inputs that
 // fed the ruling live in the badge tooltip; a problem renders as a
 // halt line only when one exists.
-const RULING_SEVERITY_CLASS = { normal: '', flagged: 'awaiting_operator', hard: 'stopped' };
-function decisionStrip(d) {
+function decisionStrip(ruling) {
   const wrap = el('div');
-  if (!d || typeof d !== 'object' || d.rule_id === undefined) return wrap;
+  if (!ruling) return wrap;
   const line = el('p', 'ruling');
-  const cls = Object.hasOwn(RULING_SEVERITY_CLASS, d.severity)
-    ? RULING_SEVERITY_CLASS[d.severity] : '';
-  const rule = badge(d.rule_id ?? '?', cls);
-  const inputs = d.inputs && typeof d.inputs === 'object' ? Object.entries(d.inputs) : [];
-  if (inputs.length) {
+  const rule = badge(ruling.rule_id, ruling.severity_class);
+  if (ruling.inputs.length) {
     rule.title = 'inputs\n' +
-      inputs.map(([k, v]) => k + ': ' + JSON.stringify(v)).join('\n');
+      ruling.inputs.map((pair) => pair[0] + ': ' + pair[1]).join('\n');
   }
   line.appendChild(rule);
-  line.appendChild(el('span', 'arrow',
-    ' ' + (d.from ?? '?') + ' → ' + (d.next ?? '?') + ' '));
-  if (d.result) line.appendChild(badge(d.result));
+  line.appendChild(el('span', 'arrow', ' ' + ruling.from + ' → ' + ruling.next + ' '));
+  if (ruling.result !== null) line.appendChild(badge(ruling.result, ''));
   wrap.appendChild(line);
-  if (d.problem) wrap.appendChild(el('p', 'problem', String(d.problem)));
+  if (ruling.problem !== null) wrap.appendChild(el('p', 'problem', ruling.problem));
   return wrap;
 }
 
 async function loadRuns() {
+  // Already newest first: ordering is a derivation rule.
   const runs = await (await fetch('/api/runs')).json();
   setForging(runs.some((run) => run.status === 'running'));
   const list = document.getElementById('runlist');
   list.replaceChildren();
-  for (const run of runs.reverse()) {
+  for (const run of runs) {
     // A run is selected once — unselected rows collapse to one line
     // (status dot + id, details in the tooltip); only the active run
     // expands to its full card.
@@ -346,14 +340,13 @@ async function loadRuns() {
     const item = el('div', 'run' + (isActive ? ' active' : ' row'));
     if (isActive) {
       item.appendChild(el('div', 'id', run.run_id));
-      item.appendChild(badge(run.status ?? '?', run.status));
+      item.appendChild(badge(run.status ?? '?', run.status_known ? run.status : ''));
       item.appendChild(document.createTextNode(' '));
-      item.appendChild(badge(run.phase ?? '-'));
+      item.appendChild(badge(run.phase ?? '-', ''));
       item.appendChild(document.createTextNode(' '));
-      item.appendChild(badge('seq ' + (run.seq ?? 0)));
+      item.appendChild(badge('seq ' + (run.seq ?? 0), ''));
     } else {
-      const dot = el('span', 'dot' +
-        (KNOWN_STATUS.includes(run.status) ? ' ' + run.status : ''));
+      const dot = el('span', 'dot' + (run.status_known ? ' ' + run.status : ''));
       item.appendChild(dot);
       const idEl = el('span', 'id line', run.run_id);
       item.appendChild(idEl);
@@ -376,118 +369,24 @@ function row(cells) {
   return tr;
 }
 
-// Seats console: the participant model derives client-side from the
-// events stream. One participant per seat occurrence (effect/requested);
-// checkpoints carrying a member field split that effect into
-// 'seat:member' participants (panel members); member-less checkpoints
-// belong to the seat itself.
-const TERMINAL_STATUS = {
-  'effect/succeeded': 'succeeded',
-  'effect/failed': 'failed',
-  'effect/indeterminate': 'indeterminate',
-};
-// Derived status -> badge class, a fixed table: journal data never
-// becomes a class name.
-const STATUS_CLASS = {
-  working: 'running',
-  succeeded: 'completed',
-  failed: 'stopped',
-  indeterminate: 'awaiting_operator',
-};
-
-function buildParticipants(events) {
-  const effects = new Map();      // effect_id -> per-effect facts
-  const participants = new Map(); // key -> participant, in first-seen order
-  const ensure = (effect, member) => {
-    const key = member ? effect.effect_id + ':' + member : effect.effect_id;
-    if (!participants.has(key)) {
-      participants.set(key, {
-        key, effect, member,
-        label: member ? effect.seat + ':' + member : effect.seat,
-        turns: null, lastTurn: null, session: null,
-        memberOutcome: null, memberFinishedAt: null, checkpoints: [],
-      });
-    }
-    return participants.get(key);
-  };
-  for (const e of events) {
-    const p = e.payload || {};
-    if (e.type === 'effect/requested' && p.effect_id) {
-      const effect = { effect_id: p.effect_id, seat: p.seat ?? '?',
-                       phase: typeof p.phase === 'string' ? p.phase : null,
-                       attempts: 0, open: null, terminal: null, terminalEvent: null,
-                       startedAt: null };
-      effects.set(p.effect_id, effect);
-      ensure(effect, null);
-      continue;
-    }
-    const effect = effects.get(p.effect_id);
-    if (!effect) continue;
-    if (e.type === 'effect/started') {
-      effect.attempts += 1;
-      effect.open = p.attempt_id;
-      if (!effect.startedAt) effect.startedAt = e.recorded_at;
-    } else if (Object.hasOwn(TERMINAL_STATUS, e.type) && p.attempt_id === effect.open) {
-      effect.open = null;
-      effect.terminal = TERMINAL_STATUS[e.type];
-      effect.terminalEvent = e;
-    } else if (e.type === 'effect/checkpointed') {
-      const cp = p.checkpoint || {};
-      const member = typeof cp.member === 'string' ? cp.member : null;
-      const part = ensure(effect, member);
-      part.checkpoints.push({ cp, seq: e.seq, recorded_at: e.recorded_at });
-      if (cp.step === 'seat-turn') {
-        if (typeof cp.turn === 'number') {
-          part.turns = part.turns === null ? cp.turn : Math.max(part.turns, cp.turn);
-        }
-        part.lastTurn = cp;
-      } else if (typeof cp.step === 'string' && cp.step.endsWith('-session-finished')) {
-        part.session = cp;
-      } else if (cp.step === 'panel-member-finished' && member) {
-        part.memberOutcome = cp.outcome;
-        part.memberFinishedAt = e.recorded_at;
-      }
-    }
-  }
-  for (const part of participants.values()) {
-    // Working while the latest attempt has no terminal event; members
-    // rule on their own panel-member-finished outcome, falling back to
-    // the effect's terminal status so a concluded run never shows a
-    // member stuck on "working".
-    const effectStatus = part.effect.open ? 'working' : (part.effect.terminal ?? 'working');
-    part.status = (part.member && Object.hasOwn(STATUS_CLASS, part.memberOutcome))
-      ? part.memberOutcome : effectStatus;
-    part.attempts = part.effect.attempts;
-  }
-  return participants;
-}
-
 // The loops view — ONE graph: the phase rail with each phase's inner
 // topology inlined. A phase whose newest effect shows structure
 // (sequence steps, panel members) renders as a capsule of inner nodes
-// on the rail; a plain phase stays a single node. Observed events only
-// — declared-but-unstarted topology is never invented. State -> class
-// is a fixed table; journal strings only reach SVG <text> via
-// textContent.
-const INNER_STATE_CLASS = { finished: 'on-phosphor', active: 'in-active',
-                            failed: 'on-halt', indeterminate: 'on-park' };
-function renderLoops(detail, events, summary, participants, id, data) {
-  const phases = new Map(); // name -> visit count, in first-visit order
-  for (const e of events) {
-    if (e.type !== 'phase/entered') continue;
-    const name = (e.payload || {}).phase;
-    if (typeof name !== 'string') continue;
-    phases.set(name, (phases.get(name) ?? 0) + 1);
-  }
-  if (phases.size === 0) return;
+// on the rail; a plain phase stays a single node. Which is which, and
+// what state each node is in, is the model's ruling; the geometry below
+// is this page's job and nobody else's.
+function renderLoops(detail, view, id) {
+  const rail = view.phases;
+  if (rail.length === 0) return;
   // Outer selection survives SSE re-renders like activeParticipant does,
   // and clears itself if the phase vanishes on refetch.
-  if (selectedPhase && !phases.has(selectedPhase)) selectedPhase = null;
-  const names = [...phases.keys()];
-  const current = typeof summary.phase === 'string' && phases.has(summary.phase)
-    ? summary.phase : names[names.length - 1];
+  if (selectedPhase && !rail.some((phase) => phase.name === selectedPhase)) {
+    selectedPhase = null;
+  }
+  const summary = view.summary ?? {};
   const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
   const pulsing = status === 'running';
+  const drillable = new Set(view.participants.map((part) => part.key));
 
   // Geometry: ONE center rail. Sequential work sits on the rail joined
   // by arrowed edges ("then"); a panel forks into symmetric lanes that
@@ -495,29 +394,24 @@ function renderLoops(detail, events, summary, participants, id, data) {
   // All step labels share one baseline, phase names another.
   const LANE = 26, TOP = 14, COL_GAP = 30, PHASE_GAP = 44;
   const mono = (s) => String(s).length * 6.3;
-  const segsRaw = names.map((name) => ({
-    name, columns: innerColumns(events, participants, name),
-  }));
-  const maxHalf = LANE * Math.max(0, ...segsRaw.map((s) => s.columns
-    ? Math.max(...s.columns.map((c) => (c.nodes.length - 1) / 2)) : 0));
+  const maxHalf = LANE * Math.max(0, ...rail.map((phase) => phase.columns.length
+    ? Math.max(...phase.columns.map((c) => (c.nodes.length - 1) / 2)) : 0));
   const Y = TOP + Math.ceil(maxHalf) + 8;
   const stepLabelY = Y + maxHalf + 22;
   const nameY = stepLabelY + 18;
 
   let cursor = 12;
-  const segs = segsRaw.map(({ name, columns }) => {
-    const seg = { name, cols: [], x0: cursor };
-    const plain = !columns ||
-      (columns.length === 1 && columns[0].nodes.length === 1);
-    if (plain) {
-      const w = Math.max(28, mono(name) + 6);
-      seg.plain = true;
+  const segs = rail.map((phase) => {
+    const seg = { name: phase.name, visits: phase.visits, current: phase.current,
+                  plain: phase.plain, cols: [], x0: cursor };
+    if (phase.plain) {
+      const w = Math.max(28, mono(phase.name) + 6);
       seg.cx = cursor + w / 2;
       seg.entry = seg.cx - 9;
       seg.exit = seg.cx + 9;
       cursor += w;
     } else {
-      columns.forEach((col, i) => {
+      phase.columns.forEach((col, i) => {
         if (i > 0) cursor += COL_GAP;
         const n = col.nodes.length;
         if (n === 1) {
@@ -575,12 +469,10 @@ function renderLoops(detail, events, summary, participants, id, data) {
 
   // Native tooltip: phase, visit count, and — on the current phase —
   // the last ruling, so the graph explains itself on hover.
-  const phaseTip = (seg, isCurrent) => {
-    const visits = phases.get(seg.name);
-    const tip = [seg.name + (visits > 1 ? ' · visited x' + visits : '')];
-    if (isCurrent && summary.last_decision && summary.last_decision.rule_id) {
-      tip.push('last ruling: ' + summary.last_decision.rule_id +
-               ' → ' + (summary.last_decision.next ?? '?'));
+  const phaseTip = (seg) => {
+    const tip = [seg.name + (seg.visits > 1 ? ' · visited x' + seg.visits : '')];
+    if (seg.current && view.ruling) {
+      tip.push('last ruling: ' + view.ruling.rule_id + ' → ' + view.ruling.next);
     }
     return tip.join('\n');
   };
@@ -591,17 +483,17 @@ function renderLoops(detail, events, summary, participants, id, data) {
   const togglePhase = (name) => () => {
     selectedPhase = selectedPhase === name ? null : name;
     activeParticipant = null;
-    renderDetail(id, data);
+    renderDetail(id, view);
   };
 
   segs.forEach((seg, i) => {
-    const isCurrent = seg.name === current;
+    const isCurrent = seg.current;
     if (i > 0) edge(segs[i - 1].exit, seg.entry);
 
     // Background hit zone: click anywhere in the phase to scope. Drawn
     // first so nodes stay on top for their own clicks.
     const hitG = svgEl('g', 'hit');
-    hitG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    hitG.appendChild(svgEl('title', null, phaseTip(seg)));
     const hit = svgEl('rect', 'seg-hit');
     hit.setAttribute('x', seg.x0 - 10);
     hit.setAttribute('y', TOP - 8);
@@ -642,17 +534,17 @@ function renderLoops(detail, events, summary, participants, id, data) {
             g.appendChild(halo);
           }
           const cn = svgEl('circle',
-            INNER_STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
+            nodeCls(n.state_class) + (live ? ' loop-pulse' : ''));
           cn.setAttribute('cx', x);
           cn.setAttribute('cy', y);
           cn.setAttribute('r', 5);
           g.appendChild(cn);
-          if (participants.has(n.key)) {
+          if (drillable.has(n.key)) {
             g.appendChild(svgEl('title', null, n.label + ' — open participant'));
             g.onclick = () => {
               activeParticipant = n.key;
               selectedPhase = null;
-              renderDetail(id, data);
+              renderDetail(id, view);
             };
           }
           svg.appendChild(g);
@@ -710,16 +602,15 @@ function renderLoops(detail, events, summary, participants, id, data) {
       : status === 'awaiting_operator' ? ' on-park'
       : ' on-phosphor';
     const nameG = svgEl('g', 'hit');
-    nameG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    nameG.appendChild(svgEl('title', null, phaseTip(seg)));
     const label = svgEl('text', 'phase' + stateCls +
       (seg.name === selectedPhase ? ' phase-sel' : ''), seg.name);
     label.setAttribute('x', seg.cx);
     label.setAttribute('y', nameY);
     label.setAttribute('text-anchor', 'middle');
     nameG.appendChild(label);
-    const visits = phases.get(seg.name);
-    if (visits > 1) {
-      const rev = svgEl('text', 'revisit', 'x' + visits);
+    if (seg.visits > 1) {
+      const rev = svgEl('text', 'revisit', 'x' + seg.visits);
       rev.setAttribute('x', seg.cx);
       rev.setAttribute('y', nameY + 12);
       rev.setAttribute('text-anchor', 'middle');
@@ -734,90 +625,6 @@ function renderLoops(detail, events, summary, participants, id, data) {
   detail.appendChild(wrap);
 }
 
-// Inner topology for one phase, derived from its NEWEST effect.
-// Sequence steps run serially: order comes from sequence-step-finished
-// checkpoints (the FINAL step emits none — it concludes in the effect's
-// own terminal event, exactly as the seats console rules). Member tags
-// '<step>' are single steps; '<step>:<member>' stacks panel members at
-// that step's position. Without any observed step order, member-tagged
-// participants stack as one parallel panel; otherwise the seat is a
-// single node. Returns null when the phase has no observed effect.
-function innerColumns(events, participants, phase) {
-  let effectId = null;
-  for (const e of events) {
-    const p = e.payload || {};
-    if (e.type === 'effect/requested' && p.effect_id && p.phase === phase) {
-      effectId = p.effect_id;
-    }
-  }
-  if (!effectId) return null;
-  const finished = []; // step order established by sequence-step-finished
-  const tags = [];     // member tags in first-observed order
-  for (const e of events) {
-    if (e.type !== 'effect/checkpointed') continue;
-    const p = e.payload || {};
-    if (p.effect_id !== effectId) continue;
-    const cp = p.checkpoint || {};
-    if (cp.step === 'sequence-step-finished') {
-      if (typeof cp.step_name === 'string' && !finished.includes(cp.step_name)) {
-        finished.push(cp.step_name);
-      }
-    } else if (typeof cp.member === 'string' && !tags.includes(cp.member)) {
-      tags.push(cp.member);
-    }
-  }
-  // A participant's own panel-member-finished outcome rules first; a
-  // finished step is phosphor even though its participant inherits the
-  // effect's terminal status; otherwise the effect terminal decides,
-  // else the node is active (checkpoints arriving, no terminal yet).
-  const OUTCOME_STATE = { succeeded: 'finished', failed: 'failed',
-                          indeterminate: 'indeterminate' };
-  const state = (part, stepDone) => {
-    if (part && Object.hasOwn(OUTCOME_STATE, part.memberOutcome)) {
-      return OUTCOME_STATE[part.memberOutcome];
-    }
-    if (stepDone) return 'finished';
-    if (part && Object.hasOwn(OUTCOME_STATE, part.status)) {
-      return OUTCOME_STATE[part.status];
-    }
-    return 'active';
-  };
-  const node = (label, tag, stepDone) => {
-    const key = tag === null ? effectId : effectId + ':' + tag;
-    return { label, key, state: state(participants.get(key), stepDone) };
-  };
-  const columns = [];
-  if (finished.length > 0) {
-    const steps = [...finished];
-    const stepTags = new Map(); // step -> panel member tags at that step
-    for (const tag of tags) {
-      const cut = tag.indexOf(':');
-      const step = cut === -1 ? tag : tag.slice(0, cut);
-      if (!steps.includes(step)) steps.push(step);
-      if (cut !== -1) {
-        if (!stepTags.has(step)) stepTags.set(step, []);
-        stepTags.get(step).push(tag);
-      }
-    }
-    for (const step of steps) {
-      const members = stepTags.get(step);
-      const done = finished.includes(step);
-      columns.push(members
-        ? { label: step,
-            nodes: members.map((t) => node(t.slice(step.length + 1), t, done)) }
-        : { label: null, nodes: [node(step, step, done)] });
-    }
-  } else if (tags.length > 0) {
-    columns.push({ label: null, nodes: tags.map((t) => node(t, t, false)) });
-  } else {
-    const seat = participants.get(effectId);
-    columns.push({ label: null,
-                   nodes: [node(seat ? seat.label : phase, null, false)] });
-  }
-
-  return columns;
-}
-
 // The journal's checkpoint stream — the drill-down fallback when no
 // local transcript exists for the participant.
 function checkpointTable(part) {
@@ -827,17 +634,15 @@ function checkpointTable(part) {
     el('th', null, 'target'), el('th', null, 'recorded'),
   ]));
   for (const item of part.checkpoints) {
-    const cp = item.cp;
     const target = el('td', 'target');
-    if (cp.target) {
-      target.appendChild(targetSpan(cp.target));
+    if (item.target.absent) {
+      target.appendChild(absentMark(item.target.text, item.target.note));
     } else {
-      target.appendChild(absentMark(
-        'no target recorded — the journal carries file targets only'));
+      target.appendChild(targetSpan(item.target.text, item.target_full));
     }
     stream.appendChild(row([
-      cell(cp.turn, null, 'not a numbered turn'),
-      el('td', null, cp.step === 'seat-turn' ? cp.tool : cp.step),
+      cell(item.turn),
+      el('td', null, item.step),
       target,
       el('td', null, item.recorded_at),
     ]));
@@ -885,47 +690,44 @@ async function renderTranscript(box, sessionId, part) {
 }
 
 async function loadDetail(id) {
-  const data = await (await fetch('/api/run/' + encodeURIComponent(id))).json();
-  renderDetail(id, data);
+  const view = await (await fetch('/api/view/' + encodeURIComponent(id))).json();
+  renderDetail(id, view);
 }
 
-function renderDetail(id, data) {
-  const s = data.summary ?? {};
-  // Null-prototype: event ids are journal-authored, so a crafted
-  // '__proto__' id must not resolve to Object.prototype on lookup.
-  const byId = Object.create(null);
-  for (const e of data.events ?? []) byId[e.event_id] = e.seq;
-
+function renderDetail(id, view) {
+  const s = view.summary ?? {};
   const detail = document.getElementById('detail');
   detail.replaceChildren();
   detail.appendChild(el('h1', null, s.run_id ?? id));
   const line = el('p');
-  line.appendChild(badge(s.status ?? '?', s.status));
+  line.appendChild(badge(s.status ?? '?',
+    KNOWN_STATUS.includes(s.status) ? s.status : ''));
   line.appendChild(document.createTextNode(' '));
-  line.appendChild(badge('phase ' + (s.phase ?? '-')));
+  line.appendChild(badge('phase ' + (s.phase ?? '-'), ''));
   detail.appendChild(line);
 
-  // The loops view (outer phase rail + inner mini-rail) and everything
-  // below share one participant derivation per render.
-  const events = data.events ?? [];
-  const participants = buildParticipants(events);
-  if (activeParticipant && !participants.has(activeParticipant)) activeParticipant = null;
-  renderLoops(detail, events, s, participants, id, data);
+  // A drilled participant clears itself if it vanished on refetch.
+  if (activeParticipant && !view.participants.some((p) => p.key === activeParticipant)) {
+    activeParticipant = null;
+  }
+  renderLoops(detail, view, id);
 
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
-  detail.appendChild(decisionStrip(s.last_decision));
+  detail.appendChild(decisionStrip(view.ruling));
 
   // One scope at a time — a selected phase or a drilled participant —
   // named in a chip whose × clears everything. The consoles below are
   // scoped to it: seats to the phase's effects (or the one
-  // participant), events to the phase's traffic.
+  // participant), events to the phase's traffic. Membership is a model
+  // field on both sides, so neither edge knows the rule.
   const phaseFilter = selectedPhase;
-  const scopedPart = activeParticipant ? participants.get(activeParticipant) : null;
+  const scopedPart = activeParticipant
+    ? view.participants.find((p) => p.key === activeParticipant) : null;
   if (phaseFilter || scopedPart) {
     const chip = el('p', 'ruling');
     chip.appendChild(badge(scopedPart
       ? 'participant · ' + scopedPart.label
-      : 'phase · ' + phaseFilter));
+      : 'phase · ' + phaseFilter, ''));
     chip.appendChild(document.createTextNode(' '));
     const clear = el('a', null, '× show all');
     clear.href = '#';
@@ -933,65 +735,24 @@ function renderDetail(id, data) {
       ev.preventDefault();
       selectedPhase = null;
       activeParticipant = null;
-      renderDetail(id, data);
+      renderDetail(id, view);
     };
     chip.appendChild(clear);
     detail.appendChild(chip);
   }
 
-  // Live seat telemetry: while an attempt is open (an effect/started
-  // with no later terminal effect event), show one activity line PER
-  // live participant. Checkpoints without a member field belong to the
-  // single seat; member-tagged ones (panel members) get 'seat:member'.
-  // Disappears when the attempt concludes; SSE re-renders keep it
-  // current.
-  const TERMINAL = ['effect/succeeded', 'effect/failed', 'effect/indeterminate'];
-  let open = null;
-  for (const e of events) {
-    const p = e.payload || {};
-    if (e.type === 'effect/started') {
-      open = { effect_id: p.effect_id, attempt_id: p.attempt_id };
-    } else if (open && TERMINAL.includes(e.type) &&
-               p.effect_id === open.effect_id && p.attempt_id === open.attempt_id) {
-      open = null;
-    }
-  }
-  if (open) {
-    let seat = '?';
-    const participants = new Map(); // label -> newest seat-turn checkpoint (or null)
-    for (const e of events) {
-      const p = e.payload || {};
-      if (e.type === 'effect/requested' && p.effect_id === open.effect_id && p.seat) {
-        seat = p.seat;
-      }
-      if (e.type === 'effect/checkpointed' && p.effect_id === open.effect_id &&
-          p.attempt_id === open.attempt_id) {
-        const cp = p.checkpoint || {};
-        const label = cp.member ? seat + ':' + cp.member : seat;
-        if (cp.step === 'seat-turn') {
-          participants.set(label, cp);
-        } else if (!participants.get(label)) {
-          participants.set(label, null);
-        }
-      }
-    }
-    if (participants.size === 0) participants.set(seat, null);
-    for (const [label, turnCp] of participants) {
-      detail.appendChild(el('p', 'live', turnCp
-        ? label + ' · turn ' + turnCp.turn + ' · ' + turnCp.tool
-        : label + ' · working'));
-    }
+  // Live seat telemetry: one line per live participant while an attempt
+  // is open. Disappears when the attempt concludes; SSE re-renders keep
+  // it current.
+  for (const live of view.live) {
+    detail.appendChild(el('p', 'live', live.text));
   }
 
   // Seats console: per-participant table above the events table. Rows
   // drill down into that participant's progress; the selected key lives
-  // in activeParticipant so the drill-down survives SSE re-renders, and
-  // clears itself if the participant vanishes after a refetch (ruled
-  // above, where participants are derived).
-  // A drilled participant (inner-node or row click) scopes the seats
-  // grid to that participant, exactly as a selected phase scopes it.
-  const shownParts = [...participants.values()]
-    .filter((part) => !phaseFilter || part.effect.phase === phaseFilter)
+  // in activeParticipant so the drill-down survives SSE re-renders.
+  const shownParts = view.participants
+    .filter((part) => !phaseFilter || part.phase === phaseFilter)
     .filter((part) => !activeParticipant || part.key === activeParticipant);
   if (shownParts.length > 0) {
     const seats = el('table');
@@ -1001,133 +762,80 @@ function renderDetail(id, data) {
       el('th', null, 'cost'), el('th', null, 'activity'),
     ]));
     for (const part of shownParts) {
-      let cost = part.session ? part.session.total_cost_usd : undefined;
-      let turns = part.turns;
-      // A panel/sequence seat carries no telemetry of its own — its
-      // members do. The parent row aggregates them (Σ) so it never
-      // reads as an empty participant.
-      const members = part.member ? []
-        : [...participants.values()].filter((q) => q.effect === part.effect && q.member);
-      let costAgg = false, turnsAgg = false;
-      if (members.length > 0) {
-        const costs = members.map((q) => q.session ? q.session.total_cost_usd : undefined)
-          .filter((v) => typeof v === 'number');
-        const turnSums = members.map((q) => q.turns).filter((v) => typeof v === 'number');
-        if (typeof cost !== 'number' && costs.length > 0) {
-          cost = costs.reduce((a, b) => a + b, 0);
-          costAgg = true;
-        }
-        if (typeof turns !== 'number' && turnSums.length > 0) {
-          turns = turnSums.reduce((a, b) => a + b, 0);
-          turnsAgg = true;
-        }
-      }
       const statusCell = el('td');
-      statusCell.appendChild(badge(part.status, STATUS_CLASS[part.status]));
+      statusCell.appendChild(badge(part.status, part.status_class));
       // Activity earns its place in both states: a live participant
       // shows what it is doing right now (tool · target); a concluded
       // one shows what mattered in the end — its result token and how
       // long the work took.
+      const act = part.activity;
       const activity = el('td', 'target');
-      const startAt = part.member
-        ? (part.checkpoints[0] ? part.checkpoints[0].recorded_at : part.effect.startedAt)
-        : part.effect.startedAt;
-      // A member with no panel-member-finished (a sequence's final or
-      // exec step) ends at its last checkpoint once the effect is done.
-      const lastCp = part.checkpoints[part.checkpoints.length - 1];
-      const endAt = part.member
-        ? (part.memberFinishedAt ??
-           (!part.effect.open && part.effect.terminal && lastCp ? lastCp.recorded_at : null))
-        : (part.effect.terminalEvent ? part.effect.terminalEvent.recorded_at : null);
-      const bits = [];
-      if (!part.member && part.effect.terminalEvent) {
-        const tp = part.effect.terminalEvent.payload || {};
-        const tok = (tp.result && typeof tp.result === 'object')
-          ? tp.result.result : tp.result;
-        if (typeof tok === 'string') bits.push(tok);
-      }
-      const dur = startAt && endAt ? fmtDur(startAt, endAt) : null;
-      if (dur) bits.push(dur);
-      if (part.status === 'working' && part.lastTurn) {
-        activity.appendChild(document.createTextNode(part.lastTurn.tool));
-        if (part.lastTurn.target) {
+      if (act.tool !== null) {
+        activity.appendChild(document.createTextNode(act.tool));
+        if (act.target_short !== null) {
           activity.appendChild(document.createTextNode(' · '));
-          activity.appendChild(targetSpan(part.lastTurn.target));
+          activity.appendChild(targetSpan(act.target_short, act.target_full));
         }
-      } else if (bits.length > 0) {
-        activity.textContent = bits.join(' · ');
-      } else if (members.length > 0) {
-        activity.appendChild(el('span', 'absent', members.length + ' members ↓'));
+      } else if (act.absent) {
+        activity.appendChild(absentMark(act.text, act.note));
       } else {
-        activity.appendChild(absentMark('no activity recorded'));
+        activity.textContent = act.text;
       }
       const tr = row([
         el('td', null, part.label),
         statusCell,
         el('td', null, part.attempts),
-        cell(typeof turns === 'number' ? (turnsAgg ? 'Σ ' : '') + turns : null,
-             null, 'no turn telemetry recorded'),
-        cell(typeof cost === 'number' ? (costAgg ? 'Σ ' : '') + '$' + cost.toFixed(4) : null,
-             null, 'no session cost recorded'),
+        cell(part.turns_cell),
+        cell(part.cost_cell),
         activity,
       ]);
       tr.className = 'seat';
       tr.onclick = () => {
         activeParticipant = part.key;
         selectedPhase = null;
-        renderDetail(id, data);
+        renderDetail(id, view);
       };
       seats.appendChild(tr);
     }
     detail.appendChild(tableWrap(seats));
   }
 
-  if (activeParticipant) {
-    const part = participants.get(activeParticipant);
+  if (scopedPart) {
+    const part = scopedPart;
     const back = el('p');
     const link = el('a', null, '← all events');
     link.href = '#';
     link.onclick = (ev) => {
       ev.preventDefault();
       activeParticipant = null;
-      renderDetail(id, data);
+      renderDetail(id, view);
     };
     back.appendChild(link);
     detail.appendChild(back);
     const header = el('p');
     header.appendChild(document.createTextNode(part.label + ' '));
-    header.appendChild(badge(part.status, STATUS_CLASS[part.status]));
-    if (part.session && part.session.session_id !== undefined) {
-      header.appendChild(document.createTextNode(' · session ' + part.session.session_id));
+    header.appendChild(badge(part.status, part.status_class));
+    if (part.session_id !== null) {
+      header.appendChild(document.createTextNode(' · session ' + part.session_id));
     }
     detail.appendChild(header);
     // The lowest level IS the session prose. When the seat's transcript
     // exists on this machine it renders here; the journal's checkpoint
     // stream is only the fallback (exec steps, vanished transcripts).
-    const sessionId = part.session && typeof part.session.session_id === 'string'
-      ? part.session.session_id : null;
-    if (sessionId) {
+    if (part.session_id !== null) {
       detail.appendChild(el('p', 'cause',
-        'full session: claude --resume ' + sessionId));
+        'full session: claude --resume ' + part.session_id));
       const box = el('div', 'transcript');
       box.appendChild(el('p', 'cause', 'loading transcript…'));
       detail.appendChild(box);
-      renderTranscript(box, sessionId, part);
+      renderTranscript(box, part.session_id, part);
     } else {
       detail.appendChild(checkpointTable(part));
     }
     // Terminal line: members conclude on their panel-member-finished
     // outcome; the seat itself on the effect's terminal event.
-    let terminal = null;
-    if (part.member && part.memberOutcome !== null) {
-      terminal = 'panel-member-finished · ' + part.memberOutcome +
-                 (part.memberFinishedAt ? ' · ' + part.memberFinishedAt : '');
-    } else if (part.effect.terminalEvent) {
-      terminal = part.effect.terminalEvent.type + ' · ' +
-                 part.effect.terminalEvent.recorded_at;
-    }
-    detail.appendChild(el('p', terminal ? null : 'cause',
-                          terminal ?? 'no terminal event yet'));
+    detail.appendChild(el('p', part.terminal_line.absent ? 'cause' : null,
+                          part.terminal_line.text));
     return;
   }
 
@@ -1135,17 +843,15 @@ function renderDetail(id, data) {
   // moved — rulings, phase entries, effect outcomes, run start/end.
   // Checkpoints (the transcript's job now) and effect plumbing hide
   // behind the raw-journal toggle, kept for forensics.
-  const TRAIL_SKIP = ['effect/checkpointed', 'effect/requested', 'effect/started'];
-  const allEvents = data.events ?? [];
   const modeLine = el('p', 'cause');
   const modeLink = el('a', null, rawJournal
     ? '◂ decision trail'
-    : 'full journal · ' + allEvents.length + ' events ▸');
+    : 'full journal · ' + view.event_count + ' events ▸');
   modeLink.href = '#';
   modeLink.onclick = (ev) => {
     ev.preventDefault();
     rawJournal = !rawJournal;
-    renderDetail(id, data);
+    renderDetail(id, view);
   };
   modeLine.appendChild(modeLink);
   detail.appendChild(modeLine);
@@ -1156,81 +862,40 @@ function renderDetail(id, data) {
        el('th', null, 'payload'), el('th', null, 'recorded')]
     : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
        el('th', null, 'what happened'), el('th', null, 'recorded')]));
-  // Phase scope for the events grid: an event belongs to the selected
-  // phase if it names it (phase/entered, effect/requested), left it
-  // (a decision's `from`), or rides an effect requested in it.
-  const phaseEffects = new Set();
-  if (phaseFilter) {
-    for (const e of events) {
-      const p = e.payload || {};
-      if (e.type === 'effect/requested' && p.phase === phaseFilter && p.effect_id) {
-        phaseEffects.add(p.effect_id);
-      }
-    }
-  }
-  for (const e of allEvents) {
-    const p = e.payload || {};
-    if (phaseFilter && p.phase !== phaseFilter && p.from !== phaseFilter &&
-        !(p.effect_id && phaseEffects.has(p.effect_id))) {
-      continue;
-    }
-    if (!rawJournal && TRAIL_SKIP.includes(e.type)) continue;
+  for (const e of view.journal) {
+    if (phaseFilter && !e.phases.includes(phaseFilter)) continue;
+    if (!rawJournal && !e.in_trail) continue;
     const seqCell = el('td', null, e.seq);
-    if (e.causation_id && byId[e.causation_id]) {
+    if (e.causation_seq !== null) {
       seqCell.appendChild(document.createTextNode(' '));
-      seqCell.appendChild(el('span', 'cause', '← ' + byId[e.causation_id]));
+      seqCell.appendChild(el('span', 'cause', '← ' + e.causation_seq));
     }
     if (!rawJournal) {
       // Trail row: the human answer to "what happened here".
       const what = el('td');
-      if (e.type === 'transition/decided') {
-        const cls = Object.hasOwn(RULING_SEVERITY_CLASS, p.severity)
-          ? RULING_SEVERITY_CLASS[p.severity] : '';
-        what.appendChild(badge(p.rule_id ?? '?', cls));
-        what.appendChild(el('span', 'arrow',
-          ' ' + (p.from ?? '?') + ' → ' + (p.next ?? '?') +
-          (typeof p.result === 'string' ? ' · ' + p.result : '')));
-        if (p.problem) what.appendChild(el('div', 'problem', String(p.problem)));
-      } else if (e.type === 'phase/entered') {
-        what.appendChild(badge(p.phase ?? '?'));
-      } else if (Object.hasOwn(TERMINAL_STATUS, e.type)) {
-        const part = participants.get(p.effect_id);
-        const tok = (p.result && typeof p.result === 'object')
-          ? p.result.result : p.result;
-        what.appendChild(document.createTextNode(
-          (part ? part.label : p.effect_id ?? '?') +
-          (typeof tok === 'string' ? ' · ' + tok : '')));
-        if (typeof p.error === 'string' && p.error) {
-          what.appendChild(el('div', 'problem', p.error.slice(0, 160)));
-        }
-      } else if (e.type === 'run/started') {
-        what.appendChild(document.createTextNode(
-          typeof p.feature === 'string' ? p.feature.slice(0, 110) + '…' : 'run started'));
-      } else {
-        const token = [p.rule_id, p.phase, p.reason]
-          .find((v) => typeof v === 'string' && v !== '');
-        what.appendChild(document.createTextNode(token ?? e.type.split('/')[1] ?? ''));
+      if (e.what.badge !== null) {
+        what.appendChild(badge(e.what.badge, e.what.badge_class ?? ''));
+      }
+      if (e.what.arrow !== null) {
+        what.appendChild(el('span', 'arrow', e.what.arrow));
+      }
+      if (e.what.badge === null && e.what.arrow === null) {
+        what.appendChild(document.createTextNode(e.what.text));
+      }
+      if (e.what.problem !== null) {
+        what.appendChild(el('div', 'problem', e.what.problem));
       }
       table.appendChild(row([
-        seqCell, el('td', null, e.type), what, el('td', null, e.recorded_at),
+        seqCell, el('td', null, e.event_type), what, el('td', null, e.recorded_at),
       ]));
       continue;
     }
     // Raw journal row (forensics): every envelope, clamped payload.
-    const resultToken = (p.result && typeof p.result === 'object')
-      ? p.result.result : p.result;
-    let label = [p.rule_id, p.phase, resultToken, p.command, p.reason]
-      .find((v) => typeof v === 'string' && v !== '') ?? '';
-    if (e.type === 'effect/checkpointed') {
-      const cp = p.checkpoint || {};
-      label = cp.step === 'seat-turn' ? (cp.tool ?? 'seat-turn') : (cp.step ?? '');
-      if (typeof cp.member === 'string') label = cp.member + ' · ' + label;
-    }
     table.appendChild(row([
       seqCell,
-      el('td', null, e.type),
-      cell(label, 'label'),
-      payloadCell(JSON.stringify(p)),
+      el('td', null, e.event_type),
+      cell(e.label, 'label'),
+      payloadCell(e.payload_json),
       el('td', null, e.recorded_at),
     ]));
   }

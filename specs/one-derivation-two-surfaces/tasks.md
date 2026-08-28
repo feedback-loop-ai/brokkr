@@ -105,7 +105,7 @@ of this feature, not an afterthought at the end.
 
 ## Movement 2 — the console
 
-- [ ] **T14 — `/api/view/<run>` and the `/api/runs` reserialization** in
+- [x] **T14 — `/api/view/<run>` and the `/api/runs` reserialization** in
   `ui.rs`; module doc route list updated.
   *Proven by*: AC-16 — the new endpoint's shape, 404 on an unknown run
   and a missing database, `request_allowed` rejecting a non-loopback
@@ -113,7 +113,7 @@ of this feature, not an afterthought at the end.
   for `/api/run/<id>`, `/api/session/<id>` and `/sse/<id>` passing
   **unedited**.
 
-- [ ] **T15 — `ui.html`: derivation deleted, consumption added, one
+- [x] **T15 — `ui.html`: derivation deleted, consumption added, one
   commit.** `buildParticipants`, `innerColumns`, `fmtDur`,
   `shortTarget`, the activity/duration/target logic, the trail
   classification, Σ, the phase/visit derivation, the live scan and

@@ -291,6 +291,7 @@ dependencies = [
  "forge-protocol",
  "forge-runtime",
  "forge-store",
+ "forge-view",
  "rusqlite",
  "serde_json",
  "tempfile",

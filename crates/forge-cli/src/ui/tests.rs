@@ -278,3 +278,67 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
     open_system_browser("http://127.0.0.1:9/");
     std::env::remove_var("FORGE_BROWSER_BIN");
 }
+
+#[test]
+fn the_view_endpoint_serves_the_models_the_page_paints() {
+    let (_dir, db) = fixture();
+    let view = handle(&db, "/api/view/r1");
+    assert_eq!(view.status, "200 OK");
+    let parsed: Value = serde_json::from_str(&view.body).unwrap();
+    assert_eq!(parsed["view_version"], 1);
+    assert_eq!(parsed["summary"]["run_id"], "r1");
+    assert_eq!(parsed["summary"]["status"], "running");
+    assert_eq!(parsed["event_count"], 2);
+    assert_eq!(parsed["phases"][0]["name"], "intake");
+    assert_eq!(parsed["phases"][0]["current"], true);
+    // Absent values serialize as null, never skipped: a consumer can
+    // tell "the journal does not carry this" from "your version lacks
+    // the field".
+    assert_eq!(parsed["ruling"], Value::Null);
+    assert!(parsed["journal"][0]["phases"].is_array());
+
+    // Unknown run and missing database are both 404 — reads never create.
+    assert_eq!(handle(&db, "/api/view/nope").status, "404 Not Found");
+    let empty = tempfile::tempdir().unwrap();
+    let absent = empty.path().join("absent.db");
+    assert_eq!(handle(&absent, "/api/view/r1").status, "404 Not Found");
+    assert!(!absent.exists());
+
+    // The new route lives inside `handle`, so it inherits the
+    // DNS-rebinding guard structurally rather than by repetition.
+    assert!(!request_allowed("GET", Some("evil.example.com")));
+    assert!(!request_allowed("POST", Some("127.0.0.1")));
+
+    // /api/runs answers with the reserialized rows, newest first.
+    let runs: Value = serde_json::from_str(&handle(&db, "/api/runs").body).unwrap();
+    assert_eq!(runs[0]["run_id"], "r1");
+    assert_eq!(runs[0]["status_known"], true);
+    assert_eq!(runs[0]["feature"], "feat");
+}
+
+#[test]
+fn the_page_paints_and_derives_nothing() {
+    // Decision 0013's load-bearing clause: the JS derivation is DELETED,
+    // not duplicated. The page may branch on a model field; it may not
+    // compute one. Each of these tokens is a derivation the page used to
+    // carry and `forge-view` now owns.
+    for banned in [
+        "buildParticipants",
+        "innerColumns",
+        "fmtDur",
+        "shortTarget",
+        "toFixed",
+        "Date.parse",
+        "JSON.stringify",
+        "innerHTML",
+    ] {
+        assert!(
+            !PAGE.contains(banned),
+            "ui.html must not derive: {banned} belongs in forge-view"
+        );
+    }
+    // What it DOES carry: model consumption and geometry.
+    for kept in ["/api/view/", "renderLoops", "svgEl", "textContent"] {
+        assert!(PAGE.contains(kept), "the page still paints with {kept}");
+    }
+}

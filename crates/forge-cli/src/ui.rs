@@ -4,8 +4,13 @@
 //! assets; removing this module changes nothing about execution
 //! semantics (first-release acceptance criteria).
 //!
-//! Routes: `/` (page) · `/api/runs` · `/api/run/<id>` · `/sse/<id>`
-//! (server-sent head changes, poll-backed).
+//! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` · `/api/run/<id>` ·
+//! `/api/session/<id>` · `/sse/<id>` (server-sent head changes,
+//! poll-backed).
+//!
+//! `/api/runs` and `/api/view/<id>` serve `forge-view`'s models: the page
+//! paints them and derives nothing (decision 0013). `/api/run/<id>` keeps
+//! its raw summary-and-events shape as the parity baseline.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -87,21 +92,42 @@ pub fn handle(db: &Path, path: &str) -> Response {
         }
     };
     if path == "/api/runs" {
-        let mut runs = Vec::new();
+        // The page receives `RunsView.runs` — already newest first,
+        // because ordering is a derivation rule and not something each
+        // surface reverses for itself.
+        let mut folded = Vec::new();
         if let Ok(list) = store.list_runs() {
             for (run_id, feature, created_at) in list {
                 let state = store.load(&run_id).ok().and_then(|e| fold(&e).ok());
-                runs.push(json!({
-                    "run_id": run_id,
-                    "feature": feature,
-                    "created_at": created_at,
-                    "status": state.as_ref().map(|s| status_str(&s.status)),
-                    "phase": state.as_ref().and_then(|s| s.phase.clone()),
-                    "seq": state.as_ref().map(|s| s.seq),
-                }));
+                folded.push((run_id, feature, created_at, state));
             }
         }
-        return ok("application/json", Value::Array(runs).to_string());
+        let entries: Vec<forge_view::RunEntry> = folded
+            .iter()
+            .map(|(run_id, feature, created_at, state)| forge_view::RunEntry {
+                run_id,
+                feature,
+                created_at,
+                state: state.as_ref(),
+            })
+            .collect();
+        let view = forge_view::run_rows(&entries);
+        return ok(
+            "application/json",
+            serde_json::to_string(&view.runs).expect("run rows serialize"),
+        );
+    }
+    if let Some(run_id) = path.strip_prefix("/api/view/") {
+        let events = match store.load(run_id) {
+            Ok(events) => events,
+            Err(_) => return not_found(run_id),
+        };
+        let state = fold(&events).ok();
+        let view = forge_view::run_view(&events, state.as_ref());
+        return ok(
+            "application/json",
+            serde_json::to_string(&view).expect("the run view serializes"),
+        );
     }
     if let Some(run_id) = path.strip_prefix("/api/run/") {
         let events = match store.load(run_id) {
