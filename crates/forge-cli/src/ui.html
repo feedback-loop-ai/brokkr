@@ -19,14 +19,15 @@
   #brand .tag { margin-left: auto; font-size: 11px; color: var(--phosphor);
                 letter-spacing: 0.08em; }
   #cols { display: flex; flex: 1; min-height: 0; }
-  #runs { width: 340px; border-right: 1px solid var(--line); overflow-y: auto;
+  #runs { width: clamp(220px, 26vw, 340px); flex-shrink: 0;
+          border-right: 1px solid var(--line); overflow-y: auto;
           padding: .5rem; }
-  #detail { flex: 1; overflow-y: auto; padding: 1rem; }
+  #detail { flex: 1; min-width: 0; overflow-y: auto; padding: 1rem; }
   h1 { font-size: 1rem; margin: .3rem 0 .8rem; }
   .run { padding: .45rem .5rem; border: 1px solid var(--line); border-radius: 8px;
          margin-bottom: .4rem; cursor: pointer; background: var(--panel); }
   .run:hover, .run.active { border-color: var(--violet); }
-  .run .id { font-weight: 600; word-break: break-all; }
+  .run .id { font-weight: 600; overflow-wrap: anywhere; }
   .badge { display: inline-block; padding: 0 .5em; border-radius: 999px;
            border: 1px solid var(--line); font-size: .85em; color: var(--dim); }
   .completed { color: var(--phosphor); border-color: rgba(69,224,140,.45);
@@ -37,11 +38,21 @@
                        background: rgba(240,177,90,.10); }
   .running { color: var(--violet); border-color: rgba(124,92,255,.45);
              background: rgba(124,92,255,.10); }
-  table { border-collapse: collapse; width: 100%; margin-top: .8rem; }
+  /* Tables live in .tbl scroll containers: a wide table scrolls inside
+     its own box instead of clipping invisibly on narrow screens. */
+  .tbl { overflow-x: auto; margin-top: .8rem; }
+  table { border-collapse: collapse; width: 100%; }
   td, th { border-bottom: 1px solid var(--line); padding: .3rem .5rem;
-           text-align: left; vertical-align: top; }
+           text-align: left; vertical-align: top; white-space: nowrap; }
   th { color: var(--dim); font-weight: 600; }
-  td.payload { max-width: 46rem; overflow-wrap: anywhere; color: var(--dim); }
+  td.payload { min-width: 18rem; max-width: 46rem; overflow-wrap: anywhere;
+               white-space: normal; color: var(--dim); }
+  /* Target cells hold short (tail-first) paths: keep them on one line
+     and let the .tbl container scroll instead of letter-wrapping. */
+  td.target { color: var(--dim); }
+  /* Deliberate absence (a value the journal never carries) renders as a
+     dim mark, not an empty cell that reads as broken data. */
+  td .absent { color: var(--dim); opacity: .55; }
   .cause { color: var(--dim); font-size: .85em; }
   tr.seat { cursor: pointer; }
   tr.seat:hover td { background: rgba(124,92,255,.08); }
@@ -88,6 +99,10 @@
   .loops .loop-pulse { animation: forge-strike 1.8s ease-in-out infinite; }
   .loops .halo-on { animation: forge-halo 1.8s ease-out infinite; }
   .loops .sub { color: var(--dim); font-size: .85em; margin: .15rem 0; }
+  @media (max-width: 760px) {
+    #brand .tag { display: none; }
+    #runs { width: clamp(180px, 34vw, 260px); }
+  }
 </style>
 <div id="brand">
   <svg id="mark" width="24" height="24" viewBox="0 0 44 44" fill="none" aria-hidden="true">
@@ -145,6 +160,53 @@ function svgEl(tag, className, text) {
 function badge(text, status) {
   const cls = KNOWN_STATUS.includes(status) ? ' ' + status : '';
   return el('span', 'badge' + cls, text);
+}
+
+// A wide table scrolls inside its own container instead of clipping
+// invisibly against the viewport edge.
+function tableWrap(table) {
+  const wrap = el('div', 'tbl');
+  wrap.appendChild(table);
+  return wrap;
+}
+
+// Targets are file paths (record-time ruling); the tail is the
+// informative end, so long ones display tail-first with the full
+// recorded value in the tooltip.
+function shortTarget(target) {
+  if (target.length <= 44) return target;
+  const parts = target.split('/');
+  let tail = parts.pop();
+  while (parts.length > 1 &&
+         tail.length + parts[parts.length - 1].length + 1 <= 40) {
+    tail = parts.pop() + '/' + tail;
+  }
+  return '…/' + tail;
+}
+
+function targetSpan(target) {
+  const short = shortTarget(target);
+  const span = el('span', null, short);
+  if (short !== target) span.title = target;
+  return span;
+}
+
+// Deliberate absence (a value the journal never carries) renders as a
+// dim mark with the reason on hover, not an empty cell.
+function absentMark(why) {
+  const mark = el('span', 'absent', '—');
+  if (why) mark.title = why;
+  return mark;
+}
+
+function cell(value, cls, why) {
+  const td = el('td', cls);
+  if (value === undefined || value === null || value === '') {
+    td.appendChild(absentMark(why));
+  } else {
+    td.textContent = String(value);
+  }
+  return td;
 }
 
 async function loadRuns() {
@@ -583,24 +645,56 @@ function renderDetail(id, data) {
       el('th', null, 'cost'), el('th', null, 'last activity'),
     ]));
     for (const part of participants.values()) {
-      const cost = part.session ? part.session.total_cost_usd : undefined;
+      let cost = part.session ? part.session.total_cost_usd : undefined;
+      let turns = part.turns;
+      // A panel/sequence seat carries no telemetry of its own — its
+      // members do. The parent row aggregates them (Σ) so it never
+      // reads as an empty participant.
+      const members = part.member ? []
+        : [...participants.values()].filter((q) => q.effect === part.effect && q.member);
+      let costAgg = false, turnsAgg = false;
+      if (members.length > 0) {
+        const costs = members.map((q) => q.session ? q.session.total_cost_usd : undefined)
+          .filter((v) => typeof v === 'number');
+        const turnSums = members.map((q) => q.turns).filter((v) => typeof v === 'number');
+        if (typeof cost !== 'number' && costs.length > 0) {
+          cost = costs.reduce((a, b) => a + b, 0);
+          costAgg = true;
+        }
+        if (typeof turns !== 'number' && turnSums.length > 0) {
+          turns = turnSums.reduce((a, b) => a + b, 0);
+          turnsAgg = true;
+        }
+      }
       const statusCell = el('td');
       statusCell.appendChild(badge(part.status, STATUS_CLASS[part.status]));
+      const activity = el('td', 'target');
+      if (part.lastTurn) {
+        activity.appendChild(document.createTextNode(part.lastTurn.tool));
+        if (part.lastTurn.target) {
+          activity.appendChild(document.createTextNode(' · '));
+          activity.appendChild(targetSpan(part.lastTurn.target));
+        }
+      } else if (members.length > 0) {
+        activity.appendChild(el('span', 'absent', members.length + ' members ↓'));
+      } else {
+        activity.appendChild(absentMark('no seat-turn telemetry recorded'));
+      }
       const tr = row([
         el('td', null, part.label),
         statusCell,
         el('td', null, part.attempts),
-        el('td', null, part.turns ?? '-'),
-        el('td', null, typeof cost === 'number' ? '$' + cost.toFixed(4) : '-'),
-        el('td', 'payload', part.lastTurn
-          ? part.lastTurn.tool + (part.lastTurn.target ? ' · ' + part.lastTurn.target : '')
-          : '-'),
+        cell(typeof turns === 'number' ? (turnsAgg ? 'Σ ' : '') + turns : null,
+             null, 'no turn telemetry recorded'),
+        cell(typeof cost === 'number' ? (costAgg ? 'Σ ' : '') + '$' + cost.toFixed(4) : null,
+             null, 'no session cost recorded'),
+        activity,
       ]);
       tr.className = 'seat';
       tr.onclick = () => { activeParticipant = part.key; renderDetail(id, data); };
       seats.appendChild(tr);
     }
-    detail.appendChild(seats);
+    detail.appendChild(tableWrap(seats));
   }
 
   if (activeParticipant) {
@@ -629,14 +723,21 @@ function renderDetail(id, data) {
     ]));
     for (const item of part.checkpoints) {
       const cp = item.cp;
+      const target = el('td', 'target');
+      if (cp.target) {
+        target.appendChild(targetSpan(cp.target));
+      } else {
+        target.appendChild(absentMark(
+          'no target recorded — the journal carries file targets only'));
+      }
       stream.appendChild(row([
-        el('td', null, cp.turn ?? '-'),
+        cell(cp.turn, null, 'not a numbered turn'),
         el('td', null, cp.step === 'seat-turn' ? cp.tool : cp.step),
-        el('td', 'payload', cp.target ?? ''),
+        target,
         el('td', null, item.recorded_at),
       ]));
     }
-    detail.appendChild(stream);
+    detail.appendChild(tableWrap(stream));
     // Terminal line: members conclude on their panel-member-finished
     // outcome; the seat itself on the effect's terminal event.
     let terminal = null;
@@ -659,7 +760,14 @@ function renderDetail(id, data) {
   ]));
   for (const e of data.events ?? []) {
     const p = e.payload || {};
-    const label = p.rule_id ?? p.phase ?? p.result ?? p.command ?? p.reason ?? '';
+    let label = p.rule_id ?? p.phase ?? p.result ?? p.command ?? p.reason ?? '';
+    // Checkpoint events label with their step (tool for seat turns) so
+    // the column is never blank for the densest event type.
+    if (e.type === 'effect/checkpointed') {
+      const cp = p.checkpoint || {};
+      label = cp.step === 'seat-turn' ? (cp.tool ?? 'seat-turn') : (cp.step ?? '');
+      if (typeof cp.member === 'string') label = cp.member + ' · ' + label;
+    }
     const seqCell = el('td', null, e.seq);
     if (e.causation_id && byId[e.causation_id]) {
       seqCell.appendChild(document.createTextNode(' '));
@@ -668,12 +776,12 @@ function renderDetail(id, data) {
     table.appendChild(row([
       seqCell,
       el('td', null, e.type),
-      el('td', null, label),
+      cell(label),
       el('td', 'payload', JSON.stringify(p)),
       el('td', null, e.recorded_at),
     ]));
   }
-  detail.appendChild(table);
+  detail.appendChild(tableWrap(table));
 }
 
 function select(id) {
