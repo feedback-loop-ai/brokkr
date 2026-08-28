@@ -266,7 +266,7 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Exec,
-        &["sh".into(), "-c".into(), ":".into()],
+        &["sh".into(), "-c".into(), "cat >/dev/null".into()],
         &json!({
             "effect_id":"effect",
             "attempt_id":"attempt",
