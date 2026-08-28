@@ -71,6 +71,16 @@
      dim mark, not an empty cell that reads as broken data. */
   td .absent { color: var(--dim); opacity: .55; }
   .cause { color: var(--dim); font-size: .85em; }
+  /* Transcript prose: assistant turns violet-edged, seat-charter/user
+     turns phosphor-edged and dim, tool calls as small markers. */
+  .transcript { margin-top: .6rem; max-width: 72rem; }
+  .tr-msg { white-space: pre-wrap; overflow-wrap: anywhere;
+            padding: .4rem .65rem; margin: .35rem 0;
+            border-left: 2px solid var(--line); }
+  .tr-a { border-left-color: var(--violet); }
+  .tr-u { border-left-color: var(--phosphor); color: var(--dim); }
+  .tr-tool { color: var(--dim); font-size: .85em;
+             margin: .12rem 0 .12rem .65rem; opacity: .85; }
   tr.seat { cursor: pointer; }
   tr.seat:hover td { background: rgba(124,92,255,.08); }
   .live { color: var(--phosphor); margin: .3rem 0; }
@@ -526,9 +536,12 @@ function renderLoops(detail, events, summary, participants, id, data) {
     return tip.join('\n');
   };
   // Click selects (and scopes the consoles below to) the phase;
-  // clicking the selected phase again clears the selection.
+  // clicking the selected phase again clears the selection. Scopes are
+  // mutually exclusive: choosing a phase drops any drilled participant
+  // (their intersection was empty and read as broken).
   const togglePhase = (name) => () => {
     selectedPhase = selectedPhase === name ? null : name;
+    activeParticipant = null;
     renderDetail(id, data);
   };
 
@@ -587,7 +600,11 @@ function renderLoops(detail, events, summary, participants, id, data) {
           g.appendChild(cn);
           if (participants.has(n.key)) {
             g.appendChild(svgEl('title', null, n.label + ' — open participant'));
-            g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
+            g.onclick = () => {
+              activeParticipant = n.key;
+              selectedPhase = null;
+              renderDetail(id, data);
+            };
           }
           svg.appendChild(g);
           return g;
@@ -752,6 +769,72 @@ function innerColumns(events, participants, phase) {
   return columns;
 }
 
+// The journal's checkpoint stream — the drill-down fallback when no
+// local transcript exists for the participant.
+function checkpointTable(part) {
+  const stream = el('table');
+  stream.appendChild(row([
+    el('th', null, 'turn'), el('th', null, 'tool'),
+    el('th', null, 'target'), el('th', null, 'recorded'),
+  ]));
+  for (const item of part.checkpoints) {
+    const cp = item.cp;
+    const target = el('td', 'target');
+    if (cp.target) {
+      target.appendChild(targetSpan(cp.target));
+    } else {
+      target.appendChild(absentMark(
+        'no target recorded — the journal carries file targets only'));
+    }
+    stream.appendChild(row([
+      cell(cp.turn, null, 'not a numbered turn'),
+      el('td', null, cp.step === 'seat-turn' ? cp.tool : cp.step),
+      target,
+      el('td', null, item.recorded_at),
+    ]));
+  }
+  return tableWrap(stream);
+}
+
+// Session prose, fetched from the local transcript endpoint. Cached per
+// session so SSE re-renders don't refetch. textContent discipline holds:
+// transcript text is seat-authored and untrusted.
+const transcriptCache = new Map();
+async function renderTranscript(box, sessionId, part) {
+  let data = transcriptCache.get(sessionId);
+  if (!data) {
+    try {
+      const res = await fetch('/api/session/' + encodeURIComponent(sessionId));
+      if (!res.ok) throw new Error(String(res.status));
+      data = await res.json();
+      transcriptCache.set(sessionId, data);
+    } catch {
+      box.replaceChildren(el('p', 'cause',
+        'no local transcript for this session — showing the journal checkpoint stream'));
+      box.appendChild(checkpointTable(part));
+      return;
+    }
+  }
+  box.replaceChildren();
+  for (const turn of data.turns ?? []) {
+    for (const b of turn.blocks ?? []) {
+      if (b.kind === 'tool') {
+        box.appendChild(el('div', 'tr-tool', '⚙ ' + b.text));
+      } else {
+        box.appendChild(el('div',
+          'tr-msg ' + (turn.role === 'assistant' ? 'tr-a' : 'tr-u'), b.text));
+      }
+    }
+  }
+  if ((data.turns ?? []).length === 0) {
+    box.appendChild(el('p', 'cause', 'transcript holds no prose'));
+  }
+  if (data.truncated) {
+    box.appendChild(el('p', 'cause',
+      'transcript truncated (size cap) — resume the session for the rest'));
+  }
+}
+
 async function loadDetail(id) {
   const data = await (await fetch('/api/run/' + encodeURIComponent(id))).json();
   renderDetail(id, data);
@@ -783,19 +866,24 @@ function renderDetail(id, data) {
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
   detail.appendChild(decisionStrip(s.last_decision));
 
-  // An explicitly selected phase scopes the consoles below: seats to
-  // effects requested in that phase, events to that phase's traffic.
-  // Clicking the selected node again (or the × here) clears the scope.
+  // One scope at a time — a selected phase or a drilled participant —
+  // named in a chip whose × clears everything. The consoles below are
+  // scoped to it: seats to the phase's effects (or the one
+  // participant), events to the phase's traffic.
   const phaseFilter = selectedPhase;
-  if (phaseFilter) {
+  const scopedPart = activeParticipant ? participants.get(activeParticipant) : null;
+  if (phaseFilter || scopedPart) {
     const chip = el('p', 'ruling');
-    chip.appendChild(badge('phase · ' + phaseFilter));
+    chip.appendChild(badge(scopedPart
+      ? 'participant · ' + scopedPart.label
+      : 'phase · ' + phaseFilter));
     chip.appendChild(document.createTextNode(' '));
-    const clear = el('a', null, '× show all phases');
+    const clear = el('a', null, '× show all');
     clear.href = '#';
     clear.onclick = (ev) => {
       ev.preventDefault();
       selectedPhase = null;
+      activeParticipant = null;
       renderDetail(id, data);
     };
     chip.appendChild(clear);
@@ -935,7 +1023,11 @@ function renderDetail(id, data) {
         activity,
       ]);
       tr.className = 'seat';
-      tr.onclick = () => { activeParticipant = part.key; renderDetail(id, data); };
+      tr.onclick = () => {
+        activeParticipant = part.key;
+        selectedPhase = null;
+        renderDetail(id, data);
+      };
       seats.appendChild(tr);
     }
     detail.appendChild(tableWrap(seats));
@@ -960,28 +1052,21 @@ function renderDetail(id, data) {
       header.appendChild(document.createTextNode(' · session ' + part.session.session_id));
     }
     detail.appendChild(header);
-    const stream = el('table');
-    stream.appendChild(row([
-      el('th', null, 'turn'), el('th', null, 'tool'),
-      el('th', null, 'target'), el('th', null, 'recorded'),
-    ]));
-    for (const item of part.checkpoints) {
-      const cp = item.cp;
-      const target = el('td', 'target');
-      if (cp.target) {
-        target.appendChild(targetSpan(cp.target));
-      } else {
-        target.appendChild(absentMark(
-          'no target recorded — the journal carries file targets only'));
-      }
-      stream.appendChild(row([
-        cell(cp.turn, null, 'not a numbered turn'),
-        el('td', null, cp.step === 'seat-turn' ? cp.tool : cp.step),
-        target,
-        el('td', null, item.recorded_at),
-      ]));
+    // The lowest level IS the session prose. When the seat's transcript
+    // exists on this machine it renders here; the journal's checkpoint
+    // stream is only the fallback (exec steps, vanished transcripts).
+    const sessionId = part.session && typeof part.session.session_id === 'string'
+      ? part.session.session_id : null;
+    if (sessionId) {
+      detail.appendChild(el('p', 'cause',
+        'full session: claude --resume ' + sessionId));
+      const box = el('div', 'transcript');
+      box.appendChild(el('p', 'cause', 'loading transcript…'));
+      detail.appendChild(box);
+      renderTranscript(box, sessionId, part);
+    } else {
+      detail.appendChild(checkpointTable(part));
     }
-    detail.appendChild(tableWrap(stream));
     // Terminal line: members conclude on their panel-member-finished
     // outcome; the seat itself on the effect's terminal event.
     let terminal = null;
