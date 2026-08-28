@@ -6,7 +6,7 @@
 Ordered; each task names the test that proves it. Acceptance-criteria
 numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
 
-- [ ] **T1 — `Secret` type in `crates/forge-protocol/src/secret.rs`.**
+- [x] **T1 — `Secret` type in `crates/forge-protocol/src/secret.rs`.**
   `Vec<u8>` newtype: no `Display`/`Clone`/`Serialize`; `Debug` →
   `Secret(REDACTED)`; drop zeroization via `write_volatile` +
   `compiler_fence`; `expose_for_spawn` as sole public egress.
@@ -14,7 +14,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   compile-fail test, drop-overwrite check, and the CI grep test
   asserting exactly one `expose_for_spawn` call site outside
   `secret.rs`.
-- [ ] **T2 — Store read/write in `secret.rs`.** Env-format parse
+- [x] **T2 — Store read/write in `secret.rs`.** Env-format parse
   (single buffer, in-place split), atomic 0600 write (temp + rename,
   never widening), broader-than-0600 read refusal, value validation
   (non-empty, single-line UTF-8, no NUL, ≥4 bytes), denylist constant
@@ -22,7 +22,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-3 unit tests — round-trip, mode-on-create,
   atomic-replace-preserves-mode, refuse-broad-read, every rejected
   value class.
-- [ ] **T3 — Reference scanner + masker in `secret.rs`.** Hand-scanner
+- [x] **T3 — Reference scanner + masker in `secret.rs`.** Hand-scanner
   for `{{secret:NAME}}` (well-formed vs. malformed occurrence); needle
   constant (raw; base64 std/URL-safe × padded/unpadded; hex
   lower/upper; percent upper/lower); byte-level longest-needle-first
