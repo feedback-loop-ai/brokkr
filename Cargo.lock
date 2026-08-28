@@ -350,6 +350,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "forge-view"
+version = "0.2.0"
+dependencies = [
+ "forge-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

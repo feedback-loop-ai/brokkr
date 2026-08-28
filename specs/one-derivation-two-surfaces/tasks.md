@@ -10,7 +10,7 @@ of this feature, not an afterthought at the end.
 
 ## Movement 1 — the crate
 
-- [ ] **T1 — `crates/forge-view` joins the workspace.** `Cargo.toml`
+- [x] **T1 — `crates/forge-view` joins the workspace.** `Cargo.toml`
   with `[dependencies]` exactly `forge-core`, `serde`, `serde_json`; no
   `time`, no `forge-store`. `[workspace] members` and
   `[workspace.dependencies]` gain the path entry (no third-party
@@ -20,7 +20,7 @@ of this feature, not an afterthought at the end.
   `crates/forge-view/src/*.rs`, and `cargo test --workspace` compiling
   with the manifest as written.
 
-- [ ] **T2 — `js.rs`: the five compatibility primitives.**
+- [x] **T2 — `js.rs`: the five compatibility primitives.**
   `to_fixed_4` (ties away from zero), `len`/`slice` (UTF-16 code units,
   never splitting a surrogate pair, dropping a lone leading surrogate
   rather than inventing U+FFFD), `round_half_up`, `to_display` (JS
@@ -30,14 +30,14 @@ of this feature, not an afterthought at the end.
   `len`/`slice` with an emoji astride the 110 boundary and a `é`-bearing
   target; `to_display(None) == "undefined"`.
 
-- [ ] **T3 — Models and `Cell`.** All types from spec.md's normative
+- [x] **T3 — Models and `Cell`.** All types from spec.md's normative
   block, `Serialize` only, absent as `null` never skipped,
   `view_version: 1`.
   *Proven by*: the serialized-JSON assertions that every later task
   writes (view-model tests assert on JSON strings, not struct equality,
   so no derived `Debug` sits uncovered).
 
-- [ ] **T4 — `participants()`.** Keying, labelling, insertion order
+- [x] **T4 — `participants()`.** Keying, labelling, insertion order
   (`Vec` + index map), `attempts`, first-`startedAt`, terminal matching
   by `attempt_id` with stale attempts ignored entirely, `turns` as a
   max, session capture, member-outcome override through the four-value
@@ -46,24 +46,24 @@ of this feature, not an afterthought at the end.
   terminal (a port matching on `effect_id` alone marks a retrying seat
   concluded) and a `working` member outcome after the effect concluded.
 
-- [ ] **T5 — Σ aggregation.** Members of the same effect **occurrence**;
+- [x] **T5 — Σ aggregation.** Members of the same effect **occurrence**;
   cost and turns aggregate only when the parent's own value is
   non-numeric; `Σ ` prefix; `*_aggregated` flags; sum in insertion order.
   *Proven by*: AC-3 — the aggregating case, the non-aggregating case,
   and a two-member `f64` sum whose `to_fixed_4` is order-sensitive.
 
-- [ ] **T6 — `fmt_dur`, `short_target`, `absent` cells.**
+- [x] **T6 — `fmt_dur`, `short_target`, `absent` cells.**
   *Proven by*: AC-5 (`<60s`, 59500ms → `1m00s`, zero-padded seconds,
   `≥60m` dropping seconds, negative and unparseable → `None`) and AC-6
   (`≤44`, the 40-char accumulation boundary, single-segment).
 
-- [ ] **T7 — `Activity`, all four branches.** Live tool (+ shortened
+- [x] **T7 — `Activity`, all four branches.** Live tool (+ shortened
   target with `target_full` only when shortened), result·duration,
   `<n> members ↓`, the absence mark; member and seat start/end rules.
   *Proven by*: AC-4 — one test per branch plus the member-without-
   `panel-member-finished` end rule.
 
-- [ ] **T8 — `LiveLine`.** The separate global-last-start scan, `open`
+- [x] **T8 — `LiveLine`.** The separate global-last-start scan, `open`
   cleared only on matching `effect_id` **and** `attempt_id`, `p.seat`
   truthiness defaulting `'?'`, the synthesized bare-seat row, and the
   raw `turn`/`tool` rendering.
@@ -71,18 +71,18 @@ of this feature, not an afterthought at the end.
   live block disagrees with per-effect status, and the `turn undefined`
   quirk named by its test.
 
-- [ ] **T9 — `inner_columns()` over a one-pass `effect_id` bucketing.**
+- [x] **T9 — `inner_columns()` over a one-pass `effect_id` bucketing.**
   Newest requested effect wins; finished step order; member tags deduped
   in first-observed order; the three shapes (steps, `step:member` forks,
   tags-only, bare seat); node keys and the state chain.
   *Proven by*: AC-8 — one test per shape and per state-chain arm, plus a
   newest-wins test with two `effect/requested` events for one phase.
 
-- [ ] **T10 — Phase rail.** First-visit order, visit counts, non-string
+- [x] **T10 — Phase rail.** First-visit order, visit counts, non-string
   names skipped, empty when none, `current` selection, `plain`.
   *Proven by*: AC-9.
 
-- [ ] **T11 — Trail and journal rows.** `in_trail`, causation via a
+- [x] **T11 — Trail and journal rows.** `in_trail`, causation via a
   total map (no seq-0 truthiness — `verify_chain` pins `seq == i + 1`),
   per-type classification with the fallback chain, `What.text` as the
   plain composition, the full-journal label with its
@@ -91,12 +91,12 @@ of this feature, not an afterthought at the end.
   chain, a `__proto__` causation id producing no arrow, and a
   float-bearing payload pinning the `1.0` vs `1` delta.
 
-- [ ] **T12 — Scope tags.** `Participant.phase`; `JournalRow.phases`
+- [x] **T12 — Scope tags.** `Participant.phase`; `JournalRow.phases`
   from `payload.phase`, `payload.from`, and effect membership.
   *Proven by*: AC-13 — both predicates, including a decision leaving a
   phase (and the negative: `next` is not a match).
 
-- [ ] **T13 — `Summary`, `Ruling`, `run_rows()`, `clamp()`, `age()`.**
+- [x] **T13 — `Summary`, `Ruling`, `run_rows()`, `clamp()`, `age()`.**
   Nine `summarize()` keys verbatim; ruling empty unless an object with
   `rule_id`; the severity table with its `""` fallback; `?` fallbacks;
   inputs lines; newest-first rows with `status_known` and the full
