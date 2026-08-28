@@ -166,6 +166,7 @@
 // dynamic content is set through textContent (el(); badge classes come
 // from a fixed allowlist, never from data).
 let active = null, source = null, activeParticipant = null, selectedPhase = null;
+let rawJournal = false; // events table mode: decision trail (default) or raw
 
 // Favicon pair: phosphor seal at rest, violet seal while forging — the
 // tab itself signals a live run (the 16px answer to the pulse).
@@ -1082,11 +1083,31 @@ function renderDetail(id, data) {
     return;
   }
 
+  // The events surface defaults to the DECISION TRAIL: why the machine
+  // moved — rulings, phase entries, effect outcomes, run start/end.
+  // Checkpoints (the transcript's job now) and effect plumbing hide
+  // behind the raw-journal toggle, kept for forensics.
+  const TRAIL_SKIP = ['effect/checkpointed', 'effect/requested', 'effect/started'];
+  const allEvents = data.events ?? [];
+  const modeLine = el('p', 'cause');
+  const modeLink = el('a', null, rawJournal
+    ? '◂ decision trail'
+    : 'full journal · ' + allEvents.length + ' events ▸');
+  modeLink.href = '#';
+  modeLink.onclick = (ev) => {
+    ev.preventDefault();
+    rawJournal = !rawJournal;
+    renderDetail(id, data);
+  };
+  modeLine.appendChild(modeLink);
+  detail.appendChild(modeLine);
+
   const table = el('table');
-  table.appendChild(row([
-    el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
-    el('th', null, 'payload'), el('th', null, 'recorded'),
-  ]));
+  table.appendChild(row(rawJournal
+    ? [el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
+       el('th', null, 'payload'), el('th', null, 'recorded')]
+    : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
+       el('th', null, 'what happened'), el('th', null, 'recorded')]));
   // Phase scope for the events grid: an event belongs to the selected
   // phase if it names it (phase/entered, effect/requested), left it
   // (a decision's `from`), or rides an effect requested in it.
@@ -1099,30 +1120,63 @@ function renderDetail(id, data) {
       }
     }
   }
-  for (const e of data.events ?? []) {
+  for (const e of allEvents) {
     const p = e.payload || {};
     if (phaseFilter && p.phase !== phaseFilter && p.from !== phaseFilter &&
         !(p.effect_id && phaseEffects.has(p.effect_id))) {
       continue;
     }
-    // First STRING wins — effect results are objects (their inner
-    // .result token is the label), and nothing non-string may reach the
-    // cell, or it renders as '[object Object]'.
-    const resultToken = (p.result && typeof p.result === 'object')
-      ? p.result.result : p.result;
-    let label = [p.rule_id, p.phase, resultToken, p.command, p.reason]
-      .find((v) => typeof v === 'string' && v !== '') ?? '';
-    // Checkpoint events label with their step (tool for seat turns) so
-    // the column is never blank for the densest event type.
-    if (e.type === 'effect/checkpointed') {
-      const cp = p.checkpoint || {};
-      label = cp.step === 'seat-turn' ? (cp.tool ?? 'seat-turn') : (cp.step ?? '');
-      if (typeof cp.member === 'string') label = cp.member + ' · ' + label;
-    }
+    if (!rawJournal && TRAIL_SKIP.includes(e.type)) continue;
     const seqCell = el('td', null, e.seq);
     if (e.causation_id && byId[e.causation_id]) {
       seqCell.appendChild(document.createTextNode(' '));
       seqCell.appendChild(el('span', 'cause', '← ' + byId[e.causation_id]));
+    }
+    if (!rawJournal) {
+      // Trail row: the human answer to "what happened here".
+      const what = el('td');
+      if (e.type === 'transition/decided') {
+        const cls = Object.hasOwn(RULING_SEVERITY_CLASS, p.severity)
+          ? RULING_SEVERITY_CLASS[p.severity] : '';
+        what.appendChild(badge(p.rule_id ?? '?', cls));
+        what.appendChild(el('span', 'arrow',
+          ' ' + (p.from ?? '?') + ' → ' + (p.next ?? '?') +
+          (typeof p.result === 'string' ? ' · ' + p.result : '')));
+        if (p.problem) what.appendChild(el('div', 'problem', String(p.problem)));
+      } else if (e.type === 'phase/entered') {
+        what.appendChild(badge(p.phase ?? '?'));
+      } else if (Object.hasOwn(TERMINAL_STATUS, e.type)) {
+        const part = participants.get(p.effect_id);
+        const tok = (p.result && typeof p.result === 'object')
+          ? p.result.result : p.result;
+        what.appendChild(document.createTextNode(
+          (part ? part.label : p.effect_id ?? '?') +
+          (typeof tok === 'string' ? ' · ' + tok : '')));
+        if (typeof p.error === 'string' && p.error) {
+          what.appendChild(el('div', 'problem', p.error.slice(0, 160)));
+        }
+      } else if (e.type === 'run/started') {
+        what.appendChild(document.createTextNode(
+          typeof p.feature === 'string' ? p.feature.slice(0, 110) + '…' : 'run started'));
+      } else {
+        const token = [p.rule_id, p.phase, p.reason]
+          .find((v) => typeof v === 'string' && v !== '');
+        what.appendChild(document.createTextNode(token ?? e.type.split('/')[1] ?? ''));
+      }
+      table.appendChild(row([
+        seqCell, el('td', null, e.type), what, el('td', null, e.recorded_at),
+      ]));
+      continue;
+    }
+    // Raw journal row (forensics): every envelope, clamped payload.
+    const resultToken = (p.result && typeof p.result === 'object')
+      ? p.result.result : p.result;
+    let label = [p.rule_id, p.phase, resultToken, p.command, p.reason]
+      .find((v) => typeof v === 'string' && v !== '') ?? '';
+    if (e.type === 'effect/checkpointed') {
+      const cp = p.checkpoint || {};
+      label = cp.step === 'seat-turn' ? (cp.tool ?? 'seat-turn') : (cp.step ?? '');
+      if (typeof cp.member === 'string') label = cp.member + ' · ' + label;
     }
     table.appendChild(row([
       seqCell,
@@ -1139,6 +1193,7 @@ function select(id) {
   active = id;
   activeParticipant = null; // drill-down selection is per-run
   selectedPhase = null;     // outer-rail selection is per-run too
+  rawJournal = false;       // journal mode resets to the trail per-run
   loadRuns();
   loadDetail(id);
   if (source) source.close();
