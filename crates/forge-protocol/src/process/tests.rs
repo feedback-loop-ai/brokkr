@@ -171,27 +171,30 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
 
-    let close_before_start = format!(
-        "read line; exec 0<&-; printf '%s\\n' '{}'; sleep 1",
-        capabilities()
-    );
-    assert!(matches!(
-        run(&close_before_start).outcome,
-        AttemptOutcome::Failed { error } if error.contains("could not send start")
-    ));
+    #[cfg(unix)]
+    {
+        let close_before_start = format!(
+            "read line; exec 0<&-; printf '%s\\n' '{}'; sleep 1",
+            capabilities()
+        );
+        assert!(matches!(
+            run(&close_before_start).outcome,
+            AttemptOutcome::Failed { error } if error.contains("could not send start")
+        ));
 
-    let process = DriverProcess::spawn(
-        &command("exec 0<&-; sleep 1"),
-        std::path::Path::new("."),
-        None,
-    )
-    .unwrap();
-    std::thread::sleep(Duration::from_millis(25));
-    let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
-    assert!(matches!(
-        report.outcome,
-        AttemptOutcome::Failed { error } if error.contains("could not greet driver")
-    ));
+        let process = DriverProcess::spawn(
+            &command("exec 0<&-; sleep 1"),
+            std::path::Path::new("."),
+            None,
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(25));
+        let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
+        assert!(matches!(
+            report.outcome,
+            AttemptOutcome::Failed { error } if error.contains("could not greet driver")
+        ));
+    }
 }
 
 fn poison_child_lock(process: &DriverProcess) {

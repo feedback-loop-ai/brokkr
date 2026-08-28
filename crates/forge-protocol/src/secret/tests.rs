@@ -310,6 +310,7 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
     )
     .is_err());
     assert!(write_store(Path::new(""), &[]).is_err());
+    #[cfg(unix)]
     assert!(write_store(
         Path::new("/proc/forge-secrets.env"),
         &[("TOKEN".into(), Secret::new(b"long-enough".to_vec()))]
