@@ -47,6 +47,20 @@
   th { color: var(--dim); font-weight: 600; }
   td.payload { min-width: 18rem; max-width: 46rem; overflow-wrap: anywhere;
                white-space: normal; color: var(--dim); }
+  /* Payloads clamp to two lines by default — a 5KB feature text must
+     not become a 3500px row. Click toggles the full text; the text
+     itself stays in the DOM either way, so find-in-page still works. */
+  td.payload.clip { cursor: pointer; }
+  td.payload.clip > .body { display: -webkit-box; -webkit-line-clamp: 2;
+                            -webkit-box-orient: vertical; overflow: hidden; }
+  td.payload.clip.open > .body { display: block; }
+  td.payload.clip > .more { color: var(--violet); opacity: .8;
+                            font-size: .85em; user-select: none; }
+  /* The last ruling, natively: badge + transition, inputs in the
+     tooltip. The raw payload stays reachable in the events table. */
+  .ruling { margin: .2rem 0 .6rem; }
+  .ruling .arrow { color: var(--dim); }
+  .problem { color: var(--halt); white-space: pre-wrap; }
   /* Target cells hold short (tail-first) paths: keep them on one line
      and let the .tbl container scroll instead of letter-wrapping. */
   td.target { color: var(--dim); }
@@ -209,6 +223,51 @@ function cell(value, cls, why) {
   return td;
 }
 
+// Payload cells clamp to two lines by default; click toggles the full
+// text. The text stays in the DOM either way (find-in-page works);
+// short payloads get no affordance.
+function payloadCell(text) {
+  const td = el('td', 'payload');
+  td.appendChild(el('div', 'body', text));
+  if (text.length > 160) {
+    td.className = 'payload clip';
+    const more = el('div', 'more', '⌄ expand');
+    td.appendChild(more);
+    td.onclick = () => {
+      const open = td.classList.toggle('open');
+      more.textContent = open ? '⌃ collapse' : '⌄ expand';
+    };
+  }
+  return td;
+}
+
+// The last ruling rendered natively instead of a JSON block: a
+// severity-colored rule badge (fixed class table — journal data never
+// names a class), the phase transition, the result. The inputs that
+// fed the ruling live in the badge tooltip; a problem renders as a
+// halt line only when one exists.
+const RULING_SEVERITY_CLASS = { normal: '', flagged: 'awaiting_operator', hard: 'stopped' };
+function decisionStrip(d) {
+  const wrap = el('div');
+  if (!d || typeof d !== 'object' || d.rule_id === undefined) return wrap;
+  const line = el('p', 'ruling');
+  const cls = Object.hasOwn(RULING_SEVERITY_CLASS, d.severity)
+    ? RULING_SEVERITY_CLASS[d.severity] : '';
+  const rule = badge(d.rule_id ?? '?', cls);
+  const inputs = d.inputs && typeof d.inputs === 'object' ? Object.entries(d.inputs) : [];
+  if (inputs.length) {
+    rule.title = 'inputs\n' +
+      inputs.map(([k, v]) => k + ': ' + JSON.stringify(v)).join('\n');
+  }
+  line.appendChild(rule);
+  line.appendChild(el('span', 'arrow',
+    ' ' + (d.from ?? '?') + ' → ' + (d.next ?? '?') + ' '));
+  if (d.result) line.appendChild(badge(d.result));
+  wrap.appendChild(line);
+  if (d.problem) wrap.appendChild(el('p', 'problem', String(d.problem)));
+  return wrap;
+}
+
 async function loadRuns() {
   const runs = await (await fetch('/api/runs')).json();
   setForging(runs.some((run) => run.status === 'running'));
@@ -364,6 +423,15 @@ function renderLoops(detail, events, summary, participants, id, data) {
       : status === 'awaiting_operator' ? 'on-park'
       : 'on-phosphor';
     const g = svgEl('g', 'hit');
+    // Native tooltip: phase, visit count, and — on the current node —
+    // the last ruling, so the graph explains itself on hover.
+    const visits = phases.get(name);
+    const tip = [name + (visits > 1 ? ' · visited x' + visits : '')];
+    if (isCurrent && summary.last_decision && summary.last_decision.rule_id) {
+      tip.push('last ruling: ' + summary.last_decision.rule_id +
+               ' → ' + (summary.last_decision.next ?? '?'));
+    }
+    g.appendChild(svgEl('title', null, tip.join('\n')));
     if (name === selected) {
       const ring = svgEl('circle', 'sel-ring');
       ring.setAttribute('cx', x);
@@ -388,7 +456,6 @@ function renderLoops(detail, events, summary, participants, id, data) {
     label.setAttribute('y', Y + 22);
     label.setAttribute('text-anchor', 'middle');
     g.appendChild(label);
-    const visits = phases.get(name);
     if (visits > 1) {
       const rev = svgEl('text', 'revisit', 'x' + visits);
       rev.setAttribute('x', x);
@@ -586,7 +653,7 @@ function renderDetail(id, data) {
   renderLoops(detail, events, s, participants, id, data);
 
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
-  detail.appendChild(el('pre', null, JSON.stringify(s.last_decision ?? {}, null, 2)));
+  detail.appendChild(decisionStrip(s.last_decision));
 
   // Live seat telemetry: while an attempt is open (an effect/started
   // with no later terminal effect event), show one activity line PER
@@ -777,7 +844,7 @@ function renderDetail(id, data) {
       seqCell,
       el('td', null, e.type),
       cell(label),
-      el('td', 'payload', JSON.stringify(p)),
+      payloadCell(JSON.stringify(p)),
       el('td', null, e.recorded_at),
     ]));
   }
