@@ -22,6 +22,30 @@ use serde_json::Value;
 
 use crate::{Body, Message, ResultStatus};
 
+/// Seat keys carry ':' member separators (`seat:step:member`), which
+/// Windows cannot spell in a file name — NTFS reads ':' as a stream
+/// separator, and a second one is an outright error. State files use a
+/// sanitized spelling; a hash of the original key keeps distinct seats
+/// distinct after sanitizing.
+fn attempt_file_name(seat: &str) -> String {
+    let safe: String = seat
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a
+    for byte in seat.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{safe}-{hash:016x}.attempt")
+}
+
 pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<()> {
     let script: Value = serde_json::from_str(&std::fs::read_to_string(script_path)?)?;
     std::fs::create_dir_all(state_dir)?;
@@ -58,7 +82,7 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
                 seat,
                 ..
             } => {
-                let counter_file = state_dir.join(format!("{seat}.attempt"));
+                let counter_file = state_dir.join(attempt_file_name(&seat));
                 let attempt_index: usize = std::fs::read_to_string(&counter_file)
                     .ok()
                     .and_then(|s| s.trim().parse().ok())
