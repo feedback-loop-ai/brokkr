@@ -830,7 +830,13 @@ function renderDetail(id, data) {
   ]));
   for (const e of data.events ?? []) {
     const p = e.payload || {};
-    let label = p.rule_id ?? p.phase ?? p.result ?? p.command ?? p.reason ?? '';
+    // First STRING wins — effect results are objects (their inner
+    // .result token is the label), and nothing non-string may reach the
+    // cell, or it renders as '[object Object]'.
+    const resultToken = (p.result && typeof p.result === 'object')
+      ? p.result.result : p.result;
+    let label = [p.rule_id, p.phase, resultToken, p.command, p.reason]
+      .find((v) => typeof v === 'string' && v !== '') ?? '';
     // Checkpoint events label with their step (tool for seat turns) so
     // the column is never blank for the densest event type.
     if (e.type === 'effect/checkpointed') {
