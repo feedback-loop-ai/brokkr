@@ -15,6 +15,54 @@ fn run(script: &str) -> AttemptReport {
         .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
 }
 
+struct BrokenWriter;
+
+impl std::io::Write for BrokenWriter {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "injected closed driver stdin",
+        ))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "injected closed driver stdin",
+        ))
+    }
+}
+
+#[derive(Default)]
+struct BreakAfterFirstFlush {
+    flushed: bool,
+}
+
+impl std::io::Write for BreakAfterFirstFlush {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.flushed {
+            return BrokenWriter.write(bytes);
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.flushed {
+            return BrokenWriter.flush();
+        }
+        self.flushed = true;
+        Ok(())
+    }
+}
+
+fn process_with_writer(writer: impl std::io::Write + 'static) -> DriverProcess {
+    let script = format!("printf '%s\\n' '{}'", capabilities());
+    let mut process =
+        DriverProcess::spawn(&command(&script), std::path::Path::new("."), None).unwrap();
+    process.stdin = Box::new(writer);
+    process
+}
+
 fn capabilities() -> String {
     wire(Body::Capabilities {
         driver: "test".into(),
@@ -171,30 +219,31 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
 
-    #[cfg(unix)]
-    {
-        let close_before_start = format!(
-            "read line; exec 0<&-; printf '%s\\n' '{}'; sleep 1",
-            capabilities()
-        );
-        assert!(matches!(
-            run(&close_before_start).outcome,
-            AttemptOutcome::Failed { error } if error.contains("could not send start")
-        ));
+    let report = process_with_writer(BreakAfterFirstFlush::default()).run_attempt(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        |_| {},
+    );
+    assert!(matches!(
+        report.outcome,
+        AttemptOutcome::Failed { error } if error.contains("could not send start")
+    ));
 
-        let process = DriverProcess::spawn(
-            &command("exec 0<&-; sleep 1"),
-            std::path::Path::new("."),
-            None,
-        )
-        .unwrap();
-        std::thread::sleep(Duration::from_millis(25));
-        let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
-        assert!(matches!(
-            report.outcome,
-            AttemptOutcome::Failed { error } if error.contains("could not greet driver")
-        ));
-    }
+    let report = process_with_writer(BrokenWriter).run_attempt(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        |_| {},
+    );
+    assert!(matches!(
+        report.outcome,
+        AttemptOutcome::Failed { error } if error.contains("could not greet driver")
+    ));
 }
 
 fn poison_child_lock(process: &DriverProcess) {
