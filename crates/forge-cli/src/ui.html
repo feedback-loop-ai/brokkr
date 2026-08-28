@@ -219,6 +219,17 @@ function targetSpan(target) {
   return span;
 }
 
+// Wall-clock between two journal timestamps, humanized.
+function fmtDur(fromIso, toIso) {
+  const ms = Date.parse(toIso) - Date.parse(fromIso);
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm' + String(s % 60).padStart(2, '0') + 's';
+  return Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') + 'm';
+}
+
 // Deliberate absence (a value the journal never carries) renders as a
 // dim mark with the reason on hover, not an empty cell.
 function absentMark(why) {
@@ -345,7 +356,8 @@ function buildParticipants(events) {
     if (e.type === 'effect/requested' && p.effect_id) {
       const effect = { effect_id: p.effect_id, seat: p.seat ?? '?',
                        phase: typeof p.phase === 'string' ? p.phase : null,
-                       attempts: 0, open: null, terminal: null, terminalEvent: null };
+                       attempts: 0, open: null, terminal: null, terminalEvent: null,
+                       startedAt: null };
       effects.set(p.effect_id, effect);
       ensure(effect, null);
       continue;
@@ -355,6 +367,7 @@ function buildParticipants(events) {
     if (e.type === 'effect/started') {
       effect.attempts += 1;
       effect.open = p.attempt_id;
+      if (!effect.startedAt) effect.startedAt = e.recorded_at;
     } else if (Object.hasOwn(TERMINAL_STATUS, e.type) && p.attempt_id === effect.open) {
       effect.open = null;
       effect.terminal = TERMINAL_STATUS[e.type];
@@ -848,7 +861,7 @@ function renderDetail(id, data) {
     seats.appendChild(row([
       el('th', null, 'participant'), el('th', null, 'status'),
       el('th', null, 'attempts'), el('th', null, 'turns'),
-      el('th', null, 'cost'), el('th', null, 'last activity'),
+      el('th', null, 'cost'), el('th', null, 'activity'),
     ]));
     for (const part of shownParts) {
       let cost = part.session ? part.session.total_cost_usd : undefined;
@@ -874,17 +887,42 @@ function renderDetail(id, data) {
       }
       const statusCell = el('td');
       statusCell.appendChild(badge(part.status, STATUS_CLASS[part.status]));
+      // Activity earns its place in both states: a live participant
+      // shows what it is doing right now (tool · target); a concluded
+      // one shows what mattered in the end — its result token and how
+      // long the work took.
       const activity = el('td', 'target');
-      if (part.lastTurn) {
+      const startAt = part.member
+        ? (part.checkpoints[0] ? part.checkpoints[0].recorded_at : part.effect.startedAt)
+        : part.effect.startedAt;
+      // A member with no panel-member-finished (a sequence's final or
+      // exec step) ends at its last checkpoint once the effect is done.
+      const lastCp = part.checkpoints[part.checkpoints.length - 1];
+      const endAt = part.member
+        ? (part.memberFinishedAt ??
+           (!part.effect.open && part.effect.terminal && lastCp ? lastCp.recorded_at : null))
+        : (part.effect.terminalEvent ? part.effect.terminalEvent.recorded_at : null);
+      const bits = [];
+      if (!part.member && part.effect.terminalEvent) {
+        const tp = part.effect.terminalEvent.payload || {};
+        const tok = (tp.result && typeof tp.result === 'object')
+          ? tp.result.result : tp.result;
+        if (typeof tok === 'string') bits.push(tok);
+      }
+      const dur = startAt && endAt ? fmtDur(startAt, endAt) : null;
+      if (dur) bits.push(dur);
+      if (part.status === 'working' && part.lastTurn) {
         activity.appendChild(document.createTextNode(part.lastTurn.tool));
         if (part.lastTurn.target) {
           activity.appendChild(document.createTextNode(' · '));
           activity.appendChild(targetSpan(part.lastTurn.target));
         }
+      } else if (bits.length > 0) {
+        activity.textContent = bits.join(' · ');
       } else if (members.length > 0) {
         activity.appendChild(el('span', 'absent', members.length + ' members ↓'));
       } else {
-        activity.appendChild(absentMark('no seat-turn telemetry recorded'));
+        activity.appendChild(absentMark('no activity recorded'));
       }
       const tr = row([
         el('td', null, part.label),
