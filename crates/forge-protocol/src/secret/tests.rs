@@ -280,7 +280,7 @@ fn store_write_remove_and_empty_resolve_cover_refusal_boundaries() {
     );
     let dir = tempfile::tempdir().unwrap();
     let injectable = dir.path().join("injectable.env");
-    let entries = [("TOKEN".into(), Secret::new(b"long-enough".to_vec()))];
+    let entries: [(String, Secret); 1] = [("TOKEN".into(), Secret::new(b"long-enough".to_vec()))];
     #[cfg(unix)]
     assert!(write_store_with(
         &injectable,

@@ -213,7 +213,10 @@ fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
     )
     .unwrap();
     poison_child_lock(&process);
-    std::thread::sleep(Duration::from_millis(30));
+    let wait_until = std::time::Instant::now() + Duration::from_secs(1);
+    while !process.timed_out.load(Ordering::SeqCst) && std::time::Instant::now() < wait_until {
+        std::thread::sleep(Duration::from_millis(1));
+    }
     assert!(process.timed_out.load(Ordering::SeqCst));
     {
         let mut child = process.child.lock().unwrap_err().into_inner();
