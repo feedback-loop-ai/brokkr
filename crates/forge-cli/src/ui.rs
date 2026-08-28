@@ -66,6 +66,11 @@ pub fn handle(db: &Path, path: &str) -> Response {
     if path == "/" {
         return ok("text/html; charset=utf-8", PAGE.to_string());
     }
+    if let Some(session_id) = path.strip_prefix("/api/session/") {
+        // Journal-independent: the lowest drill level is the seat's own
+        // session transcript on the operator's machine, not the db.
+        return session_transcript(session_id);
+    }
     if !db.is_file() {
         // Reads never create: a missing database is a 404, not an
         // initialized empty store.
@@ -120,6 +125,115 @@ pub fn handle(db: &Path, path: &str) -> Response {
         return ok("application/json", body.to_string());
     }
     not_found(path)
+}
+
+/// Lowest-level drilldown: the seat session's transcript, located in
+/// the operator's local Claude projects directory by session id. The
+/// id is strictly validated before any path is formed; the response
+/// carries prose text and tool names (file targets only), size-capped.
+/// This is a loopback-only, operator-local surface — the same trust as
+/// `claude --resume <id>` in a terminal.
+fn session_transcript(id: &str) -> Response {
+    let valid = !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
+    if !valid {
+        return not_found("session");
+    }
+    let Some(home) = std::env::var_os("HOME") else {
+        return not_found("transcript");
+    };
+    let projects = Path::new(&home).join(".claude").join("projects");
+    let file_name = format!("{id}.jsonl");
+    let mut found = None;
+    if let Ok(dirs) = std::fs::read_dir(&projects) {
+        for dir in dirs.flatten() {
+            let candidate = dir.path().join(&file_name);
+            if candidate.is_file() {
+                found = Some(candidate);
+                break;
+            }
+        }
+    }
+    let Some(path) = found else {
+        return not_found("transcript");
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return not_found("transcript");
+    };
+    let mut turns = Vec::new();
+    let mut budget: usize = 4_000_000;
+    let mut truncated = false;
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
+        if kind != "user" && kind != "assistant" {
+            continue;
+        }
+        let msg = v.get("message").cloned().unwrap_or(Value::Null);
+        let role = msg
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or(kind)
+            .to_string();
+        let ts = v
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let mut blocks = Vec::new();
+        match msg.get("content") {
+            Some(Value::String(t)) => blocks.push(json!({"kind": "text", "text": t})),
+            Some(Value::Array(parts)) => {
+                for part in parts {
+                    match part.get("type").and_then(Value::as_str) {
+                        Some("text") => {
+                            if let Some(t) = part.get("text").and_then(Value::as_str) {
+                                if !t.trim().is_empty() {
+                                    blocks.push(json!({"kind": "text", "text": t}));
+                                }
+                            }
+                        }
+                        Some("tool_use") => {
+                            let name =
+                                part.get("name").and_then(Value::as_str).unwrap_or("?");
+                            let target = part
+                                .pointer("/input/file_path")
+                                .and_then(Value::as_str)
+                                .unwrap_or("");
+                            let label = if target.is_empty() {
+                                name.to_string()
+                            } else {
+                                format!("{name} · {target}")
+                            };
+                            blocks.push(json!({"kind": "tool", "text": label}));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        if blocks.is_empty() {
+            continue;
+        }
+        let cost: usize = blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str).map(str::len))
+            .sum();
+        if cost > budget {
+            truncated = true;
+            break;
+        }
+        budget -= cost;
+        turns.push(json!({"role": role, "ts": ts, "blocks": blocks}));
+    }
+    ok(
+        "application/json",
+        json!({"session_id": id, "turns": turns, "truncated": truncated}).to_string(),
+    )
 }
 
 fn head_seq(db: &Path, run_id: &str) -> u64 {
