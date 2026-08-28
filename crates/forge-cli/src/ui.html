@@ -109,6 +109,10 @@
   .loops .in-active { fill: var(--violet); }
   .loops .sel-ring { fill: none; stroke: var(--dim); stroke-width: 1.2;
                      stroke-dasharray: 3 2; }
+  .loops .cap { fill: none; stroke: var(--line); stroke-width: 1.2; }
+  .loops .cap-sel { stroke: var(--dim); stroke-dasharray: 4 3; }
+  .loops text.phase { font-weight: 700; fill: var(--text); opacity: .75; }
+  .loops text.phase-sel { fill: var(--violet); opacity: 1; }
   .loops .halo { fill: none; stroke: var(--phosphor); stroke-width: 1.4;
                  opacity: 0; }
   .loops .loop-pulse, .loops .halo-on { transform-box: fill-box;
@@ -379,11 +383,15 @@ function buildParticipants(events) {
   return participants;
 }
 
-// The loops view. Outer rail: one node per phase in first-visit order
-// (phase/entered events); the selected phase's inner structure renders
-// beneath as a mini-rail. Observed events only — declared-but-unstarted
-// topology is never invented. State -> class is a fixed table; journal
-// strings only reach SVG <text> via textContent.
+// The loops view — ONE graph: the phase rail with each phase's inner
+// topology inlined. A phase whose newest effect shows structure
+// (sequence steps, panel members) renders as a capsule of inner nodes
+// on the rail; a plain phase stays a single node. Observed events only
+// — declared-but-unstarted topology is never invented. State -> class
+// is a fixed table; journal strings only reach SVG <text> via
+// textContent.
+const INNER_STATE_CLASS = { finished: 'on-phosphor', active: 'in-active',
+                            failed: 'on-halt', indeterminate: 'on-park' };
 function renderLoops(detail, events, summary, participants, id, data) {
   const phases = new Map(); // name -> visit count, in first-visit order
   for (const e of events) {
@@ -399,97 +407,214 @@ function renderLoops(detail, events, summary, participants, id, data) {
   const names = [...phases.keys()];
   const current = typeof summary.phase === 'string' && phases.has(summary.phase)
     ? summary.phase : names[names.length - 1];
-  const selected = selectedPhase ?? current;
   const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
   const pulsing = status === 'running';
 
+  // Layout pass: a plain phase takes a node's width; a structured one
+  // a capsule wide enough for its inner columns.
+  const GAP = 26, PAD = 24, SP_IN = 92, Y = 30, ROW = 22;
+  let cursor = 16;
+  const segs = names.map((name) => {
+    const columns = innerColumns(events, participants, name);
+    const capsule = !!columns &&
+      (columns.length > 1 || columns[0].nodes.length > 1);
+    let seg;
+    if (capsule) {
+      // Stacked columns draw member labels to the RIGHT of their
+      // nodes; the column advance and the capsule edge must leave
+      // room for the widest one (~6.5px per mono glyph).
+      const labelW = (c) => c.nodes.length > 1
+        ? Math.max(...c.nodes.map((n) => n.label.length)) * 6.5 + 24 : 0;
+      const xs = [];
+      let cx = cursor + PAD;
+      columns.forEach((c, i) => {
+        xs.push(cx);
+        if (i < columns.length - 1) cx += Math.max(SP_IN, labelW(c));
+      });
+      const stack = Math.max(...columns.map((c) => c.nodes.length));
+      seg = { name, capsule, columns, xs, stack,
+              x0: xs[0] - 17,
+              x1: xs[xs.length - 1] + Math.max(17, labelW(columns[columns.length - 1])) };
+      seg.cx = (seg.x0 + seg.x1) / 2;
+      cursor = seg.x1;
+    } else {
+      seg = { name, capsule, cx: cursor + PAD, stack: 1 };
+      cursor = seg.cx + PAD - 8;
+    }
+    cursor += GAP;
+    return seg;
+  });
+  const maxStack = Math.max(...segs.map((s) => s.stack));
+  const depth = Y + (maxStack - 1) * ROW;
+  const nameY = depth + 44;
+
   const wrap = el('div', 'loops');
-  const SP = 104, X0 = 46, Y = 22;
   const svg = svgEl('svg');
-  svg.setAttribute('width', X0 * 2 + SP * (names.length - 1));
-  svg.setAttribute('height', 62);
-  if (names.length > 1) {
-    const line = svgEl('line', 'rail-line');
-    line.setAttribute('x1', X0);
-    line.setAttribute('y1', Y);
-    line.setAttribute('x2', X0 + SP * (names.length - 1));
-    line.setAttribute('y2', Y);
-    svg.appendChild(line);
-  }
-  names.forEach((name, i) => {
-    const x = X0 + SP * i;
-    const isCurrent = name === current;
-    // Fixed allowlist: visited violet; the current node keys off the
-    // allowlisted run status (terminal phase phosphor when completed,
-    // halt when stopped, park while awaiting the operator).
-    const cls = !isCurrent ? 'on-visited'
-      : status === 'stopped' ? 'on-halt'
-      : status === 'awaiting_operator' ? 'on-park'
-      : 'on-phosphor';
-    const g = svgEl('g', 'hit');
-    // Native tooltip: phase, visit count, and — on the current node —
-    // the last ruling, so the graph explains itself on hover.
-    const visits = phases.get(name);
-    const tip = [name + (visits > 1 ? ' · visited x' + visits : '')];
+  svg.setAttribute('width', cursor);
+  svg.setAttribute('height', nameY + 26);
+  const first = segs[0], last = segs[segs.length - 1];
+  const rail = svgEl('line', 'rail-line');
+  rail.setAttribute('x1', first.capsule ? first.xs[0] : first.cx);
+  rail.setAttribute('y1', Y);
+  rail.setAttribute('x2', last.capsule ? last.xs[last.xs.length - 1] : last.cx);
+  rail.setAttribute('y2', Y);
+  svg.appendChild(rail);
+
+  // Native tooltip: phase, visit count, and — on the current phase —
+  // the last ruling, so the graph explains itself on hover.
+  const phaseTip = (seg, isCurrent) => {
+    const visits = phases.get(seg.name);
+    const tip = [seg.name + (visits > 1 ? ' · visited x' + visits : '')];
     if (isCurrent && summary.last_decision && summary.last_decision.rule_id) {
       tip.push('last ruling: ' + summary.last_decision.rule_id +
                ' → ' + (summary.last_decision.next ?? '?'));
     }
-    g.appendChild(svgEl('title', null, tip.join('\n')));
-    if (name === selected) {
-      const ring = svgEl('circle', 'sel-ring');
-      ring.setAttribute('cx', x);
-      ring.setAttribute('cy', Y);
-      ring.setAttribute('r', 11);
-      g.appendChild(ring);
-    }
-    if (isCurrent && pulsing) {
-      const halo = svgEl('circle', 'halo halo-on');
-      halo.setAttribute('cx', x);
-      halo.setAttribute('cy', Y);
-      halo.setAttribute('r', 7);
-      g.appendChild(halo);
-    }
-    const node = svgEl('circle', cls + (isCurrent && pulsing ? ' loop-pulse' : ''));
-    node.setAttribute('cx', x);
-    node.setAttribute('cy', Y);
-    node.setAttribute('r', isCurrent ? 7 : 5.5);
-    g.appendChild(node);
-    const label = svgEl('text', null, name);
-    label.setAttribute('x', x);
-    label.setAttribute('y', Y + 22);
+    return tip.join('\n');
+  };
+  // Click selects (and scopes the consoles below to) the phase;
+  // clicking the selected phase again clears the selection.
+  const togglePhase = (name) => () => {
+    selectedPhase = selectedPhase === name ? null : name;
+    renderDetail(id, data);
+  };
+  const nameText = (seg, isCurrent) => {
+    const g = svgEl('g', 'hit');
+    g.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    const label = svgEl('text', 'phase' +
+      (seg.name === selectedPhase ? ' phase-sel' : ''), seg.name);
+    label.setAttribute('x', seg.cx);
+    label.setAttribute('y', nameY);
     label.setAttribute('text-anchor', 'middle');
     g.appendChild(label);
+    const visits = phases.get(seg.name);
     if (visits > 1) {
       const rev = svgEl('text', 'revisit', 'x' + visits);
-      rev.setAttribute('x', x);
-      rev.setAttribute('y', Y + 34);
+      rev.setAttribute('x', seg.cx);
+      rev.setAttribute('y', nameY + 12);
       rev.setAttribute('text-anchor', 'middle');
       g.appendChild(rev);
     }
-    // Click selects (and filters the consoles below to) the phase;
-    // clicking the selected phase again clears the selection.
-    g.onclick = () => {
-      selectedPhase = selectedPhase === name ? null : name;
-      renderDetail(id, data);
-    };
-    svg.appendChild(g);
-  });
+    g.onclick = togglePhase(seg.name);
+    return g;
+  };
+
+  for (const seg of segs) {
+    const isCurrent = seg.name === current;
+    if (!seg.capsule) {
+      // A plain phase: one node. Fixed allowlist — visited violet; the
+      // current node keys off the allowlisted run status.
+      const cls = !isCurrent ? 'on-visited'
+        : status === 'stopped' ? 'on-halt'
+        : status === 'awaiting_operator' ? 'on-park'
+        : 'on-phosphor';
+      const g = svgEl('g', 'hit');
+      g.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+      if (seg.name === selectedPhase) {
+        const ring = svgEl('circle', 'sel-ring');
+        ring.setAttribute('cx', seg.cx);
+        ring.setAttribute('cy', Y);
+        ring.setAttribute('r', 11);
+        g.appendChild(ring);
+      }
+      if (isCurrent && pulsing) {
+        const halo = svgEl('circle', 'halo halo-on');
+        halo.setAttribute('cx', seg.cx);
+        halo.setAttribute('cy', Y);
+        halo.setAttribute('r', 7);
+        g.appendChild(halo);
+      }
+      const node = svgEl('circle', cls + (isCurrent && pulsing ? ' loop-pulse' : ''));
+      node.setAttribute('cx', seg.cx);
+      node.setAttribute('cy', Y);
+      node.setAttribute('r', isCurrent ? 7 : 5.5);
+      g.appendChild(node);
+      g.onclick = togglePhase(seg.name);
+      svg.appendChild(g);
+      svg.appendChild(nameText(seg, isCurrent));
+      continue;
+    }
+    // A structured phase: capsule outline around its inner columns,
+    // all sitting directly on the main rail.
+    const capDepth = Y + (seg.stack - 1) * ROW;
+    const rectG = svgEl('g', 'hit');
+    rectG.appendChild(svgEl('title', null, phaseTip(seg, isCurrent)));
+    const rect = svgEl('rect', 'cap' +
+      (seg.name === selectedPhase ? ' cap-sel' : ''));
+    rect.setAttribute('x', seg.x0);
+    rect.setAttribute('y', Y - 14);
+    rect.setAttribute('width', seg.x1 - seg.x0);
+    rect.setAttribute('height', capDepth - Y + 28);
+    rect.setAttribute('rx', 13);
+    rectG.appendChild(rect);
+    rectG.onclick = togglePhase(seg.name);
+    svg.appendChild(rectG);
+    seg.columns.forEach((col, i) => {
+      const x = seg.xs[i];
+      const stacked = col.nodes.length > 1;
+      if (stacked) {
+        const drop = svgEl('line', 'rail-line');
+        drop.setAttribute('x1', x);
+        drop.setAttribute('y1', Y);
+        drop.setAttribute('x2', x);
+        drop.setAttribute('y2', Y + (col.nodes.length - 1) * ROW);
+        svg.appendChild(drop);
+      }
+      col.nodes.forEach((n, j) => {
+        const y = Y + j * ROW;
+        const g = svgEl('g', 'hit');
+        const live = n.state === 'active' && pulsing;
+        if (live) {
+          const halo = svgEl('circle', 'halo halo-on');
+          halo.setAttribute('cx', x);
+          halo.setAttribute('cy', y);
+          halo.setAttribute('r', 5);
+          g.appendChild(halo);
+        }
+        const c = svgEl('circle',
+          INNER_STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
+        c.setAttribute('cx', x);
+        c.setAttribute('cy', y);
+        c.setAttribute('r', 5);
+        g.appendChild(c);
+        const t = svgEl('text', null, n.label);
+        if (stacked) {
+          t.setAttribute('x', x + 10);
+          t.setAttribute('y', y + 3);
+        } else {
+          t.setAttribute('x', x);
+          t.setAttribute('y', capDepth + 24);
+          t.setAttribute('text-anchor', 'middle');
+        }
+        g.appendChild(t);
+        if (participants.has(n.key)) {
+          g.appendChild(svgEl('title', null, n.label + ' — open participant'));
+          g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
+        }
+        svg.appendChild(g);
+      });
+      if (col.label) {
+        const step = svgEl('text', null, col.label);
+        step.setAttribute('x', x);
+        step.setAttribute('y', capDepth + 24);
+        step.setAttribute('text-anchor', 'middle');
+        svg.appendChild(step);
+      }
+    });
+    svg.appendChild(nameText(seg, isCurrent));
+  }
   wrap.appendChild(svg);
-  renderInner(wrap, events, participants, selected, pulsing, id, data);
   detail.appendChild(wrap);
 }
 
-// Inner loop for one phase, derived from its NEWEST effect. Sequence
-// steps run serially: order comes from sequence-step-finished
+// Inner topology for one phase, derived from its NEWEST effect.
+// Sequence steps run serially: order comes from sequence-step-finished
 // checkpoints (the FINAL step emits none — it concludes in the effect's
 // own terminal event, exactly as the seats console rules). Member tags
 // '<step>' are single steps; '<step>:<member>' stacks panel members at
 // that step's position. Without any observed step order, member-tagged
 // participants stack as one parallel panel; otherwise the seat is a
-// single node.
-function renderInner(wrap, events, participants, phase, pulsing, id, data) {
-  wrap.appendChild(el('div', 'sub', 'inner loop · ' + phase));
+// single node. Returns null when the phase has no observed effect.
+function innerColumns(events, participants, phase) {
   let effectId = null;
   for (const e of events) {
     const p = e.payload || {};
@@ -497,10 +622,7 @@ function renderInner(wrap, events, participants, phase, pulsing, id, data) {
       effectId = p.effect_id;
     }
   }
-  if (!effectId) {
-    wrap.appendChild(el('div', 'sub', 'no effect observed yet'));
-    return;
-  }
+  if (!effectId) return null;
   const finished = []; // step order established by sequence-step-finished
   const tags = [];     // member tags in first-observed order
   for (const e of events) {
@@ -565,72 +687,7 @@ function renderInner(wrap, events, participants, phase, pulsing, id, data) {
                    nodes: [node(seat ? seat.label : phase, null, false)] });
   }
 
-  const STATE_CLASS = { finished: 'on-phosphor', active: 'in-active',
-                        failed: 'on-halt', indeterminate: 'on-park' };
-  const SP = 116, X0 = 46, Y0 = 20, ROW = 26;
-  const maxStack = Math.max(...columns.map((c) => c.nodes.length));
-  const svg = svgEl('svg');
-  svg.setAttribute('width', X0 * 2 + SP * (columns.length - 1) + 60);
-  svg.setAttribute('height', Y0 + (maxStack - 1) * ROW + 40);
-  if (columns.length > 1) {
-    const line = svgEl('line', 'rail-line');
-    line.setAttribute('x1', X0);
-    line.setAttribute('y1', Y0);
-    line.setAttribute('x2', X0 + SP * (columns.length - 1));
-    line.setAttribute('y2', Y0);
-    svg.appendChild(line);
-  }
-  columns.forEach((col, i) => {
-    const x = X0 + SP * i;
-    const stacked = col.nodes.length > 1;
-    if (stacked) {
-      const drop = svgEl('line', 'rail-line');
-      drop.setAttribute('x1', x);
-      drop.setAttribute('y1', Y0);
-      drop.setAttribute('x2', x);
-      drop.setAttribute('y2', Y0 + (col.nodes.length - 1) * ROW);
-      svg.appendChild(drop);
-    }
-    col.nodes.forEach((n, j) => {
-      const y = Y0 + j * ROW;
-      const g = svgEl('g', 'hit');
-      const live = n.state === 'active' && pulsing;
-      if (live) {
-        const halo = svgEl('circle', 'halo halo-on');
-        halo.setAttribute('cx', x);
-        halo.setAttribute('cy', y);
-        halo.setAttribute('r', 5.5);
-        g.appendChild(halo);
-      }
-      const c = svgEl('circle', STATE_CLASS[n.state] + (live ? ' loop-pulse' : ''));
-      c.setAttribute('cx', x);
-      c.setAttribute('cy', y);
-      c.setAttribute('r', 5.5);
-      g.appendChild(c);
-      const t = svgEl('text', null, n.label);
-      if (stacked) {
-        t.setAttribute('x', x + 12);
-        t.setAttribute('y', y + 3);
-      } else {
-        t.setAttribute('x', x);
-        t.setAttribute('y', y + 20);
-        t.setAttribute('text-anchor', 'middle');
-      }
-      g.appendChild(t);
-      if (participants.has(n.key)) {
-        g.onclick = () => { activeParticipant = n.key; renderDetail(id, data); };
-      }
-      svg.appendChild(g);
-    });
-    if (col.label) {
-      const step = svgEl('text', null, col.label);
-      step.setAttribute('x', x);
-      step.setAttribute('y', Y0 + (col.nodes.length - 1) * ROW + 20);
-      step.setAttribute('text-anchor', 'middle');
-      svg.appendChild(step);
-    }
-  });
-  wrap.appendChild(svg);
+  return columns;
 }
 
 async function loadDetail(id) {
