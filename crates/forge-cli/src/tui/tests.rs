@@ -381,6 +381,11 @@ fn enter_descends_one_rung_at_a_time_and_esc_pops_the_same_rungs() {
     assert_eq!(tui.run.as_deref(), Some("run-7"));
     assert_eq!(tui.pane, 0);
 
+    // A pane with no selected row is not a door. This is a normal first
+    // frame, before the operator has moved the cursor onto a graph node.
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.scope.is_none(), "no selection descends into nothing");
+
     // Rung 2: RUN · graph → a phase scope.
     apply(&mut tui, &views, Key::Down);
     apply(&mut tui, &views, Key::Enter);
@@ -642,6 +647,16 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     assert_eq!(tui.pane, 2, "the trail");
     states.push(footer_for(&tui));
     assert!(states[4].contains("Tab pane"));
+
+    // The footer fails closed if a future pane is introduced before it
+    // receives an Enter action: do not advertise opening the trail.
+    tui.pane = 3;
+    let unknown_footer = footer_for(&tui);
+    assert!(
+        !unknown_footer.contains("Enter read row"),
+        "{unknown_footer}"
+    );
+    tui.pane = 2;
 
     apply(&mut tui, &views, Key::Tab);
     apply(&mut tui, &views, Key::Tab);
@@ -1381,8 +1396,8 @@ fn the_keys_lists_and_tints_a_console_still_needs_are_all_there() {
     apply(&mut tui, &views, Key::Char('x'));
     assert_eq!(tui.cursor[0], held);
 
-    // The trail is a list of its own — and Enter there is a no-op,
-    // because the trail is evidence, not a door.
+    // The trail is a list of its own. Enter reads the selected evidence
+    // without descending to another navigation level.
     let mut tui = at_run();
     tui.pane = 2;
     let trail = keys_for(&tui, &views);
@@ -1395,6 +1410,7 @@ fn the_keys_lists_and_tints_a_console_still_needs_are_all_there() {
     apply(&mut tui, &views, Key::Enter);
     assert_eq!(tui.level, Level::Run);
     assert!(tui.scope.is_none());
+    assert!(tui.reading.is_some());
 
     // The PARTICIPANT panes are paragraphs: no list, nothing to filter.
     let mut tui = at_seats("eff-i");
@@ -1636,12 +1652,23 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
     assert!(text.contains("payload"), "{text}");
     assert!(footer_for(&tui).contains("Esc or Enter close"));
 
+    // Both quit spellings remain terminal while the reader owns input.
+    assert_eq!(apply(&mut tui, &views, Key::Quit), Flow::Quit);
+    assert_eq!(apply(&mut tui, &views, Key::Char('q')), Flow::Quit);
+
     // Movement scrolls the reader, and the list cursor stays put.
     let before = tui.cursor[2].clone();
+    apply(&mut tui, &views, Key::Up);
+    apply(&mut tui, &views, Key::Char('k'));
+    assert_eq!(tui.read_offset, 0, "up saturates at the first line");
     apply(&mut tui, &views, Key::Down);
     apply(&mut tui, &views, Key::PageDown);
     assert_eq!(tui.read_offset, 11);
     assert_eq!(tui.cursor[2], before, "the list must not move underneath");
+    apply(&mut tui, &views, Key::PageUp);
+    assert_eq!(tui.read_offset, 1);
+    apply(&mut tui, &views, Key::Char('x'));
+    assert_eq!(tui.read_offset, 1, "unbound keys leave the reader in place");
     apply(&mut tui, &views, Key::Char('g'));
     assert_eq!(tui.read_offset, 0);
 
@@ -1654,4 +1681,13 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
     assert_eq!(tui.read_offset, 0);
     // Esc closed the reader only — it did not also pop the level.
     assert_eq!(tui.level, Level::Run);
+
+    // The bottom-level participant view remains a paragraph: Enter is
+    // deliberately inert there and cannot reopen a stale trail reader.
+    let mut participant = at_seats("eff-i");
+    apply(&mut participant, &views, Key::Enter);
+    apply(&mut participant, &views, Key::Enter);
+    assert_eq!(participant.level, Level::Participant);
+    apply(&mut participant, &views, Key::Enter);
+    assert!(participant.reading.is_none());
 }
