@@ -2525,11 +2525,16 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
     assert_eq!(stills[0], frames[0], "and frame 0 IS the still frame");
 
     // AC-anim-2: a run that is not running is still at every tick, even
-    // with animation on — the pulse gate is a model field.
+    // with animation on — the pulse gate is a model field. The FLEET
+    // must be idle too: the forging beacon is fleet-gated by design,
+    // and a live fleet keeps the corner pulsing over a concluded run.
     tui.animate = true;
     match views.run.as_mut().unwrap().summary.as_mut() {
         Some(summary) => summary.status = "completed".to_string(),
         None => panic!("the fixture folds"),
+    }
+    for row in &mut views.runs.runs {
+        row.status = Some("completed".to_string());
     }
     let concluded = sweep(&mut tui, &views);
     assert!(
@@ -3068,4 +3073,42 @@ fn a_pane_too_short_for_the_box_row_draws_no_half_box() {
     let frame = text_of(&paint(&short, 0, false));
     assert!(!frame.contains('╭'), "no box row, no box: {frame}");
     assert!(!frame.contains('┆'), "and no floating sides: {frame}");
+}
+
+#[test]
+fn the_forging_beacon_pulses_in_the_corner_whenever_any_run_is_live() {
+    // The console's favicon turns violet when the machine is at work;
+    // the terminal's answer is a pulsing corner beacon on the status
+    // line, visible at EVERY level — an operator browsing an old run
+    // still knows something is running.
+    let mut views = views();
+    let mut tui = at_run();
+    settle(&mut tui, &views);
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(
+        frame.contains("forging"),
+        "a live fleet shows the beacon: {frame}"
+    );
+
+    // The beacon pulses on the shared live ramp with the shared tick,
+    // and stands still when animation is off — like every live node.
+    tui.animate = true;
+    tui.ticks = PULSE_TICKS;
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(
+        frame.contains(&format!("{} forging", LIVE_RAMP[1])),
+        "{frame}"
+    );
+    tui.animate = false;
+
+    // No live run anywhere: no beacon, at any level.
+    for row in &mut views.runs.runs {
+        row.status = Some("completed".to_string());
+    }
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(!frame.contains("forging"), "idle fleet, no beacon: {frame}");
+    let mut fleet = Tui::new(None);
+    settle(&mut fleet, &views);
+    let frame = frame_of(&fleet, &views, 100, 26);
+    assert!(!frame.contains("forging"), "{frame}");
 }
