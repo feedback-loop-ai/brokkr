@@ -1,0 +1,14 @@
+# Bundle digests are taken over FILE BYTES: a charter, a policy table, a
+# manifest entry. Git's Windows default (core.autocrlf=true) would check
+# those out with CRLF, so the same bundle would compile to a different
+# digest on a different operating system — and a run's pin would stop
+# meaning one thing. Normalise every text file to LF in the working
+# tree, on every platform.
+* text=auto eol=lf
+
+# Binary assets are never normalised.
+*.png binary
+*.jpg binary
+*.ico binary
+*.gz binary
+*.zip binary
