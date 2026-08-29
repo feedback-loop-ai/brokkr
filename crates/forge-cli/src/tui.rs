@@ -149,6 +149,12 @@ pub(crate) struct Tui {
     /// it says. Vanishing is the absence of code — a stale key matches
     /// no drawn node, so nothing highlights.
     pub node: Option<String>,
+    /// The transcript pane's cursor: the selected turn's INDEX in the
+    /// stream, held as a key like every other cursor. Live prose
+    /// streaming only APPENDS turns, so an index is as stable a key as
+    /// a `seq` — the cursor survives an appending refresh by the same
+    /// absence of code as every list.
+    pub turn: Option<String>,
     /// Animation is enabled exactly when colour is (§the pulse): no new
     /// flag, no new env var, no new doc surface.
     pub animate: bool,
@@ -188,6 +194,7 @@ impl Tui {
             scope: None,
             cursor: [None, None, None],
             node: None,
+            turn: None,
             animate: false,
             offset: 0,
             pane: 0,
@@ -215,6 +222,7 @@ impl Tui {
         self.typing = false;
         self.cursor = [None, None, None];
         self.node = None;
+        self.turn = None;
         self.offset = 0;
         self.force = true;
     }
@@ -485,20 +493,58 @@ fn move_to(keys: &[String], cursor: &mut Option<String>, step: Step) {
     *cursor = Some(keys[index].clone());
 }
 
-/// How many lines the focused PARTICIPANT pane holds — model fields
-/// both: the seat's checkpoint stream, or the transcript's turns.
+/// How many lines the checkpoint pane holds — the one PARTICIPANT pane
+/// that is still a paragraph with an offset rather than a cursor.
 fn stream_len(tui: &Tui, views: &Views) -> usize {
-    match tui.pane {
-        0 => seat_of(tui, views).map_or(0, |part| part.checkpoints.len()),
-        _ => views
-            .transcript
-            .as_ref()
-            .map_or(0, |(turns, _)| turns.len()),
+    seat_of(tui, views).map_or(0, |part| part.checkpoints.len())
+}
+
+/// The transcript pane's list: one key per turn, the turn's index in
+/// the stream. Live prose streaming only APPENDS turns, so an index is
+/// a stable key, and the cursor survives an appending refresh by the
+/// same absence of code as every other list.
+fn turn_keys(views: &Views) -> Vec<String> {
+    let count = views
+        .transcript
+        .as_ref()
+        .map_or(0, |(turns, _)| turns.len());
+    (0..count).map(|index| index.to_string()).collect()
+}
+
+/// The transcript's live selection: a turn the cursor's index still
+/// names. A stale index — a transcript that shrank — selects nothing,
+/// exactly like a stale key anywhere else.
+fn selected_turn<'a>(tui: &Tui, views: &'a Views) -> Option<(usize, &'a Turn)> {
+    let (turns, _) = views.transcript.as_ref()?;
+    let index = index_of(&turn_keys(views), &tui.turn)?;
+    Some((index, &turns[index]))
+}
+
+/// The whole turn, composed for the reader: a header naming the role
+/// and the timestamp, then every block in order — prose in full, tool
+/// blocks as the same `⚙ name · target` marker the console shows.
+/// Every part is seat-authored, so every part passes through [`safe`].
+fn turn_text(turn: &Turn) -> String {
+    let mut text = format!("{}  {}\n", safe(&turn.role), safe(&turn.ts));
+    for block in &turn.blocks {
+        text.push('\n');
+        if block.kind == "tool" {
+            text.push_str("⚙ ");
+        }
+        text.push_str(safe(&block.text).as_str());
     }
+    text
 }
 
 fn step(tui: &mut Tui, views: &Views, step: Step) {
     if tui.level == Level::Participant {
+        // The transcript pane moves a cursor over TURNS — never over
+        // wrapped lines — through the same `move_to` as every list.
+        if tui.pane == 1 {
+            let keys = turn_keys(views);
+            move_to(&keys, &mut tui.turn, step);
+            return;
+        }
         // A paragraph pane's offset moves through the SAME function, so
         // wrap-around and paging have exactly one implementation.
         let keys: Vec<String> = (0..stream_len(tui, views))
@@ -613,8 +659,20 @@ fn enter(tui: &mut Tui, views: &Views) {
         return;
     }
     match tui.level {
-        // PARTICIPANT panes are paragraphs, not doors.
-        Level::Participant => {}
+        // The checkpoint pane is a paragraph, not a door. The
+        // transcript is a list of TURNS, and a long turn clamped by
+        // its pane is not readable evidence — so Enter opens the
+        // selected turn whole in the trail's own reader (the operator
+        // re-ruled the paragraph contract). No selection opens
+        // nothing.
+        Level::Participant => {
+            if tui.pane == 1 {
+                if let Some((_, turn)) = selected_turn(tui, views) {
+                    tui.reading = Some(turn_text(turn));
+                    tui.read_offset = 0;
+                }
+            }
+        }
         Level::Runs => {
             if let Some(key) = selected(tui, views) {
                 tui.assign_run(key);
@@ -632,6 +690,9 @@ fn enter(tui: &mut Tui, views: &Views) {
                         tui.seat = Some(key);
                         tui.pane = 0;
                         tui.offset = 0;
+                        // A turn cursor belongs to the transcript it
+                        // was moved over, never to the next seat's.
+                        tui.turn = None;
                         tui.force = true;
                     } else {
                         tui.scope = Some(render::Scope::Seat(key));
@@ -812,6 +873,9 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
         }
         (Level::Run, 2) => format!("↑↓/jk move · Enter read row · Tab pane · Esc back {tail}"),
         (Level::Run, _) => format!("↑↓/jk move · Tab pane · Esc back {tail}"),
+        (Level::Participant, 1) => {
+            format!("↑↓/jk move · Enter read turn · g/G top/bottom · Tab pane · Esc back {tail}")
+        }
         (Level::Participant, _) => {
             format!("↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back {tail}")
         }
@@ -2260,16 +2324,23 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         stream,
     );
 
-    let lines = match &views.transcript {
-        Some((turns, truncated)) => transcript_lines(turns, *truncated),
-        None => vec![line(
-            "no local session transcript on this machine — the `claude --resume` line above opens the full session",
-            plain(),
-        )],
+    let (lines, scroll) = match &views.transcript {
+        Some((turns, truncated)) => transcript_lines(
+            turns,
+            *truncated,
+            selected_turn(tui, views).map(|(index, _)| index),
+        ),
+        None => (
+            vec![line(
+                "no local session transcript on this machine — the `claude --resume` line above opens the full session",
+                plain(),
+            )],
+            0,
+        ),
     };
     frame.render_widget(
         Paragraph::new(lines)
-            .scroll((offset_for(tui, 1), 0))
+            .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
             .block(pane("transcript", tui.pane == 1)),
         transcript,
     );
@@ -2286,15 +2357,27 @@ fn offset_for(tui: &Tui, pane: usize) -> u16 {
 /// Transcript prose is arbitrary text from outside the store, so it goes
 /// through `Safe` like everything else, and the truncation flag is
 /// **shown**: silently short evidence is worse than none (decision 0001).
-fn transcript_lines(turns: &[Turn], truncated: bool) -> Vec<Line<'static>> {
+/// The selected turn wears the same mark as every selected row, and the
+/// returned scroll is that turn's own first line, so the pane follows
+/// the cursor rather than holding a second offset that could drift.
+fn transcript_lines(
+    turns: &[Turn],
+    truncated: bool,
+    selected: Option<usize>,
+) -> (Vec<Line<'static>>, usize) {
     let mut lines: Vec<Line> = Vec::new();
-    for turn in turns {
+    let mut scroll = 0usize;
+    for (index, turn) in turns.iter().enumerate() {
+        let picked = selected == Some(index);
+        if picked {
+            scroll = lines.len();
+        }
         lines.push(line(
             &format!("{} · {}", turn.role, turn.ts),
-            header_style(),
+            header_style().patch(selected_style(picked)),
         ));
         for block in &turn.blocks {
-            lines.push(line(&format!("  {}", block.text), plain()));
+            lines.push(line(&format!("  {}", block.text), selected_style(picked)));
         }
     }
     if truncated {
@@ -2303,7 +2386,7 @@ fn transcript_lines(turns: &[Turn], truncated: bool) -> Vec<Line<'static>> {
             header_style(),
         ));
     }
-    lines
+    (lines, scroll)
 }
 
 // ---------------------------------------------------------- the terminal
