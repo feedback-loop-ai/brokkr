@@ -196,7 +196,7 @@ which the self-forge loop runs) is one revertible commit.
   body except for the added `--model`), and both recipes still
   compiling and passing every bundle lint.
 
-- [ ] **T22 — `bundles/self` references agents.** Landed as its own
+- [x] **T22 — `bundles/self` references agents.** Landed as its own
   commit, revertible alone, because the self-forge loop runs it.
   *Proven by*: T21's per-seat equality plus the `recipes` listing test.
 

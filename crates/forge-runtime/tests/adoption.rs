@@ -214,6 +214,38 @@ const SDD: &Roster = &[
         "f96e146711c0567ef7c93511a13d5bfbc1414ef7335f3df447ccbc6d83b79927",
     ),
 ];
+const SELF: &Roster = &[
+    (
+        "intake",
+        false,
+        "claude-sonnet-5",
+        "d27fd1983362c158af6b878942b6166482632cff43d23ebff72b55532c31aa9c",
+    ),
+    (
+        "implement",
+        false,
+        "claude-opus-5",
+        "3c0e869efcd3c46c853c13c44fc9c1ff0d0a50df45194ab9e0a3019756443f77",
+    ),
+    (
+        "verify",
+        false,
+        "claude-sonnet-5",
+        "b2c93f743e0811e40cc825c28ea74885b292c5df5371f7604fced3715bc54ded",
+    ),
+    (
+        "review",
+        false,
+        "claude-opus-5",
+        "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
+    ),
+    (
+        "ship",
+        false,
+        "claude-sonnet-5",
+        "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
+    ),
+];
 
 fn assert_adopted(relative: &str, roster: &Roster) {
     let bundle = compile(relative);
@@ -252,6 +284,11 @@ fn sdd_resolves_to_what_it_used_to_inline() {
     assert_adopted("recipes/sdd", SDD);
 }
 
+#[test]
+fn self_resolves_to_what_it_used_to_inline() {
+    assert_adopted("bundles/self", SELF);
+}
+
 /// `recipes/sdd`'s `speckit-check` step stays INLINE. It is
 /// `driver exec -- bash …` — a shell script with no model and no
 /// charter-as-prompt semantics — and it is the case that proves the
@@ -287,7 +324,7 @@ fn the_speckit_check_step_stays_inline() {
 /// about which facts the seat may supply.
 #[test]
 fn adoption_did_not_change_any_seats_declared_inputs() {
-    for relative in ["recipes/panel-review", "recipes/sdd"] {
+    for relative in ["bundles/self", "recipes/panel-review", "recipes/sdd"] {
         let bundle = compile(relative);
         assert_eq!(
             bundle.seats["review"].inputs,
@@ -314,7 +351,7 @@ fn adoption_did_not_change_any_seats_limits() {
     ]
     .into_iter()
     .collect();
-    for relative in ["recipes/panel-review", "recipes/sdd"] {
+    for relative in ["bundles/self", "recipes/panel-review", "recipes/sdd"] {
         let bundle = compile(relative);
         for (phase, (attempts, seconds)) in &expected {
             let limits = bundle.seats[*phase].limits;
