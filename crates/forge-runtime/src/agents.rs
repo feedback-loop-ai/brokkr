@@ -146,6 +146,11 @@ pub struct Adapter {
     pub provider: String,
     /// The binary `forge doctor` probes for on this machine.
     pub binary: String,
+    /// Optional operator-written advice `forge doctor` prints when the
+    /// binary is absent — where it installs from, which env override
+    /// points at it. Advice belongs in the data beside the binary name,
+    /// not in a Rust constant that needs a release to correct.
+    pub hint: Option<String>,
     /// The driver invocation prefix, `{forge}` left unexpanded.
     pub driver: Vec<String>,
     /// Abstract model name → concrete provider model id.

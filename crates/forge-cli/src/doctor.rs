@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use forge_runtime::Bundle;
+use forge_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use forge_store::Store;
 
 pub struct Report {
@@ -45,13 +45,111 @@ fn tool_version(program: &str) -> Option<String> {
     )
 }
 
+/// Probe every provider an adapter file declares, reporting its binary,
+/// the probe result and the abstract models it serves — and collecting
+/// the availability facts the resolver's non-`Unknown` arms exist for.
+/// A missing provider is a warning: the fleet must work on machines
+/// without every tool.
+fn probe_providers(
+    report: &mut Report,
+    adapters_root: &Path,
+    probe: fn(&str) -> Option<String>,
+) -> Availability {
+    let mut availability = Availability::unspecified();
+    let adapters = match Adapters::load(adapters_root) {
+        Ok(adapters) => adapters,
+        Err(error) => {
+            report.warn("adapters", format!("{}: {error}", adapters_root.display()));
+            return availability;
+        }
+    };
+    for adapter in adapters.providers() {
+        let models: Vec<&str> = adapter.models.keys().map(String::as_str).collect();
+        let serves = match models.is_empty() {
+            true => "serves no abstract model yet".to_string(),
+            false => format!("serves {}", models.join(", ")),
+        };
+        match probe(&adapter.binary) {
+            Some(version) => {
+                availability.record(&adapter.provider, Presence::Available);
+                report.ok(&adapter.provider, format!("{version} · {serves}"));
+            }
+            None => {
+                availability.record(&adapter.provider, Presence::Unavailable);
+                // The advice, where the operator wrote one, comes from
+                // the adapter file: it belongs beside the binary name,
+                // not in a Rust constant that needs a release to fix.
+                let hint = match &adapter.hint {
+                    Some(hint) => format!(" ({hint})"),
+                    None => String::new(),
+                };
+                report.warn(
+                    &adapter.provider,
+                    format!(
+                        "binary '{}' not found — seats resolving to this provider \
+                         will fail to spawn{hint} · {serves}",
+                        adapter.binary
+                    ),
+                );
+            }
+        }
+    }
+    availability
+}
+
+/// Per agent, which model would be chosen HERE — by calling the same
+/// pure `resolve` the compiler calls, with this machine's probed facts.
+/// This is the real consumer of availability's non-`Unknown` arms, and
+/// it is the surface that catches a mapped-but-uninstalled chain before
+/// a run pays for it.
+fn report_agents(
+    report: &mut Report,
+    library_root: &Path,
+    adapters_root: &Path,
+    availability: &Availability,
+) {
+    let loaded = Library::load(library_root)
+        .and_then(|library| Adapters::load(adapters_root).map(|adapters| (library, adapters)));
+    let (library, adapters) = match loaded {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            // No library is a normal state: a tree whose bundles all
+            // inline needs none, so this is information, not a failure.
+            report.warn("agents", format!("{}: {error}", library_root.display()));
+            return;
+        }
+    };
+    for agent in library.agents() {
+        match resolve_agent(&library, &adapters, availability, &agent.name) {
+            Ok(resolution) => report.ok(
+                &format!("agent {}", agent.name),
+                format!(
+                    "would run {} via {} here (chain {})",
+                    resolution.candidates[0].model,
+                    resolution.candidates[0].provider,
+                    agent.models.join(" → ")
+                ),
+            ),
+            Err(error) => report.warn(&format!("agent {}", agent.name), error.to_string()),
+        }
+    }
+}
+
 pub fn doctor(bundle: Option<&Path>, db: &Path) -> Report {
-    doctor_with_probe(bundle, db, tool_version)
+    doctor_with_probe(
+        bundle,
+        db,
+        Path::new(forge_runtime::bundle::DEFAULT_AGENTS_DIR),
+        Path::new(forge_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        tool_version,
+    )
 }
 
 fn doctor_with_probe(
     bundle: Option<&Path>,
     db: &Path,
+    library_root: &Path,
+    adapters_root: &Path,
     probe: fn(&str) -> Option<String>,
 ) -> Report {
     let mut report = Report {
@@ -80,31 +178,23 @@ fn doctor_with_probe(
         ),
     }
     // Optional: each agent CLI matters only to bundles whose seats use
-    // its driver (the built-in adapters live in this binary). A hint,
-    // where present, names the expected install and the override — the
-    // fleet must work on machines without the tool, so these stay
-    // warnings, never hard failures.
-    for (tool, driver, hint) in [
-        ("claude", "claude-code", ""),
-        (
-            "claude-lanetally",
-            "claude-lanetally",
-            " (LaneTally's session-capture wrapper, expected at \
-             ~/.local/bin/claude-lanetally; set FORGE_LANETALLY_BIN to an \
-             absolute path if ~/.local/bin is not on PATH)",
+    // its driver. The five-tuple that used to live here is now READ FROM
+    // THE ADAPTER FILES (decision 0016), so a sixth provider shows up in
+    // doctor without a rebuild — the same property that makes "adding a
+    // provider is not a release" true.
+    let availability = probe_providers(&mut report, adapters_root, probe);
+    // Python is not a provider; it is what the `exec` driver's script
+    // templates usually invoke, so it stays a named warning of its own.
+    match probe("python3") {
+        Some(v) => report.ok("python3", v),
+        None => report.warn(
+            "python3",
+            "not found — seats using the exec driver's script templates will \
+             fail to spawn"
+                .into(),
         ),
-        ("codex", "codex", ""),
-        ("dsh", "deepseek-harness", ""),
-        ("python3", "exec (script templates)", ""),
-    ] {
-        match probe(tool) {
-            Some(v) => report.ok(tool, v),
-            None => report.warn(
-                tool,
-                format!("not found — seats using the {driver} driver will fail to spawn{hint}"),
-            ),
-        }
     }
+    report_agents(&mut report, library_root, adapters_root, &availability);
 
     match Store::open(db) {
         Ok(_) => report.ok(

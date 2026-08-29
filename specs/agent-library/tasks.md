@@ -171,14 +171,14 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 6 — the CLI
 
-- [ ] **T19 — `forge agents list|show`.** `list` prints
+- [x] **T19 — `forge agents list|show`.** `list` prints
   `name ⇥ chain ⇥ description`, warning without aborting on a broken
   file; `show` prints the definition plus a `resolution` block from the
   same `resolve`; unknown name errors naming the known set.
   `--agents-dir` / `--adapters-dir` default to `agents` / `adapters`.
   *Proven by*: AC-10.
 
-- [ ] **T20 — `forge doctor` reads the adapter files.** The hardcoded
+- [x] **T20 — `forge doctor` reads the adapter files.** The hardcoded
   five-tuple is replaced by a loop over `adapters/`, reporting per
   provider its binary, its probe result and its declared models, and per
   agent which model would be chosen **here** — by calling `resolve` with

@@ -486,6 +486,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         &[
             "provider",
             "binary",
+            "hint",
             "driver",
             "models",
             "model_flag",
@@ -534,9 +535,14 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             })
         }
     };
+    let hint = match map.get("hint") {
+        None => None,
+        Some(_) => Some(string(map, "hint", &what)?),
+    };
     Ok(Adapter {
         provider,
         binary,
+        hint,
         driver,
         models,
         model_flag: model_flag(map, &what)?,
