@@ -265,3 +265,34 @@ byte, it must surface now and not inside a large new file.
   *Proven by*: AC-19, AC-20 — the gate's own output. Run it once at the
   end of Movement 1 on the walking skeleton, so the gate is proven on a
   small surface before the surface is large.
+
+## Delivered — where the build differs from the spec, and why
+
+Four places where the implementation is not literally what spec.md
+says. Each is flagged rather than smuggled.
+
+1. **The `claude --resume` line comes from `Participant.session_id`,
+   not from `terminal_line`.** Spec §2 attributes it to
+   `Participant.terminal_line`, but that model field carries the
+   terminal *event* line (`effect/succeeded · <stamp>`) and has nothing
+   to do with a session. Both are rendered: `terminal_line` as the model
+   built it, unconditionally, and the resume line exactly as the
+   console's own `ui.html` renders it — a static label plus the model's
+   `session_id`, showing the deliberate-absence mark when the journal
+   carries no id rather than a pasteable lie. No derivation either way.
+2. **The graph pane lists every phase; the lens marks rather than
+   hides.** A pane filtered by the scope it sets could never replace one
+   scope with another (`Enter` on the only remaining row re-scopes it),
+   which would make AC-6 unreachable from the keyboard. The seats and
+   trail panes stay lens-filtered, and `render::keeps_phase` — the
+   extracted predicate — is what draws the `▸` scope marker, so the
+   crate still holds exactly one copy of it.
+3. **The refresh source lives in `main.rs`, not in `tui.rs`'s `run()`.**
+   Plan §Refresh puts the closure in `run()`, but AC-15 asks that
+   `tui.rs` name no `Store` at all. Both hold only if the store-facing
+   half sits outside the file: `tui_views` and `tui_source` are in
+   `main.rs`, and `tui::start` takes the source as a parameter.
+4. **`Esc` clears a committed filter too, and ascending clears it.** The
+   spec's rung 2 covers a filter *being typed*; a filter left committed
+   otherwise survived every ascent and hid rows on a level it was never
+   typed over. Rung order is unchanged, and `Esc` still never quits.
