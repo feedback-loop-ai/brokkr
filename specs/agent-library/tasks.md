@@ -148,20 +148,20 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 5 — the readouts
 
-- [ ] **T16 — One derivation.** `forge-view` gains `Provenance` on
+- [x] **T16 — One derivation.** `forge-view` gains `Provenance` on
   `Participant`, derived at the `EffectStarted` arm; run-level notices
   read from the already-journaled `run/started.payload.manifest.agents`;
   `VIEW_VERSION` → 2.
   *Proven by*: the existing view goldens moving once, plus a derivation
   test for a fallback run (`chain_index > 0` ⇒ `fallback: true`).
 
-- [ ] **T17 — Four surfaces render it.** `render.rs` (`inspect`, `runs`,
+- [x] **T17 — Four surfaces render it.** `render.rs` (`inspect`, `runs`,
   `watch`), `tui.rs`, `ui.html`, and a run-level notice line for
   `chosen_index > 0` and optional-capability gaps.
   *Proven by*: AC-8, AC-17, and the anti-drift test that no surface
   formats provenance itself.
 
-- [ ] **T18 — `forge compare` resolution divergence.** A first-class
+- [x] **T18 — `forge compare` resolution divergence.** A first-class
   `resolution_divergence` per seat and member, computed by calling the
   `forge-view` derivation for each run — what actually ran, not what was
   pinned — reported unconditionally, including when `same_recipe` is

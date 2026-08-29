@@ -1488,3 +1488,183 @@ fn an_effect_with_no_ids_at_all_still_reads_as_the_console_reads_it() {
     assert_eq!(view.participants[0].label, "elsewhere");
     assert_eq!(view.live[0].text, "ghost · turn 1 · Grep");
 }
+
+// ------------------------------- agent provenance and run-level notices
+
+/// The journal an adopting run leaves: a first attempt that fails to
+/// start, a second on the next link of the chain, and a compile-time
+/// notice already carried inside `run/started`'s manifest.
+fn adopting_journal() -> Vec<EventEnvelope> {
+    vec![
+        ev(
+            1,
+            EventType::RunStarted,
+            json!({"feature": "build it", "manifest": {"agents": {
+                "intake": {"notices": [
+                    {"message": "optional capability gap: no MCP server 'github'"},
+                ]},
+            }}}),
+            T0,
+        ),
+        ev(2, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "intake", "phase": "intake"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "a1", "driver": "d",
+                   "provenance": [{"member": null, "agent": "intake",
+                                   "model": "fable", "provider": "claude",
+                                   "chain_index": 0}]}),
+            T0,
+        ),
+        ev(
+            5,
+            EventType::EffectFailed,
+            json!({"effect_id": "eff1", "attempt_id": "a1", "error": "no binary",
+                   "start_failure": true, "start_failure_sites": [null]}),
+            T1,
+        ),
+        ev(
+            6,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "a2", "driver": "d",
+                   "provenance": [{"member": null, "agent": "intake",
+                                   "model": "opus", "provider": "claude",
+                                   "chain_index": 1}]}),
+            T1,
+        ),
+        ev(
+            7,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff1", "attempt_id": "a2",
+                   "result": {"result": "resolved"}}),
+            T2,
+        ),
+    ]
+}
+
+/// The single derivation: one place turns a journaled record into the
+/// sentence four surfaces print, and a fallback is named as a fallback.
+#[test]
+fn provenance_is_derived_once_and_names_a_fallback_as_one() {
+    let view = run_view(&adopting_journal(), None);
+    let seat = view
+        .participants
+        .iter()
+        .find(|part| part.label == "intake")
+        .expect("the seat participant");
+    let provenance = seat.provenance.as_ref().expect("an adopting seat");
+    assert_eq!(provenance.agent, "intake");
+    // What ACTUALLY ran: the second attempt, on the second link.
+    assert_eq!(provenance.model, "opus");
+    assert_eq!(provenance.provider, "claude");
+    assert_eq!(provenance.chain_index, 1);
+    assert!(provenance.fallback);
+    assert!(provenance.line.contains("intake · opus via claude"));
+    assert!(provenance.line.contains("not the agent's first choice"));
+}
+
+/// A first-choice selection reads as a plain statement — the forge does
+/// not decorate what it did not have to fall back from.
+#[test]
+fn a_first_choice_selection_carries_no_fallback_language() {
+    let mut events = adopting_journal();
+    events.truncate(5);
+    events[4] = ev(
+        5,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "a1", "result": {"result": "resolved"}}),
+        T1,
+    );
+    let view = run_view(&events, None);
+    let provenance = view.participants[0].provenance.as_ref().unwrap();
+    assert_eq!(provenance.chain_index, 0);
+    assert!(!provenance.fallback);
+    assert_eq!(provenance.line, "intake · fable via claude");
+    assert!(!provenance.line.contains("fallback"));
+}
+
+/// A record missing every field still renders, and renders as absence
+/// rather than as a confident lie.
+#[test]
+fn an_unreadable_provenance_record_reads_as_absence() {
+    let derived = provenance_of(&json!({}));
+    assert_eq!(derived.agent, "?");
+    assert_eq!(derived.line, "? · ? via ?");
+    assert!(!derived.fallback);
+}
+
+/// AC-17: both kinds of run-level fact surface as notices, deduplicated,
+/// and an inline run has none at all.
+#[test]
+fn run_notices_carry_capability_gaps_and_fallbacks_without_duplicates() {
+    let view = run_view(&adopting_journal(), None);
+    assert_eq!(view.notices.len(), 2);
+    assert_eq!(view.notices[0].kind, "capability-gap");
+    assert!(view.notices[0]
+        .text
+        .starts_with("intake: optional capability gap"));
+    assert_eq!(view.notices[1].kind, "fallback");
+    assert!(view.notices[1].text.starts_with("seat: intake · opus"));
+
+    // A second fallback attempt on the same link says it once.
+    let mut repeated = adopting_journal();
+    repeated.push(ev(
+        8,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff1", "attempt_id": "a3", "driver": "d",
+               "provenance": [{"member": null, "agent": "intake",
+                               "model": "opus", "provider": "claude",
+                               "chain_index": 1}]}),
+        T3,
+    ));
+    assert_eq!(run_view(&repeated, None).notices.len(), 2);
+
+    // An inline run has neither kind, and its participants carry none.
+    let inline = run_view(&seat_journal(), None);
+    assert!(inline.notices.is_empty());
+    assert!(inline.participants.iter().all(|p| p.provenance.is_none()));
+}
+
+/// A named site gets a participant even when it never checkpoints:
+/// "which model served this member" is a fact about the attempt, not
+/// about whether the member said anything.
+#[test]
+fn a_member_named_only_in_provenance_still_becomes_a_participant() {
+    let events = vec![
+        ev(1, EventType::RunStarted, json!({"feature": "f"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "review"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "review", "phase": "review"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "a1", "driver": "panel[2]",
+            "provenance": [
+                {"member": "correctness", "agent": "review-correctness",
+                 "model": "opus", "provider": "claude", "chain_index": 0},
+                {"member": "security", "agent": "review-security",
+                 "model": "sonnet", "provider": "other", "chain_index": 0},
+            ]}),
+            T0,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let members: Vec<&Participant> = view
+        .participants
+        .iter()
+        .filter(|part| part.member.is_some())
+        .collect();
+    assert_eq!(members.len(), 2);
+    assert_eq!(members[0].provenance.as_ref().unwrap().provider, "claude");
+    assert_eq!(members[1].provenance.as_ref().unwrap().provider, "other");
+}

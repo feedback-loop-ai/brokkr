@@ -86,6 +86,61 @@ struct RunFacts {
     trail: Vec<String>,
     total_cost: f64,
     attempts: u64,
+    /// Participant label → what actually served it (decision 0016).
+    /// Computed by CALLING the `forge-view` derivation rather than
+    /// re-deriving here, so `compare` cannot describe a fallback
+    /// differently from every other readout.
+    resolution: BTreeMap<String, Value>,
+}
+
+/// What each run's invocation sites resolved to, keyed by participant
+/// label so a panel member and a sequence step line up across runs.
+fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
+    forge_view::run_view(events, None)
+        .participants
+        .into_iter()
+        .filter_map(|part| {
+            part.provenance.map(|provenance| {
+                (
+                    part.label,
+                    json!({
+                        "agent": provenance.agent,
+                        "model": provenance.model,
+                        "provider": provenance.provider,
+                        "chain_index": provenance.chain_index,
+                        "fallback": provenance.fallback,
+                    }),
+                )
+            })
+        })
+        .collect()
+}
+
+/// AC-18: a model difference is a FIRST-CLASS divergence, not a
+/// footnote — reported unconditionally, including when `same_recipe` is
+/// true. Comparing pinned plans instead of what actually ran would hide
+/// precisely the fallback this exists to expose, and an absence on one
+/// side is itself the finding: one run named an agent and the other did
+/// not.
+fn resolution_divergence(a: &BTreeMap<String, Value>, b: &BTreeMap<String, Value>) -> Value {
+    let mut sites: Vec<&String> = a.keys().chain(b.keys()).collect();
+    sites.sort();
+    sites.dedup();
+    let mut out = Map::new();
+    for site in sites {
+        let (left, right) = (a.get(site), b.get(site));
+        if left == right {
+            continue;
+        }
+        out.insert(
+            site.clone(),
+            json!({
+                "a": left.cloned().unwrap_or(Value::Null),
+                "b": right.cloned().unwrap_or(Value::Null),
+            }),
+        );
+    }
+    Value::Object(out)
 }
 
 fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
@@ -147,6 +202,7 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
     }
 
     let (seats, total_cost) = seat_costs(&events);
+    let resolution = resolution_of(&events);
     let status = crate::status_str(&state.status);
     let summary = json!({
         "feature": feature,
@@ -158,6 +214,7 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
         "decision_trail": trail,
         "phases_visited": phases,
         "seats": seats,
+        "resolution": resolution,
         "total_cost_usd": total_cost,
         "first_recorded_at": events.first().map(|e| e.recorded_at.clone()),
         "last_recorded_at": events.last().map(|e| e.recorded_at.clone()),
@@ -171,6 +228,7 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
         trail,
         total_cost,
         attempts,
+        resolution,
     })
 }
 
@@ -205,6 +263,7 @@ pub fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
                 "same_recipe": a.digest == b.digest,
                 "status_pair": [a.status, b.status],
                 "first_divergence": first_divergence(&a.trail, &b.trail),
+                "resolution_divergence": resolution_divergence(&a.resolution, &b.resolution),
                 "cost_delta_usd": b.total_cost - a.total_cost,
                 "attempts_delta": b.attempts as i64 - a.attempts as i64,
             }

@@ -406,6 +406,15 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
         }
         line.push_str(&forge_view::clamp(row[5].as_str(), remaining));
         push_line(&mut out, &line);
+        // Which agent, model and provider actually served this seat
+        // (decision 0016). The sentence comes from the single
+        // derivation; this surface only indents it.
+        if let Some(provenance) = &part.provenance {
+            push_line(
+                &mut out,
+                &format!("    {}", Safe::new(&provenance.line).as_str()),
+            );
+        }
     }
     out
 }
@@ -556,6 +565,19 @@ pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) 
                 &format!("        {}", Safe::new(problem).as_str()),
             );
         }
+    }
+    // Run-level notices before the seats table: a fallback selection and
+    // an optional capability gap are facts an operator must see rather
+    // than find (decision 0016).
+    for notice in &view.notices {
+        push_line(
+            &mut out,
+            &format!(
+                "note  {} — {}",
+                Safe::new(&notice.kind).as_str(),
+                Safe::new(&notice.text).as_str()
+            ),
+        );
     }
     for live in &view.live {
         push_line(
