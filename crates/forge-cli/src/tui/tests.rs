@@ -3312,51 +3312,43 @@ fn a_pane_too_short_for_the_box_row_draws_no_half_box() {
 }
 
 #[test]
-fn the_forging_beacon_pulses_in_the_corner_whenever_any_run_is_live() {
-    // The console's favicon turns violet when the machine is at work;
-    // the terminal's answer is a pulsing corner beacon on the status
-    // line, visible at EVERY level — an operator browsing an old run
-    // still knows something is running.
+fn the_brand_mark_rides_the_graph_pane_and_pulses_when_the_fleet_forges() {
+    // The console's top-left logo, translated: three rail nodes and
+    // the wordmark on the graph pane's border, the third node pulsing
+    // on the shared live ramp whenever ANY run is live. The corner
+    // 'forging' text retired when this landed (operator's ruling):
+    // one signal, not two.
     let mut views = views();
     let mut tui = at_run();
     settle(&mut tui, &views);
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(
-        frame.contains("forging"),
-        "a live fleet shows the beacon: {frame}"
+        frame.contains("the_FORGE"),
+        "the mark is always worn: {frame}"
+    );
+    assert!(
+        !frame.contains("forging"),
+        "the corner text retired: {frame}"
     );
 
-    // The beacon pulses on the shared live ramp with the shared tick,
-    // and stands still when animation is off — like every live node.
+    // Live fleet + animation: the third node pulses on the shared ramp.
     tui.animate = true;
     tui.ticks = PULSE_TICKS;
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(
-        frame.contains(&format!("{} forging", LIVE_RAMP[1])),
-        "{frame}"
+        frame.contains(&format!("∙ ∙ {} the_", LIVE_RAMP[1])),
+        "the third rail node breathes: {frame}"
     );
     tui.animate = false;
 
-    // A status line with no room: the beacon YIELDS rather than
-    // overwriting the breadcrumb — the one branch a wide test misses.
-    let mut cramped = at_run();
-    cramped.run = Some("a-run-id-long-enough-to-fill-the-whole-status-line-alone".to_string());
-    settle(&mut cramped, &views);
-    cramped.run = Some("a-run-id-long-enough-to-fill-the-whole-status-line-alone".to_string());
-    let frame = frame_of(&cramped, &views, 60, 26);
-    assert!(
-        !frame.contains("forging"),
-        "no room, no beacon — the breadcrumb wins: {frame}"
-    );
-
-    // No live run anywhere: no beacon, at any level.
+    // Idle fleet: the mark stands still with the calibrated dot.
     for row in &mut views.runs.runs {
         row.status = Some("completed".to_string());
     }
+    tui.ticks = PULSE_TICKS;
     let frame = frame_of(&tui, &views, 100, 26);
-    assert!(!frame.contains("forging"), "idle fleet, no beacon: {frame}");
-    let mut fleet = Tui::new(None);
-    settle(&mut fleet, &views);
-    let frame = frame_of(&fleet, &views, 100, 26);
-    assert!(!frame.contains("forging"), "{frame}");
+    assert!(
+        frame.contains("∙ ∙ ⏺ the_"),
+        "idle, still, present: {frame}"
+    );
 }
