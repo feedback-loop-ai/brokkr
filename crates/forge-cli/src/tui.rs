@@ -1123,16 +1123,30 @@ enum Class {
 /// `awaiting_operator` to `Quiet`, while the graph needs **park** as a
 /// distinct yellow class, and widening `tone` would move `forge runs`'
 /// colour. One classification per question, not one table for two.
+/// Node glyphs are calibrated BY THE OPERATOR'S EYE, like the
+/// arrowhead: `⏺` (U+23FA) is the filled node whose centre sits on the
+/// dash axis in their font, and the math operators `⊗`/`⊙` share that
+/// axis by design. The geometric shapes `●○◉◎` do not — they are the
+/// reason this table exists. Every live class pulses on the SAME ramp,
+/// so all live nodes breathe in phase — and the ramp STARTS on `∙`, so
+/// a live node differs from a finished `⏺` in the glyph channel even
+/// with colour off and animation frozen (the property the vocabulary
+/// test pins).
+const LIVE_RAMP: [&'static str; 4] = ["∙", "⏺", "∙", "·"];
+
 fn look(class: Class) -> (Style, [&'static str; 4]) {
     match class {
-        Class::Visited => (Style::new().fg(Color::Magenta), ["○", "○", "○", "○"]),
-        Class::Current => (Style::new().fg(Color::Green), ["●", "◉", "○", "◉"]),
+        Class::Visited => (
+            Style::new().fg(Color::Magenta).add_modifier(Modifier::DIM),
+            ["⏺", "⏺", "⏺", "⏺"],
+        ),
+        Class::Current => (Style::new().fg(Color::Green), LIVE_RAMP),
         Class::Park => (Style::new().fg(Color::Yellow), ["⊙", "⊙", "⊙", "⊙"]),
         Class::Failed => (Style::new().fg(Color::Red), ["⊗", "⊗", "⊗", "⊗"]),
-        Class::Finished => (Style::new().fg(Color::Green), ["●", "●", "●", "●"]),
+        Class::Finished => (Style::new().fg(Color::Green), ["⏺", "⏺", "⏺", "⏺"]),
         Class::Active => (
             Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-            ["◉", "◎", "○", "◎"],
+            LIVE_RAMP,
         ),
         Class::Unknown => (
             Style::new().add_modifier(Modifier::DIM),

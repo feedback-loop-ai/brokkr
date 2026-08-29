@@ -1636,12 +1636,12 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
 #[test]
 fn the_node_vocabulary_is_a_closed_set_with_one_named_fallback() {
     for (class, still) in [
-        (Class::Visited, "○"),
-        (Class::Current, "●"),
+        (Class::Visited, "⏺"),
+        (Class::Current, "∙"),
         (Class::Park, "⊙"),
         (Class::Failed, "⊗"),
-        (Class::Finished, "●"),
-        (Class::Active, "◉"),
+        (Class::Finished, "⏺"),
+        (Class::Active, "∙"),
         (Class::Unknown, "·"),
     ] {
         let (style, ramp) = look(class);
@@ -2053,7 +2053,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
     assert_eq!(plan.segments[0].marks.len(), 1, "a plain phase is one node");
     assert_eq!(plan.segments[0].marks[0].row, plan.rail_row);
     assert!(
-        lines[plan.rail_row].contains("● only") || lines[plan.rail_row].contains("● review"),
+        lines[plan.rail_row].contains("⏺ only") || lines[plan.rail_row].contains("⏺ review"),
         "a one-node step sits on the rail with its label: {:?}",
         lines[plan.rail_row]
     );
@@ -2365,8 +2365,9 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
         "and the current phase is not the selection"
     );
     let frame = lines.join("\n");
-    assert!(frame.contains('●'), "the current phase's node is filled");
-    assert!(frame.contains('○'), "a visited one's is hollow");
+    // State reads from colour and weight now — every node is the
+    // operator-calibrated ⏺; visited is DIM, current is green.
+    assert!(frame.contains('⏺'), "nodes are the calibrated dot");
 
     // And where the selected phase IS the current one, both marks are
     // present and still separable: REVERSED name, filled node.
@@ -2382,7 +2383,7 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
         "and it moved off the phase that no longer holds it"
     );
     let frame = lines.join("\n");
-    assert!(frame.contains('●') && frame.contains('○'), "{frame}");
+    assert!(frame.contains('⏺'), "{frame}");
 
     // A lane node the cursor has walked into wears the SAME selection
     // mark on its own label — one idiom wherever the cursor is, and it
@@ -2499,7 +2500,7 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
     let skeleton = |frame: &String| -> String {
         frame
             .chars()
-            .map(|glyph| match "●◉○◎⊙⊗·".contains(glyph) {
+            .map(|glyph| match "⏺∙⊙⊗·".contains(glyph) {
                 true => '@',
                 false => glyph,
             })
