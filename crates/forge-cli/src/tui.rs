@@ -494,45 +494,52 @@ fn enter(tui: &mut Tui, views: &Views) {
         tui.typing = false;
         return;
     }
-    let Some(key) = selected(tui, views) else {
-        return;
-    };
-    match (tui.level, tui.pane) {
-        (Level::Runs, _) => tui.assign_run(key),
-        (Level::Run, 0) => tui.scope = Some(render::Scope::Phase(key)),
-        (Level::Run, 1) => {
-            if scoped_seat(tui) == Some(key.as_str()) {
-                tui.level = Level::Participant;
-                tui.seat = Some(key);
-                tui.pane = 0;
-                tui.offset = 0;
-                tui.force = true;
-            } else {
-                tui.scope = Some(render::Scope::Seat(key));
+    match tui.level {
+        // PARTICIPANT panes are paragraphs, not doors.
+        Level::Participant => {}
+        Level::Runs => {
+            if let Some(key) = selected(tui, views) {
+                tui.assign_run(key);
             }
         }
-        // The trail is evidence — and evidence you cannot read is not
-        // evidence, so Enter opens the row's full text rather than
-        // descending. The PARTICIPANT panes remain the bottom of the
-        // ladder.
-        (Level::Run, 2) => {
-            if let Some(row) = views
-                .run
-                .as_ref()
-                .and_then(|view| view.journal.iter().find(|row| row.seq.to_string() == key))
-            {
-                tui.reading = Some(format!(
-                    "seq {}  {}  {}\n\n{}\n\npayload\n{}",
-                    row.seq,
-                    safe(&row.event_type),
-                    safe(&row.recorded_at),
-                    safe(&row.what.text),
-                    safe(&row.payload_json),
-                ));
-                tui.read_offset = 0;
+        Level::Run => {
+            let Some(key) = selected(tui, views) else {
+                return;
+            };
+            match tui.pane {
+                0 => tui.scope = Some(render::Scope::Phase(key)),
+                1 => {
+                    if scoped_seat(tui) == Some(key.as_str()) {
+                        tui.level = Level::Participant;
+                        tui.seat = Some(key);
+                        tui.pane = 0;
+                        tui.offset = 0;
+                        tui.force = true;
+                    } else {
+                        tui.scope = Some(render::Scope::Seat(key));
+                    }
+                }
+                // The trail is evidence — and evidence you cannot read is not
+                // evidence, so Enter opens the row's full text rather than
+                // descending.
+                _ => {
+                    let row = views
+                        .run
+                        .as_ref()
+                        .and_then(|view| view.journal.iter().find(|row| row.seq.to_string() == key))
+                        .expect("a selected trail key resolves against the same view");
+                    tui.reading = Some(format!(
+                        "seq {}  {}  {}\n\n{}\n\npayload\n{}",
+                        row.seq,
+                        safe(&row.event_type),
+                        safe(&row.recorded_at),
+                        safe(&row.what.text),
+                        safe(&row.payload_json),
+                    ));
+                    tui.read_offset = 0;
+                }
             }
         }
-        _ => {}
     }
 }
 
@@ -541,11 +548,6 @@ fn enter(tui: &mut Tui, views: &Views) {
 fn escape(tui: &mut Tui) {
     if tui.help {
         tui.help = false;
-        return;
-    }
-    if tui.reading.is_some() {
-        tui.reading = None;
-        tui.read_offset = 0;
         return;
     }
     if tui.typing || !tui.filter.is_empty() {
