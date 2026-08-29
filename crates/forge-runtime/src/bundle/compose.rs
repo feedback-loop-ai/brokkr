@@ -204,10 +204,12 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         // `dir` is already canonical, so its parent IS the library — and
         // asking for it directly avoids `..`, which Windows does NOT
         // resolve inside the `\\?\` verbatim paths canonicalize returns.
-        let library = dir
-            .parent()
-            .ok_or_else(|| invalid(format!("{}: has no parent library", dir.display())))?
-            .to_path_buf();
+        // `pop` is total: a directory holding a bundle.json is never the
+        // filesystem root, and if it somehow were, `library` stays put
+        // and the "not a recipe in {library}" error below fires anyway.
+        // An `ok_or_else` here would be an arm no test can reach.
+        let mut library = dir.clone();
+        library.pop();
         let candidate = library.join(base);
         if !candidate.is_dir() {
             return Err(invalid(format!(
