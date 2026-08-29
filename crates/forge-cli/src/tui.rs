@@ -1386,6 +1386,8 @@ struct Plan {
     name_row: usize,
     /// The inclusive span of the rail line, absent when nothing is drawn.
     rail: Option<(usize, usize)>,
+    /// The reserved row for the selection box's lower edge.
+    box_row: Option<usize>,
     /// Where the `→` heads sit.
     edges: Vec<usize>,
     segments: Vec<Seg>,
@@ -1655,7 +1657,12 @@ fn plan(
     // row, the rail sits one row above the deepest lane it needs, and
     // the lanes spread symmetrically outward from the rail. Anything
     // left over is headroom, so the names stay under their own graph.
-    let name_row = height.saturating_sub(1);
+    // One row under the names is reserved for the selection box's
+    // lower edge, so the box the operator draws around a phase can be
+    // symmetric: an upper edge with no lower edge is two floating
+    // lines, not a boundary. Reserved only when there is room.
+    let box_row = (height >= 4).then(|| height - 1);
+    let name_row = height.saturating_sub(1 + usize::from(box_row.is_some()));
     let lane_span = match mode {
         Mode::Full => needed.min(name_row.saturating_sub(1) / 2),
         _ => 0,
@@ -1744,6 +1751,7 @@ fn plan(
         rail_row: ink.rail_row,
         name_row,
         rail,
+        box_row,
         edges,
         segments,
         left_elided: start > 0,
@@ -1811,6 +1819,44 @@ fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
 
 /// A fork and its rejoin. **The rejoin is drawn always** — it is the
 /// join dependency, and the whole reason a fork is not two steps.
+/// The dashed box around the selected phase — the terminal's answer to
+/// the console's dashed selection ring. It HUGS the segment's occupied
+/// rows rather than running the pane's full height: top edge one row
+/// above the segment's topmost mark, lower edge on the reserved box
+/// row, sides in the arrow gaps skipping the rail row so the rail is
+/// seen to pass THROUGH the boundary — an arrow head is never
+/// overwritten. A pane too short to reserve the box row draws none:
+/// half a box is two floating lines, which is what this replaced.
+fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
+    let Some(bottom) = plan.box_row else {
+        return;
+    };
+    let occupied = seg
+        .marks
+        .iter()
+        .map(|mark| mark.row)
+        .chain(seg.joins.iter().flat_map(|join| join.rows.iter().copied()))
+        .min()
+        .unwrap_or(plan.rail_row);
+    let top = occupied.saturating_sub(1);
+    let (left, right) = (seg.x0.saturating_sub(1), seg.x1 + 1);
+    for x in left..=right {
+        put(cells, x, top, "╌", plain());
+        put(cells, x, bottom, "╌", plain());
+    }
+    for row in top + 1..bottom {
+        if row == plan.rail_row {
+            continue;
+        }
+        put(cells, left, row, "┆", plain());
+        put(cells, right, row, "┆", plain());
+    }
+    put(cells, left, top, "╭", plain());
+    put(cells, right, top, "╮", plain());
+    put(cells, left, bottom, "╰", plain());
+    put(cells, right, bottom, "╯", plain());
+}
+
 fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
     // Between the fork and its rejoin the rail gives way to the lanes,
     // unless the member count is odd and one member rides the rail row.
@@ -1896,19 +1942,16 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
                 );
             }
         }
-        // The selected phase is bracketed by a dashed boundary — the
-        // terminal's answer to the console's dashed selection ring. It
-        // lives in the arrow gap either side of the segment and skips
-        // the rail row, so it can never overwrite the rail, an arrow
-        // head or a node: the gaps ARE the dashes.
+        // The selected phase sits in a dashed box — the terminal's
+        // answer to the console's dashed selection ring. The box HUGS
+        // the segment's occupied rows rather than running the pane's
+        // full height: its top edge is one row above the segment's
+        // topmost mark, its lower edge is the reserved row under the
+        // names, and its sides live in the arrow gaps, skipping the
+        // rail row so the rail is seen to pass THROUGH the boundary —
+        // an arrow head is never overwritten.
         if seg.selected {
-            for row in 0..=plan.name_row {
-                if row == plan.rail_row {
-                    continue;
-                }
-                put(&mut cells, seg.x0.saturating_sub(1), row, "┆", plain());
-                put(&mut cells, seg.x1 + 1, row, "┆", plain());
-            }
+            selection_box(&mut cells, seg, plan);
         }
         let current = match seg.class {
             Some(class) => look(class).0,

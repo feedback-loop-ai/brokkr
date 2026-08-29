@@ -1782,8 +1782,13 @@ fn the_plan_is_owned_geometry_that_fits_by_construction() {
     let plan = plan(&phases, None, "running", None, None, 80, 7);
     assert_eq!(plan.mode, Mode::Full);
     assert_eq!(plan.rows, 7);
-    assert_eq!(plan.name_row, 6, "the baseline is the last row");
-    assert_eq!(plan.rail_row, 4, "one row above the deepest lane");
+    assert_eq!(
+        plan.box_row,
+        Some(6),
+        "the last row is reserved for the selection box's lower edge"
+    );
+    assert_eq!(plan.name_row, 5, "the baseline sits above the box row");
+    assert_eq!(plan.rail_row, 3, "one row above the deepest lane");
     assert_eq!(plan.segments.len(), 3, "every phase is listed");
 
     // ONE rail: consecutive segments are separated by exactly one
@@ -1903,7 +1908,9 @@ fn a_fork_wider_than_its_lane_budget_counts_what_it_could_not_draw() {
         true,
         vec![gcolumn(None, members(6, "on-phosphor"))],
     )];
-    let plan = plan_of(&phases, None, "running", 80, 6);
+    // Height 7: one row is the box row, one the names, one the rail,
+    // leaving two lane rows a side — four of the six members.
+    let plan = plan_of(&phases, None, "running", 80, 7);
     assert_eq!(plan.mode, Mode::Full);
     let join = &plan.segments[0].joins[0];
     assert_eq!(join.rows.len(), 4, "as many lanes as the budget holds");
@@ -1929,7 +1936,7 @@ fn a_fork_wider_than_its_lane_budget_counts_what_it_could_not_draw() {
         true,
         vec![gcolumn(Some("three"), members(3, "on-phosphor"))],
     )];
-    let plan = plan_of(&phases, None, "running", 80, 7);
+    let plan = plan_of(&phases, None, "running", 80, 8);
     let join = &plan.segments[0].joins[0];
     assert!(join.on_rail, "three members straddle the rail");
     assert_eq!(join.label, None, "a member rides the row the name wanted");
@@ -2942,23 +2949,56 @@ fn the_rail_cursor_starts_on_the_current_phase_and_moving_it_scopes() {
 }
 
 #[test]
-fn the_selected_phase_is_bracketed_by_a_dashed_boundary() {
+fn the_selected_phase_sits_in_a_symmetric_dashed_box() {
     // The console draws a dashed ring around the selected phase; the
-    // terminal draws dashed uprights either side of the whole segment,
-    // so "what is scoped" is visible rather than inferred from a table
-    // that got shorter.
+    // terminal draws a dashed BOX that hugs the segment's occupied
+    // rows — a symmetric boundary, not two floating uprights running
+    // the pane's full height through empty headroom.
     let views = views();
     let mut tui = at_run();
     settle(&mut tui, &views);
     apply(&mut tui, &views, Key::Char('j'));
     let frame = frame_of(&tui, &views, 100, 26);
-    assert!(frame.contains('┆'), "a selection is bracketed: {frame}");
+    for corner in ['╭', '╮', '╰', '╯'] {
+        assert!(
+            frame.matches(corner).count() == 1,
+            "exactly one {corner}: {frame}"
+        );
+    }
+    assert!(frame.contains('╌'), "dashed edges: {frame}");
+    assert!(frame.contains('┆'), "dashed sides: {frame}");
+    // Symmetric: the corners pair up on their columns and rows.
+    let lines: Vec<&str> = frame.lines().collect();
+    let find = |glyph: char| -> (usize, usize) {
+        lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| {
+                line.chars()
+                    .position(|c| c == glyph)
+                    .map(|column| (row, column))
+            })
+            .unwrap()
+    };
+    let (top_l, left) = find('╭');
+    let (top_r, right) = find('╮');
+    let (bottom_l, left2) = find('╰');
+    let (bottom_r, right2) = find('╯');
+    assert_eq!(top_l, top_r, "one top edge");
+    assert_eq!(bottom_l, bottom_r, "one bottom edge");
+    assert_eq!(left, left2, "one left side");
+    assert_eq!(right, right2, "one right side");
+    assert!(bottom_l > top_l && right > left, "a real rectangle");
+    // The box hugs the graph: its top edge is NOT the pane's first
+    // content row when there is headroom above the rail.
+    assert!(top_l > 1, "the box does not run the pane's full height");
 
-    // Nothing selected, nothing bracketed.
+    // Nothing selected, nothing boxed.
     let mut bare = at_run();
     bare.cursor[0] = None;
     let frame = frame_of(&bare, &views, 100, 26);
-    assert!(!frame.contains('┆'), "no selection, no brackets: {frame}");
+    assert!(!frame.contains('╭'), "no selection, no box: {frame}");
+    assert!(!frame.contains('┆'), "no selection, no sides: {frame}");
 }
 
 #[test]
@@ -2991,4 +3031,27 @@ fn seeding_falls_back_to_the_last_phase_and_an_empty_run_seeds_nothing() {
     tui.scope = Some(render::Scope::Phase("design".to_string()));
     apply(&mut tui, &empty, Key::Char('j'));
     assert!(tui.scope.is_none(), "nothing to select, nothing scoped");
+}
+
+#[test]
+fn a_pane_too_short_for_the_box_row_draws_no_half_box() {
+    // Height 3 has no reserved box row; half a box would be two
+    // floating lines, which is exactly what the box replaced.
+    let views = views();
+    let mut tui = at_run();
+    settle(&mut tui, &views);
+    let phases = &views.run.as_ref().unwrap().phases;
+    let short = plan(
+        phases,
+        None,
+        "running",
+        tui.cursor[0].as_deref(),
+        None,
+        80,
+        3,
+    );
+    assert_eq!(short.box_row, None);
+    let frame = text_of(&paint(&short, 0, false));
+    assert!(!frame.contains('╭'), "no box row, no box: {frame}");
+    assert!(!frame.contains('┆'), "and no floating sides: {frame}");
 }
