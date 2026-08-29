@@ -558,6 +558,29 @@ fn main() -> ExitCode {
     }
 }
 
+/// The transcript's own liveness, asked beside the journal head's: a
+/// seat's prose lands BETWEEN checkpoints, so a working seat's file
+/// growing is a refresh reason in its own right. Size only, read at the
+/// shell's existing tick — no watch, no dependency — and only while the
+/// seat can still write: the state resets with the session, so one
+/// seat's length never speaks for another's, and a concluded seat is
+/// not stat'd at all.
+fn transcript_moved(ask: &tui::Ask, seen: &mut Option<(String, u64)>) -> bool {
+    let Some(session) = ask.session.filter(|_| ask.working) else {
+        *seen = None;
+        return false;
+    };
+    let size = ui::transcript_path(session).map_or(0, |file| ui::transcript_len(&file));
+    let grew = match seen {
+        Some((watched, previous)) => {
+            watched == session && ui::transcript_grew(Some(*previous), size)
+        }
+        None => false,
+    };
+    *seen = Some((session.to_string(), size));
+    grew
+}
+
 /// One refresh for `forge tui`: the only place a store is opened on that
 /// path, and the reason `tui.rs` can name none. The head is compared on
 /// **both** seq and hash — a rewritten journal at equal seq is the
@@ -567,6 +590,7 @@ fn tui_views(
     db: &std::path::Path,
     ask: tui::Ask,
     head: &mut Option<(u64, String)>,
+    seen: &mut Option<(String, u64)>,
     clock: fn() -> String,
 ) -> Result<tui::Refreshed> {
     let store = Store::open(db)?;
@@ -574,8 +598,11 @@ fn tui_views(
         Some(run) => Some(store.head_hash(run)?),
         None => None,
     };
+    // Unconditional, and before the gate: the size that was observed is
+    // the size the next tick compares against, whatever the gate rules.
+    let grew = transcript_moved(&ask, seen);
     let moved = current != *head;
-    if !(ask.force || ask.fleet || moved) {
+    if !(ask.force || ask.fleet || moved || grew) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
         return Ok(None);
@@ -624,8 +651,9 @@ fn tui_views(
 fn tui_source<'a>(
     db: &'a std::path::Path,
     head: &'a mut Option<(u64, String)>,
+    seen: &'a mut Option<(String, u64)>,
 ) -> impl FnMut(tui::Ask) -> Result<tui::Refreshed> + 'a {
-    move |ask| tui_views(db, ask, head, now_rfc3339)
+    move |ask| tui_views(db, ask, head, seen, now_rfc3339)
 }
 
 /// `forge tui`'s impure entry: the environment facts are read once here
@@ -634,8 +662,9 @@ fn tui_source<'a>(
 /// called — which is after that gate.
 fn run_tui(db: PathBuf, run: Option<String>) -> Result<ExitCode> {
     let mut head: Option<(u64, String)> = None;
+    let mut seen: Option<(String, u64)> = None;
     let db_is_file = db.is_file();
-    let mut source = tui_source(&db, &mut head);
+    let mut source = tui_source(&db, &mut head, &mut seen);
     tui::start(
         db_is_file,
         run,
