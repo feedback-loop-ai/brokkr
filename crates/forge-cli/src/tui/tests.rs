@@ -756,7 +756,7 @@ fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
 
     // The console's grammar: one rail, arrowed steps, a fork that
     // rejoins, and the phase names on one shared baseline.
-    assert!(frame.contains("──>"), "an arrowed edge: {frame}");
+    assert!(frame.contains("──ᐳ"), "an arrowed edge: {frame}");
     assert!(
         frame.contains('┤') && frame.contains('├'),
         "a fork: {frame}"
@@ -2022,7 +2022,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
 
     // AC-width-1 at 80 columns: the full grammar, all of it.
     let frame = frame_of(&tui, &views, 80, 24);
-    for element in ["──>", "┤", "├", "┌", "┐", "└", "┘"] {
+    for element in ["──ᐳ", "┤", "├", "┌", "┐", "└", "┘"] {
         assert!(frame.contains(element), "{element} missing:\n{frame}");
     }
     // AC-draw-1: two lanes leave the rail, run parallel, and REJOIN it
@@ -2037,7 +2037,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
     assert_eq!(rail[join.x0], '┤', "the lanes leave the rail here");
     assert_eq!(rail[join.x1], '├', "and rejoin it here");
     assert!(
-        rail[join.x1 + 1..].contains(&'>'),
+        rail[join.x1 + 1..].contains(&'ᐳ'),
         "the next step's edge comes AFTER the rejoin: {:?}",
         lines[plan.rail_row]
     );
@@ -2064,7 +2064,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
     assert_eq!(rail_mode.mode, Mode::Rail);
     let text = text_of(&paint(&rail_mode, 0, false));
     assert!(text.contains("⑂2"), "a collapsed fork still forks: {text}");
-    assert!(text.contains("──>") && text.contains("design ×2"), "{text}");
+    assert!(text.contains("──ᐳ") && text.contains("design ×2"), "{text}");
     assert_eq!(paint(&rail_mode, 0, false).len(), 3);
 
     let squeezed = plan_of(&rail_phases(), None, "running", 78, 1);
@@ -2075,7 +2075,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
         1,
         "one row, never a blank pane"
     );
-    for element in ["intake", "design ×2", "⑂2", "verify", "──>"] {
+    for element in ["intake", "design ×2", "⑂2", "verify", "──ᐳ"] {
         assert!(text.contains(element), "{element} missing from {text:?}");
     }
 

@@ -1934,16 +1934,15 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
         }
     }
     for head in &plan.edges {
-        // `>` and not `→` or `►`: `─` is box-drawing, which terminals
-        // draw at the exact cell midline, while arrow glyphs come from
-        // the font's outlines — `→`'s stem falls short of the stroke
-        // and `►`'s point sits below the midline in common fonts. `>`
-        // is the one head every monospace font tunes to pair with
-        // dashes (`->`, `-->`), so its apex sits on the dash axis. The
-        // guaranteed-collinear alternative is box-drawing `╼`, kept in
-        // reserve: it aligns by construction but reads as a heavy tip
-        // rather than an arrowhead.
-        put(&mut cells, *head, plan.rail_row, ">", plain());
+        // `ᐳ` (U+1433), chosen BY THE OPERATOR'S EYE from a rendered
+        // specimen of seven candidates: `→`'s stem falls short of the
+        // box-drawing stroke, `►` and `>` sit a pixel below the cell
+        // midline in the operator's font, and the syllabics glyph is
+        // the one whose point sits dead-centre on the dash axis.
+        // Runners-up, recorded for the next font that disagrees: `⟩`
+        // (close second), and box-drawing `╼`, which cannot misalign
+        // by construction but reads as a heavy tip, not a point.
+        put(&mut cells, *head, plan.rail_row, "ᐳ", plain());
     }
     for seg in &plan.segments {
         for mark in &seg.marks {
