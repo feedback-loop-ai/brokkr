@@ -555,8 +555,11 @@ fn a_merge_conflict_names_the_file_and_the_conflicting_key() {
         ws.forge(&["compile", "--bundle", rdir.join("clash").to_str().unwrap()]);
     assert_eq!(code, Some(1));
     assert!(stderr.contains("redefines seat 'review'"), "{stderr}");
-    assert!(stderr.contains("clash/bundle.json"), "{stderr}");
-    assert!(stderr.contains("good/bundle.json"), "{stderr}");
+    // Windows spells the same path with backslashes; the assertion is
+    // about which files are named, not about the separator.
+    let named = stderr.replace('\\', "/");
+    assert!(named.contains("clash/bundle.json"), "{stderr}");
+    assert!(named.contains("good/bundle.json"), "{stderr}");
     assert!(stderr.contains("override.seats"), "{stderr}");
 }
 

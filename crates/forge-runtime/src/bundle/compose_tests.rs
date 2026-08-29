@@ -18,17 +18,21 @@ fn error<T>(result: Result<T, CompileError>) -> String {
 /// is exactly what `<leaf>/../<name>` resolves against.
 struct Library {
     dir: tempfile::TempDir,
+    /// The canonical spelling, which is what the resolver records: on
+    /// macOS the temp root is /var -> /private/var, so an expectation
+    /// built from `TempDir::path` compares two spellings of one place.
+    canon: PathBuf,
 }
 
 impl Library {
     fn new() -> Library {
-        Library {
-            dir: tempfile::tempdir().unwrap(),
-        }
+        let dir = tempfile::tempdir().unwrap();
+        let canon = dir.path().canonicalize().unwrap();
+        Library { dir, canon }
     }
 
     fn path(&self) -> &Path {
-        self.dir.path()
+        &self.canon
     }
 
     /// Write `<library>/<name>/` with a `bundle.json`, a role file, and
