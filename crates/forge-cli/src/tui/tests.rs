@@ -2856,3 +2856,139 @@ fn zero_width_characters_cannot_overwrite_the_rail() {
     assert_eq!(clamp("intake", 10), "intake");
     assert_eq!(clamp("", 4), "");
 }
+
+#[test]
+fn an_unlabelled_fork_carries_the_rail_through_its_capsule() {
+    // A panel with no step name left its capsule's middle row blank, so
+    // the rail stopped for the width of the widest member label and
+    // read as broken track rather than as parallelism. A LABELLED fork
+    // still parts the rail to make room for its name.
+    let mut cells: Cells = vec![vec![Some((" ".to_string(), plain())); 24]; 3];
+    let join = Join {
+        x0: 2,
+        x1: 10,
+        rows: vec![0, 2],
+        on_rail: false,
+        label: None,
+    };
+    fork(&mut cells, &join, 1);
+    let rail: String = cells[1]
+        .iter()
+        .flatten()
+        .map(|(glyph, _)| glyph.as_str())
+        .collect();
+    // Byte slicing would land inside a box-drawing glyph; count chars.
+    let interior: String = rail.chars().skip(3).take(7).collect();
+    assert!(
+        !interior.contains(' '),
+        "the rail must not break across an unlabelled fork: {rail:?}"
+    );
+
+    let mut cells: Cells = vec![vec![Some((" ".to_string(), plain())); 24]; 3];
+    let named = Join {
+        label: Some("positions".to_string()),
+        ..join
+    };
+    fork(&mut cells, &named, 1);
+    let rail: String = cells[1]
+        .iter()
+        .flatten()
+        .map(|(glyph, _)| glyph.as_str())
+        .collect();
+    assert!(
+        rail.contains("positions"),
+        "a named fork keeps its name: {rail:?}"
+    );
+}
+
+#[test]
+fn the_rail_cursor_starts_on_the_current_phase_and_moving_it_scopes() {
+    // Two defects the operator hit together: a graph that opened with
+    // nothing selected made `Enter` look like a dead key, and moving
+    // the rail cursor left the panes below unscoped — where the console
+    // scopes on a click.
+    let views = views();
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    assert!(tui.cursor[0].is_none());
+    settle(&mut tui, &views);
+    let seeded = tui.cursor[0].clone().expect("the rail cursor is seeded");
+    let current = views
+        .run
+        .as_ref()
+        .unwrap()
+        .phases
+        .iter()
+        .find(|phase| phase.current)
+        .map(|phase| phase.name.clone());
+    assert_eq!(Some(seeded), current, "seeded on the run's current phase");
+
+    // Moving along the rail scopes to whatever it lands on.
+    apply(&mut tui, &views, Key::Char('j'));
+    let landed = tui.cursor[0].clone().unwrap();
+    let scoped = match &tui.scope {
+        Some(render::Scope::Phase(name)) => Some(name.clone()),
+        _ => None,
+    };
+    assert_eq!(
+        scoped,
+        Some(landed),
+        "moving the rail cursor scopes the panes"
+    );
+
+    // Seeding never overrides a selection the operator already made.
+    let chosen = tui.cursor[0].clone();
+    settle(&mut tui, &views);
+    assert_eq!(tui.cursor[0], chosen);
+}
+
+#[test]
+fn the_selected_phase_is_bracketed_by_a_dashed_boundary() {
+    // The console draws a dashed ring around the selected phase; the
+    // terminal draws dashed uprights either side of the whole segment,
+    // so "what is scoped" is visible rather than inferred from a table
+    // that got shorter.
+    let views = views();
+    let mut tui = at_run();
+    settle(&mut tui, &views);
+    apply(&mut tui, &views, Key::Char('j'));
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(frame.contains('┆'), "a selection is bracketed: {frame}");
+
+    // Nothing selected, nothing bracketed.
+    let mut bare = at_run();
+    bare.cursor[0] = None;
+    let frame = frame_of(&bare, &views, 100, 26);
+    assert!(!frame.contains('┆'), "no selection, no brackets: {frame}");
+}
+
+#[test]
+fn seeding_falls_back_to_the_last_phase_and_an_empty_run_seeds_nothing() {
+    // Without a folded status no phase is current, and the last phase
+    // entered is still where an operator is looking. A journal with no
+    // phases at all seeds nothing, which is what None already says.
+    let mut unfolded = views();
+    unfolded.run = Some(forge_view::run_view(&journal("intake"), None));
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    settle(&mut tui, &unfolded);
+    let last = unfolded
+        .run
+        .as_ref()
+        .unwrap()
+        .phases
+        .last()
+        .map(|phase| phase.name.clone());
+    assert_eq!(tui.cursor[0], last, "falls back to the last phase entered");
+
+    let mut empty = views();
+    empty.run = Some(forge_view::run_view(&[], None));
+    let empty = empty;
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    settle(&mut tui, &empty);
+    assert!(tui.cursor[0].is_none(), "no phases, no cursor");
+
+    // And an empty rail clears the scope rather than stranding one.
+    let mut tui = at_run();
+    tui.scope = Some(render::Scope::Phase("design".to_string()));
+    apply(&mut tui, &empty, Key::Char('j'));
+    assert!(tui.scope.is_none(), "nothing to select, nothing scoped");
+}
