@@ -32,5 +32,9 @@ attribution — openness that cannot be relied on is not more open.
 - The standard contribution clause: unless stated otherwise, any
   contribution intentionally submitted for inclusion is dual-licensed
   as above, without additional terms.
-- The dependency tree already complies: everything in Cargo.lock is
-  permissively licensed, verified by the RustSec/audit job.
+- The dependency tree must comply and STAY compliant: `cargo-deny`
+  checks every crate in Cargo.lock against the permissive allowlist in
+  `deny.toml`, as a required CI job. (An earlier draft credited the
+  RustSec audit job with this — it checks vulnerability advisories,
+  not licenses; the review panel caught the unbacked claim, and this
+  gate is the remedy.)

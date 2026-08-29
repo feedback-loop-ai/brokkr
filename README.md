@@ -7,6 +7,7 @@
 [![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![clippy · -D warnings](https://img.shields.io/badge/clippy%20%C2%B7%20--D%20warnings-orange)](.github/workflows/ci.yml)
 [![coverage · literal 100%](https://img.shields.io/badge/coverage%20%C2%B7%20literal%20100%25-brightgreen)](scripts/coverage-exact.sh)
+[![deps · permissive-only](https://img.shields.io/badge/deps%20%C2%B7%20permissive--only-brightgreen)](deny.toml)
 [![platforms](https://img.shields.io/badge/linux%20x86__64%2Faarch64%20%C2%B7%20macos%20x86__64%2Farm64%20%C2%B7%20windows-blue)](https://github.com/feedback-loop-ai/the-forge/releases/latest)
 [![rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
 
