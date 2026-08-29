@@ -200,10 +200,10 @@ fn cycles_depth_names_and_the_name_grammar_are_refused() {
         None,
     );
     let missing = error(resolve(&orphan));
-    assert!(missing.contains("orphan/bundle.json"), "{missing}");
+    assert!(named(&missing).contains("orphan/bundle.json"), "{missing}");
     assert!(missing.contains("extends 'absent'"), "{missing}");
     assert!(
-        missing.contains(&library.path().to_string_lossy().into_owned()),
+        named(&missing).contains(&named(&library.path().to_string_lossy())),
         "{missing}"
     );
 
@@ -212,7 +212,10 @@ fn cycles_depth_names_and_the_name_grammar_are_refused() {
         let leaf = library.recipe("bad", &json!({"name": "bad", "extends": bad}), None);
         let refusal = error(resolve(&leaf));
         assert!(refusal.contains("is not a recipe name"), "{bad}: {refusal}");
-        assert!(refusal.contains("bad/bundle.json"), "{bad}: {refusal}");
+        assert!(
+            named(&refusal).contains("bad/bundle.json"),
+            "{bad}: {refusal}"
+        );
     }
     let typed = library.recipe("typed", &json!({"name": "typed", "extends": 7}), None);
     assert!(error(resolve(&typed)).contains("'extends' must be the name"));
@@ -236,7 +239,7 @@ fn cycles_depth_names_and_the_name_grammar_are_refused() {
     let twin = library.recipe("twin", &json!({"name": "base", "extends": "base"}), None);
     let clash = error(resolve(&twin));
     assert!(clash.contains("already declares"), "{clash}");
-    assert!(clash.contains("twin/bundle.json"), "{clash}");
+    assert!(named(&clash).contains("twin/bundle.json"), "{clash}");
 }
 
 #[test]
@@ -263,8 +266,8 @@ fn seats_merge_by_name_and_every_conflict_is_explicit() {
     );
     let refusal = error(resolve(&clash));
     assert!(refusal.contains("redefines seat 'review'"), "{refusal}");
-    assert!(refusal.contains("derived/bundle.json"), "{refusal}");
-    assert!(refusal.contains("base/bundle.json"), "{refusal}");
+    assert!(named(&refusal).contains("derived/bundle.json"), "{refusal}");
+    assert!(named(&refusal).contains("base/bundle.json"), "{refusal}");
     assert!(refusal.contains("override.seats"), "{refusal}");
 
     // ...and succeeds with it, replacing the value wholesale.
@@ -321,7 +324,7 @@ fn seats_merge_by_name_and_every_conflict_is_explicit() {
         refusal.contains("'remove.seats' names 'nothing'"),
         "{refusal}"
     );
-    assert!(refusal.contains("derived/bundle.json"), "{refusal}");
+    assert!(named(&refusal).contains("derived/bundle.json"), "{refusal}");
 
     // A removed seat may be declared again: it is an addition now.
     let readded = library.recipe(
@@ -444,7 +447,7 @@ fn bundle_members_and_marker_shapes_are_checked_by_name() {
         let bad = library.recipe("derived", &derived(extra), None);
         let refusal = error(resolve(&bad));
         assert!(refusal.contains(needle), "{refusal}");
-        assert!(refusal.contains("derived/bundle.json"), "{refusal}");
+        assert!(named(&refusal).contains("derived/bundle.json"), "{refusal}");
     }
 
     let bad_seats = library.recipe("derived", &derived(json!({"seats": []})), None);
@@ -515,7 +518,7 @@ fn policy_is_per_layer_and_tables_merge_by_name() {
         refusal.contains("redefines table member 'initial'"),
         "{refusal}"
     );
-    assert!(refusal.contains("base/policy.json"), "{refusal}");
+    assert!(named(&refusal).contains("base/policy.json"), "{refusal}");
     let scalar = library.recipe(
         "derived",
         &derived(json!({"policy": "policy.json", "override": {"table": ["initial"]}})),
@@ -554,8 +557,8 @@ fn policy_is_per_layer_and_tables_merge_by_name() {
         Some(&json!({"schema": "forge.phase-machine/v2", "rules": []})),
     );
     let refusal = error(resolve(&mismatch));
-    assert!(refusal.contains("base/policy.json"), "{refusal}");
-    assert!(refusal.contains("derived/policy.json"), "{refusal}");
+    assert!(named(&refusal).contains("base/policy.json"), "{refusal}");
+    assert!(named(&refusal).contains("derived/policy.json"), "{refusal}");
     assert!(refusal.contains("share one table schema"), "{refusal}");
     // The same schema, restated, is agreement rather than conflict.
     let agreeing = library.recipe(
@@ -585,7 +588,7 @@ fn policy_is_per_layer_and_tables_merge_by_name() {
         );
         let refusal = error(resolve(&bad));
         assert!(refusal.contains(needle), "{refusal}");
-        assert!(refusal.contains("derived/policy.json"), "{refusal}");
+        assert!(named(&refusal).contains("derived/policy.json"), "{refusal}");
     }
 }
 
@@ -625,7 +628,7 @@ fn overriding_a_rule_is_remove_then_prepend() {
         refusal.contains("redefines policy rule 'REVIEW'"),
         "{refusal}"
     );
-    assert!(refusal.contains("base/policy.json"), "{refusal}");
+    assert!(named(&refusal).contains("base/policy.json"), "{refusal}");
 
     for (extra, policy, why) in [
         (
@@ -752,6 +755,13 @@ const UNCOMPOSED: [(&str, &str); 5] = [
         "307c228d5adea999783e2718aa9a2b5f0610fb84917b9bd9b0a91340055eb41e",
     ),
 ];
+
+/// Windows spells the same path with backslashes. Every assertion here
+/// is about WHICH file an error names, never about how the platform
+/// writes a separator.
+fn named(text: &str) -> String {
+    text.replace('\\', "/")
+}
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
