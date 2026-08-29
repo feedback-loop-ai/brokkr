@@ -56,6 +56,9 @@ const NO_RULES: &[Value] = &[];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ancestor {
     pub name: String,
+    /// The library directory the base was extended by, when it differs
+    /// from its declared name.
+    pub reached_as: Option<String>,
     pub dir: PathBuf,
     pub digest: String,
 }
@@ -103,6 +106,10 @@ fn invalid(message: String) -> CompileError {
 /// One recipe source document in the chain.
 struct Layer {
     name: String,
+    /// The library directory this layer was reached by. It may differ
+    /// from `name` — `forge recipes add --name` installs under a chosen
+    /// directory — so provenance records both rather than trusting one.
+    reached_as: Option<String>,
     dir: PathBuf,
     file: PathBuf,
     document: Map<String, Value>,
@@ -126,6 +133,8 @@ fn valid_recipe_name(name: &str) -> bool {
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     let mut dir = leaf.to_path_buf();
+    // The name this layer was extended BY, for the layer after the leaf.
+    let mut reached_as: Option<String> = None;
     loop {
         if let Some(at) = layers.iter().position(|layer| layer.dir == dir) {
             let mut loop_names: Vec<&str> = layers[at..].iter().map(|l| l.name.as_str()).collect();
@@ -155,6 +164,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         let extends = document.get("extends").cloned();
         layers.push(Layer {
             name,
+            reached_as: reached_as.clone(),
             dir: dir.clone(),
             file: file.clone(),
             document,
@@ -197,7 +207,23 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
                 library.display()
             )));
         }
-        dir = candidate.canonicalize()?;
+        // A base must BE in the library, not merely be reachable from
+        // it: `forge recipes add` already refuses symlinks, and a
+        // composed base is bind-mounted read-only into every confined
+        // seat, so a link pointing outside would widen that mount.
+        let resolved = candidate.canonicalize()?;
+        if resolved.parent() != Some(library.as_path()) {
+            return Err(invalid(format!(
+                "{}: extends '{base}', which resolves outside the library to {}; \
+                 a base is composed from and mounted into confined seats, so it \
+                 must be a real directory in {}",
+                file.display(),
+                resolved.display(),
+                library.display()
+            )));
+        }
+        reached_as = Some(base.to_string());
+        dir = resolved;
     }
 }
 
@@ -648,6 +674,7 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
             0,
             Ancestor {
                 name: layer.name.clone(),
+                reached_as: layer.reached_as.clone(),
                 dir: layer.dir.clone(),
                 digest: forge_core::canonical::sha256_hex(&manifest),
             },

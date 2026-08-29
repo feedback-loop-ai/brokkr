@@ -1069,8 +1069,17 @@ fn manifest_for(
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
+        // A base's directory may legitimately differ from its declared
+        // name. Recording only one lets a directory answer to a name it
+        // does not declare, in an append-only manifest; record both.
+        let label = match &ancestor.reached_as {
+            Some(reached) if *reached != ancestor.name => {
+                format!("{}@{reached}", ancestor.name)
+            }
+            _ => ancestor.name.clone(),
+        };
         files.insert(
-            format!("{COMPOSE_PREFIX}{index:04}/{}", ancestor.name),
+            format!("{COMPOSE_PREFIX}{index:04}/{label}"),
             Value::String(ancestor.digest.clone()),
         );
     }

@@ -850,6 +850,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     assert_eq!(
         bundle.chain,
         vec![Ancestor {
+            reached_as: Some("sdd".to_string()),
             name: "sdd".into(),
             dir: sdd.dir.clone(),
             digest: layer_digest,
@@ -868,4 +869,49 @@ fn a_composed_bundles_manifest_is_pinned() {
          which is this test's own principle: changing a base changes \
          the digest of everything derived from it"
     );
+}
+
+#[test]
+fn a_base_must_be_a_real_directory_in_the_library_named_as_it_is_extended() {
+    // Both are hardening gaps the review panel found: a composed base is
+    // read for composition AND bind-mounted read-only into every
+    // confined seat, and the chain is journaled by the base's DECLARED
+    // name — so a link out of the library, or a directory answering to
+    // a name it does not declare, would put a lie in an append-only
+    // manifest.
+    let library = Library::new();
+    library.recipe("base", &base_bundle(), Some(&base_policy()));
+
+    // A symlink under the library pointing outside it is refused, the
+    // same rule `forge recipes add` already applies.
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outside.path().join("elsewhere/roles")).unwrap();
+    std::fs::write(
+        outside.path().join("elsewhere/bundle.json"),
+        serde_json::to_vec(&base_bundle()).unwrap(),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("elsewhere"),
+        library.path().join("linked"),
+    )
+    .unwrap();
+    let via_link = library.recipe("viaLink", &json!({"name": "via-link", "extends": "linked"}), None);
+    let message = error(resolve(&via_link));
+    assert!(message.contains("resolves outside the library"), "{message}");
+
+    // A directory may legitimately declare a different name than the
+    // one it is extended by — `forge recipes add --name` installs
+    // exactly that. So it is RECORDED, not refused: the chain carries
+    // both, and the manifest key names both, so a directory can never
+    // answer to a name it does not declare.
+    library.recipe("innocuous", &json!({"name": "sdd", "extends": "base"}), None);
+    let derived = library.recipe("derived", &json!({"name": "derived", "extends": "innocuous"}), None);
+    let resolved = resolve(&derived).expect("a renamed directory composes");
+    let base_layer = resolved
+        .chain
+        .iter()
+        .find(|ancestor| ancestor.name == "sdd")
+        .expect("the renamed base is in the chain");
+    assert_eq!(base_layer.reached_as.as_deref(), Some("innocuous"));
 }

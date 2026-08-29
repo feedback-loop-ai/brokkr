@@ -518,8 +518,10 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
     assert_eq!(chain[0]["digest"], base["digest"]);
     assert!(chain[0]["dir"].as_str().unwrap().ends_with("good"));
     assert_eq!(
-        view["manifest"]["files"]["@compose/0000/recipe-proof"], base["digest"],
-        "the chain pins the run through the digested manifest"
+        view["manifest"]["files"]["@compose/0000/recipe-proof@good"], base["digest"],
+        "the chain pins the run through the digested manifest, naming BOTH the \
+         declared name and the library directory it was extended by — recording \
+         only one lets a directory answer to a name it does not declare"
     );
 
     // `recipes show` is the same renderer, reached by name, for both.
