@@ -94,7 +94,10 @@ journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
 `inspect` and `watch` each take `--json` to emit that model verbatim;
 `inspect` takes `--phase` and `--seat` as the scoping verbs the
-console's clicks became. Colour follows `NO_COLOR` and `TERM`, width
+console's clicks became. `--run` takes a selector, not only the
+41-character id: any unique run-id prefix, or `latest` for the newest
+run in the workspace database (decision 0015) — one resolver, shared by
+`watch`, `inspect`, `anchor`, `export` and `replay`. Colour follows `NO_COLOR` and `TERM`, width
 follows `COLUMNS`; without a Unicode-width dependency, CJK and emoji
 columns misalign — stated rather than pretended away.
 
