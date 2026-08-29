@@ -2,6 +2,15 @@
 
 # The Forge
 
+[![ci](https://github.com/feedback-loop-ai/the-forge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/feedback-loop-ai/the-forge/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/feedback-loop-ai/the-forge?label=release&color=blue)](https://github.com/feedback-loop-ai/the-forge/releases/latest)
+[![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![clippy · -D warnings](https://img.shields.io/badge/clippy%20%C2%B7%20--D%20warnings-orange)](.github/workflows/ci.yml)
+[![coverage · literal 100%](https://img.shields.io/badge/coverage%20%C2%B7%20literal%20100%25-brightgreen)](scripts/coverage-exact.sh)
+[![deps · permissive-only](https://img.shields.io/badge/deps%20%C2%B7%20permissive--only-brightgreen)](deny.toml)
+[![platforms](https://img.shields.io/badge/linux%20x86__64%2Faarch64%20%C2%B7%20macos%20x86__64%2Farm64%20%C2%B7%20windows-blue)](https://github.com/feedback-loop-ai/the-forge/releases/latest)
+[![rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
+
 *The machine is the outer loop. Struck, not spun.*
 
 **A deterministic delivery engine for autonomous multi-agent software
@@ -14,6 +23,30 @@ stopped, paid — is a journaled, replayable, anchored fact.
 > Agent output never decides a transition. Prompt content never decides
 > who pays (that's [LaneTally](https://github.com/feedback-loop-ai/lanetally)'s
 > law, one layer down). The same value, stacked.
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Determinism laws](#determinism-laws)
+- [60-second quickstart](#60-second-quickstart)
+- [The read surfaces](#the-read-surfaces)
+  - [`forge runs` — the fleet](#forge-runs--the-fleet)
+  - [`forge inspect` — one run, explained](#forge-inspect--one-run-explained)
+  - [`forge watch` — the same, live](#forge-watch--the-same-live)
+  - [`forge tui` — the readouts made explorable](#forge-tui--the-readouts-made-explorable)
+  - [`forge ui` — the browser console](#forge-ui--the-browser-console)
+- [Recipes and composition](#recipes-and-composition)
+- [The agent library](#the-agent-library)
+- [Provider adapters](#provider-adapters)
+- [Secrets](#secrets)
+- [The journal and verification](#the-journal-and-verification)
+- [Repo layout](#repo-layout)
+- [The decision culture](#the-decision-culture)
+- [Contributing](#contributing)
+  - [Quality gates](#quality-gates)
+  - [The flow](#the-flow)
+  - [Contribution licensing](#contribution-licensing)
+- [License](#license)
 
 ## What it does
 
@@ -49,7 +82,7 @@ forge compare <a> <b>                               # journal-backed A/B
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
   Recipes **compose**: `extends: "sdd"` plus one override is a whole
-  strategy (`recipes/sdd-paranoid`, sixty lines against SDD's 227).
+  strategy (`recipes/sdd-paranoid`, sixty lines against SDD's 103).
   Named things merge by name; redefining one the base has needs an
   explicit marker, so an accidental collision fails compilation instead
   of silently winning. Composition resolves at compile time into ONE
@@ -66,6 +99,9 @@ forge compare <a> <b>                               # journal-backed A/B
   real security findings, twice. The operator keeps push and merge
   authority.
 
+[ARCHITECTURE.md](ARCHITECTURE.md) is the deep dive: crates, journal,
+effect discipline, verification layers. This README stays the tour.
+
 ## Determinism laws
 
 1. **Decisions are pure.** Given the same journal and pinned bundle,
@@ -81,48 +117,286 @@ forge compare <a> <b>                               # journal-backed A/B
 4. **Human gates are control states.** Parks exit only through operator
    events; approval is a journal entry, not a prose convention.
 
-## Install & operate
+## 60-second quickstart
 
-One native binary — no Python, no Node, no services. Grab a
-[release](../../releases) (linux x86_64/aarch64, macOS arm64/x86_64,
-windows; verify against `SHA256SUMS` and the signed GitHub build attestation), then:
+One native binary — no Python, no Node, no services.
+
+**Install from a release.** Grab the archive for your platform from the
+[latest release](https://github.com/feedback-loop-ai/the-forge/releases/latest)
+(linux x86_64/aarch64, macOS arm64/x86_64, windows x86_64), verify it
+against the release's `SHA256SUMS`, then unpack:
 
 ```
-forge init my-bundle        # scaffold a reviewable starter recipe
-forge doctor                # tools, agent CLIs, database, contracts
-forge run …                 # deliver (exit 0 done · 2 parked · 3 stopped)
-forge runs                  # one clamped line per run, newest first
-forge inspect --run <id>    # header, ruling, seats, trail, phase tree
-forge watch --run <id>      # the same, live, until the run concludes
-forge tui [--run <id>]      # the same three levels, navigable with keys
-forge replay · export · verify-run · anchor · costs
+curl -LO https://github.com/feedback-loop-ai/the-forge/releases/latest/download/forge-linux-x86_64.tar.gz
+curl -LO https://github.com/feedback-loop-ai/the-forge/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS      # forge-linux-x86_64.tar.gz: OK
+tar xzf forge-linux-x86_64.tar.gz             # → ./forge
 ```
 
-`forge tui` is the readouts made explorable (decision 0014): arrow keys
-or `j`/`k` move, `Enter` descends from the run list to a run to one
-seat's own stream, `Esc` comes back, `/` filters, `?` opens help, and a
-footer names the keys of wherever you are. It is read-only exactly as
-every other readout is — no operator commands, no run starts, nothing
-written to the journal, and a missing database refuses rather than
-creating one.
+Every archive and the `SHA256SUMS` manifest carry a signed GitHub
+Sigstore build-provenance attestation, so the checksum itself can be
+checked against the workflow that produced it:
 
-The readouts share ONE derivation (decision 0013): `forge-view` turns a
-journal into view models, and each surface only renders them — so
+```
+gh attestation verify forge-linux-x86_64.tar.gz -R feedback-loop-ai/the-forge
+```
+
+**Or build it.** Rust 1.85 or newer:
+
+```
+cargo install --path crates/forge-cli     # installs the `forge` binary
+```
+
+**Then deliver something.**
+
+```
+$ forge doctor                            # tools, agent CLIs, database, contracts
+ok       contracts: engine 0.3.4, event_schema 1, database_schema 1, driver_protocol 1
+ok       git: git version 2.51.0
+ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
+ok       agent implementer: would run opus via claude here (chain opus → sonnet)
+…
+
+$ forge init my-bundle                    # scaffold a reviewable starter recipe
+initialized reviewable bundle at my-bundle (digest 5de309d50685ec831e14b905e0c8f4ee01f5745ea7bac0d0885ed17b275f8a75)
+
+$ forge run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
+run started: prefix-selectors-for-the-read-su-8bf6d692
+…
+
+$ forge tui                               # explore what just happened
+```
+
+`forge run` exits 0 when the run reaches `done`, 2 when it parks for the
+operator, and 3 when it stops — so a shell script can tell the three
+apart without parsing anything.
+
+`forge init` writes a starter recipe you are meant to read: a seven-phase
+policy table (five working phases plus `done` and `stop`) with the review
+gate constitutionally protected, one seat per working phase, and a role
+charter per seat. It compiles the bundle before printing the digest, so
+the thing you were handed is a thing that runs.
+
+## The read surfaces
+
+Every readout shares ONE derivation (decision 0013): `forge-view` turns
+a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect` and `watch` each take `--json` to emit that model verbatim;
-`inspect` takes `--phase` and `--seat` as the scoping verbs the
-console's clicks became. `--run` takes a selector, not only the
-41-character id: any unique run-id prefix, or `latest` for the newest
-run in the workspace database (decision 0015) — one resolver, shared by
-`watch`, `inspect`, `anchor`, `export` and `replay`. Colour follows `NO_COLOR` and `TERM`, width
-follows `COLUMNS`; without a Unicode-width dependency, CJK and emoji
-columns misalign — stated rather than pretended away.
+`inspect` and `watch` each take `--json` to emit that model verbatim.
 
-`forge ui` serves an embedded, loopback-only, read-only surface: runs,
-live seat activity, the causal event timeline. `forge anchor` records
-journal heads in `refs/forge/<run>` commit chains — tamper evidence.
-`forge costs` reports per-seat attempts, turns, and USD — the LaneTally
-join surface.
+`--run` takes a **selector**, not only the 41-character id: any unique
+run-id prefix, or `latest` for the newest run in the workspace database
+(decision 0015) — one resolver, shared by `watch`, `inspect`, `anchor`,
+`export` and `replay`.
+
+Colour follows `NO_COLOR` and `TERM`, width follows `COLUMNS`; without a
+Unicode-width dependency, CJK and emoji columns misalign — stated rather
+than pretended away.
+
+### `forge runs` — the fleet
+
+One clamped line per run, newest first.
+
+```
+$ forge runs
+prefix-selectors-for-the-read-su-8bf6d692 completed done seq 38 3s prefix selec…
+```
+
+### `forge inspect` — one run, explained
+
+Header, ruling, seats, decision trail, and the phase graph as a tree.
+`--phase` and `--seat` are the scoping verbs the console's clicks
+became.
+
+```
+$ forge inspect --run latest
+run  prefix-selectors-for-the-read-su-8bf6d692
+     completed · phase done · seq 38
+ruling  SHIP-COMPLETE  ship → done · shipped
+
+seats
+  participant status    attempts turns cost activity
+  intake      succeeded 1        —     —    resolved · 0s
+  implement   succeeded 1        —     —    complete · 0s
+  verify      succeeded 1        —     —    pass · 0s
+  review      succeeded 1        —     —    clean · 0s
+  ship        succeeded 1        —     —    shipped · 0s
+
+trail
+   1 run/started        prefix selectors for the read surfaces…
+   2 phase/entered      intake
+   7 effect/succeeded   intake · resolved
+   8 transition/decided INTAKE-OK intake → implement · resolved
+   9 phase/entered      implement
+  14 effect/succeeded   implement · complete
+  15 transition/decided IMPL-OK implement → verify · complete
+  16 phase/entered      verify
+  21 effect/succeeded   verify · pass
+  22 transition/decided VERIFY-PASS verify → review · pass
+  23 phase/entered      review
+  28 effect/succeeded   review · clean
+  29 transition/decided REVIEW-CLEAN-NO-FIXES review → ship · clean
+  30 phase/entered      ship
+  35 effect/succeeded   ship · shipped
+  36 transition/decided SHIP-COMPLETE ship → done · shipped
+  37 phase/entered      done
+  38 run/completed      completed
+
+graph
+  intake ×1
+    → intake · finished
+  implement ×1
+    → implement · finished
+  verify ×1
+    → verify · finished
+  review ×1
+    → review · finished
+  ship ×1
+    → ship · finished
+  done ×1  ←current
+```
+
+Every line above is a rule id and a journal sequence number: the run
+states which rule fired, from where, on which typed result. Nothing in
+that trail was written by a model.
+
+### `forge watch` — the same, live
+
+The same readout, redrawn whenever the journal head moves, exiting when
+the run reaches a terminal status. Read-only, like every other readout.
+
+```
+$ forge watch --run latest
+── 2026-08-29T22:27:40.474827119Z ──
+run  prefix-selectors-for-the-read-su-8bf6d692
+     completed · phase done · seq 38
+ruling  SHIP-COMPLETE  ship → done · shipped
+
+seats
+  participant status    attempts turns cost activity
+  intake      succeeded 1        —     —    resolved · 0s
+  implement   succeeded 1        —     —    complete · 0s
+  verify      succeeded 1        —     —    pass · 0s
+  review      succeeded 1        —     —    clean · 0s
+  ship        succeeded 1        —     —    shipped · 0s
+
+graph
+  intake ×1
+    → intake · finished
+  implement ×1
+    → implement · finished
+  verify ×1
+    → verify · finished
+  review ×1
+    → review · finished
+  ship ×1
+    → ship · finished
+  done ×1  ←current
+```
+
+### `forge tui` — the readouts made explorable
+
+Decision 0014: arrow keys or `j`/`k` move, `Enter` descends from the run
+list to a run to one seat's own stream, `Esc` comes back, `/` filters,
+`?` opens help, and a footer names the keys of wherever you are. It is
+read-only exactly as every other readout is — no operator commands, no
+run starts, nothing written to the journal, and a missing database
+refuses rather than creating one.
+
+The fleet:
+
+```
+┌runs──────────────────────────────────────────────────────────────────────────────────────────┐
+│id                       status    phase        seq    age      feature                       │
+│prefix-selectors-for-the completed done         38     1m20s    prefix selectors for the read │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+runs
+↑↓/jk move · Enter open run · g/G top/bottom · / filter · r refresh · ? help · q quit
+```
+
+`Enter` on a run — the phase rail, the seats, the trail, all three panes
+of the same derivation:
+
+```
+┌graph─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                              │
+│ ⏺ intake──ᐳ⏺ implement──ᐳ⏺ verify──ᐳ⏺ review──ᐳ⏺ ship───ᐳ∙                                   │
+│ intake      implement    verify     review     ship     done                                 │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+┌seats─────────────────────────────────────────────────────────────────────────────────────────┐
+│participant            status        attempts turns  cost       activity                      │
+│intake                 succeeded     1        —      —          resolved · 0s                 │
+│implement              succeeded     1        —      —          complete · 0s                 │
+│verify                 succeeded     1        —      —          pass · 0s                     │
+│review                 succeeded     1        —      —          clean · 0s                    │
+│ship                   succeeded     1        —      —          shipped · 0s                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+┌trail─────────────────────────────────────────────────────────────────────────────────────────┐
+│1  run/started  prefix selectors for the read surfaces…                                       │
+│2  phase/entered  intake                                                                      │
+│7  effect/succeeded  intake · resolved                                                        │
+│8  transition/decided  INTAKE-OK intake → implement · resolved                                │
+│9  phase/entered  implement                                                                   │
+│14  effect/succeeded  implement · complete                                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+runs · run prefix-selectors-for-the-read-su-8bf6d692
+←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back · / filter · r refresh · ? help · q
+```
+
+### `forge ui` — the browser console
+
+`forge ui` serves an embedded, loopback-only, read-only surface on port
+8383: runs, live seat activity, the causal event timeline. Same
+derivation, same answers, a mouse instead of a keyboard.
+
+```
+$ forge ui --port 8383 --open
+```
+
+## Recipes and composition
+
+A recipe is a delivery strategy as reviewable data, identified by
+content digest. The library is a directory of them.
+
+```
+$ forge recipes list
+fast	c7121a40b0e2	6 phases	implement, review, ship, verify	recipes/fast
+panel-review	eed2afa49a62	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+sdd	595ce41b7305	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+sdd-paranoid	2ff523e483e1	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
+self	5aaf603e2b2e	7 phases	implement, intake, review, ship, verify	bundles/self
+verify	f5babf06d8e7	4 phases	review, verify	bundles/verify
+```
+
+Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
+lines: it extends `sdd` and replaces exactly one seat, and it has to say
+so out loud.
+
+```json
+{
+  "name": "sdd-paranoid",
+  "extends": "sdd",
+  "override": { "seats": ["review"] },
+  "seats": {
+    "review": { "…": "an adversarial panel instead of SDD's" }
+  }
+}
+```
+
+Named things merge by name; redefining one the base already has without
+listing it under `override` fails compilation rather than silently
+winning. Composition resolves at compile time into ONE flat bundle — no
+inheritance at run time — and the run manifest records the chain, so a
+run states what it was composed from.
+
+Swap a strategy and compare the outcomes:
+
+```
+forge rerun --run <id> --recipe panel-review    # same feature, other strategy
+forge compare <a> <b>                            # trails, first divergence, per-seat costs
+```
 
 ## The agent library
 
@@ -130,7 +404,18 @@ A seat used to inline everything it was: charter text, driver argv,
 limits, declared inputs. Decision 0016 lets it name an agent instead.
 
 ```
-forge agents list           # name · model chain · description
+$ forge agents list
+chief-architect	fable → opus → sonnet	Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.
+implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
+intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
+review-security	opus → sonnet	Review panel member: the adversarial security read of the change.
+reviewer	opus → sonnet	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
+shipper	sonnet → opus	Closes a delivery out: ledger, gates, and the report the operator reads before merging.
+verifier	sonnet → opus	Runs the suites and gates and reports pass or fail on evidence, never on intent.
+…
+```
+
+```
 forge agents show <name>    # the definition, plus its per-entry resolution
 forge doctor                # which providers and models are actually here
 ```
@@ -141,13 +426,6 @@ configuration, its decision-0006 limits and its decision-0007 declared
 inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
 Inline seats stay first-class — `recipes/sdd`'s `speckit-check` step is
 a shell script with no model, and it stays inline.
-
-A provider adapter is **data**, one file per provider in `adapters/`:
-the driver invocation, the abstract→concrete model mapping, how tool
-permissions and MCP servers are expressed, and — the load-bearing part —
-which of those the provider **cannot** express, written as the explicit
-string `"unsupported"` rather than left to be inferred from an empty
-map. Adding a provider or a model is a file edit, not a release.
 
 Resolution happens at compile time, is pinned into the run manifest, and
 is a pure function of *(library, adapters, availability)* — availability
@@ -195,6 +473,30 @@ unreachable by construction rather than by convention.
    at the engine, because a bound that applies "unless a new feature is
    in play" has stopped being a bound.
 
+## Provider adapters
+
+A provider adapter is **data**, one file per provider in `adapters/`:
+the driver invocation, the abstract→concrete model mapping, how tool
+permissions and MCP servers are expressed, and — the load-bearing part —
+which of those the provider **cannot** express, written as the explicit
+string `"unsupported"` rather than left to be inferred from an empty
+map. Adding a provider or a model is a file edit, not a release.
+
+`forge doctor` reports what each adapter can actually reach on this
+machine, and refuses to guess about the rest:
+
+```
+$ forge doctor
+ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
+ok       codex: codex-cli 0.148.0 · serves no abstract model yet
+ok       dsh: 0.1.0-rc.6 · serves no abstract model yet
+warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
+```
+
+The built-in adapters are reachable directly as
+`forge driver <claude|lanetally|codex|dsh|exec> -- <extra args>`, which
+is exactly how a bundle names them.
+
 Looper-bound runs start with `forge run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels
 with `forge export`. `forge bridge --run <id> --looper-url <url>` tails only the
@@ -202,30 +504,78 @@ verified public store API and synchronizes ordered evidence plus fenced commands
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
 
-## Repo layout
+## Secrets
 
-| Path | What it is |
-|---|---|
-| `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, verification layers. |
-| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli`. |
-| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, and `forge-effect-provenance/v1`. |
-| `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
-| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
-| `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
-| `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
-| `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
-| `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
-| `docs/decisions/` | The constitution: numbered operator rulings 0001–0017. |
-| `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
+Decision 0012: bundles and journals carry secret **names** only. A
+driver template writes `{{secret:NAME}}`; the runner — and nothing
+upstream of it — resolves that to a value from an operator-side store
+that lives outside version control.
 
-## Verification
+```
+$ forge secrets set GITHUB_TOKEN     # value read from STDIN, never argv; store created 0600
+set GITHUB_TOKEN in .forge/secrets.env
 
-Four layers, each mechanical: the 97-case differential corpus pins the
-evaluator; the machine-proof suite drives the real binary through every
-failure mode (30+ scenarios, three OSes, coverage-gated CI); self-forge
-runs deliver changes under the full constitution; and the verify agents
-adversarially review every landed slice — their verdicts are journaled
-runs like any other.
+$ forge secrets list                 # names, one per line — there is no value-printing verb
+GITHUB_TOKEN
+
+$ forge secrets remove GITHUB_TOKEN
+removed GITHUB_TOKEN from .forge/secrets.env
+```
+
+The store defaults to `.forge/secrets.env` in the workspace; `forge run
+--secrets-file` points elsewhere. A seat declares which names it binds,
+compilation fails on an undeclared one, and any bound value that appears
+in captured stderr is masked to `[secret:NAME]` on raw bytes before the
+string ever exists. The `{{secret:NAME}}` spelling itself is not
+secret-bearing, which is why it is journalable and the resolved command
+line is not.
+
+## The journal and verification
+
+The journal is an append-only, hash-chained SQLite table. State is the
+fold of it; nothing else is authoritative.
+
+```
+$ forge anchor --run latest                      # record the head in refs/forge/<run>
+anchored prefix-selectors-for-the-read-su-8bf6d692 at 94c5bd9dff99bef4d4b9d224d8cc1661681fd194
+
+$ forge anchor --run latest --check              # tamper evidence, re-checked
+{
+  "chain_length": 2,
+  "journal_head_hash": "74d186fb254b62fb486b3f5f3fe1e1ad7c91fa5deef2d850d60c16e5478be918",
+  "ref": "refs/forge/prefix-selectors-for-the-read-su-8bf6d692",
+  "seq": 38,
+  …
+}
+
+$ forge export --run latest --out ./out          # canonical NDJSON + pinned manifest
+exported ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson
+
+$ forge verify-run ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson
+{
+  "chain": "verified",
+  …                                              # envelopes and fold, offline
+}
+
+$ forge replay --run latest                      # rebuild twice, compare
+{
+  "chain": "verified",
+  "events": 38,
+  "replay": "deterministic",
+  …
+}
+```
+
+`forge costs --run <id>` reports per-seat attempts, turns and USD — the
+LaneTally join surface, computed from journal checkpoints with stable
+seat ids.
+
+Four verification layers back all of this, each mechanical: the 97-case
+differential corpus pins the evaluator; the machine-proof suite drives
+the real binary through every failure mode (30+ scenarios, three OSes,
+coverage-gated CI); self-forge runs deliver changes under the full
+constitution; and the verify agents adversarially review every landed
+slice — their verdicts are journaled runs like any other.
 
 Release admission additionally requires canonical formatting, warning-free
 Clippy across all targets and features, a RustSec dependency audit, literal
@@ -235,6 +585,108 @@ matrix. Release archives and `SHA256SUMS` carry GitHub Sigstore build-provenance
 attestations; verify an asset with
 `gh attestation verify <asset> -R feedback-loop-ai/the-forge`.
 
-Private for now; the OSS boundary decision (naming, license,
-threat-model README) comes after the engine drives a real feature end
-to end in an external workspace.
+## Repo layout
+
+| Path | What it is |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
+| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli`. |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, and `forge-effect-provenance/v1`. |
+| `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
+| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
+| `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
+| `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
+| `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
+| `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
+| [`docs/decisions/`](docs/decisions/) | The constitution: numbered operator rulings 0001–0018, indexed. |
+| `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
+| `scripts/coverage-exact.sh` | The exact-coverage gate: literal 100% line/branch/function, or refusal. |
+
+## The decision culture
+
+Every semantic change is a numbered operator ruling in
+[`docs/decisions/`](docs/decisions/), kept in full, cited by number in
+the code that enforces it. [The index](docs/decisions/README.md) lists
+all eighteen with their status.
+
+An implementer may write a decision, but only ever with status
+`proposed`; acceptance is the operator's, recorded in the file. A ruling
+is never edited into a different meaning — a new number supersedes it
+and says so. That is why the README, the error messages and the tests
+can all cite "decision 0007" and mean the same paragraph.
+
+## Contributing
+
+The engine delivers its own changes and reviews them adversarially, so
+the bar for a human contribution is the bar the machine is already held
+to.
+
+### Quality gates
+
+All of these are required jobs in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Run them before
+you open anything.
+
+| Gate | Command | Where it lives |
+|---|---|---|
+| Canonical formatting | `cargo fmt --all -- --check` | `ci.yml` → job `quality` |
+| Clippy, warnings as errors | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | `ci.yml` → job `quality` |
+| Contracts compile | `forge compile --bundle bundles/self` and `bundles/verify` | `ci.yml` → jobs `quality`, `engine` |
+| Full suite, three OSes | `cargo test --workspace --all-features --locked` | `ci.yml` → job `engine` (ubuntu · macos · windows) |
+| Exact coverage | `bash scripts/coverage-exact.sh` | `ci.yml` → job `coverage` |
+| RustSec dependency audit | `rustsec/audit-check` | `ci.yml` → job `dependency-audit` |
+
+The coverage gate is not a percentage to trend upwards. It re-folds a
+candidate-bound LCOV report and demands literal integer equality on
+lines, branches and functions; it also refuses attribute-based source
+exclusions outright, so production code cannot shrink its own
+denominator. There is no threshold to lower.
+
+Lint configuration lives once, in `[workspace.lints]` in the root
+`Cargo.toml`, and every crate inherits it through `[lints] workspace =
+true` — so no crate can quietly hold a different opinion. The
+warnings-as-errors escalation is the `-D warnings` flag on the command
+above; run that exact line and your Clippy is CI's Clippy.
+
+### The flow
+
+- **A worktree per slice.** Work on one slice happens in its own git
+  worktree off this repository, so the main checkout stays clean and
+  parallel slices never share a dirty tree. Branch, deliver, verify,
+  then hand the branch back.
+- **Tests are part of the change, not an afterthought.** Extend the
+  suite that proves the code you touched.
+- **Frozen means frozen.** The v1 `contracts/`, the `fixtures/`
+  evaluator corpus, `policy/phase-machine.json` and `reference/` are
+  read-only. A contract change is a new version file, never an edit.
+- **Semantic changes need a decision.** Write it as `proposed` under
+  `docs/decisions/` and let the operator rule.
+- **The operator keeps push and merge.** Nothing here pushes on your
+  behalf.
+
+### Contribution licensing
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms
+or conditions.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms
+or conditions.
+
+Permissive, never copyleft, and the pair every Rust developer already
+knows: [decision 0018](docs/decisions/0018-dual-license.md) has the
+reasoning, including why public-domain-style licenses were rejected.

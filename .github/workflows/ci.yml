@@ -59,6 +59,17 @@ jobs:
           name: coverage-exact
           path: target/coverage/
 
+  license-compliance:
+    name: dependency licenses (cargo-deny)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
   dependency-audit:
     name: RustSec dependency audit
     runs-on: ubuntu-latest

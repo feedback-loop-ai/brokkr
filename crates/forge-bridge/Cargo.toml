@@ -4,6 +4,7 @@ description = "Authenticated Looper producer bridge over verified Forge journals
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [lints]
 workspace = true
