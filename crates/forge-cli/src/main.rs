@@ -7,6 +7,7 @@ mod init;
 mod recipes;
 mod render;
 mod selector;
+mod tui;
 mod ui;
 
 use std::io::IsTerminal;
@@ -64,6 +65,19 @@ enum Cmd {
         /// Open the system browser after binding.
         #[arg(long)]
         open: bool,
+    },
+    /// Explore runs interactively in the terminal: the fleet as a
+    /// navigable table, one run's phase graph, seats and decision
+    /// trail, and one seat's own checkpoint and session stream.
+    /// Read-only like every other readout (decision 0014) — it issues
+    /// no operator commands and writes nothing to the journal.
+    Tui {
+        /// Full run id, a unique run-id prefix, or `latest`; opens
+        /// directly at that run's level.
+        #[arg(long)]
+        run: Option<String>,
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
     },
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
@@ -474,8 +488,98 @@ fn main() -> ExitCode {
     }
 }
 
+/// One refresh for `forge tui`: the only place a store is opened on that
+/// path, and the reason `tui.rs` can name none. The head is compared on
+/// **both** seq and hash — a rewritten journal at equal seq is the
+/// tamper case `anchor` exists for, and a console should redraw rather
+/// than sit blind.
+fn tui_views(
+    db: &std::path::Path,
+    ask: tui::Ask,
+    head: &mut Option<(u64, String)>,
+    clock: fn() -> String,
+) -> Result<tui::Refreshed> {
+    let store = Store::open(db)?;
+    let current = match ask.run {
+        Some(run) => Some(store.head_hash(run)?),
+        None => None,
+    };
+    let moved = current != *head;
+    if !(ask.force || ask.fleet || moved) {
+        // Nothing has moved: the console keeps the frame it has, and
+        // nothing is re-folded at four polls a second.
+        return Ok(None);
+    }
+    *head = current;
+    let mut folded = Vec::new();
+    for (run_id, feature, created_at) in store.list_runs()? {
+        // Deliberately not `?`: in a CLI verb a bad run is an error and
+        // a nonzero exit, but in a console it would be the operator's
+        // whole fleet table vanishing because one old run is corrupt.
+        // The absence mark is `RunRow.status_known`'s job (0001).
+        let state = store
+            .load(&run_id)
+            .ok()
+            .and_then(|events| fold(&events).ok());
+        folded.push((run_id, feature, created_at, state));
+    }
+    let entries: Vec<forge_view::RunEntry> = folded
+        .iter()
+        .map(
+            |(run_id, feature, created_at, state)| forge_view::RunEntry {
+                run_id,
+                feature,
+                created_at,
+                state: state.as_ref(),
+            },
+        )
+        .collect();
+    let run = ask.run.and_then(|run| store.load(run).ok()).map(|events| {
+        let state = fold(&events).ok();
+        forge_view::run_view(&events, state.as_ref())
+    });
+    Ok(Some(tui::Views {
+        now: clock(),
+        runs: forge_view::run_rows(&entries),
+        run,
+        // The seat's own session, located by the SAME lookup the
+        // console's /api/session endpoint uses.
+        transcript: ask.session.and_then(ui::session_turns),
+    }))
+}
+
+/// The refresh source the console runs on, with the workspace clock
+/// bound in. Built by a named function so it is reachable from a test
+/// as well as from `forge tui`.
+fn tui_source<'a>(
+    db: &'a std::path::Path,
+    head: &'a mut Option<(u64, String)>,
+) -> impl FnMut(tui::Ask) -> Result<tui::Refreshed> + 'a {
+    move |ask| tui_views(db, ask, head, now_rfc3339)
+}
+
+/// `forge tui`'s impure entry: the environment facts are read once here
+/// and everything else is injected. The refusals live inside
+/// `tui::start`, and the source above opens a store only when it is
+/// called — which is after that gate.
+fn run_tui(db: PathBuf, run: Option<String>) -> Result<ExitCode> {
+    let mut head: Option<(u64, String)> = None;
+    let db_is_file = db.is_file();
+    let mut source = tui_source(&db, &mut head);
+    tui::start(
+        db_is_file,
+        run,
+        tui::production_ops(),
+        std::io::stdout().is_terminal(),
+        ratatui::backend::CrosstermBackend::new(std::io::stdout()),
+        std::io::stdout(),
+        &mut source,
+        usize::MAX,
+    )
+}
+
 fn run(cli: Cli) -> Result<ExitCode> {
-    run_with(cli, ui::serve, None, None)
+    run_with(cli, ui::serve, None, None, run_tui)
 }
 
 fn run_with(
@@ -483,6 +587,7 @@ fn run_with(
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
     bridge_iteration_limit: Option<usize>,
     watch_iteration_limit: Option<usize>,
+    run_tui: impl FnOnce(PathBuf, Option<String>) -> Result<ExitCode>,
 ) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { dir } => {
@@ -527,6 +632,19 @@ fn run_with(
         Cmd::Ui { db, port, open } => {
             serve_ui(db, port, open)?;
             Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Tui { run, db } => {
+            // Selectors resolve through decision 0015's one resolver —
+            // but resolving needs a store, and `forge tui` refuses a
+            // missing database *before* anything opens one, because
+            // `Store::open` creates a file, a WAL and a meta row. So
+            // resolution waits until the file is known to exist and
+            // `tui::start` does the refusing.
+            let run = match (run, db.is_file()) {
+                (Some(run), true) => Some(selector::resolve_run(&Store::open(&db)?, &run)?),
+                (run, _) => run,
+            };
+            run_tui(db, run)
         }
         Cmd::Doctor { bundle, db } => {
             let report = doctor::doctor(bundle.as_deref(), &db);

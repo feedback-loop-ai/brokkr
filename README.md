@@ -29,6 +29,7 @@ The operator's judgment enters only as signed journal events.
 ```
 forge run --recipe fast --repo . --feature "…"     # deliver
 forge watch --run <id>                              # watch it live, in the terminal
+forge tui                                           # explore the fleet with the keyboard
 forge ui                                            # watch it live, in a browser
 forge rerun --run <id> --recipe panel-review        # swap the strategy
 forge compare <a> <b>                               # journal-backed A/B
@@ -86,8 +87,17 @@ forge run …                 # deliver (exit 0 done · 2 parked · 3 stopped)
 forge runs                  # one clamped line per run, newest first
 forge inspect --run <id>    # header, ruling, seats, trail, phase tree
 forge watch --run <id>      # the same, live, until the run concludes
+forge tui [--run <id>]      # the same three levels, navigable with keys
 forge replay · export · verify-run · anchor · costs
 ```
+
+`forge tui` is the readouts made explorable (decision 0014): arrow keys
+or `j`/`k` move, `Enter` descends from the run list to a run to one
+seat's own stream, `Esc` comes back, `/` filters, `?` opens help, and a
+footer names the keys of wherever you are. It is read-only exactly as
+every other readout is — no operator commands, no run starts, nothing
+written to the journal, and a missing database refuses rather than
+creating one.
 
 The readouts share ONE derivation (decision 0013): `forge-view` turns a
 journal into view models, and each surface only renders them — so

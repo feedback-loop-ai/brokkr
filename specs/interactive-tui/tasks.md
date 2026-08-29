@@ -61,7 +61,7 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 1 — the dependency and the walking skeleton
 
-- [ ] **T6 — `ratatui` joins the workspace.**
+- [x] **T6 — `ratatui` joins the workspace.**
   One `[workspace.dependencies]` entry,
   `{ version = "0.30", default-features = false, features = ["crossterm"] }`,
   referenced by `crates/forge-cli/Cargo.toml` only. `Cargo.lock`
@@ -71,7 +71,7 @@ byte, it must surface now and not inside a large new file.
   `serde`, `serde_json`; `cargo build --workspace --locked` green; the
   RustSec audit job passing over the added tree.
 
-- [ ] **T7 — `Cmd::Tui`, `mod tui`, and the injected dispatch arm.**
+- [x] **T7 — `Cmd::Tui`, `mod tui`, and the injected dispatch arm.**
   `forge tui [--run <id>] [--db <path>]` with `--db` defaulting to
   `.forge/forge.db`. `run_with` gains a `run_tui` parameter exactly as it
   has `serve_ui`. Re-check `main` for a shared run-id prefix/`latest`
@@ -81,7 +81,7 @@ byte, it must surface now and not inside a large new file.
   `run_with` with an injected `run_tui`, and a subprocess `forge tui
   --help` listing the verb.
 
-- [ ] **T8 — `refuse()` and the startup gate.**
+- [x] **T8 — `refuse()` and the startup gate.**
   `refuse(is_tty, size, db_is_file) -> Option<String>` naming **both**
   `forge inspect` and `forge watch`; `run()` calls it before anything
   else and `bail!`s. `Store::open` is unreachable when the db is not an
@@ -91,7 +91,7 @@ byte, it must surface now and not inside a large new file.
   tui --db <nonexistent>` asserting exit 1, both verbs named on stderr,
   **and that no file, directory, `-wal` or `-shm` was created**.
 
-- [ ] **T9 — `TerminalOps`, `production_ops()`, the RAII guard, and the
+- [x] **T9 — `TerminalOps`, `production_ops()`, the RAII guard, and the
   panic hook.**
   Five `fn`-pointer fields whose values are crossterm's own function
   items — never wrappers, never closures. A guard whose `Drop` leaves the
@@ -109,7 +109,7 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 2 — the pure state machine
 
-- [ ] **T10 — `Key` and `from_crossterm`.**
+- [x] **T10 — `Key` and `from_crossterm`.**
   Our own enum; the translation filters `KeyEventKind::Press`, binds
   `Ctrl+C` and `q` to `Quit`, and returns `None` for mouse, paste, focus
   and resize by named arms.
@@ -118,7 +118,7 @@ byte, it must surface now and not inside a large new file.
   double-keystroke), `Ctrl+C` yielding `Quit`, and each ignored event
   kind.
 
-- [ ] **T11 — `move_to` / `index_of` / `keys_for`.**
+- [x] **T11 — `move_to` / `index_of` / `keys_for`.**
   The single movement function: `Up`, `Down` with wrap-around at both
   ends, `Top`, `Bottom`, `PageUp`, `PageDown`. `keys_for` builds the
   filtered key list over **sanitized** labels.
@@ -126,7 +126,7 @@ byte, it must surface now and not inside a large new file.
   past both ends, an empty list, and `index_of` returning `None` for a
   vanished key.
 
-- [ ] **T12 — `apply()`: the Enter/Esc ladder.**
+- [x] **T12 — `apply()`: the Enter/Esc ladder.**
   Every `Enter` rung and every `Esc` rung of spec §3, `Backspace`
   ascending via rungs 3/5 only, `Esc` never quitting, `Tab` as
   `(pane + 1) % panes_at(level)`, and `assign_run` clearing scope, seat,
@@ -135,7 +135,7 @@ byte, it must surface now and not inside a large new file.
   descend RUNS→RUN→PARTICIPANT and ascend back via **both** `Esc` and
   `Backspace`, and `--run`'s initial state reaching RUNS on `Esc`.
 
-- [ ] **T13 — `apply()`: filtering.**
+- [x] **T13 — `apply()`: filtering.**
   `/` enters typing mode; each character narrows the focused list
   incrementally; `Backspace` deletes one char; `Esc` leaves typing mode
   and clears the filter. The filter text goes through `Safe`.
@@ -144,7 +144,7 @@ byte, it must surface now and not inside a large new file.
   `scope` intact (display fact ≠ vanish condition); a test that a pasted
   escape sequence in the filter is sanitized before it is echoed.
 
-- [ ] **T14 — `apply()`: scoping and vanish.**
+- [x] **T14 — `apply()`: scoping and vanish.**
   `render::Scope` held directly; `lens_for(...).ok().flatten()` resolved
   per frame; `None` clears the scope. A second selection replaces the
   first.
@@ -154,7 +154,7 @@ byte, it must surface now and not inside a large new file.
   survives a refresh that changes the list and clears itself when the
   subject vanishes from the unfiltered model.
 
-- [ ] **T15 — `footer_for()`.**
+- [x] **T15 — `footer_for()`.**
   Pure; a different string per (level, pane, typing, help), naming
   `Enter scope` at RUN·graph and `Enter open` on an already-scoped seat.
   *Proven by*: AC-8 — a unit test asserting two different states produce
@@ -162,14 +162,14 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 3 — rendering
 
-- [ ] **T16 — `cell()` / `span()` and the sanitized widget layer.**
+- [x] **T16 — `cell()` / `span()` and the sanitized widget layer.**
   Exactly one `fn cell(text: &Safe) -> Cell` and one `fn span(text:
   &Safe, style: Style) -> Span`; no `&str`-taking constructor anywhere in
   the widget layer.
   *Proven by*: AC-11 — a source test asserting no `Cell::from(`/
   `Span::raw(`/`Row::new(vec![` over a bare `&str` appears in `tui.rs`.
 
-- [ ] **T17 — `draw_runs` and `draw_run`, `Backend`-generic.**
+- [x] **T17 — `draw_runs` and `draw_run`, `Backend`-generic.**
   Bordered tables; header `id · status · phase · seq · age · feature` and
   `participant · status · attempts · turns · cost · activity`; the status
   cell tinted through `tone()`; the graph as the `⑂`/`→` tree,
@@ -179,14 +179,14 @@ byte, it must surface now and not inside a large new file.
   `target_short` and a concluded one showing `activity.text`, and that
   nothing in the render path names `CrosstermBackend`.
 
-- [ ] **T18 — the hostile-label render test.**
+- [x] **T18 — the hostile-label render test.**
   A `Participant.label` carrying `\x1b]0;pwn\x07`, `\r` and U+202E.
   *Proven by*: AC-11 — the `TestBackend` buffer contains no `\x1b` and no
   `\r`, the text is in source order, **and the neighbouring column
   starts at its expected x** (the width half of the claim, not only the
   strip half).
 
-- [ ] **T19 — `draw_participant`.**
+- [x] **T19 — `draw_participant`.**
   Checkpoints pane and transcript pane; `Participant.terminal_line`
   rendered as the model built it, **unconditionally**, including its
   absence mark when `session_id` is `None`; the transcript's `truncated`
@@ -196,7 +196,7 @@ byte, it must surface now and not inside a large new file.
   and one without; a test that no `claude --resume` string is constructed
   in `tui.rs` (grep), only `terminal_line` consumed.
 
-- [ ] **T20 — `draw_footer`, `draw_help`, `draw_too_small`.**
+- [x] **T20 — `draw_footer`, `draw_help`, `draw_too_small`.**
   The footer at the bottom of every frame; `?` overlaying `Clear` + a
   centred paragraph; a centred too-small frame naming `forge inspect` and
   `forge watch` with `q`/`Ctrl+C` live.
@@ -206,7 +206,7 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 4 — the shell and liveness
 
-- [ ] **T21 — `drive()` over injected sources.**
+- [x] **T21 — `drive()` over injected sources.**
   `drive<B: Backend>(&mut Terminal<B>, &TerminalOps, &mut dyn FnMut() ->
   Result<Snapshot>, max_iterations)`; `poll(remaining_tick)` so latency
   is bounded by the keypress; `Ctrl+C`/`q` quits; `r` forces a refresh.
@@ -215,7 +215,7 @@ byte, it must surface now and not inside a large new file.
   forced by a refresh source returning `Err`, with the recorder showing
   `leave_raw` **before** the `Err` returns; the guard's `Drop` exercised.
 
-- [ ] **T22 — the refresh source and its cadences.**
+- [x] **T22 — the refresh source and its cadences.**
   RUN head compared on **both** seq and hash; RUNS refolded every
   `RUNS_REFRESH_TICKS` or on `r`; `state: fold(&events).ok()` so one
   unfoldable run keeps its row; transient errors render
@@ -230,7 +230,7 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 5 — the read-only proofs
 
-- [ ] **T23 — the headless read-only proof.**
+- [x] **T23 — the headless read-only proof.**
   In `src/tui/tests.rs`: export the NDJSON and hash the db directory tree
   (relative path, length, bytes); drive the state machine through every
   navigation path; export and hash again; byte-compare **both**.
@@ -239,7 +239,7 @@ byte, it must surface now and not inside a large new file.
   `create_run`. (`forge-cli` has no `[lib]` target, so this half cannot
   live in `tests/`.)
 
-- [ ] **T24 — the subprocess read-only proof.**
+- [x] **T24 — the subprocess read-only proof.**
   In `tests/machine_proof.rs`, on the `Workspace::exported_events` /
   `forge export` idiom: export and tree-hash, run the real `forge tui`
   binary against a real run's db, export and tree-hash again,
@@ -250,13 +250,13 @@ byte, it must surface now and not inside a large new file.
 
 ## Movement 6 — admission
 
-- [ ] **T25 — docs.**
+- [x] **T25 — docs.**
   `ARCHITECTURE.md` §"Operating surface" and `README.md`'s
   install/operate block and readouts paragraph each gain `forge tui`:
   one sentence on what it is for, one on its read-only boundary.
   *Proven by*: AC-20 — the diff, and any existing docs test still green.
 
-- [ ] **T26 — the exact coverage gate, and the rest of admission.**
+- [x] **T26 — the exact coverage gate, and the rest of admission.**
   `scripts/coverage-exact.sh` reporting literal nonzero 100%
   line/branch/function equality; `cargo test --workspace`; `cargo clippy
   --workspace --all-targets --all-features` warning-free; `cargo fmt
