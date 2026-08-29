@@ -149,6 +149,42 @@ impl Ws {
         .unwrap();
     }
 
+    /// A recipe that extends `base` (a sibling DIRECTORY name) and
+    /// states one difference: a different review panel. `marker` is the
+    /// resolver-owned `override` block — omit it and the collision is a
+    /// compile error, which is the point of decision 0017's merge rules.
+    fn write_derived(&self, at: &Path, name: &str, base: &str, marker: bool) {
+        std::fs::create_dir_all(at.join("roles")).unwrap();
+        std::fs::write(at.join("roles/role.md"), "# derived role\n").unwrap();
+        let driver = json!({"command": [
+            forge_bin(), "fake-driver",
+            "--script", self.path().join("script.json").to_string_lossy(),
+            "--state", self.path().join("state").to_string_lossy(),
+        ]});
+        let mut config = json!({
+            "name": name,
+            "extends": base,
+            "seats": {
+                "review": {
+                    "results": ["clean", "residual", "security-hold"],
+                    "aggregate": "review-panel",
+                    "panel": {
+                        "adversarial": {"role": "roles/role.md", "driver": driver},
+                        "security": {"role": "roles/role.md", "driver": driver},
+                    },
+                },
+            },
+        });
+        if marker {
+            config["override"] = json!({"seats": ["review"]});
+        }
+        std::fs::write(
+            at.join("bundle.json"),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+    }
+
     /// A bundle directory that fails to compile: bundle.json without
     /// 'policy'.
     fn write_broken(&self, at: &Path) {
@@ -439,4 +475,112 @@ fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let (code, _, stderr) = ws.forge(&["run", "--feature", "f", "--db", db.to_str().unwrap()]);
     assert_ne!(code, Some(0));
     assert!(stderr.contains("required"), "stderr: {stderr}");
+}
+
+#[test]
+fn compile_and_show_print_the_resolved_result_and_its_provenance() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    ws.write_recipe(&rdir.join("good"));
+    ws.write_derived(&rdir.join("paranoid"), "paranoid", "good", true);
+
+    // A bundle that composed nothing prints exactly what it always did:
+    // no `composed_from` member at all.
+    let (code, plain, stderr) =
+        ws.forge(&["compile", "--bundle", rdir.join("good").to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let base: Value = serde_json::from_str(&plain).unwrap();
+    assert!(base.get("composed_from").is_none(), "{plain}");
+
+    // A composed one prints the RESOLVED result and its provenance.
+    let (code, composed, stderr) = ws.forge(&[
+        "compile",
+        "--bundle",
+        rdir.join("paranoid").to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let view: Value = serde_json::from_str(&composed).unwrap();
+    assert_eq!(view["bundle"], "paranoid");
+    let seats: Vec<&str> = view["seats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        seats,
+        vec!["implement", "intake", "review", "ship", "verify"],
+        "the resolved bundle carries every inherited seat"
+    );
+    let chain = view["composed_from"].as_array().unwrap();
+    assert_eq!(chain.len(), 1);
+    assert_eq!(chain[0]["recipe"], "recipe-proof");
+    assert_eq!(chain[0]["digest"], base["digest"]);
+    assert!(chain[0]["dir"].as_str().unwrap().ends_with("good"));
+    assert_eq!(
+        view["manifest"]["files"]["@compose/0000/recipe-proof"], base["digest"],
+        "the chain pins the run through the digested manifest"
+    );
+
+    // `recipes show` is the same renderer, reached by name, for both.
+    let (code, shown, stderr) = ws.forge(&[
+        "recipes",
+        "show",
+        "paranoid",
+        "--dir",
+        rdir.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(shown, composed);
+    let (code, shown, _) = ws.forge(&["recipes", "show", "good", "--dir", rdir.to_str().unwrap()]);
+    assert_eq!(code, Some(0));
+    assert_eq!(shown, plain);
+
+    let (code, _, stderr) =
+        ws.forge(&["recipes", "show", "absent", "--dir", rdir.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("recipe 'absent' not found"), "{stderr}");
+}
+
+#[test]
+fn a_merge_conflict_names_the_file_and_the_conflicting_key() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    ws.write_recipe(&rdir.join("good"));
+    ws.write_derived(&rdir.join("clash"), "clash", "good", false);
+
+    let (code, _, stderr) =
+        ws.forge(&["compile", "--bundle", rdir.join("clash").to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("redefines seat 'review'"), "{stderr}");
+    assert!(stderr.contains("clash/bundle.json"), "{stderr}");
+    assert!(stderr.contains("good/bundle.json"), "{stderr}");
+    assert!(stderr.contains("override.seats"), "{stderr}");
+}
+
+#[test]
+fn list_warns_when_a_derived_recipes_base_is_missing() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    ws.write_recipe(&rdir.join("good"));
+    let orphan = rdir.join("orphan");
+    std::fs::create_dir_all(&orphan).unwrap();
+    std::fs::write(
+        orphan.join("bundle.json"),
+        json!({"name": "orphan", "extends": "absent"}).to_string(),
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = ws.forge(&["recipes", "list", "--dir", rdir.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "a missing base must not abort: {stderr}");
+    assert!(
+        stdout.lines().any(|l| l.starts_with("good\t")),
+        "everything else still lists: {stdout}"
+    );
+    let warning = stdout
+        .lines()
+        .find(|l| l.starts_with("warning:") && l.contains("orphan"))
+        .expect("warning line for the orphan");
+    assert!(warning.contains("extends 'absent'"), "{warning}");
+    assert!(warning.contains("is not a recipe in"), "{warning}");
 }

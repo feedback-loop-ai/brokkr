@@ -144,7 +144,7 @@ merge logic exists** (M1), so every later movement runs against it.
 
 ## Movement 6 — operator surfaces
 
-- [ ] **T17 — One renderer, two callers.** Extract the `Compile` arm's
+- [x] **T17 — One renderer, two callers.** Extract the `Compile` arm's
   printer (`main.rs:658`); add `RecipesCmd::Show`; both emit
   `composed_from` (array of `{recipe, digest, dir}`, leaf-first),
   **omitted entirely when the chain is empty**.
@@ -152,7 +152,7 @@ merge logic exists** (M1), so every later movement runs against it.
   output is byte-identical to today's), AC-29 (`show` on both a composed
   and a non-composed recipe).
 
-- [ ] **T18 — Diagnosable errors at the CLI level.**
+- [x] **T18 — Diagnosable errors at the CLI level.**
   *Proven by*: AC-30 (a merge failure asserted through the CLI, showing
   the file and the conflicting key) and AC-31 (`recipes list` warns on a
   missing base and still lists everything else).
