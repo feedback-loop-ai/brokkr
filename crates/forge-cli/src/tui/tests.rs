@@ -2832,3 +2832,27 @@ fn the_seat_level_names_what_served_the_seat() {
     assert!(detail.contains("served by"), "{detail}");
     assert!(detail.contains(forge_view::ABSENT), "{detail}");
 }
+
+#[test]
+fn zero_width_characters_cannot_overwrite_the_rail() {
+    // The panel's residual: combining marks and variation selectors are
+    // neither control characters nor bidi marks, so they survive Safe;
+    // unicode-width reports 0 for them while the buffer still spends a
+    // cell each. A label of N such marks planned one column and
+    // overwrote N — erasing the rail, the arrows and a neighbour's
+    // state glyph. clamp now bounds on BOTH display width and char
+    // count, which holds for every zero-width class rather than an
+    // enumerated few.
+    let marks = "\u{0301}".repeat(40);
+    let clamped = clamp(&marks, 8);
+    assert!(
+        clamped.chars().count() <= 8,
+        "a zero-width label must never spend more cells than its column: {} chars",
+        clamped.chars().count()
+    );
+    let selectors = "\u{FE0F}".repeat(40);
+    assert!(clamp(&selectors, 6).chars().count() <= 6);
+    // Ordinary text is untouched by the second bound.
+    assert_eq!(clamp("intake", 10), "intake");
+    assert_eq!(clamp("", 4), "");
+}

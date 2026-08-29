@@ -1167,7 +1167,15 @@ fn width_of(text: &str) -> usize {
 /// corners and the rejoin never are.
 fn clamp(text: &str, max: usize) -> String {
     let text = safe(text);
-    if width_of(&text) <= max {
+    // TWO bounds, deliberately. Display width is what the layout plans
+    // in, but the buffer consumes a cell per `char`, and a zero-width
+    // char (a combining mark, a variation selector) costs 0 columns and
+    // 1 cell. Bounding on width alone let a label of N such marks plan
+    // one column and overwrite N — erasing the rail, the arrows and a
+    // neighbour's state glyph. Bounding on the char count too is
+    // structural: it holds for every zero-width class, present and
+    // future, where enumerating them would not.
+    if width_of(&text) <= max && text.chars().count() <= max {
         return text;
     }
     if max == 0 {
@@ -1177,7 +1185,7 @@ fn clamp(text: &str, max: usize) -> String {
     for character in text.chars() {
         let mut wider = out.clone();
         wider.push(character);
-        if width_of(&wider) + 1 > max {
+        if width_of(&wider) + 1 > max || wider.chars().count() + 1 > max {
             break;
         }
         out = wider;
