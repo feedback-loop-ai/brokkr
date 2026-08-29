@@ -228,6 +228,16 @@ impl Tui {
     }
 }
 
+/// Any run in the fleet is running: the gate for the brand mark's
+/// pulse, refreshed on the fleet cadence the shell already keeps.
+fn fleet_live(views: &Views) -> bool {
+    views
+        .runs
+        .runs
+        .iter()
+        .any(|row| row.status.as_deref() == Some("running"))
+}
+
 fn panes_at(level: Level) -> usize {
     match level {
         Level::Runs => 1,
@@ -979,6 +989,31 @@ fn tone_style(status: &str) -> Style {
 
 /// The focused pane is the one with a bright border — the only focus
 /// affordance, and one that needs no legend.
+/// The brand mark, right-aligned on a pane's top border — the
+/// console's top-left logo, translated: its three rail nodes and the
+/// wordmark, with the third node pulsing on the shared live ramp
+/// whenever the fleet is forging (the favicon flip, in cells). Idle,
+/// the third node stands as the calibrated dot; the wordmark itself
+/// never animates.
+fn brand(fleet_live: bool, ticks: usize, animate: bool) -> Line<'static> {
+    let third = match fleet_live {
+        true => LIVE_RAMP[pulse(ticks, true, animate)],
+        false => "⏺",
+    };
+    let tone = match fleet_live {
+        true => Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+        false => Style::new().add_modifier(Modifier::DIM),
+    };
+    Line::from(vec![
+        span("[ ", Style::new().add_modifier(Modifier::DIM)),
+        span("∙ ∙ ", Style::new().fg(Color::Magenta)),
+        span(third, tone),
+        span(" the_", Style::new().add_modifier(Modifier::DIM)),
+        span("FORGE", Style::new().add_modifier(Modifier::BOLD)),
+        span(" ]", Style::new().add_modifier(Modifier::DIM)),
+    ])
+}
+
 fn pane(title: &str, focused: bool) -> Block<'static> {
     let border = match focused {
         true => Style::new().add_modifier(Modifier::BOLD),
@@ -1013,32 +1048,10 @@ pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
     // operator browsing an old run still knows the machine is at work.
     // It rides the fleet the shell already refreshes and the tick the
     // pulse already uses: no store read, no extra poll.
-    let beacon = views
-        .runs
-        .runs
-        .iter()
-        .any(|row| row.status.as_deref() == Some("running"));
-    let status_text = status_line(tui);
-    frame.render_widget(Paragraph::new(line(&status_text, plain())), status);
-    if beacon {
-        let glyph = LIVE_RAMP[pulse(tui.ticks, true, tui.animate)];
-        let text = format!("{glyph} forging");
-        let width = u16::try_from(width_of(&text)).unwrap_or(0) + 1;
-        if status.width > width + u16::try_from(width_of(&status_text)).unwrap_or(0) {
-            let corner = Rect {
-                x: status.x + status.width - width,
-                width,
-                ..status
-            };
-            frame.render_widget(
-                Paragraph::new(line(
-                    &text,
-                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
-                )),
-                corner,
-            );
-        }
-    }
+    // The corner 'forging' text retired when the brand mark landed on
+    // the graph pane (operator's ruling): ONE forging signal, the
+    // logo's pulsing rail node, visible at every level.
+    frame.render_widget(Paragraph::new(line(&status_line(tui), plain())), status);
     frame.render_widget(
         Paragraph::new(line(
             &footer_for(tui),
@@ -1162,7 +1175,7 @@ fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunV
         Constraint::Percentage(33),
     ])
     .areas(area);
-    draw_graph(frame, graph, tui, view, lens.as_ref());
+    draw_graph(frame, graph, tui, views, view, lens.as_ref());
     draw_seats(frame, seats, tui, view, lens.as_ref());
     draw_trail(frame, trail, tui, view, lens.as_ref());
 }
@@ -2122,6 +2135,7 @@ fn draw_graph(
     frame: &mut Frame,
     area: Rect,
     tui: &Tui,
+    views: &Views,
     view: &RunView,
     lens: Option<&render::Lens>,
 ) {
@@ -2150,7 +2164,10 @@ fn draw_graph(
     );
     lines.extend(paint(&plan, tui.ticks, tui.animate));
     frame.render_widget(
-        Paragraph::new(lines).block(pane("graph", tui.pane == 0)),
+        Paragraph::new(lines).block(
+            pane("graph", tui.pane == 0)
+                .title_top(brand(fleet_live(views), tui.ticks, tui.animate).right_aligned()),
+        ),
         area,
     );
 }
