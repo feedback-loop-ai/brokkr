@@ -335,6 +335,110 @@ fn bound_start_resume_and_manifest_differences_are_explicit() {
     assert!(manifest_diff(&json!({"engine":"old"}), &json!({"engine":"new"})).contains("non-file"));
 }
 
+/// A two-layer recipe library on disk: `base`, and a `derived` that
+/// extends it and replaces only the review seat. Returns the leaf
+/// directory, which is what a run is started from.
+fn composed_library(library: &Path) -> PathBuf {
+    let policy = json!({
+        "phases": ["work", "review", "done"],
+        "initial": "work",
+        "terminal": ["done"],
+        "rules": [
+            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+        ],
+    });
+    let seat = |result: &str| {
+        json!({
+            "results": [result],
+            "role": "roles/role.md",
+            "driver": {"command": ["driver"]},
+        })
+    };
+    for (name, document) in [
+        (
+            "base",
+            json!({"name": "base", "policy": "policy.json",
+                   "seats": {"work": seat("complete"), "review": seat("clean")}}),
+        ),
+        (
+            "derived",
+            json!({"name": "derived", "extends": "base",
+                   "override": {"seats": ["review"]},
+                   "seats": {"review": seat("clean")}}),
+        ),
+    ] {
+        let dir = library.join(name);
+        std::fs::create_dir_all(dir.join("roles")).unwrap();
+        std::fs::write(dir.join("roles/role.md"), format!("# {name}\n")).unwrap();
+        std::fs::write(
+            dir.join("bundle.json"),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+        if name == "base" {
+            std::fs::write(
+                dir.join("policy.json"),
+                serde_json::to_vec(&policy).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+    library.join("derived")
+}
+
+#[test]
+fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
+    // Decision 0017's pinning, end to end. The chain rides inside the
+    // manifest's `files` map, so it survives the v2 dispatch round-trip
+    // — `bundle_manifest_from_run` rebuilds from six enumerated keys and
+    // `dispatch_from_run` re-hashes that reconstruction against the
+    // stored `bundle_sha256`. A top-level member would not.
+    let dir = tempfile::tempdir().unwrap();
+    let leaf = composed_library(dir.path());
+    let composed = Bundle::compile(&leaf).unwrap();
+    assert_eq!(composed.chain.len(), 1);
+    assert!(composed.manifest["files"]
+        .as_object()
+        .unwrap()
+        .contains_key("@compose/0000/base"));
+
+    let store = Store::open(&dir.path().join("composed.db")).unwrap();
+    let envelope = dispatch(&composed);
+    let engine = Engine::start_with_dispatch(
+        store,
+        composed.clone(),
+        "composed",
+        Some(dir.path().into()),
+        envelope,
+    )
+    .unwrap();
+    let resumed = Engine::resume(
+        engine.store,
+        composed.clone(),
+        "bound-run",
+        Some(dir.path().into()),
+    )
+    .unwrap();
+    assert_eq!(resumed.feature, "composed");
+
+    // A base that moved under a plain run surfaces BY NAME: resume
+    // recompiles, re-resolves from the same library, and the existing
+    // digest-mismatch refusal reports which `files` entry moved.
+    let plain = Store::open(&dir.path().join("plain.db")).unwrap();
+    let engine = Engine::start(plain, composed, "plain", Some(dir.path().into())).unwrap();
+    let run_id = engine.run_id.clone();
+    std::fs::write(dir.path().join("base/roles/role.md"), "# moved\n").unwrap();
+    let moved = Bundle::compile(&leaf).unwrap();
+    match Engine::resume(engine.store, moved, &run_id, None) {
+        Ok(_) => panic!("a changed base must refuse"),
+        Err(EngineError::ManifestMismatch { detail, .. }) => {
+            assert_eq!(detail, "changed: @compose/0000/base")
+        }
+        Err(other) => panic!("expected a manifest mismatch: {other}"),
+    }
+}
+
 #[test]
 fn request_finish_input_and_execute_refusals_are_journaled() {
     let (_dir, mut engine) = engine(single_body(vec!["missing-driver".into()]));

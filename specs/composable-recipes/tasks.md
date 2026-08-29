@@ -133,7 +133,7 @@ merge logic exists** (M1), so every later movement runs against it.
   moved.
   *Proven by*: AC-23.
 
-- [ ] **T16 — Resume, including under a dispatch envelope.** No new
+- [x] **T16 — Resume, including under a dispatch envelope.** No new
   engine code is expected; this task exists to prove the `files`-key
   ruling actually survives `bundle_manifest_from_run`'s six-key rebuild
   (`dispatch.rs:422`) and `dispatch_from_run`'s `bundle_sha256` re-hash
