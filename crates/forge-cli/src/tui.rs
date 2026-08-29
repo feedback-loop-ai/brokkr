@@ -1546,6 +1546,12 @@ fn build(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
     let name_width = width_of(&name);
     Built {
         rail_width: x,
+        // A wide name widens its segment and the rail fills the extra
+        // span with dashes — connectors of unequal LENGTH, which is
+        // fine: the operator ruled the arrow defect was the tip glyph
+        // not continuing the line, never the dash run. Decoupling the
+        // name from the width was tried and cascades dense names away
+        // from their own nodes, which is far worse.
         width: x.max(name_width),
         name,
         name_width,
@@ -1839,7 +1845,15 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
         .min()
         .unwrap_or(plan.rail_row);
     let top = occupied.saturating_sub(1);
-    let (left, right) = (seg.x0.saturating_sub(1), seg.x1 + 1);
+    // The box encloses everything the segment DRAWS: its rail extent
+    // and its name, which may spill past the rail now that names no
+    // longer widen segments. A side through the middle of the name
+    // would be the box breaking its own contents.
+    let name_end = seg.name_x + width_of(&seg.name).saturating_sub(1);
+    let (left, right) = (
+        seg.x0.min(seg.name_x).saturating_sub(1),
+        seg.x1.max(name_end) + 1,
+    );
     for x in left..=right {
         put(cells, x, top, "╌", plain());
         put(cells, x, bottom, "╌", plain());
@@ -1922,7 +1936,16 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
         }
     }
     for head in &plan.edges {
-        put(&mut cells, *head, plan.rail_row, "→", plain());
+        // `>` and not `→` or `►`: `─` is box-drawing, which terminals
+        // draw at the exact cell midline, while arrow glyphs come from
+        // the font's outlines — `→`'s stem falls short of the stroke
+        // and `►`'s point sits below the midline in common fonts. `>`
+        // is the one head every monospace font tunes to pair with
+        // dashes (`->`, `-->`), so its apex sits on the dash axis. The
+        // guaranteed-collinear alternative is box-drawing `╼`, kept in
+        // reserve: it aligns by construction but reads as a heavy tip
+        // rather than an arrowhead.
+        put(&mut cells, *head, plan.rail_row, ">", plain());
     }
     for seg in &plan.segments {
         for mark in &seg.marks {
