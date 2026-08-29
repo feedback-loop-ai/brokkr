@@ -112,4 +112,14 @@ pub struct AttemptReport {
     pub session_ref: Option<String>,
     pub checkpoints: Vec<Value>,
     pub stderr: String,
+    /// Did the driver ever send `accepted`? The process layer already
+    /// tracks this; surfacing it is what lets the engine decide the
+    /// bounded-fallback question STRUCTURALLY (decision 0016) instead of
+    /// sniffing stderr for a provider's prose.
+    ///
+    /// `Failed` plus never accepted plus no checkpoint IS "failed to
+    /// start"; once `accepted` arrives, fallback is unreachable by
+    /// construction — decision 0016's mid-session boundary mechanised
+    /// rather than described.
+    pub accepted: bool,
 }

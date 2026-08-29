@@ -33,7 +33,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// Wire version of every model in this crate. `--json` consumers pin it.
-pub const VIEW_VERSION: u32 = 1;
+/// Bumped to 2 by decision 0016: participants gained `provenance` and
+/// the run view gained `notices`.
+pub const VIEW_VERSION: u32 = 2;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -140,6 +142,32 @@ pub struct CheckpointRow {
     pub recorded_at: String,
 }
 
+/// Which agent, model and provider actually served one invocation
+/// (decision 0016). Derived HERE and nowhere else: `line` is the
+/// rendered sentence every surface prints, so no surface can decide on
+/// its own how to describe a fallback — or quietly stop mentioning one.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct Provenance {
+    pub agent: String,
+    pub model: String,
+    pub provider: String,
+    pub chain_index: u64,
+    /// The forge never claims the second choice equals the first.
+    pub fallback: bool,
+    pub line: String,
+}
+
+/// A run-level fact an operator must see rather than find: a
+/// compile-time capability gap the agent marked optional, or a fallback
+/// that actually happened. A notice that only lands in JSON nobody reads
+/// is the ruling's "never nothing" defeated.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct RunNotice {
+    /// A closed vocabulary: `capability-gap` or `fallback`.
+    pub kind: String,
+    pub text: String,
+}
+
 #[derive(Serialize)]
 pub struct Participant {
     pub key: String,
@@ -161,6 +189,9 @@ pub struct Participant {
     pub session_id: Option<String>,
     pub terminal_line: Cell,
     pub checkpoints: Vec<CheckpointRow>,
+    /// Absent for an inline seat: the journal carries no claim about
+    /// which model served it, and the view invents none.
+    pub provenance: Option<Provenance>,
 }
 
 #[derive(Serialize)]
@@ -228,6 +259,10 @@ pub struct RunView {
     pub participants: Vec<Participant>,
     pub live: Vec<LiveLine>,
     pub phases: Vec<Phase>,
+    /// Run-level facts every surface shows (decision 0016): optional
+    /// capability gaps recorded at compile time, and fallbacks that
+    /// actually happened.
+    pub notices: Vec<RunNotice>,
     pub journal: Vec<JournalRow>,
     /// Every event, unfiltered: the console's `full journal · N events`.
     pub event_count: usize,
@@ -478,6 +513,9 @@ struct Build {
     key: String,
     label: String,
     member: Option<String>,
+    /// The LAST attempt's provenance for this invocation site: what
+    /// actually ran, which is the only thing a fallback is visible in.
+    provenance: Option<Value>,
     turns: Option<u64>,
     last_turn: Option<Value>,
     session: Option<Value>,
@@ -512,6 +550,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         key: key.clone(),
         label,
         member: member.map(str::to_string),
+        provenance: None,
         turns: None,
         last_turn: None,
         session: None,
@@ -559,11 +598,30 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
         };
         match event.event_type {
             EventType::EffectStarted => {
-                let effect = &mut scan.effects[slot];
-                effect.attempts += 1;
-                effect.open = field(payload, "attempt_id").map(str::to_string);
-                if effect.started_at.is_none() {
-                    effect.started_at = Some(event.recorded_at.clone());
+                {
+                    let effect = &mut scan.effects[slot];
+                    effect.attempts += 1;
+                    effect.open = field(payload, "attempt_id").map(str::to_string);
+                    if effect.started_at.is_none() {
+                        effect.started_at = Some(event.recorded_at.clone());
+                    }
+                }
+                // Decision 0016's single derivation point. A site named
+                // here gets a participant even if it never checkpoints:
+                // "which model served this member" is a fact about the
+                // attempt, not about whether the member said anything.
+                let entries = payload
+                    .get("provenance")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for entry in entries {
+                    let member = entry
+                        .get("member")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    let part = ensure(&mut scan, slot, effect_id, member.as_deref());
+                    scan.parts[part].provenance = Some(entry);
                 }
             }
             EventType::EffectSucceeded
@@ -901,7 +959,90 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .map(str::to_string),
             terminal_line: terminal_line(events, scan, part),
             checkpoints: checkpoint_rows(part),
+            provenance: part.provenance.as_ref().map(provenance_of),
         });
+    }
+    out
+}
+
+/// The one place a provenance record becomes words. Every surface prints
+/// `line`; none composes its own, which is what stops a readout from
+/// quietly dropping the "not the first choice" half of the sentence.
+fn provenance_of(entry: &Value) -> Provenance {
+    let text = |key: &str| field(entry, key).unwrap_or("?").to_string();
+    let chain_index = entry
+        .get("chain_index")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let (agent, model, provider) = (text("agent"), text("model"), text("provider"));
+    let line = match chain_index {
+        0 => format!("{agent} · {model} via {provider}"),
+        // The chain is a fallback chain, not a portability claim.
+        _ => format!(
+            "{agent} · {model} via {provider} (fallback #{chain_index}; \
+             not the agent's first choice)"
+        ),
+    };
+    Provenance {
+        agent,
+        model,
+        provider,
+        chain_index,
+        fallback: chain_index > 0,
+        line,
+    }
+}
+
+/// Run-level notices, from two journaled sources and no third: the
+/// compile-time record already carried inside `run/started`'s manifest,
+/// and the fallbacks that actually happened. Deduplicated by text, in
+/// first-seen order.
+fn run_notices(events: &[EventEnvelope]) -> Vec<RunNotice> {
+    let mut out: Vec<RunNotice> = Vec::new();
+    let mut push = |kind: &str, text: String| {
+        let notice = RunNotice {
+            kind: kind.to_string(),
+            text,
+        };
+        if !out.contains(&notice) {
+            out.push(notice);
+        }
+    };
+    let agents = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/agents"))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (site, record) in &agents {
+        let notices = record
+            .get("notices")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for notice in notices {
+            let message = field(&notice, "message").unwrap_or("capability gap");
+            push("capability-gap", format!("{site}: {message}"));
+        }
+    }
+    for event in events {
+        if event.event_type != EventType::EffectStarted {
+            continue;
+        }
+        let entries = event
+            .payload
+            .get("provenance")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for entry in entries {
+            let derived = provenance_of(&entry);
+            if derived.fallback {
+                let site = field(&entry, "member").unwrap_or("seat").to_string();
+                push("fallback", format!("{site}: {}", derived.line));
+            }
+        }
     }
     out
 }
@@ -1444,6 +1585,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         participants: participants(events, &scan),
         live: live_lines(events),
         phases: phase_rail(events, &scan, &buckets, state),
+        notices: run_notices(events),
         journal: journal_rows(events, &scan, &buckets),
         event_count: events.len(),
     }

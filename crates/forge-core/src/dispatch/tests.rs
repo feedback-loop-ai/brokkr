@@ -391,6 +391,25 @@ fn manifest_conversion_refuses_every_malformed_boundary() {
             "{key}"
         );
     }
+    // AC-19 (decision 0016): the Looper lineage REFUSES an adopting
+    // bundle rather than truncating its pin. `bundle_manifest_from_run`
+    // reconstructs from six named keys, so an `agents` key would be
+    // silently dropped and the run would become unresumable with a diff
+    // that blames no file. A loud refusal beats a quiet substitution.
+    let mut adopting = valid.clone();
+    adopting["agents"] = json!({"implement": {"agent": "implementer"}});
+    let adopting_sha = canonical::sha256_hex(&adopting);
+    let refusal = build_run_manifest_v2(&adopting, fixture(&adopting_sha));
+    assert_eq!(
+        refusal,
+        Err(DispatchError::AgentsUnsupportedByDispatchLineage)
+    );
+    let message = refusal.unwrap_err().to_string();
+    assert!(message.contains("unresumable"), "{message}");
+    assert!(message.contains("v2-lineage manifest version"), "{message}");
+    // Non-adopting bundles dispatch exactly as they did.
+    assert!(build_run_manifest_v2(&valid, fixture(&bundle_sha)).is_ok());
+
     let mut wrong_recipe = dispatch.clone();
     wrong_recipe.recipe.compiled_sha256 = "d".repeat(64);
     assert_eq!(

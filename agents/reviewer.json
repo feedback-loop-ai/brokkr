@@ -1,0 +1,24 @@
+{
+  "description": "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
+  "charter": "charters/reviewer.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 3600
+  }
+}

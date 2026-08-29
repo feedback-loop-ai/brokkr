@@ -135,6 +135,7 @@ impl DriverProcess {
         outcome: AttemptOutcome,
         session_ref: Option<String>,
         checkpoints: Vec<Value>,
+        accepted: bool,
     ) -> AttemptReport {
         // Disarm the watchdog before shutdown so a slow exit is not killed.
         drop(self.watchdog_disarm.take());
@@ -149,6 +150,7 @@ impl DriverProcess {
             session_ref,
             checkpoints,
             stderr,
+            accepted,
         }
     }
 
@@ -185,9 +187,24 @@ impl DriverProcess {
         input: Value,
         mut on_checkpoint: impl FnMut(&Value),
     ) -> AttemptReport {
+        let mut session_ref: Option<String> = None;
+        // Declared before the first refusal so every terminal path — the
+        // handshake failures included — reports whether the driver ever
+        // accepted. That single bit is the engine's fail-to-start
+        // predicate; leaving it out of a path would let one shape of
+        // failure lie about which side of the mid-session boundary it is
+        // on.
+        let mut accepted = false;
+        let mut checkpoints: Vec<Value> = Vec::new();
+
         macro_rules! fail {
             ($($arg:tt)*) => {
-                return self.finish(AttemptOutcome::Failed { error: format!($($arg)*) }, None, Vec::new())
+                return self.finish(
+                    AttemptOutcome::Failed { error: format!($($arg)*) },
+                    None,
+                    Vec::new(),
+                    accepted,
+                )
             };
         }
 
@@ -205,7 +222,7 @@ impl DriverProcess {
             Some(Err(e)) => fail!("{e}"),
             None => {
                 let outcome = self.eof_outcome(false);
-                return self.finish(outcome, None, Vec::new());
+                return self.finish(outcome, None, Vec::new(), accepted);
             }
         }
         if let Err(e) = self.send(Body::Start {
@@ -217,9 +234,6 @@ impl DriverProcess {
             fail!("could not send start: {e}");
         }
 
-        let mut session_ref: Option<String> = None;
-        let mut accepted = false;
-        let mut checkpoints: Vec<Value> = Vec::new();
         loop {
             match self.recv() {
                 Some(Ok(message)) => match message.body {
@@ -266,14 +280,14 @@ impl DriverProcess {
                                 error: error.unwrap_or_else(|| "driver reported failure".into()),
                             },
                         };
-                        return self.finish(outcome, session_ref, checkpoints);
+                        return self.finish(outcome, session_ref, checkpoints, accepted);
                     }
                     other => fail!("unexpected driver message {:?}", other),
                 },
                 Some(Err(e)) => fail!("{e}"),
                 None => {
                     let outcome = self.eof_outcome(accepted);
-                    return self.finish(outcome, session_ref, checkpoints);
+                    return self.finish(outcome, session_ref, checkpoints, accepted);
                 }
             }
         }

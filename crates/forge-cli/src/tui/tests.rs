@@ -1691,3 +1691,73 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
     apply(&mut participant, &views, Key::Enter);
     assert!(participant.reading.is_none());
 }
+
+// ------------------------------------- AC-8/AC-17: provenance in the tui
+
+/// The same journal, with the intake seat agent-resolved and fallen back
+/// to its second model — plus the compile-time notice the manifest
+/// already carries.
+fn adopting_views() -> Views {
+    let mut events = journal("intake");
+    events[0].payload = json!({
+        "feature": "one derivation, three surfaces",
+        "manifest": {"agents": {"intake": {"notices": [
+            {"message": "optional capability gap: no MCP server github"},
+        ]}}},
+    });
+    events[3].payload = json!({
+        "effect_id": "eff-i", "attempt_id": "att1",
+        "provenance": [{"member": null, "agent": "intake", "model": "opus",
+                        "provider": "claude", "chain_index": 1}],
+    });
+    Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(forge_view::run_view(&events, Some(&state()))),
+        transcript: None,
+    }
+}
+
+/// The run level shows both run-level notices and the per-seat sentence,
+/// and it shows the sentence the derivation composed rather than one of
+/// its own.
+#[test]
+fn the_run_level_shows_run_notices_and_per_seat_provenance() {
+    let adopting = adopting_views();
+    let frame = frame_of(&at_run(), &adopting, 120, 40);
+    assert!(frame.contains("note  capability-gap"), "{frame}");
+    assert!(frame.contains("note  fallback"), "{frame}");
+    assert!(frame.contains("intake · opus via claude"), "{frame}");
+
+    // A run that resolves nothing shows neither, so an inline fleet
+    // reads exactly as it did before decision 0016.
+    let inline = views();
+    let frame = frame_of(&at_run(), &inline, 120, 40);
+    assert!(!frame.contains("note  "), "{frame}");
+    assert!(!frame.contains(" via "), "{frame}");
+}
+
+/// The seat level answers "what served this seat" beside "how do I
+/// resume it", and marks absence rather than guessing.
+#[test]
+fn the_seat_level_names_what_served_the_seat() {
+    let adopting = adopting_views();
+    let seats = frame_of(&at_seats("eff-i"), &adopting, 120, 40);
+    assert!(seats.contains("intake · opus via claude"), "{seats}");
+
+    // Two rungs: the first scopes the seat, the second descends into it.
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &adopting, Key::Enter);
+    apply(&mut tui, &adopting, Key::Enter);
+    let detail = frame_of(&tui, &adopting, 120, 40);
+    assert!(detail.contains("served by"), "{detail}");
+    assert!(detail.contains("intake · opus via claude"), "{detail}");
+
+    let inline = views();
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &inline, Key::Enter);
+    apply(&mut tui, &inline, Key::Enter);
+    let detail = frame_of(&tui, &inline, 120, 40);
+    assert!(detail.contains("served by"), "{detail}");
+    assert!(detail.contains(forge_view::ABSENT), "{detail}");
+}

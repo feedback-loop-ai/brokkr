@@ -961,6 +961,14 @@ fn draw_graph(
 ) {
     let cursor = tui.cursor[0].as_deref();
     let mut lines: Vec<Line> = Vec::new();
+    // Run-level notices first: a fallback selection and an optional
+    // capability gap are facts an operator must SEE, not find.
+    for notice in &view.notices {
+        lines.push(line(
+            &format!("note  {} — {}", notice.kind, notice.text),
+            tone_style("working"),
+        ));
+    }
     for phase in &view.phases {
         // The scope's own marker, decided by the crate's ONE phase
         // predicate — the same call `graph_block` makes.
@@ -1056,6 +1064,23 @@ fn draw_seats(
             ])
             .style(selected_style(cursor == Some(part.key.as_str()))),
         );
+        // Which agent, model and provider actually served this seat
+        // (decision 0016). The sentence is the model's; this pane only
+        // places it, so a fallback cannot go unmentioned here while it
+        // shows elsewhere.
+        if let Some(provenance) = &part.provenance {
+            // In the widest column, under its seat: the narrow leading
+            // columns would clip the sentence, and a clipped honesty
+            // rule is not one.
+            rows.push(Row::new(vec![
+                cell("", plain()),
+                cell("", plain()),
+                cell("", plain()),
+                cell("", plain()),
+                cell("", plain()),
+                cell(&format!("↳ {}", provenance.line), plain()),
+            ]));
+        }
     }
     let widths = [
         Constraint::Length(22),
@@ -1101,7 +1126,7 @@ fn draw_trail(
 
 fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, part: &Participant) {
     let [head, stream, transcript] = Layout::vertical([
-        Constraint::Length(6),
+        Constraint::Length(7),
         Constraint::Percentage(50),
         Constraint::Percentage(50),
     ])
@@ -1124,6 +1149,13 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         ]),
         line(&format!("terminal  {}", part.terminal_line.text), plain()),
         line(&format!("full session: claude --resume {session}"), plain()),
+        line(
+            &match &part.provenance {
+                Some(provenance) => format!("served by  {}", provenance.line),
+                None => format!("served by  {}", forge_view::ABSENT),
+            },
+            plain(),
+        ),
         line(
             &format!(
                 "attempts {} · turns {} · cost {}",

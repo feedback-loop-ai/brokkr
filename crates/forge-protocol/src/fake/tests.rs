@@ -15,10 +15,41 @@ fn start(seat: &str) -> Body {
 }
 
 fn session(script: &Value, input: &str, hang: impl FnMut()) -> String {
+    session_with_model(script, None, input, hang)
+}
+
+fn session_with_model(
+    script: &Value,
+    model: Option<&str>,
+    input: &str,
+    hang: impl FnMut(),
+) -> String {
     let dir = tempfile::tempdir().unwrap();
     let mut output = Vec::new();
-    run_fake_session(script, dir.path(), input.as_bytes(), &mut output, hang).unwrap();
+    run_fake_session(
+        script,
+        dir.path(),
+        model,
+        input.as_bytes(),
+        &mut output,
+        hang,
+    )
+    .unwrap();
     String::from_utf8(output).unwrap()
+}
+
+/// A pinned model is echoed back as evidence that it reached the driver;
+/// with no pin the session is byte-identical to what it always was.
+#[test]
+fn a_pinned_model_is_echoed_and_its_absence_changes_nothing() {
+    let script = json!({"seats": {
+        "success": [{"behavior": "succeed", "result": {"result": "complete"}}],
+    }});
+    let input = wire(start("success"));
+    let pinned = session_with_model(&script, Some("model-x"), &input, || {});
+    assert!(pinned.contains("\"step\":\"model-pinned\""), "{pinned}");
+    assert!(pinned.contains("model-x"), "{pinned}");
+    assert!(!session(&script, &input, || {}).contains("model-pinned"));
 }
 
 #[test]

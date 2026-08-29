@@ -4,26 +4,10 @@
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
       "results": [
         "resolved"
       ],
-      "limits": {
-        "max_attempts": 2,
-        "timeout_seconds": 1800
-      },
-      "driver": {
-        "command": [
-          "{forge}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-        ]
-      }
+      "agent": "intake-speckit"
     },
     "design": {
       "results": [
@@ -40,52 +24,16 @@
           "aggregate": "unanimous-pass",
           "panel": {
             "simplicity": {
-              "role": "roles/design-simplicity.md",
-              "driver": {
-                "command": [
-                  "{forge}",
-                  "driver",
-                  "claude",
-                  "--",
-                  "--permission-mode",
-                  "acceptEdits",
-                  "--allowedTools",
-                  "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-                ]
-              }
+              "agent": "position-simplicity"
             },
             "robustness": {
-              "role": "roles/design-robustness.md",
-              "driver": {
-                "command": [
-                  "{forge}",
-                  "driver",
-                  "claude",
-                  "--",
-                  "--permission-mode",
-                  "acceptEdits",
-                  "--allowedTools",
-                  "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-                ]
-              }
+              "agent": "position-robustness"
             }
           }
         },
         {
           "name": "chief",
-          "role": "roles/design-chief.md",
-          "driver": {
-            "command": [
-              "{forge}",
-              "driver",
-              "claude",
-              "--",
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-            ]
-          }
+          "agent": "chief-architect"
         },
         {
           "name": "speckit-check",
@@ -105,51 +53,19 @@
       ]
     },
     "implement": {
-      "role": "roles/implementer.md",
       "results": [
         "complete",
         "broken",
         "blocked"
       ],
-      "limits": {
-        "max_attempts": 2,
-        "timeout_seconds": 5400
-      },
-      "driver": {
-        "command": [
-          "{forge}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-        ]
-      }
+      "agent": "implementer-speckit"
     },
     "verify": {
-      "role": "roles/verifier.md",
       "results": [
         "pass",
         "fail"
       ],
-      "limits": {
-        "max_attempts": 2,
-        "timeout_seconds": 3600
-      },
-      "driver": {
-        "command": [
-          "{forge}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-        ]
-      }
+      "agent": "verifier-speckit"
     },
     "review": {
       "results": [
@@ -169,59 +85,19 @@
       "aggregate": "review-panel",
       "panel": {
         "spec-compliance": {
-          "role": "roles/review-spec-compliance.md",
-          "driver": {
-            "command": [
-              "{forge}",
-              "driver",
-              "claude",
-              "--",
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-            ]
-          }
+          "agent": "review-spec-compliance"
         },
         "security": {
-          "role": "roles/review-security.md",
-          "driver": {
-            "command": [
-              "{forge}",
-              "driver",
-              "claude",
-              "--",
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-            ]
-          }
+          "agent": "review-security-speckit"
         }
       }
     },
     "ship": {
-      "role": "roles/shipper.md",
       "results": [
         "ready",
         "shipped"
       ],
-      "limits": {
-        "max_attempts": 2,
-        "timeout_seconds": 1800
-      },
-      "driver": {
-        "command": [
-          "{forge}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-        ]
-      }
+      "agent": "shipper-speckit"
     }
   }
 }

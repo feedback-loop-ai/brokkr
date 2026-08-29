@@ -1,0 +1,14 @@
+{
+  "provider": "codex",
+  "binary": "codex",
+  "driver": [
+    "{forge}",
+    "driver",
+    "codex",
+    "--"
+  ],
+  "models": {},
+  "model_flag": "--model",
+  "tool_permissions": "unsupported",
+  "mcp": "unsupported"
+}

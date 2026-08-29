@@ -1,0 +1,24 @@
+{
+  "description": "Runs the suites and gates and reports pass or fail on evidence, never on intent.",
+  "charter": "charters/verifier.md",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 3600
+  }
+}
