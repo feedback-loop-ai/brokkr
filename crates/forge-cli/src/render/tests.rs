@@ -202,6 +202,37 @@ fn control_characters_never_reach_the_terminal() {
     assert_eq!(Safe::new("a\u{7f}b\u{9b}c").as_str(), "abc");
 }
 
+/// `char::is_control()` does not cover the bidi and zero-width
+/// formatting characters, and those **visually reorder the rest of a
+/// rendered line** — a hostile seat label can forge a ruling line
+/// without a single escape byte. One sanitizer serves all three
+/// surfaces, so the hardening lands here (decision 0014).
+#[test]
+fn bidi_and_zero_width_formatting_characters_never_reach_the_terminal() {
+    let hostile = "seat\u{202E}gnippots\u{202C} \u{200B}\u{FEFF}label";
+    let safe = Safe::new(hostile);
+    assert_eq!(safe.as_str(), "seatgnippots label", "in source order");
+    assert_eq!(safe.width(), 18, "width is computed on the sanitized text");
+    // Every enumerated range, at both of its ends and inside.
+    for stripped in [
+        '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}', '\u{2060}',
+        '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
+    ] {
+        assert!(reorders(stripped), "{stripped:?} reorders a line");
+        assert_eq!(Safe::new(&format!("a{stripped}b")).as_str(), "ab");
+    }
+    // And the characters on the other side of every boundary stay: this
+    // is an enumerated list, not a blanket sweep of the formatting
+    // planes, so ordinary text is untouched.
+    for kept in [
+        '\u{200A}', '\u{2010}', '\u{2029}', '\u{202F}', '\u{205F}', '\u{2065}', '\u{206A}',
+        '\u{2070}', '\u{FEFE}', '\u{FF00}', 'a', 'é', '中',
+    ] {
+        assert!(!reorders(kept), "{kept:?} is ordinary text");
+        assert_eq!(Safe::new(&format!("a{kept}b")).width(), 3);
+    }
+}
+
 #[test]
 fn a_hostile_feature_and_result_token_render_as_inert_text() {
     let hostile = state(Status::Running, None, None);
@@ -242,6 +273,15 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     assert_eq!(status_code("running"), BOLD);
     assert_eq!(status_code("working"), BOLD);
     assert_eq!(status_code("indeterminate"), DIM);
+    // One classification, expressed as ANSI here and as a ratatui style
+    // in the TUI: `status_code` is `tone` plus a table (decision 0014).
+    assert!(matches!(tone("completed"), Tone::Good));
+    assert!(matches!(tone("stopped"), Tone::Bad));
+    assert!(matches!(tone("working"), Tone::Live));
+    assert!(
+        matches!(tone("indeterminate"), Tone::Quiet),
+        "an unknown status is never guessed into one of the four"
+    );
 
     // Colour is a post-processing wrap of an already-rendered plain
     // string: the goldens all run plain and this proves the wrapping.
@@ -263,6 +303,29 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     let plain = inspect(&view(None), None, true, &Style::plain(100));
     assert!(plain.contains('⑂') && plain.contains('→'));
     assert!(!plain.contains('\x1b'));
+}
+
+/// The phase predicate is one function, called by `graph_block` and by
+/// the TUI. Two copies of a scope rule is one copy too many.
+#[test]
+fn the_phase_scope_predicate_answers_in_both_lens_states() {
+    let view = view(None);
+    let design = view
+        .phases
+        .iter()
+        .find(|phase| phase.name == "design")
+        .unwrap();
+    let intake = view
+        .phases
+        .iter()
+        .find(|phase| phase.name == "intake")
+        .unwrap();
+    assert!(keeps_phase(None, design), "no lens keeps every phase");
+    let lens = lens_for(&view, Some(&Scope::Phase("design".into())))
+        .unwrap()
+        .unwrap();
+    assert!(keeps_phase(Some(&lens), design));
+    assert!(!keeps_phase(Some(&lens), intake));
 }
 
 #[test]

@@ -155,21 +155,44 @@ pub fn handle(db: &Path, path: &str) -> Response {
     not_found(path)
 }
 
-/// Lowest-level drilldown: the seat session's transcript, located in
-/// the operator's local Claude projects directory by session id. The
-/// id is strictly validated before any path is formed; the response
-/// carries prose text and tool names (file targets only), size-capped.
-/// This is a loopback-only, operator-local surface — the same trust as
-/// `claude --resume <id>` in a terminal.
-fn session_transcript(id: &str) -> Response {
-    let valid =
-        !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
-    if !valid {
-        return not_found("session");
+/// One block of a turn: prose, or a tool marker carrying a file target.
+pub(crate) struct Block {
+    pub kind: &'static str,
+    pub text: String,
+}
+
+/// One transcript turn as the surfaces show it. Two plain structs: no
+/// `serde` derive, so the TUI reaches the transcript without the console
+/// gaining a dependency edge or the JSON body gaining a definition.
+pub(crate) struct Turn {
+    pub role: String,
+    pub ts: String,
+    pub blocks: Vec<Block>,
+}
+
+/// The id is joined into `~/.claude/projects/*/<id>.jsonl`, so validating
+/// it is a path-traversal guard and belongs with the lookup, never in a
+/// caller. Both surfaces call [`session_turns`], which calls this first.
+///
+/// It is also a DISPLAY guard, which is why it is public: the id is a
+/// raw journal string, and every surface renders it inside a
+/// `claude --resume <id>` line an operator is invited to paste. Control
+/// characters alone are not enough — `;`, `&&`, `$(…)` and backticks
+/// survive sanitizing, so a hostile seat could otherwise hand the
+/// operator a pasteable shell command. Ids that fail this render as the
+/// deliberate-absence mark instead.
+pub fn valid_session_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+}
+
+/// Validation, location and parse, together: the seat session's local
+/// transcript by id, plus whether the size cap truncated it. `None` is
+/// "there is no such transcript on this machine" — never a guess.
+pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)> {
+    if !valid_session_id(id) {
+        return None;
     }
-    let Some(home) = std::env::var_os("HOME") else {
-        return not_found("transcript");
-    };
+    let home = std::env::var_os("HOME")?;
     let projects = Path::new(&home).join(".claude").join("projects");
     let file_name = format!("{id}.jsonl");
     let mut found = None;
@@ -182,12 +205,7 @@ fn session_transcript(id: &str) -> Response {
             }
         }
     }
-    let Some(path) = found else {
-        return not_found("transcript");
-    };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return not_found("transcript");
-    };
+    let text = std::fs::read_to_string(found?).ok()?;
     let mut turns = Vec::new();
     let mut budget: usize = 4_000_000;
     let mut truncated = false;
@@ -212,14 +230,20 @@ fn session_transcript(id: &str) -> Response {
             .to_string();
         let mut blocks = Vec::new();
         match msg.get("content") {
-            Some(Value::String(t)) => blocks.push(json!({"kind": "text", "text": t})),
+            Some(Value::String(t)) => blocks.push(Block {
+                kind: "text",
+                text: t.clone(),
+            }),
             Some(Value::Array(parts)) => {
                 for part in parts {
                     match part.get("type").and_then(Value::as_str) {
                         Some("text") => {
                             if let Some(t) = part.get("text").and_then(Value::as_str) {
                                 if !t.trim().is_empty() {
-                                    blocks.push(json!({"kind": "text", "text": t}));
+                                    blocks.push(Block {
+                                        kind: "text",
+                                        text: t.to_string(),
+                                    });
                                 }
                             }
                         }
@@ -234,7 +258,10 @@ fn session_transcript(id: &str) -> Response {
                             } else {
                                 format!("{name} · {target}")
                             };
-                            blocks.push(json!({"kind": "tool", "text": label}));
+                            blocks.push(Block {
+                                kind: "tool",
+                                text: label,
+                            });
                         }
                         _ => {}
                     }
@@ -245,17 +272,44 @@ fn session_transcript(id: &str) -> Response {
         if blocks.is_empty() {
             continue;
         }
-        let cost: usize = blocks
-            .iter()
-            .filter_map(|b| b.get("text").and_then(Value::as_str).map(str::len))
-            .sum();
+        let cost: usize = blocks.iter().map(|block| block.text.len()).sum();
         if cost > budget {
             truncated = true;
             break;
         }
         budget -= cost;
-        turns.push(json!({"role": role, "ts": ts, "blocks": blocks}));
+        turns.push(Turn { role, ts, blocks });
     }
+    Some((turns, truncated))
+}
+
+/// Lowest-level drilldown: the seat session's transcript, located in
+/// the operator's local Claude projects directory by session id. The
+/// id is strictly validated before any path is formed; the response
+/// carries prose text and tool names (file targets only), size-capped.
+/// This is a loopback-only, operator-local surface — the same trust as
+/// `claude --resume <id>` in a terminal.
+fn session_transcript(id: &str) -> Response {
+    // The two misses read differently to the operator, and that is the
+    // only reason the validity question is asked here as well: the guard
+    // that matters lives inside `session_turns`.
+    if !valid_session_id(id) {
+        return not_found("session");
+    }
+    let Some((turns, truncated)) = session_turns(id) else {
+        return not_found("transcript");
+    };
+    let turns: Vec<Value> = turns
+        .iter()
+        .map(|turn| {
+            let blocks: Vec<Value> = turn
+                .blocks
+                .iter()
+                .map(|block| json!({"kind": block.kind, "text": block.text}))
+                .collect();
+            json!({"role": turn.role, "ts": turn.ts, "blocks": blocks})
+        })
+        .collect();
     ok(
         "application/json",
         json!({"session_id": id, "turns": turns, "truncated": truncated}).to_string(),

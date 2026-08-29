@@ -38,3 +38,8 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 ureq = { version = "2.12", features = ["json"] }
 url = "2"
+# Decision 0014's narrow, explicit exception to the no-new-dependencies
+# default, on the TUI path only. crossterm is reached through ratatui's
+# own re-export: a second manifest line could resolve a different
+# crossterm than `ratatui-crossterm` links.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }

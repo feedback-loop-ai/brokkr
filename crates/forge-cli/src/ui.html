@@ -812,23 +812,31 @@ function renderDetail(id, view) {
     };
     back.appendChild(link);
     detail.appendChild(back);
+    // A session id is a raw journal string rendered into a command the
+    // operator is invited to paste: ';', '&&', '$(…)' and backticks all
+    // survive textContent, so an id that cannot name a transcript is
+    // treated as absent rather than shown. Same guard, same shape, as
+    // the server's session lookup and the TUI's resume line.
+    const sessionId = typeof part.session_id === 'string' &&
+      part.session_id.length > 0 && part.session_id.length <= 64 &&
+      /^[0-9a-fA-F-]+$/.test(part.session_id) ? part.session_id : null;
     const header = el('p');
     header.appendChild(document.createTextNode(part.label + ' '));
     header.appendChild(badge(part.status, part.status_class));
-    if (part.session_id !== null) {
-      header.appendChild(document.createTextNode(' · session ' + part.session_id));
+    if (sessionId !== null) {
+      header.appendChild(document.createTextNode(' · session ' + sessionId));
     }
     detail.appendChild(header);
     // The lowest level IS the session prose. When the seat's transcript
     // exists on this machine it renders here; the journal's checkpoint
     // stream is only the fallback (exec steps, vanished transcripts).
-    if (part.session_id !== null) {
+    if (sessionId !== null) {
       detail.appendChild(el('p', 'cause',
-        'full session: claude --resume ' + part.session_id));
+        'full session: claude --resume ' + sessionId));
       const box = el('div', 'transcript');
       box.appendChild(el('p', 'cause', 'loading transcript…'));
       detail.appendChild(box);
-      renderTranscript(box, part.session_id, part);
+      renderTranscript(box, sessionId, part);
     } else {
       detail.appendChild(checkpointTable(part));
     }

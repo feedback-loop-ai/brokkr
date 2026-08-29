@@ -2277,3 +2277,77 @@ fn a_run_id_prefix_and_latest_read_the_same_run_as_the_full_id() {
         );
     }
 }
+
+/// A directory as bytes: relative path, length, content. `forge tui`'s
+/// read-only claim is "the operator's disk looks the same afterwards",
+/// and an NDJSON export alone would pass cleanly through a created
+/// database, a WAL and a migration — so the tree is compared too.
+fn tree(dir: &Path) -> Vec<(String, usize, Vec<u8>)> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if path.is_dir() {
+            for (child, len, bytes) in tree(&path) {
+                out.push((format!("{name}/{child}"), len, bytes));
+            }
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        out.push((name, bytes.len(), bytes));
+    }
+    out.sort();
+    out
+}
+
+/// `forge tui` is listed among the read verbs, refuses before it can
+/// touch anything, and leaves the workspace byte-identical.
+#[test]
+fn forge_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+    let path = ws.db();
+    let db = path.to_str().unwrap();
+
+    let (code, help, _) = ws.forge_raw(&["--help"]);
+    assert_eq!(code, Some(0));
+    assert!(help.contains("tui"), "the verb is listed: {help}");
+    let (code, verb_help, _) = ws.forge_raw(&["tui", "--help"]);
+    assert_eq!(code, Some(0));
+    assert!(verb_help.contains("--run"), "{verb_help}");
+    assert!(verb_help.contains("Read-only"), "{verb_help}");
+
+    // A database that does not exist is a refusal, not an initialized
+    // empty store: `Store::open` creates a file, a WAL and a meta row,
+    // so the gate stands in front of it.
+    let missing = ws.path().join("nowhere.db");
+    let (code, _, stderr) = ws.forge_raw(&["tui", "--db", missing.to_str().unwrap()]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("forge inspect"), "{stderr}");
+    assert!(stderr.contains("forge watch"), "{stderr}");
+    for suffix in ["", "-wal", "-shm"] {
+        let candidate = ws.path().join(format!("nowhere.db{suffix}"));
+        assert!(!candidate.exists(), "a read created {candidate:?}");
+    }
+
+    // And with a real database: a subprocess's stdout is a pipe, so the
+    // not-a-tty refusal fires deterministically here and in CI.
+    let before_events = ws.exported_events(&run_id);
+    let before_tree = tree(ws.path());
+    let (code, _, stderr) = ws.forge_raw(&["tui", "--run", &run_id[..8], "--db", db]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("needs a terminal"), "{stderr}");
+    assert!(stderr.contains("forge inspect") && stderr.contains("forge watch"));
+    assert_eq!(
+        tree(ws.path()),
+        before_tree,
+        "the whole workspace is untouched"
+    );
+    assert_eq!(
+        ws.exported_events(&run_id),
+        before_events,
+        "and the journal"
+    );
+}

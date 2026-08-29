@@ -150,13 +150,20 @@ pinned container with the workdir mounted at the same path.
 
 ```
 forge init · doctor · compile · run · resume · operator · inspect ·
-      replay · export · verify-run · runs · costs · anchor · ui · driver
+      replay · export · verify-run · runs · costs · anchor · ui · tui ·
+      driver
 ```
 
 Exit codes: `0` completed · `2` parked (operator needed) · `3` stopped.
 `forge ui` serves an embedded read-only page on loopback (Host-pinned
 against DNS rebinding, GET-only, SSE updates) — it submits no commands
-and can be removed without changing execution semantics. `forge costs`
+and can be removed without changing execution semantics. `forge tui` is
+the same fleet explored with the keyboard: a navigable table of runs,
+one run's phase graph, seats and decision trail, and one seat's
+checkpoint and session stream (decision 0014). Its read-only boundary is
+the same one: a third renderer over `forge-view`'s models that issues no
+operator command, starts no run and writes nothing to the journal — a
+missing database is a refusal, never an initialized empty store. `forge costs`
 reports per-seat attempts, turns, and USD from journal checkpoints,
 keyed by the stable seat ids the LaneTally layer joins on.
 
