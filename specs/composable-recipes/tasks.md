@@ -159,12 +159,12 @@ merge logic exists** (M1), so every later movement runs against it.
 
 ## Movement 7 — close
 
-- [ ] **T19 — `README.md` and `ARCHITECTURE.md`** gain composition in
+- [x] **T19 — `README.md` and `ARCHITECTURE.md`** gain composition in
   the strategy-loop paragraph that already advertises decision 0010's
   library.
   *Proven by*: review; no test.
 
-- [ ] **T20 — Full gate.** `cargo test --workspace`, `cargo clippy
+- [x] **T20 — Full gate.** `cargo test --workspace`, `cargo clippy
   --all-targets --all-features -D warnings`, `cargo fmt --check`,
   `scripts/coverage-exact.sh`, the 97-case differential evaluator
   corpus, the machine-proof suite, and the `forge-view`/render goldens —

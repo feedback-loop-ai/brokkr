@@ -126,8 +126,11 @@ composed bundles.
 `fixtures/evaluator/corpus.ndjson`, `policy/phase-machine.json` and
 `reference/` are untouched. No new dependency.
 
-**Signatures**: `Bundle` gains `roots`; `confined_command` takes
-`&[PathBuf]` instead of one path. `Bundle::compile(dir)` keeps its
+**Signatures**: `Bundle` gains `roots` and `chain` (the resolved
+ancestors — `composed_from` renders `{recipe, digest, dir}`, and `dir`
+is not recoverable from the manifest, which carries names and digests
+only); `confined_command` takes `&[PathBuf]` instead of one path.
+`manifest_for` takes the chain. `Bundle::compile(dir)` keeps its
 signature — deliberately, so the parallel decision-0016 agent slice
 rebases mechanically: that slice edits seat *parsing*, this one edits
 what is handed *to* parsing.

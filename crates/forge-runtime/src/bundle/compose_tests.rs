@@ -208,6 +208,18 @@ fn cycles_depth_names_and_the_name_grammar_are_refused() {
     let typed = library.recipe("typed", &json!({"name": "typed", "extends": 7}), None);
     assert!(error(resolve(&typed)).contains("'extends' must be the name"));
 
+    // ...and the whole grammar is legal, not just the letters: a name
+    // may open with a digit and carry dashes.
+    let mut numbered = base_bundle();
+    numbered["name"] = json!("2x-base");
+    library.recipe("2x-base", &numbered, Some(&base_policy()));
+    let numeric = library.recipe(
+        "numeric",
+        &json!({"name": "numeric", "extends": "2x-base"}),
+        None,
+    );
+    assert_eq!(resolve(&numeric).unwrap().chain[0].name, "2x-base");
+
     // AC-12: `name` is required in every layer and must differ from
     // every ancestor's.
     let nameless = library.recipe("nameless", &json!({"extends": "base"}), None);

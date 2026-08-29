@@ -108,6 +108,24 @@ a closed-vocabulary aggregate (`unanimous-pass`, `review-panel`
 worst-member-wins) produces the single typed result the outer machine
 sees.
 
+A recipe may **extend** another and state only its differences
+(decision 0017). Composition is a pure pre-pass over recipe sources —
+`bundle/compose.rs` is the only module that knows the word `extends` —
+resolving the chain leaf-first into ONE flat bundle before anything is
+parsed: no inheritance at run time, no dynamic lookup. Seat values are
+opaque to it; it decides only which value wins for a name, which is why
+the `override` and `remove` markers are resolver-owned top-level keys
+BESIDE the values rather than inside them. Named things merge by name;
+adding is free, redefining needs the marker, removal is explicit and
+fails if its target is absent. Policy rules compose by the engine's
+existing first-match-wins order with derived rules first (override by id
+is remove-then-prepend, so no dead twin survives), and the
+constitutional lint runs on the RESOLVED table — a derived recipe cannot
+make review avoidable. The resolved digest pins the run as ever, and the
+chain rides in the manifest's `files` map under `@compose/`, so changing
+a base moves the digest of everything derived from it and resume names
+the ancestor that moved.
+
 Drivers speak `forge-driver/v1` (NDJSON over stdio; unknown messages
 fail closed; a driver that vanishes after accepting leaves the attempt
 indeterminate). The adapters for Claude Code (`claude` directly, or
