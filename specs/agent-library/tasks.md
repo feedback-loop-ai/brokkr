@@ -15,14 +15,14 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 0 — pin the witnesses before anything moves
 
-- [ ] **T1 — Golden `manifest_digest()` for the non-adopters.** Record
+- [x] **T1 — Golden `manifest_digest()` for the non-adopters.** Record
   the current digests of `recipes/fast` and `bundles/verify` as
   constants, asserting also that neither manifest has an `agents` key.
   Landed before any production edit, so the byte-identity claim is
   measured across the change rather than asserted after it.
   *Proven by*: AC-4.
 
-- [ ] **T2 — Golden journal for a non-adopting run.** A fixture run over
+- [x] **T2 — Golden journal for a non-adopting run.** A fixture run over
   a non-adopting recipe whose serialised events are compared
   byte-for-byte, so a stray payload field fails loudly.
   *Proven by*: AC-13.
