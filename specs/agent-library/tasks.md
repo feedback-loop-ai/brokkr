@@ -208,7 +208,7 @@ which the self-forge loop runs) is one revertible commit.
   *Proven by*: review — and by the spec, which says the same thing in
   the same words.
 
-- [ ] **T24 — The gates.** `cargo fmt --check`, clippy warning-free
+- [x] **T24 — The gates.** `cargo fmt --check`, clippy warning-free
   across all targets and features, the 97-case differential corpus and
   the machine-proof suite unmodified and green,
   `scripts/coverage-exact.sh` at its exact nonzero 100%.
