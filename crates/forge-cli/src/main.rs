@@ -6,6 +6,7 @@ mod doctor;
 mod init;
 mod recipes;
 mod render;
+mod selector;
 mod ui;
 
 use std::io::IsTerminal;
@@ -43,6 +44,7 @@ enum Cmd {
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
     Anchor {
+        /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
@@ -183,6 +185,7 @@ enum Cmd {
     /// verbs the console's clicks became; `--json` emits the view model.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect {
+        /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
@@ -201,6 +204,7 @@ enum Cmd {
     /// activity whenever the journal head moves; exit when the run
     /// reaches a terminal status. Read-only, like every other readout.
     Watch {
+        /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
@@ -214,6 +218,7 @@ enum Cmd {
     },
     /// Rebuild state from the journal twice and verify determinism.
     Replay {
+        /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".forge/forge.db")]
@@ -221,6 +226,7 @@ enum Cmd {
     },
     /// Write the canonical NDJSON journal and pinned manifest.
     Export {
+        /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
         #[arg(long, default_value = ".")]
@@ -508,6 +514,7 @@ fn run_with(
             check,
         } => {
             let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
             if check {
                 let report = forge_runtime::verify_anchor(&store, &repo, &run)?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -643,6 +650,7 @@ fn run_with(
             seat,
         } => {
             let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let state = fold(&events)?;
             let view = forge_view::run_view(&events, Some(&state));
@@ -669,6 +677,10 @@ fn run_with(
             once,
             interval_ms,
         } => {
+            // Selectors resolve once, before the loop: a prefix that is
+            // unique now stays this frame's run even if another run is
+            // started while we watch.
+            let run = selector::resolve_run(&Store::open(&db)?, &run)?;
             let style = render::Style::detect();
             let is_tty = std::io::stdout().is_terminal();
             let iterations = if once {
@@ -690,6 +702,7 @@ fn run_with(
         }
         Cmd::Replay { run, db } => {
             let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let first = format!("{:?}", fold(&events)?);
             let second = format!("{:?}", fold(&events)?);
@@ -708,6 +721,7 @@ fn run_with(
         }
         Cmd::Export { run, out, db } => {
             let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
             std::fs::create_dir_all(&out)?;
             let ndjson = store.export_ndjson(&run)?;
             let manifest = store.manifest(&run)?;
