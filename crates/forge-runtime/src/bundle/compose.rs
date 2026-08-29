@@ -201,7 +201,13 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         // The library is the leaf directory's parent — which is what a
         // recipe library already is, and what `forge recipes add`
         // installs into before it compile-verifies the copy.
-        let library = dir.join("..").canonicalize()?;
+        // `dir` is already canonical, so its parent IS the library — and
+        // asking for it directly avoids `..`, which Windows does NOT
+        // resolve inside the `\\?\` verbatim paths canonicalize returns.
+        let library = dir
+            .parent()
+            .ok_or_else(|| invalid(format!("{}: has no parent library", dir.display())))?
+            .to_path_buf();
         let candidate = library.join(base);
         if !candidate.is_dir() {
             return Err(invalid(format!(

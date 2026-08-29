@@ -17,7 +17,8 @@ fn error<T>(result: Result<T, CompileError>) -> String {
 /// A recipe library: sibling recipe directories under one parent, which
 /// is exactly what `<leaf>/../<name>` resolves against.
 struct Library {
-    dir: tempfile::TempDir,
+    /// Held only to keep the directory alive for the test's lifetime.
+    _dir: tempfile::TempDir,
     /// The canonical spelling, which is what the resolver records: on
     /// macOS the temp root is /var -> /private/var, so an expectation
     /// built from `TempDir::path` compares two spellings of one place.
@@ -28,7 +29,7 @@ impl Library {
     fn new() -> Library {
         let dir = tempfile::tempdir().unwrap();
         let canon = dir.path().canonicalize().unwrap();
-        Library { dir, canon }
+        Library { _dir: dir, canon }
     }
 
     fn path(&self) -> &Path {
