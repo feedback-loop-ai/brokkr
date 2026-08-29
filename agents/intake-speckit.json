@@ -1,0 +1,25 @@
+{
+  "description": "Intake for spec-driven delivery: frames the request and runs the spec-kit CLI to open the feature's spec directory.",
+  "charter": "charters/intake-speckit.md",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir",
+      "specify"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 1800
+  }
+}

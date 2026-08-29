@@ -21,6 +21,7 @@ fn bundle_with_sequence() -> Bundle {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],
                             confine: None,
+                            candidates: Vec::new(),
                         },
                     },
                     SequenceStep {
@@ -29,6 +30,7 @@ fn bundle_with_sequence() -> Bundle {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],
                             confine: None,
+                            candidates: Vec::new(),
                         },
                     },
                 ],

@@ -1,0 +1,20 @@
+{
+  "description": "Review panel member: the adversarial security read of the change.",
+  "charter": "charters/review-security.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
+    "mcp": []
+  }
+}

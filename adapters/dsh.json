@@ -1,0 +1,14 @@
+{
+  "provider": "dsh",
+  "binary": "dsh",
+  "driver": [
+    "{forge}",
+    "driver",
+    "dsh",
+    "--"
+  ],
+  "models": {},
+  "model_flag": "unsupported",
+  "tool_permissions": "unsupported",
+  "mcp": "unsupported"
+}

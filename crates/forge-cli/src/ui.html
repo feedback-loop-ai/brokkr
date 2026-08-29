@@ -741,6 +741,17 @@ function renderDetail(id, view) {
     detail.appendChild(chip);
   }
 
+  // Run-level notices (decision 0016): an optional capability gap
+  // recorded at compile time, or a fallback that actually happened. The
+  // text is the model's; this surface only places it, so a fallback
+  // cannot go unmentioned here while it shows in `forge inspect`.
+  for (const notice of view.notices ?? []) {
+    const note = el('p', 'ruling');
+    note.appendChild(badge(notice.kind, ''));
+    note.appendChild(document.createTextNode(' ' + notice.text));
+    detail.appendChild(note);
+  }
+
   // Live seat telemetry: one line per live participant while an attempt
   // is open. Disappears when the attempt concludes; SSE re-renders keep
   // it current.
@@ -781,8 +792,15 @@ function renderDetail(id, view) {
       } else {
         activity.textContent = act.text;
       }
+      // The agent, model and provider that actually served this
+      // invocation, rendered by the single derivation.
+      const label = el('td');
+      label.appendChild(document.createTextNode(part.label));
+      if (part.provenance) {
+        label.appendChild(el('div', 'target', part.provenance.line));
+      }
       const tr = row([
-        el('td', null, part.label),
+        label,
         statusCell,
         el('td', null, part.attempts),
         cell(part.turns_cell),

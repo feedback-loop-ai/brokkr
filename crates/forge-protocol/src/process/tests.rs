@@ -286,6 +286,7 @@ fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
         },
         None,
         Vec::new(),
+        false,
     );
     assert!(matches!(report.outcome, AttemptOutcome::Failed { .. }));
 }

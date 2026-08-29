@@ -29,6 +29,25 @@ registration, bounds, forbidden actions, and callback audience part of the
 run's immutable local evidence. A legacy run continues to store and export the
 exact v1 shape.
 
+The agent library (decision 0016) adds, again without changing frozen bytes:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with pinned agent resolution | `run-manifest.v3.schema.json` | forge-runtime, forge-store export/resume |
+| Effect provenance payload extension | `effect-provenance.v1.schema.json` | forge-runtime, forge-view, every readout |
+
+**Two lineages, not one line.** `run-manifest.v1` → `v3` is the local lineage:
+v3 is v1's bytes plus one optional `agents` property, absent when no seat
+references an agent, so every non-adopting run stores and exports the exact v1
+shape. `run-manifest.v2` is the Looper-bound lineage and is unchanged;
+`bundle_manifest_from_run` reconstructs a bundle manifest from six named keys
+and drops the rest, so an `agents` key would be silently dropped on the v2
+round-trip and every adopting Looper-dispatched run would become unresumable
+with a diff that blames no file. Rather than widen a contract a counterpart
+system reads, `build_run_manifest_v2` **refuses** a bundle manifest carrying
+`agents`, naming the limitation. Lifting that needs a jointly agreed
+v2-lineage manifest version.
+
 ## Event envelope
 
 One JSON object per event. Canonical bytes: JSON with keys sorted
@@ -61,8 +80,31 @@ run/stopped            payload: { reason }
 ```
 
 An unknown event type fails fold closed (error, not skip). Payload fields not
-listed here are forbidden in v1 (additionalProperties: false); a new field is
-a v2 event.
+listed here are forbidden in v1 (additionalProperties: false).
+
+**Amended (decision 0016), with its reason.** The previous rule read *"a new
+field is a v2 event"*, which is unenforceable as written: it forbids a field a
+v1 consumer can safely ignore just as strongly as one it must read, and it
+gives a reviewer no test to run. The enforceable rule is:
+
+> Additive payload fields that are optional, absent by default, and published
+> as a numbered extension schema are permitted at `event_schema: 1`. A field
+> that changes the meaning of an existing field, or that a v1 consumer must
+> read to fold to correct state, is a v2 event.
+
+The narrowness is what makes the amendment honest, and the last clause is
+machine-checked: `fold` never reads an extension field, `RunState` gains
+nothing from one, and a run over a bundle that references no agent journals
+byte-identical payloads. Bumping `EVENT_SCHEMA` instead was rejected because
+`manifest_for` embeds `"event_schema": EVENT_SCHEMA`, so the bump would move
+**every** manifest digest — including the byte-identity witnesses — and violate
+`{"const": 1}` in both frozen manifest schemas. The same argument rules out a
+new event *type*: the `type` enum is closed under `additionalProperties:
+false`.
+
+The extension fields defined so far are in
+`effect-provenance.v1.schema.json`: `effect/started.provenance`, and
+`effect/failed.start_failure` with `start_failure_sites`.
 
 ## Fold semantics (state is derived, never mutated)
 

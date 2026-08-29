@@ -1,6 +1,7 @@
 //! `forge` — the one shipped binary (decision 0003). No UI, no required
 //! services: one executable, one workspace database.
 
+mod agents;
 mod compare;
 mod doctor;
 mod init;
@@ -176,6 +177,13 @@ enum Cmd {
         #[command(subcommand)]
         command: RecipesCmd,
     },
+    /// The agent library (decision 0016): one definition per agent —
+    /// description, charter, an ordered chain of abstract model names,
+    /// abstract tool/MCP configuration — that seats reference by name.
+    Agents {
+        #[command(subcommand)]
+        command: AgentsCmd,
+    },
     /// Manage the operator-side secrets store (decision 0012): bundles
     /// and journals carry NAMES only; values live in this env-format
     /// file outside version control. There is no value-printing verb.
@@ -293,6 +301,11 @@ enum Cmd {
         script: PathBuf,
         #[arg(long)]
         state: PathBuf,
+        /// The concrete model an adapter pinned (decision 0016). Echoed
+        /// back as a checkpoint so a proof can assert the pin actually
+        /// reached the driver rather than trusting the composed argv.
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -315,6 +328,26 @@ enum SecretsCmd {
         name: String,
         #[arg(long, default_value = ".forge/secrets.env")]
         secrets_file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentsCmd {
+    /// One line per agent — name, model chain, description. A broken
+    /// definition prints a warning line and never aborts the listing.
+    List {
+        #[arg(long, default_value = forge_runtime::bundle::DEFAULT_AGENTS_DIR)]
+        agents_dir: PathBuf,
+    },
+    /// The definition as written, plus the per-chain-entry resolution
+    /// the compiler would compute. An unknown name errors naming the
+    /// known set.
+    Show {
+        name: String,
+        #[arg(long, default_value = forge_runtime::bundle::DEFAULT_AGENTS_DIR)]
+        agents_dir: PathBuf,
+        #[arg(long, default_value = forge_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
+        adapters_dir: PathBuf,
     },
 }
 
@@ -958,6 +991,17 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Agents { command } => {
+            match command {
+                AgentsCmd::List { agents_dir } => agents::list(&agents_dir)?,
+                AgentsCmd::Show {
+                    name,
+                    agents_dir,
+                    adapters_dir,
+                } => agents::show(&name, &agents_dir, &adapters_dir)?,
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Cmd::Secrets { command } => {
             use forge_protocol::secret;
             match command {
@@ -993,8 +1037,12 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::FakeDriver { script, state } => {
-            forge_protocol::fake::run_fake_driver(&script, &state)?;
+        Cmd::FakeDriver {
+            script,
+            state,
+            model,
+        } => {
+            forge_protocol::fake::run_fake_driver(&script, &state, model.as_deref())?;
             Ok(ExitCode::SUCCESS)
         }
     }

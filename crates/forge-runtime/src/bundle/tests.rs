@@ -135,7 +135,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         json!({"panel": {"a": {}, "b": {}}}),
         json!({"panel": {"a": {}, "b": {}}, "aggregate": "invented"}),
     ] {
-        assert!(parse_panel(dir, "review", &raw, Some(&results), &[]).is_err());
+        assert!(parse_panel(dir, "review", &raw, Some(&results), &[], &mut None).is_err());
     }
     let panel = json!({
         "panel": {
@@ -144,9 +144,17 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         },
         "aggregate": "unanimous-pass",
     });
-    assert!(error(parse_panel(dir, "review", &panel, Some(&[]), &[])).contains("does not declare"));
+    assert!(error(parse_panel(
+        dir,
+        "review",
+        &panel,
+        Some(&[]),
+        &[],
+        &mut None
+    ))
+    .contains("does not declare"));
     assert_eq!(
-        parse_panel(dir, "review", &panel, Some(&results), &[])
+        parse_panel(dir, "review", &panel, Some(&results), &[], &mut None)
             .unwrap()
             .0
             .len(),
@@ -166,7 +174,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             {"name":"two", "role":"roles/role.md", "driver":{"command":["driver"]}},
         ]}),
     ] {
-        assert!(parse_sequence(dir, "review", &raw, &results, &[]).is_err());
+        assert!(parse_sequence(dir, "review", &raw, &results, &[], &mut None).is_err());
     }
 }
 
@@ -268,6 +276,6 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             fixture.dir.path().join("dangling"),
         )
         .unwrap();
-        assert!(manifest_for(fixture.dir.path(), "fixture").is_ok());
+        assert!(manifest_for(fixture.dir.path(), "fixture", None).is_ok());
     }
 }

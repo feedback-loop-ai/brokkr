@@ -1,0 +1,21 @@
+{
+  "description": "Security reviewer for spec-driven delivery: the adversarial read, carrying the spec-kit CLI permission.",
+  "charter": "charters/review-security-speckit.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir",
+      "specify"
+    ],
+    "mcp": []
+  }
+}

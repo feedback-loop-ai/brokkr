@@ -1,0 +1,25 @@
+{
+  "description": "Implementer for spec-driven delivery: builds to the committed spec, ticking tasks.md as it goes.",
+  "charter": "charters/implementer-speckit.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir",
+      "specify"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 5400
+  }
+}

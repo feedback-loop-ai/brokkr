@@ -285,7 +285,9 @@ fn the_view_endpoint_serves_the_models_the_page_paints() {
     let view = handle(&db, "/api/view/r1");
     assert_eq!(view.status, "200 OK");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 1);
+    // VIEW_VERSION moved to 2 with decision 0016: participants gained
+    // `provenance` and the run view gained `notices`.
+    assert_eq!(parsed["view_version"], forge_view::VIEW_VERSION);
     assert_eq!(parsed["summary"]["run_id"], "r1");
     assert_eq!(parsed["summary"]["status"], "running");
     assert_eq!(parsed["event_count"], 2);
@@ -472,4 +474,78 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     if let Some(previous_home) = previous_home {
         std::env::set_var("HOME", previous_home);
     }
+}
+
+/// AC-8's fourth surface: the console's payload carries the same two
+/// model fields the other three read, and the page paints them from the
+/// model rather than composing anything of its own.
+#[test]
+fn the_console_serves_and_paints_agent_provenance() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {"agents": {"intake": {
+                "notices": [{"message": "optional capability gap"}],
+            }}}}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "intake"}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::EffectRequested,
+            json!({"effect_id": "e1", "seat": "intake", "phase": "intake",
+                   "idempotency_key": "k", "input_digest": "d"}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "a1", "driver": "d",
+                   "provenance": [{"member": null, "agent": "intake",
+                                   "model": "opus", "provider": "claude",
+                                   "chain_index": 1}]}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let view = handle(&db, "/api/view/r1");
+    let parsed: Value = serde_json::from_str(&view.body).unwrap();
+    let provenance = &parsed["participants"][0]["provenance"];
+    assert_eq!(provenance["model"], "opus");
+    assert_eq!(provenance["fallback"], json!(true));
+    assert!(provenance["line"]
+        .as_str()
+        .unwrap()
+        .contains("intake · opus via claude"));
+    let notices = parsed["notices"].as_array().unwrap();
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0]["kind"], "capability-gap");
+    assert_eq!(notices[1]["kind"], "fallback");
+
+    // The page reads both from the model and composes neither.
+    let page = handle(&db, "/").body;
+    assert!(page.contains("part.provenance.line"));
+    assert!(page.contains("view.notices"));
 }

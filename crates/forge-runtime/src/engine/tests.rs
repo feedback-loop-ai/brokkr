@@ -26,6 +26,7 @@ fn single_body(command: Vec<String>) -> SeatBody {
         role_path: PathBuf::from("role.md"),
         command,
         confine: None,
+        candidates: Vec::new(),
     }
 }
 
@@ -107,6 +108,7 @@ fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),
+        accepted: true,
     }
 }
 
@@ -223,12 +225,14 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
             role_path: "role".into(),
             command: vec!["driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
         PanelMember {
             name: "two".into(),
             role_path: "role".into(),
             command: vec!["driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     ];
     let panel = bundle(
@@ -250,6 +254,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
                         confine: None,
+                        candidates: Vec::new(),
                     },
                 },
                 SequenceStep {
@@ -389,7 +394,12 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
 fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     engine
-        .conclude_single("e1", "a1", DriverRun::SpawnFailed("spawn".into()))
+        .conclude_single(
+            "e1",
+            "a1",
+            DriverRun::SpawnFailed("spawn".into()),
+            &Selection::new(),
+        )
         .unwrap();
     engine
         .conclude_single(
@@ -401,6 +411,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 },
                 "",
             )),
+            &Selection::new(),
         )
         .unwrap();
     engine
@@ -413,6 +424,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 },
                 "stderr",
             )),
+            &Selection::new(),
         )
         .unwrap();
     engine
@@ -425,6 +437,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 },
                 "stderr",
             )),
+            &Selection::new(),
         )
         .unwrap();
 
@@ -634,6 +647,7 @@ fn member(name: &str, command: Vec<String>) -> PanelMember {
         role_path: "role.md".into(),
         command,
         confine: None,
+        candidates: Vec::new(),
     }
 }
 
@@ -665,6 +679,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
             Aggregate::UnanimousPass,
             &panel_input(&["missing"]),
             std::time::Duration::from_secs(1),
+            &Selection::new(),
         )
         .unwrap();
     assert!(failed
@@ -696,6 +711,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
         Aggregate::UnanimousPass,
         &panel_input(&["lost"]),
         std::time::Duration::from_secs(2),
+        &Selection::new(),
     )
     .unwrap();
     assert!(lost
@@ -722,6 +738,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
             Aggregate::UnanimousPass,
             &panel_input(&["ok"]),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .unwrap();
     assert!(succeeded
@@ -748,6 +765,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_dir, mut failed) = engine(single_body(vec!["driver".into()]));
@@ -759,6 +777,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
             &[failed_step],
             &step_input(),
             std::time::Duration::from_secs(1),
+            &Selection::new(),
         )
         .unwrap();
     assert!(failed
@@ -780,6 +799,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_dir, mut lost) = engine(single_body(vec!["driver".into()]));
@@ -790,6 +810,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         &[lost_step],
         &step_input(),
         std::time::Duration::from_secs(2),
+        &Selection::new(),
     )
     .unwrap();
     let event = lost
@@ -1297,6 +1318,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
         role_path: "role.md".into(),
         command,
         confine: None,
+        candidates: Vec::new(),
     });
     fail_event(&dir.path().join("forge.db"), "effect/checkpointed");
     let correct = requested(&checkpointed, "effect");
@@ -1342,7 +1364,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
     for (event_type, outcome) in cases {
         let (_kept, mut engine) = engine_failing(event_type);
         assert!(engine
-            .conclude_single("effect", "attempt", outcome)
+            .conclude_single("effect", "attempt", outcome, &Selection::new())
             .is_err());
     }
 }
@@ -1359,6 +1381,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             Aggregate::UnanimousPass,
             &panel_input(&["missing"]),
             std::time::Duration::from_secs(1),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1379,6 +1402,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             Aggregate::UnanimousPass,
             &panel_input(&["lost"]),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1399,6 +1423,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             Aggregate::UnanimousPass,
             &panel_input(&["ok"]),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1415,6 +1440,8 @@ fn panel_and_sequence_storage_failures_propagate() {
         &input["members"],
         &input,
         &input["context"],
+        &Selection::new(),
+        "",
     );
     assert!(live_panel
         .run_panel(
@@ -1450,6 +1477,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut failed_sequence) = engine_failing("effect/failed");
@@ -1461,6 +1489,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &[failed_step],
             &step_input(),
             std::time::Duration::from_secs(1),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1476,6 +1505,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut lost_sequence) = engine_failing("effect/indeterminate");
@@ -1487,6 +1517,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &[lost_step],
             &step_input(),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1502,6 +1533,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut ok_sequence) = engine_failing("effect/succeeded");
@@ -1513,6 +1545,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &[ok_step],
             &step_input(),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1522,6 +1555,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             role_path: "role.md".into(),
             command: two_checkpoint_command("effect", "attempt"),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut checkpoint_sequence) = engine_failing("effect/checkpointed");
@@ -1533,6 +1567,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &[checkpoint_step],
             &step_input(),
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 
@@ -1549,6 +1584,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                     },
                 ),
                 confine: None,
+                candidates: Vec::new(),
             },
         },
         SequenceStep {
@@ -1557,6 +1593,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 role_path: "role.md".into(),
                 command: vec!["missing-driver".into()],
                 confine: None,
+                candidates: Vec::new(),
             },
         },
     ];
@@ -1578,6 +1615,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &steps,
             &input,
             std::time::Duration::from_secs(2),
+            &Selection::new(),
         )
         .is_err());
 }

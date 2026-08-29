@@ -46,13 +46,18 @@ fn attempt_file_name(seat: &str) -> String {
     format!("{safe}-{hash:016x}.attempt")
 }
 
-pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<()> {
+pub fn run_fake_driver(
+    script_path: &Path,
+    state_dir: &Path,
+    model: Option<&str>,
+) -> std::io::Result<()> {
     let script: Value = serde_json::from_str(&std::fs::read_to_string(script_path)?)?;
     std::fs::create_dir_all(state_dir)?;
     let stdin = std::io::stdin();
     run_fake_session(
         &script,
         state_dir,
+        model,
         stdin.lock(),
         std::io::stdout(),
         std::thread::park,
@@ -62,6 +67,7 @@ pub fn run_fake_driver(script_path: &Path, state_dir: &Path) -> std::io::Result<
 fn run_fake_session(
     script: &Value,
     state_dir: &Path,
+    model: Option<&str>,
     input: impl BufRead,
     mut output: impl Write,
     mut hang: impl FnMut(),
@@ -118,6 +124,17 @@ fn run_fake_session(
                     attempt_id: attempt_id.clone(),
                     session_ref: Some(format!("fake-session-{seat}-{attempt_index}")),
                 })?;
+
+                // The pinned model, echoed back as evidence. Absent
+                // unless an adapter pinned one, so every journal that
+                // existed before decision 0016 is byte-identical.
+                if let Some(model) = model {
+                    send(Body::Checkpoint {
+                        effect_id: effect_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        data: serde_json::json!({"step": "model-pinned", "model": model}),
+                    })?;
+                }
 
                 match entry["behavior"].as_str().unwrap_or("vanish") {
                     "succeed" => {

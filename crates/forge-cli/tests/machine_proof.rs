@@ -539,7 +539,9 @@ fn runs_lists_completed_run_with_status_and_phase() {
     let (code, stdout, stderr) = ws.forge_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let view: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(view["view_version"], 1);
+    // Decision 0016 moved the wire version to 2: participants gained
+    // `provenance`, the run view gained `notices`.
+    assert_eq!(view["view_version"], 2);
     assert_eq!(view["count"], 1, "the count the trailer used to print");
     let row = &view["runs"][0];
     assert_eq!(row["run_id"], run_id.as_str());
@@ -2071,7 +2073,9 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     // `forge inspect` output: all nine keys, `cursor` included.
     let (code, view, stderr) = ws.forge(&["inspect", "--run", &run_id, "--json", "--db", db]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert_eq!(view["view_version"], 1);
+    // Decision 0016 moved the wire version to 2: participants gained
+    // `provenance`, the run view gained `notices`.
+    assert_eq!(view["view_version"], 2);
     let summary = &view["summary"];
     for key in [
         "run_id",

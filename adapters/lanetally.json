@@ -1,0 +1,37 @@
+{
+  "provider": "lanetally",
+  "binary": "claude-lanetally",
+  "hint": "LaneTally's session-capture wrapper, expected at ~/.local/bin/claude-lanetally; set FORGE_LANETALLY_BIN to an absolute path if ~/.local/bin is not on PATH",
+  "driver": [
+    "{forge}",
+    "driver",
+    "lanetally",
+    "--",
+    "--permission-mode",
+    "acceptEdits"
+  ],
+  "models": {
+    "fable-tallied": "claude-fable-5",
+    "opus-tallied": "claude-opus-5",
+    "sonnet-tallied": "claude-sonnet-5"
+  },
+  "model_flag": "--model",
+  "tool_permissions": {
+    "flag": "--allowedTools",
+    "separator": ",",
+    "names": {
+      "cargo": "Bash(cargo:*)",
+      "git": "Bash(git:*)",
+      "python3": "Bash(python3:*)",
+      "pytest": "Bash(.venv/bin/pytest:*)",
+      "ls": "Bash(ls:*)",
+      "rg": "Bash(rg:*)",
+      "mkdir": "Bash(mkdir:*)",
+      "specify": "Bash(specify:*)"
+    }
+  },
+  "mcp": {
+    "flag": "--mcp-config",
+    "servers": {}
+  }
+}
