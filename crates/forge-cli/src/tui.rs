@@ -44,7 +44,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
@@ -139,6 +139,13 @@ pub(crate) struct Tui {
     pub filter: String,
     pub typing: bool,
     pub help: bool,
+    /// A row opened for reading: panes clamp their text to the frame,
+    /// so a long one (a feature text, a park reason, an error) would
+    /// otherwise be unreadable — truncation with no way through is a
+    /// dead end, not evidence.
+    pub reading: Option<String>,
+    /// Scroll within the reader, in wrapped lines.
+    pub read_offset: usize,
     pub status: Option<String>,
     pub ticks: usize,
     /// Consumed by the shell: `r`, a level change, or the first frame.
@@ -165,6 +172,8 @@ impl Tui {
             filter: String::new(),
             typing: false,
             help: false,
+            reading: None,
+            read_offset: 0,
             status: None,
             ticks: 0,
             force: true,
@@ -502,8 +511,27 @@ fn enter(tui: &mut Tui, views: &Views) {
                 tui.scope = Some(render::Scope::Seat(key));
             }
         }
-        // The trail is evidence, not a door; the PARTICIPANT panes are
-        // the bottom of the ladder.
+        // The trail is evidence — and evidence you cannot read is not
+        // evidence, so Enter opens the row's full text rather than
+        // descending. The PARTICIPANT panes remain the bottom of the
+        // ladder.
+        (Level::Run, 2) => {
+            if let Some(row) = views
+                .run
+                .as_ref()
+                .and_then(|view| view.journal.iter().find(|row| row.seq.to_string() == key))
+            {
+                tui.reading = Some(format!(
+                    "seq {}  {}  {}\n\n{}\n\npayload\n{}",
+                    row.seq,
+                    safe(&row.event_type),
+                    safe(&row.recorded_at),
+                    safe(&row.what.text),
+                    safe(&row.payload_json),
+                ));
+                tui.read_offset = 0;
+            }
+        }
         _ => {}
     }
 }
@@ -513,6 +541,11 @@ fn enter(tui: &mut Tui, views: &Views) {
 fn escape(tui: &mut Tui) {
     if tui.help {
         tui.help = false;
+        return;
+    }
+    if tui.reading.is_some() {
+        tui.reading = None;
+        tui.read_offset = 0;
         return;
     }
     if tui.typing || !tui.filter.is_empty() {
@@ -590,6 +623,25 @@ fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
 /// The pure state machine: view models plus a key, in; a flow, out. No
 /// terminal, no store, no I/O.
 pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
+    // The reader owns movement while it is open: an operator scrolling
+    // a long payload must not also be moving the list behind it.
+    if tui.reading.is_some() {
+        match key {
+            Key::Quit => return Flow::Quit,
+            Key::Char('q') => return Flow::Quit,
+            Key::Escape | Key::Backspace | Key::Enter | Key::Char('?') => {
+                tui.reading = None;
+                tui.read_offset = 0;
+            }
+            Key::Down | Key::Char('j') => tui.read_offset = tui.read_offset.saturating_add(1),
+            Key::Up | Key::Char('k') => tui.read_offset = tui.read_offset.saturating_sub(1),
+            Key::PageDown => tui.read_offset = tui.read_offset.saturating_add(10),
+            Key::PageUp => tui.read_offset = tui.read_offset.saturating_sub(10),
+            Key::Char('g') => tui.read_offset = 0,
+            _ => {}
+        }
+        return Flow::Continue;
+    }
     match key {
         Key::Quit => return Flow::Quit,
         Key::Char(character) => return typed(tui, views, character),
@@ -614,6 +666,9 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
     if tui.help {
         return "? or Esc close help · q quit".to_string();
     }
+    if tui.reading.is_some() {
+        return "↑↓/jk scroll · PgUp/PgDn page · g top · Esc or Enter close · q quit".to_string();
+    }
     if tui.typing {
         let mut line = String::from("/");
         line.push_str(safe(&tui.filter).as_str());
@@ -631,6 +686,7 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
             };
             format!("↑↓/jk move · {verb} · Tab pane · Esc back {tail}")
         }
+        (Level::Run, 2) => format!("↑↓/jk move · Enter read row · Tab pane · Esc back {tail}"),
         (Level::Run, _) => format!("↑↓/jk move · Tab pane · Esc back {tail}"),
         (Level::Participant, _) => {
             format!("↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back {tail}")
@@ -770,9 +826,30 @@ pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
         )),
         footer,
     );
+    if let Some(text) = &tui.reading {
+        draw_reader(frame, area, text, tui.read_offset);
+    }
     if tui.help {
         draw_help(frame, area);
     }
+}
+
+/// A row opened for reading: the full text, wrapped and scrollable, over
+/// the whole frame. Every line is already sanitized at the call site
+/// that filled `reading`.
+fn draw_reader(frame: &mut Frame, area: Rect, text: &str, offset: usize) {
+    let lines: Vec<Line> = text.lines().map(|text| line(text, plain())).collect();
+    // Clamp so scrolling past the end cannot leave an empty frame with
+    // no way back.
+    let last = lines.len().saturating_sub(1);
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((u16::try_from(offset.min(last)).unwrap_or(u16::MAX), 0))
+            .block(pane("row · Esc closes", true)),
+        area,
+    );
 }
 
 /// A terminal resized below the minimum draws this, and keeps its
