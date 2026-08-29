@@ -117,6 +117,77 @@ journal heads in `refs/forge/<run>` commit chains — tamper evidence.
 `forge costs` reports per-seat attempts, turns, and USD — the LaneTally
 join surface.
 
+## The agent library
+
+A seat used to inline everything it was: charter text, driver argv,
+limits, declared inputs. Decision 0016 lets it name an agent instead.
+
+```
+forge agents list           # name · model chain · description
+forge agents show <name>    # the definition, plus its per-entry resolution
+forge doctor                # which providers and models are actually here
+```
+
+An agent is one file in `agents/`: a description, a charter, an ORDERED
+preference chain of abstract model names, abstract tool and MCP
+configuration, its decision-0006 limits and its decision-0007 declared
+inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
+Inline seats stay first-class — `recipes/sdd`'s `speckit-check` step is
+a shell script with no model, and it stays inline.
+
+A provider adapter is **data**, one file per provider in `adapters/`:
+the driver invocation, the abstract→concrete model mapping, how tool
+permissions and MCP servers are expressed, and — the load-bearing part —
+which of those the provider **cannot** express, written as the explicit
+string `"unsupported"` rather than left to be inferred from an empty
+map. Adding a provider or a model is a file edit, not a release.
+
+Resolution happens at compile time, is pinned into the run manifest, and
+is a pure function of *(library, adapters, availability)* — availability
+that `Bundle::compile` deliberately supplies none of, so one bundle
+cannot resolve two ways on two machines.
+
+**The honesty rules are the point, and they are enforced rather than
+documented.** A tool restriction the provider cannot express fails
+compilation naming the agent, the provider and the capability — the
+agent would run with MORE power than it declares, so `optional` is
+structurally unrepresentable there. An MCP server the provider cannot
+serve fails the same way unless the agent marked it optional, and then
+it is a notice that lands in the run manifest and in every readout —
+never nothing. Both checks run over **every** entry in the chain, so a
+chain that would widen an agent's blast radius the moment it fell back
+fails at design time rather than at 2am. The chain is a fallback chain,
+not a portability claim: the forge never says the second choice equals
+the first, and `forge compare` reports a model difference as a
+first-class divergence.
+
+Fallback is narrow on purpose. An attempt that FAILS TO START — the
+driver binary is absent, or the provider rejects the model before
+accepting — retries on the next model in the chain, inside decision
+0006's existing attempt bounds, journaled as a fact. A mid-session
+failure is not fallback material: a seat that ran for forty turns and
+then hit a wall produced work a different model does not inherit, so it
+follows 0006 unchanged. The predicate is structural — `Failed`, never
+`Accepted`, no checkpoint — so once a session opens, fallback is
+unreachable by construction rather than by convention.
+
+**Three limits ship with it, stated as limits.**
+
+1. **A Looper-dispatched run cannot adopt agents.** The v2 run-manifest
+   lineage reconstructs a bundle manifest from six named keys and would
+   silently drop the `agents` pin, making the run unresumable with a
+   diff that blames no file. `build_run_manifest_v2` refuses instead.
+   Lifting it needs a jointly agreed v2-lineage manifest version.
+2. **Provenance does not cross the Looper bridge.** The bridge's payload
+   allowlist drops it, asserted by a test rather than assumed.
+3. **"No `Accepted` ever arrives" parks, it does not fall back.** That
+   shape is `indeterminate` today, and decision 0003 rules that it parks
+   because the forge cannot tell "did nothing" from "already opened a
+   billed session". The honest fix is at the driver — report a
+   provider's pre-session model rejection as a determinate failure — not
+   at the engine, because a bound that applies "unless a new feature is
+   in play" has stopped being a bound.
+
 Looper-bound runs start with `forge run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels
 with `forge export`. `forge bridge --run <id> --looper-url <url>` tails only the
@@ -130,12 +201,14 @@ from a command-line value or the journal.
 |---|---|
 | `ARCHITECTURE.md` | The implemented architecture — crates, journal, effect discipline, verification layers. |
 | `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli`. |
-| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2` and `forge-run-manifest/v2`. |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, and `forge-effect-provenance/v1`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
-| `recipes/` | The user recipe library (`fast`, `panel-review`, yours). |
+| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, yours). |
+| `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
+| `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
-| `docs/decisions/` | The constitution: numbered operator rulings 0001–0013. |
+| `docs/decisions/` | The constitution: numbered operator rulings 0001–0017. |
 | `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
 
 ## Verification

@@ -16,7 +16,8 @@ stopped, paid — is a journaled, replayable fact.
 
 ```
 forge-cli        the shipped `forge` binary: commands, embedded UI, adapters entry
-  forge-runtime  bundles · engine loop · recovery · confinement · anchoring
+  forge-runtime  bundles · agent library + provider adapters · engine loop ·
+                 recovery · confinement · anchoring
     forge-core   PURE: envelope · canonical hashing · fold · policy evaluation
     forge-store  SQLite journal (append-only, hash-chained) · export · verify
     forge-protocol  forge-driver/v1 · subprocess transport · built-in adapters
@@ -123,6 +124,48 @@ actual-cost join is deferred until readplane exposes a session query. Trust clas
 are data too: no confinement is a trusted native child;
 `driver.confine {image, network, mounts}` wraps the command in a
 pinned container with the workdir mounted at the same path.
+
+## Agents are defined once; adapters are data
+
+A seat may name an agent instead of inlining what it is (decision 0016).
+`agents/<name>.json` carries a description, a charter, an ORDERED chain
+of abstract model names, abstract tool/MCP configuration, the 0006
+limits and the 0007 declared inputs; `adapters/<provider>.json` maps the
+abstract onto one provider — driver invocation, model ids, how tool
+permissions and MCP servers are spelled, and which of those the provider
+**cannot** express, declared as the explicit string `"unsupported"`
+because an empty map is ambiguous between "cannot" and "not filled in
+yet". No Rust match arm over provider names is ever written; adding a
+provider or a model is a file.
+
+`crates/forge-runtime/src/agents.rs` is the resolver and it is pure by
+signature: availability is an argument and the module reaches for no
+filesystem, environment, process or clock — the I/O that loads the two
+trees lives behind a named boundary in `agents/load.rs`. `Bundle::compile`
+passes availability *unspecified*, so compile-time resolution depends on
+exactly two digested inputs and one bundle cannot have two digests.
+`forge doctor` is the real consumer of the probed arms.
+
+Resolution is pinned into the run manifest under one `agents` key,
+**absent** when no seat references an agent, keyed by invocation site,
+carrying the agent, charter and adapter digests, the full chain and the
+chosen index — names and digests only, never resolved argv, whose
+`{forge}` expansion is a machine-local absolute path. Per-invocation
+provenance reaches the journal as optional, absent-by-default payload
+fields at `event_schema: 1`, published as
+`contracts/effect-provenance.v1.schema.json`; `fold` never reads them,
+which is what makes the amended rule in `contracts/README.md` honest.
+
+The honesty rules are mechanised, not described. A restriction the
+provider cannot express is a compile failure naming agent, provider and
+capability (the agent would get MORE power than it declares, so
+`optional` is unrepresentable there); a grant gap is a failure unless
+marked optional, and then a notice that lands in the manifest and in
+every readout. Both run over every chain entry. Fallback is bounded by a
+structural predicate — `Failed`, never `Accepted`, no checkpoint — so
+decision 0016's mid-session boundary is unreachable-by-construction
+rather than a comment, and the chain index is derived by scanning the
+effect's own events so a restart cannot change which model runs next.
 
 ## Verification is layered, and the forge verifies itself
 

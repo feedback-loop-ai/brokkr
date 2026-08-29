@@ -200,7 +200,7 @@ which the self-forge loop runs) is one revertible commit.
   commit, revertible alone, because the self-forge loop runs it.
   *Proven by*: T21's per-seat equality plus the `recipes` listing test.
 
-- [ ] **T23 — Docs.** `README.md` and `ARCHITECTURE.md` gain the
+- [x] **T23 — Docs.** `README.md` and `ARCHITECTURE.md` gain the
   library, the adapters and the honesty rules — including the named
   limits, stated as limits: Looper-dispatched runs cannot adopt agents,
   provenance does not cross the bridge, and "no `Accepted` ever arrives"
