@@ -12,6 +12,7 @@ pub use agents::{
     LibraryError, Presence, ResolveError,
 };
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
+pub use bundle::compose::Ancestor;
 pub use bundle::{
     Aggregate, Bundle, CompileError, Confine, PanelMember, Seat, SeatBody, SequenceStep, StepBody,
     ENGINE_VERSION,

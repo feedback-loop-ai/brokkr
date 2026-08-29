@@ -60,6 +60,8 @@ fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     Bundle {
         name: "test".into(),
         dir: dir.to_path_buf(),
+        roots: vec![dir.to_path_buf()],
+        chain: Vec::new(),
         machine: machine(),
         seats,
         manifest: json!({
@@ -635,7 +637,7 @@ fn git_helpers_and_confinement_fail_closed() {
             mounts: vec!["/extra".into()],
         }),
         dir.path(),
-        dir.path(),
+        &[dir.path().to_path_buf()],
     );
     assert!(!confined.contains(&"--network=none".to_string()));
     assert!(confined.iter().any(|part| part == "/extra:/extra:ro"));

@@ -40,6 +40,8 @@ fn bundle_with_sequence() -> Bundle {
     Bundle {
         name: "test".into(),
         dir: PathBuf::new(),
+        roots: vec![PathBuf::new()],
+        chain: Vec::new(),
         machine: Machine {
             phases: vec!["review".into()],
             initial: "review".into(),
