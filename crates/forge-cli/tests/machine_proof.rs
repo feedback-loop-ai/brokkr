@@ -2186,3 +2186,94 @@ fn watch_exits_on_a_park_with_the_reason_first() {
     let parked = frame.lines().position(|line| line.starts_with("park  "));
     assert!(parked < seats, "the reason comes before the seats: {frame}");
 }
+
+#[test]
+fn a_run_id_prefix_and_latest_read_the_same_run_as_the_full_id() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let run_id = Workspace::run_id(&stderr);
+    let path = ws.db();
+    let db = path.to_str().unwrap();
+    let prefix = &run_id[..run_id.len() - 4];
+
+    // The readout is the run's, not the selector's: a prefix and
+    // `latest` print what the 41-character id prints, byte for byte.
+    let (code, full, stderr) = ws.forge_raw(&["inspect", "--run", &run_id, "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    for selector in [prefix, "latest"] {
+        let (code, readout, stderr) = ws.forge_raw(&["inspect", "--run", selector, "--db", db]);
+        assert_eq!(code, Some(0), "stderr: {stderr}");
+        assert_eq!(readout, full, "--run {selector} is the same readout");
+        let (code, view, stderr) = ws.forge(&["inspect", "--run", selector, "--json", "--db", db]);
+        assert_eq!(code, Some(0), "stderr: {stderr}");
+        assert_eq!(view["summary"]["run_id"], run_id.as_str());
+    }
+
+    // Every readout takes them, and none of them writes: replay,
+    // export, watch and anchor all resolve through the one helper.
+    let (code, _, stderr) = ws.forge(&["replay", "--run", prefix, "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let (code, _, stderr) =
+        ws.forge_raw(&["export", "--run", "latest", "--out", "out", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(
+        ws.path().join(format!("out/{run_id}.ndjson")).exists(),
+        "the export is named for the resolved run"
+    );
+    let (code, frame, stderr) = ws.forge_raw(&["watch", "--run", prefix, "--once", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(frame.contains(&run_id), "{frame}");
+
+    // A second run of the same feature shares the source's slug, so the
+    // shared prefix is ambiguous and says which runs it matched.
+    let variant = ws.path().join("bundle-variant");
+    copy_dir(&ws.bundle_dir(), &variant);
+    std::fs::write(variant.join("roles/role.md"), "# variant role\n").unwrap();
+    let (code, _, stderr) = ws.forge(&[
+        "rerun",
+        "--run",
+        &run_id,
+        "--bundle",
+        variant.to_str().unwrap(),
+        "--db",
+        db,
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let announcement = format!("rerun of {run_id} as ");
+    let rerun_id = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(&announcement))
+        .and_then(|rest| rest.split(' ').next())
+        .expect("new run id in announcement")
+        .to_string();
+
+    // The slug is everything before the id's trailing hash — the part
+    // two runs of one feature share.
+    let slug = run_id.rsplit_once('-').expect("slug-hash run id").0;
+    let (code, _, stderr) = ws.forge_raw(&["inspect", "--run", slug, "--db", db]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("matches 2 runs"), "{stderr}");
+    assert!(stderr.contains(&run_id), "{stderr}");
+    assert!(stderr.contains(&rerun_id), "{stderr}");
+
+    // `latest` follows the database, not the operator's memory.
+    let (code, view, stderr) = ws.forge(&["inspect", "--run", "latest", "--json", "--db", db]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(view["summary"]["run_id"], rerun_id.as_str());
+
+    // A selector matching nothing is an error, never a nearest guess.
+    let (code, _, stderr) = ws.forge_raw(&["inspect", "--run", "nobody", "--db", db]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("no run matching 'nobody'"), "{stderr}");
+
+    // The help says so on every command that takes a selector.
+    for command in ["watch", "inspect", "anchor", "export", "replay"] {
+        let (code, help, stderr) = ws.forge_raw(&[command, "--help"]);
+        assert_eq!(code, Some(0), "stderr: {stderr}");
+        assert!(
+            help.contains("unique run-id prefix, or `latest`"),
+            "{command} --help: {help}"
+        );
+    }
+}
