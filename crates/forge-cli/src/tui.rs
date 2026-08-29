@@ -1837,14 +1837,12 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     let Some(bottom) = plan.box_row else {
         return;
     };
-    let occupied = seg
-        .marks
-        .iter()
-        .map(|mark| mark.row)
-        .chain(seg.joins.iter().flat_map(|join| join.rows.iter().copied()))
-        .min()
-        .unwrap_or(plan.rail_row);
-    let top = occupied.saturating_sub(1);
+    // FIXED height: every box spans the full lane envelope — one row
+    // above the outermost lane the plan allocated — so a plain phase
+    // and a fork get the same box, and two selections moved between
+    // never change shape. lane_span is name_row-1-rail_row by the
+    // row-allocation law, which makes the top 2·rail − name.
+    let top = (2 * plan.rail_row).saturating_sub(plan.name_row);
     // The box encloses everything the segment DRAWS: its rail extent
     // and its name, which may spill past the rail now that names no
     // longer widen segments. A side through the middle of the name

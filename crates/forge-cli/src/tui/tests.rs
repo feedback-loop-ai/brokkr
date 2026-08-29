@@ -2989,9 +2989,22 @@ fn the_selected_phase_sits_in_a_symmetric_dashed_box() {
     assert_eq!(left, left2, "one left side");
     assert_eq!(right, right2, "one right side");
     assert!(bottom_l > top_l && right > left, "a real rectangle");
-    // The box hugs the graph: its top edge is NOT the pane's first
-    // content row when there is headroom above the rail.
-    assert!(top_l > 1, "the box does not run the pane's full height");
+    // FIXED height: a plain phase and a fork get the same box — one
+    // spanning the full lane envelope — so moving the selection never
+    // changes the box's shape, only its width.
+    let height_selected = bottom_l - top_l;
+    let mut other = at_run();
+    settle(&mut other, &views);
+    apply(&mut other, &views, Key::Char('k'));
+    let frame2 = frame_of(&other, &views, 100, 26);
+    let lines2: Vec<&str> = frame2.lines().collect();
+    let row_of =
+        |glyph: char| -> usize { lines2.iter().position(|line| line.contains(glyph)).unwrap() };
+    assert_eq!(
+        row_of('╰') - row_of('╭'),
+        height_selected,
+        "every selection box has the same height"
+    );
 
     // Nothing selected, nothing boxed.
     let mut bare = at_run();
