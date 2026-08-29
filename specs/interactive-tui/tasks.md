@@ -14,7 +14,7 @@ These land first because they are edits to code that already has
 goldens: if hardening `Safe` or splitting `tone()` moves an existing
 byte, it must surface now and not inside a large new file.
 
-- [ ] **T1 — `Safe` strips bidi and zero-width formatting characters.**
+- [x] **T1 — `Safe` strips bidi and zero-width formatting characters.**
   In `render.rs`, extend `Safe::new`'s filter with an explicit,
   enumerated set — U+200B–U+200F, U+202A–U+202E, U+2060–U+2064,
   U+2066–U+2069, U+FEFF — and no Unicode-properties dependency. Update
@@ -24,7 +24,7 @@ byte, it must surface now and not inside a large new file.
   source order; **and** every existing `runs`/`inspect`/`watch` golden
   byte-identical.
 
-- [ ] **T2 — `tone()` splits out of `status_code`.**
+- [x] **T2 — `tone()` splits out of `status_code`.**
   `pub(crate) enum Tone { Good, Bad, Live, Quiet }` and
   `pub(crate) fn tone(status: &str) -> Tone` carry the table verbatim;
   `status_code` becomes `Tone -> ANSI` and keeps its exact mapping. One
@@ -33,7 +33,7 @@ byte, it must surface now and not inside a large new file.
   goldens byte-identical; a unit test that `tone` returns `Quiet` for an
   unknown status (0001: never guessed into one of the four).
 
-- [ ] **T3 — the scope predicate is shared and de-duplicated.**
+- [x] **T3 — the scope predicate is shared and de-duplicated.**
   `keeps_participant` and `keeps_row` become `pub(crate)`; the phase
   filter written inline in `graph_block` (`render.rs:396–403`) is
   **extracted** as `pub(crate) fn keeps_phase(lens: Option<&Lens>, phase:
@@ -43,7 +43,7 @@ byte, it must surface now and not inside a large new file.
   The crate now has one fewer copy of the predicate than before this
   slice.
 
-- [ ] **T4 — `session_turns` factors out of `session_transcript`.**
+- [x] **T4 — `session_turns` factors out of `session_transcript`.**
   `pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)>`
   carries **validation, location and parse together**; the `json!`
   construction lifts into a short converter in `handle`. Two plain
@@ -53,7 +53,7 @@ byte, it must surface now and not inside a large new file.
   test that a traversal-shaped id (`../../etc/passwd`) is rejected by
   `session_turns` itself, not by the HTTP layer.
 
-- [ ] **T5 — `WATCH_TRANSIENT_FRAMES` becomes `pub(crate)`.**
+- [x] **T5 — `WATCH_TRANSIENT_FRAMES` becomes `pub(crate)`.**
   No behaviour change; the TUI reaches it as
   `crate::WATCH_TRANSIENT_FRAMES`.
   *Proven by*: AC-9 — `watch`'s existing transient/persistent tests still

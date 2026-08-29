@@ -396,7 +396,7 @@ fn write_frame(
 /// A transient store error (SQLITE_BUSY while a `forge run` holds the
 /// write lock) is a frame that says so, not an exit. A persistent one
 /// exits nonzero.
-const WATCH_TRANSIENT_FRAMES: usize = 5;
+pub(crate) const WATCH_TRANSIENT_FRAMES: usize = 5;
 
 /// Poll the journal head and redraw when it moves, comparing **both**
 /// seq and hash: a rewritten journal at equal seq is the tamper case
