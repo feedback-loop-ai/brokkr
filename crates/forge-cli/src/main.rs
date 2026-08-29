@@ -293,6 +293,11 @@ enum Cmd {
         script: PathBuf,
         #[arg(long)]
         state: PathBuf,
+        /// The concrete model an adapter pinned (decision 0016). Echoed
+        /// back as a checkpoint so a proof can assert the pin actually
+        /// reached the driver rather than trusting the composed argv.
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -993,8 +998,12 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::FakeDriver { script, state } => {
-            forge_protocol::fake::run_fake_driver(&script, &state)?;
+        Cmd::FakeDriver {
+            script,
+            state,
+            model,
+        } => {
+            forge_protocol::fake::run_fake_driver(&script, &state, model.as_deref())?;
             Ok(ExitCode::SUCCESS)
         }
     }

@@ -156,10 +156,15 @@ pub struct Adapter {
     pub digest: String,
 }
 
-/// One resolved invocation: a model, the provider serving it, and the
-/// composed argv with `{forge}` still a literal token.
+/// One resolved invocation: the agent it serves, a model, the provider
+/// serving it, and the composed argv with `{forge}` still a literal
+/// token. The agent name rides on every candidate because per-attempt
+/// provenance names all three, and a site's chain is walked one link at
+/// a time — carrying the name here is what lets the journal say WHICH
+/// agent fell back without re-opening the library at run time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
+    pub agent: String,
     pub model: String,
     pub provider: String,
     pub argv: Vec<String>,
@@ -479,6 +484,7 @@ pub fn resolve(
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)
         .map(|entry| Candidate {
+            agent: agent.name.clone(),
             model: entry.model.clone(),
             provider: entry.provider.clone().expect("mapped above"),
             argv: entry.argv.clone(),

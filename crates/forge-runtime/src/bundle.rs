@@ -611,6 +611,7 @@ fn resolve_reference(
     for candidate in &resolution.candidates {
         lint_secret_refs(what, &candidate.argv, secrets)?;
         candidates.push(Candidate {
+            agent: candidate.agent.clone(),
             model: candidate.model.clone(),
             provider: candidate.provider.clone(),
             argv: expand_command(dir, &candidate.argv),

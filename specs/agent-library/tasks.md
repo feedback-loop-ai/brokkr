@@ -120,12 +120,12 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 4 — the journal and bounded fallback
 
-- [ ] **T13 — `AttemptReport.accepted`.** Surfaced from the local
+- [x] **T13 — `AttemptReport.accepted`.** Surfaced from the local
   `run_attempt` already keeps.
   *Proven by*: a process-layer test for both values, and the existing
   driver-protocol suite staying green.
 
-- [ ] **T14 — Provenance events.** `effect/started.provenance` as a list
+- [x] **T14 — Provenance events.** `effect/started.provenance` as a list
   over invocation sites, absent when no site is agent-resolved;
   `effect/failed.start_failure` plus member tag when the structural
   predicate holds; `contracts/effect-provenance.v1.schema.json`
@@ -136,7 +136,7 @@ which the self-forge loop runs) is one revertible commit.
   AC-16 (a two-provider panel produces two records; sdd's design
   sequence reports `claude` and `exec` separately).
 
-- [ ] **T15 — Bounded fallback.** Candidates on `Single`, `StepBody` and
+- [x] **T15 — Bounded fallback.** Candidates on `Single`, `StepBody` and
   `PanelMember`, empty for inline seats; per-site index derived by
   scanning the effect's events for prior `start_failure`s, clamped to
   the last candidate; `max_attempts` untouched.

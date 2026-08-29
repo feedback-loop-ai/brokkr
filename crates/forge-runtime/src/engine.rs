@@ -4,6 +4,7 @@
 //! next action purely from `fold(journal)` + the pinned bundle; nothing
 //! in here decides a transition — only the policy does.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,6 +22,7 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::agents::Candidate;
 use crate::bundle::{
     Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_OWNED_INPUTS,
     ENGINE_VERSION,
@@ -573,17 +575,23 @@ impl Engine {
             }
             SeatBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
         };
+        // Which link of each agent's chain runs this attempt, decided
+        // from journaled facts before anything spawns. The existing
+        // `driver` label is untouched: a display string is not a control
+        // channel, and five consumers plus the engine would otherwise
+        // have to parse a packed grammar to make a control decision.
+        let (selection, provenance) = select_candidates(events, effect_id, &seat.body);
+        let mut started = json!({
+            "effect_id": effect_id,
+            "attempt_id": attempt_id,
+            "driver": driver_label,
+        });
+        if let Some(provenance) = provenance {
+            started["provenance"] = provenance;
+        }
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
-        self.append(
-            EventType::EffectStarted,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "driver": driver_label,
-            }),
-            Some(attempt_id.clone()),
-        )?;
+        self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
         let workdir = self.workdir();
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
@@ -598,15 +606,26 @@ impl Engine {
                 *aggregate,
                 &input,
                 deadline,
+                &selection,
             ),
-            SeatBody::Sequence { steps } => {
-                self.execute_sequence(effect_id, &attempt_id, seat_name, steps, &input, deadline)
-            }
+            SeatBody::Sequence { steps } => self.execute_sequence(
+                effect_id,
+                &attempt_id,
+                seat_name,
+                steps,
+                &input,
+                deadline,
+                &selection,
+            ),
             SeatBody::Single {
                 command, confine, ..
             } => {
-                let command =
-                    confined_command(command, confine.as_ref(), &workdir, &self.bundle.dir);
+                let command = confined_command(
+                    argv_for(&selection, &None, command),
+                    confine.as_ref(),
+                    &workdir,
+                    &self.bundle.dir,
+                );
                 let run = self.run_driver(
                     effect_id,
                     &attempt_id,
@@ -616,7 +635,7 @@ impl Engine {
                     deadline,
                     None,
                 )?;
-                self.conclude_single(effect_id, &attempt_id, run)
+                self.conclude_single(effect_id, &attempt_id, run, &selection)
             }
         }
     }
@@ -629,22 +648,29 @@ impl Engine {
         effect_id: &str,
         attempt_id: &str,
         run: DriverRun,
+        selection: &Selection,
     ) -> Result<(), EngineError> {
         let report = match run {
             DriverRun::SpawnFailed(error) => {
+                // A driver binary that is absent satisfies the structural
+                // predicate trivially: nothing was accepted and nothing
+                // checkpointed, because nothing ran.
+                let mut payload = json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "error": error,
+                });
+                start_failure_fields(&mut payload, selection, vec![None]);
                 self.append(
                     EventType::EffectFailed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": error,
-                    }),
+                    payload,
                     Some(attempt_id.to_string()),
                 )?;
                 return Ok(());
             }
             DriverRun::Ran(report) => report,
         };
+        let start_failure = failed_to_start(&report);
         let stderr_tail = stderr_tail(&report.stderr);
         match report.outcome {
             AttemptOutcome::Succeeded { result } => {
@@ -655,13 +681,17 @@ impl Engine {
                 )?;
             }
             AttemptOutcome::Failed { error } => {
+                let mut payload = json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "error": format!("{error}; stderr tail: {stderr_tail}"),
+                });
+                if start_failure {
+                    start_failure_fields(&mut payload, selection, vec![None]);
+                }
                 self.append(
                     EventType::EffectFailed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": format!("{error}; stderr tail: {stderr_tail}"),
-                    }),
+                    payload,
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -761,6 +791,7 @@ impl Engine {
         aggregate: Aggregate,
         panel_input: &Value,
         deadline: std::time::Duration,
+        selection: &Selection,
     ) -> Result<(), EngineError> {
         let runs = self.member_runs(
             seat_name,
@@ -768,9 +799,12 @@ impl Engine {
             &panel_input["members"],
             panel_input,
             &panel_input["context"],
+            selection,
+            "",
         );
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, "")?;
+        let start_failures = start_failure_sites(&reports, "");
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
@@ -784,13 +818,18 @@ impl Engine {
                 )?;
             }
             AttemptOutcome::Failed { error } => {
+                let mut payload = json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "error": error,
+                });
+                // Per member, not per attempt: a member that failed to
+                // start advances its OWN chain index, and a member that
+                // ran does not.
+                start_failure_fields(&mut payload, selection, start_failures);
                 self.append(
                     EventType::EffectFailed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "error": error,
-                    }),
+                    payload,
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -810,6 +849,7 @@ impl Engine {
     /// role/result paths, `driver_seat_prefix` is the seat name (or
     /// `<seat>:<step>` inside a sequence), and `context` already carries
     /// any accumulated prior step results.
+    #[allow(clippy::too_many_arguments)]
     fn member_runs(
         &self,
         driver_seat_prefix: &str,
@@ -817,11 +857,14 @@ impl Engine {
         members_meta: &Value,
         seat_input: &Value,
         context: &Value,
+        selection: &Selection,
+        tag_prefix: &str,
     ) -> Vec<MemberRun> {
         let workdir = self.workdir();
         members
             .iter()
             .map(|member| {
+                let site = Some(format!("{tag_prefix}{}", member.name));
                 let mut input = json!({
                     "feature": seat_input["feature"],
                     "phase": seat_input["phase"],
@@ -837,7 +880,7 @@ impl Engine {
                     name: member.name.clone(),
                     driver_seat: format!("{driver_seat_prefix}:{}", member.name),
                     command: confined_command(
-                        &member.command,
+                        argv_for(selection, &site, &member.command),
                         member.confine.as_ref(),
                         &workdir,
                         &self.bundle.dir,
@@ -887,6 +930,10 @@ impl Engine {
                                     session_ref: None,
                                     checkpoints: Vec::new(),
                                     stderr: String::new(),
+                                    // Nothing ran, so nothing was
+                                    // accepted: the structural
+                                    // fail-to-start predicate holds.
+                                    accepted: false,
                                 },
                                 Ok(process) => process.run_attempt(
                                     ENGINE_VERSION,
@@ -988,6 +1035,7 @@ impl Engine {
     /// (0006-retryable — a retry restarts from step 1); an indeterminate
     /// step parks it. The FINAL step's result object is the effect's
     /// single typed result — decide() validates it exactly as today.
+    #[allow(clippy::too_many_arguments)]
     fn execute_sequence(
         &mut self,
         effect_id: &str,
@@ -996,6 +1044,7 @@ impl Engine {
         steps: &[SequenceStep],
         seq_input: &Value,
         deadline: std::time::Duration,
+        selection: &Selection,
     ) -> Result<(), EngineError> {
         let mut prior_results = Map::new();
         for (index, step) in steps.iter().enumerate() {
@@ -1008,10 +1057,14 @@ impl Engine {
                 context.insert("prior_results".into(), Value::Object(prior_results.clone()));
                 Value::Object(context)
             };
+            // Which sites of THIS step failed to start, if the step is
+            // the one that fails the attempt.
+            let mut start_failures: Vec<Site> = Vec::new();
             let outcome = match &step.body {
                 StepBody::Single {
                     command, confine, ..
                 } => {
+                    let site = Some(step.name.clone());
                     let driver_seat = format!("{seat_name}:{}", step.name);
                     let mut input = json!({
                         "feature": seq_input["feature"],
@@ -1025,7 +1078,7 @@ impl Engine {
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
                     let command = confined_command(
-                        command,
+                        argv_for(selection, &site, command),
                         confine.as_ref(),
                         &self.workdir(),
                         &self.bundle.dir,
@@ -1039,12 +1092,18 @@ impl Engine {
                         deadline,
                         Some(&step.name),
                     )? {
-                        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
+                        DriverRun::SpawnFailed(error) => {
+                            start_failures.push(site);
+                            AttemptOutcome::Failed { error }
+                        }
                         DriverRun::Ran(report) => {
                             // The step driver's stderr tail rides on the
                             // attempt's terminal event, as a single
                             // seat's does.
                             let tail = stderr_tail(&report.stderr);
+                            if failed_to_start(&report) {
+                                start_failures.push(site);
+                            }
                             match report.outcome {
                                 AttemptOutcome::Succeeded { result } => {
                                     AttemptOutcome::Succeeded { result }
@@ -1069,23 +1128,28 @@ impl Engine {
                         &step_meta["members"],
                         seq_input,
                         &context,
+                        selection,
+                        &tag_prefix,
                     );
                     let reports =
                         self.run_panel(effect_id, attempt_id, &runs, deadline, &tag_prefix)?;
                     self.journal_panel_members(effect_id, attempt_id, &reports, &tag_prefix)?;
+                    start_failures = start_failure_sites(&reports, &tag_prefix);
                     panel_outcome(*aggregate, reports)
                 }
             };
             let result = match outcome {
                 AttemptOutcome::Succeeded { result } => result,
                 AttemptOutcome::Failed { error } => {
+                    let mut payload = json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "error": format!("sequence step '{}': {error}", step.name),
+                    });
+                    start_failure_fields(&mut payload, selection, start_failures);
                     self.append(
                         EventType::EffectFailed,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "error": format!("sequence step '{}': {error}", step.name),
-                        }),
+                        payload,
                         Some(attempt_id.to_string()),
                     )?;
                     return Ok(());
@@ -1447,6 +1511,164 @@ enum DriverRun {
     Ran(AttemptReport),
 }
 
+/// The invocation-site tag an agent-resolved site is journaled under:
+/// `None` for a single seat, `<member>` for a panel member, `<step>` for
+/// a sequence step, `<step>:<member>` for a member inside a step panel —
+/// exactly the tags the engine already uses for checkpoints.
+type Site = Option<String>;
+
+/// The candidate chosen for each agent-resolved invocation site of this
+/// attempt, derived from journaled facts BEFORE anything spawns. Inline
+/// sites are absent from this map, which is what keeps their execute
+/// path exactly as it was.
+type Selection = BTreeMap<Site, Candidate>;
+
+/// Every invocation site of a seat body, with the site's fallback chain.
+/// Inline sites carry an empty chain.
+fn invocation_sites(body: &SeatBody) -> Vec<(Site, &[Candidate])> {
+    fn panel<'a>(members: &'a [PanelMember], prefix: Option<&str>) -> Vec<(Site, &'a [Candidate])> {
+        members
+            .iter()
+            .map(|member| {
+                let tag = match prefix {
+                    None => member.name.clone(),
+                    Some(step) => format!("{step}:{}", member.name),
+                };
+                (Some(tag), member.candidates.as_slice())
+            })
+            .collect()
+    }
+    match body {
+        SeatBody::Single { candidates, .. } => vec![(None, candidates.as_slice())],
+        SeatBody::Panel { members, .. } => panel(members, None),
+        SeatBody::Sequence { steps } => steps
+            .iter()
+            .flat_map(|step| match &step.body {
+                StepBody::Single { candidates, .. } => {
+                    vec![(Some(step.name.clone()), candidates.as_slice())]
+                }
+                StepBody::Panel { members, .. } => panel(members, Some(&step.name)),
+            })
+            .collect(),
+    }
+}
+
+/// How far along its chain a site has walked: the number of PRIOR
+/// attempts for this effect whose terminal event recorded a fail-to-start
+/// for this site, clamped to the last candidate.
+///
+/// Derived by scanning the effect's own events, the way `advance_running`
+/// already scans them for the last error — so `fold` and `RunState` are
+/// untouched, and a crash between attempts cannot change which model runs
+/// next.
+fn chain_index(events: &[EventEnvelope], effect_id: &str, site: &Site, chain: usize) -> usize {
+    let failures = events
+        .iter()
+        .filter(|event| {
+            event.event_type == EventType::EffectFailed
+                && event.payload.get("effect_id").and_then(Value::as_str) == Some(effect_id)
+        })
+        .filter(|event| {
+            event
+                .payload
+                .get("start_failure_sites")
+                .and_then(Value::as_array)
+                .is_some_and(|sites| sites.iter().any(|entry| site_matches(entry, site)))
+        })
+        .count();
+    failures.min(chain.saturating_sub(1))
+}
+
+fn site_matches(entry: &Value, site: &Site) -> bool {
+    match site {
+        None => entry.is_null(),
+        Some(tag) => entry.as_str() == Some(tag.as_str()),
+    }
+}
+
+/// The per-site selection for this attempt, plus the provenance list the
+/// `effect/started` payload carries. `None` when no site is
+/// agent-resolved: a non-adopting run's journal gains no field at all.
+fn select_candidates(
+    events: &[EventEnvelope],
+    effect_id: &str,
+    body: &SeatBody,
+) -> (Selection, Option<Value>) {
+    let mut selection = Selection::new();
+    let mut provenance = Vec::new();
+    for (site, chain) in invocation_sites(body) {
+        if chain.is_empty() {
+            continue;
+        }
+        let index = chain_index(events, effect_id, &site, chain.len());
+        let candidate = chain[index].clone();
+        provenance.push(json!({
+            "member": site,
+            "agent": candidate.agent,
+            "model": candidate.model,
+            "provider": candidate.provider,
+            "chain_index": index,
+        }));
+        selection.insert(site, candidate);
+    }
+    let provenance = (!provenance.is_empty()).then_some(Value::Array(provenance));
+    (selection, provenance)
+}
+
+/// The argv to spawn for one invocation site: the selected candidate's,
+/// or the compiled command when the site is inline.
+fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> &'a [String] {
+    match selection.get(site) {
+        Some(candidate) => &candidate.argv,
+        None => inline,
+    }
+}
+
+/// The STRUCTURAL fail-to-start predicate (decision 0016): `Failed`, and
+/// no `Accepted` ever received, and no checkpoint emitted. No stderr
+/// sniffing and no "model not found" regex — the engine pattern-matching
+/// a provider's prose to make a control decision is the control-plane
+/// repair decision 0001 forbids.
+///
+/// Once `Accepted` arrives, this is false and fallback is unreachable by
+/// construction: decision 0016's mid-session boundary is mechanised here
+/// rather than described in a comment. A seat that ran for forty turns
+/// and then hit a quota wall has produced work a different model does
+/// not inherit, and it follows 0006 unchanged.
+fn failed_to_start(report: &AttemptReport) -> bool {
+    matches!(report.outcome, AttemptOutcome::Failed { .. })
+        && !report.accepted
+        && report.checkpoints.is_empty()
+}
+
+/// Which panel members failed to start, tagged as the journal tags them.
+fn start_failure_sites(reports: &[(String, AttemptReport)], tag_prefix: &str) -> Vec<Site> {
+    reports
+        .iter()
+        .filter(|(_, report)| failed_to_start(report))
+        .map(|(name, _)| Some(format!("{tag_prefix}{name}")))
+        .collect()
+}
+
+/// The fail-to-start fields for a terminal `effect/failed` payload —
+/// absent entirely when no agent-resolved site failed to start, so an
+/// inline seat's journal is byte-identical to what it always was.
+fn start_failure_fields(payload: &mut Value, selection: &Selection, sites: Vec<Site>) {
+    let journaled: Vec<Value> = sites
+        .into_iter()
+        .filter(|site| selection.contains_key(site))
+        .map(|site| match site {
+            None => Value::Null,
+            Some(tag) => Value::String(tag),
+        })
+        .collect();
+    if journaled.is_empty() {
+        return;
+    }
+    payload["start_failure"] = Value::Bool(true);
+    payload["start_failure_sites"] = Value::Array(journaled);
+}
+
 /// One panel member's derived driver invocation: the `seat` string the
 /// driver sees, the (possibly confined) command, and its input.
 struct MemberRun {
@@ -1744,6 +1966,9 @@ fn git_dirty(repo: &std::path::Path) -> bool {
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(true) // unreadable repo counts as dirty: fail closed
 }
+
+#[cfg(test)]
+mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
