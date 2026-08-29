@@ -1,0 +1,60 @@
+{
+  "name": "sdd-paranoid",
+  "extends": "sdd",
+  "override": {
+    "seats": [
+      "review"
+    ]
+  },
+  "seats": {
+    "review": {
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "inputs": [
+        "fixes_applied",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "aggregate": "review-panel",
+      "panel": {
+        "adversarial": {
+          "role": "roles/review-adversarial.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "claude",
+              "--",
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+            ]
+          }
+        },
+        "security": {
+          "role": "roles/review-security.md",
+          "driver": {
+            "command": [
+              "{forge}",
+              "driver",
+              "claude",
+              "--",
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -43,11 +43,18 @@ forge compare <a> <b>                               # journal-backed A/B
   review panels stream both members
   side by side. The full session transcript stays one
   `claude --resume <session_id>` away.
-- **The strategy loop** (decision 0010): a library of recipes
-  (`forge recipes list|add`, installable from git), swap by name,
+- **The strategy loop** (decisions 0010/0017): a library of recipes
+  (`forge recipes list|add|show`, installable from git), swap by name,
   re-run a past feature under another recipe, compare outcomes —
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
+  Recipes **compose**: `extends: "sdd"` plus one override is a whole
+  strategy (`recipes/sdd-paranoid`, sixty lines against SDD's 227).
+  Named things merge by name; redefining one the base has needs an
+  explicit marker, so an accidental collision fails compilation instead
+  of silently winning. Composition resolves at compile time into ONE
+  flat bundle — no inheritance at run time — and the run manifest
+  records the chain, so a run states what it was composed from.
 - **Bounded autonomy** (decisions 0006/0007): per-seat attempt limits
   and deadlines; determinate failures retry, indeterminate outcomes
   always park; every evaluation input is engine-computed or
@@ -203,7 +210,7 @@ from a command-line value or the journal.
 | `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli`. |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, and `forge-effect-provenance/v1`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
-| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, yours). |
+| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
 | `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |

@@ -620,11 +620,14 @@ impl Engine {
             SeatBody::Single {
                 command, confine, ..
             } => {
+                // Agents choose the argv (model selection); composition
+                // decides what is mounted — a composed bundle spans every
+                // recipe directory in its chain, not one dir.
                 let command = confined_command(
                     argv_for(&selection, &None, command),
                     confine.as_ref(),
                     &workdir,
-                    &self.bundle.dir,
+                    &self.bundle.roots,
                 );
                 let run = self.run_driver(
                     effect_id,
@@ -883,7 +886,7 @@ impl Engine {
                         argv_for(selection, &site, &member.command),
                         member.confine.as_ref(),
                         &workdir,
-                        &self.bundle.dir,
+                        &self.bundle.roots,
                     ),
                     input,
                 }
@@ -1081,7 +1084,7 @@ impl Engine {
                         argv_for(selection, &site, command),
                         confine.as_ref(),
                         &self.workdir(),
-                        &self.bundle.dir,
+                        &self.bundle.roots,
                     );
                     match self.run_driver(
                         effect_id,
@@ -1834,14 +1837,20 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
 
 /// Wrap a driver command for the policy-confined trust class: pinned
 /// image, stdio through, workdir mounted writable at the same path (so
-/// role/result paths stay valid), bundle dir read-only, extra declared
-/// mounts read-only, network off unless granted. Absence of confinement
-/// is the trusted class: a native child process.
+/// role/result paths stay valid), every bundle ROOT read-only, extra
+/// declared mounts read-only, network off unless granted. Absence of
+/// confinement is the trusted class: a native child process.
+///
+/// A composed recipe has one root per layer (decision 0017): an
+/// inherited confined seat's role file lives in its ancestor's
+/// directory, and an unmounted role is a run-time break hours into a
+/// run. For a bundle that composed nothing `roots` is `[dir]` and the
+/// emitted argv is byte-identical to what it was before composition.
 pub fn confined_command(
     command: &[String],
     confine: Option<&Confine>,
     workdir: &std::path::Path,
-    bundle_dir: &std::path::Path,
+    roots: &[PathBuf],
 ) -> Vec<String> {
     let Some(confine) = confine else {
         return command.to_vec();
@@ -1853,11 +1862,13 @@ pub fn confined_command(
         "-i".to_string(),
         "-v".to_string(),
         format!("{}:{}", workdir.display(), workdir.display()),
-        "-v".to_string(),
-        format!("{}:{}:ro", bundle_dir.display(), bundle_dir.display()),
-        "-w".to_string(),
-        workdir.display().to_string(),
     ];
+    for root in roots {
+        wrapped.push("-v".to_string());
+        wrapped.push(format!("{}:{}:ro", root.display(), root.display()));
+    }
+    wrapped.push("-w".to_string());
+    wrapped.push(workdir.display().to_string());
     if !confine.network {
         wrapped.push("--network=none".to_string());
     }
