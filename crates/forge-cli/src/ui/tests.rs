@@ -343,6 +343,20 @@ fn the_page_paints_and_derives_nothing() {
     }
 }
 
+/// The traversal guard lives with the lookup, not in the HTTP layer: a
+/// second caller — decision 0014's TUI — reaches `session_turns`
+/// directly, and a refactor that left validation behind would hand it a
+/// path traversal.
+#[test]
+fn the_session_lookup_carries_its_own_id_validation() {
+    for bad in ["", "../../etc/passwd", &"a".repeat(65), "/etc/passwd"] {
+        assert!(
+            session_turns(bad).is_none(),
+            "session_turns itself refuses {bad:?}"
+        );
+    }
+}
+
 /// The transcript drill (`/api/session/<id>`) is journal-independent and
 /// operator-local: it locates the seat's own Claude transcript by id.
 /// The endpoint predates this change and its responses are untouched;

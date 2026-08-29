@@ -10,10 +10,14 @@
 //! evidence, and `\r` plus spaces overwrites the line above — so a
 //! hostile result token can forge a ruling line, continuously under
 //! `watch`. Every journal string reaching stdout goes through [`Safe`],
-//! whose only constructor strips control characters, and it does so
-//! **before** any width arithmetic so an escape sequence cannot smuggle
-//! invisible width. This is the terminal twin of the console's fixed
-//! class allowlists.
+//! whose only constructor strips control characters **and** the bidi and
+//! zero-width formatting characters that `char::is_control()` does not
+//! cover — U+202E RIGHT-TO-LEFT OVERRIDE and its neighbours visually
+//! reorder the rest of a rendered line, which forges the same ruling
+//! line by another route. Sanitization happens **before** any width
+//! arithmetic so an escape sequence cannot smuggle invisible width. This
+//! is the terminal twin of the console's fixed class allowlists, and it
+//! serves all three surfaces (decision 0014's TUI included).
 //!
 //! **Width.** `COLUMNS` with a sane default, all column arithmetic
 //! saturating, all truncation on `char` boundaries. Without a
@@ -22,7 +26,7 @@
 
 use std::io::IsTerminal;
 
-use forge_view::{JournalRow, Participant, RunView, RunsView};
+use forge_view::{JournalRow, Participant, Phase, RunView, RunsView};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -42,9 +46,28 @@ const FEATURE_FLOOR: usize = 8;
 /// construction, not by discipline.
 pub struct Safe(String);
 
+/// The formatting characters that reorder or hide a line without being
+/// control characters: the zero-width and bidi marks (U+200B–U+200F),
+/// the embedding and override controls (U+202A–U+202E), the invisible
+/// operators (U+2060–U+2064), the directional isolates (U+2066–U+2069)
+/// and the byte-order mark (U+FEFF). Enumerated explicitly — a
+/// Unicode-properties dependency is not on the table.
+fn reorders(character: char) -> bool {
+    matches!(character,
+        '\u{200B}'..='\u{200F}'
+        | '\u{202A}'..='\u{202E}'
+        | '\u{2060}'..='\u{2064}'
+        | '\u{2066}'..='\u{2069}'
+        | '\u{FEFF}')
+}
+
 impl Safe {
     pub fn new(text: &str) -> Safe {
-        Safe(text.chars().filter(|c| !c.is_control()).collect())
+        Safe(
+            text.chars()
+                .filter(|c| !c.is_control() && !reorders(*c))
+                .collect(),
+        )
     }
 
     pub fn as_str(&self) -> &str {
@@ -107,13 +130,34 @@ fn width_from(value: Option<&str>) -> usize {
     }
 }
 
-/// The fixed status table, the same four the console colours.
-fn status_code(status: &str) -> &'static str {
+/// How a status reads, independent of how a surface paints it. One
+/// classification in the crate; three renderings of it (decision 0013's
+/// invariant, held across the TUI's arrival).
+pub(crate) enum Tone {
+    Good,
+    Bad,
+    Live,
+    Quiet,
+}
+
+/// The fixed status table, the same four the console colours. A status
+/// outside the known four falls to the quiet arm; it is never guessed
+/// into one of the four (decision 0001).
+pub(crate) fn tone(status: &str) -> Tone {
     match status {
-        "completed" | "succeeded" => GREEN,
-        "stopped" | "failed" => RED,
-        "running" | "working" => BOLD,
-        _ => DIM,
+        "completed" | "succeeded" => Tone::Good,
+        "stopped" | "failed" => Tone::Bad,
+        "running" | "working" => Tone::Live,
+        _ => Tone::Quiet,
+    }
+}
+
+fn status_code(status: &str) -> &'static str {
+    match tone(status) {
+        Tone::Good => GREEN,
+        Tone::Bad => RED,
+        Tone::Live => BOLD,
+        Tone::Quiet => DIM,
     }
 }
 
@@ -282,7 +326,16 @@ pub fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, S
     }
 }
 
-fn keeps_participant(lens: Option<&Lens>, part: &Participant) -> bool {
+/// The scope predicate for a phase, in one place: `graph_block` and the
+/// TUI ask the same question and must never answer it twice.
+pub(crate) fn keeps_phase(lens: Option<&Lens>, phase: &Phase) -> bool {
+    match lens {
+        None => true,
+        Some(lens) => lens.phases.contains(&phase.name),
+    }
+}
+
+pub(crate) fn keeps_participant(lens: Option<&Lens>, part: &Participant) -> bool {
     match lens {
         None => true,
         Some(lens) if lens.by_key => lens.keys.contains(&part.key),
@@ -293,7 +346,7 @@ fn keeps_participant(lens: Option<&Lens>, part: &Participant) -> bool {
     }
 }
 
-fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
+pub(crate) fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
     match lens {
         None => true,
         Some(lens) => row.phases.iter().any(|name| lens.phases.contains(name)),
@@ -393,13 +446,10 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
 /// the models already emit `Σ`, `↓`, `…` and `—` in pre-baked text, so
 /// an ASCII mode would need a second derivation of every one of them.
 fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
-    let phases: Vec<&forge_view::Phase> = view
+    let phases: Vec<&Phase> = view
         .phases
         .iter()
-        .filter(|phase| match lens {
-            None => true,
-            Some(lens) => lens.phases.contains(&phase.name),
-        })
+        .filter(|phase| keeps_phase(lens, phase))
         .collect();
     if phases.is_empty() {
         return String::new();

@@ -211,6 +211,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
         },
         None,
         None,
+        run_tui,
     )
     .unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
@@ -395,14 +396,15 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         ui::serve,
         Some(1),
         None,
+        run_tui,
     )
     .is_err());
     assert_eq!(
-        run_with(cli(command(false)), ui::serve, None, None).unwrap(),
+        run_with(cli(command(false)), ui::serve, None, None, run_tui).unwrap(),
         ExitCode::SUCCESS
     );
     assert_eq!(
-        run_with(cli(command(true)), ui::serve, Some(2), None).unwrap(),
+        run_with(cli(command(true)), ui::serve, Some(2), None, run_tui).unwrap(),
         ExitCode::SUCCESS
     );
     std::env::remove_var(&token_name);
@@ -709,6 +711,244 @@ fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_clo
     assert!(closed_tty.is_err());
 }
 
+/// The verb, its selector, and the promise that a read never creates a
+/// database (decision 0014's AC-1 and AC-2).
+#[test]
+fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "run-alpha");
+
+    let mut seen = None;
+    let code = run_with(
+        cli(Cmd::Tui {
+            run: Some("run-al".into()),
+            db: db.clone(),
+        }),
+        ui::serve,
+        None,
+        None,
+        |db, run| {
+            seen = Some((db, run));
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    assert_eq!(code, ExitCode::SUCCESS);
+    assert_eq!(
+        seen,
+        Some((db.clone(), Some("run-alpha".to_string()))),
+        "a prefix resolves through the one resolver, never a second copy"
+    );
+
+    // A missing database: the selector is not consulted, nothing is
+    // opened, and `forge tui` does the refusing.
+    let missing = dir.path().join("nowhere.db");
+    let mut seen = None;
+    run_with(
+        cli(Cmd::Tui {
+            run: Some("latest".into()),
+            db: missing.clone(),
+        }),
+        ui::serve,
+        None,
+        None,
+        |db, run| {
+            seen = Some((db, run));
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    assert_eq!(seen, Some((missing.clone(), Some("latest".to_string()))));
+    assert!(!missing.exists(), "a read never creates a database");
+    assert!(!dir.path().join("nowhere.db-wal").exists());
+
+    // No `--run` at all: the fleet is where the console opens.
+    let mut seen = None;
+    run_with(
+        cli(Cmd::Tui {
+            run: None,
+            db: db.clone(),
+        }),
+        ui::serve,
+        None,
+        None,
+        |db, run| {
+            seen = Some((db, run));
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    assert_eq!(seen, Some((db, None)));
+
+    use clap::CommandFactory;
+    let help = Cli::command().render_help().to_string();
+    assert!(help.contains("tui"), "the verb is listed: {help}");
+}
+
+/// The console's liveness, at the one place a store is opened on its
+/// path: head-gated on both seq and hash, fleet on the slower cadence,
+/// and one unfoldable run keeping its row.
+#[test]
+fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let ask = |run, force, fleet| tui::Ask {
+        run,
+        session: None,
+        force,
+        fleet,
+    };
+    let mut head = None;
+
+    let first = tui_views(&db, ask(Some("r1"), true, false), &mut head, clock)
+        .unwrap()
+        .expect("the first frame is forced");
+    assert_eq!(first.runs.runs.len(), 1);
+    assert!(first.run.is_some());
+    assert_eq!(first.now, "2026-01-01T00:07:03Z");
+    assert!(first.transcript.is_none(), "no seat is open");
+
+    assert!(
+        tui_views(&db, ask(Some("r1"), false, false), &mut head, clock)
+            .unwrap()
+            .is_none(),
+        "nothing moved, so nothing is re-folded"
+    );
+    assert!(
+        tui_views(&db, ask(Some("r1"), false, true), &mut head, clock)
+            .unwrap()
+            .is_some(),
+        "the fleet's slower cadence rebuilds anyway"
+    );
+    assert!(
+        tui_views(&db, ask(None, false, false), &mut head, clock)
+            .unwrap()
+            .is_some(),
+        "leaving a run behind moves the head to None"
+    );
+    head = Some((2, String::new()));
+
+    // A seq move redraws.
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "work", "phase": "work"}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert!(
+        tui_views(&db, ask(Some("r1"), false, false), &mut head, clock)
+            .unwrap()
+            .is_some(),
+        "a moved head redraws"
+    );
+
+    // A rewritten journal at EQUAL seq is the tamper case `anchor`
+    // exists for: the head is compared on hash as well.
+    let tampered = dir.path().join("tampered.db");
+    running_store(&tampered, "r1");
+    let mut head = None;
+    assert!(
+        tui_views(&tampered, ask(Some("r1"), true, false), &mut head, clock)
+            .unwrap()
+            .is_some()
+    );
+    let seq_before = head.clone().unwrap().0;
+    std::fs::remove_file(&tampered).unwrap();
+    running_store(&tampered, "r1");
+    Store::open(&tampered)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "other"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let mut head_at_equal_seq = Some((seq_before, "a different hash".to_string()));
+    assert!(
+        tui_views(
+            &tampered,
+            ask(Some("r1"), false, false),
+            &mut head_at_equal_seq,
+            clock
+        )
+        .unwrap()
+        .is_some(),
+        "same seq, different hash: the console redraws rather than sitting blind"
+    );
+
+    // One run whose journal does not fold keeps its row with the
+    // model's absence mark; the whole fleet does not vanish with it.
+    let mixed = dir.path().join("mixed.db");
+    running_store(&mixed, "good");
+    running_store(&mixed, "bad");
+    Store::open(&mixed)
+        .unwrap()
+        .append_next(
+            "bad",
+            EventType::RunStarted,
+            json!({"feature": "again", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let mut head = None;
+    let views = tui_views(&mixed, ask(None, true, false), &mut head, clock)
+        .unwrap()
+        .unwrap();
+    assert_eq!(views.runs.runs.len(), 2, "both runs are listed");
+    let broken = views
+        .runs
+        .runs
+        .iter()
+        .find(|row| row.run_id == "bad")
+        .unwrap();
+    assert!(broken.status.is_none() && !broken.status_known);
+
+    // A missing session is an absent transcript, never an invented one.
+    let mut head = None;
+    let views = tui_views(
+        &mixed,
+        tui::Ask {
+            run: None,
+            session: Some("9999-9999"),
+            force: true,
+            fleet: false,
+        },
+        &mut head,
+        clock,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(views.transcript.is_none());
+
+    // An unreadable store is an error the shell frames, not a panic.
+    let corrupt = dir.path().join("corrupt.db");
+    std::fs::write(&corrupt, "not sqlite").unwrap();
+    let mut head = None;
+    assert!(tui_views(&corrupt, ask(None, true, false), &mut head, clock).is_err());
+
+    // The production source binds the workspace clock, and reading
+    // through it leaves the journal exactly as it was.
+    let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
+    let mut head = None;
+    let mut source = tui_source(&db, &mut head);
+    let views = source(ask(Some("r1"), true, false)).unwrap().unwrap();
+    assert!(views.now.ends_with('Z'));
+    assert_eq!(
+        Store::open(&db).unwrap().export_ndjson("r1").unwrap(),
+        before
+    );
+}
+
 #[test]
 fn the_readouts_render_and_scope_from_the_one_derivation() {
     let dir = tempfile::tempdir().unwrap();
@@ -773,6 +1013,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
             ui::serve,
             None,
             None,
+            run_tui,
         )
         .unwrap(),
         ExitCode::from(1),
@@ -789,6 +1030,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
             ui::serve,
             None,
             Some(2),
+            run_tui,
         )
         .unwrap(),
         ExitCode::from(1),
