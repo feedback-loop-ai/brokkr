@@ -189,7 +189,7 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 7 — adoption, last
 
-- [ ] **T21 — `recipes/panel-review` and `recipes/sdd` reference
+- [x] **T21 — `recipes/panel-review` and `recipes/sdd` reference
   agents.** Every seat, panel member and sequence step except
   `design > speckit-check`, which stays inline.
   *Proven by*: AC-5 per seat (resolved equals the pre-adoption inline

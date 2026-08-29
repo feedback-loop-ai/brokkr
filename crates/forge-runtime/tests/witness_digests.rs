@@ -70,6 +70,11 @@ fn every_bundle_in_the_tree_compiles() {
     }
     assert!(dirs.len() >= 5, "expected the shipped recipes and bundles");
     for dir in dirs {
-        Bundle::compile(&dir).unwrap_or_else(|e| panic!("{} must compile: {e}", dir.display()));
+        // Against the in-tree library roots explicitly, rather than by
+        // changing the process working directory: two tests share one
+        // process, and a global `set_current_dir` would make this suite
+        // order-dependent.
+        Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|e| panic!("{} must compile: {e}", dir.display()));
     }
 }
