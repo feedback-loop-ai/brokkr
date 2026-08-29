@@ -8,6 +8,11 @@ use std::net::TcpListener;
 use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 
+/// `HOME` is process-global and the transcript lookup reads it, so the
+/// tests that point it at a temp projects tree take turns. One lock for
+/// the whole binary, named where both surfaces' test modules can see it.
+pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -798,33 +803,52 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let ask = |run, force, fleet| tui::Ask {
         run,
         session: None,
+        working: false,
         force,
         fleet,
     };
     let mut head = None;
 
-    let first = tui_views(&db, ask(Some("r1"), true, false), &mut head, clock)
-        .unwrap()
-        .expect("the first frame is forced");
+    let first = tui_views(
+        &db,
+        ask(Some("r1"), true, false),
+        &mut head,
+        &mut None,
+        clock,
+    )
+    .unwrap()
+    .expect("the first frame is forced");
     assert_eq!(first.runs.runs.len(), 1);
     assert!(first.run.is_some());
     assert_eq!(first.now, "2026-01-01T00:07:03Z");
     assert!(first.transcript.is_none(), "no seat is open");
 
     assert!(
-        tui_views(&db, ask(Some("r1"), false, false), &mut head, clock)
-            .unwrap()
-            .is_none(),
+        tui_views(
+            &db,
+            ask(Some("r1"), false, false),
+            &mut head,
+            &mut None,
+            clock
+        )
+        .unwrap()
+        .is_none(),
         "nothing moved, so nothing is re-folded"
     );
     assert!(
-        tui_views(&db, ask(Some("r1"), false, true), &mut head, clock)
-            .unwrap()
-            .is_some(),
+        tui_views(
+            &db,
+            ask(Some("r1"), false, true),
+            &mut head,
+            &mut None,
+            clock
+        )
+        .unwrap()
+        .is_some(),
         "the fleet's slower cadence rebuilds anyway"
     );
     assert!(
-        tui_views(&db, ask(None, false, false), &mut head, clock)
+        tui_views(&db, ask(None, false, false), &mut head, &mut None, clock)
             .unwrap()
             .is_some(),
         "leaving a run behind moves the head to None"
@@ -843,9 +867,15 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         )
         .unwrap();
     assert!(
-        tui_views(&db, ask(Some("r1"), false, false), &mut head, clock)
-            .unwrap()
-            .is_some(),
+        tui_views(
+            &db,
+            ask(Some("r1"), false, false),
+            &mut head,
+            &mut None,
+            clock
+        )
+        .unwrap()
+        .is_some(),
         "a moved head redraws"
     );
 
@@ -854,11 +884,15 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let tampered = dir.path().join("tampered.db");
     running_store(&tampered, "r1");
     let mut head = None;
-    assert!(
-        tui_views(&tampered, ask(Some("r1"), true, false), &mut head, clock)
-            .unwrap()
-            .is_some()
-    );
+    assert!(tui_views(
+        &tampered,
+        ask(Some("r1"), true, false),
+        &mut head,
+        &mut None,
+        clock
+    )
+    .unwrap()
+    .is_some());
     let seq_before = head.clone().unwrap().0;
     std::fs::remove_file(&tampered).unwrap();
     running_store(&tampered, "r1");
@@ -878,6 +912,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
             &tampered,
             ask(Some("r1"), false, false),
             &mut head_at_equal_seq,
+            &mut None,
             clock
         )
         .unwrap()
@@ -901,7 +936,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         )
         .unwrap();
     let mut head = None;
-    let views = tui_views(&mixed, ask(None, true, false), &mut head, clock)
+    let views = tui_views(&mixed, ask(None, true, false), &mut head, &mut None, clock)
         .unwrap()
         .unwrap();
     assert_eq!(views.runs.runs.len(), 2, "both runs are listed");
@@ -920,10 +955,12 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         tui::Ask {
             run: None,
             session: Some("9999-9999"),
+            working: false,
             force: true,
             fleet: false,
         },
         &mut head,
+        &mut None,
         clock,
     )
     .unwrap()
@@ -934,19 +971,196 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let corrupt = dir.path().join("corrupt.db");
     std::fs::write(&corrupt, "not sqlite").unwrap();
     let mut head = None;
-    assert!(tui_views(&corrupt, ask(None, true, false), &mut head, clock).is_err());
+    assert!(tui_views(
+        &corrupt,
+        ask(None, true, false),
+        &mut head,
+        &mut None,
+        clock
+    )
+    .is_err());
 
     // The production source binds the workspace clock, and reading
     // through it leaves the journal exactly as it was.
     let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
     let mut head = None;
-    let mut source = tui_source(&db, &mut head);
+    let mut seen = None;
+    let mut source = tui_source(&db, &mut head, &mut seen);
     let views = source(ask(Some("r1"), true, false)).unwrap().unwrap();
     assert!(views.now.ends_with('Z'));
     assert_eq!(
         Store::open(&db).unwrap().export_ndjson("r1").unwrap(),
         before
     );
+}
+
+/// The other half of the console's liveness: a seat's prose lands
+/// BETWEEN journal checkpoints, so the same poll that compares the head
+/// also asks the transcript file its length — while the seat is
+/// working, and not once it has concluded. Nothing here writes, and the
+/// pure core never learns a file exists.
+#[test]
+fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
+    let _home = HOME.lock().unwrap_or_else(|error| error.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects").join("live-project");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::env::set_var("HOME", &home);
+
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let poll = |session, working| tui::Ask {
+        run: Some("r1"),
+        session,
+        working,
+        force: false,
+        fleet: false,
+    };
+    let turn = |text: &str| {
+        format!("{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{text}\"}}}}\n")
+    };
+    let mut head = None;
+    let mut seen = None;
+
+    // The first frame is forced; it settles the head and the length.
+    assert!(tui_views(
+        &db,
+        tui::Ask {
+            run: Some("r1"),
+            session: Some("abcd-1234"),
+            working: true,
+            force: true,
+            fleet: false,
+        },
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .is_some());
+    assert!(
+        tui_views(
+            &db,
+            poll(Some("abcd-1234"), true),
+            &mut head,
+            &mut seen,
+            clock
+        )
+        .unwrap()
+        .is_none(),
+        "no journal move and no transcript at all: the frame stands"
+    );
+
+    // The seat's transcript appears, then gains a turn. Neither moves
+    // the journal head, and both must reach the operator's eye.
+    let file = projects.join("abcd-1234.jsonl");
+    std::fs::write(&file, turn("the first words")).unwrap();
+    let views = tui_views(
+        &db,
+        poll(Some("abcd-1234"), true),
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("a transcript that appeared is prose the operator is waiting for");
+    assert_eq!(views.transcript.unwrap().0.len(), 1);
+    assert!(
+        tui_views(
+            &db,
+            poll(Some("abcd-1234"), true),
+            &mut head,
+            &mut seen,
+            clock
+        )
+        .unwrap()
+        .is_none(),
+        "an unchanged length is not a reason to re-read a multi-megabyte file"
+    );
+    std::fs::write(
+        &file,
+        format!("{}{}", turn("the first words"), turn("and the next")),
+    )
+    .unwrap();
+    let views = tui_views(
+        &db,
+        poll(Some("abcd-1234"), true),
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("the file grew");
+    assert_eq!(views.transcript.unwrap().0.len(), 2);
+
+    // A different seat is a different watch: one transcript's length
+    // never speaks for another's, however much longer it happens to be.
+    // Switching seats is a level change, which forces its own refresh.
+    std::fs::write(
+        projects.join("0000-1111.jsonl"),
+        format!(
+            "{}{}{}",
+            turn("a different seat"),
+            turn("with more to say"),
+            turn("than the first one had")
+        ),
+    )
+    .unwrap();
+    assert!(
+        tui_views(
+            &db,
+            poll(Some("0000-1111"), true),
+            &mut head,
+            &mut seen,
+            clock
+        )
+        .unwrap()
+        .is_none(),
+        "a longer file under a different id is not this seat's growth"
+    );
+
+    // Once the seat concludes the file is not asked about at all: the
+    // journal's own head is the only thing left that can move.
+    assert!(tui_views(
+        &db,
+        poll(Some("abcd-1234"), false),
+        &mut head,
+        &mut seen,
+        clock
+    )
+    .unwrap()
+    .is_none());
+    std::fs::write(
+        &file,
+        format!(
+            "{}{}{}",
+            turn("the first words"),
+            turn("and the next"),
+            turn("written after the seat concluded")
+        ),
+    )
+    .unwrap();
+    assert!(
+        tui_views(
+            &db,
+            poll(Some("abcd-1234"), false),
+            &mut head,
+            &mut seen,
+            clock
+        )
+        .unwrap()
+        .is_none(),
+        "a concluded seat's file growing is not the console's business"
+    );
+
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
 }
 
 #[test]

@@ -1349,6 +1349,40 @@ fn the_shell_asks_for_the_seats_session_only_while_that_seat_is_open() {
     );
 }
 
+/// The shell watches a transcript file only while the seat can still
+/// write to it. `status` is a model field this branches on — the same
+/// one the seats table shows — and the question is asked where the
+/// `Ask` is built, never inside `apply`, which has no notion of a file.
+#[test]
+fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
+    let views = views();
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &views, Key::Enter);
+    apply(&mut tui, &views, Key::Enter);
+    assert_eq!(tui.level, Level::Participant);
+    assert_eq!(session_of(&tui, &views), Some("abcd-1234"));
+    assert!(
+        !session_is_live(&tui, &views),
+        "a concluded seat's transcript is already whole"
+    );
+
+    // The same seat, still working: now there is prose still landing.
+    let mut live = views_with("intake");
+    for part in &mut live.run.as_mut().unwrap().participants {
+        part.status = "working".to_string();
+    }
+    assert!(session_is_live(&tui, &live));
+
+    // A working seat with no session id has no file to watch...
+    for part in &mut live.run.as_mut().unwrap().participants {
+        part.session_id = None;
+    }
+    assert!(!session_is_live(&tui, &live));
+
+    // ...and neither has an operator who is not drilled into one.
+    assert!(!session_is_live(&at_run(), &views));
+}
+
 /// A panel with no sequence steps: one fork, no step label. The other
 /// shape the tree draws.
 fn panel_views() -> Views {
@@ -2696,7 +2730,8 @@ fn a_whole_tui_session_writes_nothing_at_all() {
         Key::Quit,
     ]);
     let mut head = None;
-    let mut source = |ask: Ask| crate::tui_views(&db, ask, &mut head, || NOW.to_string());
+    let mut source =
+        |ask: Ask| crate::tui_views(&db, ask, &mut head, &mut None, || NOW.to_string());
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 40).unwrap();

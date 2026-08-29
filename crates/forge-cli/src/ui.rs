@@ -6,7 +6,8 @@
 //!
 //! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` · `/api/run/<id>` ·
 //! `/api/session/<id>` · `/sse/<id>` (server-sent head changes,
-//! poll-backed).
+//! poll-backed) · `/sse/session/<id>` (server-sent transcript growth,
+//! poll-backed by the same clock).
 //!
 //! `/api/runs` and `/api/view/<id>` serve `forge-view`'s models: the page
 //! paints them and derives nothing (decision 0013). `/api/run/<id>` keeps
@@ -185,27 +186,48 @@ pub fn valid_session_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 
-/// Validation, location and parse, together: the seat session's local
-/// transcript by id, plus whether the size cap truncated it. `None` is
-/// "there is no such transcript on this machine" — never a guess.
-pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)> {
+/// Validation, then location: where this session's transcript lives on
+/// the operator's machine, or `None` for "there is no such file here".
+/// The id is checked BEFORE any path is formed, which is what makes the
+/// guard a traversal guard rather than a lookup with a comment beside
+/// it. Both readers of a transcript — the parse below and the growth
+/// watch — come through here, so neither can form a path of its own.
+pub(crate) fn transcript_path(id: &str) -> Option<PathBuf> {
     if !valid_session_id(id) {
         return None;
     }
     let home = std::env::var_os("HOME")?;
     let projects = Path::new(&home).join(".claude").join("projects");
     let file_name = format!("{id}.jsonl");
-    let mut found = None;
-    if let Ok(dirs) = std::fs::read_dir(&projects) {
-        for dir in dirs.flatten() {
-            let candidate = dir.path().join(&file_name);
-            if candidate.is_file() {
-                found = Some(candidate);
-                break;
-            }
+    for dir in std::fs::read_dir(&projects).ok()?.flatten() {
+        let candidate = dir.path().join(&file_name);
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
-    let text = std::fs::read_to_string(found?).ok()?;
+    None
+}
+
+/// The transcript's size on disk, and 0 when it cannot be read at all —
+/// a transcript that vanished mid-watch has not grown.
+pub(crate) fn transcript_len(file: &Path) -> u64 {
+    std::fs::metadata(file).map(|meta| meta.len()).unwrap_or(0)
+}
+
+/// Growth as a predicate rather than a comparison buried in a loop, so
+/// the rule has its own test: the FIRST observation is never growth —
+/// the reader already holds the file as it stood — and a file that
+/// shrank (rotated, replaced, gone) has not grown either. Prose is only
+/// ever appended, so length is the whole signal.
+pub(crate) fn transcript_grew(previous: Option<u64>, current: u64) -> bool {
+    previous.is_some_and(|previous| current > previous)
+}
+
+/// Validation, location and parse, together: the seat session's local
+/// transcript by id, plus whether the size cap truncated it. `None` is
+/// "there is no such transcript on this machine" — never a guess.
+pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)> {
+    let text = std::fs::read_to_string(transcript_path(id)?).ok()?;
     let mut turns = Vec::new();
     let mut budget: usize = 4_000_000;
     let mut truncated = false;
@@ -355,6 +377,26 @@ fn serve_client_with_limit(db: PathBuf, stream: TcpStream, sse_limit: Option<usi
     serve_io(&db, &mut reader, &mut writer, sse_limit);
 }
 
+/// One poll of every server-sent stream on this surface. The run's head
+/// and a seat's transcript move on the same clock, which is why there is
+/// one constant and no second cadence to reason about.
+const SSE_POLL: std::time::Duration = std::time::Duration::from_millis(1000);
+
+const SSE_HEADER: &str = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                          Cache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n";
+
+fn write_response(stream: &mut impl Write, response: Response) {
+    let payload = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+         Connection: close\r\n\r\n{}",
+        response.status,
+        response.content_type,
+        response.body.len(),
+        response.body
+    );
+    let _ = stream.write_all(payload.as_bytes());
+}
+
 fn serve_io(
     db: &Path,
     reader: &mut impl BufRead,
@@ -371,11 +413,47 @@ fn serve_io(
         return;
     }
 
+    // Before the run's stream, because a run id never contains a slash:
+    // the seat's own prose lands BETWEEN journal checkpoints, so the
+    // transcript is watched on its own file rather than on the head.
+    if let Some(session_id) = path.strip_prefix("/sse/session/") {
+        // The id guard and the lookup both run before a single byte of
+        // stream is written: an id that cannot name a transcript, or a
+        // transcript that is not on this machine, is a clean 404 — never
+        // an open connection waiting for a file to appear.
+        let Some(file) = transcript_path(session_id) else {
+            write_response(stream, not_found("transcript"));
+            return;
+        };
+        if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
+            return;
+        }
+        let mut seen: Option<u64> = None;
+        let mut sent = 0usize;
+        loop {
+            let size = transcript_len(&file);
+            let message = if transcript_grew(seen, size) {
+                format!("data: {}\n\n", json!({"size": size}))
+            } else {
+                // Heartbeat comment, exactly as the run's stream: the
+                // write that fails is how a closed drilldown is reaped.
+                ": ping\n\n".to_string()
+            };
+            seen = Some(size);
+            if stream.write_all(message.as_bytes()).is_err() {
+                return; // the operator left the drilldown
+            }
+            sent += 1;
+            if sse_limit.is_some_and(|limit| sent >= limit) {
+                return;
+            }
+            std::thread::sleep(SSE_POLL);
+        }
+    }
+
     if let Some(run_id) = path.strip_prefix("/sse/") {
         let run_id = run_id.to_string();
-        let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
-                      Cache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n";
-        if stream.write_all(header.as_bytes()).is_err() {
+        if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
             return;
         }
         let mut last = u64::MAX; // always push one initial event
@@ -397,20 +475,11 @@ fn serve_io(
             if sse_limit.is_some_and(|limit| sent >= limit) {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            std::thread::sleep(SSE_POLL);
         }
     }
 
-    let response = handle(db, &path);
-    let payload = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
-         Connection: close\r\n\r\n{}",
-        response.status,
-        response.content_type,
-        response.body.len(),
-        response.body
-    );
-    let _ = stream.write_all(payload.as_bytes());
+    write_response(stream, handle(db, &path));
 }
 
 fn open_system_browser(url: &str) {
