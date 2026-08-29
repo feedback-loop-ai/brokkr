@@ -261,6 +261,7 @@ fn settle(tui: &mut Tui, views: &Views) {
     if lens_of(tui, views).is_none() {
         tui.scope = None;
     }
+    seed_cursor(tui, views);
     if seat_of(tui, views).is_none() {
         tui.seat = None;
         if tui.level == Level::Participant {
@@ -497,6 +498,33 @@ fn step(tui: &mut Tui, views: &Views, step: Step) {
     let keys = keys_for(tui, views);
     let pane = tui.pane;
     move_to(&keys, &mut tui.cursor[pane], step);
+    // On the graph, moving IS scoping — the console scopes on a click,
+    // and an operator who has moved the rail cursor onto a phase has
+    // said which phase they mean. Enter then descends; Esc clears.
+    if in_graph(tui) {
+        tui.scope = tui.cursor[0].clone().map(render::Scope::Phase);
+    }
+}
+
+/// A graph that opens with nothing selected is a graph whose `Enter`
+/// does nothing, which reads as a broken key rather than as an empty
+/// selection. The rail cursor starts on the run's CURRENT phase — where
+/// an operator is already looking — and only when it has none.
+fn seed_cursor(tui: &mut Tui, views: &Views) {
+    if tui.level != Level::Run || tui.cursor[0].is_some() {
+        return;
+    }
+    let Some(view) = views.run.as_ref() else {
+        return;
+    };
+    tui.cursor[0] = view
+        .phases
+        .iter()
+        .find(|phase| phase.current)
+        // A journal that folds to no status has no current phase; the
+        // last phase entered is still where an operator is looking.
+        .or_else(|| view.phases.last())
+        .map(|phase| phase.name.clone());
 }
 
 /// The graph is the one pane whose primary axis is horizontal, so it is
@@ -1677,7 +1705,14 @@ fn plan(
             x0: origin,
             x1: origin + item.width - 1,
             name: item.name.clone(),
-            name_x: origin + (item.width - item.name_width) / 2,
+            // Centred on the rail content, not on the segment box: when
+            // the name is wider than the rail, centring each in the box
+            // independently rounds them apart and the label sits a
+            // column off its own node.
+            name_x: (rail_x + item.rail_width.saturating_sub(1) / 2)
+                .saturating_sub(item.name_width / 2)
+                .max(origin)
+                .min(origin + item.width.saturating_sub(item.name_width)),
             class: phase
                 .current
                 .then(|| class_for_phase(phase.current, status)),
@@ -1779,8 +1814,16 @@ fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
 fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
     // Between the fork and its rejoin the rail gives way to the lanes,
     // unless the member count is odd and one member rides the rail row.
+    // A labelled fork parts the rail to make room for its name; an
+    // UNLABELLED one (a panel with no step name) must not leave a
+    // gap — a rail that stops for eighteen columns reads as broken
+    // track, not as parallelism.
+    let filler = match join.label {
+        Some(_) => " ",
+        None => "─",
+    };
     for x in join.x0 + 1..join.x1 {
-        put(cells, x, rail_row, " ", plain());
+        put(cells, x, rail_row, filler, plain());
     }
     for row in &join.rows {
         for x in join.x0 + 1..join.x1 {
@@ -1851,6 +1894,20 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
                     &mark.label,
                     selected_style(mark.selected),
                 );
+            }
+        }
+        // The selected phase is bracketed by a dashed boundary — the
+        // terminal's answer to the console's dashed selection ring. It
+        // lives in the arrow gap either side of the segment and skips
+        // the rail row, so it can never overwrite the rail, an arrow
+        // head or a node: the gaps ARE the dashes.
+        if seg.selected {
+            for row in 0..=plan.name_row {
+                if row == plan.rail_row {
+                    continue;
+                }
+                put(&mut cells, seg.x0.saturating_sub(1), row, "┆", plain());
+                put(&mut cells, seg.x1 + 1, row, "┆", plain());
             }
         }
         let current = match seg.class {
