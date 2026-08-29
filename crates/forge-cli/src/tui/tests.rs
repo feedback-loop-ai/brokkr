@@ -1616,3 +1616,42 @@ fn a_whole_tui_session_writes_nothing_at_all() {
         "and so is the whole directory"
     );
 }
+
+#[test]
+fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
+    // Panes clamp to the frame, so a long row — a feature text, a park
+    // reason, an error tail — was truncated with no way through. Enter
+    // opens the whole row; the reader owns movement while it is open,
+    // so scrolling a payload does not also move the list behind it.
+    let views = views();
+    let mut tui = at_run();
+    tui.pane = 2;
+    let seq = keys_for(&tui, &views)[0].clone();
+    tui.cursor[2] = Some(seq.clone());
+    assert!(tui.reading.is_none());
+
+    apply(&mut tui, &views, Key::Enter);
+    let text = tui.reading.clone().expect("Enter opens the reader");
+    assert!(text.contains(&format!("seq {seq}")), "{text}");
+    assert!(text.contains("payload"), "{text}");
+    assert!(footer_for(&tui).contains("Esc or Enter close"));
+
+    // Movement scrolls the reader, and the list cursor stays put.
+    let before = tui.cursor[2].clone();
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::PageDown);
+    assert_eq!(tui.read_offset, 11);
+    assert_eq!(tui.cursor[2], before, "the list must not move underneath");
+    apply(&mut tui, &views, Key::Char('g'));
+    assert_eq!(tui.read_offset, 0);
+
+    // The full text reaches the frame, wrapped rather than clipped.
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(frame.contains("row · Esc closes"), "{frame}");
+
+    apply(&mut tui, &views, Key::Escape);
+    assert!(tui.reading.is_none(), "Esc closes the reader");
+    assert_eq!(tui.read_offset, 0);
+    // Esc closed the reader only — it did not also pop the level.
+    assert_eq!(tui.level, Level::Run);
+}
