@@ -3101,6 +3101,18 @@ fn the_forging_beacon_pulses_in_the_corner_whenever_any_run_is_live() {
     );
     tui.animate = false;
 
+    // A status line with no room: the beacon YIELDS rather than
+    // overwriting the breadcrumb — the one branch a wide test misses.
+    let mut cramped = at_run();
+    cramped.run = Some("a-run-id-long-enough-to-fill-the-whole-status-line-alone".to_string());
+    settle(&mut cramped, &views);
+    cramped.run = Some("a-run-id-long-enough-to-fill-the-whole-status-line-alone".to_string());
+    let frame = frame_of(&cramped, &views, 60, 26);
+    assert!(
+        !frame.contains("forging"),
+        "no room, no beacon — the breadcrumb wins: {frame}"
+    );
+
     // No live run anywhere: no beacon, at any level.
     for row in &mut views.runs.runs {
         row.status = Some("completed".to_string());
