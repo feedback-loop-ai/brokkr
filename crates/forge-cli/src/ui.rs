@@ -173,7 +173,15 @@ pub(crate) struct Turn {
 /// The id is joined into `~/.claude/projects/*/<id>.jsonl`, so validating
 /// it is a path-traversal guard and belongs with the lookup, never in a
 /// caller. Both surfaces call [`session_turns`], which calls this first.
-fn valid_session_id(id: &str) -> bool {
+///
+/// It is also a DISPLAY guard, which is why it is public: the id is a
+/// raw journal string, and every surface renders it inside a
+/// `claude --resume <id>` line an operator is invited to paste. Control
+/// characters alone are not enough — `;`, `&&`, `$(…)` and backticks
+/// survive sanitizing, so a hostile seat could otherwise hand the
+/// operator a pasteable shell command. Ids that fail this render as the
+/// deliberate-absence mark instead.
+pub fn valid_session_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 

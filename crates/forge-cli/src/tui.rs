@@ -1030,9 +1030,12 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
     // The `claude --resume` line is always here: the id is the model's
     // `session_id`, and its absence is the model's absence mark rather
     // than a pasteable lie.
+    // A session id that could not name a transcript must not be
+    // rendered into a pasteable command either: an id failing the
+    // shared guard is an absence, not a suggestion.
     let session = match &part.session_id {
-        Some(session) => session.clone(),
-        None => forge_view::ABSENT.to_string(),
+        Some(session) if crate::ui::valid_session_id(session) => session.clone(),
+        _ => forge_view::ABSENT.to_string(),
     };
     let lines = vec![
         Line::from(vec![

