@@ -604,6 +604,10 @@ fn run_tui(db: PathBuf, run: Option<String>) -> Result<ExitCode> {
         run,
         tui::production_ops(),
         std::io::stdout().is_terminal(),
+        // Animation is enabled exactly when colour is, through the same
+        // pure rule `forge runs` uses: NO_COLOR, TERM=dumb and a
+        // non-tty all yield a still graph. No new flag, no new env var.
+        render::Style::detect().color,
         ratatui::backend::CrosstermBackend::new(std::io::stdout()),
         std::io::stdout(),
         &mut source,

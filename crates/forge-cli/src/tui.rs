@@ -33,7 +33,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Result;
-use forge_view::{Participant, RunView, RunsView};
+use forge_view::{Column, Node, Participant, Phase, RunView, RunsView};
 use ratatui::backend::Backend;
 use ratatui::crossterm::cursor::{Hide, Show};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -66,6 +66,14 @@ const RUNS_REFRESH_TICKS: usize = 8;
 
 /// One `PageUp`/`PageDown` in list rows.
 const PAGE: usize = 10;
+
+/// One pulse frame per this many shell ticks: four frames × 2 × `TICK`
+/// ≈ a two-second breath, the terminal's answer to the console's 1.8s
+/// keyframe. **No new clock and no new wakeup**: [`drive`] already
+/// redraws every `TICK` and already carries `Tui::ticks`, so animation
+/// adds exactly zero draws and zero timers.
+const PULSE_TICKS: usize = 2;
+const PULSE_FRAMES: usize = 4;
 
 // ------------------------------------------------------------- the models
 
@@ -132,6 +140,14 @@ pub(crate) struct Tui {
     pub scope: Option<render::Scope>,
     /// One key per pane slot; cleared when the run changes.
     pub cursor: [Option<String>; 3],
+    /// The `Node.key` the graph cursor has walked into, subordinate to
+    /// `cursor[0]`: display-only, and `Enter` scopes the phase whatever
+    /// it says. Vanishing is the absence of code — a stale key matches
+    /// no drawn node, so nothing highlights.
+    pub node: Option<String>,
+    /// Animation is enabled exactly when colour is (§the pulse): no new
+    /// flag, no new env var, no new doc surface.
+    pub animate: bool,
     /// The viewport of a paragraph pane, which has an offset rather than
     /// a cursor.
     pub offset: usize,
@@ -167,6 +183,8 @@ impl Tui {
             seat: None,
             scope: None,
             cursor: [None, None, None],
+            node: None,
+            animate: false,
             offset: 0,
             pane: 0,
             filter: String::new(),
@@ -192,6 +210,7 @@ impl Tui {
         self.filter.clear();
         self.typing = false;
         self.cursor = [None, None, None];
+        self.node = None;
         self.offset = 0;
         self.force = true;
     }
@@ -288,6 +307,8 @@ fn session_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a str> {
 pub(crate) enum Key {
     Up,
     Down,
+    Left,
+    Right,
     PageUp,
     PageDown,
     Tab,
@@ -341,6 +362,8 @@ fn from_key(key: KeyEvent) -> Option<Key> {
     match key.code {
         KeyCode::Up => Some(Key::Up),
         KeyCode::Down => Some(Key::Down),
+        KeyCode::Left => Some(Key::Left),
+        KeyCode::Right => Some(Key::Right),
         KeyCode::PageUp => Some(Key::PageUp),
         KeyCode::PageDown => Some(Key::PageDown),
         KeyCode::Tab => Some(Key::Tab),
@@ -474,6 +497,59 @@ fn step(tui: &mut Tui, views: &Views, step: Step) {
     let keys = keys_for(tui, views);
     let pane = tui.pane;
     move_to(&keys, &mut tui.cursor[pane], step);
+}
+
+/// The graph is the one pane whose primary axis is horizontal, so it is
+/// the one pane where `←→` and `↑↓` do different things.
+fn in_graph(tui: &Tui) -> bool {
+    tui.level == Level::Run && tui.pane == 0
+}
+
+/// The selected phase's nodes in draw order — the lane cursor's list. A
+/// plain phase has none, and `move_to` over an empty list sets `None`,
+/// so `↑↓` there are inert by construction rather than by a special case.
+fn lane_keys(tui: &Tui, views: &Views) -> Vec<String> {
+    let Some(view) = views.run.as_ref() else {
+        return Vec::new();
+    };
+    let Some(cursor) = tui.cursor[0].as_deref() else {
+        return Vec::new();
+    };
+    view.phases
+        .iter()
+        .filter(|phase| phase.name == cursor)
+        .flat_map(|phase| phase.columns.iter())
+        .flat_map(|column| column.nodes.iter())
+        .map(|node| node.key.clone())
+        .collect()
+}
+
+/// `↑↓` walk the lanes inside the graph pane, and the focused list
+/// everywhere else. Both go through the same `move_to`, so wrap-around
+/// and the empty-list case are already specified and already tested.
+fn arrow(tui: &mut Tui, views: &Views, direction: Step) {
+    match in_graph(tui) {
+        true => {
+            let keys = lane_keys(tui, views);
+            move_to(&keys, &mut tui.node, direction);
+        }
+        false => step(tui, views, direction),
+    }
+}
+
+/// `←→` walk the rail. Everywhere else they are a **named** no-op: the
+/// lists in the other panes have no horizontal axis, and a wildcard here
+/// would be an untested claim about what they do with an arrow key.
+fn rail_move(tui: &mut Tui, views: &Views, direction: Step) {
+    // The guard IS the naming: outside the graph pane `←→` change no
+    // state at all, and a test presses them everywhere to prove it.
+    if !in_graph(tui) {
+        return;
+    }
+    let keys = keys_for(tui, views);
+    move_to(&keys, &mut tui.cursor[0], direction);
+    // The rail moved, so whatever lane the cursor was in is gone.
+    tui.node = None;
 }
 
 /// The live selection: a cursor key still present in the current list.
@@ -651,8 +727,10 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
         Key::Escape => escape(tui),
         Key::Backspace => backspace(tui),
         Key::Tab => tui.pane = (tui.pane + 1) % panes_at(tui.level),
-        Key::Up => step(tui, views, Step::Up),
-        Key::Down => step(tui, views, Step::Down),
+        Key::Up => arrow(tui, views, Step::Up),
+        Key::Down => arrow(tui, views, Step::Down),
+        Key::Left => rail_move(tui, views, Step::Up),
+        Key::Right => rail_move(tui, views, Step::Down),
         Key::PageUp => step(tui, views, Step::PageUp),
         Key::PageDown => step(tui, views, Step::PageDown),
     }
@@ -680,7 +758,9 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
     let tail = "· / filter · r refresh · ? help · q quit";
     match (tui.level, tui.pane) {
         (Level::Runs, _) => format!("↑↓/jk move · Enter open run · g/G top/bottom {tail}"),
-        (Level::Run, 0) => format!("↑↓/jk move · Enter scope phase · Tab pane · Esc back {tail}"),
+        (Level::Run, 0) => {
+            format!("←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back {tail}")
+        }
         (Level::Run, 1) => {
             let verb = match (scoped_seat(tui), tui.cursor[1].as_deref()) {
                 (Some(scoped), Some(cursor)) if scoped == cursor => "Enter open seat",
@@ -726,12 +806,13 @@ fn status_line(tui: &Tui) -> String {
     line
 }
 
-const HELP: [&str; 12] = [
+const HELP: [&str; 13] = [
     "forge tui — a read-only console over the same models as",
     "forge inspect, forge watch and forge ui. It issues no",
     "operator commands and writes nothing to the journal.",
     "",
     "↑ ↓ j k     move          Enter   descend / scope",
+    "← →         the graph rail        ↑ ↓ its lanes",
     "Esc         back          ⌫       back (keeps the scope)",
     "Tab         next pane     g G     top / bottom",
     "PgUp PgDn   page          /       filter this list",
@@ -949,9 +1030,851 @@ fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunV
     draw_trail(frame, trail, tui, view, lens.as_ref());
 }
 
-/// The 0013 tree: `⑂` precedes parallel members, `→` a sequential step,
-/// both nested under their phase. The markers are content, not colour,
-/// so the graph is uncoloured exactly as `graph_block` leaves it.
+// --------------------------------------------------------------- the graph
+//
+// The console's grammar (`ui.html::renderLoops`), drawn in characters:
+// ONE horizontal rail; sequential steps joined by arrowed edges that
+// read as *then*; a panel FORKING into vertically symmetric lanes that
+// REJOIN the rail before the next step — the rejoin *is* the join
+// dependency, and it is the one thing the 0013 tree could not say;
+// phase names on one shared baseline with `×N` revisit markers; and the
+// active node pulsing while the run is live.
+//
+// **A character grid, and deliberately not ratatui's plotting surface.**
+// Colour on that surface is stored per cell, last writer wins, so a node
+// circle drawn over a rail recolours the rail's cells — which makes a
+// fixed per-node colour vocabulary structurally unsatisfiable wherever a
+// node shares a cell with an edge, and at terminal densities that is
+// most nodes. Its own text call is a third path into a buffer whose
+// apparent safety is borrowed from ratatui's undocumented filtering
+// rather than from `Safe`'s enumerated table. And at five inner rows
+// there is no sub-cell resolution to win: a `●` at one-cell scale is a
+// truer circle than any dot-matrix approximation of one. What is
+// conceded is stroke fidelity; the grammar being matched is topological
+// — rail, arrow, fork, rejoin, baseline — and every element of it
+// survives at cell resolution. The ruling is held by a test over this
+// file's own source, not by memory.
+//
+// **Two functions, one boundary.** [`plan`] is pure owned integer
+// geometry over the models and the rect; [`paint`] walks that plan and
+// emits spans through the one sanitized constructor. The plan fits by
+// construction, so the painter has no clipping branch — a painter that
+// clips is a painter whose failure mode is invisible.
+
+/// The arrowed edge between two steps: `──→`, the console's *then*.
+const ARROW_WIDTH: usize = 3;
+
+/// A label clamps here before anything structural gives way.
+const LABEL_MAX: usize = 14;
+
+/// A corrupt fold must not put twenty digits on the name baseline.
+const VISITS_MAX: u64 = 99;
+
+/// The node vocabulary: `ui.html`'s `NODE_CLASS` allowlist plus its
+/// `phase.current × summary.status` branch, transliterated. Seven
+/// classes — deliverable 2's six, plus the one fallback arm Rust obliges.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Class {
+    Visited,
+    Current,
+    Park,
+    Failed,
+    Finished,
+    Active,
+    Unknown,
+}
+
+/// One classification, one rendering of it: a **(colour, marker ramp)**
+/// pair per class. The ramp is the pulse's four frames; classes that do
+/// not pulse repeat one glyph, so the frame index is inert for them and
+/// costs no branch. `Active`'s still glyph differs from `Finished`'s in
+/// the GLYPH channel, so the distinction survives a terminal with no
+/// colour and an operator with no animation.
+///
+/// This is deliberately **not** `render::tone`: `tone` maps
+/// `awaiting_operator` to `Quiet`, while the graph needs **park** as a
+/// distinct yellow class, and widening `tone` would move `forge runs`'
+/// colour. One classification per question, not one table for two.
+fn look(class: Class) -> (Style, [&'static str; 4]) {
+    match class {
+        Class::Visited => (Style::new().fg(Color::Magenta), ["○", "○", "○", "○"]),
+        Class::Current => (Style::new().fg(Color::Green), ["●", "◉", "○", "◉"]),
+        Class::Park => (Style::new().fg(Color::Yellow), ["⊙", "⊙", "⊙", "⊙"]),
+        Class::Failed => (Style::new().fg(Color::Red), ["⊗", "⊗", "⊗", "⊗"]),
+        Class::Finished => (Style::new().fg(Color::Green), ["●", "●", "●", "●"]),
+        Class::Active => (
+            Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            ["◉", "◎", "○", "◎"],
+        ),
+        Class::Unknown => (
+            Style::new().add_modifier(Modifier::DIM),
+            ["·", "·", "·", "·"],
+        ),
+    }
+}
+
+/// A phase's own rail node. An unrecognised `summary.status` renders
+/// **quiet, never live** — a deliberate, named divergence from
+/// `ui.html`, which falls through to green. The terminal declines to
+/// guess, in the manner of `render::tone`'s own `_ => Tone::Quiet`.
+fn class_for_phase(current: bool, status: &str) -> Class {
+    match (current, status) {
+        (false, _) => Class::Visited,
+        (true, "running" | "completed") => Class::Current,
+        (true, "awaiting_operator") => Class::Park,
+        (true, "stopped") => Class::Failed,
+        (true, _) => Class::Unknown,
+    }
+}
+
+/// A node inside a phase, from the model's closed-set key. **No journal
+/// string reaches this table**, and an unlisted key is the quiet arm.
+fn class_for_node(state_class: &str) -> Class {
+    match state_class {
+        "on-phosphor" => Class::Finished,
+        "in-active" => Class::Active,
+        "on-park" => Class::Park,
+        "on-halt" => Class::Failed,
+        _ => Class::Unknown,
+    }
+}
+
+/// The pulse: a pure, total function of a tick counter and two model
+/// facts. It reads no store — there is nothing here to read *from* — and
+/// it moves the GLYPH, never the colour and never a position, so a live
+/// node can never look briefly parked and geometry never varies with
+/// `tick`. `!live` or `!animate` is frame 0, the still frame, at every
+/// tick, so an idle console costs exactly nothing extra.
+fn pulse(tick: usize, live: bool, animate: bool) -> usize {
+    match live && animate {
+        true => (tick / PULSE_TICKS) % PULSE_FRAMES,
+        false => 0,
+    }
+}
+
+/// ratatui's own measurement of the sanitized text — which is what the
+/// buffer will actually draw. `Safe::width()` is a `char` count and
+/// reports 6 for `設計フェーズ` where the terminal draws 12; the rail is
+/// the first pane here that places its own x positions, so it is the
+/// first that can be lied to. **Every width in the graph comes from
+/// here**, so there is no second measurement to disagree with the first.
+fn width_of(text: &str) -> usize {
+    span(text, plain()).width()
+}
+
+/// Clamp to a display width, marking the cut with `…`. Text is what
+/// gives way when a segment is tight; the rail, the arrows, the fork
+/// corners and the rejoin never are.
+fn clamp(text: &str, max: usize) -> String {
+    let text = safe(text);
+    // TWO bounds, deliberately. Display width is what the layout plans
+    // in, but the buffer consumes a cell per `char`, and a zero-width
+    // char (a combining mark, a variation selector) costs 0 columns and
+    // 1 cell. Bounding on width alone let a label of N such marks plan
+    // one column and overwrite N — erasing the rail, the arrows and a
+    // neighbour's state glyph. Bounding on the char count too is
+    // structural: it holds for every zero-width class, present and
+    // future, where enumerating them would not.
+    if width_of(&text) <= max && text.chars().count() <= max {
+        return text;
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    for character in text.chars() {
+        let mut wider = out.clone();
+        wider.push(character);
+        if width_of(&wider) + 1 > max || wider.chars().count() + 1 > max {
+            break;
+        }
+        out = wider;
+    }
+    out.push('…');
+    out
+}
+
+/// `×N` only when the phase was revisited — the console's rule, not
+/// today's unconditional `×1` — and clamped, because `visits` is a `u64`
+/// crossing `VIEW_VERSION` rather than a promise.
+fn visits_text(visits: u64) -> Option<String> {
+    match visits {
+        0 | 1 => None,
+        2..=VISITS_MAX => Some(format!("×{visits}")),
+        _ => Some(format!("×{VISITS_MAX}+")),
+    }
+}
+
+/// The name baseline's text: the scope marker the crate's ONE phase
+/// predicate decides — called, never reimplemented — then the name,
+/// then the revisit marker.
+fn name_text(phase: &Phase, lens: Option<&render::Lens>) -> String {
+    let mut text = String::new();
+    if lens.is_some() && render::keeps_phase(lens, phase) {
+        text.push('▸');
+    }
+    text.push_str(&phase.name);
+    if let Some(visits) = visits_text(phase.visits) {
+        text.push(' ');
+        text.push_str(&visits);
+    }
+    text
+}
+
+/// What a column drawn as one node is called: the step's own name when
+/// the model gave it one, otherwise the node's, and nothing at all for a
+/// column the derivation left empty.
+fn column_label(column: &Column) -> &str {
+    match (&column.label, column.nodes.first()) {
+        (Some(label), _) => label,
+        (None, Some(node)) => &node.label,
+        (None, None) => "",
+    }
+}
+
+/// A label's footprint beside its node: one space and the text, or
+/// nothing at all when there is no text.
+fn label_span(label: &str) -> usize {
+    match label.is_empty() {
+        true => 0,
+        false => 1 + width_of(label),
+    }
+}
+
+/// Which member speaks for a column drawn as a single node: the worst
+/// state wins, so a compacted fork never reads healthier than its
+/// members do, and a still-working member outranks a finished one.
+fn worst(nodes: &[Node]) -> usize {
+    let rank = |node: &Node| match node.state_class.as_str() {
+        "on-halt" => 0,
+        "on-park" => 1,
+        "in-active" => 3,
+        "on-phosphor" => 4,
+        _ => 2,
+    };
+    nodes
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, node)| rank(node))
+        .map_or(0, |(index, _)| index)
+}
+
+/// Where member `k` of `n` sits, as a row offset from the rail:
+/// symmetric about it, and for an even count the rail row itself is left
+/// to the rail. The lane span a fork needs is therefore `n / 2`.
+fn lane_offset(k: usize, n: usize) -> isize {
+    let half = (n / 2) as isize;
+    let raw = k as isize - half;
+    match n % 2 == 1 || raw < 0 {
+        true => raw,
+        false => raw + 1,
+    }
+}
+
+/// Degradation's vertical axis. Lanes are vertical, and at `MIN_HEIGHT`
+/// the graph pane's inner rect is about one row — no fork fits at any
+/// terminal `refuse()` admits. Three named modes and one predicate;
+/// every mode that cannot draw lanes still says `⑂n`, so the small forms
+/// are compact rather than a lie about the shape of the run.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Mode {
+    /// Rail, arrows, symmetric lanes, rejoin and the name baseline.
+    Full,
+    /// Rail, arrows and names; every fork collapses to one rail node
+    /// bearing `⑂n` and the worst member's state.
+    Rail,
+    /// One row: one node per phase, its name and its `⑂n`, arrowed.
+    Compressed,
+}
+
+fn mode_for(rows: usize, lane_span: usize) -> Mode {
+    if rows < 2 {
+        return Mode::Compressed;
+    }
+    if rows < 4 || lane_span == 0 {
+        return Mode::Rail;
+    }
+    Mode::Full
+}
+
+/// A node on the rail or in a lane.
+#[derive(Clone, PartialEq, Debug)]
+struct Mark {
+    x: usize,
+    row: usize,
+    class: Class,
+    /// The pulse gate, read from a model field — `summary.status` for a
+    /// phase's own node, `Node.state` for one inside it.
+    live: bool,
+    label: String,
+    selected: bool,
+}
+
+/// A fork: the lanes leave the rail at `x0` and rejoin it at `x1`.
+#[derive(Clone, PartialEq, Debug)]
+struct Join {
+    x0: usize,
+    x1: usize,
+    /// The rows the lanes run on, in draw order.
+    rows: Vec<usize>,
+    /// True when the member count is odd and one member rides the rail
+    /// row itself — the `┼` case.
+    on_rail: bool,
+    /// The step's own name, centred on the rail row when no member is
+    /// there to occupy it.
+    label: Option<String>,
+}
+
+/// One phase: a span of the rail, the marks and forks on it, and the
+/// name it wears on the shared baseline.
+#[derive(Clone, PartialEq, Debug)]
+struct Seg {
+    /// `Phase.name` — the cursor key, and the reason `forge-view` pins
+    /// name uniqueness with a test of its own.
+    key: String,
+    x0: usize,
+    x1: usize,
+    /// Already clamped, and already carrying its `▸` and its `×N`.
+    name: String,
+    name_x: usize,
+    /// `Some` only for the CURRENT phase, which takes the run's own
+    /// colour on the baseline exactly as `ui.html` does — so the current
+    /// phase is distinguished even where it has no single rail node of
+    /// its own to fill. Selection is a different channel entirely.
+    class: Option<Class>,
+    selected: bool,
+    marks: Vec<Mark>,
+    joins: Vec<Join>,
+}
+
+/// One frame's geometry: owned integers, no borrow of a model, nothing
+/// that varies with `tick`.
+#[derive(Clone, PartialEq, Debug)]
+struct Plan {
+    mode: Mode,
+    width: usize,
+    rows: usize,
+    rail_row: usize,
+    name_row: usize,
+    /// The inclusive span of the rail line, absent when nothing is drawn.
+    rail: Option<(usize, usize)>,
+    /// Where the `→` heads sit.
+    edges: Vec<usize>,
+    segments: Vec<Seg>,
+    left_elided: bool,
+    right_elided: bool,
+}
+
+/// The facts a column placement needs that are not the column itself.
+struct Ink<'a> {
+    status: &'a str,
+    node: Option<&'a str>,
+    rail_row: usize,
+    lane_span: usize,
+    lanes: bool,
+    budget: usize,
+}
+
+/// One phase, laid out relative to its own origin.
+struct Built {
+    rail_width: usize,
+    width: usize,
+    name: String,
+    name_width: usize,
+    marks: Vec<Mark>,
+    joins: Vec<Join>,
+    edges: Vec<usize>,
+    /// The phase continues past the pane's edge.
+    truncated: bool,
+}
+
+/// One column, laid out from `x`. Placement and measurement are the same
+/// code, so the two cannot disagree about where the next column starts.
+fn place_column(
+    column: &Column,
+    x: usize,
+    ink: &Ink,
+    marks: &mut Vec<Mark>,
+    joins: &mut Vec<Join>,
+) -> usize {
+    let members = column.nodes.len();
+    if !ink.lanes || members < 2 {
+        // One node on the rail with its label beside it — and, where a
+        // parallel column could not be drawn as lanes, the `⑂n` that
+        // keeps it reading as parallel rather than as a sequential step.
+        let label = match members > 1 {
+            true => format!("⑂{members}"),
+            false => clamp(column_label(column), LABEL_MAX),
+        };
+        let chosen = column.nodes.get(worst(&column.nodes));
+        marks.push(Mark {
+            x,
+            row: ink.rail_row,
+            class: chosen.map_or(Class::Unknown, |node| class_for_node(&node.state_class)),
+            live: chosen.is_some_and(|node| node.state == "active" && ink.status == "running"),
+            selected: chosen.is_some_and(|node| ink.node == Some(node.key.as_str())),
+            label: label.clone(),
+        });
+        return 1 + label_span(&label);
+    }
+    // A fork: it leaves the rail at `x` and REJOINS it, symmetric about
+    // the rail, member `k` of `n` at row offset `lane_offset(k, n)`.
+    let mut rows = Vec::new();
+    let mut lanes: Vec<Mark> = Vec::new();
+    let mut on_rail = false;
+    let mut overflow = 0usize;
+    for (k, member) in column.nodes.iter().enumerate() {
+        let offset = lane_offset(k, members);
+        if offset.unsigned_abs() > ink.lane_span {
+            overflow += 1;
+            continue;
+        }
+        on_rail = on_rail || offset == 0;
+        let row = ink.rail_row.saturating_add_signed(offset);
+        rows.push(row);
+        lanes.push(Mark {
+            x: x + 2,
+            row,
+            class: class_for_node(&member.state_class),
+            live: member.state == "active" && ink.status == "running",
+            label: clamp(&member.label, LABEL_MAX),
+            selected: ink.node == Some(member.key.as_str()),
+        });
+    }
+    // The members the lane budget could not hold are counted on the
+    // outermost lane that was drawn: honest, never silently dropped.
+    for lane in lanes.iter_mut().rev().take(overflow.min(1)) {
+        lane.label.push_str(&format!(" +{overflow}"));
+    }
+    let mut inner = 0usize;
+    for lane in &lanes {
+        inner = inner.max(1 + label_span(&lane.label));
+    }
+    let label = match (on_rail, &column.label) {
+        (false, Some(text)) => Some(clamp(text, LABEL_MAX)),
+        _ => None,
+    };
+    if let Some(text) = &label {
+        inner = inner.max(width_of(text));
+    }
+    marks.append(&mut lanes);
+    joins.push(Join {
+        x0: x,
+        x1: x + inner + 3,
+        rows,
+        on_rail,
+        label,
+    });
+    inner + 4
+}
+
+/// One phase's rail content and its name, relative to its own origin.
+fn build(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
+    let mut marks = Vec::new();
+    let mut joins = Vec::new();
+    let mut edges = Vec::new();
+    let mut truncated = false;
+    let mut x = 0usize;
+    match phase.columns.is_empty() {
+        // A plain phase is one node on the rail: the console's r=7 for
+        // the current phase against r=5.5 for a visited one, expressed
+        // in the only axis a cell has.
+        true => {
+            marks.push(Mark {
+                x: 0,
+                row: ink.rail_row,
+                class: class_for_phase(phase.current, ink.status),
+                live: phase.current && ink.status == "running",
+                label: String::new(),
+                selected: false,
+            });
+            x = 1;
+        }
+        false => {
+            for (index, column) in phase.columns.iter().enumerate() {
+                let gap = ARROW_WIDTH * usize::from(index > 0);
+                let mut column_marks = Vec::new();
+                let mut column_joins = Vec::new();
+                let width =
+                    place_column(column, x + gap, ink, &mut column_marks, &mut column_joins);
+                if index > 0 && x + gap + width > ink.budget {
+                    // The rest of this phase continues past the pane's
+                    // edge, and `›` says so.
+                    truncated = true;
+                    break;
+                }
+                if let Some(origin) = (index > 0).then_some(x + gap) {
+                    edges.push(origin - 1);
+                }
+                marks.append(&mut column_marks);
+                joins.append(&mut column_joins);
+                x += gap + width;
+            }
+        }
+    }
+    let name = clamp(&name_text(phase, lens), ink.budget);
+    let name_width = width_of(&name);
+    Built {
+        rail_width: x,
+        width: x.max(name_width),
+        name,
+        name_width,
+        marks,
+        joins,
+        edges,
+        truncated,
+    }
+}
+
+/// `Compressed`: one node per phase, wearing the phase's own name and
+/// the `⑂n` of its widest parallel column. Today's information on one
+/// line — never a blank pane and never a refusal, because losing the
+/// graph while dragging a window edge is worse than a compact one.
+fn compressed(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
+    let mut label = name_text(phase, lens);
+    let widest = phase
+        .columns
+        .iter()
+        .map(|column| column.nodes.len())
+        .filter(|count| *count > 1)
+        .max();
+    if let Some(count) = widest {
+        label.push_str(&format!(" ⑂{count}"));
+    }
+    let label = clamp(&label, ink.budget.saturating_sub(2));
+    let width = 1 + label_span(&label);
+    Built {
+        rail_width: width,
+        width,
+        name: String::new(),
+        name_width: 0,
+        marks: vec![Mark {
+            x: 0,
+            row: ink.rail_row,
+            class: class_for_phase(phase.current, ink.status),
+            live: phase.current && ink.status == "running",
+            label,
+            selected: false,
+        }],
+        joins: Vec::new(),
+        edges: Vec::new(),
+        truncated: false,
+    }
+}
+
+/// The window is derived from the cursor **every frame** — there is no
+/// scroll-offset field, so there is no second piece of state that can
+/// desynchronise from the selection.
+fn anchor_of(phases: &[Phase], cursor: Option<&str>) -> usize {
+    phases
+        .iter()
+        .position(|phase| Some(phase.name.as_str()) == cursor)
+        .or_else(|| phases.iter().position(|phase| phase.current))
+        .unwrap_or(0)
+}
+
+/// The visible run of segments: the anchor, then grow right, then left,
+/// while the budget holds. The console's answer to width was horizontal
+/// scrolling; ours is this window, walked by the arrow keys.
+fn window(widths: &[usize], anchor: usize, budget: usize) -> (usize, usize) {
+    let mut start = anchor;
+    let mut end = anchor;
+    let mut used = widths.get(anchor).copied().unwrap_or(0);
+    loop {
+        let right = widths
+            .get(end + 1)
+            .filter(|width| used + ARROW_WIDTH + *width <= budget);
+        if let Some(width) = right {
+            used += ARROW_WIDTH + width;
+            end += 1;
+            continue;
+        }
+        let left = start
+            .checked_sub(1)
+            .and_then(|index| widths.get(index))
+            .filter(|width| used + ARROW_WIDTH + *width <= budget);
+        if let Some(width) = left {
+            used += ARROW_WIDTH + width;
+            start -= 1;
+            continue;
+        }
+        return (start, (end + 1).min(widths.len()));
+    }
+}
+
+/// The pure geometry: models and a rect in, owned integers out. It calls
+/// `render::keeps_phase` rather than reimplementing the scope predicate,
+/// lists **every** phase whether scoped or not — the lens marks, it does
+/// not hide, here — and returns a layout that fits by construction.
+#[allow(clippy::too_many_arguments)]
+fn plan(
+    phases: &[Phase],
+    lens: Option<&render::Lens>,
+    status: &str,
+    cursor: Option<&str>,
+    node: Option<&str>,
+    width: usize,
+    height: usize,
+) -> Plan {
+    let needed = phases
+        .iter()
+        .flat_map(|phase| phase.columns.iter())
+        .map(|column| column.nodes.len() / 2)
+        .max()
+        .unwrap_or(0);
+    let mode = mode_for(height, needed);
+    // Row allocation is fixed and ordered: the name baseline is the last
+    // row, the rail sits one row above the deepest lane it needs, and
+    // the lanes spread symmetrically outward from the rail. Anything
+    // left over is headroom, so the names stay under their own graph.
+    let name_row = height.saturating_sub(1);
+    let lane_span = match mode {
+        Mode::Full => needed.min(name_row.saturating_sub(1) / 2),
+        _ => 0,
+    };
+    let ink = Ink {
+        status,
+        node,
+        rail_row: match mode {
+            Mode::Compressed => 0,
+            _ => name_row.saturating_sub(1 + lane_span),
+        },
+        lane_span,
+        lanes: mode == Mode::Full,
+        budget: width.saturating_sub(2),
+    };
+    let built: Vec<Built> = phases
+        .iter()
+        .map(|phase| match mode {
+            Mode::Compressed => compressed(phase, lens, &ink),
+            _ => build(phase, lens, &ink),
+        })
+        .collect();
+    let widths: Vec<usize> = built.iter().map(|item| item.width).collect();
+    let (start, end) = window(&widths, anchor_of(phases, cursor), ink.budget);
+
+    let mut segments: Vec<Seg> = Vec::new();
+    let mut edges: Vec<usize> = Vec::new();
+    let mut rail: Option<(usize, usize)> = None;
+    // Column 0 and the last column are the elision marks' own, so a
+    // frame's content never sits under a `‹` or a `›`.
+    let mut x = 1usize;
+    for (index, item) in built[start..end].iter().enumerate() {
+        let phase = &phases[start + index];
+        let origin = x + ARROW_WIDTH * usize::from(index > 0);
+        let rail_x = origin + (item.width - item.rail_width) / 2;
+        if let Some(head) = (index > 0).then_some(rail_x) {
+            edges.push(head - 1);
+        }
+        edges.extend(item.edges.iter().map(|edge| edge + rail_x));
+        let last = rail_x + item.rail_width - 1;
+        rail = Some(match rail {
+            Some((first, _)) => (first, last),
+            None => (rail_x, last),
+        });
+        segments.push(Seg {
+            key: phase.name.clone(),
+            x0: origin,
+            x1: origin + item.width - 1,
+            name: item.name.clone(),
+            name_x: origin + (item.width - item.name_width) / 2,
+            class: phase
+                .current
+                .then(|| class_for_phase(phase.current, status)),
+            selected: cursor == Some(phase.name.as_str()),
+            marks: item
+                .marks
+                .iter()
+                .map(|mark| Mark {
+                    x: mark.x + rail_x,
+                    ..mark.clone()
+                })
+                .collect(),
+            joins: item
+                .joins
+                .iter()
+                .map(|join| Join {
+                    x0: join.x0 + rail_x,
+                    x1: join.x1 + rail_x,
+                    ..join.clone()
+                })
+                .collect(),
+        });
+        x = origin + item.width;
+    }
+    Plan {
+        mode,
+        width,
+        rows: height,
+        rail_row: ink.rail_row,
+        name_row,
+        rail,
+        edges,
+        segments,
+        left_elided: start > 0,
+        right_elided: end < phases.len() || built[start..end].iter().any(|item| item.truncated),
+    }
+}
+
+/// One frame's cells. A cell holding `None` is the second column of a
+/// double-width glyph, already paid for by its neighbour — which is why
+/// every width here is ratatui's own measurement rather than a count.
+type Cells = Vec<Vec<Option<(String, Style)>>>;
+
+/// Write sanitized text at a cell position. Bounded by the grid itself
+/// rather than by a branch: the plan fits, and the zip is what makes
+/// that structural instead of asserted.
+fn put(cells: &mut Cells, x: usize, row: usize, text: &str, style: Style) {
+    let glyphs: Vec<Option<(String, Style)>> = safe(text)
+        .chars()
+        .flat_map(|character| {
+            let glyph = character.to_string();
+            let wide = width_of(&glyph) > 1;
+            let mut pair = vec![Some((glyph, style))];
+            pair.resize(1 + usize::from(wide), None);
+            pair
+        })
+        .collect();
+    for line in cells.iter_mut().skip(row).take(1) {
+        for (cell, glyph) in line.iter_mut().skip(x).zip(glyphs.iter()) {
+            cell.clone_from(glyph);
+        }
+    }
+}
+
+/// The spine at the fork and at the rejoin, drawn top to bottom in one
+/// pass so no glyph can overwrite another's arms: a corner at the
+/// outermost lane, the tee the rail wears at the trunk, and a tee for
+/// every lane in between.
+fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
+    let up = join
+        .rows
+        .iter()
+        .copied()
+        .min()
+        .unwrap_or(rail_row)
+        .min(rail_row);
+    let down = join
+        .rows
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(rail_row)
+        .max(rail_row);
+    for row in up..=down {
+        let (left, right) = match (row == up, row == down, row == rail_row, join.on_rail) {
+            (true, _, _, _) => ("┌", "┐"),
+            (_, true, _, _) => ("└", "┘"),
+            (_, _, true, true) => ("┼", "┼"),
+            (_, _, true, false) => ("┤", "├"),
+            _ => ("├", "┤"),
+        };
+        put(cells, join.x0, row, left, plain());
+        put(cells, join.x1, row, right, plain());
+    }
+}
+
+/// A fork and its rejoin. **The rejoin is drawn always** — it is the
+/// join dependency, and the whole reason a fork is not two steps.
+fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
+    // Between the fork and its rejoin the rail gives way to the lanes,
+    // unless the member count is odd and one member rides the rail row.
+    for x in join.x0 + 1..join.x1 {
+        put(cells, x, rail_row, " ", plain());
+    }
+    for row in &join.rows {
+        for x in join.x0 + 1..join.x1 {
+            put(cells, x, *row, "─", plain());
+        }
+    }
+    spine(cells, join, rail_row);
+    if let Some(label) = &join.label {
+        let inner = join.x1 - join.x0 - 3;
+        let x = join.x0 + 2 + inner.saturating_sub(width_of(label)) / 2;
+        put(cells, x, rail_row, label, plain());
+    }
+}
+
+/// Adjacent cells sharing a style become one span, and a span is the
+/// ONE sanitized constructor — so the graph opens no third path into a
+/// buffer and the discipline test stays unamended.
+fn row_line(row: &[Option<(String, Style)>]) -> Line<'static> {
+    let mut runs: Vec<(String, Style)> = Vec::new();
+    for (glyph, style) in row.iter().flatten() {
+        match runs.last_mut() {
+            Some((text, last)) if last == style => text.push_str(glyph),
+            _ => runs.push((glyph.clone(), *style)),
+        }
+    }
+    Line::from(
+        runs.iter()
+            .map(|(text, style)| span(text, *style))
+            .collect::<Vec<Span<'static>>>(),
+    )
+}
+
+/// The painter: it walks the plan and writes cells, and computes no
+/// geometry of its own. Selection is `REVERSED` on the name or the node
+/// label — the TUI's existing selection idiom, identical to the runs
+/// table and the trail; current is the filled, coloured rail glyph.
+/// Different attribute, different cell, different axis.
+fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
+    let blank = Some((" ".to_string(), plain()));
+    let mut cells: Cells = vec![vec![blank; plan.width]; plan.rows];
+    // One rail, from the first segment's first node to the last one's.
+    if let Some((from, to)) = plan.rail {
+        for x in from..=to {
+            put(&mut cells, x, plan.rail_row, "─", plain());
+        }
+    }
+    for seg in &plan.segments {
+        for join in &seg.joins {
+            fork(&mut cells, join, plan.rail_row);
+        }
+    }
+    for head in &plan.edges {
+        put(&mut cells, *head, plan.rail_row, "→", plain());
+    }
+    for seg in &plan.segments {
+        for mark in &seg.marks {
+            let (style, ramp) = look(mark.class);
+            let glyph = ramp[pulse(tick, mark.live, animate)];
+            put(&mut cells, mark.x, mark.row, glyph, style);
+            if !mark.label.is_empty() {
+                // One clear cell between a node and its own text, so the
+                // rail does not read as part of the word.
+                put(&mut cells, mark.x + 1, mark.row, " ", plain());
+                put(
+                    &mut cells,
+                    mark.x + 2,
+                    mark.row,
+                    &mark.label,
+                    selected_style(mark.selected),
+                );
+            }
+        }
+        let current = match seg.class {
+            Some(class) => look(class).0,
+            None => plain(),
+        };
+        put(
+            &mut cells,
+            seg.name_x,
+            plan.name_row,
+            &seg.name,
+            current.patch(selected_style(seg.selected)),
+        );
+    }
+    if plan.left_elided {
+        put(&mut cells, 0, plan.rail_row, "‹", plain());
+    }
+    if plan.right_elided {
+        let x = plan.width.saturating_sub(1);
+        put(&mut cells, x, plan.rail_row, "›", plain());
+    }
+    cells.iter().map(|row| row_line(row)).collect()
+}
+
 fn draw_graph(
     frame: &mut Frame,
     area: Rect,
@@ -959,58 +1882,30 @@ fn draw_graph(
     view: &RunView,
     lens: Option<&render::Lens>,
 ) {
-    let cursor = tui.cursor[0].as_deref();
+    // Run-level notices first — a fallback selection or an optional
+    // capability gap is a fact an operator must SEE, not find (decision
+    // 0016) — then the graph, planned into whatever rows remain.
     let mut lines: Vec<Line> = Vec::new();
-    // Run-level notices first: a fallback selection and an optional
-    // capability gap are facts an operator must SEE, not find.
     for notice in &view.notices {
         lines.push(line(
             &format!("note  {} — {}", notice.kind, notice.text),
             tone_style("working"),
         ));
     }
-    for phase in &view.phases {
-        // The scope's own marker, decided by the crate's ONE phase
-        // predicate — the same call `graph_block` makes.
-        let mut head = match lens.is_some() && render::keeps_phase(lens, phase) {
-            true => "▸ ".to_string(),
-            false => "  ".to_string(),
-        };
-        head.push_str(&phase.name);
-        head.push_str(" ×");
-        head.push_str(&phase.visits.to_string());
-        if phase.current {
-            head.push_str("  ←current");
-        }
-        lines.push(line(
-            &head,
-            selected_style(cursor == Some(phase.name.as_str())),
-        ));
-        for column in &phase.columns {
-            match column.nodes.as_slice() {
-                [node] => {
-                    let label = match &column.label {
-                        Some(label) => label.clone(),
-                        None => node.label.clone(),
-                    };
-                    lines.push(line(&format!("  → {label} · {}", node.state), plain()));
-                }
-                nodes => {
-                    let label = match &column.label {
-                        Some(label) => format!(" {label}"),
-                        None => String::new(),
-                    };
-                    lines.push(line(&format!("  ⑂{label}"), plain()));
-                    for node in nodes {
-                        lines.push(line(
-                            &format!("    {} · {}", node.label, node.state),
-                            plain(),
-                        ));
-                    }
-                }
-            }
-        }
-    }
+    let status = view
+        .summary
+        .as_ref()
+        .map_or("", |summary| summary.status.as_str());
+    let plan = plan(
+        &view.phases,
+        lens,
+        status,
+        tui.cursor[0].as_deref(),
+        tui.node.as_deref(),
+        usize::from(area.width.saturating_sub(2)),
+        usize::from(area.height.saturating_sub(2)).saturating_sub(lines.len()),
+    );
+    lines.extend(paint(&plan, tui.ticks, tui.animate));
     frame.render_widget(
         Paragraph::new(lines).block(pane("graph", tui.pane == 0)),
         area,
@@ -1386,6 +2281,10 @@ pub(crate) fn start<B: Backend, R: Write>(
     run: Option<String>,
     ops: TerminalOps,
     is_tty: bool,
+    // Animation is enabled exactly when colour is: the same line kind
+    // as `is_tty`, read once at the call site and injected here, so a
+    // test sets it directly and touches no environment.
+    animate: bool,
     backend: B,
     restore: R,
     source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
@@ -1407,6 +2306,7 @@ where
     install_panic_hook(restore_stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut state = Tui::new(run);
+    state.animate = animate;
     let code = drive(&mut terminal, &ops, source, &mut state, max_iterations);
     // Uninstalled on the normal path: a panic later in this process must
     // not restore a terminal this function has already left.
