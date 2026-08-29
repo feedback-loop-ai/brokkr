@@ -654,6 +654,31 @@ function checkpointTable(part) {
 // session so SSE re-renders don't refetch. textContent discipline holds:
 // transcript text is seat-authored and untrusted.
 const transcriptCache = new Map();
+
+// A WORKING seat writes prose between journal checkpoints, so the run's
+// head does not move when its words land. That session's own stream
+// says when its transcript file grew; on each event exactly one cache
+// entry is dropped and repainted. Never opened for a concluded seat —
+// its transcript is already whole.
+let sessionSource = null, sessionWatch = null;
+function closeSessionWatch() {
+  if (sessionSource) sessionSource.close();
+  sessionSource = null;
+  sessionWatch = null;
+}
+function watchSession(sessionId, box, part) {
+  if (sessionWatch !== sessionId) {
+    closeSessionWatch();
+    sessionWatch = sessionId;
+    sessionSource = new EventSource('/sse/session/' + encodeURIComponent(sessionId));
+  }
+  // Rebound every render so the growth repaints into the box the
+  // current frame is showing, not one a previous render has dropped.
+  sessionSource.onmessage = () => {
+    transcriptCache.delete(sessionId);
+    renderTranscript(box, sessionId, part);
+  };
+}
 async function renderTranscript(box, sessionId, part) {
   let data = transcriptCache.get(sessionId);
   if (!data) {
@@ -723,6 +748,9 @@ function renderDetail(id, view) {
   const phaseFilter = selectedPhase;
   const scopedPart = activeParticipant
     ? view.participants.find((p) => p.key === activeParticipant) : null;
+  // Leaving the drill ends the prose watch: the box it paints into is
+  // gone with this render.
+  if (!scopedPart) closeSessionWatch();
   if (phaseFilter || scopedPart) {
     const chip = el('p', 'ruling');
     chip.appendChild(badge(scopedPart
@@ -854,8 +882,21 @@ function renderDetail(id, view) {
       const box = el('div', 'transcript');
       box.appendChild(el('p', 'cause', 'loading transcript…'));
       detail.appendChild(box);
+      if (part.status === 'working') {
+        watchSession(sessionId, box, part);
+      } else {
+        // Nothing more will land here. If THIS session was the one being
+        // watched, drop its cache once more so this render is the final
+        // look — the last words written before the seat concluded are
+        // not lost to an entry that predates them. A watch on some other
+        // seat ends too: its box is gone with this render.
+        if (sessionWatch === sessionId) transcriptCache.delete(sessionId);
+        closeSessionWatch();
+      }
       renderTranscript(box, sessionId, part);
     } else {
+      // No id to watch: nothing streams, and any earlier watch ends.
+      closeSessionWatch();
       detail.appendChild(checkpointTable(part));
     }
     // Terminal line: members conclude on their panel-member-finished
@@ -938,8 +979,12 @@ function select(id) {
   loadRuns();
   loadDetail(id);
   if (source) source.close();
+  // The prose watch is a child of the run's stream: replacing one ends
+  // the other, and so does the run stream failing.
+  closeSessionWatch();
   source = new EventSource('/sse/' + encodeURIComponent(id));
   source.onmessage = () => { loadDetail(id); loadRuns(); };
+  source.onerror = () => closeSessionWatch();
 }
 
 document.getElementById('divider').onclick = () => {

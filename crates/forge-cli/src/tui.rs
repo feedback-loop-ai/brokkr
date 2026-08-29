@@ -115,6 +115,10 @@ pub(crate) type Refreshed = Option<Views>;
 pub(crate) struct Ask<'a> {
     pub run: Option<&'a str>,
     pub session: Option<&'a str>,
+    /// Whether that session can still gain words. The shell watches the
+    /// transcript file only while this holds; a concluded seat's
+    /// transcript is already whole, so there is nothing to poll for.
+    pub working: bool,
     /// `r`, a level change, or the first frame: rebuild regardless.
     pub force: bool,
     /// The fleet's slower cadence is due.
@@ -299,6 +303,16 @@ fn session_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a str> {
         Level::Participant => seat_of(tui, views).and_then(|part| part.session_id.as_deref()),
         _ => None,
     }
+}
+
+/// Whether the session the shell is asking for can still gain prose:
+/// `status` is the same model field the seats table branches on, and
+/// this branches on it rather than deriving anything. Pure, and asked
+/// once where the `Ask` is built — never inside [`apply`], which stays a
+/// state machine over models with no notion of a file at all.
+fn session_is_live(tui: &Tui, views: &Views) -> bool {
+    session_of(tui, views).is_some()
+        && seat_of(tui, views).is_some_and(|part| part.status == "working")
 }
 
 // --------------------------------------------------------------- the keys
@@ -2398,6 +2412,7 @@ where
         let ask = Ask {
             run: tui.run.as_deref(),
             session: session.as_deref(),
+            working: session_is_live(tui, &views),
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks % RUNS_REFRESH_TICKS == 0,
         };

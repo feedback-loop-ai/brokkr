@@ -366,6 +366,9 @@ fn the_session_lookup_carries_its_own_id_validation() {
 /// display truth is being landed in Rust at all.
 #[test]
 fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let missing_db = PathBuf::from("missing.db");
 
     // The id is validated STRICTLY, before any path is formed: empty,
@@ -474,6 +477,175 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     if let Some(previous_home) = previous_home {
         std::env::set_var("HOME", previous_home);
     }
+}
+
+/// The whole liveness rule of the transcript watch, as a predicate with
+/// its own test rather than a comparison buried in a poll loop. Prose is
+/// only ever appended, so length is the signal — and the FIRST look is
+/// never growth, because the reader already holds the file as it stood.
+#[test]
+fn transcript_growth_is_length_and_the_first_look_is_never_growth() {
+    assert!(!transcript_grew(None, 0), "the first look at an empty file");
+    assert!(!transcript_grew(None, 8_192), "nor at a long one");
+    assert!(transcript_grew(Some(10), 11), "one more byte is new prose");
+    assert!(!transcript_grew(Some(10), 10), "an unchanged file is quiet");
+    assert!(
+        !transcript_grew(Some(10), 3),
+        "a file that shrank was replaced, not appended to"
+    );
+
+    // The length itself: what is there, and 0 for what is not — a
+    // transcript that vanished mid-watch has not grown.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("t.jsonl");
+    std::fs::write(&file, "1234567890").unwrap();
+    assert_eq!(transcript_len(&file), 10);
+    assert_eq!(transcript_len(&dir.path().join("gone.jsonl")), 0);
+}
+
+/// A drilled seat's prose lands BETWEEN journal checkpoints, so the
+/// transcript gets a stream of its own: an event when the file grew, a
+/// heartbeat when it did not, and — before a single byte of stream — a
+/// clean 404 for an id that cannot name a transcript, never a
+/// connection left open waiting for a file to appear.
+#[test]
+fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects").join("live-project");
+    std::fs::create_dir_all(&projects).unwrap();
+    let file = projects.join("abcd-1234.jsonl");
+    let turn = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\
+                \"content\":\"a word\"}}\n";
+    std::fs::write(&file, turn).unwrap();
+    std::env::set_var("HOME", &home);
+
+    // The same guard the drill applies, on the same id, before any path
+    // is formed — and a valid id with no transcript behind it reads the
+    // same way to the operator: nothing to watch.
+    let missing_db = PathBuf::from("missing.db");
+    for bad in ["", "../../etc/passwd", &"a".repeat(65), "9999-9999"] {
+        let response = exchange(
+            missing_db.clone(),
+            &format!("GET /sse/session/{bad} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            None,
+        );
+        assert!(
+            response.starts_with("HTTP/1.1 404 Not Found"),
+            "id {bad:?}: {response}"
+        );
+        assert!(response.contains("transcript not found"), "id {bad:?}");
+    }
+
+    // Three polls of a real stream, with the file mutated between them
+    // by the writer itself so the timing is the test's, not the clock's.
+    let mut request = std::io::Cursor::new(
+        b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+    );
+    let mut watcher = GrowsThenVanishes {
+        file: file.clone(),
+        writes: 0,
+        out: String::new(),
+    };
+    serve_io(&missing_db, &mut request, &mut watcher, Some(3));
+    let stream = watcher.out;
+    assert!(stream.starts_with("HTTP/1.1 200 OK"), "{stream}");
+    assert!(
+        stream.contains("Content-Type: text/event-stream"),
+        "{stream}"
+    );
+    assert_eq!(
+        stream.matches("data: ").count(),
+        1,
+        "one append, one event — and none for the first look or the \
+         poll that found the file gone: {stream}"
+    );
+    assert_eq!(
+        stream.matches(": ping").count(),
+        2,
+        "the polls that saw no new prose are heartbeats: {stream}"
+    );
+
+    // A client that has already gone gets no stream: the header write
+    // failing and the first message failing are both a clean return,
+    // never a thread left polling a socket nobody is reading.
+    std::fs::write(&file, turn).unwrap();
+    let mut request = std::io::Cursor::new(
+        b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+    );
+    serve_io(&missing_db, &mut request, &mut BrokenWriter, Some(1));
+    let mut request = std::io::Cursor::new(
+        b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+    );
+    serve_io(
+        &missing_db,
+        &mut request,
+        &mut FailAfterOneWrite::default(),
+        Some(1),
+    );
+
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+/// The stream's clock, driven from the writer: the transcript gains a
+/// turn while the first heartbeat is on the wire, and vanishes while the
+/// growth event is. Both are things a live seat's file actually does.
+struct GrowsThenVanishes {
+    file: PathBuf,
+    writes: usize,
+    out: String,
+}
+
+impl Write for GrowsThenVanishes {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.out.push_str(&String::from_utf8_lossy(bytes));
+        self.writes += 1;
+        match self.writes {
+            // 1 is the header. 2 is the first poll's heartbeat — new
+            // prose lands before the next one.
+            2 => {
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&self.file)
+                    .unwrap();
+                file.write_all(b"{\"type\":\"user\",\"message\":{\"content\":\"more\"}}\n")
+                    .unwrap();
+            }
+            // 3 is the growth event. Then the file goes away.
+            3 => std::fs::remove_file(&self.file).unwrap(),
+            _ => {}
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The page's half of the same rule: it subscribes to that one session,
+/// drops that one cache entry, and closes what it opened.
+#[test]
+fn the_page_watches_one_working_sessions_prose_and_closes_what_it_opens() {
+    for kept in [
+        "/sse/session/",
+        "transcriptCache.delete",
+        "closeSessionWatch",
+        "part.status === 'working'",
+    ] {
+        assert!(PAGE.contains(kept), "the page streams prose with {kept}");
+    }
+    // One cache entry at a time: a full clear would refetch every
+    // transcript the operator has already read.
+    assert!(!PAGE.contains("transcriptCache.clear"));
 }
 
 /// AC-8's fourth surface: the console's payload carries the same two
