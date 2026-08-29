@@ -14,6 +14,9 @@ members = [
 version = "0.3.4"
 edition = "2021"
 rust-version = "1.85"
+# Decision 0018: permissive, never copyleft; the Rust ecosystem's dual
+# convention, so a user picks either license.
+license = "MIT OR Apache-2.0"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }

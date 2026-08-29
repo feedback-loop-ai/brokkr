@@ -1,0 +1,23 @@
+# License compliance for the dependency tree — the control decision
+# 0018 claims. cargo-deny checks every crate in Cargo.lock against
+# this allowlist; anything outside it fails CI. Permissive only, in
+# the spirit of the ruling: openness that imposes nothing.
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  # Unicode data tables in the TUI dependency tree — a permissive DATA
+  # license (Community Data License Agreement), within the ruling.
+  "CDLA-Permissive-2.0",
+]
+
+[advisories]
+# Advisories are the RustSec job's beat; cargo-deny here is scoped to
+# licenses so each gate says one thing.
+db-path = "~/.cargo/advisory-dbs"
