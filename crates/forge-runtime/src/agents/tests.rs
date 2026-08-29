@@ -882,3 +882,57 @@ fn an_agent_may_declare_its_own_inputs() {
     let resolution = resolved(&tree, &Availability::unspecified());
     assert_eq!(resolution.inputs, Some(vec!["fixes_applied".to_string()]));
 }
+
+/// An IO problem reading a definition's charter is not a "broken entry"
+/// the listing warns about — it is an environment failure, and it
+/// propagates rather than being folded into the per-file warnings.
+#[test]
+fn an_io_failure_propagates_rather_than_becoming_a_warning() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    // A directory canonicalises and is contained, and then does not read.
+    body["charter"] = json!("charters");
+    tree.write("agents/tester.json", &body);
+    let message = tree.library_error();
+    assert!(message.contains("agent library io"), "{message}");
+    assert!(Library::scan(&tree.library_root()).is_err());
+}
+
+/// A top-level key nobody knows is refused on an adapter exactly as on
+/// an agent: a misspelled capability must not read as silence.
+#[test]
+fn an_unknown_top_level_adapter_key_is_refused() {
+    let tree = Tree::new();
+    let mut adapter = claude_body();
+    adapter["tool_permisions"] = json!("unsupported");
+    tree.write("adapters/claude.json", &adapter);
+    let message = tree.adapters_error();
+    assert!(
+        message.contains("unknown key 'tool_permisions'"),
+        "{message}"
+    );
+}
+
+/// Selection SKIPS an unmapped entry rather than stopping at it, so a
+/// readout can show a chain whose first link is not mapped yet and still
+/// name the link that would run.
+#[test]
+fn selection_skips_an_unmapped_first_entry() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["models"] = json!(["nowhere", "opus"]);
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let walked = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap();
+    assert!(walked.entries[0].provider.is_none());
+    assert_eq!(walked.chosen, Some(1));
+    // The compiler is stricter than the readout: an unmapped name is a
+    // refusal there, because 0016 validates that a mapping EXISTS.
+    assert!(refusal(&tree, "tester").contains("model 'nowhere'"));
+}

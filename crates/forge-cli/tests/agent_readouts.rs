@@ -335,3 +335,39 @@ fn no_surface_composes_the_provenance_sentence_itself() {
         }
     }
 }
+
+/// AC-10 through the binary: `forge agents list` and
+/// `forge agents show` resolve their library roots exactly as
+/// `--recipes-dir` does, and `show` prints a machine-readable object
+/// without a `--json` flag.
+#[test]
+fn the_agents_verbs_run_against_the_default_roots() {
+    let ws = Workspace::new(json!(["second"]));
+    let (stdout, _) = ws.forge(&["agents", "list"]);
+    assert!(stdout.starts_with("worker\tsecond\tthe worker"), "{stdout}");
+
+    let (stdout, _) = ws.forge(&["agents", "show", "worker"]);
+    let shown: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(shown["name"], "worker");
+    assert_eq!(shown["resolution"]["chosen"]["provider"], "fake");
+    assert_eq!(shown["resolution"]["chain"][0]["status"], "ok");
+
+    // Explicit roots, and the refusal an unknown name earns.
+    let (stdout, _) = ws.forge(&[
+        "agents",
+        "list",
+        "--agents-dir",
+        ws.path().join("agents").to_str().unwrap(),
+    ]);
+    assert!(stdout.contains("worker"), "{stdout}");
+    let (_, stderr) = ws.forge(&[
+        "agents",
+        "show",
+        "nobody",
+        "--agents-dir",
+        ws.path().join("agents").to_str().unwrap(),
+        "--adapters-dir",
+        ws.path().join("adapters").to_str().unwrap(),
+    ]);
+    assert!(stderr.contains("is not in the library"), "{stderr}");
+}

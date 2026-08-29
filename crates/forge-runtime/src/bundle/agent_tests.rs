@@ -564,3 +564,48 @@ fn mentions_agent_walks_the_whole_config() {
     assert!(!mentions_agent(&json!({"seats": {"work": {"role": "r"}}})));
     assert!(!mentions_agent(&json!("agent")));
 }
+
+/// `driver.confine` is the one `driver` key legal beside `agent:`: it is
+/// the seat's own trust-class binding, not a statement about what the
+/// agent is, and `forge agents show` never claims to show it.
+#[test]
+fn a_resolved_seat_may_still_declare_its_own_confinement() {
+    let fixture = AgentFixture::new();
+    let mut config = fixture.config();
+    config["seats"]["work"]["driver"] = json!({"confine": {"image": "img", "network": true}});
+    let bundle = fixture.compile(config).unwrap();
+    let SeatBody::Single {
+        confine,
+        candidates,
+        ..
+    } = &bundle.seats["work"].body
+    else {
+        unreachable!("single seat")
+    };
+    let confine = confine.as_ref().expect("the seat's own confinement");
+    assert_eq!(confine.image, "img");
+    assert!(confine.network);
+    assert_eq!(candidates.len(), 1, "the agent still resolved");
+}
+
+/// A refusal inside a panel member propagates out of the panel, and out
+/// of the sequence step the panel is: one bad member is a bad bundle,
+/// never a member quietly dropped.
+#[test]
+fn a_refusal_inside_a_panel_member_propagates_out_of_its_step() {
+    let fixture = AgentFixture::new();
+    let mut config = fixture.config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "sequence": [
+            {"name": "first", "aggregate": "unanimous-pass", "panel": {
+                "a": {"agent": "nobody"},
+                "b": {"role": "../agents/charters/work.md",
+                      "driver": {"command": ["driver"]}},
+            }},
+            {"name": "second", "role": "../agents/charters/work.md",
+             "driver": {"command": ["driver"]}},
+        ],
+    });
+    assert!(error(fixture.compile(config)).contains("is not in the library"));
+}

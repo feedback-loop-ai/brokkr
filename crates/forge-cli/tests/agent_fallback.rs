@@ -437,3 +437,67 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
     assert_eq!(provenance[0]["member"], "think");
     assert_eq!(provenance[0]["agent"], "thinker");
 }
+
+/// A sequence STEP that ran and failed before accepting is a
+/// fail-to-start too, and it advances that step's own chain index — not
+/// the whole seat's. The scripted driver writes a non-protocol line, so
+/// the attempt fails with nothing accepted and nothing checkpointed:
+/// the predicate holds without anyone reading stderr.
+#[test]
+fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
+    let ws = Workspace::new();
+    // A driver that RUNS and then refuses the handshake: it never sends
+    // `accepted` and never checkpoints, so the structural predicate holds
+    // without anyone reading its stderr.
+    ws.write(
+        "adapters/rude.json",
+        json!({
+            "provider": "rude",
+            "binary": "sh",
+            "driver": ["sh", "-c", "read line; printf '%s\n' 'not a protocol message'"],
+            "models": {"rude-model": "rude/1"},
+            "model_flag": "--model",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }),
+    );
+    ws.write("adapters/other.json", ws.fake_adapter("other", "third"));
+    ws.script(json!({"seats": {
+        "implement:think": [{"behavior": "succeed", "result": {"result": "complete"}}],
+        "review": [{"behavior": "succeed", "result": {"result": "clean"}}],
+    }}));
+    ws.agent("thinker", json!(["rude-model", "third"]), None);
+    ws.bundle(json!({
+        "implement": {
+            "results": ["complete"],
+            "limits": {"max_attempts": 2, "timeout_seconds": 60},
+            "sequence": [
+                {"name": "think", "agent": "thinker"},
+                {"name": "echo", "role": "../agents/charters/work.md",
+                 "driver": {"command": [
+                     forge_bin(), "fake-driver",
+                     "--script", ws.path().join("script.json").to_string_lossy(),
+                     "--state", ws.path().join("state").to_string_lossy(),
+                 ]}},
+            ],
+        },
+        "review": ws.inline_review(),
+    }));
+    let run_id = ws.run();
+    let events = ws.events(&run_id);
+
+    let failed = of_type(&events, "effect/failed");
+    assert_eq!(failed[0]["payload"]["start_failure"], json!(true));
+    assert_eq!(
+        failed[0]["payload"]["start_failure_sites"],
+        json!(["think"]),
+        "the STEP is what failed to start, and it is named"
+    );
+    let attempts: Vec<&Value> = of_type(&events, "effect/started")
+        .into_iter()
+        .filter(|event| event["payload"]["provenance"].is_array())
+        .collect();
+    assert_eq!(attempts[0]["payload"]["provenance"][0]["chain_index"], 0);
+    assert_eq!(attempts[1]["payload"]["provenance"][0]["chain_index"], 1);
+    assert_eq!(attempts[1]["payload"]["provenance"][0]["model"], "third");
+}

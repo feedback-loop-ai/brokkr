@@ -297,3 +297,34 @@ fn fold_is_blind_to_every_field_this_slice_adds() {
     let without = fold(&stripped).unwrap();
     assert_eq!(format!("{with:?}"), format!("{without:?}"));
 }
+
+/// AC-15: the chain index survives a restart because it is never held
+/// across one. The engine keeps no cross-attempt state — the selection
+/// is a function of the effect's journaled events and nothing else — so
+/// two independent selections over the same journal choose the same
+/// candidate, which is exactly what a fresh process does when it
+/// resumes into an effect that already has a fail-to-start behind it.
+#[test]
+fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
+    let body = SeatBody::Single {
+        role_path: PathBuf::from("role.md"),
+        command: vec!["inline-driver".into()],
+        confine: None,
+        candidates: vec![
+            candidate("worker", "first"),
+            candidate("worker", "second"),
+            candidate("worker", "third"),
+        ],
+    };
+    let events = vec![
+        failure("effect", json!([null])),
+        failure("effect", json!([null])),
+    ];
+    let (before, provenance_before) = select_candidates(&events, "effect", &body);
+    // A second, wholly independent selection: no memory, no re-probe.
+    let (after, provenance_after) = select_candidates(&events, "effect", &body);
+    assert_eq!(before, after);
+    assert_eq!(provenance_before, provenance_after);
+    assert_eq!(before[&None].model, "third");
+    assert_eq!(provenance_before.unwrap()[0]["chain_index"], 2);
+}
