@@ -265,6 +265,8 @@ fn key_translation_filters_releases_binds_ctrl_c_and_names_what_it_ignores() {
     let pressed = |code| Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
     assert_eq!(from_crossterm(pressed(KeyCode::Up)), Some(Key::Up));
     assert_eq!(from_crossterm(pressed(KeyCode::Down)), Some(Key::Down));
+    assert_eq!(from_crossterm(pressed(KeyCode::Left)), Some(Key::Left));
+    assert_eq!(from_crossterm(pressed(KeyCode::Right)), Some(Key::Right));
     assert_eq!(from_crossterm(pressed(KeyCode::PageUp)), Some(Key::PageUp));
     assert_eq!(
         from_crossterm(pressed(KeyCode::PageDown)),
@@ -386,8 +388,9 @@ fn enter_descends_one_rung_at_a_time_and_esc_pops_the_same_rungs() {
     apply(&mut tui, &views, Key::Enter);
     assert!(tui.scope.is_none(), "no selection descends into nothing");
 
-    // Rung 2: RUN · graph → a phase scope.
-    apply(&mut tui, &views, Key::Down);
+    // Rung 2: RUN · graph → a phase scope. The graph's rail moves on
+    // `j`/`k` (and on `←→`); `↑↓` there walk the lanes inside a phase.
+    apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(
         matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
@@ -550,12 +553,12 @@ fn a_filter_narrows_the_focused_list_incrementally_and_never_clears_a_scope() {
 fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() {
     let views = views();
     let mut tui = at_run();
-    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"));
     // The graph pane lists every phase whether or not one is scoped —
     // a selector that hid the alternatives could never replace a scope.
-    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(
         matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
@@ -629,6 +632,10 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     let mut tui = at_run();
     states.push(footer_for(&tui));
     assert!(states[1].contains("Enter scope phase"));
+    // The graph is the one pane whose primary axis is horizontal, and
+    // the footer is where an operator finds that out.
+    assert!(states[1].contains("←→ rail"), "{}", states[1]);
+    assert!(states[1].contains("↑↓ lanes"), "{}", states[1]);
 
     apply(&mut tui, &views, Key::Tab);
     apply(&mut tui, &views, Key::Down);
@@ -707,7 +714,7 @@ fn the_status_line_is_the_breadcrumb_or_the_sentence_a_bad_journal_earns() {
     assert!(status_line(&tui).contains("seat eff-i"));
 
     let mut tui = at_run();
-    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(status_line(&tui).contains("phase intake"));
 
@@ -742,18 +749,27 @@ fn the_runs_table_is_a_bordered_navigable_table_of_model_fields() {
 }
 
 #[test]
-fn the_run_level_draws_the_tree_the_seats_and_the_trail() {
+fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
     let views = views();
     let tui = at_run();
     let frame = frame_of(&tui, &views, 110, 30);
 
-    // The 0013 tree, with both markers, uncoloured.
-    assert!(frame.contains("intake ×1"), "{frame}");
-    assert!(frame.contains("design ×1"), "{frame}");
-    assert!(frame.contains("←current"), "{frame}");
-    assert!(frame.contains('⑂'), "a fork: {frame}");
-    assert!(frame.contains('→'), "a sequential step: {frame}");
-    assert!(frame.contains("positions"), "{frame}");
+    // The console's grammar: one rail, arrowed steps, a fork that
+    // rejoins, and the phase names on one shared baseline.
+    assert!(frame.contains("──→"), "an arrowed edge: {frame}");
+    assert!(
+        frame.contains('┤') && frame.contains('├'),
+        "a fork: {frame}"
+    );
+    assert!(frame.contains('┌') && frame.contains('┘'), "lanes: {frame}");
+    assert!(frame.contains("simplicity"), "a member label: {frame}");
+    assert!(frame.contains("positions"), "the step's own name: {frame}");
+    assert!(
+        frame.contains("intake") && frame.contains("design"),
+        "{frame}"
+    );
+    // `×N` is the console's rule: nothing at all for a single visit.
+    assert!(!frame.contains('×'), "no ×1 on a first visit: {frame}");
 
     // The seats table: six columns of model fields.
     for column in [
@@ -1007,6 +1023,8 @@ fn script(keys: &[Key]) {
             Key::Tab => KeyCode::Tab,
             Key::Up => KeyCode::Up,
             Key::Down => KeyCode::Down,
+            Key::Left => KeyCode::Left,
+            Key::Right => KeyCode::Right,
             Key::PageUp => KeyCode::PageUp,
             Key::PageDown => KeyCode::PageDown,
             Key::Char(character) => KeyCode::Char(*character),
@@ -1101,6 +1119,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
         None,
         test_ops(),
         true,
+        false,
         TestBackend::new(100, 30),
         Vec::new(),
         &mut source,
@@ -1124,6 +1143,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
         None,
         test_ops(),
         true,
+        false,
         TestBackend::new(100, 30),
         ClosedPipe,
         &mut source,
@@ -1146,6 +1166,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
         None,
         ops,
         true,
+        false,
         TestBackend::new(100, 30),
         Vec::new(),
         &mut source,
@@ -1161,6 +1182,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
         None,
         test_ops(),
         true,
+        false,
         TestBackend::new(100, 30),
         Vec::new(),
         &mut source,
@@ -1447,7 +1469,10 @@ fn a_filtered_fleet_a_stopped_run_a_bare_fork_and_a_whole_transcript_all_draw() 
     assert!(frame.contains("stopped"), "{frame}");
     let tui = Tui::new(Some("run-stopped".to_string()));
     let frame = frame_of(&tui, &panel, 110, 30);
-    assert!(frame.contains('⑂'), "a bare fork: {frame}");
+    assert!(
+        frame.contains('┤') && frame.contains('├'),
+        "a bare fork that rejoins: {frame}"
+    );
     assert!(frame.contains("security"), "{frame}");
     assert!(frame.contains("correctness"), "{frame}");
 
@@ -1470,6 +1495,1039 @@ fn a_filtered_fleet_a_stopped_run_a_bare_fork_and_a_whole_transcript_all_draw() 
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(frame.contains("Read · docs"), "{frame}");
     assert!(!frame.contains("truncated"), "{frame}");
+}
+
+// ------------------------------------------------------- the graph pane
+//
+// The console's grammar in the terminal: one rail, arrowed steps, forks
+// that rejoin, one name baseline, a fixed colour vocabulary, and a pulse
+// that is a pure function of a tick. Geometry is asserted against the
+// `Plan` — a small owned struct — rather than by substring-searching a
+// rendered buffer, and the drawn frames are asserted through
+// `TestBackend`.
+
+fn gnode(label: &str, state: &str, class: &str) -> Node {
+    Node {
+        label: label.to_string(),
+        key: format!("key:{label}"),
+        state: state.to_string(),
+        state_class: class.to_string(),
+    }
+}
+
+fn gcolumn(label: Option<&str>, nodes: Vec<Node>) -> Column {
+    Column {
+        label: label.map(str::to_string),
+        nodes,
+    }
+}
+
+fn gphase(name: &str, visits: u64, current: bool, columns: Vec<Column>) -> Phase {
+    Phase {
+        name: name.to_string(),
+        visits,
+        current,
+        plain: columns.is_empty(),
+        columns,
+    }
+}
+
+fn members(count: usize, class: &str) -> Vec<Node> {
+    (0..count)
+        .map(|index| gnode(&format!("m{index}"), "finished", class))
+        .collect()
+}
+
+/// Every shape the rail draws, on one rail: a plain phase, a revisited
+/// phase carrying a two-member fork with a step name and a one-member
+/// step, and a plain current phase.
+fn rail_phases() -> Vec<Phase> {
+    vec![
+        gphase("intake", 1, false, Vec::new()),
+        gphase(
+            "design",
+            2,
+            false,
+            vec![
+                gcolumn(
+                    Some("positions"),
+                    vec![
+                        gnode("simplicity", "finished", "on-phosphor"),
+                        gnode("robustness", "active", "in-active"),
+                    ],
+                ),
+                gcolumn(
+                    Some("review"),
+                    vec![gnode("only", "finished", "on-phosphor")],
+                ),
+            ],
+        ),
+        gphase("verify", 1, true, Vec::new()),
+    ]
+}
+
+/// A `Views` carrying exactly these phases and this run status, so a
+/// draw case can name the shape it is asserting instead of building a
+/// journal that happens to fold into it.
+fn graph_views(phases: Vec<Phase>, status: &str) -> Views {
+    let mut view = run_view_for("intake");
+    view.phases = phases;
+    match view.summary.as_mut() {
+        Some(summary) => summary.status = status.to_string(),
+        None => panic!("the fixture folds"),
+    }
+    Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(view),
+        transcript: None,
+    }
+}
+
+/// A `Tui` sitting on the graph pane of `run-7`.
+fn at_graph() -> Tui {
+    Tui::new(Some("run-7".to_string()))
+}
+
+fn text_of(lines: &[Line<'static>]) -> String {
+    lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+// ------------------------------------------------- AC-safe-2: the widths
+
+#[test]
+fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
+    // `Safe::width()` is a char count. The rail is the first pane that
+    // places its own x positions, so it is the first that can be lied to.
+    assert_eq!(Safe::new("設計フェーズ").width(), 6, "six characters");
+    assert_eq!(width_of("設計フェーズ"), 12, "twelve columns drawn");
+    assert_eq!(width_of("intake"), 6, "and ASCII agrees with both");
+    assert_eq!(
+        width_of("in\u{202E}take\u{200B}\x07"),
+        6,
+        "measured on the SANITIZED text, so a stripped override cannot \
+         claim invisible columns"
+    );
+
+    // Text is what gives way; the skeleton never is.
+    assert_eq!(clamp("intake", 10), "intake");
+    assert_eq!(clamp("simplicity", 6), "simpl…");
+    assert_eq!(width_of(&clamp("simplicity", 6)), 6, "the clamp is exact");
+    assert_eq!(clamp("設計フェーズ", 5), "設計…");
+    assert_eq!(width_of(&clamp("設計フェーズ", 5)), 5);
+    assert_eq!(clamp("simplicity", 0), "", "nothing fits in nothing");
+    assert_eq!(clamp("a\u{202E}b", 8), "ab", "and it sanitizes on the way");
+
+    assert_eq!(label_span(""), 0, "no text, no footprint");
+    assert_eq!(label_span("ab"), 3, "one space and the text");
+}
+
+// --------------------------------- AC-look-1, AC-look-2, AC-look-3: colour
+
+#[test]
+fn the_node_vocabulary_is_a_closed_set_with_one_named_fallback() {
+    for (class, still) in [
+        (Class::Visited, "○"),
+        (Class::Current, "●"),
+        (Class::Park, "⊙"),
+        (Class::Failed, "⊗"),
+        (Class::Finished, "●"),
+        (Class::Active, "◉"),
+        (Class::Unknown, "·"),
+    ] {
+        let (style, ramp) = look(class);
+        assert_eq!(ramp[0], still, "{class:?}'s still frame");
+        assert_ne!(style, plain(), "{class:?} paints something");
+    }
+
+    // A phase's own node: the console's `phase.current × summary.status`
+    // branch, transliterated.
+    assert_eq!(class_for_phase(false, "running"), Class::Visited);
+    assert_eq!(class_for_phase(true, "running"), Class::Current);
+    assert_eq!(class_for_phase(true, "completed"), Class::Current);
+    assert_eq!(class_for_phase(true, "awaiting_operator"), Class::Park);
+    assert_eq!(class_for_phase(true, "stopped"), Class::Failed);
+    // AC-look-2: a status outside the known set renders QUIET, never
+    // live — a named divergence from `ui.html`, which falls to green.
+    assert_eq!(class_for_phase(true, "reticulating"), Class::Unknown);
+    assert_eq!(class_for_phase(true, ""), Class::Unknown);
+
+    // A node inside a phase: the console's `NODE_CLASS` allowlist.
+    assert_eq!(class_for_node("on-phosphor"), Class::Finished);
+    assert_eq!(class_for_node("in-active"), Class::Active);
+    assert_eq!(class_for_node("on-park"), Class::Park);
+    assert_eq!(class_for_node("on-halt"), Class::Failed);
+    assert_eq!(
+        class_for_node("a class name from a journal"),
+        Class::Unknown,
+        "no journal string reaches this table"
+    );
+
+    // AC-look-3: active and finished differ in the GLYPH channel, so the
+    // distinction survives NO_COLOR and survives animation being off.
+    assert_ne!(look(Class::Active).1[0], look(Class::Finished).1[0]);
+    assert_ne!(look(Class::Current).1[0], look(Class::Visited).1[0]);
+
+    // The worst member speaks for a column drawn as one node.
+    assert_eq!(
+        worst(&[
+            gnode("a", "finished", "on-phosphor"),
+            gnode("b", "failed", "on-halt")
+        ]),
+        1
+    );
+    assert_eq!(
+        worst(&[gnode("a", "x", "on-park"), gnode("b", "failed", "on-halt")]),
+        1
+    );
+    assert_eq!(
+        worst(&[
+            gnode("a", "active", "in-active"),
+            gnode("b", "x", "on-phosphor")
+        ]),
+        0,
+        "a working member outranks a finished one"
+    );
+    assert_eq!(
+        worst(&[
+            gnode("a", "active", "in-active"),
+            gnode("b", "x", "who knows")
+        ]),
+        1,
+        "and an unrecognised one outranks a working one"
+    );
+    assert_eq!(worst(&[]), 0, "a column the derivation left empty");
+
+    assert_eq!(
+        column_label(&gcolumn(Some("positions"), members(1, "on-phosphor"))),
+        "positions"
+    );
+    assert_eq!(
+        column_label(&gcolumn(None, members(1, "on-phosphor"))),
+        "m0"
+    );
+    assert_eq!(column_label(&gcolumn(None, Vec::new())), "");
+}
+
+// -------------------------- AC-anim-1, AC-anim-2, AC-anim-3: the pulse
+
+#[test]
+fn the_pulse_is_a_pure_total_function_of_a_tick_and_two_model_facts() {
+    // A full period, and the `PULSE_TICKS` boundary inside it.
+    let period: Vec<usize> = (0..8).map(|tick| pulse(tick, true, true)).collect();
+    assert_eq!(period, vec![0, 0, 1, 1, 2, 2, 3, 3]);
+    assert_eq!(pulse(8, true, true), 0, "and the period closes");
+    assert_eq!(
+        pulse(3, true, true),
+        pulse(3, true, true),
+        "same inputs, same frame"
+    );
+    // Total over `usize`, including the top of it.
+    assert_eq!(pulse(usize::MAX, true, true), (usize::MAX / 2) % 4);
+
+    // AC-anim-2 and AC-anim-3: not live, or not animating, is the still
+    // frame at EVERY tick — there is no idle cost, because none was added.
+    for tick in [0usize, 1, 2, 3, 7, usize::MAX] {
+        assert_eq!(pulse(tick, false, true), 0, "nothing live, nothing moving");
+        assert_eq!(pulse(tick, true, false), 0, "animation off is frame 0");
+        assert_eq!(pulse(tick, false, false), 0);
+    }
+    // The named rate is a const, and the ramp it indexes has exactly
+    // that many frames.
+    assert_eq!(PULSE_TICKS, 2);
+    assert_eq!(look(Class::Current).1.len(), PULSE_FRAMES);
+}
+
+// ------------------------------------------------- AC-mode-1: the ladder
+
+#[test]
+fn the_vertical_ladder_is_three_named_modes_and_one_predicate() {
+    // Rail row, name baseline and at least one lane row on each side.
+    assert_eq!(mode_for(7, 1), Mode::Full, "the 80×24 budget");
+    assert_eq!(mode_for(4, 1), Mode::Full, "the floor for lanes");
+    assert_eq!(mode_for(3, 1), Mode::Rail, "one row short of lanes");
+    assert_eq!(mode_for(2, 3), Mode::Rail, "rail plus names, no more");
+    assert_eq!(
+        mode_for(9, 0),
+        Mode::Rail,
+        "no parallel column, no lanes to draw"
+    );
+    // At MIN_HEIGHT the graph pane's inner rect is about one row.
+    assert_eq!(mode_for(1, 3), Mode::Compressed);
+    assert_eq!(mode_for(0, 0), Mode::Compressed);
+
+    // Member `k` of `n` sits symmetric about the rail, and an even count
+    // leaves the rail row to the rail.
+    let offsets = |n: usize| (0..n).map(|k| lane_offset(k, n)).collect::<Vec<isize>>();
+    assert_eq!(offsets(2), vec![-1, 1]);
+    assert_eq!(offsets(3), vec![-1, 0, 1]);
+    assert_eq!(offsets(4), vec![-2, -1, 1, 2]);
+    assert_eq!(offsets(5), vec![-2, -1, 0, 1, 2]);
+}
+
+// ------------------------------------------- AC-draw-3, AC-draw-4: the plan
+
+#[test]
+fn the_plan_is_owned_geometry_that_fits_by_construction() {
+    let phases = rail_phases();
+    let plan = plan(&phases, None, "running", None, None, 80, 7);
+    assert_eq!(plan.mode, Mode::Full);
+    assert_eq!(plan.rows, 7);
+    assert_eq!(plan.name_row, 6, "the baseline is the last row");
+    assert_eq!(plan.rail_row, 4, "one row above the deepest lane");
+    assert_eq!(plan.segments.len(), 3, "every phase is listed");
+
+    // ONE rail: consecutive segments are separated by exactly one
+    // arrowed edge, and nothing overlaps.
+    for pair in plan.segments.windows(2) {
+        assert_eq!(
+            pair[1].x0,
+            pair[0].x1 + 1 + ARROW_WIDTH,
+            "one arrowed edge between steps"
+        );
+    }
+    assert_eq!(plan.edges.len(), 3, "two between phases, one inside design");
+    // Everything is inside the pane, with the elision columns reserved.
+    assert!(plan.segments[0].x0 >= 1);
+    assert!(plan.segments[2].x1 < plan.width - 1);
+    let (from, to) = plan.rail.expect("a rail");
+    assert!(from >= 1 && to < plan.width - 1);
+
+    // The fork LEAVES the rail and REJOINS it, symmetric about the rail.
+    let join = &plan.segments[1].joins[0];
+    assert!(join.x1 > join.x0 + 3, "a fork spans its members");
+    assert_eq!(join.rows, vec![plan.rail_row - 1, plan.rail_row + 1]);
+    assert!(
+        !join.on_rail,
+        "an even count leaves the rail row to the rail"
+    );
+    assert_eq!(join.label.as_deref(), Some("positions"));
+    // Its members carry the model's own classes.
+    let lanes: Vec<Class> = plan.segments[1]
+        .marks
+        .iter()
+        .filter(|mark| mark.row != plan.rail_row)
+        .map(|mark| mark.class)
+        .collect();
+    assert_eq!(lanes, vec![Class::Finished, Class::Active]);
+
+    // AC-draw-3: `×N` only when the phase was revisited.
+    assert_eq!(plan.segments[0].name, "intake");
+    assert_eq!(plan.segments[1].name, "design ×2");
+    assert_eq!(plan.segments[2].name, "verify");
+    // A corrupt fold cannot put twenty digits on the baseline.
+    let corrupt = vec![gphase("corrupt", u64::MAX, true, Vec::new())];
+    let clamped = plan_of(&corrupt, None, "running", 80, 7);
+    assert_eq!(clamped.segments[0].name, "corrupt ×99+");
+
+    // The current phase is distinguished on the baseline whether or not
+    // it has a rail node of its own to fill.
+    assert_eq!(plan.segments[2].class, Some(Class::Current));
+    assert_eq!(plan.segments[0].class, None);
+
+    // An empty rail is an empty plan, not an invented one.
+    let empty = plan_of(&[], None, "running", 80, 7);
+    assert!(empty.segments.is_empty() && empty.rail.is_none());
+    assert_eq!(paint(&empty, 0, false).len(), 7, "still a frame");
+
+    // A column the derivation left with no nodes at all.
+    let hollow = vec![gphase("hollow", 1, true, vec![gcolumn(None, Vec::new())])];
+    let hollow = plan_of(&hollow, None, "running", 80, 7);
+    let mark = &hollow.segments[0].marks[0];
+    assert_eq!(mark.class, Class::Unknown);
+    assert!(!mark.live && !mark.selected);
+}
+
+/// `plan` with the two cursors left out — most geometry cases do not
+/// care about them, and naming them each time buries what they do.
+fn plan_of(
+    phases: &[Phase],
+    lens: Option<&render::Lens>,
+    status: &str,
+    width: usize,
+    height: usize,
+) -> Plan {
+    plan(phases, lens, status, None, None, width, height)
+}
+
+#[test]
+fn the_lens_marks_the_scoped_phase_and_hides_none_of_them() {
+    let phases = rail_phases();
+    let views = graph_views(rail_phases(), "running");
+    let view = views.run.as_ref().unwrap();
+    let lens = render::lens_for(view, Some(&render::Scope::Phase("design".to_string())))
+        .unwrap()
+        .unwrap();
+
+    // AC-draw-4: `render::keeps_phase` decides the marker — the crate's
+    // ONE phase predicate, called and never reimplemented.
+    let marked = plan_of(&phases, Some(&lens), "running", 80, 7);
+    assert_eq!(marked.segments.len(), 3, "the lens marks; it does not hide");
+    assert!(marked.segments[1].name.starts_with('▸'), "the scoped one");
+    assert!(!marked.segments[0].name.starts_with('▸'));
+    assert!(!marked.segments[2].name.starts_with('▸'));
+    // With no scope at all there is nothing to mark.
+    let unmarked = plan_of(&phases, None, "running", 80, 7);
+    assert!(unmarked.segments.iter().all(|seg| !seg.name.contains('▸')));
+
+    // Every name sits on ONE baseline, by construction rather than by
+    // three separate rows that happen to agree.
+    let text = text_of(&paint(&marked, 0, false));
+    let baseline = text.lines().nth(marked.name_row).expect("a name row");
+    for name in ["intake", "▸design ×2", "verify"] {
+        assert!(
+            baseline.contains(name),
+            "{name} on the baseline: {baseline:?}"
+        );
+    }
+}
+
+// ------------------------------------------------ AC-mode-2, AC-mode-3
+
+#[test]
+fn a_fork_wider_than_its_lane_budget_counts_what_it_could_not_draw() {
+    // Six members with two lane rows on each side: four are drawn and
+    // the two that were not are counted on the outermost lane.
+    let phases = vec![gphase(
+        "panel",
+        1,
+        true,
+        vec![gcolumn(None, members(6, "on-phosphor"))],
+    )];
+    let plan = plan_of(&phases, None, "running", 80, 6);
+    assert_eq!(plan.mode, Mode::Full);
+    let join = &plan.segments[0].joins[0];
+    assert_eq!(join.rows.len(), 4, "as many lanes as the budget holds");
+    let labels: Vec<&str> = plan.segments[0]
+        .marks
+        .iter()
+        .map(|mark| mark.label.as_str())
+        .collect();
+    assert!(
+        labels.iter().any(|label| label.ends_with(" +2")),
+        "no member is silently dropped: {labels:?}"
+    );
+    assert!(
+        text_of(&paint(&plan, 0, false)).contains("+2"),
+        "and the count is drawn"
+    );
+
+    // An odd count puts one member ON the rail row, and the step name
+    // then yields the row it would have taken.
+    let phases = vec![gphase(
+        "panel",
+        1,
+        true,
+        vec![gcolumn(Some("three"), members(3, "on-phosphor"))],
+    )];
+    let plan = plan_of(&phases, None, "running", 80, 7);
+    let join = &plan.segments[0].joins[0];
+    assert!(join.on_rail, "three members straddle the rail");
+    assert_eq!(join.label, None, "a member rides the row the name wanted");
+    assert!(
+        text_of(&paint(&plan, 0, false)).contains('┼'),
+        "and the trunk says so"
+    );
+}
+
+#[test]
+fn the_rail_window_is_derived_from_the_cursor_and_marks_what_it_elides() {
+    let phases: Vec<Phase> = (0..8)
+        .map(|index| gphase(&format!("phase-{index}"), 1, index == 0, Vec::new()))
+        .collect();
+
+    // Wide enough for the whole rail: nothing is elided.
+    let whole = plan_of(&phases, None, "running", 200, 5);
+    assert_eq!(whole.segments.len(), 8);
+    assert!(!whole.left_elided && !whole.right_elided);
+
+    // Narrow, with the cursor at each end and in the middle. The window
+    // ALWAYS contains the cursor, and says which way the rest went.
+    let head = plan(&phases, None, "running", Some("phase-0"), None, 40, 5);
+    assert!(!head.left_elided && head.right_elided);
+    let tail = plan(&phases, None, "running", Some("phase-7"), None, 40, 5);
+    assert!(tail.left_elided && !tail.right_elided);
+    let middle = plan(&phases, None, "running", Some("phase-4"), None, 26, 5);
+    assert!(middle.left_elided && middle.right_elided);
+    for (plan, cursor) in [(&head, "phase-0"), (&tail, "phase-7"), (&middle, "phase-4")] {
+        assert!(
+            plan.segments.iter().any(|seg| seg.key == cursor),
+            "the window always contains {cursor}"
+        );
+        let text = text_of(&paint(plan, 0, false));
+        assert_eq!(text.contains('‹'), plan.left_elided);
+        assert_eq!(text.contains('›'), plan.right_elided);
+    }
+
+    // With no cursor the window falls back to the CURRENT phase, and
+    // with neither to the head of the rail.
+    assert_eq!(anchor_of(&phases, Some("phase-5")), 5);
+    assert_eq!(anchor_of(&phases, None), 0, "the current phase");
+    assert_eq!(
+        anchor_of(&phases, Some("gone")),
+        0,
+        "a stale key anchors nothing"
+    );
+    let nothing: Vec<Phase> = vec![gphase("a", 1, false, Vec::new())];
+    assert_eq!(anchor_of(&nothing, None), 0, "no cursor and no current");
+
+    // THERE IS NO SCROLL OFFSET. The window is a function of the cursor
+    // and the rect, so asking twice in any order answers the same.
+    let again = plan(&phases, None, "running", Some("phase-7"), None, 40, 5);
+    assert_eq!(tail, again, "derived every frame, never remembered");
+    assert_ne!(tail, head);
+
+    // A phase whose own columns run past the pane's edge says so with
+    // the same mark rather than pretending the phase ended there.
+    let long = vec![gphase(
+        "long",
+        1,
+        true,
+        (0..12)
+            .map(|index| {
+                gcolumn(
+                    None,
+                    vec![gnode(&format!("step{index}"), "x", "on-phosphor")],
+                )
+            })
+            .collect(),
+    )];
+    let cut = plan_of(&long, None, "running", 40, 5);
+    assert!(cut.right_elided, "the phase continues past the edge");
+    assert!(cut.segments[0].x1 < cut.width - 1, "and nothing spills");
+}
+
+// ------------------------- AC-draw-1, AC-draw-2, AC-mode-1, AC-width-1
+
+#[test]
+fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
+    let views = graph_views(rail_phases(), "running");
+    let tui = at_graph();
+
+    // AC-width-1 at 80 columns: the full grammar, all of it.
+    let frame = frame_of(&tui, &views, 80, 24);
+    for element in ["──→", "┤", "├", "┌", "┐", "└", "┘"] {
+        assert!(frame.contains(element), "{element} missing:\n{frame}");
+    }
+    // AC-draw-1: two lanes leave the rail, run parallel, and REJOIN it
+    // before the next step's edge.
+    let plan = plan_of(&rail_phases(), None, "running", 78, 5);
+    let join = &plan.segments[1].joins[0];
+    let lines: Vec<String> = text_of(&paint(&plan, 0, false))
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let rail: Vec<char> = lines[plan.rail_row].chars().collect();
+    assert_eq!(rail[join.x0], '┤', "the lanes leave the rail here");
+    assert_eq!(rail[join.x1], '├', "and rejoin it here");
+    assert!(
+        rail[join.x1 + 1..].contains(&'→'),
+        "the next step's edge comes AFTER the rejoin: {:?}",
+        lines[plan.rail_row]
+    );
+    for row in &join.rows {
+        let lane: Vec<char> = lines[*row].chars().collect();
+        assert!(
+            "┌└".contains(lane[join.x0]) && "┐┘".contains(lane[join.x1]),
+            "a lane corners out of the rail and back into it"
+        );
+    }
+    // AC-draw-2: a plain phase is one rail node; single-node columns are
+    // arrowed rail steps.
+    assert_eq!(plan.segments[0].marks.len(), 1, "a plain phase is one node");
+    assert_eq!(plan.segments[0].marks[0].row, plan.rail_row);
+    assert!(
+        lines[plan.rail_row].contains("● only") || lines[plan.rail_row].contains("● review"),
+        "a one-node step sits on the rail with its label: {:?}",
+        lines[plan.rail_row]
+    );
+
+    // AC-mode-1: each mode renders, and each one that cannot draw lanes
+    // still says `⑂n` rather than collapsing parallel into sequential.
+    let rail_mode = plan_of(&rail_phases(), None, "running", 78, 3);
+    assert_eq!(rail_mode.mode, Mode::Rail);
+    let text = text_of(&paint(&rail_mode, 0, false));
+    assert!(text.contains("⑂2"), "a collapsed fork still forks: {text}");
+    assert!(text.contains("──→") && text.contains("design ×2"), "{text}");
+    assert_eq!(paint(&rail_mode, 0, false).len(), 3);
+
+    let squeezed = plan_of(&rail_phases(), None, "running", 78, 1);
+    assert_eq!(squeezed.mode, Mode::Compressed);
+    let text = text_of(&paint(&squeezed, 0, false));
+    assert_eq!(
+        paint(&squeezed, 0, false).len(),
+        1,
+        "one row, never a blank pane"
+    );
+    for element in ["intake", "design ×2", "⑂2", "verify", "──→"] {
+        assert!(text.contains(element), "{element} missing from {text:?}");
+    }
+
+    // AC-width-1 at the floor: legible, uncorrupted, and still a graph.
+    let narrow = buffer_of(&tui, &views, MIN_WIDTH, 24);
+    let frame = narrow.join("\n");
+    assert!(!frame.contains("too small"), "{frame}");
+    assert!(
+        frame.contains('┤') && frame.contains('├'),
+        "the fork survives 60 columns:\n{frame}"
+    );
+    for row in narrow.iter().take(9) {
+        let cells: Vec<char> = row.chars().collect();
+        assert_eq!(cells.len(), usize::from(MIN_WIDTH));
+        assert!(
+            "│┌└".contains(cells[0]) && "│┐┘".contains(cells[cells.len() - 1]),
+            "no frame is corrupted: {row:?}"
+        );
+    }
+}
+
+// ------------------------------------------------- AC-safe-1, AC-safe-2
+
+#[test]
+fn a_hostile_phase_name_renders_inert_and_does_not_move_its_neighbour() {
+    let hostile = "de\u{202E}sign\u{200B}\x07\r";
+    let phases = vec![
+        gphase("intake", 1, false, Vec::new()),
+        gphase(hostile, 1, true, Vec::new()),
+        gphase("verify", 1, false, Vec::new()),
+    ];
+    let plan = plan_of(&phases, None, "running", 80, 7);
+    assert_eq!(plan.segments[1].name, "design", "inert, in source order");
+    assert_eq!(
+        plan.segments[1].x1 - plan.segments[1].x0 + 1,
+        6,
+        "six columns, which is what the terminal will draw"
+    );
+    assert_eq!(
+        plan.segments[2].x0,
+        plan.segments[1].x1 + 1 + ARROW_WIDTH,
+        "the following segment starts at its expected x"
+    );
+    let text = text_of(&paint(&plan, 0, false));
+    for character in ['\u{202E}', '\u{200B}', '\x07', '\r'] {
+        assert!(!text.contains(character), "{character:?} reached a cell");
+    }
+
+    // AC-safe-2: a CJK name is twelve columns wide, not six, and the
+    // rail is laid out on that measurement.
+    let phases = vec![
+        gphase("設計フェーズ", 1, true, Vec::new()),
+        gphase("verify", 1, false, Vec::new()),
+    ];
+    let plan = plan_of(&phases, None, "running", 80, 7);
+    assert_eq!(plan.segments[0].x1 - plan.segments[0].x0 + 1, 12);
+    assert_eq!(plan.segments[1].x0, plan.segments[0].x1 + 1 + ARROW_WIDTH);
+    // Drawn: the neighbour lands where the plan says, in the buffer and
+    // not only in the geometry. (`TestBackend` keeps a double-width
+    // glyph's second column as its own cell, so the buffer text carries
+    // a gap the terminal does not — the claim worth making is the x.)
+    let views = graph_views(
+        vec![
+            gphase("設計フェーズ", 1, true, Vec::new()),
+            gphase("verify", 1, false, Vec::new()),
+        ],
+        "running",
+    );
+    let lines = buffer_of(&at_graph(), &views, 80, 24);
+    let drawn = plan_of(
+        &[
+            gphase("設計フェーズ", 1, true, Vec::new()),
+            gphase("verify", 1, false, Vec::new()),
+        ],
+        None,
+        "running",
+        78,
+        5,
+    );
+    let baseline = lines
+        .iter()
+        .position(|line| line.contains("verify"))
+        .expect("the name baseline is drawn");
+    assert!(
+        at(&lines[baseline], drawn.segments[1].name_x + 1).starts_with("verify"),
+        "the CJK name did not displace its neighbour: {:?}",
+        lines[baseline]
+    );
+    assert!(lines[baseline].contains('設'), "{:?}", lines[baseline]);
+}
+
+// ------------------------------ AC-nav-1, AC-nav-2, AC-nav-3, AC-nav-5
+
+#[test]
+fn the_graph_cursor_walks_the_rail_with_the_arrows_and_the_lanes_with_up_down() {
+    let views = views();
+    let mut tui = at_run();
+    assert!(in_graph(&tui));
+
+    // The rail, both ways, wrapping at both ends — all through the same
+    // `move_to` every other list already uses.
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("intake"));
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("design"));
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("intake"), "wraps at one end");
+    apply(&mut tui, &views, Key::Left);
+    assert_eq!(tui.cursor[0].as_deref(), Some("design"), "and at the other");
+
+    // Into the lanes, in draw order, wrapping at both edges.
+    let lanes = lane_keys(&tui, &views);
+    assert!(lanes.len() > 1, "design has members: {lanes:?}");
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(tui.node.as_deref(), Some(lanes[0].as_str()));
+    apply(&mut tui, &views, Key::Up);
+    assert_eq!(
+        tui.node.as_deref(),
+        lanes.last().map(String::as_str),
+        "wraps at the top of a lane group"
+    );
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(
+        tui.node.as_deref(),
+        Some(lanes[0].as_str()),
+        "and at the foot"
+    );
+
+    // Moving the rail drops the lane the cursor was in.
+    apply(&mut tui, &views, Key::Left);
+    assert_eq!(tui.node, None);
+    assert_eq!(tui.cursor[0].as_deref(), Some("intake"));
+
+    // With no rail cursor at all there are no lanes to be in, and a
+    // level with no run has none either.
+    tui.cursor[0] = None;
+    assert!(lane_keys(&tui, &views).is_empty());
+    assert!(lane_keys(&at_run(), &Views::empty()).is_empty());
+
+    // A PLAIN phase has no nodes, so `↑↓` there are inert by
+    // construction rather than by a special case.
+    let plain = graph_views(rail_phases(), "running");
+    let mut tui = at_graph();
+    apply(&mut tui, &plain, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("intake"));
+    assert!(
+        lane_keys(&tui, &plain).is_empty(),
+        "a plain phase has no lanes"
+    );
+    apply(&mut tui, &plain, Key::Down);
+    assert_eq!(tui.node, None);
+}
+
+#[test]
+fn enter_scopes_the_phase_whatever_the_lane_cursor_says() {
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    let lane = tui.node.clone();
+    assert!(lane.is_some(), "the cursor walked into a lane");
+    apply(&mut tui, &views, Key::Enter);
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
+        "Enter scopes the PHASE, not the lane: {}",
+        status_line(&tui)
+    );
+    assert_eq!(tui.node, lane, "the lane cursor is display-only");
+}
+
+#[test]
+fn a_graph_selection_survives_a_refresh_and_a_vanished_node_highlights_nothing() {
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    let lane = tui.node.clone();
+
+    // A refresh with the same subjects keeps both selections.
+    let fresh = views_with("intake");
+    settle(&mut tui, &fresh);
+    assert_eq!(tui.cursor[0].as_deref(), Some("design"));
+    assert_eq!(tui.node, lane);
+
+    // A lane key whose node went away highlights nothing and does not
+    // panic — the absence of code, not a diff routine.
+    tui.node = Some("a node that is no longer drawn".to_string());
+    let view = fresh.run.as_ref().unwrap();
+    let plan = plan(
+        &view.phases,
+        None,
+        "running",
+        tui.cursor[0].as_deref(),
+        tui.node.as_deref(),
+        100,
+        7,
+    );
+    assert!(
+        plan.segments
+            .iter()
+            .flat_map(|seg| &seg.marks)
+            .all(|mark| !mark.selected),
+        "a stale key matches no drawn node"
+    );
+    let _ = frame_of(&tui, &fresh, 100, 24);
+    // And the next move lands on a real node again.
+    apply(&mut tui, &fresh, Key::Up);
+    assert_eq!(
+        tui.node.as_deref(),
+        Some(lane_keys(&tui, &fresh)[0].as_str())
+    );
+
+    // A phase that vanished takes the whole graph selection with it.
+    let empty = Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(forge_view::run_view(&[], None)),
+        transcript: None,
+    };
+    settle(&mut tui, &empty);
+    assert!(selected(&tui, &empty).is_none());
+    assert!(lane_keys(&tui, &empty).is_empty());
+    let _ = frame_of(&tui, &empty, 100, 24);
+    // A new run clears it outright, alongside every other selection.
+    tui.node = Some("held".to_string());
+    tui.assign_run("run-old".to_string());
+    assert_eq!(tui.node, None);
+}
+
+#[test]
+fn the_rail_arrows_are_a_named_no_op_in_every_other_pane() {
+    let views = views();
+
+    // At the fleet, where there is no rail at all.
+    let mut tui = Tui::new(None);
+    apply(&mut tui, &views, Key::Down);
+    let held = (tui.cursor[0].clone(), tui.pane, tui.level);
+    apply(&mut tui, &views, Key::Left);
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!((tui.cursor[0].clone(), tui.pane, tui.level), held);
+    assert_eq!(tui.node, None);
+
+    // At the seats and at the trail.
+    for pane in [1usize, 2] {
+        let mut tui = at_run();
+        tui.pane = pane;
+        tui.cursor[pane] = Some("held".to_string());
+        apply(&mut tui, &views, Key::Left);
+        apply(&mut tui, &views, Key::Right);
+        assert_eq!(tui.cursor[pane].as_deref(), Some("held"));
+        assert_eq!(tui.node, None);
+    }
+
+    // And at the PARTICIPANT level, whose panes are paragraphs.
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &views, Key::Enter);
+    apply(&mut tui, &views, Key::Enter);
+    assert_eq!(tui.level, Level::Participant);
+    apply(&mut tui, &views, Key::Down);
+    let offset = tui.offset;
+    apply(&mut tui, &views, Key::Left);
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!(tui.offset, offset, "an arrow with no axis changes nothing");
+}
+
+// -------------------------------------------------------------- AC-nav-4
+
+#[test]
+fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() {
+    let views = graph_views(rail_phases(), "running");
+    let mut tui = at_graph();
+
+    // The selected phase is NOT the current one: the name is REVERSED,
+    // and the current phase's rail node is FILLED where a visited one's
+    // is hollow. Two channels, neither of them colour.
+    tui.cursor[0] = Some("intake".to_string());
+    let (buffer, lines) = buffer_and_lines(&tui, &views, 100, 24);
+    let baseline = baseline_of(&lines);
+    assert!(
+        modifier_at(&buffer, &lines, baseline, "intake").contains(Modifier::REVERSED),
+        "the selection is REVERSED on the name"
+    );
+    assert!(
+        !modifier_at(&buffer, &lines, baseline, "verify").contains(Modifier::REVERSED),
+        "and the current phase is not the selection"
+    );
+    let frame = lines.join("\n");
+    assert!(frame.contains('●'), "the current phase's node is filled");
+    assert!(frame.contains('○'), "a visited one's is hollow");
+
+    // And where the selected phase IS the current one, both marks are
+    // present and still separable: REVERSED name, filled node.
+    tui.cursor[0] = Some("verify".to_string());
+    let (buffer, lines) = buffer_and_lines(&tui, &views, 100, 24);
+    let baseline = baseline_of(&lines);
+    assert!(
+        modifier_at(&buffer, &lines, baseline, "verify").contains(Modifier::REVERSED),
+        "the selection mark is still the selection mark"
+    );
+    assert!(
+        !modifier_at(&buffer, &lines, baseline, "intake").contains(Modifier::REVERSED),
+        "and it moved off the phase that no longer holds it"
+    );
+    let frame = lines.join("\n");
+    assert!(frame.contains('●') && frame.contains('○'), "{frame}");
+
+    // A lane node the cursor has walked into wears the SAME selection
+    // mark on its own label — one idiom wherever the cursor is, and it
+    // is still the modifier channel rather than the colour one.
+    let phases = rail_phases();
+    let member = phases[1].columns[0].nodes[1].key.clone();
+    let walked = plan(
+        &phases,
+        None,
+        "running",
+        Some("design"),
+        Some(&member),
+        78,
+        5,
+    );
+    let selected: Vec<&Mark> = walked
+        .segments
+        .iter()
+        .flat_map(|seg| &seg.marks)
+        .filter(|mark| mark.selected)
+        .collect();
+    assert_eq!(selected.len(), 1, "one node, and only one");
+    assert_eq!(selected[0].label, "robustness");
+    let row = selected[0].row;
+    let painted = paint(&walked, 0, false);
+    assert!(
+        painted[row].spans.iter().any(|span| {
+            span.content.contains("robustness")
+                && span.style.add_modifier.contains(Modifier::REVERSED)
+        }),
+        "the lane label carries the selection: {:?}",
+        painted[row]
+    );
+
+    // And so does a one-node step, whose label is the STEP's own name.
+    let step = phases[1].columns[1].nodes[0].key.clone();
+    let stepped = plan(&phases, None, "running", Some("design"), Some(&step), 78, 5);
+    assert!(
+        stepped.segments[1]
+            .marks
+            .iter()
+            .any(|mark| mark.selected && mark.label == "review"),
+        "a single-node column selects through its own node's key"
+    );
+}
+
+fn buffer_and_lines(
+    tui: &Tui,
+    views: &Views,
+    width: u16,
+    height: u16,
+) -> (ratatui::buffer::Buffer, Vec<String>) {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| draw(frame, tui, views)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let mut lines = Vec::new();
+    for row in 0..buffer.area.height {
+        let mut line = String::new();
+        for column in 0..buffer.area.width {
+            line.push_str(buffer[(column, row)].symbol());
+        }
+        lines.push(line);
+    }
+    (buffer, lines)
+}
+
+/// The one row carrying every phase name: the shared baseline, found by
+/// what it IS rather than by an arithmetic guess at where it sits.
+fn baseline_of(lines: &[String]) -> usize {
+    lines
+        .iter()
+        .position(|line| {
+            line.contains("intake") && line.contains("design") && line.contains("verify")
+        })
+        .expect("one baseline carrying every name")
+}
+
+fn modifier_at(
+    buffer: &ratatui::buffer::Buffer,
+    lines: &[String],
+    row: usize,
+    needle: &str,
+) -> Modifier {
+    let byte = lines[row].find(needle).expect("the text is on that row");
+    let column = lines[row][..byte].chars().count();
+    buffer[(u16::try_from(column).unwrap(), u16::try_from(row).unwrap())].modifier
+}
+
+// -------------------------------------------------- AC-anim-2, AC-anim-4
+
+#[test]
+fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
+    let mut views = graph_views(rail_phases(), "running");
+    let mut tui = at_graph();
+    tui.animate = true;
+
+    let sweep = |tui: &mut Tui, views: &Views| -> Vec<String> {
+        (0..8)
+            .map(|tick| {
+                tui.ticks = tick;
+                frame_of(tui, views, 100, 24)
+            })
+            .collect()
+    };
+
+    // A live run animates: the glyph moves, and nothing else does.
+    let frames = sweep(&mut tui, &views);
+    assert!(
+        frames.iter().any(|frame| frame != &frames[0]),
+        "an active node on a live run pulses"
+    );
+    // AC-anim-4: geometry does not vary with the tick — the skeleton is
+    // byte-identical across the whole period, and `plan` takes no tick.
+    let skeleton = |frame: &String| -> String {
+        frame
+            .chars()
+            .map(|glyph| match "●◉○◎⊙⊗·".contains(glyph) {
+                true => '@',
+                false => glyph,
+            })
+            .collect()
+    };
+    for frame in &frames {
+        assert_eq!(
+            skeleton(frame),
+            skeleton(&frames[0]),
+            "only the glyph moves"
+        );
+    }
+
+    // AC-anim-3: with animation off, every tick is the still frame —
+    // set directly, with no environment touched.
+    tui.animate = false;
+    let stills = sweep(&mut tui, &views);
+    assert!(
+        stills.iter().all(|frame| frame == &stills[0]),
+        "no animation, no motion"
+    );
+    assert_eq!(stills[0], frames[0], "and frame 0 IS the still frame");
+
+    // AC-anim-2: a run that is not running is still at every tick, even
+    // with animation on — the pulse gate is a model field.
+    tui.animate = true;
+    match views.run.as_mut().unwrap().summary.as_mut() {
+        Some(summary) => summary.status = "completed".to_string(),
+        None => panic!("the fixture folds"),
+    }
+    let concluded = sweep(&mut tui, &views);
+    assert!(
+        concluded.iter().all(|frame| frame == &concluded[0]),
+        "nothing live, nothing moving"
+    );
 }
 
 // -------------------------------------------- AC-15, AC-17: the boundaries
@@ -1496,6 +2554,17 @@ fn the_tui_source_names_no_store_no_runtime_and_no_unsanitized_widget() {
     assert_eq!(SOURCE.matches("Span::styled(").count(), 1);
     assert_eq!(SOURCE.matches("Span::raw(").count(), 0);
     assert_eq!(SOURCE.matches("Paragraph::new(\"").count(), 0);
+    // The graph is a character grid, and the ruling against ratatui's
+    // plotting surface is held here rather than remembered: its colour
+    // is per cell, last writer wins, which would cost the per-node
+    // colour vocabulary, and its text call would be a third path into a
+    // buffer whose safety is ratatui's rather than `Safe`'s.
+    for forbidden in ["canvas", "Canvas", "Braille", "Marker::"] {
+        assert!(
+            !SOURCE.contains(forbidden),
+            "the graph draws box characters, never {forbidden}"
+        );
+    }
     // And no derivation: no status table, no cost or duration
     // arithmetic, no topology, no scope predicate of its own.
     for derived in [
@@ -1589,8 +2658,10 @@ fn a_whole_tui_session_writes_nothing_at_all() {
     script(&[
         Key::Down,
         Key::Enter,
-        Key::Down,
+        Key::Right,
         Key::Enter,
+        Key::Up,
+        Key::Left,
         Key::Escape,
         Key::Tab,
         Key::Down,

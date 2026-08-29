@@ -14,7 +14,7 @@ collision is.
 
 ## Movement 0 — the invariant the graph will depend on
 
-- [ ] **T1 — pin phase-name uniqueness in `forge-view`.**
+- [x] **T1 — pin phase-name uniqueness in `forge-view`.**
   One test asserting that no two `Phase`es in a `RunView` share a `name`,
   over a fixture whose journal revisits a phase. **No `lib.rs` change, no
   new field, `VIEW_VERSION` unmoved.** The graph is about to use
@@ -24,14 +24,14 @@ collision is.
 
 ## Movement 1 — the pure vocabulary
 
-- [ ] **T2 — `width_of`.**
+- [x] **T2 — `width_of`.**
   `fn width_of(text: &str) -> usize` = `span(text, plain()).width()`,
   with the doc comment saying why `Safe::width()` is not it. Every width
   in the feature comes from here.
   *Proven by*: AC-safe-2 — a unit case asserting `width_of("設計フェーズ")
   == 12` while `Safe::new("設計フェーズ").width() == 6`, and ASCII parity.
 
-- [ ] **T3 — `Class` and `look`.**
+- [x] **T3 — `Class` and `look`.**
   The seven-class enum and `fn look(class: Class) -> (Style, [&'static
   str; 4])`, plus the two classifiers that feed it:
   `class_for_phase(current: bool, status: &str)` and
@@ -42,7 +42,7 @@ collision is.
   status ⇒ `Unknown`, not `Current`), AC-look-3 (`Active`'s still glyph
   differs from `Finished`'s).
 
-- [ ] **T4 — `pulse` and its constants.**
+- [x] **T4 — `pulse` and its constants.**
   `PULSE_TICKS` and `PULSE_FRAMES` in the constants block beside `TICK`;
   `fn pulse(tick: usize, live: bool, animate: bool) -> usize`, two arms,
   total by modulo. The glyph is `look(class).1[pulse(..)]` — an index,
@@ -53,13 +53,13 @@ collision is.
 
 ## Movement 2 — geometry
 
-- [ ] **T5 — `Mode` and `mode_for`.**
+- [x] **T5 — `Mode` and `mode_for`.**
   `mode_for(inner_rows, max_lane_span) -> Mode` over `Full` / `Rail` /
   `Compressed`, per spec §4's table.
   *Proven by*: AC-mode-1 — one call per row budget, including the exact
   budgets at 80×24 and at `MIN_WIDTH`×`MIN_HEIGHT`.
 
-- [ ] **T6 — `Plan` and `plan`.**
+- [x] **T6 — `Plan` and `plan`.**
   The types in plan.md, and
   `fn plan(phases, lens, cursor, node, width, height) -> Plan`. It calls
   `render::keeps_phase` for `scoped` (never reimplements it), clamps
@@ -77,7 +77,7 @@ collision is.
 
 ## Movement 3 — paint
 
-- [ ] **T7 — `paint`.**
+- [x] **T7 — `paint`.**
   `fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>>`,
   emitting spans through the existing `span()` **only**. No clipping
   branch; no new widget constructor. Selection is `Modifier::REVERSED` on
@@ -85,7 +85,7 @@ collision is.
   *Proven by*: direct `Vec<Line>` inspection of spans and styles for each
   mode, and the `TestBackend` cases in T8.
 
-- [ ] **T8 — `draw_graph` is rewired.**
+- [x] **T8 — `draw_graph` is rewired.**
   `draw_graph` becomes `plan` → `paint` →
   `Paragraph::new(..).block(pane("graph", tui.pane == 0))`. The 0013 tree
   body is deleted.
@@ -102,13 +102,13 @@ collision is.
 Every expected rebase collision is in this movement. Re-check `main` for
 the trail-reader overlay before starting it.
 
-- [ ] **T9 — `Key::Left` / `Key::Right`.**
+- [x] **T9 — `Key::Left` / `Key::Right`.**
   Two enum variants, two `from_key` arms (`KeyCode::Left`,
   `KeyCode::Right`).
   *Proven by*: two key-translation cases, and the existing
   `from_crostterm`/`from_key` cases still green.
 
-- [ ] **T10 — the lane cursor.**
+- [x] **T10 — the lane cursor.**
   `Tui.node: Option<String>`; `lane_keys(view, cursor)` in draw order;
   `apply` routes `Left`/`Right` to the rail (clearing `node`) and
   `Up`/`Down` in the graph pane to `node`, both through the existing
@@ -121,26 +121,26 @@ the trail-reader overlay before starting it.
   highlights nothing and does not panic; a persisting selection
   survives), AC-nav-5 (`Left`/`Right` elsewhere change no state).
 
-- [ ] **T11 — existing `Up`/`Down`-at-graph cases re-pointed.**
+- [x] **T11 — existing `Up`/`Down`-at-graph cases re-pointed.**
   The headless cases that pressed `Key::Up`/`Key::Down` at
   `(Level::Run, 0)` to move the rail now press `j`/`k`, which assert the
   same movement. **No case asserting a scope is touched.**
   *Proven by*: the re-pointed cases green, and AC-nav-2's byte-for-byte
   scope assertions untouched.
 
-- [ ] **T12 — selection is visibly not the current phase.**
+- [x] **T12 — selection is visibly not the current phase.**
   *Proven by*: AC-nav-4 — asserted on a frame where the selected phase is
   not the current one **and** on one where it is, both on the
   glyph/modifier channel rather than on `fg`.
 
-- [ ] **T13 — footer and help.**
+- [x] **T13 — footer and help.**
   `footer_for`'s `(Level::Run, 0)` arm gains `←→ rail · ↑↓ lanes`;
   `HELP` gains one line and its array length changes. Take the mechanical
   merge with the reader overlay and keep both lines.
   *Proven by*: the existing footer-differs-by-context case, extended to
   assert the graph arm names the arrow keys.
 
-- [ ] **T14 — `animate` is plumbed.**
+- [x] **T14 — `animate` is plumbed.**
   `Tui.animate: bool`, a new `animate` parameter on `tui::start`, and
   `render::Style::detect().color` at the single `run_tui` call site —
   the same line kind as the existing `is_terminal()` argument.
@@ -149,14 +149,14 @@ the trail-reader overlay before starting it.
 
 ## Movement 5 — the proofs
 
-- [ ] **T15 — the discipline test.**
+- [x] **T15 — the discipline test.**
   Add the no-canvas assertion. Confirm `Cell::from(` and `Span::styled(`
   are still exactly one each, `Span::raw(` still zero, and the
   read-only greps unchanged. **The test gains an assertion and loses
   none.**
   *Proven by*: AC-safe-3.
 
-- [ ] **T16 — admission.**
+- [x] **T16 — admission.**
   `cargo fmt`, `cargo clippy` (workspace, `-D warnings`),
   `cargo test --workspace`, the machine proof, the differential corpus,
   and `scripts/coverage-exact.sh`. Confirm `render::graph_block`'s

@@ -890,6 +890,53 @@ fn a_matching_terminal_closes_the_live_block() {
 // --------------------------------------------------------- AC-8, AC-9
 
 #[test]
+fn phase_names_are_unique_within_a_run_view() {
+    // `visits` is a fold keyed by name, so a revisited phase is ONE
+    // segment of the rail. Every surface selects a phase BY NAME —
+    // `forge inspect --phase`, the console's `selectedPhase`, and now
+    // `forge tui`'s graph cursor — so two segments sharing a name would
+    // scope the wrong one, invisibly. The coupling is named here rather
+    // than left silent; it is an invariant of the derivation, and no
+    // renderer may assume it without this test standing behind it.
+    let events = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "design"}), T0),
+        ev(3, EventType::PhaseEntered, json!({"phase": "intake"}), T1),
+        ev(4, EventType::PhaseEntered, json!({"phase": "design"}), T2),
+    ];
+    let view = run_view(&events, None);
+    let names: Vec<&str> = view
+        .phases
+        .iter()
+        .map(|phase| phase.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["intake", "design"],
+        "a revisited phase is one segment, in first-visit order"
+    );
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "no two phases share a name");
+    assert_eq!(view.phases[0].visits, 2);
+    assert_eq!(view.phases[1].visits, 2);
+
+    // And the same over a journal that carries real structure, so the
+    // invariant is not an artefact of a rail with nothing on it.
+    let view = run_view(&panel_journal(), None);
+    let mut names: Vec<&str> = view
+        .phases
+        .iter()
+        .map(|phase| phase.name.as_str())
+        .collect();
+    let count = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), count, "and over a structured run too");
+}
+
+#[test]
 fn a_phase_with_no_observed_effect_draws_one_plain_node() {
     let events = vec![
         ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
