@@ -1715,3 +1715,71 @@ fn a_member_named_only_in_provenance_still_becomes_a_participant() {
     assert_eq!(members[0].provenance.as_ref().unwrap().provider, "claude");
     assert_eq!(members[1].provenance.as_ref().unwrap().provider, "other");
 }
+
+#[test]
+fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
+    // The id used to arrive only with session-finished — at the END —
+    // so a working seat's transcript could not be located, let alone
+    // live-streamed. session-started journals it at init; the finished
+    // checkpoint later replaces it, bringing the cost.
+    let mut events = seat_journal();
+    events.truncate(5); // requested, started, one turn — still working
+    events.insert(
+        4,
+        ev(
+            9,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": {"step": "session-started",
+                                  "session_id": "sess-live"}}),
+            T0,
+        ),
+    );
+    let view = run_view(&events, Some(&state(Some("intake"), Status::Running, None)));
+    let part = &view.participants[0];
+    assert_eq!(part.status, "working");
+    assert_eq!(
+        part.session_id.as_deref(),
+        Some("sess-live"),
+        "a WORKING seat knows its session"
+    );
+    assert!(part.cost.is_none(), "no cost until the session finishes");
+
+    // The full journal: finished replaces started and brings the cost.
+    let whole = run_view(
+        &seat_journal(),
+        Some(&state(Some("intake"), Status::Completed, None)),
+    );
+    let part = &whole.participants[0];
+    assert_eq!(part.session_id.as_deref(), Some("sess-1"));
+    assert!(part.cost.is_some());
+
+    // A RETRY: attempt two's started arrives after attempt one's
+    // finished, and the LIVE session is the one the drill must stream
+    // — never the dead attempt's transcript.
+    let mut retried = seat_journal();
+    retried.truncate(6); // through attempt one's session-finished
+    retried.push(ev(
+        10,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff1", "attempt_id": "att2"}),
+        T2,
+    ));
+    retried.push(ev(
+        11,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "checkpoint": {"step": "session-started",
+                              "session_id": "sess-2-live"}}),
+        T2,
+    ));
+    let view = run_view(
+        &retried,
+        Some(&state(Some("intake"), Status::Running, None)),
+    );
+    assert_eq!(
+        view.participants[0].session_id.as_deref(),
+        Some("sess-2-live"),
+        "the retry's live session replaces the dead attempt's"
+    );
+}

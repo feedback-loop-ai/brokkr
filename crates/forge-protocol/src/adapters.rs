@@ -180,8 +180,18 @@ fn fold_stream_event(
 ) {
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
-            if let Some(session_id) = event.get("session_id") {
-                session_meta.insert("session_id".into(), session_id.clone());
+            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
+                let clamped: String = session_id.chars().take(128).collect();
+                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
+                // Journaled NOW, not only at session end: the
+                // transcript drilldowns can only locate — and live-
+                // stream — a WORKING seat's prose if the id is known
+                // from the first message. The id is display-guarded
+                // downstream (hex and dash only) like every session id.
+                let mut checkpoint = Map::new();
+                checkpoint.insert("step".into(), Value::String("session-started".into()));
+                checkpoint.insert("session_id".into(), Value::String(clamped));
+                emit(&Value::Object(checkpoint));
             }
         }
         Some("assistant") => {

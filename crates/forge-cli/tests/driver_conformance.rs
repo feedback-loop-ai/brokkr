@@ -186,9 +186,14 @@ fn conformance_across_all_builtin_adapters() {
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
+                // One more checkpoint than before: session-started,
+                // journaled at init so a WORKING seat's transcript is
+                // locatable and live-streamable (the id used to arrive
+                // only with session-finished, at the end).
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
@@ -225,27 +230,37 @@ fn conformance_across_all_builtin_adapters() {
             }
             if claude && case == "obedient" {
                 assert_eq!(
-                    out[2]["data"],
-                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs"}),
+                    out[2]["data"]["step"], "session-started",
+                    "{label}: the id is journaled at init: {}",
+                    out[2]
+                );
+                assert!(
+                    out[2]["data"]["session_id"].is_string(),
                     "{label}: {}",
                     out[2]
                 );
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs"}),
+                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
+                           "target": "src/lib.rs"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs"}),
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
+                           "target": "src/main.rs"}),
                     "{label}: {}",
                     out[4]
                 );
-                let finished = &out[5]["data"];
+                assert_eq!(
+                    out[5]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
+                           "target": "src/out.rs"}),
+                    "{label}: {}",
+                    out[5]
+                );
+                let finished = &out[6]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
                 assert_eq!(finished["session_id"], "stream-1", "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
@@ -259,27 +274,32 @@ fn conformance_across_all_builtin_adapters() {
                 // plus the constant ledger-capture marker and the
                 // list-price cost flowing through unchanged.
                 assert_eq!(
-                    out[2]["data"],
-                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs"}),
+                    out[2]["data"]["step"], "session-started",
                     "{label}: {}",
                     out[2]
                 );
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs"}),
+                    json!({"step": "seat-turn", "turn": 1, "tool": "Read",
+                           "target": "src/lib.rs"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
-                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs"}),
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
+                           "target": "src/main.rs"}),
                     "{label}: {}",
                     out[4]
                 );
-                let finished = &out[5]["data"];
+                assert_eq!(
+                    out[5]["data"],
+                    json!({"step": "seat-turn", "turn": 2, "tool": "Write",
+                           "target": "src/out.rs"}),
+                    "{label}: {}",
+                    out[5]
+                );
+                let finished = &out[6]["data"];
                 assert_eq!(
                     finished["step"], "claude-lanetally-session-finished",
                     "{label}"

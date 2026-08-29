@@ -663,6 +663,16 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     scan.parts[part].last_turn = Some(checkpoint);
                 } else if step.is_some_and(|step| step.ends_with("-session-finished")) {
                     scan.parts[part].session = Some(checkpoint);
+                } else if step == Some("session-started") {
+                    // The id arrives at init so a WORKING seat's
+                    // transcript is locatable and streamable. It
+                    // ALWAYS replaces: on a retry, attempt two's
+                    // started arrives after attempt one's finished,
+                    // and the live session is the one to stream — a
+                    // kept guard here would pin the drill to the dead
+                    // attempt's transcript. Each finished checkpoint
+                    // replaces in turn, bringing the cost.
+                    scan.parts[part].session = Some(checkpoint);
                 } else if step == Some("panel-member-finished") && member.is_some() {
                     scan.parts[part].member_outcome = checkpoint.get("outcome").cloned();
                     scan.parts[part].member_finished_at = Some(event.recorded_at.clone());
