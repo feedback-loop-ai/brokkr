@@ -41,7 +41,11 @@ impl Library {
         if let Some(policy) = policy {
             std::fs::write(dir.join("policy.json"), serde_json::to_vec(policy).unwrap()).unwrap();
         }
-        dir
+        // Canonical, like every dir the resolver records: on macOS the
+        // temp root is /var -> /private/var, and an expectation built
+        // from the uncanonicalized path would compare two spellings of
+        // one directory.
+        dir.canonicalize().unwrap()
     }
 }
 
@@ -871,19 +875,17 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
 }
 
+/// Symlinks are a unix concept here; Windows has no equivalent to
+/// create in a test without elevation.
+#[cfg(unix)]
 #[test]
-fn a_base_must_be_a_real_directory_in_the_library_named_as_it_is_extended() {
-    // Both are hardening gaps the review panel found: a composed base is
-    // read for composition AND bind-mounted read-only into every
-    // confined seat, and the chain is journaled by the base's DECLARED
-    // name — so a link out of the library, or a directory answering to
-    // a name it does not declare, would put a lie in an append-only
-    // manifest.
+fn a_base_reached_through_a_symlink_out_of_the_library_is_refused() {
+    // A composed base is read for composition AND bind-mounted
+    // read-only into every confined seat, so a link pointing outside
+    // the library would widen that mount. `forge recipes add` already
+    // refuses symlinks; composition applies the same rule.
     let library = Library::new();
     library.recipe("base", &base_bundle(), Some(&base_policy()));
-
-    // A symlink under the library pointing outside it is refused, the
-    // same rule `forge recipes add` already applies.
     let outside = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(outside.path().join("elsewhere/roles")).unwrap();
     std::fs::write(
@@ -896,17 +898,37 @@ fn a_base_must_be_a_real_directory_in_the_library_named_as_it_is_extended() {
         library.path().join("linked"),
     )
     .unwrap();
-    let via_link = library.recipe("viaLink", &json!({"name": "via-link", "extends": "linked"}), None);
+    let via_link = library.recipe(
+        "viaLink",
+        &json!({"name": "via-link", "extends": "linked"}),
+        None,
+    );
     let message = error(resolve(&via_link));
-    assert!(message.contains("resolves outside the library"), "{message}");
+    assert!(
+        message.contains("resolves outside the library"),
+        "{message}"
+    );
+}
 
+#[test]
+fn a_bases_directory_name_and_declared_name_are_both_recorded() {
     // A directory may legitimately declare a different name than the
     // one it is extended by — `forge recipes add --name` installs
     // exactly that. So it is RECORDED, not refused: the chain carries
     // both, and the manifest key names both, so a directory can never
     // answer to a name it does not declare.
-    library.recipe("innocuous", &json!({"name": "sdd", "extends": "base"}), None);
-    let derived = library.recipe("derived", &json!({"name": "derived", "extends": "innocuous"}), None);
+    let library = Library::new();
+    library.recipe("base", &base_bundle(), Some(&base_policy()));
+    library.recipe(
+        "innocuous",
+        &json!({"name": "sdd", "extends": "base"}),
+        None,
+    );
+    let derived = library.recipe(
+        "derived",
+        &json!({"name": "derived", "extends": "innocuous"}),
+        None,
+    );
     let resolved = resolve(&derived).expect("a renamed directory composes");
     let base_layer = resolved
         .chain

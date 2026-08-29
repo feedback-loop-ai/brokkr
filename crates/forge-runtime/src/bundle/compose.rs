@@ -132,7 +132,10 @@ fn valid_recipe_name(name: &str) -> bool {
 /// chain so far.
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
-    let mut dir = leaf.to_path_buf();
+    // Canonical from the leaf down, so every recorded dir is comparable
+    // on every platform: macOS resolves /var to /private/var, and a
+    // chain that mixed the two would record two names for one place.
+    let mut dir = leaf.canonicalize()?;
     // The name this layer was extended BY, for the layer after the leaf.
     let mut reached_as: Option<String> = None;
     loop {
