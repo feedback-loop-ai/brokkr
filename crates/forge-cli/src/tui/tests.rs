@@ -1636,12 +1636,12 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
 #[test]
 fn the_node_vocabulary_is_a_closed_set_with_one_named_fallback() {
     for (class, still) in [
-        (Class::Visited, "○"),
-        (Class::Current, "●"),
+        (Class::Visited, "⏺"),
+        (Class::Current, "∙"),
         (Class::Park, "⊙"),
         (Class::Failed, "⊗"),
-        (Class::Finished, "●"),
-        (Class::Active, "◉"),
+        (Class::Finished, "⏺"),
+        (Class::Active, "∙"),
         (Class::Unknown, "·"),
     ] {
         let (style, ramp) = look(class);
@@ -2053,7 +2053,7 @@ fn the_graph_draws_the_consoles_grammar_in_every_mode_and_at_the_floor() {
     assert_eq!(plan.segments[0].marks.len(), 1, "a plain phase is one node");
     assert_eq!(plan.segments[0].marks[0].row, plan.rail_row);
     assert!(
-        lines[plan.rail_row].contains("● only") || lines[plan.rail_row].contains("● review"),
+        lines[plan.rail_row].contains("⏺ only") || lines[plan.rail_row].contains("⏺ review"),
         "a one-node step sits on the rail with its label: {:?}",
         lines[plan.rail_row]
     );
@@ -2365,8 +2365,9 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
         "and the current phase is not the selection"
     );
     let frame = lines.join("\n");
-    assert!(frame.contains('●'), "the current phase's node is filled");
-    assert!(frame.contains('○'), "a visited one's is hollow");
+    // State reads from colour and weight now — every node is the
+    // operator-calibrated ⏺; visited is DIM, current is green.
+    assert!(frame.contains('⏺'), "nodes are the calibrated dot");
 
     // And where the selected phase IS the current one, both marks are
     // present and still separable: REVERSED name, filled node.
@@ -2382,7 +2383,7 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
         "and it moved off the phase that no longer holds it"
     );
     let frame = lines.join("\n");
-    assert!(frame.contains('●') && frame.contains('○'), "{frame}");
+    assert!(frame.contains('⏺'), "{frame}");
 
     // A lane node the cursor has walked into wears the SAME selection
     // mark on its own label — one idiom wherever the cursor is, and it
@@ -2499,7 +2500,7 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
     let skeleton = |frame: &String| -> String {
         frame
             .chars()
-            .map(|glyph| match "●◉○◎⊙⊗·".contains(glyph) {
+            .map(|glyph| match "⏺∙⊙⊗·".contains(glyph) {
                 true => '@',
                 false => glyph,
             })
@@ -2524,11 +2525,16 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
     assert_eq!(stills[0], frames[0], "and frame 0 IS the still frame");
 
     // AC-anim-2: a run that is not running is still at every tick, even
-    // with animation on — the pulse gate is a model field.
+    // with animation on — the pulse gate is a model field. The FLEET
+    // must be idle too: the forging beacon is fleet-gated by design,
+    // and a live fleet keeps the corner pulsing over a concluded run.
     tui.animate = true;
     match views.run.as_mut().unwrap().summary.as_mut() {
         Some(summary) => summary.status = "completed".to_string(),
         None => panic!("the fixture folds"),
+    }
+    for row in &mut views.runs.runs {
+        row.status = Some("completed".to_string());
     }
     let concluded = sweep(&mut tui, &views);
     assert!(
@@ -3067,4 +3073,42 @@ fn a_pane_too_short_for_the_box_row_draws_no_half_box() {
     let frame = text_of(&paint(&short, 0, false));
     assert!(!frame.contains('╭'), "no box row, no box: {frame}");
     assert!(!frame.contains('┆'), "and no floating sides: {frame}");
+}
+
+#[test]
+fn the_forging_beacon_pulses_in_the_corner_whenever_any_run_is_live() {
+    // The console's favicon turns violet when the machine is at work;
+    // the terminal's answer is a pulsing corner beacon on the status
+    // line, visible at EVERY level — an operator browsing an old run
+    // still knows something is running.
+    let mut views = views();
+    let mut tui = at_run();
+    settle(&mut tui, &views);
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(
+        frame.contains("forging"),
+        "a live fleet shows the beacon: {frame}"
+    );
+
+    // The beacon pulses on the shared live ramp with the shared tick,
+    // and stands still when animation is off — like every live node.
+    tui.animate = true;
+    tui.ticks = PULSE_TICKS;
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(
+        frame.contains(&format!("{} forging", LIVE_RAMP[1])),
+        "{frame}"
+    );
+    tui.animate = false;
+
+    // No live run anywhere: no beacon, at any level.
+    for row in &mut views.runs.runs {
+        row.status = Some("completed".to_string());
+    }
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(!frame.contains("forging"), "idle fleet, no beacon: {frame}");
+    let mut fleet = Tui::new(None);
+    settle(&mut fleet, &views);
+    let frame = frame_of(&fleet, &views, 100, 26);
+    assert!(!frame.contains("forging"), "{frame}");
 }
