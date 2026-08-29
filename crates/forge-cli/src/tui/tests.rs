@@ -215,6 +215,21 @@ fn views() -> Views {
     views_with("intake")
 }
 
+/// A transcript of `count` prose turns, each naming its own index — so
+/// "the SAME turn" is askable by text, not just by position.
+fn turns_of(count: usize) -> Vec<crate::ui::Turn> {
+    (0..count)
+        .map(|index| crate::ui::Turn {
+            role: format!("turn {index}"),
+            ts: T1.to_string(),
+            blocks: vec![crate::ui::Block {
+                kind: "text",
+                text: format!("prose of turn {index}"),
+            }],
+        })
+        .collect()
+}
+
 /// The RUN level for `run-7`, as `Enter` on the fleet leaves it.
 fn at_run() -> Tui {
     let mut tui = Tui::new(None);
@@ -673,14 +688,21 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     states.push(footer_for(&tui));
     assert!(states[5].contains("scroll"), "{}", states[5]);
 
+    // The transcript pane names its reader — decision 0014's
+    // discoverability rule — where the checkpoint pane does not.
+    apply(&mut tui, &views, Key::Tab);
+    states.push(footer_for(&tui));
+    assert!(states[6].contains("Enter read turn"), "{}", states[6]);
+    apply(&mut tui, &views, Key::Tab);
+
     apply(&mut tui, &views, Key::Char('/'));
     states.push(footer_for(&tui));
-    assert!(states[6].starts_with('/'));
+    assert!(states[7].starts_with('/'));
 
     apply(&mut tui, &views, Key::Escape);
     apply(&mut tui, &views, Key::Char('?'));
     states.push(footer_for(&tui));
-    assert!(states[7].contains("close help"));
+    assert!(states[8].contains("close help"));
 
     // Every context differs from every other: a footer that always
     // printed the same string could not pass this.
@@ -914,18 +936,9 @@ fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
 }
 
 #[test]
-fn scrolling_a_paragraph_pane_moves_its_offset_within_the_stream() {
+fn the_checkpoint_pane_scrolls_and_the_transcript_pane_moves_a_turn_cursor() {
     let mut views = views();
-    views.transcript = Some((
-        (0..4)
-            .map(|index| crate::ui::Turn {
-                role: format!("turn {index}"),
-                ts: T1.to_string(),
-                blocks: Vec::new(),
-            })
-            .collect(),
-        false,
-    ));
+    views.transcript = Some((turns_of(4), false));
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
@@ -943,15 +956,20 @@ fn scrolling_a_paragraph_pane_moves_its_offset_within_the_stream() {
     apply(&mut tui, &views, Key::PageUp);
     assert_eq!(tui.offset, 0);
 
+    // The transcript pane is a LIST of turns now: `G` lands the TURN
+    // cursor on the last turn and leaves the paragraph offset alone.
     apply(&mut tui, &views, Key::Tab);
     apply(&mut tui, &views, Key::Char('G'));
-    assert_eq!(tui.offset, 3, "and so does the transcript pane");
-    assert_eq!(offset_for(&tui, 1), 3);
+    assert_eq!(tui.turn.as_deref(), Some("3"));
+    assert_eq!(tui.offset, 0, "the checkpoint offset stayed put");
     assert_eq!(offset_for(&tui, 0), 0, "an unfocused pane keeps its top");
 
-    // A pane with nothing in it holds no offset at all.
+    // A pane with nothing in it holds no cursor and no offset at all.
     views.transcript = None;
     apply(&mut tui, &views, Key::Char('G'));
+    assert_eq!(tui.turn, None);
+    apply(&mut tui, &views, Key::Tab);
+    apply(&mut tui, &Views::empty(), Key::Char('G'));
     assert_eq!(tui.offset, 0);
 }
 
@@ -2801,14 +2819,197 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
     // Esc closed the reader only — it did not also pop the level.
     assert_eq!(tui.level, Level::Run);
 
-    // The bottom-level participant view remains a paragraph: Enter is
-    // deliberately inert there and cannot reopen a stale trail reader.
+    // The participant transcript is a list of turns now — the operator
+    // re-ruled the old "deliberately inert" paragraph contract: Enter
+    // with a SELECTED turn opens this same reader, pinned in
+    // enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader.
+    // Enter with NO selection still does nothing, so it cannot reopen
+    // a stale trail reader.
     let mut participant = at_seats("eff-i");
     apply(&mut participant, &views, Key::Enter);
     apply(&mut participant, &views, Key::Enter);
     assert_eq!(participant.level, Level::Participant);
     apply(&mut participant, &views, Key::Enter);
-    assert!(participant.reading.is_none());
+    assert!(participant.reading.is_none(), "no selection, no reader");
+}
+
+/// The PARTICIPANT level with the transcript pane focused, over the
+/// given transcript.
+fn at_transcript(views: &Views) -> Tui {
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, views, Key::Enter);
+    apply(&mut tui, views, Key::Enter);
+    assert_eq!(tui.level, Level::Participant);
+    apply(&mut tui, views, Key::Tab);
+    assert_eq!(tui.pane, 1, "the transcript pane");
+    tui
+}
+
+#[test]
+fn the_transcript_cursor_moves_over_turns_and_survives_an_appending_refresh() {
+    let mut views = views();
+    views.transcript = Some((turns_of(3), false));
+    let mut tui = at_transcript(&views);
+    assert_eq!(tui.turn, None, "no selection until the cursor moves");
+
+    // j/k and the arrows move over TURNS, wrapping like every list.
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+    apply(&mut tui, &views, Key::Char('j'));
+    assert_eq!(tui.turn.as_deref(), Some("1"));
+    apply(&mut tui, &views, Key::Char('k'));
+    apply(&mut tui, &views, Key::Up);
+    assert_eq!(tui.turn.as_deref(), Some("2"), "up from the top wraps");
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(tui.turn.as_deref(), Some("0"), "down from the bottom wraps");
+    apply(&mut tui, &views, Key::PageDown);
+    assert_eq!(tui.turn.as_deref(), Some("2"), "paging saturates");
+    apply(&mut tui, &views, Key::PageUp);
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+    apply(&mut tui, &views, Key::Char('G'));
+    assert_eq!(tui.turn.as_deref(), Some("2"));
+    apply(&mut tui, &views, Key::Char('g'));
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+    assert_eq!(tui.offset, 0, "the paragraph offset never moved");
+
+    // Live prose streaming only APPENDS turns, so the index key still
+    // names the same turn against a refresh that grew the stream.
+    apply(&mut tui, &views, Key::Char('j'));
+    let mut grown = views_with("intake");
+    grown.transcript = Some((turns_of(5), false));
+    let (index, turn) = selected_turn(&tui, &grown).expect("the cursor survives");
+    assert_eq!(index, 1);
+    assert_eq!(turn.role, "turn 1", "the SAME turn, not a shifted one");
+
+    // A transcript that shrank below the key selects nothing, and the
+    // cursor restarts from the top when it moves — like every list.
+    let mut shrunk = views_with("intake");
+    shrunk.transcript = Some((turns_of(1), false));
+    assert!(selected_turn(&tui, &shrunk).is_none());
+    apply(&mut tui, &shrunk, Key::Down);
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+}
+
+#[test]
+fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
+    let mut views = views();
+    views.transcript = Some((
+        vec![crate::ui::Turn {
+            role: "assistant".to_string(),
+            ts: T1.to_string(),
+            blocks: vec![
+                crate::ui::Block {
+                    kind: "text",
+                    text: "the whole prose of a long turn".to_string(),
+                },
+                crate::ui::Block {
+                    kind: "tool",
+                    text: "Write · specs/interactive-tui/spec.md".to_string(),
+                },
+            ],
+        }],
+        false,
+    ));
+    let mut tui = at_transcript(&views);
+
+    // No selection is not a door.
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_none(), "Enter with no selection is inert");
+
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let text = tui.reading.clone().expect("Enter opens the reader");
+    assert!(text.contains("assistant"), "{text}");
+    assert!(text.contains(T1), "{text}");
+    assert!(text.contains("the whole prose of a long turn"), "{text}");
+    assert!(
+        text.contains("⚙ Write · specs/interactive-tui/spec.md"),
+        "a tool block is its marker line: {text}"
+    );
+    assert!(footer_for(&tui).contains("Esc or Enter close"));
+
+    // Esc closes the reader ONLY: the level and the cursor stay put.
+    apply(&mut tui, &views, Key::Escape);
+    assert!(tui.reading.is_none());
+    assert_eq!(tui.level, Level::Participant);
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+
+    // An empty transcript and a missing one are both inert…
+    let mut empty = views_with("intake");
+    empty.transcript = Some((Vec::new(), false));
+    apply(&mut tui, &empty, Key::Enter);
+    assert!(tui.reading.is_none(), "no turns, no reader");
+    apply(&mut tui, &views_with("intake"), Key::Enter);
+    assert!(tui.reading.is_none(), "no transcript, no reader");
+
+    // …and so is the checkpoint pane: still a paragraph, not a door.
+    apply(&mut tui, &views, Key::Tab);
+    assert_eq!(tui.pane, 0);
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_none());
+}
+
+#[test]
+fn the_selected_turn_is_marked_and_the_footer_names_the_reader() {
+    let mut views = views();
+    views.transcript = Some((turns_of(3), false));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
+
+    let (buffer, lines) = buffer_and_lines(&tui, &views, 100, 30);
+    let frame = lines.join("\n");
+    assert!(frame.contains("Enter read turn"), "{frame}");
+    let row = lines
+        .iter()
+        .position(|line| line.contains("turn 1"))
+        .expect("the selected turn is drawn");
+    assert!(
+        modifier_at(&buffer, &lines, row, "turn 1").contains(Modifier::REVERSED),
+        "the selected turn wears the selection mark"
+    );
+    let neighbour = lines
+        .iter()
+        .position(|line| line.contains("turn 2"))
+        .expect("its neighbour is drawn");
+    assert!(
+        !modifier_at(&buffer, &lines, neighbour, "turn 2").contains(Modifier::REVERSED),
+        "and its neighbour does not"
+    );
+    // The pane follows the cursor: the selected turn's own first line
+    // is the scroll, so an earlier turn is what gives way.
+    assert!(!frame.contains("prose of turn 0"), "{frame}");
+    assert!(frame.contains("prose of turn 1"), "{frame}");
+}
+
+#[test]
+fn a_hostile_transcript_turn_renders_inert_in_the_reader() {
+    let mut views = views();
+    views.transcript = Some((
+        vec![crate::ui::Turn {
+            role: "assis\u{202E}tant\x07".to_string(),
+            ts: "\x1b]0;pwn\x07 late".to_string(),
+            blocks: vec![crate::ui::Block {
+                kind: "text",
+                text: "prose\x1b[2Jwith\rescapes".to_string(),
+            }],
+        }],
+        false,
+    ));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let text = tui.reading.clone().expect("the hostile turn still opens");
+    assert!(
+        !text.contains('\x1b') && !text.contains('\x07') && !text.contains('\u{202E}'),
+        "reading holds sanitized text only: {text:?}"
+    );
+    let frame = frame_of(&tui, &views, 100, 26);
+    assert!(
+        !frame.contains('\x1b') && !frame.contains('\x07'),
+        "{frame}"
+    );
+    assert!(frame.contains("pwn"), "stripped, never hidden: {frame}");
 }
 
 // ------------------------------------- AC-8/AC-17: provenance in the tui
