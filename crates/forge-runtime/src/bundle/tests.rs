@@ -276,6 +276,6 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             fixture.dir.path().join("dangling"),
         )
         .unwrap();
-        assert!(manifest_for(fixture.dir.path(), "fixture", None).is_ok());
+        assert!(manifest_for(fixture.dir.path(), "fixture", &[], None).is_ok());
     }
 }

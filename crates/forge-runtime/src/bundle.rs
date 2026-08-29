@@ -13,6 +13,10 @@ use forge_core::policy::{Machine, BOOLEAN_INPUTS, SEVERITY_INPUTS};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
+pub mod compose;
+
+use compose::{Ancestor, COMPOSE_PREFIX};
+
 use crate::agents::{Adapters, Availability, Candidate, Library};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -175,6 +179,13 @@ impl Default for Limits {
 pub struct Bundle {
     pub name: String,
     pub dir: PathBuf,
+    /// Every layer's directory, leaf first — `[dir]` for a recipe that
+    /// composed nothing. Confinement mounts all of them, so an inherited
+    /// seat's role file is inside the container it runs in.
+    pub roots: Vec<PathBuf>,
+    /// The composition chain, nearest ancestor first (decision 0017).
+    /// Empty unless the recipe extends another.
+    pub chain: Vec<Ancestor>,
     pub machine: Machine,
     pub seats: BTreeMap<String, Seat>,
     pub manifest: Value,
@@ -235,18 +246,35 @@ impl Bundle {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
-        let config: Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join("bundle.json"))?)?;
-        let name = config
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| CompileError::Invalid("bundle.json missing 'name'".into()))?
-            .to_string();
-        let policy_rel = config
-            .get("policy")
-            .and_then(Value::as_str)
-            .ok_or_else(|| CompileError::Invalid("bundle.json missing 'policy'".into()))?;
-        let table: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(policy_rel))?)?;
+        // Composition resolves FIRST, into one flat bundle; everything
+        // below this line compiles a single bundle and never learns that
+        // composition happened (decision 0017).
+        let resolved = compose::resolve(&dir)?;
+        let note = resolved.chain_note();
+        match Bundle::assemble(&dir, resolved, library_root, adapters_root) {
+            Ok(bundle) => Ok(bundle),
+            // Every failure downstream of resolution on a composed
+            // bundle is wrapped ONCE with the chain — one arm, rather
+            // than teaching each lint about layers.
+            Err(error) => Err(match note {
+                Some(note) => CompileError::Invalid(format!("{error} ({note})")),
+                None => error,
+            }),
+        }
+    }
+
+    /// The agent roots ride through: composition resolves the bundle,
+    /// then agent references inside the RESOLVED seats resolve against
+    /// the library and adapters (decisions 0016 and 0017 layered).
+    fn assemble(
+        dir: &Path,
+        resolved: compose::Resolved,
+        library_root: &Path,
+        adapters_root: &Path,
+    ) -> Result<Bundle, CompileError> {
+        let config = &resolved.document;
+        let name = resolved.name.clone();
+        let table = resolved.table.clone();
         let machine = Machine::from_table(&table)?;
 
         let protected_phase = config
@@ -265,8 +293,10 @@ impl Bundle {
         // Compile-time resolution depends on exactly two digested inputs:
         // the library and the adapters. Availability is UNSPECIFIED here —
         // a compile that probed PATH would give one bundle two digests and
-        // make an in-flight run unresumable after an `apt install`.
-        let mut agents = match mentions_agent(&config) {
+        // make an in-flight run unresumable after an `apt install`. The
+        // COMPOSED seats are what is scanned: a base may be what carries
+        // the agent reference.
+        let mut agents = match resolved.seats.values().any(mentions_agent) {
             false => None,
             true => Some(AgentContext {
                 library: Library::load(library_root)
@@ -277,12 +307,12 @@ impl Bundle {
             }),
         };
 
-        let raw_seats = config
-            .get("seats")
-            .and_then(Value::as_object)
-            .ok_or_else(|| CompileError::Invalid("bundle.json missing 'seats'".into()))?;
         let mut seats = BTreeMap::new();
-        for (phase, raw) in raw_seats {
+        for (phase, raw) in &resolved.seats {
+            // An inherited seat's `role` and `./`-prefixed argv resolve
+            // against the layer that WROTE them, found by name — the
+            // resolver never looked inside the seat to learn this.
+            let dir = &resolved.roots[resolved.seat_origin[phase]];
             if !machine.phases.contains(phase) {
                 return Err(CompileError::Invalid(format!(
                     "seat '{phase}' names a phase the policy does not have"
@@ -333,11 +363,11 @@ impl Bundle {
                 )));
             }
             let secrets = parse_secrets(phase, raw)?;
-            let resolved = match has_agent {
+            let agent_seat = match has_agent {
                 false => None,
                 true => Some(resolve_reference(
                     &mut agents,
-                    &dir,
+                    dir,
                     phase,
                     phase,
                     raw,
@@ -345,30 +375,30 @@ impl Bundle {
                     Site::Seat,
                 )?),
             };
-            let body = if let Some(resolved) = &resolved {
+            let body = if let Some(agent_seat) = &agent_seat {
                 SeatBody::Single {
-                    role_path: resolved.role_path.clone(),
-                    command: resolved.command.clone(),
+                    role_path: agent_seat.role_path.clone(),
+                    command: agent_seat.command.clone(),
                     confine: parse_confine(phase, raw)?,
-                    candidates: resolved.candidates.clone(),
+                    candidates: agent_seat.candidates.clone(),
                 }
             } else if has_panel {
                 let (members, aggregate) =
-                    parse_panel(&dir, phase, raw, Some(&results), &secrets, &mut agents)?;
+                    parse_panel(dir, phase, raw, Some(&results), &secrets, &mut agents)?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
-                    steps: parse_sequence(&dir, phase, raw, &results, &secrets, &mut agents)?,
+                    steps: parse_sequence(dir, phase, raw, &results, &secrets, &mut agents)?,
                 }
             } else {
                 SeatBody::Single {
-                    role_path: parse_role(&dir, phase, raw)?,
-                    command: parse_command(&dir, phase, raw, &secrets)?,
+                    role_path: parse_role(dir, phase, raw)?,
+                    command: parse_command(dir, phase, raw, &secrets)?,
                     confine: parse_confine(phase, raw)?,
                     candidates: Vec::new(),
                 }
             };
-            let limits = match resolved.as_ref().and_then(|resolved| resolved.limits) {
+            let limits = match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
                 // An agent's 0006 bounds ARE the seat's bounds: `limits`
                 // is forbidden beside `agent:`, so there is nothing to
                 // reconcile and nothing silently overridden.
@@ -382,9 +412,9 @@ impl Bundle {
             // faces this lint exactly as an inline one does — its
             // declaration is the agent's, or the 0007 default.
             let referenced = referenced_seat_inputs(&table, phase);
-            let raw_inputs = match resolved
+            let raw_inputs = match agent_seat
                 .as_ref()
-                .and_then(|resolved| resolved.inputs.clone())
+                .and_then(|agent_seat| agent_seat.inputs.clone())
             {
                 Some(declared) => Some(json!(declared)),
                 None => raw.get("inputs").cloned(),
@@ -454,10 +484,17 @@ impl Bundle {
             }
         }
 
-        let manifest = manifest_for(&dir, &name, agents.as_ref().map(|a| &a.records))?;
+        let manifest = manifest_for(
+            dir,
+            &name,
+            &resolved.chain,
+            agents.as_ref().map(|a| &a.records),
+        )?;
         Ok(Bundle {
             name,
-            dir,
+            dir: dir.to_path_buf(),
+            roots: resolved.roots,
+            chain: resolved.chain,
             machine,
             seats,
             manifest,
@@ -1017,12 +1054,35 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
     names
 }
 
+/// The pinned, content-addressed identity of a bundle. `chain` is the
+/// resolved composition (decision 0017): each ancestor rides in `files`
+/// under the reserved `@compose/` prefix, zero-padded so canonical key
+/// sorting preserves chain order, so changing a base moves the digest of
+/// everything derived from it — and so the chain survives the dispatch
+/// manifest round-trip, which copies `files` verbatim. `agents` is the
+/// resolution record (decision 0016), pinned for the same reason.
 fn manifest_for(
     dir: &Path,
     bundle_name: &str,
+    chain: &[Ancestor],
     agents: Option<&Map<String, Value>>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
+    for (index, ancestor) in chain.iter().enumerate() {
+        // A base's directory may legitimately differ from its declared
+        // name. Recording only one lets a directory answer to a name it
+        // does not declare, in an append-only manifest; record both.
+        let label = match &ancestor.reached_as {
+            Some(reached) if *reached != ancestor.name => {
+                format!("{}@{reached}", ancestor.name)
+            }
+            _ => ancestor.name.clone(),
+        };
+        files.insert(
+            format!("{COMPOSE_PREFIX}{index:04}/{label}"),
+            Value::String(ancestor.digest.clone()),
+        );
+    }
     let mut stack = vec![dir.to_path_buf()];
     let mut paths = Vec::new();
     while let Some(current) = stack.pop() {
@@ -1056,6 +1116,15 @@ fn manifest_for(
             .expect("walked under dir")
             .to_string_lossy()
             .replace('\\', "/");
+        // The composition namespace is computed, never read from disk:
+        // a real file under it could otherwise forge provenance.
+        if rel.starts_with(COMPOSE_PREFIX) {
+            return Err(CompileError::Invalid(format!(
+                "bundle file '{rel}' uses the reserved '{COMPOSE_PREFIX}' namespace; \
+                 composition provenance is computed by the resolver, never \
+                 supplied by a bundle"
+            )));
+        }
         files.insert(rel, Value::String(sha256_bytes(&std::fs::read(&path)?)));
     }
     let mut manifest = json!({
@@ -1080,6 +1149,8 @@ fn manifest_for(
 
 #[cfg(test)]
 mod agent_tests;
+#[cfg(test)]
+mod compose_tests;
 
 #[cfg(test)]
 mod secret_binding_tests;

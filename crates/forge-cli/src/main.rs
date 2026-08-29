@@ -367,6 +367,43 @@ enum RecipesCmd {
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
+    /// Print one recipe's RESOLVED bundle and, when it extends another,
+    /// the composition chain it was resolved from (decision 0017).
+    Show {
+        name: String,
+        #[arg(long, default_value = "recipes")]
+        dir: PathBuf,
+    },
+}
+
+/// What a compiled bundle looks like to an operator. `forge compile` and
+/// `forge recipes show` print this and nothing else, from here, so the
+/// two surfaces can never drift. `composed_from` is omitted entirely
+/// when nothing was composed, so a plain bundle's output is unchanged.
+fn compiled_view(bundle: &Bundle) -> Value {
+    let mut view = json!({
+        "bundle": bundle.name,
+        "digest": bundle.manifest_digest(),
+        "phases": bundle.machine.phases,
+        "seats": bundle.seats.keys().collect::<Vec<_>>(),
+        "manifest": bundle.manifest,
+    });
+    if !bundle.chain.is_empty() {
+        view["composed_from"] = Value::Array(
+            bundle
+                .chain
+                .iter()
+                .map(|ancestor| {
+                    json!({
+                        "recipe": ancestor.name,
+                        "digest": ancestor.digest,
+                        "dir": ancestor.dir.display().to_string(),
+                    })
+                })
+                .collect(),
+        );
+    }
+    view
 }
 
 fn status_str(status: &Status) -> &'static str {
@@ -694,16 +731,7 @@ fn run_with(
         }
         Cmd::Compile { bundle } => {
             let bundle = Bundle::compile(&bundle)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "bundle": bundle.name,
-                    "digest": bundle.manifest_digest(),
-                    "phases": bundle.machine.phases,
-                    "seats": bundle.seats.keys().collect::<Vec<_>>(),
-                    "manifest": bundle.manifest,
-                }))?
-            );
+            println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Run {
@@ -992,6 +1020,10 @@ fn run_with(
             match command {
                 RecipesCmd::List { dir } => recipes::list(&dir)?,
                 RecipesCmd::Add { source, name, dir } => recipes::add(&source, &name, &dir)?,
+                RecipesCmd::Show { name, dir } => {
+                    let bundle = Bundle::compile(&recipes::resolve(None, Some(name), &dir)?)?;
+                    println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
+                }
             }
             Ok(ExitCode::SUCCESS)
         }
