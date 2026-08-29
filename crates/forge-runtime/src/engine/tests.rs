@@ -26,6 +26,7 @@ fn single_body(command: Vec<String>) -> SeatBody {
         role_path: PathBuf::from("role.md"),
         command,
         confine: None,
+        candidates: Vec::new(),
     }
 }
 
@@ -223,12 +224,14 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
             role_path: "role".into(),
             command: vec!["driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
         PanelMember {
             name: "two".into(),
             role_path: "role".into(),
             command: vec!["driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     ];
     let panel = bundle(
@@ -250,6 +253,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
                         confine: None,
+                        candidates: Vec::new(),
                     },
                 },
                 SequenceStep {
@@ -634,6 +638,7 @@ fn member(name: &str, command: Vec<String>) -> PanelMember {
         role_path: "role.md".into(),
         command,
         confine: None,
+        candidates: Vec::new(),
     }
 }
 
@@ -748,6 +753,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_dir, mut failed) = engine(single_body(vec!["driver".into()]));
@@ -780,6 +786,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_dir, mut lost) = engine(single_body(vec!["driver".into()]));
@@ -1297,6 +1304,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
         role_path: "role.md".into(),
         command,
         confine: None,
+        candidates: Vec::new(),
     });
     fail_event(&dir.path().join("forge.db"), "effect/checkpointed");
     let correct = requested(&checkpointed, "effect");
@@ -1450,6 +1458,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut failed_sequence) = engine_failing("effect/failed");
@@ -1476,6 +1485,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut lost_sequence) = engine_failing("effect/indeterminate");
@@ -1502,6 +1512,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             ),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut ok_sequence) = engine_failing("effect/succeeded");
@@ -1522,6 +1533,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             role_path: "role.md".into(),
             command: two_checkpoint_command("effect", "attempt"),
             confine: None,
+            candidates: Vec::new(),
         },
     };
     let (_kept, mut checkpoint_sequence) = engine_failing("effect/checkpointed");
@@ -1549,6 +1561,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                     },
                 ),
                 confine: None,
+                candidates: Vec::new(),
             },
         },
         SequenceStep {
@@ -1557,6 +1570,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 role_path: "role.md".into(),
                 command: vec!["missing-driver".into()],
                 confine: None,
+                candidates: Vec::new(),
             },
         },
     ];

@@ -166,6 +166,24 @@ pub enum DispatchError {
     Budget,
     #[error("run manifest is not a supported Forge manifest")]
     BadManifest,
+    /// Decision 0016's first named limit, refused rather than truncated.
+    /// `bundle_manifest_from_run` reconstructs the bundle manifest from
+    /// six named keys and drops the rest, and `dispatch_from_run`
+    /// re-checks `bundle_sha256` against that reconstruction — so an
+    /// `agents` key would be silently dropped on the v2 round-trip and
+    /// every adopting Looper-dispatched run would become unresumable
+    /// with a diff that blames no file. Widening a contract a
+    /// counterpart system reads is not this slice's to do unilaterally.
+    #[error(
+        "this bundle pins agent resolutions ('agents' in its manifest) and the \
+         Looper-bound run-manifest/v2 lineage cannot carry them: the v2 \
+         round-trip reconstructs the bundle manifest from six named keys, so \
+         the pin would be dropped and the run would become unresumable. Run \
+         this bundle without --dispatch, or use a recipe whose seats inline \
+         their drivers, until a jointly agreed v2-lineage manifest version \
+         exists"
+    )]
+    AgentsUnsupportedByDispatchLineage,
 }
 
 fn is_hex_64(value: &str) -> bool {
@@ -386,6 +404,11 @@ pub fn build_run_manifest_v2(
         .ok_or(DispatchError::BadManifest)?;
     if files.is_empty() {
         return Err(DispatchError::BadManifest);
+    }
+    // A loud refusal beats a quiet substitution: a bundle whose seats
+    // reference agents cannot ride this lineage without losing its pin.
+    if object.contains_key("agents") {
+        return Err(DispatchError::AgentsUnsupportedByDispatchLineage);
     }
     let bundle_sha256 = canonical::sha256_hex(bundle_manifest);
     if dispatch.recipe.compiled_sha256 != bundle_sha256 {

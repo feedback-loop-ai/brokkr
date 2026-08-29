@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/effect-provenance.v1.json",
+  "title": "Forge effect provenance v1 (an additive payload extension at event_schema 1)",
+  "description": "The optional, absent-by-default payload fields decision 0016 adds to effect/started and effect/failed. They are legal at event_schema 1 under the amended rule in contracts/README.md: they are optional, absent by default, published here as a numbered extension schema, and never read by fold — the engine derives the next chain index by scanning the effect's own events, exactly as it already scans them for the last error, and RunState gains nothing. A v1 consumer that ignores these fields folds to the identical state.",
+  "type": "object",
+  "properties": {
+    "provenance": {
+      "type": "array",
+      "description": "Present on effect/started ONLY when at least one invocation site of this seat is agent-resolved. A LIST keyed by invocation site, because provenance is per driver INVOCATION and not per attempt: a panel runs N members inside one attempt, and a sequence may span two providers. Hanging one model beside the attempt would print a false statement in every readout.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["member", "agent", "model", "provider", "chain_index"],
+        "additionalProperties": false,
+        "properties": {
+          "member": {
+            "type": ["string", "null"],
+            "description": "The invocation-site tag the engine already uses for checkpoints: null for a single seat, '<member>' for a panel member, '<step>' for a sequence step, '<step>:<member>' for a member inside a step panel."
+          },
+          "agent": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "model": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "chain_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Which link of the agent's chain this invocation used. Greater than zero means a bounded fallback happened, and every readout says so — the forge never claims the second choice equals the first."
+          }
+        }
+      }
+    },
+    "start_failure": {
+      "type": "boolean",
+      "description": "Present on effect/failed only when the STRUCTURAL fail-to-start predicate held for at least one invocation site: Failed, and no Accepted ever received, and no checkpoint emitted. No stderr sniffing and no 'model not found' regex — the engine never pattern-matches a provider's prose to make a control decision. Once Accepted arrives, fallback is unreachable by construction, which is decision 0016's mid-session boundary mechanised rather than described."
+    },
+    "start_failure_sites": {
+      "type": "array",
+      "description": "Which invocation sites failed to start, in declared order, tagged exactly as provenance[].member. This is what the per-site chain index folds over: in a panel, a member that failed to start advances its own chain index and a member that ran does not.",
+      "items": { "type": ["string", "null"] }
+    }
+  }
+}

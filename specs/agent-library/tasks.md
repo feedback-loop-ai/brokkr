@@ -29,7 +29,7 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 1 — the data formats
 
-- [ ] **T3 — `agents/` library: 16 definitions, 14 charters.** Charters
+- [x] **T3 — `agents/` library: 16 definitions, 14 charters.** Charters
   `git mv`'d out of `bundles/self`, `recipes/panel-review` and
   `recipes/sdd` per plan.md's roster table (zero content change;
   `verifier`/`verifier-speckit` and `shipper`/`shipper-speckit` share a
@@ -38,7 +38,7 @@ which the self-forge loop runs) is one revertible commit.
   *Proven by*: a test digesting every charter against the pre-move bytes
   — the move is provably byte-preserving.
 
-- [ ] **T4 — `adapters/`: five provider files.** `claude`, `lanetally`,
+- [x] **T4 — `adapters/`: five provider files.** `claude`, `lanetally`,
   `codex`, `dsh`, `exec`. Each declares binary, driver prefix, models,
   and for `model_flag` / `tool_permissions` / `mcp` either a mapping or
   the explicit string `"unsupported"`. Every value is derived from
@@ -48,7 +48,7 @@ which the self-forge loop runs) is one revertible commit.
   *Proven by*: AC-9's fixture test proving the loader is data-driven,
   plus a test that `exec` declares all three unsupported.
 
-- [ ] **T5 — Loaders with strict parsing.** `Library::load`,
+- [x] **T5 — Loaders with strict parsing.** `Library::load`,
   `Adapters::load`. Unknown keys rejected; names match
   `^[a-z][a-z0-9-]*$` and are unique case-insensitively; charter paths
   canonicalised and contained within the library root; a model name
@@ -59,7 +59,7 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 2 — the pure resolver
 
-- [ ] **T6 — `resolve()` and `Availability`.** The signature of
+- [x] **T6 — `resolve()` and `Availability`.** The signature of
   plan.md; `Presence` tri-state; `unspecified()` performs no
   availability filtering. First mapped candidate wins; `unavailable`
   skips and records `skipped[]`; the composed argv keeps `{forge}`
@@ -68,7 +68,7 @@ which the self-forge loop runs) is one revertible commit.
   order, and an anti-drift test asserting `agents.rs` contains no
   `std::fs`, `std::env`, `std::process`, `Command` or clock reference.
 
-- [ ] **T7 — Capability checking, over every chain entry.** Grants
+- [x] **T7 — Capability checking, over every chain entry.** Grants
   (`tools.mcp`) versus restrictions (`tools.allow`); per named item, not
   per class; `optional` unrepresentable on a restriction; a gap on a
   *non-chosen* entry fails exactly as loudly as on the chosen one; a
@@ -78,7 +78,7 @@ which the self-forge loop runs) is one revertible commit.
   the operator's `fable → qwen-3.8-max → gpt-5.6-sol` chain fails for a
   tool-restricted agent with a message a reader can act on.
 
-- [ ] **T8 — The resolution record.** The manifest record of spec Q1:
+- [x] **T8 — The resolution record.** The manifest record of spec Q1:
   digests, full chain, `chosen_index`, closed-vocabulary `skipped`,
   `notices`. Names and digests only; no argv.
   *Proven by*: a golden record for one agent, plus a test that a
@@ -87,7 +87,7 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 3 — compile-time wiring
 
-- [ ] **T9 — `agent:` at seat, panel member and sequence step.**
+- [x] **T9 — `agent:` at seat, panel member and sequence step.**
   Extends the existing exactly-one-of check as a fourth alternative.
   `role`, `driver`, `limits`, `inputs` forbidden alongside; `results`,
   `secrets`, `confine` legal. Resolution runs **before** the existing
@@ -98,7 +98,7 @@ which the self-forge loop runs) is one revertible commit.
   AC-5 (resolved seat equals the equivalent inline seat, element for
   element).
 
-- [ ] **T10 — `Bundle::compile_with`, and the manifest key.**
+- [x] **T10 — `Bundle::compile_with`, and the manifest key.**
   `compile(dir)` keeps its signature and delegates with the `agents` /
   `adapters` defaults; the library is read only when a seat references
   an agent. `manifest_for` gains `agents`, absent otherwise;
@@ -107,13 +107,13 @@ which the self-forge loop runs) is one revertible commit.
   adapter dir compiles a bundle against a brand-new provider and model
   with no Rust edit in the test's diff).
 
-- [ ] **T11 — `contracts/run-manifest.v3.schema.json`.** v1's bytes plus
+- [x] **T11 — `contracts/run-manifest.v3.schema.json`.** v1's bytes plus
   one optional `agents` property; v1 and v2 unedited.
   `contracts/README.md` documents the two lineages.
   *Proven by*: a test asserting the frozen contract files' digests are
   unchanged by this slice.
 
-- [ ] **T12 — The v2 lineage refuses rather than truncates.**
+- [x] **T12 — The v2 lineage refuses rather than truncates.**
   `build_run_manifest_v2` errors when the bundle manifest carries
   `agents`, naming the limitation and the follow-up.
   *Proven by*: AC-19 — the refusal, plus non-adopting dispatch unchanged.

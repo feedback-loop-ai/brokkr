@@ -1,0 +1,14 @@
+{
+  "provider": "exec",
+  "binary": "sh",
+  "driver": [
+    "{forge}",
+    "driver",
+    "exec",
+    "--"
+  ],
+  "models": {},
+  "model_flag": "unsupported",
+  "tool_permissions": "unsupported",
+  "mcp": "unsupported"
+}

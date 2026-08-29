@@ -13,6 +13,8 @@ use forge_core::policy::{Machine, BOOLEAN_INPUTS, SEVERITY_INPUTS};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
+use crate::agents::{Adapters, Availability, Candidate, Library};
+
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
 pub const DRIVER_PROTOCOL: u32 = 1;
@@ -78,6 +80,10 @@ pub enum SeatBody {
         role_path: PathBuf,
         command: Vec<String>,
         confine: Option<Confine>,
+        /// The bounded fallback chain (decision 0016). EMPTY for an
+        /// inline seat, which is what keeps the execute path — and
+        /// therefore inline behaviour — exactly as it was.
+        candidates: Vec<Candidate>,
     },
     Panel {
         members: Vec<PanelMember>,
@@ -103,6 +109,7 @@ pub enum StepBody {
         role_path: PathBuf,
         command: Vec<String>,
         confine: Option<Confine>,
+        candidates: Vec<Candidate>,
     },
     Panel {
         members: Vec<PanelMember>,
@@ -116,6 +123,7 @@ pub struct PanelMember {
     pub role_path: PathBuf,
     pub command: Vec<String>,
     pub confine: Option<Confine>,
+    pub candidates: Vec<Candidate>,
 }
 
 /// Deterministic, order-independent aggregation rules — a closed
@@ -174,8 +182,56 @@ pub struct Bundle {
     pub protected_phase: String,
 }
 
+/// The default library roots, resolved against the current working
+/// directory exactly as `--recipes-dir` is. Read ONLY when a seat, panel
+/// member or sequence step actually references an agent, which is what
+/// makes a missing library a non-event for every bundle that inlines.
+pub const DEFAULT_AGENTS_DIR: &str = "agents";
+pub const DEFAULT_ADAPTERS_DIR: &str = "adapters";
+
+/// The agent library and adapters for one compilation, plus the
+/// per-invocation-site records that become the manifest's `agents` key.
+struct AgentContext {
+    library: Library,
+    adapters: Adapters,
+    records: Map<String, Value>,
+}
+
+/// One resolved agent reference, ready to become an ordinary seat body.
+struct ResolvedSeat {
+    role_path: PathBuf,
+    command: Vec<String>,
+    candidates: Vec<Candidate>,
+    limits: Option<Limits>,
+    inputs: Option<Vec<String>>,
+}
+
+/// Does this bundle reference an agent anywhere? A bundle that does not
+/// never opens the library, so a tree without one compiles exactly as it
+/// did before decision 0016.
+fn mentions_agent(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.contains_key("agent") || map.values().any(mentions_agent),
+        Value::Array(items) => items.iter().any(mentions_agent),
+        _ => false,
+    }
+}
+
 impl Bundle {
+    /// Compile against the default `agents/` and `adapters/` roots.
     pub fn compile(dir: &Path) -> Result<Bundle, CompileError> {
+        Bundle::compile_with(
+            dir,
+            Path::new(DEFAULT_AGENTS_DIR),
+            Path::new(DEFAULT_ADAPTERS_DIR),
+        )
+    }
+
+    pub fn compile_with(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+    ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
@@ -205,6 +261,21 @@ impl Bundle {
             )));
         }
         assert_phase_unavoidable(&machine, &table, &protected_phase)?;
+
+        // Compile-time resolution depends on exactly two digested inputs:
+        // the library and the adapters. Availability is UNSPECIFIED here —
+        // a compile that probed PATH would give one bundle two digests and
+        // make an in-flight run unresumable after an `apt install`.
+        let mut agents = match mentions_agent(&config) {
+            false => None,
+            true => Some(AgentContext {
+                library: Library::load(library_root)
+                    .map_err(|e| CompileError::Invalid(e.to_string()))?,
+                adapters: Adapters::load(adapters_root)
+                    .map_err(|e| CompileError::Invalid(e.to_string()))?,
+                records: Map::new(),
+            }),
+        };
 
         let raw_seats = config
             .get("seats")
@@ -242,67 +313,83 @@ impl Bundle {
                     )));
                 }
             }
-            let has_single = raw.get("role").is_some() || raw.get("driver").is_some();
+            let has_agent = raw.get("agent").is_some();
+            if has_agent {
+                refuse_amendments(phase, raw)?;
+            }
+            let has_single =
+                !has_agent && (raw.get("role").is_some() || raw.get("driver").is_some());
             let has_panel = raw.get("panel").is_some();
             let has_sequence = raw.get("sequence").is_some();
-            if [has_single, has_panel, has_sequence]
+            if [has_single, has_panel, has_sequence, has_agent]
                 .iter()
                 .filter(|f| **f)
                 .count()
                 > 1
             {
                 return Err(CompileError::Invalid(format!(
-                    "seat '{phase}' must be exactly one of role+driver, panel, \
-                     or sequence"
+                    "seat '{phase}' must be exactly one of role+driver, agent, \
+                     panel, or sequence"
                 )));
             }
             let secrets = parse_secrets(phase, raw)?;
-            let body = if has_panel {
-                let (members, aggregate) = parse_panel(&dir, phase, raw, Some(&results), &secrets)?;
+            let resolved = match has_agent {
+                false => None,
+                true => Some(resolve_reference(
+                    &mut agents,
+                    &dir,
+                    phase,
+                    phase,
+                    raw,
+                    &secrets,
+                    Site::Seat,
+                )?),
+            };
+            let body = if let Some(resolved) = &resolved {
+                SeatBody::Single {
+                    role_path: resolved.role_path.clone(),
+                    command: resolved.command.clone(),
+                    confine: parse_confine(phase, raw)?,
+                    candidates: resolved.candidates.clone(),
+                }
+            } else if has_panel {
+                let (members, aggregate) =
+                    parse_panel(&dir, phase, raw, Some(&results), &secrets, &mut agents)?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
-                    steps: parse_sequence(&dir, phase, raw, &results, &secrets)?,
+                    steps: parse_sequence(&dir, phase, raw, &results, &secrets, &mut agents)?,
                 }
             } else {
                 SeatBody::Single {
                     role_path: parse_role(&dir, phase, raw)?,
                     command: parse_command(&dir, phase, raw, &secrets)?,
                     confine: parse_confine(phase, raw)?,
+                    candidates: Vec::new(),
                 }
             };
-            let limits = match raw.get("limits") {
-                None => Limits::default(),
-                Some(raw_limits) => {
-                    let object = raw_limits.as_object().ok_or_else(|| {
-                        CompileError::Invalid(format!("seat '{phase}' limits must be an object"))
-                    })?;
-                    let mut limits = Limits::default();
-                    for (key, value) in object {
-                        let number = value.as_u64().filter(|n| *n >= 1).ok_or_else(|| {
-                            CompileError::Invalid(format!(
-                                "seat '{phase}' limits.{key} must be an integer >= 1"
-                            ))
-                        })?;
-                        match key.as_str() {
-                            "max_attempts" => limits.max_attempts = number,
-                            "timeout_seconds" => limits.timeout_seconds = number,
-                            other => {
-                                return Err(CompileError::Invalid(format!(
-                                    "seat '{phase}' has unknown limit '{other}'"
-                                )))
-                            }
-                        }
-                    }
-                    limits
-                }
+            let limits = match resolved.as_ref().and_then(|resolved| resolved.limits) {
+                // An agent's 0006 bounds ARE the seat's bounds: `limits`
+                // is forbidden beside `agent:`, so there is nothing to
+                // reconcile and nothing silently overridden.
+                Some(limits) => limits,
+                None => parse_limits(phase, raw)?,
             };
             // Input provenance (decision 0007): every input the phase's
             // rules reference must be engine-computed or supplied by
             // this seat's declaration; a declaration may only name known,
-            // non-engine-owned evaluator inputs.
+            // non-engine-owned evaluator inputs. An agent-resolved seat
+            // faces this lint exactly as an inline one does — its
+            // declaration is the agent's, or the 0007 default.
             let referenced = referenced_seat_inputs(&table, phase);
-            let inputs = match raw.get("inputs") {
+            let raw_inputs = match resolved
+                .as_ref()
+                .and_then(|resolved| resolved.inputs.clone())
+            {
+                Some(declared) => Some(json!(declared)),
+                None => raw.get("inputs").cloned(),
+            };
+            let inputs = match raw_inputs {
                 None => referenced.clone(),
                 Some(declared) => {
                     let declared = declared
@@ -367,7 +454,7 @@ impl Bundle {
             }
         }
 
-        let manifest = manifest_for(&dir, &name)?;
+        let manifest = manifest_for(&dir, &name, agents.as_ref().map(|a| &a.records))?;
         Ok(Bundle {
             name,
             dir,
@@ -430,12 +517,152 @@ fn assert_phase_unavoidable(
 /// decide()), but for a panel STEP only when it is the FINAL step — a
 /// non-final step's aggregate output never reaches decide(), it only
 /// feeds later steps as context.
+/// Where an agent reference sits. A seat OWNS its 0006 bounds and its
+/// 0007 declaration; a panel member or sequence step has neither — the
+/// seat above it does. So an agent carrying `limits` or `inputs` cannot
+/// be referenced from a member or a step: silently discarding them would
+/// make `forge agents show` a lie for that site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Site {
+    Seat,
+    Member,
+}
+
+/// An agent reference is TOTAL: a seat that could amend the agent it
+/// names would make `agent: implementer` stop being a complete statement
+/// about what ran — inlining with extra steps, and drift with a name on
+/// it. `results`, `secrets` and `driver.confine` stay legal beside it,
+/// because they are bindings the SEAT provides rather than statements
+/// about what the agent is, and `forge agents show` never claims to show
+/// them.
+fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
+    let refuse = |key: &str| {
+        Err(CompileError::Invalid(format!(
+            "seat '{what}' combines 'agent' with '{key}'; an agent reference is \
+             total — '{key}' states what the agent IS, and a seat that could \
+             amend it would make `forge agents show` a lie for that seat"
+        )))
+    };
+    for key in ["role", "limits", "inputs"] {
+        if raw.get(key).is_some() {
+            return refuse(key);
+        }
+    }
+    if let Some(driver) = raw.get("driver") {
+        let object = driver.as_object().ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{what}' driver must be an object"))
+        })?;
+        for key in object.keys() {
+            if key != "confine" {
+                return refuse(&format!("driver.{key}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve `"agent": "<name>"` into an ordinary seat body, and record
+/// the resolution under this invocation site.
+fn resolve_reference(
+    agents: &mut Option<AgentContext>,
+    dir: &Path,
+    what: &str,
+    site_key: &str,
+    raw: &Value,
+    secrets: &[String],
+    site: Site,
+) -> Result<ResolvedSeat, CompileError> {
+    let name = raw
+        .get("agent")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{what}' agent must be a non-empty string"))
+        })?;
+    let context = agents
+        .as_mut()
+        .expect("a bundle mentioning an agent loads the library");
+    let resolution = crate::agents::resolve(
+        &context.library,
+        &context.adapters,
+        &Availability::unspecified(),
+        name,
+    )
+    .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
+    if site == Site::Member {
+        for (key, present) in [
+            ("limits", resolution.limits.is_some()),
+            ("inputs", resolution.inputs.is_some()),
+        ] {
+            if present {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' references agent '{name}', which declares \
+                     '{key}'; a panel member or sequence step has no {key} of its \
+                     own — the seat above it does — so the declaration could only \
+                     be discarded silently"
+                )));
+            }
+        }
+    }
+    // The composed argv faces the SAME secret-reference lint as an inline
+    // one (decision 0012), and `{forge}` is expanded by the same
+    // function, so a resolved seat is an inline seat by construction.
+    let mut candidates = Vec::with_capacity(resolution.candidates.len());
+    for candidate in &resolution.candidates {
+        lint_secret_refs(what, &candidate.argv, secrets)?;
+        candidates.push(Candidate {
+            model: candidate.model.clone(),
+            provider: candidate.provider.clone(),
+            argv: expand_command(dir, &candidate.argv),
+        });
+    }
+    context
+        .records
+        .insert(site_key.to_string(), resolution.record.clone());
+    Ok(ResolvedSeat {
+        role_path: resolution.charter.clone(),
+        command: candidates[0].argv.clone(),
+        candidates,
+        limits: resolution.limits,
+        inputs: resolution.inputs.clone(),
+    })
+}
+
+/// A seat's decision-0006 bounds, as written inline.
+fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
+    let Some(raw_limits) = raw.get("limits") else {
+        return Ok(Limits::default());
+    };
+    let object = raw_limits
+        .as_object()
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' limits must be an object")))?;
+    let mut limits = Limits::default();
+    for (key, value) in object {
+        let number = value.as_u64().filter(|n| *n >= 1).ok_or_else(|| {
+            CompileError::Invalid(format!(
+                "seat '{phase}' limits.{key} must be an integer >= 1"
+            ))
+        })?;
+        match key.as_str() {
+            "max_attempts" => limits.max_attempts = number,
+            "timeout_seconds" => limits.timeout_seconds = number,
+            other => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{phase}' has unknown limit '{other}'"
+                )))
+            }
+        }
+    }
+    Ok(limits)
+}
+
 fn parse_panel(
     dir: &Path,
     what: &str,
     raw: &Value,
     declared_results: Option<&[String]>,
     secrets: &[String],
+    agents: &mut Option<AgentContext>,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -469,13 +696,35 @@ fn parse_panel(
     }
     let mut members = Vec::with_capacity(members_raw.len());
     for (name, member_raw) in members_raw {
-        let role_path = parse_role(dir, &format!("{what}:{name}"), member_raw)?;
-        let command = parse_command(dir, &format!("{what}:{name}"), member_raw, secrets)?;
+        let site = format!("{what}:{name}");
+        if member_raw.get("agent").is_some() {
+            refuse_amendments(&site, member_raw)?;
+        }
+        let (role_path, command, candidates) = match member_raw.get("agent") {
+            None => (
+                parse_role(dir, &site, member_raw)?,
+                parse_command(dir, &site, member_raw, secrets)?,
+                Vec::new(),
+            ),
+            Some(_) => {
+                let resolved = resolve_reference(
+                    agents,
+                    dir,
+                    &site,
+                    &site,
+                    member_raw,
+                    secrets,
+                    Site::Member,
+                )?;
+                (resolved.role_path, resolved.command, resolved.candidates)
+            }
+        };
         members.push(PanelMember {
             name: name.clone(),
             role_path,
             command,
-            confine: parse_confine(&format!("{what}:{name}"), member_raw)?,
+            confine: parse_confine(&site, member_raw)?,
+            candidates,
         });
     }
     Ok((members, aggregate))
@@ -490,6 +739,7 @@ fn parse_sequence(
     raw: &Value,
     results: &[String],
     secrets: &[String],
+    agents: &mut Option<AgentContext>,
 ) -> Result<Vec<SequenceStep>, CompileError> {
     let steps_raw = raw
         .get("sequence")
@@ -521,23 +771,50 @@ fn parse_sequence(
             )));
         }
         let what = format!("{phase}:{name}");
-        let has_single = step_raw.get("role").is_some() || step_raw.get("driver").is_some();
+        let has_agent = step_raw.get("agent").is_some();
+        if has_agent {
+            refuse_amendments(&what, step_raw)?;
+        }
+        let has_single =
+            !has_agent && (step_raw.get("role").is_some() || step_raw.get("driver").is_some());
         let has_panel = step_raw.get("panel").is_some();
-        if has_single && has_panel {
+        if [has_single, has_panel, has_agent]
+            .iter()
+            .filter(|f| **f)
+            .count()
+            > 1
+        {
             return Err(CompileError::Invalid(format!(
-                "sequence step '{what}' must be exactly one of role+driver or panel"
+                "sequence step '{what}' must be exactly one of role+driver, agent, \
+                 or panel"
             )));
         }
-        let body = if has_panel {
+        let body = if has_agent {
+            let resolved =
+                resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;
+            StepBody::Single {
+                role_path: resolved.role_path,
+                command: resolved.command,
+                confine: parse_confine(&what, step_raw)?,
+                candidates: resolved.candidates,
+            }
+        } else if has_panel {
             let final_step = index + 1 == steps_raw.len();
-            let (members, aggregate) =
-                parse_panel(dir, &what, step_raw, final_step.then_some(results), secrets)?;
+            let (members, aggregate) = parse_panel(
+                dir,
+                &what,
+                step_raw,
+                final_step.then_some(results),
+                secrets,
+                agents,
+            )?;
             StepBody::Panel { members, aggregate }
         } else {
             StepBody::Single {
                 role_path: parse_role(dir, &what, step_raw)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
                 confine: parse_confine(&what, step_raw)?,
+                candidates: Vec::new(),
             }
         };
         steps.push(SequenceStep {
@@ -606,13 +883,20 @@ fn parse_command(
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .filter(|c: &Vec<&str>| !c.is_empty())
         .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))?;
-    // Constitutional lint (decision 0012): every `{{secret:` occurrence
-    // in the raw template must be a well-formed, DECLARED reference —
-    // referenced ⇒ declared, and typos fail closed here rather than
-    // riding into argv as literal text. Declared-but-unreferenced is
-    // legal: env-only consumers (gh reading GH_TOKEN) take no argv
-    // reference at all.
-    for part in &parts {
+    let parts: Vec<String> = parts.into_iter().map(str::to_string).collect();
+    lint_secret_refs(what, &parts, secrets)?;
+    Ok(expand_command(dir, &parts))
+}
+
+/// Constitutional lint (decision 0012): every `{{secret:` occurrence in
+/// the raw template must be a well-formed, DECLARED reference —
+/// referenced ⇒ declared, and typos fail closed here rather than riding
+/// into argv as literal text. Declared-but-unreferenced is legal:
+/// env-only consumers (gh reading GH_TOKEN) take no argv reference at
+/// all. An adapter-composed argv faces exactly this lint, against the
+/// REFERENCING seat's declared secrets.
+fn lint_secret_refs(what: &str, parts: &[String], secrets: &[String]) -> Result<(), CompileError> {
+    for part in parts {
         let refs = forge_protocol::secret::scan_secret_refs(part)
             .map_err(|e| CompileError::Invalid(format!("seat '{what}' command template: {e}")))?;
         for name in refs {
@@ -625,20 +909,27 @@ fn parse_command(
             }
         }
     }
-    Ok(parts
-        .into_iter()
+    Ok(())
+}
+
+/// `{forge}` is this engine's own executable (built-in drivers) and
+/// `./`-prefixed entries are bundle-relative. Composed argv is expanded
+/// by this same function, which is why a resolved seat's command is an
+/// inline seat's command by construction — and why the manifest record
+/// carries names, never argv: the expansion is machine-local.
+fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
+    parts
+        .iter()
         .map(|part| {
-            // "{forge}" is this engine's own executable (built-in
-            // drivers); "./"-prefixed entries are bundle-relative.
             if part == "{forge}" {
                 return forge_executable(std::env::current_exe());
             }
             match part.strip_prefix("./") {
                 Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
-                None => part.to_string(),
+                None => part.clone(),
             }
         })
-        .collect())
+        .collect()
 }
 
 fn forge_executable(current: std::io::Result<PathBuf>) -> String {
@@ -725,7 +1016,11 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
     names
 }
 
-fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
+fn manifest_for(
+    dir: &Path,
+    bundle_name: &str,
+    agents: Option<&Map<String, Value>>,
+) -> Result<Value, CompileError> {
     let mut files = Map::new();
     let mut stack = vec![dir.to_path_buf()];
     let mut paths = Vec::new();
@@ -762,15 +1057,28 @@ fn manifest_for(dir: &Path, bundle_name: &str) -> Result<Value, CompileError> {
             .replace('\\', "/");
         files.insert(rel, Value::String(sha256_bytes(&std::fs::read(&path)?)));
     }
-    Ok(json!({
+    let mut manifest = json!({
         "engine": ENGINE_VERSION,
         "event_schema": EVENT_SCHEMA,
         "database_schema": forge_store::DATABASE_SCHEMA,
         "driver_protocol": DRIVER_PROTOCOL,
         "bundle_name": bundle_name,
         "files": Value::Object(files),
-    }))
+    });
+    // ABSENT when no seat references an agent (the decision-0012
+    // `if !seat.secrets.is_empty()` precedent, applied verbatim): a
+    // non-adopting bundle's manifest is byte-identical to what it was.
+    // This key is also the pin that replaces the `manifest.files` entry a
+    // charter loses when it leaves the recipe directory — it carries the
+    // charter digest.
+    if let Some(records) = agents.filter(|records| !records.is_empty()) {
+        manifest["agents"] = Value::Object(records.clone());
+    }
+    Ok(manifest)
 }
+
+#[cfg(test)]
+mod agent_tests;
 
 #[cfg(test)]
 mod secret_binding_tests;

@@ -1,0 +1,22 @@
+{
+  "description": "Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.",
+  "charter": "charters/chief-architect.md",
+  "models": [
+    "fable",
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir",
+      "specify"
+    ],
+    "mcp": []
+  }
+}

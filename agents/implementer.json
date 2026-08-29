@@ -1,0 +1,24 @@
+{
+  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
+  "charter": "charters/implementer.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "python3",
+      "pytest",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 5400
+  }
+}
