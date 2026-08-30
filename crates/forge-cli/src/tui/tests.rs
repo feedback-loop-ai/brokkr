@@ -688,11 +688,30 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     states.push(footer_for(&tui));
     assert!(states[5].contains("scroll"), "{}", states[5]);
 
-    // The transcript pane names its reader — decision 0014's
-    // discoverability rule — where the checkpoint pane does not.
+    // The transcript pane names its readerS — decision 0014's
+    // discoverability rule — where the checkpoint pane does not. Two
+    // doors, so the footer says which one Enter is, and names the key
+    // back to the other.
     apply(&mut tui, &views, Key::Tab);
     states.push(footer_for(&tui));
-    assert!(states[6].contains("Enter read turn"), "{}", states[6]);
+    assert!(
+        states[6].contains("Enter read whole transcript"),
+        "no turn selected, so Enter is the whole-transcript door: {}",
+        states[6]
+    );
+    let mut transcript = views_with("intake");
+    transcript.transcript = Some((turns_of(2), false));
+    apply(&mut tui, &transcript, Key::Down);
+    let selected_footer = footer_for(&tui);
+    assert!(
+        selected_footer.contains("Enter read turn"),
+        "a selected turn makes Enter the per-turn door: {selected_footer}"
+    );
+    assert!(
+        selected_footer.contains("Esc unselect"),
+        "and the way back to the whole transcript is named: {selected_footer}"
+    );
+    apply(&mut tui, &transcript, Key::Escape);
     apply(&mut tui, &views, Key::Tab);
 
     apply(&mut tui, &views, Key::Char('/'));
@@ -2912,10 +2931,6 @@ fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
     ));
     let mut tui = at_transcript(&views);
 
-    // No selection is not a door.
-    apply(&mut tui, &views, Key::Enter);
-    assert!(tui.reading.is_none(), "Enter with no selection is inert");
-
     apply(&mut tui, &views, Key::Down);
     apply(&mut tui, &views, Key::Enter);
     let text = tui.reading.clone().expect("Enter opens the reader");
@@ -2934,19 +2949,162 @@ fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
     assert_eq!(tui.level, Level::Participant);
     assert_eq!(tui.turn.as_deref(), Some("0"));
 
-    // An empty transcript and a missing one are both inert…
-    let mut empty = views_with("intake");
-    empty.transcript = Some((Vec::new(), false));
-    apply(&mut tui, &empty, Key::Enter);
-    assert!(tui.reading.is_none(), "no turns, no reader");
-    apply(&mut tui, &views_with("intake"), Key::Enter);
-    assert!(tui.reading.is_none(), "no transcript, no reader");
-
-    // …and so is the checkpoint pane: still a paragraph, not a door.
+    // The checkpoint pane is still a paragraph, not a door.
     apply(&mut tui, &views, Key::Tab);
     assert_eq!(tui.pane, 0);
     apply(&mut tui, &views, Key::Enter);
     assert!(tui.reading.is_none());
+}
+
+/// The operator's ruling (2026-08-30), superseding "no selection still
+/// opens nothing": the pane's OWN door. What the reader shows is every
+/// turn, composed exactly as the per-turn reader composes one.
+#[test]
+fn enter_with_no_turn_selected_opens_the_whole_transcript() {
+    // Two turns, the second carrying a tool block: order, the ⚙ marker
+    // and the separation are all askable of the one string.
+    let pair = || {
+        vec![
+            crate::ui::Turn {
+                role: "user".to_string(),
+                ts: T0.to_string(),
+                blocks: vec![crate::ui::Block {
+                    kind: "text",
+                    text: "the first prose".to_string(),
+                }],
+            },
+            crate::ui::Turn {
+                role: "assistant".to_string(),
+                ts: T1.to_string(),
+                blocks: vec![
+                    crate::ui::Block {
+                        kind: "text",
+                        text: "the second prose".to_string(),
+                    },
+                    crate::ui::Block {
+                        kind: "tool",
+                        text: "Write · specs/interactive-tui/spec.md".to_string(),
+                    },
+                ],
+            },
+        ]
+    };
+    let mut views = views();
+    views.transcript = Some((pair(), true));
+    let mut tui = at_transcript(&views);
+    assert_eq!(tui.turn, None, "the pane opens with no turn selected");
+
+    apply(&mut tui, &views, Key::Enter);
+    let text = tui.reading.clone().expect("Enter opens the reader");
+    // Stream order, the ⚙ marker per tool block, ONE blank line between
+    // turns, and the truncation notice last — asked as the whole string,
+    // because the composition IS the contract.
+    assert_eq!(
+        text,
+        format!(
+            "user  {T0}\n\
+             \n\
+             the first prose\n\
+             \n\
+             assistant  {T1}\n\
+             \n\
+             the second prose\n\
+             ⚙ Write · specs/interactive-tui/spec.md\n\
+             \n\
+             transcript truncated (size cap) — claude --resume carries the rest"
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        text.lines().last(),
+        Some("transcript truncated (size cap) — claude --resume carries the rest"),
+        "the notice is the FINAL line"
+    );
+    assert_eq!(tui.read_offset, 0, "a fresh door opens at the top");
+
+    // The same door on an untruncated transcript carries no notice.
+    apply(&mut tui, &views, Key::Escape);
+    let mut whole = views_with("intake");
+    whole.transcript = Some((pair(), false));
+    apply(&mut tui, &whole, Key::Enter);
+    let text = tui.reading.clone().expect("Enter opens the reader");
+    assert!(!text.contains("truncated"), "{text}");
+    assert!(
+        text.ends_with("⚙ Write · specs/interactive-tui/spec.md"),
+        "{text}"
+    );
+
+    // A transcript of no turns is still a door — the pane HOLDS a
+    // transcript, so Enter opens it, empty body and all. A pane holding
+    // no transcript at all holds no door.
+    apply(&mut tui, &whole, Key::Escape);
+    let mut empty = views_with("intake");
+    empty.transcript = Some((Vec::new(), false));
+    apply(&mut tui, &empty, Key::Enter);
+    assert_eq!(tui.reading.as_deref(), Some(""), "no turns, an empty body");
+    apply(&mut tui, &empty, Key::Escape);
+    let mut capped = views_with("intake");
+    capped.transcript = Some((Vec::new(), true));
+    apply(&mut tui, &capped, Key::Enter);
+    assert_eq!(
+        tui.reading.as_deref(),
+        Some("transcript truncated (size cap) — claude --resume carries the rest"),
+        "no turns but a cap: the notice alone"
+    );
+    apply(&mut tui, &capped, Key::Escape);
+    apply(&mut tui, &views_with("intake"), Key::Enter);
+    assert!(tui.reading.is_none(), "no transcript, no reader");
+
+    // The empty body still draws a frame an operator can leave.
+    tui.reading = Some(String::new());
+    let frame = frame_of(&tui, &empty, 100, 26);
+    assert!(frame.contains("Esc closes"), "{frame}");
+}
+
+/// The whole-transcript door must stay reachable after a turn has been
+/// read: Esc's first rung at the transcript pane clears the selection,
+/// and only the next press ascends.
+#[test]
+fn esc_at_the_transcript_pane_clears_the_turn_before_it_ascends() {
+    let mut views = views();
+    views.transcript = Some((turns_of(2), false));
+    let mut tui = at_transcript(&views);
+
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("the turn opens");
+    assert!(one.contains("prose of turn 0") && !one.contains("prose of turn 1"));
+
+    // Rung one closes the reader, rung two clears the selection.
+    apply(&mut tui, &views, Key::Escape);
+    assert!(tui.reading.is_none());
+    assert_eq!(tui.turn.as_deref(), Some("0"));
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.turn, None, "the selection is cleared, not the level");
+    assert_eq!(tui.level, Level::Participant);
+
+    // …and the whole-transcript door is back, without ever leaving the
+    // PARTICIPANT level.
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole transcript opens");
+    assert!(
+        all.contains("prose of turn 0") && all.contains("prose of turn 1"),
+        "{all}"
+    );
+
+    // Rung three is the ladder it always was.
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.level, Level::Run, "Esc still ascends");
+
+    // The rung belongs to the TRANSCRIPT pane: a stale turn key under
+    // the checkpoint pane does not swallow the ascent.
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Tab);
+    assert_eq!(tui.pane, 0, "the checkpoint pane");
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.level, Level::Run);
 }
 
 #[test]

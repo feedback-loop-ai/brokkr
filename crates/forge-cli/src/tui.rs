@@ -530,6 +530,13 @@ fn selected_turn<'a>(tui: &Tui, views: &'a Views) -> Option<(usize, &'a Turn)> {
     Some((index, &turns[index]))
 }
 
+/// The truncation notice, written once: the transcript pane shows it as
+/// its last line and the reader repeats it as the reader's last line.
+/// Silently short evidence is worse than none (decision 0001), so the
+/// door that opens the WHOLE transcript must not be the surface that
+/// quietly hides the cap.
+const TRUNCATED_NOTICE: &str = "transcript truncated (size cap) — claude --resume carries the rest";
+
 /// The whole turn, composed for the reader: a header naming the role
 /// and the timestamp, then every block in order — prose in full, tool
 /// blocks as the same `⚙ name · target` marker the console shows.
@@ -544,6 +551,24 @@ fn turn_text(turn: &Turn) -> String {
         text.push_str(safe(&block.text).as_str());
     }
     text
+}
+
+/// The WHOLE transcript, composed for the same reader: every turn in
+/// stream order, each composed by [`turn_text`] itself — reused, never
+/// re-derived, so the two doors cannot drift — a blank line between
+/// turns, and the pane's own truncation notice as the final line when
+/// the stream was capped. Every part is [`safe`] because `turn_text` is.
+fn transcript_text(turns: &[Turn], truncated: bool) -> String {
+    let mut parts: Vec<String> = turns
+        .iter()
+        // The separator owns the blank line, so a turn with no blocks
+        // cannot smuggle a second one in on its header's newline.
+        .map(|turn| turn_text(turn).trim_end_matches('\n').to_string())
+        .collect();
+    if truncated {
+        parts.push(TRUNCATED_NOTICE.to_string());
+    }
+    parts.join("\n\n")
 }
 
 fn step(tui: &mut Tui, views: &Views, step: Step) {
@@ -673,13 +698,25 @@ fn enter(tui: &mut Tui, views: &Views) {
         // transcript is a list of TURNS, and a long turn clamped by
         // its pane is not readable evidence — so Enter opens the
         // selected turn whole in the trail's own reader (the operator
-        // re-ruled the paragraph contract). No selection opens
-        // nothing.
+        // re-ruled the paragraph contract). With NO turn selected the
+        // same key opens the WHOLE transcript, because a stream
+        // clamped by its pane is no more readable than one long turn
+        // (the operator's ruling, superseding the inert pin). The
+        // per-turn reader stays the drilldown; a pane holding no
+        // transcript at all still holds no door.
         Level::Participant => {
             if tui.pane == 1 {
-                if let Some((_, turn)) = selected_turn(tui, views) {
-                    tui.reading = Some(turn_text(turn));
-                    tui.read_offset = 0;
+                match selected_turn(tui, views) {
+                    Some((_, turn)) => {
+                        tui.reading = Some(turn_text(turn));
+                        tui.read_offset = 0;
+                    }
+                    None => {
+                        if let Some((turns, truncated)) = views.transcript.as_ref() {
+                            tui.reading = Some(transcript_text(turns, *truncated));
+                            tui.read_offset = 0;
+                        }
+                    }
                 }
             }
         }
@@ -745,6 +782,15 @@ fn escape(tui: &mut Tui) {
         return;
     }
     if tui.level == Level::Participant {
+        // The transcript pane's first rung clears the TURN selection.
+        // It is what keeps the whole-transcript door reachable after a
+        // turn has been read — one obvious key, not a hidden
+        // combination (decision 0014's discoverability rule) — and the
+        // ladder ascends on the next press, as it always did.
+        if tui.pane == 1 && tui.turn.is_some() {
+            tui.turn = None;
+            return;
+        }
         ascend(tui);
         return;
     }
@@ -883,9 +929,18 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
         }
         (Level::Run, 2) => format!("↑↓/jk move · Enter read row · Tab pane · Esc back {tail}"),
         (Level::Run, _) => format!("↑↓/jk move · Tab pane · Esc back {tail}"),
-        (Level::Participant, 1) => {
-            format!("↑↓/jk move · Enter read turn · g/G top/bottom · Tab pane · Esc back {tail}")
-        }
+        // Two doors, so two footers: the key that opens the turn under
+        // the cursor, and the key that opens the whole transcript —
+        // each named where it is the one Enter does, with `Esc
+        // unselect` naming the way back to the other.
+        (Level::Participant, 1) => match tui.turn {
+            Some(_) => {
+                format!("↑↓/jk move · Enter read turn · Esc unselect · g/G top/bottom · Tab pane {tail}")
+            }
+            None => format!(
+                "↑↓/jk move · Enter read whole transcript · g/G top/bottom · Tab pane · Esc back {tail}"
+            ),
+        },
         (Level::Participant, _) => {
             format!("↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back {tail}")
         }
@@ -2398,10 +2453,7 @@ fn transcript_lines(
         }
     }
     if truncated {
-        lines.push(line(
-            "transcript truncated (size cap) — claude --resume carries the rest",
-            header_style(),
-        ));
+        lines.push(line(TRUNCATED_NOTICE, header_style()));
     }
     (lines, scroll)
 }
