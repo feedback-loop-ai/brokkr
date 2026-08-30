@@ -2113,8 +2113,6 @@ fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
     }
 }
 
-/// A fork and its rejoin. **The rejoin is drawn always** — it is the
-/// join dependency, and the whole reason a fork is not two steps.
 /// The SOLID box around the selected phase — the terminal's answer to
 /// the console's selection ring. The vocabulary is `─ │ ╭ ╮ ╰ ╯ ┼` and
 /// nothing else: the dashed set `╌ ┆` left the graph by the operator's
@@ -2185,6 +2183,8 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     put(cells, right, bottom, "╯", plain());
 }
 
+/// A fork and its rejoin. **The rejoin is drawn always** — it is the
+/// join dependency, and the whole reason a fork is not two steps.
 fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
     // Between the fork and its rejoin the rail gives way to the lanes,
     // unless the member count is odd and one member rides the rail row.
