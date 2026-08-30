@@ -3356,11 +3356,11 @@ fn the_rail_cursor_starts_on_the_current_phase_and_moving_it_scopes() {
 }
 
 #[test]
-fn the_selected_phase_sits_in_a_symmetric_dashed_box() {
-    // The console draws a dashed ring around the selected phase; the
-    // terminal draws a dashed BOX that hugs the segment's occupied
-    // rows — a symmetric boundary, not two floating uprights running
-    // the pane's full height through empty headroom.
+fn the_selected_phase_sits_in_a_symmetric_solid_box() {
+    // The console draws a ring around the selected phase; the terminal
+    // draws a SOLID box that hugs the segment's occupied rows — a
+    // symmetric boundary, not two floating uprights running the pane's
+    // full height through empty headroom.
     let views = views();
     let mut tui = at_run();
     settle(&mut tui, &views);
@@ -3372,8 +3372,8 @@ fn the_selected_phase_sits_in_a_symmetric_dashed_box() {
             "exactly one {corner}: {frame}"
         );
     }
-    assert!(frame.contains('╌'), "dashed edges: {frame}");
-    assert!(frame.contains('┆'), "dashed sides: {frame}");
+    assert!(!frame.contains('╌'), "no dashed edges left: {frame}");
+    assert!(!frame.contains('┆'), "no dashed sides left: {frame}");
     // Symmetric: the corners pair up on their columns and rows.
     let lines: Vec<&str> = frame.lines().collect();
     let find = |glyph: char| -> (usize, usize) {
@@ -3396,13 +3396,30 @@ fn the_selected_phase_sits_in_a_symmetric_dashed_box() {
     assert_eq!(left, left2, "one left side");
     assert_eq!(right, right2, "one right side");
     assert!(bottom_l > top_l && right > left, "a real rectangle");
+    // And solid, drawn: the bottom edge runs corner to corner with no
+    // gap in it. The pane's own `Block` borders are `┌ ┐ └ ┘ │ ─`, so
+    // the rounded corners belong to the box alone and slicing by them
+    // is safe on the whole frame.
+    let edge: String = lines[bottom_l]
+        .chars()
+        .skip(left)
+        .take(right - left + 1)
+        .collect();
+    let solid = format!("╰{}╯", "─".repeat(right - left - 1));
+    assert_eq!(edge, solid, "the bottom edge is unbroken: {frame}");
+    assert!(
+        frame.contains('┼'),
+        "and the rail crosses a wall at a junction: {frame}"
+    );
 
     // Nothing selected, nothing boxed.
     let mut bare = at_run();
     bare.cursor[0] = None;
     let frame = frame_of(&bare, &views, 100, 26);
     assert!(!frame.contains('╭'), "no selection, no box: {frame}");
-    assert!(!frame.contains('┆'), "no selection, no sides: {frame}");
+    assert!(!frame.contains('┼'), "no selection, no junctions: {frame}");
+    assert!(!frame.contains('╌'), "and the dashed set is gone: {frame}");
+    assert!(!frame.contains('┆'), "in both vocabularies: {frame}");
 }
 
 #[test]
@@ -3457,7 +3474,10 @@ fn a_pane_too_short_for_the_box_row_draws_no_half_box() {
     assert_eq!(short.box_row, None);
     let frame = text_of(&paint(&short, 0, false));
     assert!(!frame.contains('╭'), "no box row, no box: {frame}");
-    assert!(!frame.contains('┆'), "and no floating sides: {frame}");
+    // The graph draws no pane border of its own, so a wall or a
+    // junction here could only be the box's half-drawn.
+    assert!(!frame.contains('│'), "and no floating walls: {frame}");
+    assert!(!frame.contains('┼'), "and no orphan junction: {frame}");
 }
 
 #[test]
@@ -3508,6 +3528,11 @@ fn the_brand_mark_rides_the_graph_pane_and_pulses_when_the_fleet_forges() {
 // never stands on an arrowhead, the box breathes evenly around what the
 // phase draws, every connector between two phases is the same length,
 // and the box's SHAPE is a function of the selected phase's own lanes.
+//
+// And the ruling of 2026-08-31, which changed the vocabulary and
+// nothing else: the box is SOLID, every side gapless corner to corner,
+// with `┼` where a wall crosses the rail. The geometry pins below are
+// the prior slice's, unamended — only the glyphs they match moved.
 
 /// A rail carrying every shape the box must answer to: a plain phase
 /// whose baseline label is wider than its single node (the operator's
@@ -3545,6 +3570,49 @@ fn box_plan(cursor: &str) -> Plan {
     plan(&box_phases(), None, "running", Some(cursor), None, 100, 12)
 }
 
+/// The one shape `box_phases()` cannot isolate: a phase whose columns
+/// are single nodes IN SERIES — a sequence, no fork anywhere in it. The
+/// `design` phase above mixes a two-lane fork with a single step, so it
+/// proves "a fork grows the box" but never "a sequence spans its steps"
+/// on its own.
+fn seq_phases() -> Vec<Phase> {
+    vec![
+        gphase("intake", 1, false, Vec::new()),
+        gphase(
+            "build",
+            1,
+            false,
+            vec![
+                gcolumn(
+                    Some("compile"),
+                    vec![gnode("rustc", "finished", "on-phosphor")],
+                ),
+                gcolumn(Some("link"), vec![gnode("ld", "finished", "on-phosphor")]),
+                gcolumn(Some("strip"), vec![gnode("sym", "active", "in-active")]),
+            ],
+        ),
+        gphase("verify", 1, true, Vec::new()),
+    ]
+}
+
+fn seq_plan(cursor: &str) -> Plan {
+    plan(&seq_phases(), None, "running", Some(cursor), None, 100, 12)
+}
+
+/// Every shape the box must answer to, named: a plain phase (`intake`,
+/// `verify`), a plain phase whose label is wider than its node
+/// (`ship ×2`), a two-lane fork (`design`), and a pure sequence
+/// (`build`).
+fn box_cases() -> Vec<(&'static str, Plan)> {
+    vec![
+        ("intake", box_plan("intake")),
+        ("ship", box_plan("ship")),
+        ("design", box_plan("design")),
+        ("verify", box_plan("verify")),
+        ("build", seq_plan("build")),
+    ]
+}
+
 /// The frame as a grid of characters, which is how a box is measured:
 /// by the glyphs that reached the cells, not by the geometry that
 /// placed them.
@@ -3579,8 +3647,7 @@ fn no_wall_of_the_selection_box_stands_on_an_arrowhead() {
     // placed — and clear of the elision columns, which are not theirs
     // to claim — while the head that lands on the selected phase's own
     // node stays inside the boundary it points into, undisturbed.
-    for phase in ["ship", "design", "verify", "intake"] {
-        let plan = box_plan(phase);
+    for (phase, plan) in box_cases() {
         let grid = grid_of(&plan);
         let (top, left, bottom, right) = box_of(&grid);
         for column in [left, right] {
@@ -3594,9 +3661,17 @@ fn no_wall_of_the_selection_box_stands_on_an_arrowhead() {
             );
             for (row, line) in grid.iter().enumerate().take(bottom + 1).skip(top) {
                 let cell = line[column];
+                // The wall is drawn on EVERY row now, rail row included
+                // — so the allowlist is the whole solid set, with no row
+                // excused from it.
                 assert!(
-                    row == plan.rail_row || "╭╮╰╯┆".contains(cell),
-                    "the wall's own column carries the wall: {cell:?}"
+                    "╭╮╰╯│┼".contains(cell),
+                    "the wall's own column carries the wall at row {row}, \
+                     selecting {phase}: {cell:?}"
+                );
+                assert!(
+                    !"ᐳ⏺∙·⊙⊗".contains(cell),
+                    "and never an arrowhead or a node glyph, selecting {phase}: {cell:?}"
                 );
             }
         }
@@ -3605,11 +3680,12 @@ fn no_wall_of_the_selection_box_stands_on_an_arrowhead() {
             "the elision columns stay the elision marks', selecting {phase}"
         );
         // Where there is rail on both sides, it is still seen to pass
-        // THROUGH the boundary rather than stop at it.
+        // THROUGH the boundary rather than stop at it — now by wearing
+        // the junction rather than by leaving a hole in the wall.
         let inner = plan.segments.first().map(|seg| &seg.key) != Some(&phase.to_string())
             && plan.segments.last().map(|seg| &seg.key) != Some(&phase.to_string());
         assert!(
-            !inner || (grid[plan.rail_row][left] == '─' && grid[plan.rail_row][right] == '─'),
+            !inner || (grid[plan.rail_row][left] == '┼' && grid[plan.rail_row][right] == '┼'),
             "the rail passes through both walls of {phase}"
         );
     }
@@ -3617,7 +3693,7 @@ fn no_wall_of_the_selection_box_stands_on_an_arrowhead() {
 
 #[test]
 fn the_box_breathes_evenly_around_what_the_phase_draws() {
-    // `┆verify  ┆` — flush left, floating right — was the report. The
+    // `│verify  │` — flush left, floating right — was the report. The
     // box pads the UNION of the phase's rail extent and its name by the
     // same margin on both sides, so neither can end up flush.
     for phase in ["ship", "design", "verify"] {
@@ -3644,7 +3720,7 @@ fn the_box_breathes_evenly_around_what_the_phase_draws() {
         let baseline = &grid[plan.name_row][left..=right];
         let held: String = baseline.iter().collect();
         assert!(
-            held.starts_with("┆ ") && held.ends_with(" ┆"),
+            held.starts_with("│ ") && held.ends_with(" │"),
             "the name breathes on both sides: {held:?}"
         );
     }
@@ -3671,7 +3747,7 @@ fn the_box_breathes_evenly_around_what_the_phase_draws() {
     let grid = grid_of(&plan);
     let (_, left, _, right) = box_of(&grid);
     let held: String = grid[plan.name_row][left..=right].iter().collect();
-    assert_eq!(held, "┆ ship ×2 ┆", "flush against neither wall");
+    assert_eq!(held, "│ ship ×2 │", "flush against neither wall");
 }
 
 #[test]
@@ -3681,6 +3757,14 @@ fn every_connector_between_two_phases_is_the_same_length() {
     // dashes: `──ᐳ` between two ordinary phases, `────ᐳ` after a wide
     // one. The frame now carries ONE connector length, so the run into
     // and out of the wide-named phase is the run between any other two.
+    //
+    // The selection box's walls stand two columns clear of the phase
+    // they enclose, which lands them INSIDE a connector — and since
+    // 2026-08-31 a wall that crosses the rail wears `┼` rather than
+    // stepping over the rail row. That junction is rail: the whole
+    // point of the glyph is that both lines read continuous through it,
+    // so the rhythm is measured through it too, and a `│` where a `┼`
+    // belongs would fail this test exactly as a hole in the rail should.
     let plan = box_plan("verify");
     let grid = grid_of(&plan);
     let runs: Vec<String> = plan
@@ -3689,6 +3773,10 @@ fn every_connector_between_two_phases_is_the_same_length() {
         .map(|pair| {
             grid[plan.rail_row][pair[0].rail.1 + 1..pair[1].rail.0]
                 .iter()
+                .map(|glyph| match glyph {
+                    '┼' => '─',
+                    other => *other,
+                })
                 .collect()
         })
         .collect();
@@ -3709,7 +3797,7 @@ fn every_connector_between_two_phases_is_the_same_length() {
 #[test]
 fn the_box_takes_its_shape_from_the_selected_phases_own_lanes() {
     // Superseding the fixed full-envelope box: a plain phase gets a
-    // SNUG box with no empty `┆    ┆` air rows above its single mark,
+    // SNUG box with no empty `│    │` air rows above its single mark,
     // and a fork in the SAME plan grows to enclose its own lanes.
     let plain = box_plan("verify");
     let plain_grid = grid_of(&plain);
@@ -3753,4 +3841,106 @@ fn the_box_takes_its_shape_from_the_selected_phases_own_lanes() {
         (bottom - top, top),
         "selection moved between two plain phases keeps the shape"
     );
+}
+
+#[test]
+fn every_side_of_the_selection_box_is_solid_from_corner_to_corner() {
+    // The operator's ruling of 2026-08-31, from a screenshot of their own
+    // terminal: `╌` and `┆` are drawn with a gap at every cell boundary
+    // BY GLYPH DESIGN, so the box read broken in every font no matter
+    // how right the columns were — the geometry was never the fault, the
+    // vocabulary was. The box is now `─ │ ╭ ╮ ╰ ╯ ┼` and every side is
+    // walked cell by cell here, because walking is the only way a gap
+    // can be seen at all.
+    for (phase, plan) in box_cases() {
+        let painted = text_of(&paint(&plan, 0, false));
+        assert!(
+            !painted.contains('╌') && !painted.contains('┆'),
+            "the dashed set left the graph, selecting {phase}: {painted}"
+        );
+        let grid = grid_of(&plan);
+        let (top, left, bottom, right) = box_of(&grid);
+        let rail = plan.rail.expect("a rail for the walls to cross");
+        assert_eq!(grid[top][right], '╮', "the top-right corner, {phase}");
+        assert_eq!(grid[bottom][left], '╰', "the bottom-left corner, {phase}");
+        for (edge, line) in [("top", &grid[top]), ("bottom", &grid[bottom])] {
+            for (column, cell) in line.iter().enumerate().take(right).skip(left + 1) {
+                assert_eq!(
+                    *cell, '─',
+                    "a gap in the {edge} edge at {column}, selecting {phase}"
+                );
+            }
+        }
+        // `┼` is the whole ruling: where a wall crosses live rail, ONE
+        // cell carries both lines, so the wall is unbroken and the rail
+        // stays unbroken too. A wall standing where there is no rail —
+        // the outer side of the first or the last phase — is plain `│`.
+        let mut junctions: Vec<(usize, usize)> = Vec::new();
+        for (row, line) in grid.iter().enumerate().take(bottom).skip(top + 1) {
+            for column in [left, right] {
+                let expected = match (row == plan.rail_row, (rail.0..=rail.1).contains(&column)) {
+                    (true, true) => '┼',
+                    _ => '│',
+                };
+                junctions.extend((expected == '┼').then_some((row, column)));
+                assert_eq!(
+                    line[column], expected,
+                    "the wall at row {row}, column {column}, selecting {phase}"
+                );
+            }
+        }
+        // And nowhere else. The fixtures carry no odd-membered fork,
+        // whose spine wears a `┼` of its own at the trunk — so every
+        // `┼` in this frame is the box's.
+        assert!(
+            plan.segments
+                .iter()
+                .flat_map(|seg| &seg.joins)
+                .all(|join| !join.on_rail),
+            "the fixture has no on-rail fork to lend a stray `┼`, {phase}"
+        );
+        let drawn: Vec<(usize, usize)> = grid
+            .iter()
+            .enumerate()
+            .flat_map(|(row, line)| {
+                line.iter()
+                    .enumerate()
+                    .filter(|(_, cell)| **cell == '┼')
+                    .map(move |(column, _)| (row, column))
+            })
+            .collect();
+        assert_eq!(
+            drawn, junctions,
+            "`┼` exactly where a wall meets the rail, selecting {phase}"
+        );
+    }
+}
+
+#[test]
+fn the_sequence_phases_box_spans_its_steps() {
+    // `design` mixes a fork and a single step, so it can never isolate
+    // the pure-sequence shape: several single-node columns in series,
+    // one after another on the rail, the box snug around all of them.
+    let plan = seq_plan("build");
+    let grid = grid_of(&plan);
+    let (top, left, bottom, right) = box_of(&grid);
+    let seg = plan
+        .segments
+        .iter()
+        .find(|seg| seg.key == "build")
+        .expect("the sequence phase");
+    assert!(seg.joins.is_empty(), "a sequence forks nowhere");
+    assert_eq!(seg.marks.len(), 3, "three steps in series");
+    assert!(
+        seg.marks.iter().all(|mark| mark.row == plan.rail_row),
+        "and every one of them rides the rail"
+    );
+    assert!(
+        seg.marks.iter().all(|mark| left < mark.x && mark.x < right),
+        "the box spans its steps"
+    );
+    // Snug: a sequence occupies the rail row only, so its box is the
+    // plain phase's height, not a fork's.
+    assert_eq!(top + 1, plan.rail_row, "no air row above the steps");
+    assert_eq!(bottom, plan.box_row.expect("a box row"));
 }
