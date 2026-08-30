@@ -443,7 +443,7 @@ pub fn resolve_bindings(path: &Path, names: &[String]) -> Result<Vec<BoundSecret
     for name in names {
         let index = entries.iter().position(|(n, _)| n == name).ok_or_else(|| {
             format!(
-                "secret '{name}' is not in the store at {} (forge secrets set {name})",
+                "secret '{name}' is not in the store at {} (brokkr secrets set {name})",
                 path.display()
             )
         })?;

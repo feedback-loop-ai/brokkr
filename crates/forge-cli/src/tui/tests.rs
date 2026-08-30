@@ -1009,8 +1009,8 @@ fn help_overlays_and_a_terminal_below_the_minimum_names_the_other_verbs() {
     // other two surfaces, and never tears the session down.
     let small = frame_of(&tui, &views, MIN_WIDTH - 1, 20);
     assert!(small.contains("too small"), "{small}");
-    assert!(small.contains("forge inspect"), "{small}");
-    assert!(small.contains("forge watch"), "{small}");
+    assert!(small.contains("brokkr inspect"), "{small}");
+    assert!(small.contains("brokkr watch"), "{small}");
     let short = frame_of(&tui, &views, 100, MIN_HEIGHT - 1);
     assert!(short.contains("too small"), "{short}");
     assert!(short.contains("q or Ctrl+C quits"), "{short}");
@@ -1028,8 +1028,8 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
         refuse(true, (100, MIN_HEIGHT - 1), true),
     ] {
         let message = refusal.expect("a refusal");
-        assert!(message.contains("forge inspect"), "{message}");
-        assert!(message.contains("forge watch"), "{message}");
+        assert!(message.contains("brokkr inspect"), "{message}");
+        assert!(message.contains("brokkr watch"), "{message}");
     }
     assert!(refuse(true, (100, 40), false)
         .unwrap()
@@ -1226,7 +1226,7 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
         4,
     )
     .unwrap_err();
-    assert!(refused.to_string().contains("forge watch"), "{refused}");
+    assert!(refused.to_string().contains("brokkr watch"), "{refused}");
 
     std::panic::set_hook(saved);
 }

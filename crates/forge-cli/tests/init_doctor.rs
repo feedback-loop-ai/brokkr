@@ -5,7 +5,7 @@
 use std::process::Command;
 
 fn forge(args: &[&str], cwd: &std::path::Path) -> (Option<i32>, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_forge"))
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(args)
         .current_dir(cwd)
         .output()
