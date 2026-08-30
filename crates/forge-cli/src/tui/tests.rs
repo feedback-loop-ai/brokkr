@@ -3659,6 +3659,20 @@ fn no_wall_of_the_selection_box_stands_on_an_arrowhead() {
                 grid[plan.rail_row][column], 'ᐳ',
                 "and no arrowhead under a wall, selecting {phase}"
             );
+            // Asked of the PLAN, not of the grid: the box paints last,
+            // so a node it stood on would already be gone by the time
+            // the loop below reads the cell, and the read would pass on
+            // the wall the collision left behind. Only the plan can say
+            // a wall column was clear — as `plan.edges` does above for
+            // the arrowheads, and now for every node of every phase, on
+            // the lane rows as much as on the rail.
+            assert!(
+                plan.segments
+                    .iter()
+                    .flat_map(|seg| &seg.marks)
+                    .all(|mark| mark.x != column || mark.row < top || mark.row > bottom),
+                "a wall on a node's column, selecting {phase}"
+            );
             for (row, line) in grid.iter().enumerate().take(bottom + 1).skip(top) {
                 let cell = line[column];
                 // The wall is drawn on EVERY row now, rail row included
