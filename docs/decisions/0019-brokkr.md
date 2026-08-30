@@ -1,6 +1,6 @@
 # 0019 — Brokkr: the name, the verb, and the lore layer
 
-Status: proposed
+Status: accepted — operator ruled 2026-08-31
 Date: 2026-08-30
 
 ## Context
