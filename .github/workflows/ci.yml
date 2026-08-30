@@ -91,7 +91,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p forge-cli
+      # The shipped binary is brokkr; the `forge` shim rides along for one
+      # release (decision 0019 ruling 9).
       - uses: actions/upload-artifact@v4
         with:
-          name: forge-linux-x86_64
-          path: target/release/forge
+          name: brokkr-linux-x86_64
+          path: |
+            target/release/brokkr
+            target/release/forge

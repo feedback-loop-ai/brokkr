@@ -237,11 +237,11 @@ fn compiler_accepts_nondefault_positive_limits() {
 fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
     assert_eq!(
         forge_executable(Err(std::io::Error::other("missing"))),
-        "forge"
+        "brokkr"
     );
     assert_eq!(
-        forge_executable(Ok(PathBuf::from("/tmp/forge"))),
-        "/tmp/forge"
+        forge_executable(Ok(PathBuf::from("/tmp/brokkr"))),
+        "/tmp/brokkr"
     );
     assert!(declarable_input("fixes_applied"));
     assert!(declarable_input("max_residual_severity"));

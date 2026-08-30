@@ -15,7 +15,7 @@ use forge_runtime::Bundle;
 
 const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
-  "description": "Starter table scaffolded by `forge init`. Linear machine, one seat per phase. The review gate is constitutionally protected: every path to done passes review, security-hold is a hard stop, security residuals never take the tracked-debt path.",
+  "description": "Starter table scaffolded by `brokkr init`. Linear machine, one seat per phase. The review gate is constitutionally protected: every path to done passes review, security-hold is a hard stop, security residuals never take the tracked-debt path.",
   "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
   "initial": "intake",
   "terminal": ["done", "stop"],

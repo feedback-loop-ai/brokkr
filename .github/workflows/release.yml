@@ -59,12 +59,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: forge-linux-x86_64 }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: forge-linux-aarch64 }
-          - { os: macos-latest,     target: aarch64-apple-darwin,      name: forge-macos-arm64 }
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: brokkr-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: brokkr-linux-aarch64 }
+          - { os: macos-latest,     target: aarch64-apple-darwin,      name: brokkr-macos-arm64 }
           # macos-13 (Intel runners) is retired: cross-compile from arm64.
-          - { os: macos-latest,     target: x86_64-apple-darwin,       name: forge-macos-x86_64, cross: true }
-          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    name: forge-windows-x86_64 }
+          - { os: macos-latest,     target: x86_64-apple-darwin,       name: brokkr-macos-x86_64, cross: true }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    name: brokkr-windows-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -73,11 +73,13 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p forge-cli --target ${{ matrix.target }}
+      # brokkr is the binary; the `forge` shim is packaged beside it for
+      # one release (decision 0019 ruling 9) and then dropped.
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" forge
+          tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" brokkr forge
           cd dist
           shasum -a 256 "${{ matrix.name }}.tar.gz" > "${{ matrix.name }}.tar.gz.sha256"
       - name: package (windows)
@@ -85,7 +87,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/forge.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/brokkr.exe", "target/${{ matrix.target }}/release/forge.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
           (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
       - name: attest packaged binary and checksum
         uses: actions/attest@v4
@@ -126,6 +128,8 @@ jobs:
           generate_release_notes: true
           body: |
             One native binary per platform — no Python, no Node, no services.
+            The binary is `brokkr`. Each archive also carries a `forge` shim
+            for this release only: identical behavior, one notice on stderr.
             Verify downloads against SHA256SUMS, then verify signed GitHub
             build provenance with `gh attestation verify <asset> -R ${{ github.repository }}`.
             See ARCHITECTURE.md and docs/decisions/ for what this engine is and why.

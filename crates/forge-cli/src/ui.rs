@@ -496,7 +496,7 @@ fn serve_listener(
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
     let url = format!("http://127.0.0.1:{bound}/");
-    eprintln!("forge ui: {url} (read-only; Ctrl-C to stop)");
+    eprintln!("brokkr ui: {url} (read-only; Ctrl-C to stop)");
     if open_browser {
         opener(&url);
     }

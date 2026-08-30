@@ -1,5 +1,7 @@
-//! `forge` — the one shipped binary (decision 0003). No UI, no required
-//! services: one executable, one workspace database.
+//! `brokkr` — the one shipped binary (decision 0003, named by decision
+//! 0019). No UI, no required services: one executable, one workspace
+//! database. Two bin targets share this one entry point: `brokkr`, and
+//! the `forge` shim that keeps the old name working for one release.
 
 mod agents;
 mod compare;
@@ -25,7 +27,15 @@ use serde_json::{json, Value};
 /// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
 /// 1 error.
 #[derive(Parser)]
-#[command(name = "forge", version, about = "Deterministic delivery engine")]
+// `bin_name` is pinned, not inferred from argv[0]: the `forge` shim
+// prints the same usage as `brokkr`, so the only place the old name
+// survives in output is the shim's own notice (decision 0019 ruling 9).
+#[command(
+    name = "brokkr",
+    bin_name = "brokkr",
+    version,
+    about = "Deterministic delivery engine"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -548,7 +558,14 @@ fn driver_extra_args(args: Vec<String>) -> Vec<String> {
     }
 }
 
-fn main() -> ExitCode {
+/// The one plain line the `forge` shim writes to stderr before it
+/// proceeds — stderr only, so piped stdout and JSON consumers are
+/// untouched. Decision 0019 ruling 9; law 4 keeps it plain.
+pub const SHIM_NOTICE: &str =
+    "notice: forge is now named brokkr; the forge name works for one more release.";
+
+/// Both bins enter here: same parse, same commands, same exit codes.
+pub fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(code) => code,
         Err(e) => {
@@ -851,7 +868,7 @@ fn run_with(
             let mut store = Store::open(&db)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             operator_command(&mut store, &run, &command, &operator, &reason)?;
-            eprintln!("recorded operator {command}; continue with: forge resume --run {run}");
+            eprintln!("recorded operator {command}; continue with: brokkr resume --run {run}");
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Inspect {
