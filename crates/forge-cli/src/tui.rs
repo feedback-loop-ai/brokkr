@@ -978,8 +978,8 @@ fn status_line(tui: &Tui) -> String {
 }
 
 const HELP: [&str; 13] = [
-    "forge tui — a read-only console over the same models as",
-    "forge inspect, forge watch and forge ui. It issues no",
+    "brokkr tui — a read-only console over the same models as",
+    "brokkr inspect, brokkr watch and brokkr ui. It issues no",
     "operator commands and writes nothing to the journal.",
     "",
     "↑ ↓ j k     move          Enter   descend / scope",
@@ -1145,9 +1145,9 @@ fn draw_reader(frame: &mut Frame, area: Rect, text: &str, offset: usize) {
 /// place, and no frame is ever corrupted.
 fn draw_too_small(frame: &mut Frame, area: Rect) {
     let lines = vec![
-        line("this terminal is too small for forge tui", header_style()),
+        line("this terminal is too small for brokkr tui", header_style()),
         line(
-            "try `forge inspect --run <id>` or `forge watch --run <id>`,",
+            "try `brokkr inspect --run <id>` or `brokkr watch --run <id>`,",
             plain(),
         ),
         line("or make the window bigger. q or Ctrl+C quits.", plain()),
@@ -2614,7 +2614,7 @@ pub(crate) fn install_panic_hook(restore: fn()) {
 /// and `forge watch` are named: an operator who cannot have the console
 /// must be told what they can have instead.
 pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option<String> {
-    let instead = "use `forge inspect --run <id>` or `forge watch --run <id>` instead";
+    let instead = "use `brokkr inspect --run <id>` or `brokkr watch --run <id>` instead";
     if !db_is_file {
         return Some(format!(
             "no workspace database to read, and a read never creates one; {instead}"
@@ -2622,12 +2622,12 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
     }
     if !is_tty {
         return Some(format!(
-            "`forge tui` needs a terminal and stdout is not one; {instead}"
+            "`brokkr tui` needs a terminal and stdout is not one; {instead}"
         ));
     }
     if size.0 < MIN_WIDTH || size.1 < MIN_HEIGHT {
         return Some(format!(
-            "this terminal is {}×{}, below the {MIN_WIDTH}×{MIN_HEIGHT} `forge tui` needs; {instead}",
+            "this terminal is {}×{}, below the {MIN_WIDTH}×{MIN_HEIGHT} `brokkr tui` needs; {instead}",
             size.0, size.1
         ));
     }

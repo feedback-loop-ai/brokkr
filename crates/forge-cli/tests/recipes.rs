@@ -10,7 +10,7 @@ use std::process::Command;
 use serde_json::{json, Value};
 
 fn forge_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_forge")
+    env!("CARGO_BIN_EXE_brokkr")
 }
 
 const POLICY: &str = r#"{

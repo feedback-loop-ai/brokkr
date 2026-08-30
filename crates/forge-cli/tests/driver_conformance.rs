@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Value};
 
 fn forge_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_forge")
+    env!("CARGO_BIN_EXE_brokkr")
 }
 
 const OBEDIENT_SHIM: &str = r#"#!/bin/sh

@@ -1,17 +1,28 @@
 [package]
 name = "forge-cli"
-description = "The forge binary: compile, run, resume, operator, inspect, replay, export, verify-run."
+description = "The brokkr binary: compile, run, resume, operator, inspect, replay, export, verify-run."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+# The primary bin: `cargo run -p forge-cli` is brokkr, never the shim.
+default-run = "brokkr"
 
 [lints]
 workspace = true
 
+[lib]
+name = "forge_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "brokkr"
+path = "src/bin/brokkr.rs"
+
+# Decision 0019 ruling 9: the old name works for one more release.
 [[bin]]
 name = "forge"
-path = "src/main.rs"
+path = "src/bin/forge.rs"
 
 [dependencies]
 forge-core = { workspace = true }

@@ -29,7 +29,7 @@ pub fn resolve(
             anyhow::ensure!(
                 path.is_dir(),
                 "recipe '{name}' not found under {}; install it with \
-                 `forge recipes add <source> --name {name}`",
+                 `brokkr recipes add <source> --name {name}`",
                 recipes_dir.display()
             );
             Ok(path)

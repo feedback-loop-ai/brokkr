@@ -577,7 +577,7 @@ fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
         Err(CompileError::Invalid(format!(
             "seat '{what}' combines 'agent' with '{key}'; an agent reference is \
              total — '{key}' states what the agent IS, and a seat that could \
-             amend it would make `forge agents show` a lie for that seat"
+             amend it would make `brokkr agents show` a lie for that seat"
         )))
     };
     for key in ["role", "limits", "inputs"] {
@@ -973,7 +973,7 @@ fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
 fn forge_executable(current: std::io::Result<PathBuf>) -> String {
     match current {
         Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "forge".to_string(),
+        Err(_) => "brokkr".to_string(),
     }
 }
 
