@@ -1269,6 +1269,13 @@ fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunV
 /// The arrowed edge between two steps: `──→`, the console's *then*.
 const ARROW_WIDTH: usize = 3;
 
+/// How the selection box breathes: this many columns from a wall to the
+/// nearest glyph of the phase it holds, on EVERY side. Two, because one
+/// is not breathing room and because a wall two columns out can never
+/// land on the arrowhead that flies into the node — the head sits one
+/// column off the rail content, inside the boundary where it belongs.
+const BOX_PAD: usize = 2;
+
 /// A label clamps here before anything structural gives way.
 const LABEL_MAX: usize = 14;
 
@@ -1551,6 +1558,14 @@ struct Seg {
     /// `Phase.name` — the cursor key, and the reason `forge-view` pins
     /// name uniqueness with a test of its own.
     key: String,
+    /// The inclusive span of this phase's own rail content — where the
+    /// connector from the phase before lands, and where the one to the
+    /// phase after leaves from.
+    rail: (usize, usize),
+    /// The inclusive span of everything the phase DRAWS: its rail
+    /// extent and its name, whichever reaches further. A name wider
+    /// than the rail hangs off its node into the gaps, so this is a
+    /// union and not a box the name widened.
     x0: usize,
     x1: usize,
     /// Already clamped, and already carrying its `▸` and its `×N`.
@@ -1596,17 +1611,51 @@ struct Ink<'a> {
     budget: usize,
 }
 
-/// One phase, laid out relative to its own origin.
+/// One phase, laid out relative to its own rail start.
 struct Built {
     rail_width: usize,
-    width: usize,
+    /// How far the name spills past its own rail content, left and
+    /// right. The name centres on the rail's centre and is NEVER moved
+    /// off it; what a wide name claims it claims from the gaps beside
+    /// the phase, not as padding inside the rail.
+    lead: usize,
+    trail: usize,
     name: String,
-    name_width: usize,
+    /// Where the name starts, from the segment's leftmost drawn column.
+    name_off: usize,
     marks: Vec<Mark>,
     joins: Vec<Join>,
     edges: Vec<usize>,
     /// The phase continues past the pane's edge.
     truncated: bool,
+}
+
+/// Where a name sits against the rail content it names. The name's own
+/// start is the rail's centre less half the name, so its overhang is
+/// that subtraction's shortfall on the left (`lead`) and its remainder
+/// past the rail's last column on the right (`trail`); `off` is the
+/// same placement measured from the segment's leftmost drawn column,
+/// which is where the layout finally needs it. One computation, three
+/// readers: the segment's drawn extent, the connector, and the box.
+struct Named {
+    lead: usize,
+    trail: usize,
+    off: usize,
+}
+
+fn name_place(rail_width: usize, name_width: usize) -> Named {
+    let centre = rail_width.saturating_sub(1) / 2;
+    let half = name_width / 2;
+    let lead = half.saturating_sub(centre);
+    // The name's last column from the rail's start: its centre plus the
+    // half that rounds up. An empty name ends where it begins and
+    // overhangs nothing, which needs no branch of its own.
+    let end = centre + (name_width - half).saturating_sub(1);
+    Named {
+        lead,
+        trail: end.saturating_sub(rail_width.saturating_sub(1)),
+        off: centre + lead - half,
+    }
 }
 
 /// One column, laid out from `x`. Placement and measurement are the same
@@ -1734,18 +1783,23 @@ fn build(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
         }
     }
     let name = clamp(&name_text(phase, lens), ink.budget);
-    let name_width = width_of(&name);
+    // A wide name no longer widens its segment. It used to, and the
+    // rail filled the padding with dashes indistinguishable from the
+    // gap, so the connector after a wide label read `────ᐳ` where its
+    // neighbours read `──ᐳ` — an accident of arithmetic on the one
+    // line whose rhythm is the grammar. The name now hangs off its own
+    // node and the frame carries ONE connector length (`connector_of`),
+    // so the dash run between any two phases is the same. The name is
+    // still centred on its node, which is what the earlier attempt at
+    // this got wrong: it clamped names into segment boxes and cascaded
+    // dense ones away from the nodes they name.
+    let place = name_place(x, width_of(&name));
     Built {
         rail_width: x,
-        // A wide name widens its segment and the rail fills the extra
-        // span with dashes — connectors of unequal LENGTH, which is
-        // fine: the operator ruled the arrow defect was the tip glyph
-        // not continuing the line, never the dash run. Decoupling the
-        // name from the width was tried and cascades dense names away
-        // from their own nodes, which is far worse.
-        width: x.max(name_width),
+        lead: place.lead,
+        trail: place.trail,
         name,
-        name_width,
+        name_off: place.off,
         marks,
         joins,
         edges,
@@ -1772,9 +1826,10 @@ fn compressed(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
     let width = 1 + label_span(&label);
     Built {
         rail_width: width,
-        width,
+        lead: 0,
+        trail: 0,
         name: String::new(),
-        name_width: 0,
+        name_off: 0,
         marks: vec![Mark {
             x: 0,
             row: ink.rail_row,
@@ -1800,32 +1855,52 @@ fn anchor_of(phases: &[Phase], cursor: Option<&str>) -> usize {
         .unwrap_or(0)
 }
 
+/// ONE connector length for the whole frame: the arrow, plus whatever
+/// the names on either side of the hungriest gap claim from it. Every
+/// pair then joins with the same dash run, which is the operator's
+/// ruling — a connector whose length varies with a neighbour's label
+/// reads as arithmetic, not as rhythm.
+fn connector_of(built: &[Built]) -> usize {
+    built
+        .windows(2)
+        .map(|pair| pair[0].trail + pair[1].lead + ARROW_WIDTH)
+        .max()
+        .unwrap_or(ARROW_WIDTH)
+}
+
+/// The columns a run of segments claims: the rail extents, one
+/// connector between each pair, and the overhang the outermost names
+/// carry past the rail at either end. Interior overhang is already paid
+/// for by the connector, which is what makes this a sum and not a walk.
+fn span_of(built: &[Built], start: usize, end: usize, connector: usize) -> usize {
+    built[start..=end]
+        .iter()
+        .map(|item| item.rail_width)
+        .sum::<usize>()
+        + connector * (end - start)
+        + built[start].lead
+        + built[end].trail
+}
+
 /// The visible run of segments: the anchor, then grow right, then left,
 /// while the budget holds. The console's answer to width was horizontal
 /// scrolling; ours is this window, walked by the arrow keys.
-fn window(widths: &[usize], anchor: usize, budget: usize) -> (usize, usize) {
+fn window(built: &[Built], anchor: usize, connector: usize, budget: usize) -> (usize, usize) {
+    if built.is_empty() {
+        return (0, 0);
+    }
     let mut start = anchor;
     let mut end = anchor;
-    let mut used = widths.get(anchor).copied().unwrap_or(0);
     loop {
-        let right = widths
-            .get(end + 1)
-            .filter(|width| used + ARROW_WIDTH + *width <= budget);
-        if let Some(width) = right {
-            used += ARROW_WIDTH + width;
+        if end + 1 < built.len() && span_of(built, start, end + 1, connector) <= budget {
             end += 1;
             continue;
         }
-        let left = start
-            .checked_sub(1)
-            .and_then(|index| widths.get(index))
-            .filter(|width| used + ARROW_WIDTH + *width <= budget);
-        if let Some(width) = left {
-            used += ARROW_WIDTH + width;
+        if start > 0 && span_of(built, start - 1, end, connector) <= budget {
             start -= 1;
             continue;
         }
-        return (start, (end + 1).min(widths.len()));
+        return (start, end + 1);
     }
 }
 
@@ -1873,7 +1948,11 @@ fn plan(
         },
         lane_span,
         lanes: mode == Mode::Full,
-        budget: width.saturating_sub(2),
+        // Column 0 and the last column are the elision marks' own, and
+        // one `BOX_PAD` inside each of those is the selection box's
+        // walls — reserved like the box ROW is, so the box breathes the
+        // same at the frame's edge as it does in the middle of it.
+        budget: width.saturating_sub(2 * (1 + BOX_PAD)),
     };
     let built: Vec<Built> = phases
         .iter()
@@ -1882,21 +1961,25 @@ fn plan(
             _ => build(phase, lens, &ink),
         })
         .collect();
-    let widths: Vec<usize> = built.iter().map(|item| item.width).collect();
-    let (start, end) = window(&widths, anchor_of(phases, cursor), ink.budget);
+    let connector = connector_of(&built);
+    let (start, end) = window(&built, anchor_of(phases, cursor), connector, ink.budget);
 
     let mut segments: Vec<Seg> = Vec::new();
     let mut edges: Vec<usize> = Vec::new();
     let mut rail: Option<(usize, usize)> = None;
-    // Column 0 and the last column are the elision marks' own, so a
-    // frame's content never sits under a `‹` or a `›`.
-    let mut x = 1usize;
+    // The first rail node stands far enough in that the leftmost thing
+    // the frame draws — the leading name's overhang — clears the
+    // elision column and the box's own wall.
+    let lead = built[start..end].first().map_or(0, |item| item.lead);
+    let mut rail_x = 1 + BOX_PAD + lead;
     for (index, item) in built[start..end].iter().enumerate() {
         let phase = &phases[start + index];
-        let origin = x + ARROW_WIDTH * usize::from(index > 0);
-        let rail_x = origin + (item.width - item.rail_width) / 2;
-        if let Some(head) = (index > 0).then_some(rail_x) {
-            edges.push(head - 1);
+        // Every gap is the same `connector` columns wide, arrowhead
+        // last — the rail's rhythm does not depend on who its
+        // neighbours are.
+        if let Some((_, previous)) = rail {
+            rail_x = previous + 1 + connector;
+            edges.push(rail_x - 1);
         }
         edges.extend(item.edges.iter().map(|edge| edge + rail_x));
         let last = rail_x + item.rail_width - 1;
@@ -1904,19 +1987,21 @@ fn plan(
             Some((first, _)) => (first, last),
             None => (rail_x, last),
         });
+        // `x0`/`x1` are everything the segment DRAWS: its rail extent
+        // and the name hanging off its node, whichever reaches further.
+        // The box pads that union, so it breathes evenly by
+        // construction rather than by a clamp that could collapse.
+        let x0 = rail_x - item.lead;
         segments.push(Seg {
             key: phase.name.clone(),
-            x0: origin,
-            x1: origin + item.width - 1,
+            rail: (rail_x, last),
+            x0,
+            x1: last + item.trail,
             name: item.name.clone(),
-            // Centred on the rail content, not on the segment box: when
-            // the name is wider than the rail, centring each in the box
-            // independently rounds them apart and the label sits a
-            // column off its own node.
-            name_x: (rail_x + item.rail_width.saturating_sub(1) / 2)
-                .saturating_sub(item.name_width / 2)
-                .max(origin)
-                .min(origin + item.width.saturating_sub(item.name_width)),
+            // Centred on the rail content, and nothing moves it off:
+            // the overhang IS the offset, so the label and its own node
+            // cannot round apart.
+            name_x: x0 + item.name_off,
             class: phase
                 .current
                 .then(|| class_for_phase(phase.current, status)),
@@ -1939,7 +2024,6 @@ fn plan(
                 })
                 .collect(),
         });
-        x = origin + item.width;
     }
     Plan {
         mode,
@@ -2017,32 +2101,42 @@ fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
 /// A fork and its rejoin. **The rejoin is drawn always** — it is the
 /// join dependency, and the whole reason a fork is not two steps.
 /// The dashed box around the selected phase — the terminal's answer to
-/// the console's dashed selection ring. It HUGS the segment's occupied
-/// rows rather than running the pane's full height: top edge one row
-/// above the segment's topmost mark, lower edge on the reserved box
-/// row, sides in the arrow gaps skipping the rail row so the rail is
-/// seen to pass THROUGH the boundary — an arrow head is never
-/// overwritten. A pane too short to reserve the box row draws none:
-/// half a box is two floating lines, which is what this replaced.
+/// the console's dashed selection ring. Lower edge on the reserved box
+/// row, sides skipping the rail row so the rail is seen to pass THROUGH
+/// the boundary — an arrow head is never overwritten. A pane too short
+/// to reserve the box row draws none: half a box is two floating lines,
+/// which is what this replaced.
 fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     let Some(bottom) = plan.box_row else {
         return;
     };
-    // FIXED height: every box spans the full lane envelope — one row
-    // above the outermost lane the plan allocated — so a plain phase
-    // and a fork get the same box, and two selections moved between
-    // never change shape. lane_span is name_row-1-rail_row by the
-    // row-allocation law, which makes the top 2·rail − name.
-    let top = (2 * plan.rail_row).saturating_sub(plan.name_row);
-    // The box encloses everything the segment DRAWS: its rail extent
-    // and its name, which may spill past the rail now that names no
-    // longer widen segments. A side through the middle of the name
-    // would be the box breaking its own contents.
-    let name_end = seg.name_x + width_of(&seg.name).saturating_sub(1);
-    let (left, right) = (
-        seg.x0.min(seg.name_x).saturating_sub(1),
-        seg.x1.max(name_end) + 1,
-    );
+    // The box spans the lane envelope OF THIS PHASE — one row above the
+    // topmost row the phase actually occupies. A plain phase gets a
+    // snug box with no empty `┆    ┆` air rows; a fork's grows to hold
+    // its own lanes. The shape is a function of the selected phase,
+    // never of the pane, so moving the selection between two plain
+    // phases cannot change it (operator's ruling, superseding the fixed
+    // full-envelope box that made every plain phase wear a fork's).
+    let top = seg
+        .marks
+        .iter()
+        .map(|mark| mark.row)
+        .chain(seg.joins.iter().flat_map(|join| join.rows.iter().copied()))
+        .min()
+        .unwrap_or(plan.rail_row)
+        .saturating_sub(1);
+    // `x0`/`x1` are already everything the segment draws, so padding
+    // them by the same `BOX_PAD` is even breathing BY CONSTRUCTION: a
+    // name can never sit flush against one wall while the other floats.
+    // Two columns out also puts every wall clear of the arrowheads —
+    // the head that lands on this phase's node is one column off its
+    // rail content, and so stays inside the boundary it points into.
+    // A wall does still CROSS the rail's dashes at the rail row, and
+    // deliberately: the rail is one unbroken line by an earlier ruling,
+    // so the only alternative is a hole in the track at every
+    // selection. Crossing a line is a boundary; standing on an arrow's
+    // point was the accident.
+    let (left, right) = (seg.x0.saturating_sub(BOX_PAD), seg.x1 + BOX_PAD);
     for x in left..=right {
         put(cells, x, top, "╌", plain());
         put(cells, x, bottom, "╌", plain());
@@ -2154,13 +2248,10 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
             }
         }
         // The selected phase sits in a dashed box — the terminal's
-        // answer to the console's dashed selection ring. The box HUGS
-        // the segment's occupied rows rather than running the pane's
-        // full height: its top edge is one row above the segment's
-        // topmost mark, its lower edge is the reserved row under the
-        // names, and its sides live in the arrow gaps, skipping the
-        // rail row so the rail is seen to pass THROUGH the boundary —
-        // an arrow head is never overwritten.
+        // answer to the console's dashed selection ring. It hugs the
+        // rows THIS phase occupies and pads what it draws evenly on
+        // both sides, skipping the rail row so the rail is seen to pass
+        // THROUGH the boundary — an arrow head is never overwritten.
         if seg.selected {
             selection_box(&mut cells, seg, plan);
         }
