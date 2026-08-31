@@ -401,21 +401,30 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                     state.park_reason = None;
                     state.cursor = Cursor::RequestEffect;
                 }
-                "stop" if parked => {
-                    state.status = Status::Running;
-                    state.park_reason = None;
-                    state.cursor = Cursor::Stop;
-                }
                 // `brokkr operator` is a live kill switch: it journals
                 // the command AND its acceptance without reading the
-                // run's cursor first, so a stop legitimately lands while
-                // an attempt is in flight. The command rides — the
-                // attempt is untouched, its checkpoints keep applying —
-                // and the effect's boundary concludes the run per it.
-                "stop" if matches!(state.cursor, Cursor::EffectInFlight { .. }) => {
-                    state.riding_stop = true;
+                // run's cursor first, so a stop legitimately lands
+                // wherever the run stands. It always reaches a
+                // conclusion; only WHEN differs. Mid-flight it rides —
+                // the attempt is untouched, its checkpoints keep
+                // applying, and the effect's own boundary (result,
+                // failure, or indeterminate close) concludes the run per
+                // it, so decision 0006's attempt bounds are never
+                // truncated. Anywhere else there is no attempt to wait
+                // for, so the run concludes where it stands: parked (the
+                // operator answering a park with "stop") and running
+                // between effects are the same sentence, finished at the
+                // first position the journal offers.
+                "stop" => {
+                    if matches!(state.cursor, Cursor::EffectInFlight { .. }) {
+                        state.riding_stop = true;
+                    } else {
+                        state.status = Status::Running;
+                        state.park_reason = None;
+                        state.cursor = Cursor::Stop;
+                    }
                 }
-                "retry" | "stop" => return Err(out_of_place(state)),
+                "retry" => return Err(out_of_place(state)),
                 other => {
                     return Err(FoldError::UnknownCommand {
                         seq: event.seq,
