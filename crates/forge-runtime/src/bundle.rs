@@ -955,7 +955,11 @@ fn lint_secret_refs(what: &str, parts: &[String], secrets: &[String]) -> Result<
 /// by this same function, which is why a resolved seat's command is an
 /// inline seat's command by construction — and why the manifest record
 /// carries names, never argv: the expansion is machine-local.
-fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
+///
+/// Public because a seat composed OUTSIDE a bundle — Muninn's, under
+/// decision 0020 — must expand the same tokens from the same code
+/// rather than from a second copy of this rule.
+pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
     parts
         .iter()
         .map(|part| {

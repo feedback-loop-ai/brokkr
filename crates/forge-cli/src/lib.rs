@@ -7,6 +7,7 @@ mod agents;
 mod compare;
 mod doctor;
 mod init;
+mod muninn;
 mod recipes;
 mod render;
 mod selector;
@@ -194,6 +195,15 @@ enum Cmd {
         #[command(subcommand)]
         command: AgentsCmd,
     },
+    /// The standing overseer (decision 0020): read the fleet, propose to
+    /// the operator, execute nothing. It opens the journal read-only,
+    /// issues no operator command, starts no run, and records every
+    /// proposal — with the run ids and sequence numbers it was derived
+    /// from — in its own append-only file beside the journal.
+    Muninn {
+        #[command(subcommand)]
+        command: MuninnCmd,
+    },
     /// Manage the operator-side secrets store (decision 0012): bundles
     /// and journals carry NAMES only; values live in this env-format
     /// file outside version control. There is no value-printing verb.
@@ -358,6 +368,32 @@ enum AgentsCmd {
         agents_dir: PathBuf,
         #[arg(long, default_value = forge_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum MuninnCmd {
+    /// Derive the fleet dossier, ask one bounded seat for proposals, and
+    /// record them. Nothing is executed: a proposal becomes an action
+    /// only when the operator issues the command themselves.
+    Run {
+        #[arg(long, default_value = ".forge/forge.db")]
+        db: PathBuf,
+        #[arg(long, default_value = forge_runtime::bundle::DEFAULT_AGENTS_DIR)]
+        agents_dir: PathBuf,
+        #[arg(long, default_value = forge_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
+        adapters_dir: PathBuf,
+        #[arg(long, default_value = muninn::DEFAULT_RECORD)]
+        record: PathBuf,
+    },
+    /// Read the record back: every proposal, with the run ids and
+    /// sequence numbers it cited.
+    List {
+        #[arg(long, default_value = muninn::DEFAULT_RECORD)]
+        record: PathBuf,
+        /// Emit the recorded entries verbatim — this is what scripts read.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1084,6 +1120,18 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Muninn { command } => match command {
+            MuninnCmd::Run {
+                db,
+                agents_dir,
+                adapters_dir,
+                record,
+            } => muninn::run(&db, &agents_dir, &adapters_dir, &record, &now_rfc3339()),
+            MuninnCmd::List { record, json } => {
+                muninn::list(&record, json)?;
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Cmd::Secrets { command } => {
             use forge_protocol::secret;
             match command {

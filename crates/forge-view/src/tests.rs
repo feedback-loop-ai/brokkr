@@ -1783,3 +1783,114 @@ fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
         "the retry's live session replaces the dead attempt's"
     );
 }
+
+#[test]
+fn only_a_parked_run_admits_an_operator_command() {
+    assert_eq!(
+        operator_commands("awaiting_operator"),
+        vec!["retry".to_string(), "stop".to_string()]
+    );
+    for status in ["running", "completed", "stopped"] {
+        assert!(
+            operator_commands(status).is_empty(),
+            "{status} admits no operator command"
+        );
+    }
+}
+
+#[test]
+fn residual_findings_come_from_the_structured_rule_inputs_only() {
+    let events = vec![
+        // Not a ruling at all.
+        ev(1, EventType::PhaseEntered, json!({"phase": "verify"}), T0),
+        // A ruling from a phase that carries no residuals.
+        ev(
+            2,
+            EventType::TransitionDecided,
+            json!({"from": "implement", "rule_id": "IMPL-OK",
+                   "inputs": {"max_residual_severity": "high"}}),
+            T0,
+        ),
+        // A ruling with no `from` at all.
+        ev(
+            3,
+            EventType::TransitionDecided,
+            json!({"rule_id": "ORPHAN", "inputs": {"has_security_residual": true}}),
+            T0,
+        ),
+        // A verify ruling whose inputs are not an object.
+        ev(
+            4,
+            EventType::TransitionDecided,
+            json!({"from": "verify", "rule_id": "VERIFY-PASS", "inputs": "none"}),
+            T0,
+        ),
+        // Every arm of the vocabulary, in one review ruling: a ranked
+        // severity above `none`, a true flag, a false flag, a severity
+        // of `none`, an unranked severity name, a non-string severity,
+        // and a key the vocabulary does not read.
+        ev(
+            5,
+            EventType::TransitionDecided,
+            json!({"from": "review", "rule_id": null,
+            "inputs": {
+                "max_residual_severity": "high",
+                "has_security_residual": true,
+                "high_risk_uncovered": false,
+                "fixes_applied": true,
+            }}),
+            T0,
+        ),
+        ev(
+            6,
+            EventType::TransitionDecided,
+            json!({"from": "verify", "rule_id": "VERIFY-PASS",
+                   "inputs": {"max_residual_severity": "none"}}),
+            T0,
+        ),
+        ev(
+            7,
+            EventType::TransitionDecided,
+            json!({"from": "verify", "rule_id": "VERIFY-PASS",
+                   "inputs": {"max_residual_severity": "enormous"}}),
+            T0,
+        ),
+        ev(
+            8,
+            EventType::TransitionDecided,
+            json!({"from": "verify", "rule_id": "VERIFY-PASS",
+                   "inputs": {"max_residual_severity": 3}}),
+            T0,
+        ),
+    ];
+    let findings = residual_findings("r1", &events);
+    let lines: Vec<&str> = findings.iter().map(|f| f.line.as_str()).collect();
+    assert_eq!(
+        lines,
+        vec![
+            "r1 seq 5 · review · ? · has_security_residual: true",
+            "r1 seq 5 · review · ? · max_residual_severity: high",
+        ],
+        "only the ranked severity and the true flag survive"
+    );
+    assert_eq!(findings[0].run_id, "r1");
+    assert_eq!(findings[0].seq, 5);
+    assert_eq!(findings[0].phase, "review");
+    assert_eq!(findings[1].input, "max_residual_severity");
+    assert_eq!(findings[1].value, "high");
+
+    // The other true flag, and a named rule, so the rendered sentence is
+    // read with a rule id as well as without one.
+    let uncovered = vec![ev(
+        1,
+        EventType::TransitionDecided,
+        json!({"from": "review", "rule_id": "REVIEW-RESIDUAL-OK",
+               "inputs": {"high_risk_uncovered": true}}),
+        T0,
+    )];
+    assert_eq!(
+        residual_findings("r2", &uncovered)[0].line,
+        "r2 seq 1 · review · REVIEW-RESIDUAL-OK · high_risk_uncovered: true"
+    );
+    assert!(residual_findings("r3", &[]).is_empty());
+}

@@ -1,0 +1,532 @@
+//! `brokkr muninn` — the standing overseer (decision 0020).
+//!
+//! One invocation, three steps and no fourth: derive a fleet dossier
+//! from the journal, hand it to one bounded seat, record what that seat
+//! proposed. Nothing here executes a proposal, and nothing here can:
+//!
+//! - The store is opened READ-ONLY, so this path cannot append an event
+//!   to any run's journal even by defect. The engine stays the single
+//!   writer of run journals (ruling 3).
+//! - The seat runs through `forge_protocol::oneshot`, which owns its own
+//!   scratch directory and knows nothing about the journal. No
+//!   repository tree is named in its input, so none can be reached by
+//!   name (ruling 1).
+//! - Its input carries no bound values and names no store of them:
+//!   decision 0012's bindings are for seats that do work, and this seat
+//!   does none.
+//! - Proposals land in this module's own append-only file, beside the
+//!   run journals and inside none of them (ruling 3). A report that does
+//!   not validate is not recorded at all — an unverifiable proposal is
+//!   worse than no proposal, because a later reader cannot tell it from
+//!   a real reading.
+//!
+//! The command carries the name; the output does not. Everything printed
+//! and everything recorded here is plain mechanic language (0019 law 4).
+
+mod record;
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use forge_core::fold::fold;
+use forge_protocol::oneshot::{self, OneShot};
+use forge_runtime::bundle::expand_command;
+use forge_runtime::{Adapters, Availability, Library};
+use forge_store::Store;
+use serde_json::{json, Value};
+
+use crate::render::Safe;
+
+/// The agent definition this command invokes.
+pub const AGENT: &str = "muninn";
+
+/// The seat name the driver is started with. There is no phase here —
+/// this seat belongs to no run — but the protocol names a seat, and this
+/// is the honest name for it.
+pub const SEAT: &str = "muninn";
+
+/// The one result the seat is allowed to reach.
+pub const PROPOSED: &str = "proposed";
+
+/// Wire version of the dossier handed to the seat.
+pub const DOSSIER_VERSION: u32 = 1;
+
+/// Wire version of one line in the record.
+pub const RECORD_VERSION: u32 = 1;
+
+/// The record's default location: beside the workspace journal, and
+/// deliberately not inside it.
+pub const DEFAULT_RECORD: &str = ".forge/muninn.ndjson";
+
+/// The one-line task the seat's prompt carries.
+const TASK: &str = "Read the fleet dossier below and propose operator actions. \
+                    Propose only: issue no command and start no run.";
+
+/// What the whole fleet looks like to the seat, plus the two things a
+/// report is judged against: the facts the dossier states, and the
+/// operator commands each run admits.
+#[derive(Debug)]
+pub struct Dossier {
+    /// The dossier as the seat receives it.
+    pub value: Value,
+    /// Every (run id, sequence number) the dossier states — the closed
+    /// set a proposal may cite. Decision 0007's provenance discipline,
+    /// applied to advice instead of to a seat input.
+    pub facts: Vec<(String, u64)>,
+    /// Per run, the operator commands `forge-view` derives as legal.
+    pub commands: BTreeMap<String, Vec<String>>,
+}
+
+impl Dossier {
+    fn states(&self, run_id: &str, seq: u64) -> bool {
+        self.facts
+            .iter()
+            .any(|(known, at)| known == run_id && *at == seq)
+    }
+
+    fn admits(&self, run_id: &str, command: &str) -> bool {
+        match self.commands.get(run_id) {
+            Some(commands) => commands.iter().any(|known| known == command),
+            None => false,
+        }
+    }
+}
+
+/// The fleet, derived from the same view models every read surface
+/// consumes (decision 0013). Nothing is re-read from the journal by hand
+/// here: a second derivation is a second answer waiting to disagree.
+pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
+    let mut rows: Vec<Value> = Vec::new();
+    let mut findings: Vec<Value> = Vec::new();
+    let mut facts: Vec<(String, u64)> = Vec::new();
+    let mut commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    for (run_id, feature, created_at) in store.list_runs()? {
+        let events = store
+            .load(&run_id)
+            .with_context(|| format!("loading run '{run_id}'"))?;
+        let state = fold(&events).with_context(|| format!("folding run '{run_id}'"))?;
+        let view = forge_view::run_view(&events, Some(&state));
+        let summary = view
+            .summary
+            .as_ref()
+            .expect("a folded state always summarizes");
+        let admits = forge_view::operator_commands(&summary.status);
+        *counts.entry(summary.status.clone()).or_default() += 1;
+        facts.push((run_id.clone(), summary.seq));
+        commands.insert(run_id.clone(), admits.clone());
+        for finding in forge_view::residual_findings(&run_id, &events) {
+            facts.push((run_id.clone(), finding.seq));
+            findings.push(serde_json::to_value(&finding)?);
+        }
+        // A panel or sequence seat's row already aggregates its members'
+        // cost, so counting members again would bill the run twice.
+        let seats: Vec<&forge_view::Participant> = view
+            .participants
+            .iter()
+            .filter(|part| part.member.is_none())
+            .collect();
+        let costs: Vec<f64> = seats.iter().filter_map(|part| part.cost).collect();
+        let cost = match costs.is_empty() {
+            true => None,
+            false => Some(costs.iter().sum::<f64>()),
+        };
+        rows.push(json!({
+            "run_id": run_id,
+            "seq": summary.seq,
+            "status": summary.status,
+            "phase": summary.phase,
+            "feature": feature,
+            "created_at": created_at,
+            "age": forge_view::age(&created_at, now),
+            "park_reason": summary.park_reason,
+            "operator_commands": admits,
+            "consecutive_failures": summary.consecutive_failures,
+            "last_ruling": serde_json::to_value(&view.ruling)?,
+            "cost_usd": cost,
+            "seats": seats.iter().map(|part| json!({
+                "seat": part.label,
+                "phase": part.phase,
+                "status": part.status,
+                "attempts": part.attempts,
+                "cost_usd": part.cost,
+            })).collect::<Vec<Value>>(),
+        }));
+    }
+    facts.sort();
+    facts.dedup();
+    let count = |status: &str| counts.get(status).copied().unwrap_or(0);
+    let value = json!({
+        "dossier_version": DOSSIER_VERSION,
+        "generated_at": now,
+        "fleet": {
+            "runs": rows.len(),
+            "running": count("running"),
+            "awaiting_operator": count("awaiting_operator"),
+            "completed": count("completed"),
+            "stopped": count("stopped"),
+        },
+        "runs": rows,
+        "residual_findings": findings,
+    });
+    Ok(Dossier {
+        value,
+        facts,
+        commands,
+    })
+}
+
+// -------------------------------------------------------- the seat
+
+/// One resolved invocation of the overseer: the command, the charter it
+/// reads, the deadline it runs under, and the model actually serving it.
+#[derive(Debug)]
+pub struct Seat {
+    pub command: Vec<String>,
+    pub charter: PathBuf,
+    pub deadline: Duration,
+    pub model: String,
+    pub provider: String,
+}
+
+/// Resolve the agent through decision 0016's library, and refuse a
+/// definition that gives this seat a retry ladder: ruling 4 says one
+/// invocation produces its report or nothing, and `max_attempts` is
+/// where that would quietly stop being true.
+pub fn seat(agents_dir: &Path, adapters_dir: &Path) -> Result<Seat> {
+    let library = Library::load(agents_dir)?;
+    let adapters = Adapters::load(adapters_dir)?;
+    let resolved =
+        forge_runtime::resolve_agent(&library, &adapters, &Availability::unspecified(), AGENT)
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let limits = resolved.limits.unwrap_or_default();
+    anyhow::ensure!(
+        limits.max_attempts == 1,
+        "agent '{AGENT}' declares max_attempts {}; this seat runs once per \
+         invocation and has no retry ladder of its own",
+        limits.max_attempts
+    );
+    let candidate = resolved
+        .candidates
+        .first()
+        .expect("resolution yields at least one candidate or refuses");
+    Ok(Seat {
+        command: expand_command(agents_dir, &candidate.argv),
+        charter: resolved.charter,
+        deadline: Duration::from_secs(limits.timeout_seconds),
+        model: candidate.model.clone(),
+        provider: candidate.provider.clone(),
+    })
+}
+
+/// The seat's input. `workdir` is the scratch directory and nothing
+/// else, and there is no `secrets` or `secrets_file` key for a resolver
+/// to act on — both absences are the guarantee, not an oversight.
+fn seat_input(seat: &Seat, dossier: &Dossier, scratch: &Path) -> Value {
+    json!({
+        "role_path": seat.charter.to_string_lossy(),
+        "feature": TASK,
+        "phase": SEAT,
+        "workdir": scratch.to_string_lossy(),
+        "result_path": scratch.join("report.json").to_string_lossy(),
+        "allowed_results": [PROPOSED],
+        "context": dossier.value,
+    })
+}
+
+// ------------------------------------------------------ the report
+
+/// A validated report. The fields are the three proposal kinds v1
+/// carries, plus the citations every entry in them stated.
+pub struct Report {
+    pub fleet_summary: String,
+    pub parked_runs: Vec<Value>,
+    pub work_queue: Vec<Value>,
+    pub citations: Vec<(String, u64)>,
+}
+
+fn string_field(what: &str, object: &Value, key: &str) -> Result<String, String> {
+    match object.get(key).and_then(Value::as_str) {
+        Some(text) if !text.is_empty() => Ok(text.to_string()),
+        _ => Err(format!("{what} is missing a non-empty '{key}'")),
+    }
+}
+
+fn array_field<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("the report is missing the '{key}' array"))
+}
+
+/// The citation check: a proposal may only name a run and a sequence
+/// number the dossier actually stated. A reader who cannot follow a
+/// citation back to a journal fact cannot tell advice from invention.
+fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<(String, u64), String> {
+    let run_id = string_field(what, entry, "run_id")?;
+    let seq = entry
+        .get("seq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{what} is missing a numeric 'seq'"))?;
+    if !dossier.states(&run_id, seq) {
+        return Err(format!(
+            "{what} cites {run_id} seq {seq}, which the dossier does not state"
+        ));
+    }
+    Ok((run_id, seq))
+}
+
+/// Read the seat's result into a report, or say exactly what is wrong
+/// with it. Nothing is repaired and nothing is partially accepted
+/// (decision 0001): a report with one bad entry is a bad report.
+pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
+    let reached = result.get("result").and_then(Value::as_str);
+    if reached != Some(PROPOSED) {
+        return Err(format!(
+            "the seat reached '{}', not '{PROPOSED}'",
+            reached.unwrap_or(forge_view::ABSENT)
+        ));
+    }
+    let inputs = result
+        .get("inputs")
+        .ok_or_else(|| "the report carries no 'inputs' object".to_string())?;
+    let fleet_summary = string_field("the report", inputs, "fleet_summary")?;
+    let mut citations: Vec<(String, u64)> = Vec::new();
+    let mut parked_runs = Vec::new();
+    for entry in array_field(inputs, "parked_runs")? {
+        let what = "a parked-run proposal";
+        let (run_id, seq) = citation(what, dossier, entry)?;
+        let command = string_field(what, entry, "command")?;
+        if !dossier.admits(&run_id, &command) {
+            return Err(format!(
+                "{what} suggests '{command}' for {run_id}, which is not an operator \
+                 command the dossier states for it"
+            ));
+        }
+        let reasoning = string_field(what, entry, "reasoning")?;
+        citations.push((run_id.clone(), seq));
+        parked_runs.push(json!({
+            "run_id": run_id,
+            "seq": seq,
+            "command": command,
+            "reasoning": reasoning,
+        }));
+    }
+    let mut work_queue = Vec::new();
+    for entry in array_field(inputs, "work_queue")? {
+        let what = "a work-queue entry";
+        let (run_id, seq) = citation(what, dossier, entry)?;
+        let finding = string_field(what, entry, "finding")?;
+        let reasoning = string_field(what, entry, "reasoning")?;
+        citations.push((run_id.clone(), seq));
+        work_queue.push(json!({
+            "run_id": run_id,
+            "seq": seq,
+            "finding": finding,
+            "reasoning": reasoning,
+        }));
+    }
+    citations.sort();
+    citations.dedup();
+    Ok(Report {
+        fleet_summary,
+        parked_runs,
+        work_queue,
+        citations,
+    })
+}
+
+/// The seat's own cost and usage, read from the session checkpoint its
+/// driver reports. A driver that reports none leaves this null: the
+/// record says nothing rather than claiming zero.
+fn usage(checkpoints: &[Value]) -> Value {
+    let session = checkpoints.iter().rev().find(|checkpoint| {
+        checkpoint
+            .get("step")
+            .and_then(Value::as_str)
+            .is_some_and(|step| step.ends_with("-session-finished"))
+    });
+    match session {
+        None => Value::Null,
+        Some(session) => json!({
+            "cost_usd": session.get("total_cost_usd"),
+            "turns": session.get("num_turns"),
+            "session_id": session.get("session_id"),
+        }),
+    }
+}
+
+/// One line of the record: what was proposed, what it was derived from,
+/// when, and what the seat cost.
+fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Value) -> Value {
+    json!({
+        "record_version": RECORD_VERSION,
+        "recorded_at": now,
+        "agent": {
+            "name": AGENT,
+            "model": seat.model,
+            "provider": seat.provider,
+            "deadline_seconds": seat.deadline.as_secs(),
+        },
+        "dossier": {
+            "dossier_version": DOSSIER_VERSION,
+            "generated_at": now,
+            "fleet": dossier.value.get("fleet"),
+        },
+        "fleet_summary": report.fleet_summary,
+        "parked_runs": report.parked_runs,
+        "work_queue": report.work_queue,
+        "citations": report.citations.iter()
+            .map(|(run_id, seq)| json!({"run_id": run_id, "seq": seq}))
+            .collect::<Vec<Value>>(),
+        "usage": usage,
+    })
+}
+
+// ------------------------------------------------------- rendering
+
+/// Every string a reader sees here was written by the seat, so it gets
+/// the same treatment every other journal-derived string reaching a
+/// terminal gets: `Safe` strips the control and reordering characters
+/// that would otherwise let a report overwrite the line above it or
+/// reverse the ruling it just cited.
+fn text(value: &Value, key: &str) -> String {
+    Safe::new(
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or(forge_view::ABSENT),
+    )
+    .as_str()
+    .to_string()
+}
+
+fn number(value: &Value, key: &str) -> String {
+    match value.get(key).and_then(Value::as_u64) {
+        Some(number) => number.to_string(),
+        None => forge_view::ABSENT.to_string(),
+    }
+}
+
+fn rows<'a>(value: &'a Value, key: &str) -> &'a [Value] {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// One recorded invocation, as a reader sees it: what was proposed, and
+/// the run id and sequence number behind every line of it.
+fn render(entry: &Value) -> String {
+    let parked = rows(entry, "parked_runs");
+    let queued = rows(entry, "work_queue");
+    let mut out = format!(
+        "{} · {} proposals for parked runs · {} findings queued\n",
+        text(entry, "recorded_at"),
+        parked.len(),
+        queued.len()
+    );
+    out.push_str(&format!("  summary: {}\n", text(entry, "fleet_summary")));
+    for proposal in parked {
+        out.push_str(&format!(
+            "  parked {} seq {} · suggest '{}' · {}\n",
+            text(proposal, "run_id"),
+            number(proposal, "seq"),
+            text(proposal, "command"),
+            text(proposal, "reasoning")
+        ));
+    }
+    for item in queued {
+        out.push_str(&format!(
+            "  queue {} seq {} · {} · {}\n",
+            text(item, "run_id"),
+            number(item, "seq"),
+            text(item, "finding"),
+            text(item, "reasoning")
+        ));
+    }
+    let cited: Vec<String> = rows(entry, "citations")
+        .iter()
+        .map(|fact| format!("{} seq {}", text(fact, "run_id"), number(fact, "seq")))
+        .collect();
+    out.push_str(&format!("  cites: {}\n", cited.join(", ")));
+    out
+}
+
+// -------------------------------------------------------- commands
+
+/// `brokkr muninn run`. A refused invocation and an unusable report both
+/// record nothing, print one plain line, and exit nonzero: the record is
+/// evidence, and evidence nobody can check is not evidence.
+pub fn run(
+    db: &Path,
+    agents_dir: &Path,
+    adapters_dir: &Path,
+    record_path: &Path,
+    now: &str,
+) -> Result<ExitCode> {
+    let store = Store::open_read_only(db)
+        .with_context(|| format!("opening {} for reading", db.display()))?;
+    let dossier = dossier(&store, now)?;
+    let seat = seat(agents_dir, adapters_dir)?;
+    let outcome = oneshot::run_once(&seat.command, SEAT, seat.deadline, |scratch| {
+        seat_input(&seat, &dossier, scratch)
+    });
+    let (result, checkpoints) = match outcome {
+        // The reason carries the driver's own words, so it is sanitized
+        // like anything else that reaches a terminal from outside.
+        OneShot::Refused { reason } => {
+            eprintln!(
+                "muninn produced no report and recorded nothing: {}",
+                Safe::new(&reason).as_str()
+            );
+            return Ok(ExitCode::from(1));
+        }
+        OneShot::Produced {
+            result,
+            checkpoints,
+        } => (result, checkpoints),
+    };
+    let report = match validate(&dossier, &result) {
+        Ok(report) => report,
+        Err(problem) => {
+            eprintln!(
+                "muninn's report was not usable and was not recorded: {}",
+                Safe::new(&problem).as_str()
+            );
+            return Ok(ExitCode::from(1));
+        }
+    };
+    let entry = entry(now, &seat, &dossier, &report, usage(&checkpoints));
+    record::append(record_path, &entry)?;
+    print!("{}", render(&entry));
+    eprintln!(
+        "recorded in {}; nothing was executed — issue any command yourself",
+        record_path.display()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `brokkr muninn list`. Reads the record back, citations included.
+pub fn list(record_path: &Path, json: bool) -> Result<()> {
+    let entries = record::read(record_path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+    if entries.is_empty() {
+        println!("no proposals recorded in {}", record_path.display());
+        return Ok(());
+    }
+    for entry in &entries {
+        print!("{}", render(entry));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

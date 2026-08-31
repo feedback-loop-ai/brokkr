@@ -1,0 +1,12 @@
+{
+  "description": "Reads the fleet dossier and proposes operator actions; issues none.",
+  "charter": "charters/muninn.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "limits": {
+    "max_attempts": 1,
+    "timeout_seconds": 900
+  }
+}

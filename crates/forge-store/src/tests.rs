@@ -202,3 +202,77 @@ fn open_and_create_surface_sqlite_failures_at_exact_boundaries() {
         Err(StoreError::Sqlite(_))
     ));
 }
+
+#[test]
+fn read_only_open_reads_the_journal_and_refuses_every_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+
+    let mut reader = Store::open_read_only(&db).unwrap();
+    assert_eq!(reader.list_runs().unwrap().len(), 1);
+    assert_eq!(reader.load("r1").unwrap().len(), 1);
+    // The refusal is SQLite's, not this module's discipline.
+    assert!(matches!(
+        reader.append_next("r1", EventType::PhaseEntered, json!({}), None, None),
+        Err(StoreError::Sqlite(_))
+    ));
+    assert!(matches!(
+        reader.create_run("r2", "feat", "self", &json!({})),
+        Err(StoreError::Sqlite(_))
+    ));
+    drop(reader);
+
+    // Nothing moved: the read-only session left the journal as it was.
+    let after = Store::open(&db).unwrap();
+    assert_eq!(after.load("r1").unwrap().len(), 1);
+}
+
+#[test]
+fn read_only_open_refuses_a_missing_and_a_foreign_database() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(matches!(
+        Store::open_read_only(&dir.path().join("absent.db")),
+        Err(StoreError::Sqlite(_))
+    ));
+
+    // A SQLite file that is not a journal at all: it opens, and the
+    // schema question is what refuses it. No migration runs to invent
+    // the table it is missing.
+    let foreign = dir.path().join("foreign.db");
+    let conn = Connection::open(&foreign).unwrap();
+    conn.execute_batch("CREATE TABLE something_else (key TEXT);")
+        .unwrap();
+    drop(conn);
+    assert!(matches!(
+        Store::open_read_only(&foreign),
+        Err(StoreError::Sqlite(_))
+    ));
+
+    let db = dir.path().join("forge.db");
+    drop(Store::open(&db).unwrap());
+    let conn = Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE meta SET value = 'not-a-schema' WHERE key = 'database_schema'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    assert!(matches!(
+        Store::open_read_only(&db),
+        Err(StoreError::SchemaMismatch { found: 0 })
+    ));
+}
