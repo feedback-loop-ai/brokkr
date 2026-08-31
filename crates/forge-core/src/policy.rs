@@ -21,6 +21,20 @@ pub const SEVERITY_ORDER: [&str; 6] = ["none", "info", "low", "medium", "high", 
 /// Ruling severity axis — the forge.phase-event/v1 vocabulary.
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 
+/// The table format this evaluator reads. `v2` adds exactly one thing to
+/// `v1` (decision 0022): a rule may rule a PARK instead of a transition.
+/// A `v1` table is still read as it always was; a table that parks must
+/// say so in its own `schema`, because a park is not a stop and the
+/// difference is the whole point of the ruling.
+pub const TABLE_SCHEMA_V1: &str = "forge.phase-machine/v1";
+pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
+
+/// Condition prefix of the phase-visit predicate (decision 0022):
+/// `visits_<phase>_gte` reads how many times the run has entered
+/// `<phase>`. Engine-owned like every other counter — the journal counts
+/// visits, a seat never claims one.
+pub const VISIT_PREFIX: &str = "visits_";
+
 pub const BOOLEAN_INPUTS: [&str; 6] = [
     "skip_verify",
     "fixes_applied",
@@ -52,7 +66,10 @@ pub struct Rule {
     pub id: String,
     pub from: String,
     pub result: String,
-    pub next: String,
+    /// The phase this rule advances to, or `None` when the rule rules a
+    /// PARK (decision 0022, table schema v2): the run stops running and
+    /// waits for the operator, and the journal says a rule put it there.
+    pub next: Option<String>,
     pub severity: String,
     pub reason: String,
     pub requires_artifacts: Vec<String>,
@@ -68,6 +85,10 @@ pub enum Outcome {
         reason: String,
         requires_artifacts: Vec<String>,
     },
+    /// A rule ruled a PARK (decision 0022): the run awaits the operator
+    /// with this rule's reason. Distinct from `NoRule` — the machine DID
+    /// rule; the ruling was "this one is yours".
+    Park { rule_id: String, reason: String },
     /// No ruling is possible: the engine MUST park (law 0001). `problem`
     /// None means no rule matched; Some means the machine refused to rule
     /// (unknown phase, unreadable input).
@@ -112,6 +133,8 @@ impl Machine {
             None => Vec::new(),
         };
 
+        let schema = obj.get("schema").and_then(Value::as_str);
+
         let raw_rules = obj["rules"]
             .as_array()
             .ok_or_else(|| PolicyError("rules must be an array".into()))?;
@@ -119,7 +142,7 @@ impl Machine {
         let mut seen_ids: Vec<String> = Vec::new();
         let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
         for raw in raw_rules {
-            let rule = parse_rule(raw, &phases, &terminal)?;
+            let rule = parse_rule(raw, &phases, &terminal, schema)?;
             if seen_ids.contains(&rule.id) {
                 return Err(PolicyError(format!("duplicate rule id {}", rule.id)));
             }
@@ -161,12 +184,18 @@ impl Machine {
             match conditions_met(&rule.when, inputs) {
                 Ok(false) => continue,
                 Ok(true) => {
-                    return Outcome::Ruling {
-                        rule_id: rule.id.clone(),
-                        next_phase: rule.next.clone(),
-                        severity: rule.severity.clone(),
-                        reason: rule.reason.clone(),
-                        requires_artifacts: rule.requires_artifacts.clone(),
+                    return match &rule.next {
+                        Some(next_phase) => Outcome::Ruling {
+                            rule_id: rule.id.clone(),
+                            next_phase: next_phase.clone(),
+                            severity: rule.severity.clone(),
+                            reason: rule.reason.clone(),
+                            requires_artifacts: rule.requires_artifacts.clone(),
+                        },
+                        None => Outcome::Park {
+                            rule_id: rule.id.clone(),
+                            reason: rule.reason.clone(),
+                        },
                     }
                 }
                 Err(problem) => {
@@ -177,6 +206,28 @@ impl Machine {
             }
         }
         Outcome::NoRule { problem: None }
+    }
+
+    /// The phases whose visit counts the rules of `from` read (decision
+    /// 0022) — exactly the `visits_<phase>` facts the engine must supply
+    /// when it decides a result from `from`, and no others: a table that
+    /// asks nothing about visits journals nothing about them.
+    pub fn visit_phases(&self, from: &str) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for rule in self.rules.iter().filter(|rule| rule.from == from) {
+            for condition in &rule.when {
+                let Condition::CounterGte { name, .. } = condition else {
+                    continue;
+                };
+                let Some(phase) = name.strip_prefix(VISIT_PREFIX) else {
+                    continue;
+                };
+                if !names.iter().any(|known| known == phase) {
+                    names.push(phase.to_string());
+                }
+            }
+        }
+        names
     }
 }
 
@@ -193,7 +244,12 @@ fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
         .collect()
 }
 
-fn parse_rule(raw: &Value, phases: &[String], terminal: &[String]) -> Result<Rule, PolicyError> {
+fn parse_rule(
+    raw: &Value,
+    phases: &[String],
+    terminal: &[String],
+    schema: Option<&str>,
+) -> Result<Rule, PolicyError> {
     let obj = raw
         .as_object()
         .ok_or_else(|| PolicyError("rule must be an object".into()))?;
@@ -211,9 +267,50 @@ fn parse_rule(raw: &Value, phases: &[String], terminal: &[String]) -> Result<Rul
     let id = field("id")?;
     let from = field("from")?;
     let result = field("result")?;
-    let next = field("next")?;
     let reason = field("reason")?;
-    if !phases.contains(&from) || !phases.contains(&next) {
+    // A rule either advances the run or parks it — never both, never
+    // neither. `park` is v2 vocabulary and the table must declare it:
+    // a park read out of a table calling itself v1 would be a ruling
+    // nobody reviewed (decision 0022).
+    let parks = match obj.get("park") {
+        None => false,
+        Some(Value::Bool(true)) => true,
+        Some(other) => {
+            return Err(PolicyError(format!(
+                "rule {id}: 'park' must be true when present, got {other}; a park \
+                 is a ruling, not a switch to leave off"
+            )))
+        }
+    };
+    let next = match (parks, obj.get("next")) {
+        (false, _) => Some(field("next")?),
+        (true, None) => None,
+        (true, Some(_)) => {
+            return Err(PolicyError(format!(
+                "rule {id} both parks and names a next phase; a parked run takes \
+                 no transition"
+            )))
+        }
+    };
+    if parks {
+        if schema != Some(TABLE_SCHEMA_V2) {
+            return Err(PolicyError(format!(
+                "rule {id} parks, which is {TABLE_SCHEMA_V2} vocabulary, but the \
+                 table declares {}",
+                schema.unwrap_or("no schema")
+            )));
+        }
+        for forbidden in ["severity", "requires_artifacts"] {
+            if obj.contains_key(forbidden) {
+                return Err(PolicyError(format!(
+                    "rule {id} parks and declares '{forbidden}'; a park takes no \
+                     transition, so it has neither a ruling severity nor an \
+                     artifact gate"
+                )));
+            }
+        }
+    }
+    if !phases.contains(&from) || next.as_ref().is_some_and(|next| !phases.contains(next)) {
         return Err(PolicyError(format!("rule {id} references unknown phase")));
     }
     if terminal.contains(&from) {
@@ -247,7 +344,7 @@ fn parse_rule(raw: &Value, phases: &[String], terminal: &[String]) -> Result<Rul
                 .ok_or_else(|| PolicyError(format!("rule {id} 'when' must be an object")))?;
             let mut conditions = Vec::with_capacity(map.len());
             for (key, expected) in map {
-                conditions.push(parse_condition(&id, key, expected)?);
+                conditions.push(parse_condition(&id, key, expected, phases)?);
             }
             conditions
         }
@@ -266,12 +363,25 @@ fn parse_rule(raw: &Value, phases: &[String], terminal: &[String]) -> Result<Rul
 
 /// Load-time half of the closed vocabulary: every condition names a
 /// declared input and carries a threshold of the right type.
-fn parse_condition(rule_id: &str, key: &str, expected: &Value) -> Result<Condition, PolicyError> {
+fn parse_condition(
+    rule_id: &str,
+    key: &str,
+    expected: &Value,
+    phases: &[String],
+) -> Result<Condition, PolicyError> {
     if let Some(name) = key.strip_suffix("_gte") {
-        if !COUNTER_INPUTS.contains(&name) {
+        // Counters are the declared list plus one family: the phase-visit
+        // predicate (decision 0022), whose suffix must name a phase THIS
+        // table has — the vocabulary stays closed, it just closes over
+        // the table's own graph.
+        let visit_phase = name
+            .strip_prefix(VISIT_PREFIX)
+            .filter(|phase| phases.iter().any(|known| known == phase));
+        if !COUNTER_INPUTS.contains(&name) && visit_phase.is_none() {
             return Err(PolicyError(format!(
                 "rule {rule_id}: unknown counter '{name}' in condition '{key}'; \
-                 known: {COUNTER_INPUTS:?}"
+                 known: {COUNTER_INPUTS:?} plus '{VISIT_PREFIX}<phase>' over this \
+                 table's phases {phases:?}"
             )));
         }
         let threshold = expected.as_f64().ok_or_else(|| {

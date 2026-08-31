@@ -27,6 +27,8 @@ fn state(cursor: Cursor) -> RunState {
         phase: Some("work".into()),
         cursor,
         consecutive_failures: BTreeMap::new(),
+        visits: BTreeMap::new(),
+        last_result: None,
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
@@ -265,6 +267,71 @@ fn decision_captures_reviewed_heads() {
         ),
     )
     .unwrap();
+}
+
+/// Decision 0022's two derived facts, and the park reason that must not
+/// mislabel itself: the fold counts every `phase/entered`, keeps the raw
+/// result of the last succeeded effect, and says WHICH rule parked a run
+/// when a rule is what parked it.
+#[test]
+fn the_fold_counts_visits_keeps_the_last_result_and_names_the_rule_that_parked() {
+    let mut current = state(Cursor::Start);
+    for phase in ["work", "check", "work"] {
+        current.cursor = Cursor::EnterPhase {
+            phase: phase.into(),
+        };
+        apply(
+            &mut current,
+            &event(EventType::PhaseEntered, json!({"phase": phase})),
+        )
+        .unwrap();
+    }
+    assert_eq!(current.visits.get("work"), Some(&2));
+    assert_eq!(current.visits.get("check"), Some(&1));
+    assert_eq!(current.visits.get("ship"), None);
+
+    let finding = json!({"result": "residual", "notes": "the handle came out short"});
+    current.cursor = Cursor::EffectInFlight {
+        effect_id: "e".into(),
+        attempt_id: "a".into(),
+        seat: "work".into(),
+        failed_attempts: 0,
+    };
+    apply(
+        &mut current,
+        &event(
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e", "attempt_id": "a", "result": finding}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(current.last_result, Some(finding));
+
+    // A named rule reached the park position on purpose. Saying "no
+    // ruling" there would be exactly the mislabeling 0022 forbids.
+    let parked = |payload: Value| {
+        let mut current = state(Cursor::Decide {
+            effect_id: "e".into(),
+            result: json!({}),
+        });
+        apply(&mut current, &event(EventType::TransitionDecided, payload)).unwrap();
+        match current.cursor {
+            Cursor::Park { reason } => reason,
+            other => panic!("expected a park, got {other:?}"),
+        }
+    };
+    assert_eq!(
+        parked(json!({
+            "from": "review", "result": "residual", "rule_id": "REVIEW-REFORGE-EXHAUSTED-MEDIUM",
+            "next": null, "problem": "a medium security residual survives",
+        })),
+        "REVIEW-REFORGE-EXHAUSTED-MEDIUM for (review, residual): \
+         a medium security residual survives"
+    );
+    assert_eq!(
+        parked(json!({"from": "review", "result": "novel", "rule_id": null, "next": null})),
+        "no ruling for (review, novel): no rule matched"
+    );
 }
 
 /// The operator's kill switch journals a stop AND its acceptance

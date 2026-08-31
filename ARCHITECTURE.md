@@ -92,9 +92,20 @@ non-stop terminal.
 
 Input provenance is compile-time (decision 0007): every evaluation
 input is either engine-owned (journal-computed — `consecutive_failures`,
-drift, dirty, reviewed heads — overlaid over anything a seat claims) or
-declared by the seat that may supply it; everything else is dropped
-before it reaches the table or the record.
+drift, dirty, reviewed heads, and every `visits_<phase>` — overlaid over
+anything a seat claims) or declared by the seat that may supply it;
+everything else is dropped before it reaches the table or the record.
+
+The graph has a way BACK (decision 0022, table schema
+`forge.phase-machine/v2`). A rule may read `visits_<phase>_gte` — the
+same count the graph renders as `×N` — so a back-edge can be bounded in
+the machine's own vocabulary rather than by a seat's promise; and a rule
+may rule a **park** instead of a next phase, so a run can be handed to
+the operator without a stop being made to impersonate one. The seat a
+run RETURNS to receives the result that sent it back as
+`context.returned_from`, which is how a review's findings reach the
+implementer who has to answer them. A seat on its first visit receives
+nothing new.
 
 ## Bundles: seats, panels, drivers, trust
 

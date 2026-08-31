@@ -71,19 +71,96 @@ const POLICY: &str = r#"{
   ]
 }"#;
 
+/// The same machine with decision 0022's review constitution: a security
+/// residual sends the run BACK to implement while implement's visit count
+/// stays inside two reforgings, and the exhaustion ladder then stops,
+/// parks, or ships it as named debt. The non-security rules are the v1
+/// table's, character for character.
+const REFORGING_POLICY: &str = r#"{
+  "schema": "forge.phase-machine/v2",
+  "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
+  "initial": "intake",
+  "terminal": ["done", "stop"],
+  "shippable_from": ["review"],
+  "rules": [
+    {"id": "INTAKE-OK", "from": "intake", "result": "resolved", "next": "implement",
+     "reason": "Task framed and recorded."},
+    {"id": "IMPL-BROKEN-TWICE", "from": "implement", "result": "broken",
+     "when": {"consecutive_failures_gte": 2}, "next": "stop", "severity": "hard",
+     "reason": "Two consecutive broken implement runs; stop rather than thrash."},
+    {"id": "IMPL-BROKEN-RETRY", "from": "implement", "result": "broken",
+     "next": "implement", "reason": "First broken run; one re-run permitted."},
+    {"id": "IMPL-BLOCKED", "from": "implement", "result": "blocked", "next": "stop",
+     "severity": "hard", "reason": "Implementer blocked; report, never silently continue."},
+    {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "verify",
+     "reason": "Implementation complete and committed."},
+    {"id": "VERIFY-FAIL", "from": "verify", "result": "fail", "next": "stop",
+     "severity": "hard", "reason": "Verification failed; not shippable."},
+    {"id": "VERIFY-PASS", "from": "verify", "result": "pass", "next": "review",
+     "reason": "Suite green; reviewers read verified code."},
+    {"id": "REVIEW-SECURITY-HOLD", "from": "review", "result": "security-hold",
+     "next": "stop", "severity": "hard",
+     "reason": "Unresolved security findings. NEVER ship."},
+    {"id": "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM", "from": "review", "result": "residual",
+     "when": {"has_security_residual": true, "visits_implement_gte": 3,
+              "max_residual_severity_above": "medium"},
+     "next": "stop", "severity": "hard",
+     "reason": "Two reforgings spent and still above medium; the operator's now."},
+    {"id": "REVIEW-REFORGE-EXHAUSTED-MEDIUM", "from": "review", "result": "residual",
+     "when": {"has_security_residual": true, "visits_implement_gte": 3,
+              "max_residual_severity_above": "low"},
+     "park": true,
+     "reason": "Two reforgings spent and a medium security residual survives."},
+    {"id": "REVIEW-REFORGE-EXHAUSTED-DEBT", "from": "review", "result": "residual",
+     "when": {"has_security_residual": true, "visits_implement_gte": 3,
+              "fixes_applied": true},
+     "next": "ship", "severity": "flagged",
+     "reason": "Two reforgings spent; low or info with fixes applied ships as tracked debt."},
+    {"id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED", "from": "review", "result": "residual",
+     "when": {"has_security_residual": true, "visits_implement_gte": 3},
+     "park": true,
+     "reason": "Two reforgings spent and a security residual survives unfixed."},
+    {"id": "REVIEW-REFORGE", "from": "review", "result": "residual",
+     "when": {"has_security_residual": true}, "next": "implement", "severity": "flagged",
+     "reason": "Security residual, any severity: back into the fire."},
+    {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
+     "when": {"max_residual_severity_above": "medium"}, "next": "stop",
+     "severity": "hard", "reason": "Residual severity above medium; not shippable."},
+    {"id": "REVIEW-RESIDUAL-OK", "from": "review", "result": "residual", "next": "ship",
+     "severity": "flagged",
+     "reason": "Non-security residuals at or below medium proceed as tracked debt."},
+    {"id": "REVIEW-CLEAN-NO-FIXES", "from": "review", "result": "clean",
+     "when": {"fixes_applied": false}, "next": "ship",
+     "reason": "Clean with no code changed; verification evidence stands."},
+    {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "verify",
+     "reason": "Clean but fixes applied; re-verify before shipping."},
+    {"id": "SHIP-DIRTY", "from": "ship", "result": "ready",
+     "when": {"dirty_worktrees": true}, "next": "stop", "severity": "hard",
+     "reason": "Dirty tree at ship time is a defect."},
+    {"id": "SHIP-READY", "from": "ship", "result": "ready", "next": "ship",
+     "reason": "Gates passed and ledger written; confirm close-out and report shipped."},
+    {"id": "SHIP-COMPLETE", "from": "ship", "result": "shipped", "next": "done",
+     "reason": "Close-out confirmed: clean, reviewed, verified; done."}
+  ]
+}"#;
+
 struct Workspace {
     dir: tempfile::TempDir,
 }
 
 impl Workspace {
     fn new(script: Value) -> Workspace {
+        Workspace::with_policy(script, POLICY)
+    }
+
+    fn with_policy(script: Value, policy: &str) -> Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
-        std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
+        std::fs::write(bundle.join("policy.json"), policy).unwrap();
         let script_path = ws.path().join("script.json");
         std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
 
@@ -410,6 +487,275 @@ fn residual_ships_as_tracked_debt_but_flagged() {
     let (code, summary, _) = ws.run();
     assert_eq!(code, Some(0));
     assert_eq!(summary["status"], "completed");
+}
+
+/// A run over the reforging table (decision 0022): the review seat rules
+/// whatever the script says, in order, and every other seat walks the
+/// happy path.
+fn reforging_script(reviews: Value, implement: Value) -> Value {
+    json!({"seats": {
+        "intake": [{"behavior": "succeed", "result": {"result": "resolved"}}],
+        "implement": implement,
+        "verify": [{"behavior": "succeed", "result": {"result": "pass"}}],
+        "review": reviews,
+        "ship": [
+            {"behavior": "succeed", "result": {"result": "ready"}},
+            {"behavior": "succeed", "result": {"result": "shipped"}},
+        ],
+    }})
+}
+
+/// A review ruling that records a security residual — the finding text
+/// rides in `notes`, which no rule reads and the returning implement
+/// seat does.
+fn security_residual(severity: &str, fixes_applied: bool) -> Value {
+    json!({"behavior": "succeed", "result": {
+        "result": "residual",
+        "notes": "the mount is joined with an unsanitised path",
+        "inputs": {
+            "has_security_residual": true,
+            "max_residual_severity": severity,
+            "fixes_applied": fixes_applied,
+        },
+    }})
+}
+
+/// Every ruling the run took, in order; a rule-driven park reads as its
+/// own rule id with no transition beside it.
+fn rule_ids(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|event| event["type"] == "transition/decided")
+        .map(|event| {
+            event["payload"]["rule_id"]
+                .as_str()
+                .unwrap_or("NO-RULE")
+                .to_string()
+        })
+        .collect()
+}
+
+fn only_review_decision(events: &[Value], nth: usize) -> Value {
+    events
+        .iter()
+        .filter(|event| {
+            event["type"] == "transition/decided" && event["payload"]["from"] == "review"
+        })
+        .nth(nth)
+        .expect("a review decision")["payload"]
+        .clone()
+}
+
+/// Decision 0022 ruling 1 and 4: a security residual — HIGH here, since
+/// the back-edge is severity-blind on the way in — sends the run back to
+/// implement, the forward path reruns as itself, and a clean re-review
+/// reaches ship with the whole arc in one journal.
+#[test]
+fn a_security_residual_reforges_once_and_the_clean_re_review_ships() {
+    let script = reforging_script(
+        json!([
+            security_residual("high", true),
+            {"behavior": "succeed",
+             "result": {"result": "clean", "inputs": {"fixes_applied": false}}},
+        ]),
+        json!([{"behavior": "succeed", "result": {"result": "complete"}}]),
+    );
+    let ws = Workspace::with_policy(script, REFORGING_POLICY);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    assert_eq!(summary["phase"], "done");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    assert_eq!(
+        rule_ids(&events),
+        [
+            "INTAKE-OK",
+            "IMPL-OK",
+            "VERIFY-PASS",
+            "REVIEW-REFORGE",
+            "IMPL-OK",
+            "VERIFY-PASS",
+            "REVIEW-CLEAN-NO-FIXES",
+            "SHIP-READY",
+            "SHIP-COMPLETE",
+        ]
+    );
+    // The bound is read from the journal's own count, not from the seat.
+    assert_eq!(
+        only_review_decision(&events, 0)["inputs"]["visits_implement"],
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "phase/entered" && e["payload"]["phase"] == "implement")
+            .count(),
+        2
+    );
+}
+
+/// Decision 0022 ruling 3, all four arms, and the bound that reaches
+/// them: two reforgings, then the ladder. Every arm is one run of the
+/// same table, differing only in what the third review reports.
+#[test]
+fn the_bound_ends_at_two_reforgings_and_the_ladder_takes_every_arm() {
+    let arm = |last_review: Value| {
+        let script = reforging_script(
+            json!([
+                security_residual("low", true),
+                security_residual("low", true),
+                last_review,
+            ]),
+            json!([{"behavior": "succeed", "result": {"result": "complete"}}]),
+        );
+        let ws = Workspace::with_policy(script, REFORGING_POLICY);
+        let (code, summary, stderr) = ws.run();
+        let events = ws.exported_events(&Workspace::run_id(&stderr));
+        (code, summary, events)
+    };
+
+    // Above medium: a hard stop. The machine tried; now it is the operator's.
+    let (code, summary, events) = arm(security_residual("critical", true));
+    assert_eq!(code, Some(3));
+    assert_eq!(summary["status"], "stopped");
+    assert_eq!(
+        summary["last_decision"]["rule_id"],
+        "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM"
+    );
+    assert_eq!(
+        only_review_decision(&events, 2)["inputs"]["visits_implement"],
+        3,
+        "the bound is the journal's count of implement's visits"
+    );
+    assert_eq!(
+        rule_ids(&events)
+            .iter()
+            .filter(|id| *id == "REVIEW-REFORGE")
+            .count(),
+        2
+    );
+
+    // Medium: the run PARKS awaiting the operator, the residual its reason.
+    let (code, summary, events) = arm(security_residual("medium", true));
+    assert_eq!(code, Some(2));
+    assert_eq!(summary["status"], "awaiting_operator");
+    assert_eq!(summary["phase"], "review", "parked where it stands");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with("REVIEW-REFORGE-EXHAUSTED-MEDIUM for (review, residual):"),
+        "a rule-driven park names its rule, never 'no ruling': {reason}"
+    );
+    assert!(
+        reason.contains("medium security residual survives"),
+        "{reason}"
+    );
+    assert_eq!(
+        only_review_decision(&events, 2)["severity"],
+        Value::Null,
+        "no transition was taken, so no ruling severity is claimed"
+    );
+
+    // Low with fixes applied: ships as tracked debt, the ruling named.
+    let (code, summary, events) = arm(security_residual("low", true));
+    assert_eq!(code, Some(0));
+    assert_eq!(summary["status"], "completed");
+    assert!(rule_ids(&events).contains(&"REVIEW-REFORGE-EXHAUSTED-DEBT".to_string()));
+    assert_eq!(only_review_decision(&events, 2)["severity"], "flagged");
+
+    // Low, unfixed: the same operator door a medium takes.
+    let (code, summary, _) = arm(security_residual("low", false));
+    assert_eq!(code, Some(2));
+    assert_eq!(summary["status"], "awaiting_operator");
+    assert!(
+        summary["park_reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("REVIEW-REFORGE-EXHAUSTED-UNFIXED for (review, residual):"),
+        "park reason: {}",
+        summary["park_reason"]
+    );
+}
+
+/// Decision 0022 ruling 5: the non-security rules are untouched. A
+/// residual with no security finding rules exactly as it did before —
+/// above medium stops, at or below medium ships as tracked debt — and
+/// never consumes a reforging.
+#[test]
+fn non_security_residuals_rule_exactly_as_they_did() {
+    let plain = |severity: &str| {
+        json!([{"behavior": "succeed", "result": {
+            "result": "residual",
+            "inputs": {"has_security_residual": false, "max_residual_severity": severity},
+        }}])
+    };
+    let implement = json!([{"behavior": "succeed", "result": {"result": "complete"}}]);
+
+    let ws = Workspace::with_policy(
+        reforging_script(plain("high"), implement.clone()),
+        REFORGING_POLICY,
+    );
+    let (code, summary, _) = ws.run();
+    assert_eq!(code, Some(3));
+    assert_eq!(
+        summary["last_decision"]["rule_id"],
+        "REVIEW-RESIDUAL-ABOVE-MEDIUM"
+    );
+
+    let ws = Workspace::with_policy(reforging_script(plain("low"), implement), REFORGING_POLICY);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    assert!(rule_ids(&events).contains(&"REVIEW-RESIDUAL-OK".to_string()));
+}
+
+/// Decision 0022 ruling 1's other half: the finding TRAVELS. The
+/// returning implement seat is handed the review effect's whole result —
+/// findings, severities, notes — and a seat on its first visit is handed
+/// nothing new, so a run that never reforges builds the input, and the
+/// digest, it always built.
+#[test]
+fn the_returning_implement_seat_is_handed_the_review_that_sent_it_back() {
+    let script = reforging_script(
+        json!([
+            security_residual("low", true),
+            {"behavior": "succeed",
+             "result": {"result": "clean", "inputs": {"fixes_applied": false}}},
+        ]),
+        // `echo` hands the seat's own input back inside its result, which
+        // is the only way a scripted proof can show WHAT a seat was told.
+        json!([{"behavior": "echo", "result": {"result": "complete"}}]),
+    );
+    let ws = Workspace::with_policy(script, REFORGING_POLICY);
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let seat_inputs: Vec<Value> = events
+        .iter()
+        .filter(|event| {
+            event["type"] == "effect/succeeded"
+                && event["payload"]["result"]["seat_input"]["phase"] == "implement"
+        })
+        .map(|event| event["payload"]["result"]["seat_input"].clone())
+        .collect();
+    assert_eq!(seat_inputs.len(), 2, "one per implement visit");
+
+    assert!(
+        seat_inputs[0]["context"].get("returned_from").is_none(),
+        "a first visit receives nothing new: {}",
+        seat_inputs[0]["context"]
+    );
+
+    let returned = &seat_inputs[1]["context"]["returned_from"];
+    assert_eq!(returned["phase"], "review");
+    assert_eq!(returned["result"]["result"], "residual");
+    assert_eq!(
+        returned["result"]["notes"], "the mount is joined with an unsanitised path",
+        "the finding text itself, not the boolean it was reduced to"
+    );
+    assert_eq!(returned["result"]["inputs"]["max_residual_severity"], "low");
 }
 
 #[test]
@@ -1231,8 +1577,11 @@ fn undeclared_seat_inputs_never_reach_the_journal() {
 
 #[test]
 fn compile_rejects_provenance_violations() {
-    let cases: [(Value, &str); 3] = [
+    let cases: [(Value, &str); 4] = [
         (json!(["consecutive_failures"]), "engine-owned"),
+        // The phase-visit family is engine-owned too (decision 0022): the
+        // journal counts visits, so a seat may never claim one.
+        (json!(["visits_implement"]), "engine-owned"),
         (json!(["made_up_fact"]), "unknown input"),
         // Rules from review reference has_security_residual and
         // max_residual_severity; declaring only fixes_applied starves them.

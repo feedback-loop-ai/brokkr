@@ -1,6 +1,6 @@
 {
-  "schema": "forge.phase-machine/v1",
-  "description": "Self-delivery table (decision 0005): the trimmed linear machine the-forge uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, security residuals never take the tracked-debt path.",
+  "schema": "forge.phase-machine/v2",
+  "description": "Self-delivery table (decision 0005): the trimmed linear machine the-forge uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, and a security residual never slips onto the tracked-debt path unanswered — under decision 0022 it sends the run BACK to implement, at most twice, and the exhaustion ladder then stops, parks, or ships it as named debt.",
   "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
   "initial": "intake",
   "terminal": ["done", "stop"],
@@ -68,6 +68,64 @@
       "reason": "Unresolved high-severity security findings. NEVER ship. Risk acceptance is the operator's, never an agent's."
     },
     {
+      "id": "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "max_residual_severity_above": "medium"
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Two reforgings spent and the security residual is still above medium; the machine tried, and now the piece is the operator's (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "max_residual_severity_above": "low"
+      },
+      "park": true,
+      "reason": "Two reforgings spent and a medium security residual survives; the run parks awaiting the operator, the residual as its reason, so the ruling lands inside the run's journal instead of after its death (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-DEBT",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "fixes_applied": true
+      },
+      "next": "ship",
+      "severity": "flagged",
+      "reason": "Two reforgings spent; the surviving security residual is low or info with fixes applied, so it ships as tracked debt named in the notes (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3
+      },
+      "park": true,
+      "reason": "Two reforgings spent and a low or info security residual survives unfixed; the run parks awaiting the operator, the same door a medium takes (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE",
+      "from": "review",
+      "result": "residual",
+      "when": { "has_security_residual": true },
+      "next": "implement",
+      "severity": "flagged",
+      "reason": "Security residual, any severity: back into the fire. Implement answers the finding it is handed, then verify and review rule again (decision 0022)."
+    },
+    {
       "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
       "from": "review",
       "result": "residual",
@@ -75,15 +133,6 @@
       "next": "stop",
       "severity": "hard",
       "reason": "Residual severity above medium; not shippable."
-    },
-    {
-      "id": "REVIEW-RESIDUAL-SECURITY",
-      "from": "review",
-      "result": "residual",
-      "when": { "has_security_residual": true },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Security residuals never qualify for the tracked-debt path regardless of severity."
     },
     {
       "id": "REVIEW-RESIDUAL-OK",

@@ -70,6 +70,14 @@ pub struct RunState {
     pub cursor: Cursor,
     /// Journal-computed, never accepted from a caller (README law 2).
     pub consecutive_failures: BTreeMap<String, u64>,
+    /// How many times the run has ENTERED each phase — the count the
+    /// graph already renders as `×N`, now readable by the table as the
+    /// phase-visit predicate that bounds reforging (decision 0022).
+    pub visits: BTreeMap<String, u64>,
+    /// The raw result object of the most recent succeeded effect. A seat
+    /// the run RETURNS to receives it (decision 0022): the finding
+    /// travels with the run, not just the boolean it was reduced to.
+    pub last_result: Option<Value>,
     pub reviewed_heads: Option<Value>,
     pub last_decision: Option<Value>,
     pub park_reason: Option<String>,
@@ -166,6 +174,8 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         phase: None,
         cursor: Cursor::Start,
         consecutive_failures: BTreeMap::new(),
+        visits: BTreeMap::new(),
+        last_result: None,
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
@@ -216,6 +226,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 Cursor::EnterPhase { phase: expected } if *expected == phase => {}
                 _ => return Err(out_of_place(state)),
             }
+            *state.visits.entry(phase.clone()).or_insert(0) += 1;
             state.phase = Some(phase);
             state.cursor = Cursor::RequestEffect;
             Ok(())
@@ -278,6 +289,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                                 seq: event.seq,
                                 field: "result".into(),
                             })?;
+                    state.last_result = Some(result.clone());
                     conclude(state, Cursor::Decide { effect_id, result });
                     Ok(())
                 }
@@ -367,8 +379,15 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                         .get("problem")
                         .and_then(Value::as_str)
                         .unwrap_or("no rule matched");
+                    // A named rule reached this position on purpose — a
+                    // rule-driven park (decision 0022) or a rule whose
+                    // artifact gate blocked it. Saying "no ruling" there
+                    // would be the exact mislabeling the ruling forbids.
                     state.cursor = Cursor::Park {
-                        reason: format!("no ruling for ({from}, {result}): {problem}"),
+                        reason: match event.payload.get("rule_id").and_then(Value::as_str) {
+                            Some(rule_id) => format!("{rule_id} for ({from}, {result}): {problem}"),
+                            None => format!("no ruling for ({from}, {result}): {problem}"),
+                        },
                     };
                 }
             }

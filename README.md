@@ -432,12 +432,12 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-fast	c7121a40b0e2	6 phases	implement, review, ship, verify	recipes/fast
-panel-review	eed2afa49a62	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-sdd	595ce41b7305	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
-sdd-paranoid	2ff523e483e1	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
-self	5aaf603e2b2e	7 phases	implement, intake, review, ship, verify	bundles/self
-verify	f5babf06d8e7	4 phases	review, verify	bundles/verify
+fast	5779cd13be64	6 phases	implement, review, ship, verify	recipes/fast
+panel-review	b44de756c398	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+sdd	3743484daa2b	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+sdd-paranoid	368569ad218d	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
+self	e36523e469d0	7 phases	implement, intake, review, ship, verify	bundles/self
+verify	66052438d68d	4 phases	review, verify	bundles/verify
 ```
 
 Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
@@ -664,7 +664,7 @@ attestations; verify an asset with
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
 | `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli` (builds `brokkr` and the one-release `forge` shim). Crate names lag the rename by a release (decision 0019 ruling 9). |
-| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, and `forge-effect-provenance/v1`. |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, `forge-effect-provenance/v1`, and `forge.phase-machine/v2` (the rule-driven park, decision 0022). |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |

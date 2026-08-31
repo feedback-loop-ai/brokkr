@@ -38,6 +38,8 @@ fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> R
         phase: phase.map(str::to_string),
         cursor: Cursor::Idle,
         consecutive_failures: BTreeMap::new(),
+        visits: BTreeMap::new(),
+        last_result: None,
         reviewed_heads: None,
         last_decision,
         park_reason: Some("needs a human".to_string()),

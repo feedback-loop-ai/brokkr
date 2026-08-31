@@ -44,6 +44,13 @@ pub const ENGINE_OWNED_INPUTS: [&str; 4] = [
     "reviewed_heads",
 ];
 
+/// The same law over the phase-visit family (decision 0022): every
+/// `visits_<phase>` is counted by the fold from `phase/entered` events,
+/// so no seat may declare one and no seat may claim one.
+pub fn is_engine_owned(name: &str) -> bool {
+    ENGINE_OWNED_INPUTS.contains(&name) || name.starts_with(forge_core::policy::VISIT_PREFIX)
+}
+
 #[derive(Debug, Clone)]
 pub struct Seat {
     pub results: Vec<String>,
@@ -436,7 +443,7 @@ impl Bundle {
                             ))
                         })?;
                     for name in &declared {
-                        if ENGINE_OWNED_INPUTS.contains(&name.as_str()) {
+                        if is_engine_owned(name) {
                             return Err(CompileError::Invalid(format!(
                                 "seat '{phase}' declares engine-owned input '{name}'; \
                                  journal-computed truth is never accepted from a seat"
@@ -522,7 +529,11 @@ fn assert_phase_unavoidable(
     while let Some(node) = frontier.pop() {
         for rule in rules {
             let from = rule["from"].as_str().unwrap_or_default();
-            let next = rule["next"].as_str().unwrap_or_default();
+            // A rule that parks (decision 0022) draws no edge: it reaches
+            // no phase, so it can carry no path around review.
+            let Some(next) = rule["next"].as_str() else {
+                continue;
+            };
             // `frontier` never contains the protected phase: it is excluded
             // from every push below. Therefore `from != protected` follows
             // from `from == node` and need not be re-tested.
@@ -1025,8 +1036,7 @@ fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileErro
 }
 
 fn declarable_input(name: &str) -> bool {
-    !ENGINE_OWNED_INPUTS.contains(&name)
-        && (BOOLEAN_INPUTS.contains(&name) || SEVERITY_INPUTS.contains(&name))
+    !is_engine_owned(name) && (BOOLEAN_INPUTS.contains(&name) || SEVERITY_INPUTS.contains(&name))
 }
 
 /// The non-engine-owned inputs the phase's rules reference: the default
@@ -1049,7 +1059,7 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
                 .or_else(|| key.strip_suffix("_above"))
                 .unwrap_or(key)
                 .to_string();
-            if !ENGINE_OWNED_INPUTS.contains(&name.as_str()) && !names.contains(&name) {
+            if !is_engine_owned(&name) && !names.contains(&name) {
                 names.push(name);
             }
         }

@@ -106,6 +106,25 @@ The extension fields defined so far are in
 `effect-provenance.v1.schema.json`: `effect/started.provenance`, and
 `effect/failed.start_failure` with `start_failure_sites`.
 
+Reforging (decision 0022) adds one more file and changes none of the bytes
+above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Phase-machine table with the rule-driven park | `phase-machine.v2.schema.json` | forge-core, every bundle that parks by rule |
+
+`forge.phase-machine/v2` is `v1` plus exactly one thing: a rule may rule a
+PARK instead of naming a `next` phase. The event vocabulary needs nothing —
+a `transition/decided` with the matched `rule_id`, a null `next`, a null
+`severity` and the rule's reason as its `problem` is already the shape
+`requires_artifacts` writes when its gate blocks an otherwise-matching rule,
+and `fold` already parks there. What the version buys is that a park cannot
+arrive unannounced: the loader refuses a parking rule in a table that calls
+itself `v1`, because a park is not a stop and the difference is the whole
+point of the ruling. The park reason the fold builds now names the rule when
+one is named (`<rule_id> for (<from>, <result>): <problem>`) and keeps
+`no ruling for (…)` for the case that really has no rule.
+
 ## Fold semantics (state is derived, never mutated)
 
 `fold(events) -> RunState` with:
@@ -124,6 +143,18 @@ The extension fields defined so far are in
   engine supplies `consecutive_failures = counter + 1` (counting the current
   failure) as the evaluation input, matching the referee
   (`forge-control.py` default 1).
+- `visits[phase]`: incremented by every `phase/entered` for that phase — the
+  count the graph already renders as `×N`, and the fact the
+  `visits_<phase>_gte` predicate reads (decision 0022). Engine-owned like
+  every other journal-computed input: the engine supplies it for exactly the
+  phases the deciding phase's rules ask about, and a seat may neither declare
+  nor claim one.
+- `last_result`: the raw result object of the most recent `effect/succeeded`.
+  A seat the run RETURNS to (any phase entered more than once) receives it as
+  `context.returned_from`, so a review's findings, severities and notes reach
+  the implementer who has to answer them. A seat on its first visit receives
+  nothing new, so a run that never revisits builds the seat input, and the
+  `input_digest`, it always built.
 - `reviewed_heads`: replaced by the payload of a review-phase
   `transition/decided` whose inputs carry `reviewed_heads`; consumed by the
   ship gate's drift check.
