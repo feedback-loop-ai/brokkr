@@ -4186,3 +4186,50 @@ fn the_graph_footer_names_the_member_the_lane_cursor_scoped() {
     let structural = footer_for(&tui, &plain);
     assert!(!structural.contains("scoped to"), "{structural}");
 }
+
+#[test]
+fn the_graph_footer_names_no_member_once_the_lane_cursor_no_longer_scopes_it() {
+    // The lane cursor OUTLIVES the scope it set: `Enter` re-scopes the
+    // phase and `j`/`k` move the rail, both leaving `tui.node` standing
+    // where it was. The footer reads the SCOPE, so it stops naming a
+    // seat the moment the panes stop filtering to one — anything else
+    // is a footer that contradicts the status line directly above it.
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    assert!(
+        footer_for(&tui, &views).contains("scoped to"),
+        "the lane scoped it"
+    );
+
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.node.is_some(), "the lane cursor stands where it was");
+    let after_enter = footer_for(&tui, &views);
+    assert!(
+        !after_enter.contains("scoped to"),
+        "Enter scoped the PHASE, so no member is scoped: {} / {after_enter}",
+        status_line(&tui)
+    );
+
+    // The same for the rail keys that move without clearing the lane.
+    apply(&mut tui, &views, Key::Down);
+    assert!(
+        footer_for(&tui, &views).contains("scoped to"),
+        "scoped again"
+    );
+    apply(&mut tui, &views, Key::Char('j'));
+    assert!(tui.node.is_some(), "and again the cursor stands");
+    let after_rail = footer_for(&tui, &views);
+    assert!(
+        !after_rail.contains("scoped to"),
+        "the rail took the scope back: {} / {after_rail}",
+        status_line(&tui)
+    );
+    let (seats, _) = panes_under(&tui, &views);
+    assert!(
+        !seats.contains(&"eff-d:positions:simplicity".to_string()),
+        "and the seats pane is not filtered to it either: {seats:?}"
+    );
+}

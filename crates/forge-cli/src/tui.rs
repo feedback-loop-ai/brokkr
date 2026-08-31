@@ -956,8 +956,14 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
         // who watches the seats and the trail narrow under `↑↓` should
         // read WHY on the same line, named by the seat's own label —
         // what the seats pane displays — rather than by its raw key.
+        // It says so only while that member IS the scope: `Enter` and
+        // `j`/`k` both re-scope the phase and leave the lane cursor
+        // standing, and a footer naming a seat the panes are not
+        // filtered to would contradict the status line above it.
         (Level::Run, 0) => {
-            let lanes = match lane_member(tui, views) {
+            let named = lane_member(tui, views)
+                .filter(|part| scoped_seat(tui) == Some(part.key.as_str()));
+            let lanes = match named {
                 Some(part) => format!("↑↓ lanes · scoped to {}", safe(&part.label)),
                 None => "↑↓ lanes".to_string(),
             };
