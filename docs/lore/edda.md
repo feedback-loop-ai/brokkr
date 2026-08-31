@@ -211,11 +211,15 @@ recorded in the journal and in these decision docs.*
 Good ore we do not mine, and why — recorded so the question is not
 re-litigated at every naming.
 
-- **Sindri**, the brother who did the smithing: a commercial
-  zero-knowledge-proof toolchain holds this name, adjacent to our own
-  evidence story. Prose only.
-- **Mímir**: an observability company owns the developer mindshare and a
-  mark in a neighboring category. Prose only (see the chief, above).
+- **Sindri**, the brother who did the smithing: kept off the MARQUEE —
+  a commercial toolchain holds that shelf — but free everywhere folklore
+  lives: this Edda, an agent's byname, a future summoned persona. The
+  implement seat keeps its plain name on evidence surfaces by 0019
+  ruling 3, not by anyone's trademark (errata 2026-08-31; ruling 10).
+- **Mímir**: same correction — off the marquee for mindshare, free in
+  lore and bynames. The chief keeps its plain name because operators
+  read it on evidence, not because an observability company says so
+  (errata 2026-08-31; ruling 10).
 - **Odin, Thor**: the gods judge and wield; they are the users of forged
   things, not parts of the forge. Also, a certain film studio.
 - **Runic scripts and bound symbols**: some Norse iconography carries
