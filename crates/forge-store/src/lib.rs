@@ -447,7 +447,7 @@ fn next_absolute_path(text: &str, from: usize) -> Option<(usize, usize)> {
             // A drive-letter path owns the colon at its second
             // character; every other colon ends a path, which is what
             // splits `PATH=/usr/bin:/home/x` into two redactions.
-            let drive = text[start..].as_bytes().get(1) == Some(&b':');
+            let drive = text.as_bytes()[start..].get(1) == Some(&b':');
             let end = text[start..]
                 .char_indices()
                 .skip(1)
