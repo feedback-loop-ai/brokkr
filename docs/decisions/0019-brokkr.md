@@ -102,6 +102,31 @@ asset. An undisciplined one is a theme park.
    repositioning with the SwarmForge acknowledgment, crate renames lagging
    by a release.
 
+10. **The naming tiers, and the summon/observe law** (added 2026-08-31,
+    operator ruled). Four tiers, each with its own reason:
+
+    - **Marquee** — the product, marketed components, release artifacts.
+      Mythic only where the shelf is clean; this is the one tier where
+      commerce and trademark caution are real.
+    - **Mechanisms** — commands, seat and phase vocabulary. Plain, by
+      ruling 3: guessable with no glossary.
+    - **Observed agents** — the agent library's pipeline workers, whose
+      names surface on evidence (graph, seats, trail, checkpoints). Plain
+      canonical names; each MAY declare a mythic **byname** as flavor,
+      rendered only where reading is leisurely (the library definition,
+      descriptions, the Edda, the seat detail head), never replacing the
+      plain name on evidence surfaces.
+    - **Summoned personas** — standing agents invoked and addressed by
+      name, like Muninn. Mythic names are the point: invocation is where
+      a name with a story earns its keep.
+
+    The law in one line: **you may summon by myth; you must read in
+    plain.** Erratum recorded with this addendum: the earlier
+    "names left in the ground" reasoning implied folklore naming of
+    internal agents collides with others' marks — it does not; folklore
+    use of public-domain myth in lore and agent definitions is free, and
+    only the marquee tier carries commercial caution.
+
 ## Consequences
 
 The product gains a findable, ownable name whose story encodes its thesis,
