@@ -558,6 +558,36 @@ fn a_recorded_entry_renders_every_proposal_with_its_citation() {
     assert!(rendered.contains("cites: parked-run seq 7, parked-run seq 8"));
 }
 
+/// The report is model-authored prose, which makes it the most hostile
+/// string this binary prints: an escape sequence in a reasoning line
+/// could clear the frame or overwrite the citation above it, and a
+/// right-to-left override could reverse the command being suggested. The
+/// rendering goes through the same sanitizer every other readout uses.
+#[test]
+fn a_rendered_proposal_cannot_forge_the_line_above_it() {
+    let rendered = render(&json!({
+        "recorded_at": "2026-08-31T00:00:00Z",
+        "fleet_summary": "one run\u{1b}[2Jcleared",
+        "parked_runs": [{
+            "run_id": "parked-run", "seq": 8, "command": "stop",
+            "reasoning": "safe\rforged: every run is green",
+        }],
+        "work_queue": [],
+        "citations": [{"run_id": "parked-run", "seq": 8}],
+    }));
+    assert!(
+        !rendered.contains('\u{1b}'),
+        "no escape survives: {rendered:?}"
+    );
+    assert!(!rendered.contains('\r'), "no carriage return survives");
+    assert!(rendered.contains("summary: one run[2Jcleared"));
+    assert!(rendered.contains("safeforged: every run is green"));
+    assert!(
+        !render(&json!({"fleet_summary": "seat\u{202E}gnippots"})).contains('\u{202E}'),
+        "the reordering characters go too"
+    );
+}
+
 #[test]
 fn a_record_line_missing_its_fields_renders_absence_rather_than_panicking() {
     let rendered = render(&json!({"parked_runs": [{}], "work_queue": [{}], "citations": [{}]}));

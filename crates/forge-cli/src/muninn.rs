@@ -38,6 +38,8 @@ use forge_runtime::{Adapters, Availability, Library};
 use forge_store::Store;
 use serde_json::{json, Value};
 
+use crate::render::Safe;
+
 /// The agent definition this command invokes.
 pub const AGENT: &str = "muninn";
 
@@ -386,12 +388,20 @@ fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Valu
 
 // ------------------------------------------------------- rendering
 
+/// Every string a reader sees here was written by the seat, so it gets
+/// the same treatment every other journal-derived string reaching a
+/// terminal gets: `Safe` strips the control and reordering characters
+/// that would otherwise let a report overwrite the line above it or
+/// reverse the ruling it just cited.
 fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or(forge_view::ABSENT)
-        .to_string()
+    Safe::new(
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or(forge_view::ABSENT),
+    )
+    .as_str()
+    .to_string()
 }
 
 fn number(value: &Value, key: &str) -> String {
@@ -467,8 +477,13 @@ pub fn run(
         seat_input(&seat, &dossier, scratch)
     });
     let (result, checkpoints) = match outcome {
+        // The reason carries the driver's own words, so it is sanitized
+        // like anything else that reaches a terminal from outside.
         OneShot::Refused { reason } => {
-            eprintln!("muninn produced no report and recorded nothing: {reason}");
+            eprintln!(
+                "muninn produced no report and recorded nothing: {}",
+                Safe::new(&reason).as_str()
+            );
             return Ok(ExitCode::from(1));
         }
         OneShot::Produced {
@@ -479,7 +494,10 @@ pub fn run(
     let report = match validate(&dossier, &result) {
         Ok(report) => report,
         Err(problem) => {
-            eprintln!("muninn's report was not usable and was not recorded: {problem}");
+            eprintln!(
+                "muninn's report was not usable and was not recorded: {}",
+                Safe::new(&problem).as_str()
+            );
             return Ok(ExitCode::from(1));
         }
     };
