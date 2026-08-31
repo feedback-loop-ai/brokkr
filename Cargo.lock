@@ -436,7 +436,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "forge-bridge"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "forge-core",
  "forge-runtime",
@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "forge-cli"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "forge-core"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "hex",
  "serde",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "forge-protocol"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "forge-runtime"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "forge-core",
  "forge-protocol",
@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "forge-store"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "forge-core",
  "rusqlite",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "forge-view"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "forge-core",
  "serde",
