@@ -181,6 +181,139 @@ fn the_operator_stop_that_came_mid_flight_folds_end_to_end() {
     assert_eq!(state.pending_command, None, "the stop was disposed of");
 }
 
+/// The placeholder contract: the same original path always becomes the
+/// same placeholder, distinct paths stay distinct, numbering follows
+/// first appearance journal-wide. Only absolute paths are rewritten —
+/// relative paths, ratios, and bare or trailing slashes survive
+/// verbatim, while a `//`-rooted network share is machine detail and
+/// moves — and nothing outside the payload moves.
+#[test]
+fn redacted_export_rewrites_absolute_paths_to_stable_placeholders() {
+    let ndjson = concat!(
+        r#"{"payload":{"driver":"/home/alice/forge/target/debug/forge","args":["/home/alice/forge/README.md","docs/a.md"],"operator":"alice"},"seq":1}"#,
+        "\n",
+        "   \n",
+        r#"{"payload":{"checkpoint":{"note":null,"target":"/home/alice/forge/README.md","turn":4},"text":"ran /home/alice/forge/target/debug/forge for alice (not xalice, alicex, or alice.txt) on a/b, 3 / 4, //share/x, dir/, the /home/ prefix, /Users/bob/Library, end /"}}"#,
+        "\n",
+        r#"{"seq":3}"#,
+        "\n",
+    );
+    let redacted = redact_export(ndjson).unwrap();
+    let lines: Vec<&str> = redacted.lines().collect();
+    assert_eq!(lines.len(), 3, "the blank line drops, nothing else");
+    // Payload fields walk in sorted key order, so `args` numbers first.
+    assert_eq!(
+        lines[0],
+        r#"{"payload":{"args":["[path-1]","docs/a.md"],"driver":"[path-2]","operator":"[user-1]"},"seq":1}"#
+    );
+    assert_eq!(
+        lines[1],
+        r#"{"payload":{"checkpoint":{"note":null,"target":"[path-1]","turn":4},"text":"ran [path-2] for [user-1] (not xalice, alicex, or alice.txt) on a/b, 3 / 4, [path-3], dir/, the [path-4] prefix, [path-5], end /"}}"#
+    );
+    assert_eq!(
+        lines[2], r#"{"seq":3}"#,
+        "a line without a payload passes through"
+    );
+    // Same input, same output: redaction is deterministic.
+    assert_eq!(redacted, redact_export(ndjson).unwrap());
+
+    // A journal that leaks nothing comes back verbatim.
+    let clean = "{\"payload\":{\"note\":\"clean\"}}\n";
+    assert_eq!(redact_export(clean).unwrap(), clean);
+}
+
+/// The recognizer is cross-platform and quote-aware: drive-letter and
+/// UNC paths move like POSIX ones, a quoted path carries its spaces to
+/// the closing quote, scheme URLs survive as the declared bound, and a
+/// non-ASCII username bounds like an ASCII one.
+#[test]
+fn redaction_covers_windows_shapes_quotes_and_non_ascii_usernames() {
+    let ndjson = concat!(
+        r#"{"payload":{"a":"C:/Users/dana/forge/x.rs","b":"C:\\Users\\dana\\forge","c":"\\\\srv\\share\\y","d":"'/home/ana maria/My Files/z.txt' stays whole","e":"see file:///home/dana/leak and https://example.com/ok","f":"/home/józef/tool ran for józef","g":"PATH=/usr/bin:/home/józef/bin"}}"#,
+        "\n",
+    );
+    let redacted = redact_export(ndjson).unwrap();
+    let line: serde_json::Value = serde_json::from_str(redacted.lines().next().unwrap()).unwrap();
+    let field = |k: &str| line["payload"][k].as_str().unwrap().to_string();
+    assert_eq!(field("a"), "[path-1]");
+    assert_eq!(field("b"), "[path-2]");
+    assert_eq!(field("c"), "[path-3]");
+    assert_eq!(field("d"), "'[path-4]' stays whole");
+    assert_eq!(
+        field("e"),
+        "see file:///home/[user-1]/leak and https://example.com/ok",
+        "scheme URLs survive as the declared bound, but a username never does"
+    );
+    assert_eq!(field("f"), "[path-5] ran for [user-3]");
+    assert_eq!(
+        field("g"),
+        "PATH=[path-6]:[path-7]",
+        "colon-separated path lists split at the colon"
+    );
+    assert!(!redacted.contains("dana") && !redacted.contains("józef"));
+}
+
+#[test]
+fn redacting_garbage_is_a_parse_refusal() {
+    assert!(redact_export("not-json\n").is_err());
+}
+
+/// The committed fixture is the artifact the redaction exists for: the
+/// public repo's one journal carrying `/home/<user>` paths. Redacting it
+/// must be deterministic, must strip every absolute path and the
+/// username inside, and must leave every envelope field except the
+/// payload byte-identical — structure and seqs are untouched, hashes
+/// stay as recorded (and so no longer verify; the manifest marking is
+/// the CLI's job).
+#[test]
+fn the_fixture_journal_redacts_deterministically_and_keeps_no_paths() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+    let ndjson = std::fs::read_to_string(&fixture).unwrap();
+    let redacted = redact_export(&ndjson).unwrap();
+    assert_eq!(redacted, redact_export(&ndjson).unwrap());
+
+    assert!(ndjson.contains("/home/"), "the fixture is the residual");
+    assert!(!redacted.contains("/home"));
+    assert!(redacted.contains("[path-1]"));
+    for path_start in ndjson.match_indices("/home/") {
+        let username = ndjson[path_start.0 + "/home/".len()..]
+            .split('/')
+            .next()
+            .unwrap();
+        assert!(
+            !redacted.contains(username),
+            "a username survived: {username}"
+        );
+    }
+
+    let originals: Vec<Value> = ndjson
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let sanitized: Vec<Value> = redacted
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(originals.len(), sanitized.len());
+    for (original, sanitized) in originals.iter().zip(&sanitized) {
+        for field in [
+            "run_id",
+            "seq",
+            "type",
+            "event_hash",
+            "previous_hash",
+            "recorded_at",
+        ] {
+            assert_eq!(original[field], sanitized[field]);
+        }
+    }
+}
+
 #[test]
 fn exported_garbage_is_a_parse_refusal() {
     assert!(matches!(

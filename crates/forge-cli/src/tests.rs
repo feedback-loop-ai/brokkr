@@ -187,6 +187,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
             run: "r1".into(),
             out: out.clone(),
             db: db.clone(),
+            redact: false,
         }))
         .unwrap(),
         ExitCode::SUCCESS
@@ -199,6 +200,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         run: "r1".into(),
         out: blocked,
         db: db.clone(),
+        redact: false,
     }))
     .is_err());
 
@@ -248,6 +250,103 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     .unwrap_err()
     .to_string()
     .contains("has no run/started feature"));
+}
+
+/// `--redact` writes a sanitized pair ALONGSIDE the verbatim pair: the
+/// verbatim files stay byte-identical whether or not the flag rode
+/// along, the copy is unmistakably marked (filename suffix and manifest
+/// fields), and no absolute path or username survives in the sanitized
+/// journal. Without the flag no `.redacted.` file exists at all.
+#[test]
+fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feature", "test", &json!({"files": {}}))
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feature", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "att",
+                   "driver": "/home/carol/source/forge/target/debug/forge"}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(store);
+
+    let plain = dir.path().join("plain");
+    run(cli(Cmd::Export {
+        run: "r1".into(),
+        out: plain.clone(),
+        db: db.clone(),
+        redact: false,
+    }))
+    .unwrap();
+    assert!(!plain.join("r1.redacted.ndjson").exists());
+    assert!(!plain.join("r1.redacted.manifest.json").exists());
+
+    let marked = dir.path().join("marked");
+    run(cli(Cmd::Export {
+        run: "r1".into(),
+        out: marked.clone(),
+        db: db.clone(),
+        redact: true,
+    }))
+    .unwrap();
+    for name in ["r1.ndjson", "r1.manifest.json"] {
+        assert_eq!(
+            std::fs::read(plain.join(name)).unwrap(),
+            std::fs::read(marked.join(name)).unwrap(),
+            "the flag's existence must not touch the verbatim {name}"
+        );
+    }
+
+    let redacted = std::fs::read_to_string(marked.join("r1.redacted.ndjson")).unwrap();
+    assert!(!redacted.contains("/home"), "{redacted}");
+    assert!(!redacted.contains("carol"), "{redacted}");
+    assert!(redacted.contains("[path-1]"), "{redacted}");
+
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(marked.join("r1.redacted.manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["redacted"], json!(true));
+    assert!(manifest["redaction"]["scheme"]
+        .as_str()
+        .unwrap()
+        .contains("placeholders"));
+    assert!(manifest["redaction"]["hashes"]
+        .as_str()
+        .unwrap()
+        .contains("verbatim export"));
+    let verbatim: Value =
+        serde_json::from_str(&std::fs::read_to_string(marked.join("r1.manifest.json")).unwrap())
+            .unwrap();
+    assert!(verbatim.get("redacted").is_none());
+
+    // The redacted manifest write can refuse like the verbatim one.
+    let blocked = dir.path().join("blocked-redacted");
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::create_dir(blocked.join("r1.redacted.manifest.json")).unwrap();
+    assert!(run(cli(Cmd::Export {
+        run: "r1".into(),
+        out: blocked,
+        db,
+        redact: true,
+    }))
+    .is_err());
 }
 
 #[test]
