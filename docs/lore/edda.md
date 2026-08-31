@@ -174,10 +174,12 @@ into `done`.*
 
 ## The operator — no name
 
-The smith has no myth name and will not get one. Every artifact above was
-made *for* someone who judges it and wields it; in this shop that is the
-operator, and the operator is human. The authority model is the product,
-and it is not a costume.
+The operator has no myth name and will not get one — and the operator is
+not the smith. The seats hammer; Brokkr keeps the fires; the operator
+commissions the work, judges it, and wields what survives judgment, which
+in the wager story is the seat the gods hold. Their strike is the ruling,
+not the hammer-blow. The authority model is the product, and it is not a
+costume. (Corrected by the operator, 2026-08-31.)
 
 *Plain form: the operator-ruling culture; rulings are the operator's,
 recorded in the journal and in these decision docs.*
