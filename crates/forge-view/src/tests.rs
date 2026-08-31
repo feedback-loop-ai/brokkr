@@ -43,6 +43,7 @@ fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> R
         park_reason: Some("needs a human".to_string()),
         feature: Some("feat".to_string()),
         pending_command: None,
+        riding_stop: false,
     }
 }
 

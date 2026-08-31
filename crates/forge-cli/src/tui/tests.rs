@@ -57,6 +57,7 @@ fn state_of(status: Status) -> RunState {
         park_reason: None,
         feature: Some("one derivation, three surfaces".to_string()),
         pending_command: None,
+        riding_stop: false,
     }
 }
 

@@ -40,6 +40,7 @@ fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunStat
         park_reason: park.map(str::to_string),
         feature: Some("one derivation, two surfaces".to_string()),
         pending_command: None,
+        riding_stop: false,
     }
 }
 
