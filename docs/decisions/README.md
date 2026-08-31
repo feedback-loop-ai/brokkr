@@ -27,6 +27,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0018](0018-dual-license.md) | Dual license: MIT OR Apache-2.0 | Permissive, never copyleft: MIT's frictionlessness or Apache-2.0's explicit patent grant, the user's choice. | accepted |
 | [0019](0019-brokkr.md) | Brokkr: the name, the verb, and the lore layer | The product is Brokkr; "forge" survives as the verb and mechanisms keep plain names; the lore layer under `docs/lore/` is bound by five laws. | accepted |
 | [0020](0020-muninn.md) | Muninn: the raven that reads everything and rules nothing | The standing overseer reads only journal-derived models, proposes and never rules, and records every proposal as evidence with provenance; delegation only by future recorded grant. | accepted |
+| [0021](0021-model-policy.md) | Model policy: the law, not the scorecard | Work and gate seats; operator-granted driver trust tiers and egress rights, compile-refused when violated; park, never substitute; economics stays LaneTally's. | proposed |
 
 ## How a decision is made
 
