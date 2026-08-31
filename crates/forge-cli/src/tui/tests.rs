@@ -442,6 +442,20 @@ fn enter_descends_one_rung_at_a_time_and_esc_pops_the_same_rungs() {
     assert_eq!(tui.level, Level::Runs);
     assert_eq!(apply(&mut tui, &views, Key::Escape), Flow::Continue);
     assert_eq!(tui.level, Level::Runs, "the bottom rung does nothing");
+
+    // The ladder does not care which VARIANT the scope is, so a seat
+    // the LANE cursor scoped pops exactly like a phase the rail did:
+    // one press clears, the next ascends.
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    assert!(scoped_seat(&tui).is_some(), "the lane cursor scoped a seat");
+    apply(&mut tui, &views, Key::Escape);
+    assert!(tui.scope.is_none(), "rung 4 clears a lane-set scope too");
+    assert_eq!(tui.level, Level::Run, "one rung, not two");
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.level, Level::Runs, "and the next press ascends");
 }
 
 #[test]
@@ -559,7 +573,7 @@ fn a_filter_narrows_the_focused_list_incrementally_and_never_clears_a_scope() {
         apply(&mut tui, &views, Key::Char(character));
     }
     assert_eq!(tui.filter, "a[2Jb", "a pasted escape sequence is inert");
-    assert!(!footer_for(&tui).contains('\x1b'));
+    assert!(!footer_for(&tui, &views).contains('\x1b'));
 }
 
 // ------------------------------------------- AC-6, AC-7: scoping and vanish
@@ -641,11 +655,11 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     let mut states: Vec<String> = Vec::new();
 
     let tui = Tui::new(None);
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[0].contains("Enter open run"), "{}", states[0]);
 
     let mut tui = at_run();
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[1].contains("Enter scope phase"));
     // The graph is the one pane whose primary axis is horizontal, and
     // the footer is where an operator finds that out.
@@ -654,11 +668,11 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
 
     apply(&mut tui, &views, Key::Tab);
     apply(&mut tui, &views, Key::Down);
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[2].contains("Enter scope seat"), "{}", states[2]);
 
     apply(&mut tui, &views, Key::Enter);
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(
         states[3].contains("Enter open seat"),
         "an already-scoped seat opens: {}",
@@ -667,13 +681,13 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
 
     apply(&mut tui, &views, Key::Tab);
     assert_eq!(tui.pane, 2, "the trail");
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[4].contains("Tab pane"));
 
     // The footer fails closed if a future pane is introduced before it
     // receives an Enter action: do not advertise opening the trail.
     tui.pane = 3;
-    let unknown_footer = footer_for(&tui);
+    let unknown_footer = footer_for(&tui, &views);
     assert!(
         !unknown_footer.contains("Enter read row"),
         "{unknown_footer}"
@@ -685,7 +699,7 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     assert_eq!(tui.pane, 1, "back on the scoped seat");
     apply(&mut tui, &views, Key::Enter);
     assert_eq!(tui.level, Level::Participant);
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[5].contains("scroll"), "{}", states[5]);
 
     // The transcript pane names its readerS — decision 0014's
@@ -693,7 +707,7 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     // doors, so the footer says which one Enter is, and names the key
     // back to the other.
     apply(&mut tui, &views, Key::Tab);
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(
         states[6].contains("Enter read whole transcript"),
         "no turn selected, so Enter is the whole-transcript door: {}",
@@ -702,7 +716,7 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     let mut transcript = views_with("intake");
     transcript.transcript = Some((turns_of(2), false));
     apply(&mut tui, &transcript, Key::Down);
-    let selected_footer = footer_for(&tui);
+    let selected_footer = footer_for(&tui, &views);
     assert!(
         selected_footer.contains("Enter read turn"),
         "a selected turn makes Enter the per-turn door: {selected_footer}"
@@ -715,12 +729,12 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
     apply(&mut tui, &views, Key::Tab);
 
     apply(&mut tui, &views, Key::Char('/'));
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[7].starts_with('/'));
 
     apply(&mut tui, &views, Key::Escape);
     apply(&mut tui, &views, Key::Char('?'));
-    states.push(footer_for(&tui));
+    states.push(footer_for(&tui, &views));
     assert!(states[8].contains("close help"));
 
     // Every context differs from every other: a footer that always
@@ -1516,7 +1530,7 @@ fn the_keys_lists_and_tints_a_console_still_needs_are_all_there() {
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &views, Key::Enter);
     tui.cursor[1] = Some("eff-d".to_string());
-    assert!(footer_for(&tui).contains("Enter scope seat"));
+    assert!(footer_for(&tui, &views).contains("Enter scope seat"));
 }
 
 #[test]
@@ -2316,13 +2330,20 @@ fn enter_scopes_the_phase_whatever_the_lane_cursor_says() {
     apply(&mut tui, &views, Key::Down);
     let lane = tui.node.clone();
     assert!(lane.is_some(), "the cursor walked into a lane");
+    assert!(
+        scoped_seat(&tui).is_some(),
+        "and scoped that member on the way in"
+    );
     apply(&mut tui, &views, Key::Enter);
     assert!(
         matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
         "Enter scopes the PHASE, not the lane: {}",
         status_line(&tui)
     );
-    assert_eq!(tui.node, lane, "the lane cursor is display-only");
+    assert_eq!(
+        tui.node, lane,
+        "Enter overwrites the scope the lane cursor set, and leaves the cursor where it stands"
+    );
 }
 
 #[test]
@@ -2813,7 +2834,7 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
     let text = tui.reading.clone().expect("Enter opens the reader");
     assert!(text.contains(&format!("seq {seq}")), "{text}");
     assert!(text.contains("payload"), "{text}");
-    assert!(footer_for(&tui).contains("Esc or Enter close"));
+    assert!(footer_for(&tui, &views).contains("Esc or Enter close"));
 
     // Both quit spellings remain terminal while the reader owns input.
     assert_eq!(apply(&mut tui, &views, Key::Quit), Flow::Quit);
@@ -2948,7 +2969,7 @@ fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
         text.contains("⚙ Write · specs/interactive-tui/spec.md"),
         "a tool block is its marker line: {text}"
     );
-    assert!(footer_for(&tui).contains("Esc or Enter close"));
+    assert!(footer_for(&tui, &views).contains("Esc or Enter close"));
 
     // Esc closes the reader ONLY: the level and the cursor stay put.
     apply(&mut tui, &views, Key::Escape);
@@ -3957,4 +3978,211 @@ fn the_sequence_phases_box_spans_its_steps() {
     // plain phase's height, not a fork's.
     assert_eq!(top + 1, plan.rail_row, "no air row above the steps");
     assert_eq!(bottom, plan.box_row.expect("a box row"));
+}
+
+// ------------------------------- the lane cursor scopes the seat, one down
+//
+// The rail's standing law — moving IS scoping — extended to the lanes:
+// a member node under the lane cursor scopes that seat, through the SAME
+// `Scope`/`lens_for`/`keeps_participant`/`keeps_row` the seats pane's own
+// `Enter` uses. Everything the lanes cannot resolve falls back to the
+// phase the rail already named.
+
+/// The keys the seats pane and the trail actually list under whatever
+/// scope the `Tui` is carrying — the two panes read through the lens, so
+/// "the panes filtered" is asked of the lens, never of a second path.
+fn panes_under(tui: &Tui, views: &Views) -> (Vec<String>, Vec<String>) {
+    let mut probe = Tui::new(tui.run.clone());
+    probe.scope = match &tui.scope {
+        Some(render::Scope::Phase(name)) => Some(render::Scope::Phase(name.clone())),
+        Some(render::Scope::Seat(key)) => Some(render::Scope::Seat(key.clone())),
+        None => None,
+    };
+    probe.pane = 1;
+    let seats = keys_for(&probe, views);
+    probe.pane = 2;
+    (seats, keys_for(&probe, views))
+}
+
+#[test]
+fn the_lane_cursor_scopes_the_member_and_the_seats_and_trail_filter_to_it() {
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("design"));
+    let (phase_seats, phase_trail) = panes_under(&tui, &views);
+    assert!(
+        phase_seats.len() > 1,
+        "the phase scope keeps every seat of the phase: {phase_seats:?}"
+    );
+
+    // Down onto the first member of the `positions` fork: the node key
+    // IS that member's participant key, so scoping is a lookup.
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(tui.node.as_deref(), Some("eff-d:positions:simplicity"));
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Seat(key))
+                 if key == "eff-d:positions:simplicity"),
+        "moving the lane cursor IS scoping the seat: {}",
+        status_line(&tui)
+    );
+
+    // And the panes narrow through the lens — not through a second
+    // filtering mechanism invented for the graph.
+    let (seats, trail) = panes_under(&tui, &views);
+    assert_eq!(
+        seats,
+        vec!["eff-d:positions:simplicity".to_string()],
+        "the seats pane marks exactly the scoped member"
+    );
+    assert!(!trail.is_empty(), "the trail keeps the member's own rows");
+    assert!(
+        trail.iter().all(|seq| phase_trail.contains(seq)) && trail.len() == phase_trail.len(),
+        "a seat's trail is its phase's rows, which is what keeps_row says"
+    );
+    let (_, unscoped) = panes_under(&at_run(), &views);
+    assert!(
+        trail.len() < unscoped.len(),
+        "and it is narrower than the unscoped trail"
+    );
+
+    // The selection-clears-itself law is untouched: a member that is no
+    // longer in the run takes its scope with it.
+    let gone = Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(forge_view::run_view(&[], None)),
+        transcript: None,
+    };
+    settle(&mut tui, &gone);
+    assert!(
+        tui.scope.is_none(),
+        "a vanished member clears its own scope"
+    );
+}
+
+#[test]
+fn the_lane_cursor_on_a_plain_step_scopes_that_steps_seat() {
+    let views = views();
+
+    // The last node of the design phase is the bare `chief` step, whose
+    // single node key is that seat's own participant key.
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Up);
+    assert_eq!(
+        tui.node.as_deref(),
+        Some("eff-d:chief"),
+        "wrapped to the foot"
+    );
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Seat(key)) if key == "eff-d:chief"),
+        "a plain step scopes its seat: {}",
+        status_line(&tui)
+    );
+
+    // An untagged single-step phase says the same with the effect id
+    // alone — the other half of the key rule, and the same lookup.
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    assert_eq!(tui.node.as_deref(), Some("eff-i"));
+    assert!(matches!(&tui.scope, Some(render::Scope::Seat(key)) if key == "eff-i"));
+    let (seats, _) = panes_under(&tui, &views);
+    assert_eq!(seats, vec!["eff-i".to_string()]);
+}
+
+#[test]
+fn a_structural_node_and_an_empty_lane_both_leave_the_rails_phase_scoped() {
+    // `rail_phases` carries node keys no participant answers to — the
+    // structural node: a finished step nobody tagged with a member.
+    let plain = graph_views(rail_phases(), "running");
+    let mut tui = at_graph();
+
+    // A PLAIN phase has no lanes at all. A seat scope left over from an
+    // earlier lane visit does not survive `↑↓` here.
+    apply(&mut tui, &plain, Key::Right);
+    assert_eq!(tui.cursor[0].as_deref(), Some("intake"));
+    assert!(lane_keys(&tui, &plain).is_empty());
+    tui.scope = Some(render::Scope::Seat("eff-d:chief".to_string()));
+    apply(&mut tui, &plain, Key::Down);
+    assert_eq!(tui.node, None, "no lane to be in");
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
+        "back on the rail row, the rail's phase is the scope again: {}",
+        status_line(&tui)
+    );
+
+    // A node that names no participant scopes nothing beyond the phase.
+    apply(&mut tui, &plain, Key::Right);
+    apply(&mut tui, &plain, Key::Down);
+    assert!(tui.node.is_some(), "the lane cursor did land on a node");
+    assert!(
+        lane_member(&tui, &plain).is_none(),
+        "and that node names no seat"
+    );
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
+        "so the phase stays scoped: {}",
+        status_line(&tui)
+    );
+}
+
+#[test]
+fn rail_movement_clears_the_lane_cursor_and_re_scopes_the_phase() {
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Down);
+    assert!(scoped_seat(&tui).is_some(), "a lane visit scoped a seat");
+
+    // `←→` move the rail, so the lane the cursor was in is gone — and
+    // so is the seat that lane scoped.
+    apply(&mut tui, &views, Key::Left);
+    assert_eq!(tui.node, None);
+    assert!(
+        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
+        "the phase it landed on is what is scoped: {}",
+        status_line(&tui)
+    );
+    apply(&mut tui, &views, Key::Right);
+    assert!(matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"));
+}
+
+#[test]
+fn the_graph_footer_names_the_member_the_lane_cursor_scoped() {
+    let views = views();
+    let mut tui = at_run();
+    apply(&mut tui, &views, Key::Right);
+    apply(&mut tui, &views, Key::Right);
+    let on_the_rail = footer_for(&tui, &views);
+    assert!(on_the_rail.contains("↑↓ lanes"), "{on_the_rail}");
+    assert!(
+        !on_the_rail.contains("scoped to"),
+        "nothing is scoped by the lanes yet: {on_the_rail}"
+    );
+
+    // Discoverability (decision 0014): the mechanic is named where it
+    // happens, by the label the seats pane shows.
+    apply(&mut tui, &views, Key::Down);
+    let in_a_lane = footer_for(&tui, &views);
+    assert!(
+        in_a_lane.contains("↑↓ lanes · scoped to design:positions:simplicity"),
+        "{in_a_lane}"
+    );
+    assert!(in_a_lane.contains("←→ rail"), "{in_a_lane}");
+    assert!(in_a_lane.contains("Enter scope phase"), "{in_a_lane}");
+
+    // A structural node scopes no seat, so it names none either.
+    let plain = graph_views(rail_phases(), "running");
+    let mut tui = at_graph();
+    apply(&mut tui, &plain, Key::Right);
+    apply(&mut tui, &plain, Key::Right);
+    apply(&mut tui, &plain, Key::Down);
+    let structural = footer_for(&tui, &plain);
+    assert!(!structural.contains("scoped to"), "{structural}");
 }
