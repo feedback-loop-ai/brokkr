@@ -1219,12 +1219,15 @@ fn run_with(
                     "redaction".into(),
                     json!({
                         "scheme": "absolute filesystem paths — POSIX, drive-letter, \
-                                   and UNC — in event payload string fields rewritten \
-                                   to stable placeholders ([path-N]), usernames to \
-                                   [user-N]; scheme URLs survive as a declared bound",
+                                   and UNC — in event payload string fields, and in \
+                                   this manifest, rewritten to stable placeholders \
+                                   ([path-N]), usernames to [user-N]; scheme URLs \
+                                   survive as a declared bound",
                         "hashes": "recorded event hashes predate redaction and no \
-                                   longer match; hash verification applies only to \
-                                   the verbatim export",
+                                   longer match; a pinned realms map's sha256 is \
+                                   likewise the digest of the map as it was, not of \
+                                   the scrubbed copy printed here; hash verification \
+                                   applies only to the verbatim export",
                     }),
                 );
                 std::fs::write(

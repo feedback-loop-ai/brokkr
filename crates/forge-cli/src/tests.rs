@@ -381,6 +381,23 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     // Redaction is scrubbing, not editing: everything that was not
     // machine detail survives, including the pin's own digest.
     assert_eq!(manifest["realms"]["sha256"], verbatim["realms"]["sha256"]);
+    // Which means the pin no longer re-derives from the map printed
+    // beside it — the digest answers for the map that was in effect, not
+    // for the scrubbed copy. A reader must be told that in the artifact
+    // itself, or the mismatch reads as tamper evidence rather than as
+    // the redaction it is.
+    assert_ne!(
+        forge_core::canonical::sha256_hex(&manifest["realms"]["map"]),
+        manifest["realms"]["sha256"].as_str().unwrap(),
+        "this workspace's map carries machine detail, so scrubbing moves it"
+    );
+    assert!(
+        manifest["redaction"]["hashes"]
+            .as_str()
+            .unwrap()
+            .contains("realms map"),
+        "the redacted manifest must declare its own unverifiable pin"
+    );
 
     // The redacted manifest write can refuse like the verbatim one.
     let blocked = dir.path().join("blocked-redacted");

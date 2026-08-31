@@ -232,6 +232,13 @@ than pretended away.
 map's journal; with neither, the journal is `.forge/forge.db` exactly as
 it always was — a world that never drew a map notices nothing.
 
+Phase 1 wires the flag into `run` and the read surfaces the ruling names
+— `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
+The others (`resume`, `rerun`, `doctor`, `ui`, `costs`, `compare`,
+`anchor`, `bridge`) still take `--db` alone, so a run started in a world
+whose map names a journal other than `.forge/forge.db` is resumed by
+naming that journal with `--db`.
+
 ### `brokkr realms` — the world
 
 Every realm with its path, default branch and current HEAD, and the
