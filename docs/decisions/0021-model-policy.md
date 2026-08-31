@@ -62,12 +62,24 @@ scorecard; it never duplicates it.
    through the lanetally driver and the operator's own reports. This
    decision adds no accounting machinery to Brokkr.
 
-7. **First seatings under this law.** codex and dsh take work seats
-   freely; their first outings are wagers — the same feature run under
+7. **Newcomers are symmetric.** Every driver without a journaled track
+   record here starts identically, whatever its vendor or flag: work
+   seats freely, no secret-binding grant, no gate seat — codex and dsh
+   alike. Their first outings are wagers — the same feature run under
    rival crews, compared by artifacts (`rerun`/`compare`, the mechanic
-   the Edda records as the judging of the gifts). dsh begins with no
-   secret-binding grant. Gate seats open to any driver only by ruling 3's
-   road: evidence, then an operator's recorded promotion.
+   the Edda records as the judging of the gifts). Grants and gates open
+   to any driver only by ruling 3's road: evidence, then an operator's
+   recorded ruling. Which jurisdictions are acceptable egress is the
+   operator's threat model expressed in ruling 4's classes, never a
+   default of this document.
+
+8. **A disclosure the law keeps.** The agent that drafted this decision
+   runs on a claude model. That is a conflict of interest wherever
+   claude's tier is discussed, and it is exactly why rulings 2 and 3
+   ground every tier in journaled evidence and operator rulings: the
+   incumbent's standing rests on this shop's recorded runs, not on the
+   drafting agent's provenance, and it is revocable by the same road any
+   newcomer climbs.
 
 ## Consequences
 
