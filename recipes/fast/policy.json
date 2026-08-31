@@ -106,11 +106,13 @@
       "when": {
         "has_security_residual": true,
         "visits_implement_gte": 3,
-        "fixes_applied": true
+        "fixes_applied": true,
+        "max_residual_severity_above": "none",
+        "max_residual_severity_at_most": "low"
       },
       "next": "ship",
       "severity": "flagged",
-      "reason": "Two reforgings spent; the surviving security residual is low or info with fixes applied, so it ships as tracked debt named in the notes (decision 0022)."
+      "reason": "Two reforgings spent; the surviving security residual is POSITIVELY low or info with fixes applied, so it ships as tracked debt named in the notes. An absent or unranked severity never takes this arm (decision 0022)."
     },
     {
       "id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED",

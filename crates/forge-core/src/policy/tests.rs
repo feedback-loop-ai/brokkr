@@ -320,3 +320,75 @@ fn every_runtime_condition_shape_is_strict() {
     )
     .is_err());
 }
+
+/// The reviewer's own repro, pinned against the REAL self table: a
+/// security residual whose severity is ABSENT (or the contradictory
+/// "none") at the exhausted bound never ships as debt — it falls to the
+/// unfixed arm's park, the operator's door. The at-most predicate is
+/// fail-closed: silence never earns the debt arm, an unranked token is
+/// a refusal to rule, and the ranked cases draw the boundary at low.
+#[test]
+fn an_absent_or_none_severity_at_the_bound_parks_and_never_ships() {
+    let table: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bundles/self/policy.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let machine = Machine::from_table(&table).unwrap();
+    let at_bound = |severity: Option<&str>| {
+        let mut m = json!({
+            "has_security_residual": true,
+            "fixes_applied": true,
+            "visits_implement": 3,
+        });
+        if let Some(s) = severity {
+            m["max_residual_severity"] = json!(s);
+        }
+        m.as_object().unwrap().clone()
+    };
+
+    // Absent severity, bound spent: park, not ship.
+    match machine.evaluate("review", "residual", &at_bound(None)) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
+        }
+        other => panic!("silence must take the operator's door, got {other:?}"),
+    }
+
+    // The contradictory "none": the same door.
+    match machine.evaluate("review", "residual", &at_bound(Some("none"))) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
+        }
+        other => panic!("'none' must take the operator's door, got {other:?}"),
+    }
+
+    // info and low earn the debt arm; medium takes its own park.
+    for severity in ["info", "low"] {
+        match machine.evaluate("review", "residual", &at_bound(Some(severity))) {
+            Outcome::Ruling {
+                rule_id,
+                next_phase,
+                ..
+            } => {
+                assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-DEBT", "{severity}");
+                assert_eq!(next_phase, "ship", "{severity}");
+            }
+            other => panic!("{severity} earns the debt arm, got {other:?}"),
+        }
+    }
+    match machine.evaluate("review", "residual", &at_bound(Some("medium"))) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-MEDIUM");
+        }
+        other => panic!("medium parks, got {other:?}"),
+    }
+
+    // An unranked token is a refusal to rule, never a quiet arm.
+    assert!(matches!(
+        machine.evaluate("review", "residual", &at_bound(Some("beyond-critical"))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+}

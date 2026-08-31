@@ -1057,6 +1057,7 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
             let name = key
                 .strip_suffix("_gte")
                 .or_else(|| key.strip_suffix("_above"))
+                .or_else(|| key.strip_suffix("_at_most"))
                 .unwrap_or(key)
                 .to_string();
             if !is_engine_owned(&name) && !names.contains(&name) {

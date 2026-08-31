@@ -70,7 +70,7 @@
           },
           "when": {
             "type": "object",
-            "description": "The closed condition vocabulary (decision 0004). Boolean inputs by name; '<counter>_gte' over the declared counters; '<axis>_above' over the severity axis; and, since decision 0022, 'visits_<phase>_gte' over the run's visit count for any phase THIS table declares — an engine-owned fact counted from phase/entered events, never claimed by a seat.",
+            "description": "The closed condition vocabulary (decision 0004). Boolean inputs by name; '<counter>_gte' over the declared counters; '<axis>_above' and '<axis>_at_most' over the severity axis (at_most is fail-closed: an absent severity never satisfies it); and, since decision 0022, 'visits_<phase>_gte' over the run's visit count for any phase THIS table declares — an engine-owned fact counted from phase/entered events, never claimed by a seat.",
             "additionalProperties": {
               "type": ["boolean", "number", "string"]
             }

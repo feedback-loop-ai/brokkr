@@ -58,6 +58,7 @@ fn severity_rank(name: &str) -> Option<usize> {
 enum Condition {
     CounterGte { name: String, threshold: f64 },
     SeverityAbove { name: String, threshold_rank: usize },
+    SeverityAtMost { name: String, threshold_rank: usize },
     Flag { name: String, expected: bool },
 }
 
@@ -412,6 +413,24 @@ fn parse_condition(
             threshold_rank,
         });
     }
+    if let Some(name) = key.strip_suffix("_at_most") {
+        if !SEVERITY_INPUTS.contains(&name) {
+            return Err(PolicyError(format!(
+                "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
+                 known: {SEVERITY_INPUTS:?}"
+            )));
+        }
+        let threshold_rank = expected.as_str().and_then(severity_rank).ok_or_else(|| {
+            PolicyError(format!(
+                "rule {rule_id}: condition '{key}' threshold {expected} not in \
+                     {SEVERITY_ORDER:?}"
+            ))
+        })?;
+        return Ok(Condition::SeverityAtMost {
+            name: name.to_string(),
+            threshold_rank,
+        });
+    }
     if BOOLEAN_INPUTS.contains(&key) {
         let expected = expected.as_bool().ok_or_else(|| {
             PolicyError(format!(
@@ -425,7 +444,7 @@ fn parse_condition(
     }
     Err(PolicyError(format!(
         "rule {rule_id}: unknown condition key '{key}'; known: {BOOLEAN_INPUTS:?} \
-         plus *_gte over {COUNTER_INPUTS:?} and *_above over {SEVERITY_INPUTS:?}"
+         plus *_gte over {COUNTER_INPUTS:?} and *_above/*_at_most over {SEVERITY_INPUTS:?}"
     )))
 }
 
@@ -456,6 +475,24 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
                 None | Some(Value::Null) => return Ok(false),
                 Some(Value::String(s)) => match severity_rank(s) {
                     Some(rank) if rank > *threshold_rank => {}
+                    Some(_) => return Ok(false),
+                    None => return Err(format!("{name} severity '{s}' not in {SEVERITY_ORDER:?}")),
+                },
+                Some(other) => {
+                    return Err(format!("{name} severity {other} not in {SEVERITY_ORDER:?}"))
+                }
+            },
+            // Fail-closed at-most: an ABSENT severity is an unknown
+            // severity and never qualifies — the ruling that ships as
+            // debt must be earned by a value, not by silence (the
+            // review that repealed the blind stop caught exactly this).
+            Condition::SeverityAtMost {
+                name,
+                threshold_rank,
+            } => match inputs.get(name) {
+                None | Some(Value::Null) => return Ok(false),
+                Some(Value::String(s)) => match severity_rank(s) {
+                    Some(rank) if rank <= *threshold_rank => {}
                     Some(_) => return Ok(false),
                     None => return Err(format!("{name} severity '{s}' not in {SEVERITY_ORDER:?}")),
                 },

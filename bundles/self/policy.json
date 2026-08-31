@@ -1,10 +1,23 @@
 {
   "schema": "forge.phase-machine/v2",
-  "description": "Self-delivery table (decision 0005): the trimmed linear machine the-forge uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, and a security residual never slips onto the tracked-debt path unanswered — under decision 0022 it sends the run BACK to implement, at most twice, and the exhaustion ladder then stops, parks, or ships it as named debt.",
-  "phases": ["intake", "implement", "verify", "review", "ship", "done", "stop"],
+  "description": "Self-delivery table (decision 0005): the trimmed linear machine the-forge uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, and a security residual never slips onto the tracked-debt path unanswered \u2014 under decision 0022 it sends the run BACK to implement, at most twice, and the exhaustion ladder then stops, parks, or ships it as named debt.",
+  "phases": [
+    "intake",
+    "implement",
+    "verify",
+    "review",
+    "ship",
+    "done",
+    "stop"
+  ],
   "initial": "intake",
-  "terminal": ["done", "stop"],
-  "shippable_from": ["review"],
+  "terminal": [
+    "done",
+    "stop"
+  ],
+  "shippable_from": [
+    "review"
+  ],
   "rules": [
     {
       "id": "INTAKE-OK",
@@ -17,7 +30,9 @@
       "id": "IMPL-BROKEN-TWICE",
       "from": "implement",
       "result": "broken",
-      "when": { "consecutive_failures_gte": 2 },
+      "when": {
+        "consecutive_failures_gte": 2
+      },
       "next": "stop",
       "severity": "hard",
       "reason": "Two consecutive broken implement runs; stop and report rather than thrash."
@@ -99,11 +114,13 @@
       "when": {
         "has_security_residual": true,
         "visits_implement_gte": 3,
-        "fixes_applied": true
+        "fixes_applied": true,
+        "max_residual_severity_above": "none",
+        "max_residual_severity_at_most": "low"
       },
       "next": "ship",
       "severity": "flagged",
-      "reason": "Two reforgings spent; the surviving security residual is low or info with fixes applied, so it ships as tracked debt named in the notes (decision 0022)."
+      "reason": "Two reforgings spent; the surviving security residual is POSITIVELY low or info with fixes applied, so it ships as tracked debt named in the notes. An absent or unranked severity never takes this arm (decision 0022)."
     },
     {
       "id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED",
@@ -120,7 +137,9 @@
       "id": "REVIEW-REFORGE",
       "from": "review",
       "result": "residual",
-      "when": { "has_security_residual": true },
+      "when": {
+        "has_security_residual": true
+      },
       "next": "implement",
       "severity": "flagged",
       "reason": "Security residual, any severity: back into the fire. Implement answers the finding it is handed, then verify and review rule again (decision 0022)."
@@ -129,7 +148,9 @@
       "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
       "from": "review",
       "result": "residual",
-      "when": { "max_residual_severity_above": "medium" },
+      "when": {
+        "max_residual_severity_above": "medium"
+      },
       "next": "stop",
       "severity": "hard",
       "reason": "Residual severity above medium; not shippable."
@@ -146,7 +167,9 @@
       "id": "REVIEW-CLEAN-NO-FIXES",
       "from": "review",
       "result": "clean",
-      "when": { "fixes_applied": false },
+      "when": {
+        "fixes_applied": false
+      },
       "next": "ship",
       "reason": "Review clean and no code changed; verification evidence stands."
     },
@@ -161,7 +184,9 @@
       "id": "SHIP-DRIFT",
       "from": "ship",
       "result": "ready",
-      "when": { "drift_detected": true },
+      "when": {
+        "drift_detected": true
+      },
       "next": "review",
       "severity": "flagged",
       "reason": "HEAD moved after the review verdict; re-arm a scoped review (security rides along) before shipping."
@@ -170,7 +195,9 @@
       "id": "SHIP-DIRTY",
       "from": "ship",
       "result": "ready",
-      "when": { "dirty_worktrees": true },
+      "when": {
+        "dirty_worktrees": true
+      },
       "next": "stop",
       "severity": "hard",
       "reason": "A dirty worktree at ship time is a defect: seats commit their work."
@@ -186,7 +213,9 @@
       "id": "SHIPPED-DRIFT",
       "from": "ship",
       "result": "shipped",
-      "when": { "drift_detected": true },
+      "when": {
+        "drift_detected": true
+      },
       "next": "review",
       "severity": "flagged",
       "reason": "HEAD moved between ready and close-out; re-arm a scoped review (security rides along) before shipping."
@@ -195,7 +224,9 @@
       "id": "SHIPPED-DIRTY",
       "from": "ship",
       "result": "shipped",
-      "when": { "dirty_worktrees": true },
+      "when": {
+        "dirty_worktrees": true
+      },
       "next": "stop",
       "severity": "hard",
       "reason": "A dirty worktree at close-out is a defect: seats commit their work."
