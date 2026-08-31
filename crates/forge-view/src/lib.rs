@@ -70,6 +70,11 @@ pub struct RunEntry<'a> {
     pub feature: &'a str,
     pub created_at: &'a str,
     pub state: Option<&'a RunState>,
+    /// Why the state is absent: a fleet read quarantines a run whose
+    /// journal does not fold rather than losing the whole fleet with it,
+    /// and the error text is the row's whole account of itself. Nothing
+    /// is repaired here (README law 2) — the refusal is reported.
+    pub detail: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -84,6 +89,10 @@ pub struct RunRow {
     /// The **full** feature: the model stays terminal-agnostic and
     /// `--json` stays lossless. Clamping is the renderer's job.
     pub feature: String,
+    /// Why this row carries no status, when it carries none: the fold
+    /// error, verbatim. A quarantined run reads as `?` plus this line
+    /// on every surface instead of vanishing from the fleet.
+    pub detail: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -564,6 +573,26 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
     out
 }
 
+/// The finding a fleet read raises for a run whose journal does not
+/// fold. A quarantined run is not a run with nothing to say about it:
+/// an unfoldable journal is the loudest thing in a fleet, so it travels
+/// as a finding the operator's aide can propose about, cited by the
+/// exact sequence number the fold refused at. The claim is the fleet
+/// read's own, not the evaluator's, so the two rule fields the
+/// evaluator would fill carry the absence mark rather than a borrowed
+/// name.
+pub fn quarantine_finding(run_id: &str, seq: u64, error: &str) -> ResidualFinding {
+    ResidualFinding {
+        run_id: run_id.to_string(),
+        seq,
+        phase: ABSENT.to_string(),
+        rule_id: ABSENT.to_string(),
+        input: "journal_folds".to_string(),
+        value: "false".to_string(),
+        line: format!("{run_id} seq {seq} · journal does not fold · {error}"),
+    }
+}
+
 // ------------------------------------------------------- run rows
 
 fn run_row(entry: &RunEntry) -> RunRow {
@@ -582,6 +611,7 @@ fn run_row(entry: &RunEntry) -> RunRow {
         seq: entry.state.map(|state| state.seq),
         created_at: entry.created_at.to_string(),
         feature: entry.feature.to_string(),
+        detail: entry.detail.map(str::to_string),
     }
 }
 

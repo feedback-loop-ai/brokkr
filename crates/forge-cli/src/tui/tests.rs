@@ -185,18 +185,21 @@ fn fleet() -> RunsView {
             feature: "a run whose journal does not fold",
             created_at: "not a timestamp",
             state: None,
+            detail: None,
         },
         forge_view::RunEntry {
             run_id: "run-old",
             feature: "an older feature",
             created_at: T0,
             state: Some(&folded),
+            detail: None,
         },
         forge_view::RunEntry {
             run_id: "run-7",
             feature: "one derivation, three surfaces",
             created_at: T1,
             state: Some(&folded),
+            detail: None,
         },
     ];
     forge_view::run_rows(&entries)
@@ -638,6 +641,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
             feature: "another run",
             created_at: T0,
             state: None,
+            detail: None,
         }]),
         run: None,
         transcript: None,
@@ -1471,6 +1475,7 @@ fn panel_views() -> Views {
             feature: "a run that stopped",
             created_at: T0,
             state: Some(&stopped),
+            detail: None,
         }]),
         run: Some(forge_view::run_view(&events, Some(&stopped))),
         transcript: None,

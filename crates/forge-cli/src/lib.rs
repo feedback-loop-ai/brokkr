@@ -634,6 +634,15 @@ fn transcript_moved(ask: &tui::Ask, seen: &mut Option<(String, u64)>) -> bool {
     grew
 }
 
+/// Fold one run of a FLEET read. A journal that does not fold
+/// quarantines that row — its error text becomes the row's detail — so
+/// one corrupt run cannot blind an operator to every other run. Single-
+/// run verbs (`inspect`, `watch`, `resume`) keep their bare `fold(..)?`:
+/// a command aimed at one run must fail loudly on that run.
+pub(crate) fn fold_or_quarantine(events: &[forge_core::EventEnvelope]) -> Result<RunState, String> {
+    fold(events).map_err(|error| error.to_string())
+}
+
 /// One refresh for `forge tui`: the only place a store is opened on that
 /// path, and the reason `tui.rs` can name none. The head is compared on
 /// **both** seq and hash — a rewritten journal at equal seq is the
@@ -663,24 +672,29 @@ fn tui_views(
     *head = current;
     let mut folded = Vec::new();
     for (run_id, feature, created_at) in store.list_runs()? {
-        // Deliberately not `?`: in a CLI verb a bad run is an error and
-        // a nonzero exit, but in a console it would be the operator's
-        // whole fleet table vanishing because one old run is corrupt.
-        // The absence mark is `RunRow.status_known`'s job (0001).
-        let state = store
+        // Deliberately not `?`: a console would otherwise lose the
+        // operator's whole fleet table because one old run is corrupt.
+        // The absence mark is `RunRow.status_known`'s job (0001), and
+        // the fold's own words now ride along as the row's detail
+        // instead of being discarded.
+        let folded_run = store
             .load(&run_id)
             .ok()
-            .and_then(|events| fold(&events).ok());
-        folded.push((run_id, feature, created_at, state));
+            .map(|events| fold_or_quarantine(&events));
+        folded.push((run_id, feature, created_at, folded_run));
     }
     let entries: Vec<forge_view::RunEntry> = folded
         .iter()
         .map(
-            |(run_id, feature, created_at, state)| forge_view::RunEntry {
+            |(run_id, feature, created_at, folded_run)| forge_view::RunEntry {
                 run_id,
                 feature,
                 created_at,
-                state: state.as_ref(),
+                state: folded_run.as_ref().and_then(|folded| folded.as_ref().ok()),
+                detail: folded_run
+                    .as_ref()
+                    .and_then(|folded| folded.as_ref().err())
+                    .map(String::as_str),
             },
         )
         .collect();
@@ -1059,17 +1073,22 @@ fn run_with(
             let store = Store::open(&db)?;
             let mut folded = Vec::new();
             for (run_id, feature, created_at) in store.list_runs()? {
-                let state = fold(&store.load(&run_id)?)?;
-                folded.push((run_id, feature, created_at, state));
+                // A fleet listing survives one unfoldable journal: that
+                // run becomes a quarantined row carrying the fold's own
+                // words, and the rest of the fleet is still listed. The
+                // journal is never touched — the refusal is reported.
+                let folded_run = fold_or_quarantine(&store.load(&run_id)?);
+                folded.push((run_id, feature, created_at, folded_run));
             }
             let entries: Vec<forge_view::RunEntry> = folded
                 .iter()
                 .map(
-                    |(run_id, feature, created_at, state)| forge_view::RunEntry {
+                    |(run_id, feature, created_at, folded_run)| forge_view::RunEntry {
                         run_id,
                         feature,
                         created_at,
-                        state: Some(state),
+                        state: folded_run.as_ref().ok(),
+                        detail: folded_run.as_ref().err().map(String::as_str),
                     },
                 )
                 .collect();
