@@ -145,9 +145,13 @@ pub(crate) struct Tui {
     /// One key per pane slot; cleared when the run changes.
     pub cursor: [Option<String>; 3],
     /// The `Node.key` the graph cursor has walked into, subordinate to
-    /// `cursor[0]`: display-only, and `Enter` scopes the phase whatever
-    /// it says. Vanishing is the absence of code — a stale key matches
-    /// no drawn node, so nothing highlights.
+    /// `cursor[0]`. It **scopes**: a node whose key names a participant
+    /// makes that seat the scope, one level down from the rail's own
+    /// "moving IS scoping" (see [`graph_scope`]); a structural node and
+    /// the empty lane both fall back to the rail's phase. `Enter` still
+    /// scopes the phase whatever it says. Vanishing is the absence of
+    /// code — a stale key matches no drawn node and no participant, so
+    /// nothing highlights and nothing stays scoped.
     pub node: Option<String>,
     /// The transcript pane's cursor: the selected turn's INDEX in the
     /// stream, held as a key like every other cursor. Live prose
@@ -647,6 +651,29 @@ fn lane_keys(tui: &Tui, views: &Views) -> Vec<String> {
         .collect()
 }
 
+/// The participant the lane cursor is standing on, resolved against the
+/// **fresh** models like every other selection. A fork member's node key
+/// is that member's `Participant.key` and a plain step's is its seat's,
+/// so this is a lookup rather than a second mapping. A structural node —
+/// a finished step nobody tagged — answers `None`, and so does a lane
+/// cursor that is nowhere.
+fn lane_member<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant> {
+    tui.node.as_deref().and_then(|key| participant(views, key))
+}
+
+/// What the graph's two cursors say the scope is, in one place. On the
+/// rail, moving IS scoping (the standing law); in the lanes it is the
+/// same law one level down — a member node scopes that seat, through the
+/// same `Scope`/`lens_for` the seats pane's own `Enter` produces, never a
+/// second filtering mechanism. Anything the lanes cannot resolve falls
+/// back to exactly what the rail already set.
+fn graph_scope(tui: &Tui, views: &Views) -> Option<render::Scope> {
+    match lane_member(tui, views) {
+        Some(part) => Some(render::Scope::Seat(part.key.clone())),
+        None => tui.cursor[0].clone().map(render::Scope::Phase),
+    }
+}
+
 /// `↑↓` walk the lanes inside the graph pane, and the focused list
 /// everywhere else. Both go through the same `move_to`, so wrap-around
 /// and the empty-list case are already specified and already tested.
@@ -655,6 +682,10 @@ fn arrow(tui: &mut Tui, views: &Views, direction: Step) {
         true => {
             let keys = lane_keys(tui, views);
             move_to(&keys, &mut tui.node, direction);
+            // The lane cursor landed somewhere, so it has said what the
+            // operator means: this seat, or — off the members — the
+            // rail's phase again.
+            tui.scope = graph_scope(tui, views);
         }
         false => step(tui, views, direction),
     }
@@ -671,8 +702,11 @@ fn rail_move(tui: &mut Tui, views: &Views, direction: Step) {
     }
     let keys = keys_for(tui, views);
     move_to(&keys, &mut tui.cursor[0], direction);
-    // The rail moved, so whatever lane the cursor was in is gone.
+    // The rail moved, so whatever lane the cursor was in is gone — and
+    // with it any seat that lane had scoped. The phase under the rail is
+    // what remains selected, which is what rail movement has always said.
     tui.node = None;
+    tui.scope = graph_scope(tui, views);
 }
 
 /// The live selection: a cursor key still present in the current list.
@@ -901,7 +935,7 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
 /// Discoverability is a requirement, not a nicety: the footer names the
 /// keys available in the CURRENT context, and differs per (level, pane,
 /// typing, help) so a constant footer cannot pass its test.
-pub(crate) fn footer_for(tui: &Tui) -> String {
+pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
     if tui.help {
         return "? or Esc close help · q quit".to_string();
     }
@@ -917,8 +951,23 @@ pub(crate) fn footer_for(tui: &Tui) -> String {
     let tail = "· / filter · r refresh · ? help · q quit";
     match (tui.level, tui.pane) {
         (Level::Runs, _) => format!("↑↓/jk move · Enter open run · g/G top/bottom {tail}"),
+        // The lane cursor scopes, so the footer must say so where it
+        // happens (decision 0014's discoverability rule): an operator
+        // who watches the seats and the trail narrow under `↑↓` should
+        // read WHY on the same line, named by the seat's own label —
+        // what the seats pane displays — rather than by its raw key.
+        // It says so only while that member IS the scope: `Enter` and
+        // `j`/`k` both re-scope the phase and leave the lane cursor
+        // standing, and a footer naming a seat the panes are not
+        // filtered to would contradict the status line above it.
         (Level::Run, 0) => {
-            format!("←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back {tail}")
+            let named = lane_member(tui, views)
+                .filter(|part| scoped_seat(tui) == Some(part.key.as_str()));
+            let lanes = match named {
+                Some(part) => format!("↑↓ lanes · scoped to {}", safe(&part.label)),
+                None => "↑↓ lanes".to_string(),
+            };
+            format!("←→ rail · {lanes} · Enter scope phase · Tab pane · Esc back {tail}")
         }
         (Level::Run, 1) => {
             let verb = match (scoped_seat(tui), tui.cursor[1].as_deref()) {
@@ -1112,7 +1161,7 @@ pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
     frame.render_widget(Paragraph::new(line(&status_line(tui), plain())), status);
     frame.render_widget(
         Paragraph::new(line(
-            &footer_for(tui),
+            &footer_for(tui, views),
             Style::new().add_modifier(Modifier::REVERSED),
         )),
         footer,
