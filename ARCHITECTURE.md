@@ -6,7 +6,7 @@ divergences are recorded in numbered decisions
 ([docs/decisions/](docs/decisions/)), which are the authority when this
 document and a decision disagree.
 
-The Forge is an event-sourced, deterministic process manager wrapped
+Brokkr is an event-sourced, deterministic process manager wrapped
 around stochastic, fallible effects. Agent sessions are leaves; their
 outputs are typed results; only a pinned policy table ever selects a
 transition. Every claim the system makes — done, verified, parked,
@@ -230,7 +230,7 @@ keyed by the stable seat ids the LaneTally layer joins on.
 
 ## The layer above and below
 
-The Forge decides *how far a delivery advances* — nothing else. A
+Brokkr decides *how far a delivery advances* — nothing else. A
 dispatch layer (Looper) decides what is worth delivering and routes
 parks to human attention; LaneTally decides who pays, joining on seat
 ids and cost checkpoints; harnesses (Claude Code, Codex, dsh) supply

@@ -3486,14 +3486,17 @@ fn the_brand_mark_rides_the_graph_pane_and_pulses_when_the_fleet_forges() {
     // the wordmark on the graph pane's border, the third node pulsing
     // on the shared live ramp whenever ANY run is live. The corner
     // 'forging' text retired when this landed (operator's ruling):
-    // one signal, not two.
+    // one signal, not two. The wordmark is BROKKR (decision 0019
+    // ruling 1); the rail nodes and the pulse are untouched by the
+    // rename, and law 4 keeps every other myth word off the screen.
     let mut views = views();
     let mut tui = at_run();
     settle(&mut tui, &views);
     let frame = frame_of(&tui, &views, 100, 26);
+    assert!(frame.contains("BROKKR"), "the mark is always worn: {frame}");
     assert!(
-        frame.contains("the_FORGE"),
-        "the mark is always worn: {frame}"
+        !frame.contains("the_FORGE"),
+        "the old wordmark is gone: {frame}"
     );
     assert!(
         !frame.contains("forging"),
@@ -3505,7 +3508,7 @@ fn the_brand_mark_rides_the_graph_pane_and_pulses_when_the_fleet_forges() {
     tui.ticks = PULSE_TICKS;
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(
-        frame.contains(&format!("∙ ∙ {} the_", LIVE_RAMP[1])),
+        frame.contains(&format!("∙ ∙ {} BROKKR", LIVE_RAMP[1])),
         "the third rail node breathes: {frame}"
     );
     tui.animate = false;
@@ -3517,7 +3520,7 @@ fn the_brand_mark_rides_the_graph_pane_and_pulses_when_the_fleet_forges() {
     tui.ticks = PULSE_TICKS;
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(
-        frame.contains("∙ ∙ ⏺ the_"),
+        frame.contains("∙ ∙ ⏺ BROKKR"),
         "idle, still, present: {frame}"
     );
 }
