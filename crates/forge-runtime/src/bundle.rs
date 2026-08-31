@@ -37,12 +37,19 @@ pub enum CompileError {
 
 /// Inputs the engine owns. A seat may never supply or declare these:
 /// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 4] = [
+pub const ENGINE_OWNED_INPUTS: [&str; 5] = [
     "consecutive_failures",
     "drift_detected",
     "dirty_worktrees",
     "reviewed_heads",
+    // The same repository facts, keyed by realm (decision 0023). Read
+    // from the tree by the engine, exactly like the two above it.
+    REALM_FACTS,
 ];
+
+/// The per-realm repository facts a decision records in a mapped world:
+/// realm name -> observed HEAD, dirty worktree, drift.
+pub const REALM_FACTS: &str = "realm_facts";
 
 /// The same law over the phase-visit family (decision 0022): every
 /// `visits_<phase>` is counted by the fold from `phase/entered` events,

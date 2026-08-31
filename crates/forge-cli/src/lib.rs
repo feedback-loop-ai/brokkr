@@ -8,6 +8,7 @@ mod compare;
 mod doctor;
 mod init;
 mod muninn;
+mod realms;
 mod recipes;
 mod render;
 mod selector;
@@ -21,9 +22,15 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Parser, Subcommand};
 use forge_core::fold::{fold, RunState, Status};
+use forge_runtime::realms::World;
 use forge_runtime::{operator_command, Bundle, Engine};
 use forge_store::Store;
 use serde_json::{json, Value};
+
+/// The workspace journal a command opens when neither a map nor `--db`
+/// says otherwise. Unchanged since the first release, and the reason a
+/// world that never drew a map notices nothing.
+pub const DEFAULT_DB: &str = ".forge/forge.db";
 
 /// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
 /// 1 error.
@@ -51,7 +58,7 @@ enum Cmd {
     Costs {
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
@@ -60,7 +67,7 @@ enum Cmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
@@ -70,7 +77,7 @@ enum Cmd {
     },
     /// Serve the embedded read-only surface on loopback.
     Ui {
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         #[arg(long, default_value_t = 8383)]
         port: u16,
@@ -88,15 +95,21 @@ enum Cmd {
         /// directly at that run's level.
         #[arg(long)]
         run: Option<String>,
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
     },
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
     Doctor {
         #[arg(long)]
         bundle: Option<PathBuf>,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
     /// Validate a bundle and print its pinned manifest and digest.
@@ -116,8 +129,16 @@ enum Cmd {
         recipes_dir: PathBuf,
         #[arg(long)]
         feature: String,
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map: realms and the journal they share (decision
+        /// 0023). Defaults to ./realms.json when there is one; a map
+        /// named here and missing or malformed is a refusal, never a
+        /// silent fallback.
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         #[arg(long)]
         repo: Option<PathBuf>,
         /// Canonical forge-dispatch/v2 JSON. When present the run id,
@@ -142,7 +163,7 @@ enum Cmd {
         recipes_dir: PathBuf,
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
@@ -165,7 +186,7 @@ enum Cmd {
         recipe: Option<String>,
         #[arg(long, default_value = "recipes")]
         recipes_dir: PathBuf,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         #[arg(long)]
         repo: Option<PathBuf>,
@@ -179,7 +200,7 @@ enum Cmd {
     Compare {
         run_a: String,
         run_b: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
     /// The recipe library: bundle directories as named, swappable
@@ -219,7 +240,7 @@ enum Cmd {
         command: String,
         #[arg(long)]
         reason: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
     /// Explain a run: header, ruling, seats, decision trail, and the
@@ -230,8 +251,14 @@ enum Cmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Emit the view model verbatim — this is what scripts read.
         #[arg(long)]
         json: bool,
@@ -249,8 +276,14 @@ enum Cmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Print one frame and exit.
         #[arg(long)]
         once: bool,
@@ -263,7 +296,7 @@ enum Cmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
     /// Write the canonical NDJSON journal and pinned manifest.
@@ -273,8 +306,14 @@ enum Cmd {
         run: String,
         #[arg(long, default_value = ".")]
         out: PathBuf,
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Also write a sanitized copy for publishable fixtures —
         /// `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` —
         /// with every absolute path in event payloads rewritten to a
@@ -291,7 +330,7 @@ enum Cmd {
     Bridge {
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = ".forge/forge.db")]
+        #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         #[arg(long)]
         looper_url: String,
@@ -306,11 +345,29 @@ enum Cmd {
     /// List runs in the workspace database: one clamped line per run,
     /// newest first. `--json` emits the view model for scripts.
     Runs {
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Emit the view model verbatim — this is what scripts read.
         #[arg(long)]
         json: bool,
+    },
+    /// List the world (decision 0023): each realm with its path, default
+    /// branch and current HEAD, and the journal the world writes.
+    /// Read-only, like every other readout.
+    Realms {
+        /// The map to read (default ./realms.json).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
     },
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {forge} driver <kind> -- <extra args>.
@@ -385,8 +442,14 @@ enum MuninnCmd {
     /// record them. Nothing is executed: a proposal becomes an action
     /// only when the operator issues the command themselves.
     Run {
-        #[arg(long, default_value = ".forge/forge.db")]
-        db: PathBuf,
+        /// The world's map — the journal it names is the fleet this
+        /// reading covers (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
         #[arg(long, default_value = forge_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
         #[arg(long, default_value = forge_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
@@ -760,6 +823,30 @@ fn run(cli: Cli) -> Result<ExitCode> {
     run_with(cli, ui::serve, None, None, run_tui)
 }
 
+/// The world a command reads in, and the journal it opens.
+///
+/// Three rules, in this order (decision 0023 ruling 3): a map named with
+/// `--realms` is loaded or the command refuses; otherwise `./realms.json`
+/// is the map when it exists; and `--db` outranks whatever journal the
+/// map names. With neither map nor `--db` the journal is the default it
+/// has always been — a world that never drew a map notices nothing.
+fn world_and_journal(
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+) -> Result<(Option<World>, PathBuf)> {
+    let world = World::discover(std::path::Path::new("."), realms.as_deref())?;
+    let journal = db
+        .or_else(|| world.as_ref().map(World::journal))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_DB));
+    Ok((world, journal))
+}
+
+/// The journal alone, for the read surfaces that take a map only to know
+/// which world's fleet they are reading.
+fn journal_of(realms: Option<PathBuf>, db: Option<PathBuf>) -> Result<PathBuf> {
+    Ok(world_and_journal(realms, db)?.1)
+}
+
 fn run_with(
     cli: Cli,
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
@@ -811,7 +898,8 @@ fn run_with(
             serve_ui(db, port, open)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Tui { run, db } => {
+        Cmd::Tui { run, realms, db } => {
+            let db = journal_of(realms, db)?;
             // Selectors resolve through decision 0015's one resolver —
             // but resolving needs a store, and `forge tui` refuses a
             // missing database *before* anything opens one, because
@@ -843,14 +931,32 @@ fn run_with(
             recipe,
             recipes_dir,
             feature,
+            realms,
             db,
             repo,
             dispatch,
             secrets_file,
         } => {
+            // The map is read BEFORE anything is compiled, opened or
+            // spawned: a named map that is missing or malformed ends the
+            // invocation here, with no journal touched and no seat run.
+            let (world, db) = world_and_journal(realms, db)?;
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
+                // A Looper-bound run pins a run-manifest/v2, whose bytes
+                // a counterpart system reads and whose round-trip
+                // reconstructs the manifest from six named keys. A world
+                // pinned there would be dropped in silence, so the
+                // combination is refused rather than half-honoured.
+                anyhow::ensure!(
+                    world.is_none(),
+                    "a run with --dispatch cannot pin a realms map: the Looper-bound \
+                     run-manifest/v2 lineage carries no world, and dropping the map \
+                     silently would leave the run unable to say which one it believed \
+                     in. Run without --dispatch, or invoke from a workspace with no \
+                     map, until a jointly agreed v2-lineage manifest version exists"
+                );
                 let raw = std::fs::read_to_string(&path)
                     .with_context(|| format!("reading dispatch {}", path.display()))?;
                 let envelope: forge_core::dispatch::DispatchEnvelopeV2 =
@@ -858,7 +964,7 @@ fn run_with(
                 envelope.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
                 Engine::start_with_dispatch(store, bundle, &feature, repo, envelope)?
             } else {
-                Engine::start(store, bundle, &feature, repo)?
+                Engine::start_in_world(store, bundle, &feature, repo, world)?
             };
             engine.secrets_file = secrets_file;
             eprintln!("run started: {}", engine.run_id);
@@ -931,11 +1037,13 @@ fn run_with(
         }
         Cmd::Inspect {
             run,
+            realms,
             db,
             json,
             phase,
             seat,
         } => {
+            let db = journal_of(realms, db)?;
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
@@ -960,10 +1068,12 @@ fn run_with(
         }
         Cmd::Watch {
             run,
+            realms,
             db,
             once,
             interval_ms,
         } => {
+            let db = journal_of(realms, db)?;
             // Selectors resolve once, before the loop: a prefix that is
             // unique now stays this frame's run even if another run is
             // started while we watch.
@@ -1009,9 +1119,11 @@ fn run_with(
         Cmd::Export {
             run,
             out,
+            realms,
             db,
             redact,
         } => {
+            let db = journal_of(realms, db)?;
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             std::fs::create_dir_all(&out)?;
@@ -1112,7 +1224,19 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Runs { db, json } => {
+        Cmd::Realms { realms, db } => {
+            let (world, db) = world_and_journal(realms, db)?;
+            let world = world.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no map: this workspace has no {} and none was named with --realms",
+                    forge_core::realms::DEFAULT_MAP_FILE
+                )
+            })?;
+            print!("{}", realms::list(&world, &db));
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Runs { realms, db, json } => {
+            let db = journal_of(realms, db)?;
             let store = Store::open(&db)?;
             let mut folded = Vec::new();
             for (run_id, feature, created_at) in store.list_runs()? {
@@ -1184,11 +1308,15 @@ fn run_with(
         }
         Cmd::Muninn { command } => match command {
             MuninnCmd::Run {
+                realms,
                 db,
                 agents_dir,
                 adapters_dir,
                 record,
-            } => muninn::run(&db, &agents_dir, &adapters_dir, &record, &now_rfc3339()),
+            } => {
+                let db = journal_of(realms, db)?;
+                muninn::run(&db, &agents_dir, &adapters_dir, &record, &now_rfc3339())
+            }
             MuninnCmd::List { record, json } => {
                 muninn::list(&record, json)?;
                 Ok(ExitCode::SUCCESS)

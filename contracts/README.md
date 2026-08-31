@@ -48,6 +48,44 @@ system reads, `build_run_manifest_v2` **refuses** a bundle manifest carrying
 `agents`, naming the limitation. Lifting that needs a jointly agreed
 v2-lineage manifest version.
 
+Realms (decision 0023) add two more files and change none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map | `realms.v1.schema.json` | forge-core (shape), forge-runtime (loading), every read surface |
+| Run manifest with the world pinned | `run-manifest.v4.schema.json` | forge-runtime, forge-store export/resume |
+
+`forge.realms/v1` is the minimal shape decision 0023 ruled: the `realms` —
+each a name, a path and a default branch — and the world's `journal`. The
+loader refuses unknown fields at both levels, so decision 0021's per-realm
+driver and egress constraints must arrive as `forge.realms/v2` rather than as
+drift inside a file still calling itself v1.
+
+`run-manifest.v4` is `v3` plus one optional `realms` property carrying the
+map's `source`, its `sha256` and the map itself. It continues the LOCAL
+lineage: absent when a run was invoked with no map, so an unmapped run stores
+and exports the exact v1/v3 shape. Two properties make the pin honest. The
+digest is over the embedded content's canonical JSON, so a reader holding only
+the journal can re-derive it without the file. And the map is workspace data,
+not bundle data: `bundle_manifest_from_run` drops `realms` before the resume
+comparison, so pinning a world moves no bundle digest and makes no run
+unresumable. The event vocabulary needed nothing — the manifest already rides
+inside `run/started`, which is exactly why embedding it there answers "what
+world did this run believe in?" from the journal alone.
+
+The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
+carries no `agents`: its round-trip reconstructs the bundle manifest from six
+named keys, so the pin would be dropped in silence. `brokkr run` refuses
+`--dispatch` together with a map rather than half-honouring it.
+
+Per-realm facts ride in `transition/decided.inputs`, not in the envelope:
+`reviewed_heads` is keyed by realm name in a mapped world (the shape the
+heritage protocol recorded as "repository name to observed HEAD"), and
+`realm_facts` records that realm's head, dirty worktree and drift. Both are
+engine-owned; a seat may neither declare nor claim one. Reading accepts BOTH
+shapes — a head recorded before any map, under the unkeyed `repo` key, still
+answers — so every existing journal folds exactly as it did.
+
 ## Event envelope
 
 One JSON object per event. Canonical bytes: JSON with keys sorted

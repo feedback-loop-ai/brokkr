@@ -226,6 +226,24 @@ Colour follows `NO_COLOR` and `TERM`, width follows `COLUMNS`; without a
 Unicode-width dependency, CJK and emoji columns misalign — stated rather
 than pretended away.
 
+`--realms <file>` chooses the **world** these surfaces read (decision
+0023): a map of repositories and the journal they share, defaulting to
+`./realms.json` when there is one. `--db` is retained and outranks the
+map's journal; with neither, the journal is `.forge/forge.db` exactly as
+it always was — a world that never drew a map notices nothing.
+
+### `brokkr realms` — the world
+
+Every realm with its path, default branch and current HEAD, and the
+journal the world writes. Read-only, like every other readout.
+
+```
+$ brokkr realms
+map      ./realms.json
+journal  ./.forge/forge.db
+realm    the-forge  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
+```
+
 ### `brokkr runs` — the fleet
 
 One clamped line per run, newest first.
@@ -664,7 +682,8 @@ attestations; verify an asset with
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
 | `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli` (builds `brokkr` and the one-release `forge` shim). Crate names lag the rename by a release (decision 0019 ruling 9). |
-| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2` and `/v3`, `forge-effect-provenance/v1`, and `forge.phase-machine/v2` (the rule-driven park, decision 0022). |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), and `forge.realms/v1` (the world's map, decision 0023). |
+| `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |

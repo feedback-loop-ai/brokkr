@@ -2030,3 +2030,203 @@ fn decision_and_operator_storage_failures_propagate() {
         FencedCommandOutcome::Rejected { .. }
     ));
 }
+
+/// A map, written where a world's map lives, naming one realm at `repo`.
+fn world_over(dir: &Path, repo: &Path, name: &str) -> crate::realms::World {
+    let path = dir.join("realms.json");
+    std::fs::write(
+        &path,
+        json!({
+            "schema": forge_core::realms::SCHEMA_V1,
+            "realms": [{
+                "name": name,
+                "path": repo.to_string_lossy(),
+                "default_branch": "main",
+            }],
+            "journal": "forge.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    crate::realms::World::load(&path).unwrap()
+}
+
+fn engine_in(dir: &Path, world: Option<crate::realms::World>, repo: &Path) -> Engine {
+    let store = Store::open(&dir.join("forge.db")).unwrap();
+    Engine::start_in_world(
+        store,
+        bundle(dir, single_body(vec!["driver".into()])),
+        "feature",
+        Some(repo.to_path_buf()),
+        world,
+    )
+    .unwrap()
+}
+
+/// Pinned AND embedded (decision 0023 ruling 4): the manifest carries
+/// the map's content hash and the map itself, and the manifest rides
+/// inside run/started — so the world a run believed in is answerable
+/// from the journal alone.
+#[test]
+fn a_run_in_a_world_pins_the_maps_hash_and_embeds_the_map() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let world = world_over(dir.path(), &repo, "the-forge");
+    let (digest, content) = (world.sha256.clone(), world.content.clone());
+    let engine = engine_in(dir.path(), Some(world), &repo);
+
+    let manifest = engine.store.manifest(&engine.run_id).unwrap();
+    assert_eq!(manifest["realms"]["sha256"], json!(digest));
+    assert_eq!(manifest["realms"]["map"], content);
+    assert_eq!(manifest["realms"]["map"]["realms"][0]["name"], "the-forge");
+    assert!(manifest["realms"]["source"]
+        .as_str()
+        .unwrap()
+        .ends_with("realms.json"));
+    // Everything else is the manifest this engine always wrote.
+    assert_eq!(manifest["bundle_name"], "test");
+
+    let started = &engine.store.load(&engine.run_id).unwrap()[0];
+    assert_eq!(started.payload["manifest"], manifest);
+
+    // And the pin never makes the run unresumable: resume compares the
+    // BUNDLE manifest, which the map was never part of.
+    assert_eq!(
+        forge_core::dispatch::bundle_manifest_from_run(&manifest).unwrap(),
+        engine.bundle.manifest
+    );
+}
+
+/// A world that never drew a map notices nothing: the manifest is the
+/// bundle manifest, with no key added anywhere.
+#[test]
+fn a_run_with_no_map_writes_exactly_the_manifest_it_always_did() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let engine = engine_in(dir.path(), None, &repo);
+    let manifest = engine.store.manifest(&engine.run_id).unwrap();
+    assert_eq!(manifest, engine.bundle.manifest);
+    assert!(manifest.get("realms").is_none());
+}
+
+/// Ruling 5: the repository facts a decision records are keyed by the
+/// realm the repository is — the heritage shape, ready for the day a
+/// world has more than one.
+#[test]
+fn repository_facts_are_recorded_under_the_realm_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let world = world_over(dir.path(), &repo, "the-forge");
+    let mut engine = engine_in(dir.path(), Some(world), &repo);
+
+    let reviewed = git_commit(&repo, "reviewed");
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result":"clean"}),
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(
+        events[1].payload["inputs"]["reviewed_heads"],
+        json!({ "the-forge": reviewed })
+    );
+
+    git_commit(&repo, "moved");
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "the-forge": reviewed }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
+    assert_eq!(inputs["drift_detected"], json!(true));
+    assert_eq!(inputs["dirty_worktrees"], json!(false));
+    let facts = &inputs["realm_facts"]["the-forge"];
+    assert_eq!(facts["drift_detected"], json!(true));
+    assert_eq!(facts["dirty_worktrees"], json!(false));
+    assert_eq!(facts["head"], json!(git_head(&repo).unwrap()));
+}
+
+/// The both-shapes law at the gate that reads them: a head recorded
+/// before any map — unkeyed — still answers for the one realm this run
+/// works in, so an in-flight run keeps its drift check when a map is
+/// drawn under it.
+#[test]
+fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let world = world_over(dir.path(), &repo, "the-forge");
+    let mut engine = engine_in(dir.path(), Some(world), &repo);
+    let reviewed = git_commit(&repo, "reviewed");
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "repo": reviewed }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    assert_eq!(inputs["drift_detected"], json!(false));
+    assert_eq!(
+        inputs["realm_facts"]["the-forge"]["drift_detected"],
+        json!(false)
+    );
+}
+
+/// A repository the map does not name gets no realm: its facts are
+/// recorded exactly as they were before any map existed, and no
+/// per-realm key is invented for it.
+#[test]
+fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
+    let dir = tempfile::tempdir().unwrap();
+    let mapped = dir.path().join("mapped");
+    let stranger = dir.path().join("stranger");
+    std::fs::create_dir(&mapped).unwrap();
+    std::fs::create_dir(&stranger).unwrap();
+    let world = world_over(dir.path(), &mapped, "the-forge");
+    let mut engine = engine_in(dir.path(), Some(world), &stranger);
+    let reviewed = git_commit(&stranger, "reviewed");
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result":"clean"}),
+        )
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    assert_eq!(inputs["reviewed_heads"], json!({ "repo": reviewed }));
+    assert!(inputs.get("realm_facts").is_none());
+}
+
+/// A realm whose tree has no git head, and a ship with nothing reviewed
+/// to compare against: the facts that exist are recorded, the ones that
+/// do not are absent rather than invented.
+#[test]
+fn realm_facts_state_only_what_the_tree_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let world = world_over(dir.path(), &repo, "solo");
+    let mut engine = engine_in(dir.path(), Some(world), &repo);
+    engine
+        .decide(
+            &state(Some("ship"), Cursor::Idle),
+            "effect",
+            json!({"result":"shipped"}),
+        )
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    // No repository there, so no head; and nothing reviewed, so no
+    // drift. Both are absent from the realm's facts rather than
+    // invented, and the dirty answer is the one the tree gave.
+    assert!(inputs.get("drift_detected").is_none());
+    let facts = &inputs["realm_facts"]["solo"];
+    assert_eq!(facts["dirty_worktrees"], inputs["dirty_worktrees"]);
+    assert!(facts.get("head").is_none());
+    assert!(facts.get("drift_detected").is_none());
+    // And a seat may not claim any of it.
+    assert!(crate::bundle::is_engine_owned(crate::bundle::REALM_FACTS));
+}

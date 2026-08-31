@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v4.json",
+  "title": "Forge run manifest v4",
+  "description": "v3's bytes plus one optional 'realms' property: the world the run was invoked into, pinned by content hash AND embedded verbatim. Absent when the run was invoked with no map, so a run in an unmapped workspace stores and exports the exact v1/v3 shape. The manifest rides inside the run/started payload, which is why embedding it here — rather than widening the event vocabulary — makes 'what world did this run believe in?' answerable from the journal alone, forever, whatever later became of the file. Resume compares only the BUNDLE manifest, so a pinned world never makes a run unresumable.",
+  "type": "object",
+  "required": [
+    "engine",
+    "event_schema",
+    "database_schema",
+    "driver_protocol",
+    "bundle_name",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "engine": { "type": "string" },
+    "event_schema": { "const": 1 },
+    "database_schema": { "const": 1 },
+    "driver_protocol": { "const": 1 },
+    "bundle_name": { "type": "string" },
+    "files": {
+      "type": "object",
+      "description": "bundle-relative path -> sha256 hex digest of file bytes",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+      "minProperties": 1
+    },
+    "agents": {
+      "type": "object",
+      "description": "Unchanged from run-manifest.v3: the compile-time resolution of every agent reference, keyed by invocation site.",
+      "minProperties": 1
+    },
+    "realms": {
+      "type": "object",
+      "required": ["source", "sha256", "map"],
+      "additionalProperties": false,
+      "description": "The map is workspace data, not bundle data: it is pinned here and it is NOT part of the bundle manifest, so adopting a map moves no bundle digest.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "The map file as it was named at invocation. Display and diagnostics only — identity is the digest, and the answer is the embedded content."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 over the CANONICAL JSON of the embedded map, computed exactly like every other digest in this family — so the pin is re-derivable from the embedded content alone, by a reader who no longer has the file."
+        },
+        "map": {
+          "type": "object",
+          "description": "The map's content verbatim: a forge.realms/v1 document (contracts/realms.v1.schema.json)."
+        }
+      }
+    }
+  }
+}

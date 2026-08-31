@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v1.json",
+  "title": "Forge realms map v1",
+  "description": "The world an invocation opens (decision 0023, phase 1): the repositories a run may see, and the journal that world writes. A repository is a realm; the map is the connective truth and is not itself a realm. Minimal by ruling: the realms and the journal, nothing else. Decision 0021's per-realm driver and egress constraints are a LATER version, deliberately not speculatively schema'd here, and the loader refuses unknown fields — so a v2 addition arrives as a version, never as drift in a file that still calls itself v1.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v1" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per repository. A single-project workspace is the degenerate map with one entry, and pays nothing for the shape.",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "description": "The realm's identity, and the key every per-realm fact is recorded under in the journal — the shape the heritage protocol recorded as 'repository name to observed HEAD'. Unique within a map."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The realm's working tree: absolute, or relative to the directory the map file itself lives in, so a map is portable with the workspace it describes."
+          },
+          "default_branch": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The branch this realm's work is measured against. Recorded and read out; this version acts on nothing else."
+          }
+        }
+      }
+    },
+    "journal": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The world's workspace database: absolute, or relative to the map file's own directory. `--db` is retained and OUTRANKS this, and with neither map nor `--db` the default journal path is exactly what it always was."
+    }
+  }
+}

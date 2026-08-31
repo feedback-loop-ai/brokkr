@@ -92,9 +92,24 @@ non-stop terminal.
 
 Input provenance is compile-time (decision 0007): every evaluation
 input is either engine-owned (journal-computed — `consecutive_failures`,
-drift, dirty, reviewed heads, and every `visits_<phase>` — overlaid over
-anything a seat claims) or declared by the seat that may supply it;
-everything else is dropped before it reaches the table or the record.
+drift, dirty, reviewed heads, `realm_facts`, and every `visits_<phase>`
+— overlaid over anything a seat claims) or declared by the seat that may
+supply it; everything else is dropped before it reaches the table or the
+record.
+
+The map is the world, chosen at invocation (decision 0023,
+`forge.realms/v1`). `realms.json` names the repositories a run may see —
+each a realm with a name, a path and a default branch — and the journal
+that world writes; `--realms <file>` chooses it on the run and on every
+read surface, `--db` outranks the map's journal, and an unmapped
+workspace behaves exactly as it always did. A named map that is missing
+or malformed refuses before a journal is opened or a seat spawns. At run
+start the map is pinned by content hash and embedded whole into the run
+manifest — which rides inside `run/started` — so the world a run
+believed in is answerable from the journal alone. Repository facts are
+recorded keyed by the realm the repository is; reading them accepts the
+unkeyed shape every earlier journal used, so nothing already recorded
+changes meaning.
 
 The graph has a way BACK (decision 0022, table schema
 `forge.phase-machine/v2`). A rule may read `visits_<phase>_gte` — the

@@ -6,6 +6,7 @@ pub mod agents;
 pub mod anchor;
 pub mod bundle;
 pub mod engine;
+pub mod realms;
 
 pub use agents::{
     report as report_agent, resolve as resolve_agent, Adapters, Availability, Candidate, Library,
@@ -18,6 +19,7 @@ pub use bundle::{
     ENGINE_VERSION,
 };
 pub use engine::{
-    apply_fenced_operator_command, operator_command, DriveEnd, Engine, EngineError,
+    apply_fenced_operator_command, git_head, operator_command, DriveEnd, Engine, EngineError,
     FencedCommandOutcome,
 };
+pub use realms::{World, WorldError};

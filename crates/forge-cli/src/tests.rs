@@ -173,7 +173,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "r1".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
@@ -186,7 +187,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         run(cli(Cmd::Export {
             run: "r1".into(),
             out: out.clone(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             redact: false,
         }))
         .unwrap(),
@@ -199,7 +201,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert!(run(cli(Cmd::Export {
         run: "r1".into(),
         out: blocked,
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: false,
     }))
     .is_err());
@@ -290,7 +293,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     run(cli(Cmd::Export {
         run: "r1".into(),
         out: plain.clone(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: false,
     }))
     .unwrap();
@@ -301,7 +305,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     run(cli(Cmd::Export {
         run: "r1".into(),
         out: marked.clone(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: true,
     }))
     .unwrap();
@@ -343,7 +348,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     assert!(run(cli(Cmd::Export {
         run: "r1".into(),
         out: blocked,
-        db,
+        realms: None,
+        db: Some(db),
         redact: true,
     }))
     .is_err());
@@ -446,14 +452,15 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         recipe: None,
         recipes_dir: recipes_dir.clone(),
         feature: "feature".into(),
-        db: dir.path().join("dispatch.db"),
+        realms: None,
+        db: Some(dir.path().join("dispatch.db")),
         repo: None,
         dispatch,
         secrets_file: None,
     };
 
     let missing = dir.path().join("missing.json");
-    assert!(run(cli(base(Some(missing))))
+    assert!(run(cli(base(Some(missing.clone()))))
         .unwrap_err()
         .to_string()
         .contains("reading dispatch"));
@@ -463,6 +470,20 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         .unwrap_err()
         .to_string()
         .contains("parsing forge-dispatch/v2"));
+
+    // A world and a Looper-bound dispatch cannot both be pinned: the v2
+    // lineage carries no map, and its round-trip would drop one in
+    // silence — leaving a run that cannot say which world it believed
+    // in (decision 0023 ruling 4). Refused before the envelope is even
+    // read, which is why a nonexistent one still lands here.
+    let mut mapped = base(Some(missing));
+    if let Cmd::Run { realms, .. } = &mut mapped {
+        *realms = Some(realms_map(dir.path()));
+    }
+    assert!(run(cli(mapped))
+        .unwrap_err()
+        .to_string()
+        .contains("cannot pin a realms map"));
 
     let bundle = Bundle::compile(&bundle_path).unwrap();
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
@@ -911,7 +932,8 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     let code = run_with(
         cli(Cmd::Tui {
             run: Some("run-al".into()),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
         }),
         ui::serve,
         None,
@@ -936,7 +958,8 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     run_with(
         cli(Cmd::Tui {
             run: Some("latest".into()),
-            db: missing.clone(),
+            realms: None,
+            db: Some(missing.clone()),
         }),
         ui::serve,
         None,
@@ -956,7 +979,8 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     run_with(
         cli(Cmd::Tui {
             run: None,
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
         }),
         ui::serve,
         None,
@@ -1356,7 +1380,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     for json in [false, true] {
         assert_eq!(
             run(cli(Cmd::Runs {
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
             }))
             .unwrap(),
@@ -1365,7 +1390,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         assert_eq!(
             run(cli(Cmd::Inspect {
                 run: "r1".into(),
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
                 phase: None,
                 seat: None,
@@ -1378,7 +1404,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "r1".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: Some("work".into()),
             seat: None,
@@ -1388,7 +1415,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     );
     let unknown = run(cli(Cmd::Inspect {
         run: "r1".into(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         json: false,
         phase: None,
         seat: Some("nobody".into()),
@@ -1403,7 +1431,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         run_with(
             cli(Cmd::Watch {
                 run: "r1".into(),
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 once: true,
                 interval_ms: 100,
             }),
@@ -1420,7 +1449,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         run_with(
             cli(Cmd::Watch {
                 run: "r1".into(),
-                db,
+                realms: None,
+                db: Some(db),
                 once: false,
                 interval_ms: 100,
             }),
@@ -1502,7 +1532,8 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "stopped-mid-flight".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: true,
             phase: None,
             seat: None,
@@ -1584,7 +1615,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     for json in [false, true] {
         assert_eq!(
             run(cli(Cmd::Runs {
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
             }))
             .unwrap(),
@@ -1653,7 +1685,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     for command in [
         Cmd::Inspect {
             run: "poisoned".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
@@ -1674,11 +1707,99 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     assert_eq!(
         run(cli(Cmd::Watch {
             run: "poisoned".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             once: true,
             interval_ms: 100,
         }))
         .unwrap(),
         ExitCode::from(1)
     );
+}
+
+/// A map beside a workspace, naming that workspace as its one realm and
+/// a journal under it. Returns the map's path.
+fn realms_map(dir: &std::path::Path) -> PathBuf {
+    let path = dir.join("realms.json");
+    std::fs::write(
+        &path,
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "journal": "mapped.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    path
+}
+
+/// The three rules of resolution every surface shares (decision 0023
+/// ruling 3): the map's journal when nothing else says otherwise, `--db`
+/// outranking it, and the default journal when there is no map at all.
+#[test]
+fn the_map_names_the_journal_and_db_outranks_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = realms_map(dir.path());
+
+    let (world, journal) = world_and_journal(Some(map.clone()), None).unwrap();
+    assert_eq!(world.unwrap().map.realms[0].name, "the-forge");
+    assert_eq!(journal, dir.path().join("mapped.db"));
+
+    let elsewhere = dir.path().join("elsewhere.db");
+    let (world, journal) = world_and_journal(Some(map), Some(elsewhere.clone())).unwrap();
+    assert!(world.is_some(), "the map is still the world it pins");
+    assert_eq!(journal, elsewhere);
+
+    // No map named, and none in this process's workspace: the journal
+    // is the default it has always been.
+    let (world, journal) = world_and_journal(None, None).unwrap();
+    assert!(world.is_none());
+    assert_eq!(journal, PathBuf::from(DEFAULT_DB));
+    assert_eq!(
+        journal_of(None, Some(elsewhere.clone())).unwrap(),
+        elsewhere
+    );
+}
+
+/// A map named at invocation and missing refuses, on every surface,
+/// before a journal is opened or a seat is spawned.
+#[test]
+fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let nowhere = dir.path().join("nowhere.json");
+    let refusal = run(cli(Cmd::Runs {
+        realms: Some(nowhere.clone()),
+        db: None,
+        json: true,
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("no realms map at"), "{refusal}");
+    assert!(refusal.contains("nowhere.json"), "{refusal}");
+    assert!(!dir.path().join("mapped.db").exists());
+}
+
+/// The world reads out, and a workspace with no map says so plainly
+/// instead of inventing a degenerate world.
+#[test]
+fn the_realms_verb_reads_the_world_or_says_there_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        run(cli(Cmd::Realms {
+            realms: Some(realms_map(dir.path())),
+            db: None,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+
+    let refusal = run(cli(Cmd::Realms {
+        realms: None,
+        db: None,
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("no map"), "{refusal}");
+    assert!(refusal.contains("realms.json"), "{refusal}");
 }
