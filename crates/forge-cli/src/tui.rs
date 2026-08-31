@@ -2066,6 +2066,21 @@ fn put(cells: &mut Cells, x: usize, row: usize, text: &str, style: Style) {
     }
 }
 
+/// What is already painted at a cell — bounded by the grid the same way
+/// `put` is, by iteration rather than by a branch, so an off-grid read
+/// answers with the empty string instead of a panic or an `Option` the
+/// caller would have to unwrap.
+fn under(cells: &Cells, x: usize, row: usize) -> String {
+    cells
+        .iter()
+        .skip(row)
+        .take(1)
+        .flat_map(|line| line.iter().skip(x).take(1))
+        .flatten()
+        .map(|(glyph, _)| glyph.as_str())
+        .collect()
+}
+
 /// The spine at the fork and at the rejoin, drawn top to bottom in one
 /// pass so no glyph can overwrite another's arms: a corner at the
 /// outermost lane, the tee the rail wears at the trunk, and a tee for
@@ -2098,21 +2113,27 @@ fn spine(cells: &mut Cells, join: &Join, rail_row: usize) {
     }
 }
 
-/// A fork and its rejoin. **The rejoin is drawn always** — it is the
-/// join dependency, and the whole reason a fork is not two steps.
-/// The dashed box around the selected phase — the terminal's answer to
-/// the console's dashed selection ring. Lower edge on the reserved box
-/// row, sides skipping the rail row so the rail is seen to pass THROUGH
-/// the boundary — an arrow head is never overwritten. A pane too short
-/// to reserve the box row draws none: half a box is two floating lines,
-/// which is what this replaced.
+/// The SOLID box around the selected phase — the terminal's answer to
+/// the console's selection ring. The vocabulary is `─ │ ╭ ╮ ╰ ╯ ┼` and
+/// nothing else: the dashed set `╌ ┆` left the graph by the operator's
+/// ruling of 2026-08-31, because those glyphs are drawn with a gap at
+/// every cell boundary BY DESIGN, so no amount of correct geometry can
+/// make their edges touch the corners in any font. The geometry was
+/// never the fault; the vocabulary was.
+///
+/// Lower edge on the reserved box row, walls on EVERY row between the
+/// corners — and where a wall crosses the rail, the cell is `┼`, a true
+/// junction, so the wall and the rail both read continuous through it.
+/// That satisfies the unbroken-rail ruling rather than fighting it. A
+/// pane too short to reserve the box row draws none: half a box is two
+/// floating lines, which is what this replaced.
 fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     let Some(bottom) = plan.box_row else {
         return;
     };
     // The box spans the lane envelope OF THIS PHASE — one row above the
     // topmost row the phase actually occupies. A plain phase gets a
-    // snug box with no empty `┆    ┆` air rows; a fork's grows to hold
+    // snug box with no empty `│    │` air rows; a fork's grows to hold
     // its own lanes. The shape is a function of the selected phase,
     // never of the pane, so moving the selection between two plain
     // phases cannot change it (operator's ruling, superseding the fixed
@@ -2138,15 +2159,23 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     // point was the accident.
     let (left, right) = (seg.x0.saturating_sub(BOX_PAD), seg.x1 + BOX_PAD);
     for x in left..=right {
-        put(cells, x, top, "╌", plain());
-        put(cells, x, bottom, "╌", plain());
+        put(cells, x, top, "─", plain());
+        put(cells, x, bottom, "─", plain());
     }
     for row in top + 1..bottom {
-        if row == plan.rail_row {
-            continue;
+        for column in [left, right] {
+            // A junction may only replace a DASH: where the wall crosses
+            // live rail the cell becomes `┼` and both lines read through
+            // it, but a wall standing where there is no rail — the outer
+            // side of the first or the last phase — is a plain wall.
+            // Reading the cell rather than trusting `plan.rail` is what
+            // keeps the junction honest about what is actually painted.
+            let wall = match (row == plan.rail_row, under(cells, column, row) == "─") {
+                (true, true) => "┼",
+                _ => "│",
+            };
+            put(cells, column, row, wall, plain());
         }
-        put(cells, left, row, "┆", plain());
-        put(cells, right, row, "┆", plain());
     }
     put(cells, left, top, "╭", plain());
     put(cells, right, top, "╮", plain());
@@ -2154,6 +2183,8 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     put(cells, right, bottom, "╯", plain());
 }
 
+/// A fork and its rejoin. **The rejoin is drawn always** — it is the
+/// join dependency, and the whole reason a fork is not two steps.
 fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
     // Between the fork and its rejoin the rail gives way to the lanes,
     // unless the member count is odd and one member rides the rail row.
@@ -2247,11 +2278,12 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
                 );
             }
         }
-        // The selected phase sits in a dashed box — the terminal's
-        // answer to the console's dashed selection ring. It hugs the
-        // rows THIS phase occupies and pads what it draws evenly on
-        // both sides, skipping the rail row so the rail is seen to pass
-        // THROUGH the boundary — an arrow head is never overwritten.
+        // The selected phase sits in a solid box — the terminal's
+        // answer to the console's selection ring. It hugs the rows THIS
+        // phase occupies and pads what it draws evenly on both sides,
+        // and where a wall crosses the rail it wears the junction `┼`,
+        // so the rail is SEEN to pass through the boundary rather than
+        // stopping at it — an arrow head is never overwritten.
         if seg.selected {
             selection_box(&mut cells, seg, plan);
         }
