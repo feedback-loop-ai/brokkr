@@ -444,13 +444,21 @@ fn next_absolute_path(text: &str, from: usize) -> Option<(usize, usize)> {
                 .chars()
                 .next_back()
                 .filter(|character| matches!(character, '\'' | '"' | '`'));
+            // A drive-letter path owns the colon at its second
+            // character; every other colon ends a path, which is what
+            // splits `PATH=/usr/bin:/home/x` into two redactions.
+            let drive = text[start..].as_bytes().get(1) == Some(&b':');
             let end = text[start..]
                 .char_indices()
                 .skip(1)
                 .find_map(|(offset, character)| {
-                    quoted_by
-                        .map_or_else(|| path_end(character), |quote| character == quote)
-                        .then_some(start + offset)
+                    let ends = match quoted_by {
+                        Some(quote) => character == quote,
+                        None => {
+                            path_end(character) || (character == ':' && !(drive && offset == 1))
+                        }
+                    };
+                    ends.then_some(start + offset)
                 })
                 .unwrap_or(text.len());
             // A separator alone (`/`, `end /`) is punctuation, not a
