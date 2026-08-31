@@ -275,6 +275,14 @@ enum Cmd {
         out: PathBuf,
         #[arg(long, default_value = ".forge/forge.db")]
         db: PathBuf,
+        /// Also write a sanitized copy for publishable fixtures —
+        /// `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` —
+        /// with every absolute path in event payloads rewritten to a
+        /// stable placeholder. The verbatim pair is written unchanged;
+        /// the redacted copy's recorded hashes no longer verify, and its
+        /// manifest says so.
+        #[arg(long)]
+        redact: bool,
     },
     /// Verify an exported journal offline: chain, envelopes, fold.
     VerifyRun { file: PathBuf },
@@ -998,7 +1006,12 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { run, out, db } => {
+        Cmd::Export {
+            run,
+            out,
+            db,
+            redact,
+        } => {
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             std::fs::create_dir_all(&out)?;
@@ -1011,6 +1024,36 @@ fn run_with(
                 serde_json::to_string_pretty(&manifest)?,
             )?;
             eprintln!("exported {}", journal_path.display());
+            if redact {
+                // A sanitized copy that could pass as verbatim evidence
+                // would be a forgery, so the copy is marked twice: in
+                // its filenames and in its manifest, which also names
+                // the consequence — redaction breaks the recorded event
+                // hashes, and hash verification applies only to the
+                // verbatim export.
+                let redacted = forge_store::redact_export(&ndjson)?;
+                let redacted_path = out.join(format!("{run}.redacted.ndjson"));
+                std::fs::write(&redacted_path, &redacted)?;
+                let mut fields = manifest.as_object().cloned().unwrap_or_default();
+                fields.insert("redacted".into(), json!(true));
+                fields.insert(
+                    "redaction".into(),
+                    json!({
+                        "scheme": "absolute filesystem paths — POSIX, drive-letter, \
+                                   and UNC — in event payload string fields rewritten \
+                                   to stable placeholders ([path-N]), usernames to \
+                                   [user-N]; scheme URLs survive as a declared bound",
+                        "hashes": "recorded event hashes predate redaction and no \
+                                   longer match; hash verification applies only to \
+                                   the verbatim export",
+                    }),
+                );
+                std::fs::write(
+                    out.join(format!("{run}.redacted.manifest.json")),
+                    serde_json::to_string_pretty(&Value::Object(fields))?,
+                )?;
+                eprintln!("exported {} (redacted)", redacted_path.display());
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::VerifyRun { file } => {

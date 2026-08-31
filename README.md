@@ -610,6 +610,9 @@ $ brokkr anchor --run latest                     # record the head in refs/forge
 anchored prefix-selectors-for-the-read-su-8bf6d692 at 94c5bd9dff99bef4d4b9d224d8cc1661681fd194
 
 $ brokkr anchor --run latest --check             # tamper evidence, re-checked
+$ brokkr export --run latest --out ./out --redact  # plus a marked publishable derivative:
+#   <run>.redacted.ndjson — paths and usernames as stable placeholders, hashes
+#   verify only on the verbatim pair, and the manifest says so
 {
   "chain_length": 2,
   "journal_head_hash": "74d186fb254b62fb486b3f5f3fe1e1ad7c91fa5deef2d850d60c16e5478be918",
