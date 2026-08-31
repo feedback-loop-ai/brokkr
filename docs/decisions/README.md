@@ -29,6 +29,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0020](0020-muninn.md) | Muninn: the raven that reads everything and rules nothing | The standing overseer reads only journal-derived models, proposes and never rules, and records every proposal as evidence with provenance; delegation only by future recorded grant. | accepted |
 | [0021](0021-model-policy.md) | Model policy: the law, not the scorecard | Work and gate seats; operator-granted driver trust tiers and egress rights, compile-refused when violated; park, never substitute; economics stays LaneTally's. | accepted |
 | [0022](0022-reforging.md) | Reforging: the graph gets its way back into the fire | A security residual returns the run to implement with the finding as declared input, bounded at two reforgings; the exhaustion ladder stops, parks, or ships-as-debt by severity. | accepted |
+| [0023](0023-realms.md) | Realms: the map is the world, chosen at invocation | realms.json (minimal v1 schema, this repo its own bootstrap) picked by --realms on run and every read surface, pinned and embedded per run; per-realm facts on decisions; Bifröst and multi-realm runs are later phases. | accepted |
 
 ## How a decision is made
 
