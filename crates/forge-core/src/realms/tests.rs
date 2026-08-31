@@ -166,14 +166,18 @@ fn a_head_recorded_under_a_realm_answers_to_that_realm() {
     assert_eq!(recorded_head(&keyed, Some("elsewhere")), None);
 }
 
-/// `brokkr resume` takes no map, so the reader may not know the name the
-/// facts were keyed under. With one realm recorded there is nothing to
-/// be ambiguous about, and the ship gate keeps its drift check.
+/// Two shapes are ruled and two are read: a realm-keyed head answers to
+/// its own name and to no other, however few realms are recorded. The
+/// lone entry is the tempting case and the wrong one — answering it to
+/// any name would compare one realm's HEAD against another realm's tree.
+/// Nothing needs the guess: a resumed run rehydrates its world from its
+/// own manifest pin, so the reader knows the name to ask by.
 #[test]
-fn one_recorded_realm_answers_without_being_named() {
+fn a_realm_keyed_head_answers_to_its_realm_alone() {
     let one = json!({"the-forge": "abc"});
-    assert_eq!(recorded_head(&one, None), Some("abc"));
-    assert_eq!(recorded_head(&one, Some("elsewhere")), Some("abc"));
+    assert_eq!(recorded_head(&one, Some("the-forge")), Some("abc"));
+    assert_eq!(recorded_head(&one, None), None);
+    assert_eq!(recorded_head(&one, Some("elsewhere")), None);
 }
 
 #[test]

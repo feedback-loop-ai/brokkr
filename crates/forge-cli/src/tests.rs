@@ -518,8 +518,28 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         secrets_file: None,
     };
 
+    // A map the operator NAMED and a Looper-bound dispatch cannot both
+    // be honoured: the v2 lineage carries no world, and dropping the map
+    // silently would leave the run unable to say which one it believed
+    // in (decision 0023 ruling 4). Refused with the map's own refusals —
+    // before a bundle is compiled, a journal created or an envelope read,
+    // which is why a nonexistent envelope still lands here.
     let missing = dir.path().join("missing.json");
-    assert!(run(cli(base(Some(missing.clone()))))
+    let map = realms_map(dir.path());
+    let mut mapped = base(Some(missing.clone()));
+    if let Cmd::Run { realms, .. } = &mut mapped {
+        *realms = Some(map);
+    }
+    assert!(run(cli(mapped))
+        .unwrap_err()
+        .to_string()
+        .contains("cannot pin the map named by --realms"));
+    assert!(
+        !dir.path().join("dispatch.db").exists(),
+        "and no journal was created to refuse into"
+    );
+
+    assert!(run(cli(base(Some(missing))))
         .unwrap_err()
         .to_string()
         .contains("reading dispatch"));
@@ -529,21 +549,6 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         .unwrap_err()
         .to_string()
         .contains("parsing forge-dispatch/v2"));
-
-    // A map the operator NAMED and a Looper-bound dispatch cannot both
-    // be honoured: the v2 lineage carries no world, and dropping the map
-    // silently would leave the run unable to say which one it believed
-    // in (decision 0023 ruling 4). Refused before the envelope is even
-    // read, which is why a nonexistent one still lands here.
-    let map = realms_map(dir.path());
-    let mut mapped = base(Some(missing));
-    if let Cmd::Run { realms, .. } = &mut mapped {
-        *realms = Some(map);
-    }
-    assert!(run(cli(mapped))
-        .unwrap_err()
-        .to_string()
-        .contains("cannot pin the map named by --realms"));
 
     let bundle = Bundle::compile(&bundle_path).unwrap();
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
@@ -1838,6 +1843,7 @@ fn the_map_names_the_journal_and_db_outranks_it() {
     assert_eq!(named.world.unwrap().map.realms[0].name, "the-forge");
     assert!(named.named, "the operator typed this one");
     assert_eq!(named.journal, dir.path().join("mapped.db"));
+    assert_eq!(named.notice, None, "a map typed needs no announcement");
 
     let elsewhere = dir.path().join("elsewhere.db");
     let overridden = Invocation::resolve(unmapped(), Some(map), Some(elsewhere.clone())).unwrap();
@@ -1859,10 +1865,79 @@ fn the_map_names_the_journal_and_db_outranks_it() {
     let bare = Invocation::resolve(unmapped(), None, None).unwrap();
     assert!(bare.world.is_none());
     assert_eq!(bare.journal, PathBuf::from(DEFAULT_DB));
+    assert_eq!(bare.notice, None, "and nothing to announce");
     assert_eq!(
         journal_of(unmapped(), None, Some(elsewhere.clone())).unwrap(),
         elsewhere
     );
+}
+
+/// A map nobody typed still moves where the journal is created. Ruling 3
+/// wants that adoption; it does not want it silent, so the surfaces say
+/// once, on stderr, which journal an ambient map chose — and say nothing
+/// when the operator's own `--db` chose it, or when the map's journal is
+/// the one that was going to be opened anyway.
+#[test]
+fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
+    let dir = tempfile::tempdir().unwrap();
+    realms_map(dir.path());
+
+    let found = Invocation::resolve(dir.path(), None, None).unwrap();
+    let notice = found.notice.clone().expect("an ambient map announces");
+    assert!(notice.starts_with("note: the journal is "), "{notice}");
+    assert!(
+        notice.contains(&dir.path().join("mapped.db").display().to_string()),
+        "{notice}"
+    );
+    assert!(
+        notice.contains(&dir.path().join("realms.json").display().to_string()),
+        "{notice}"
+    );
+    assert!(notice.contains("--db outranks it"), "{notice}");
+    // Announcing is what a surface does with it, and it hands the
+    // invocation back unchanged.
+    assert_eq!(found.announce().notice, Some(notice));
+
+    // The operator's own `--db` is the operator's own answer.
+    let chosen = dir.path().join("chosen.db");
+    assert_eq!(
+        Invocation::resolve(dir.path(), None, Some(chosen))
+            .unwrap()
+            .notice,
+        None
+    );
+
+    // And a map that names the journal which was going to be opened
+    // anyway has redirected nothing, so it announces nothing — this is
+    // the case this repository's own root map is in.
+    let plain = tempfile::tempdir().unwrap();
+    let default_journal = std::path::absolute(DEFAULT_DB).unwrap();
+    std::fs::write(
+        plain.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "journal": default_journal.display().to_string(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let ambient = Invocation::resolve(plain.path(), None, None).unwrap();
+    assert_eq!(ambient.journal, default_journal);
+    assert_eq!(
+        ambient.notice, None,
+        "the default journal is no redirection"
+    );
+
+    // One journal, however it is written — and a path that cannot be
+    // located at all compares as written.
+    let written = std::path::Path::new("./.forge/forge.db");
+    assert!(same_journal(written, std::path::Path::new(DEFAULT_DB)));
+    assert!(same_journal(
+        std::path::Path::new(""),
+        std::path::Path::new("")
+    ));
+    assert!(!same_journal(written, std::path::Path::new("other.db")));
 }
 
 /// A map named at invocation and missing refuses, on every surface,

@@ -134,27 +134,23 @@ impl RealmMap {
     }
 }
 
-/// The head recorded for one realm, accepting BOTH shapes.
+/// The head recorded for one realm, in the TWO shapes the ruling names
+/// and no third one.
 ///
 /// A journal written before any map recorded one unkeyed head under
-/// [`LEGACY_REALM_KEY`]; a mapped run records it under the realm's own
-/// name. A reader may also arrive without the map that was in effect —
-/// `brokkr resume` takes no map — so a single-entry record answers for
-/// itself: with one realm recorded there is nothing to be ambiguous
-/// about, and refusing to read it would lose the ship gate's drift check
-/// for no gain.
+/// [`LEGACY_REALM_KEY`], and it is still read: the per-realm lookup falls
+/// back to that key. A mapped run records the head under the realm's own
+/// name, and it answers to that name alone — a reader that cannot name
+/// the realm is told nothing rather than handed whichever head happened
+/// to be recorded, because a head from another realm would be compared
+/// against this realm's tree. No reader has to guess: `brokkr resume`
+/// takes no map but rehydrates the world from the run's own manifest pin.
 pub fn recorded_head<'a>(recorded: &'a Value, realm: Option<&str>) -> Option<&'a str> {
     let heads = recorded.as_object()?;
-    if let Some(head) = realm.and_then(|name| heads.get(name)) {
-        return head.as_str();
-    }
-    if let Some(head) = heads.get(LEGACY_REALM_KEY) {
-        return head.as_str();
-    }
-    match heads.len() {
-        1 => heads.values().next()?.as_str(),
-        _ => None,
-    }
+    realm
+        .and_then(|name| heads.get(name))
+        .or_else(|| heads.get(LEGACY_REALM_KEY))?
+        .as_str()
 }
 
 #[cfg(test)]

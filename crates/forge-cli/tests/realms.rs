@@ -204,9 +204,19 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
         "and not the default one"
     );
 
+    // A map found rather than typed still moved where the journal is,
+    // and every surface says so once, on stderr, before opening it.
+    let announced = |stderr: &str| {
+        stderr
+            .lines()
+            .any(|line| line.starts_with("note: the journal is ") && line.contains("world.db"))
+    };
+    assert!(announced(&stderr), "{stderr}");
+
     let (code, listed, stderr) = ws.run(&["runs", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(listed.contains(&run_id), "{listed}");
+    assert!(announced(&stderr), "{stderr}");
 
     for surface in [
         vec!["inspect", "--run", "latest", "--json"],
@@ -220,10 +230,12 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
         .join(format!("exported/{run_id}.ndjson"))
         .is_file());
 
-    // `--db` outranks the map's journal, and the fleet there is empty.
+    // `--db` outranks the map's journal, and the fleet there is empty —
+    // and the operator's own answer is not announced back to them.
     let (code, listed, stderr) = ws.run(&["runs", "--json", "--db", "state/other.db"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(!listed.contains(&run_id), "{listed}");
+    assert!(!announced(&stderr), "{stderr}");
 }
 
 /// Pinned AND embedded: the exported manifest carries the map's content

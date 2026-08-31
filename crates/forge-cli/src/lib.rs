@@ -849,6 +849,21 @@ struct Invocation {
     /// typed.
     named: bool,
     journal: PathBuf,
+    /// What an ambient map moved without being asked to. Ruling 3 wants
+    /// a map found to be adopted; it does not want the adoption silent,
+    /// so a journal that is somewhere else BECAUSE of a map nobody typed
+    /// is said out loud — once, on stderr, before anything opens it.
+    notice: Option<String>,
+}
+
+/// One journal, however it is written. A relative path means what it
+/// means to the process that would open it, so a map naming
+/// `.forge/forge.db` beside the working directory has moved nothing —
+/// and a path that cannot be located at all compares as written.
+fn same_journal(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let located =
+        |path: &std::path::Path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    located(left) == located(right)
 }
 
 impl Invocation {
@@ -858,15 +873,47 @@ impl Invocation {
         db: Option<PathBuf>,
     ) -> Result<Invocation> {
         let named = realms.is_some();
+        let overridden = db.is_some();
         let world = World::discover(workspace, realms.as_deref())?;
+        let mapped = world.as_ref().map(World::journal);
         let journal = db
-            .or_else(|| world.as_ref().map(World::journal))
+            .or_else(|| mapped.clone())
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DB));
+        // A note is owed exactly when a map nobody typed is what moved
+        // the journal: a map the operator named is one the operator
+        // knows about, `--db` is the operator's own answer, and a map
+        // naming the journal that was going to be opened anyway moved
+        // nothing.
+        let notice = mapped
+            .zip(
+                world
+                    .as_ref()
+                    .map(|world| world.source.display().to_string()),
+            )
+            .filter(|(mapped, _)| {
+                !named && !overridden && !same_journal(mapped, std::path::Path::new(DEFAULT_DB))
+            })
+            .map(|(mapped, source)| {
+                format!(
+                    "note: the journal is {}, named by the map {source} found in this \
+                     workspace rather than typed with --realms; --db outranks it",
+                    mapped.display(),
+                )
+            });
         Ok(Invocation {
             world,
             named,
             journal,
+            notice,
         })
+    }
+
+    /// Say the note, if there is one, before the caller opens anything.
+    fn announce(self) -> Invocation {
+        if let Some(notice) = &self.notice {
+            eprintln!("{notice}");
+        }
+        self
     }
 }
 
@@ -877,7 +924,9 @@ fn journal_of(
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
 ) -> Result<PathBuf> {
-    Ok(Invocation::resolve(workspace, realms, db)?.journal)
+    Ok(Invocation::resolve(workspace, realms, db)?
+        .announce()
+        .journal)
 }
 
 fn run_with(
@@ -981,23 +1030,26 @@ fn run_with(
                 world,
                 named,
                 journal: db,
-            } = Invocation::resolve(workspace, realms, db)?;
+                ..
+            } = Invocation::resolve(workspace, realms, db)?.announce();
+            // A Looper-bound run pins a run-manifest/v2, whose bytes a
+            // counterpart system reads and whose round-trip reconstructs
+            // the manifest from six named keys. A world cannot be pinned
+            // there, so a map the operator NAMED is refused rather than
+            // half-honoured — and refused HERE, in the same breath as a
+            // missing or malformed map, before a bundle is compiled or a
+            // journal is created.
+            anyhow::ensure!(
+                !(named && dispatch.is_some()),
+                "a run with --dispatch cannot pin the map named by --realms: the \
+                 Looper-bound run-manifest/v2 lineage carries no world, and dropping \
+                 the map silently would leave the run unable to say which one it \
+                 believed in. Run without --dispatch, or without --realms, until a \
+                 jointly agreed v2-lineage manifest version exists"
+            );
             let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
-                // A Looper-bound run pins a run-manifest/v2, whose bytes
-                // a counterpart system reads and whose round-trip
-                // reconstructs the manifest from six named keys. A world
-                // cannot be pinned there, so a map the operator NAMED is
-                // refused rather than half-honoured.
-                anyhow::ensure!(
-                    !named,
-                    "a run with --dispatch cannot pin the map named by --realms: the \
-                     Looper-bound run-manifest/v2 lineage carries no world, and dropping \
-                     the map silently would leave the run unable to say which one it \
-                     believed in. Run without --dispatch, or without --realms, until a \
-                     jointly agreed v2-lineage manifest version exists"
-                );
                 // A map merely lying in the workspace is a different
                 // matter: it still names the journal this world's fleet
                 // writes, so the run goes there — but it is not pinned,
@@ -1295,7 +1347,8 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Realms { realms, db, json } => {
-            let Invocation { world, journal, .. } = Invocation::resolve(workspace, realms, db)?;
+            let Invocation { world, journal, .. } =
+                Invocation::resolve(workspace, realms, db)?.announce();
             let world = world.ok_or_else(|| {
                 anyhow::anyhow!(
                     "no map: this workspace has no {} and none was named with --realms",

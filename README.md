@@ -230,7 +230,10 @@ than pretended away.
 0023): a map of repositories and the journal they share, defaulting to
 `./realms.json` when there is one. `--db` is retained and outranks the
 map's journal; with neither, the journal is `.forge/forge.db` exactly as
-it always was — a world that never drew a map notices nothing.
+it always was — a world that never drew a map notices nothing. A map
+found rather than typed is still adopted, but not silently: when it sends
+the journal somewhere other than the path that would have been opened
+anyway, the surface names that journal on stderr before opening it.
 
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
