@@ -1,0 +1,21 @@
+{
+  "bundle_name": "fast",
+  "database_schema": 1,
+  "driver_protocol": 1,
+  "engine": "0.4.0",
+  "event_schema": 1,
+  "files": {
+    "bundle.json": "67badb5001694d075fd73690773f3cc6d6f319765672e494489447adf7a4eced",
+    "policy.json": "8e27a2e7010d2239d0c602e0989bb021c66014a420945674d82db7b755a802f6",
+    "roles/implementer.md": "82cc285e0776dd63c96851ef26189693e4bf41d90de425b936a157eae9db3d24",
+    "roles/reviewer.md": "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
+    "roles/shipper.md": "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
+    "roles/verifier.md": "b2c93f743e0811e40cc825c28ea74885b292c5df5371f7604fced3715bc54ded",
+    "shipper.md": "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9"
+  },
+  "redacted": true,
+  "redaction": {
+    "hashes": "recorded event hashes predate redaction and no longer match; hash verification applies only to the verbatim export",
+    "scheme": "absolute filesystem paths — POSIX, drive-letter, and UNC — in event payload string fields rewritten to stable placeholders ([path-N]), usernames to [user-N]; scheme URLs survive as a declared bound"
+  }
+}

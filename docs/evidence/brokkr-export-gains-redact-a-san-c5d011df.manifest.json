@@ -1,0 +1,12 @@
+{
+  "bundle_name": "fast-codex",
+  "database_schema": 1,
+  "driver_protocol": 1,
+  "engine": "0.4.0",
+  "event_schema": 1,
+  "files": {
+    "@compose/0000/fast": "4dc02d70c84b9af7fa3680a0e329bc5faad30eb49eecd38664234abbb4af1900",
+    "bundle.json": "79c57f311ccda8e3a62ee8a115db2f16aab367ec4e2c0454f8dd785215d5691b",
+    "roles/implementer.md": "82cc285e0776dd63c96851ef26189693e4bf41d90de425b936a157eae9db3d24"
+  }
+}

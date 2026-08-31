@@ -1,0 +1,18 @@
+{
+  "bundle_name": "verify",
+  "database_schema": 1,
+  "driver_protocol": 1,
+  "engine": "0.1.0",
+  "event_schema": 1,
+  "files": {
+    "bundle.json": "5b383f52535fbd6d688bdf3c8a54e05774afbfddd4b496b9c904ac86172d42c8",
+    "drivers/__pycache__/driver_common.cpython-313.pyc": "30c175becb8320954fd587dfef5353efb114221dc52aced4d3cd5bdbb5be49a0",
+    "drivers/claude_driver.py": "0d7efddf19ed458d11895c63e73d6d595a3cda650935f699c06fbbcd44583dc3",
+    "drivers/codex_driver.py": "c528032657aadd87eb6a63d94a9089ff7bf746bedd6cfad3becdb99bbe566d99",
+    "drivers/driver_common.py": "31cea7b8fd14242051a4ba5e9760a3a4771341ed2613f2f36e54005c9d8fd161",
+    "drivers/exec_driver.py": "5486470f720c459ddf3c5481afbeee4fe11918f64033ebdd4514566ac55dcdf3",
+    "policy.json": "6dd9e683dc39faeaa7a64d68373234dc138d878e0120e85697264c397d1732c1",
+    "roles/reviewer.md": "0851aaffe067e977b0b3e005611b549eb5c2fbd4d7699f98ac5d868c6b961876",
+    "roles/verifier.md": "c31c09ca7c9af94e883a6c0bd4c2b6cbeb3ce8e020d1f0a76191072583898c82"
+  }
+}
