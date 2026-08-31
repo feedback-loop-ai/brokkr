@@ -62,7 +62,7 @@ fn the_frozen_contracts_and_the_corpus_keep_their_exact_bytes() {
     );
 }
 
-/// The two new contracts land BESIDE the frozen ones, as new numbered
+/// The new contracts land BESIDE the frozen ones, as new numbered
 /// files — the only way a frozen contract ever changes.
 #[test]
 fn the_new_contracts_exist_beside_the_frozen_ones() {
@@ -74,6 +74,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/effect-provenance.v1.schema.json",
             "Forge effect provenance v1",
+        ),
+        // Decision 0022's rule-driven park: a new version beside v1, not
+        // an edit to it. The v1 table schema was never a file here, so
+        // this pins the ONE thing that matters — v2 landed as its own
+        // published file rather than as bytes changed under v1's name.
+        (
+            "contracts/phase-machine.v2.schema.json",
+            "Forge phase-machine table v2",
         ),
     ] {
         let body: serde_json::Value =

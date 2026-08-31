@@ -22,12 +22,16 @@ fn workspace() -> PathBuf {
 }
 
 /// Recorded from this tree at the commit that introduced this test. A
-/// move here is either an intended engine-version bump or the byte
-/// identity this slice promised to keep — never a silent third thing.
+/// move here is either an intended engine-version bump, an intended
+/// policy change re-pinned as the identity change it is (decision 0022
+/// moved `recipes/fast`, which gained the reforging back-edge, and left
+/// `bundles/verify` — which has no implement phase to return to —
+/// exactly where it was), or the byte identity this slice promised to
+/// keep. Never a silent fourth thing.
 const WITNESSES: [(&str, &str); 2] = [
     (
         "recipes/fast",
-        "4dc02d70c84b9af7fa3680a0e329bc5faad30eb49eecd38664234abbb4af1900",
+        "140625ae5f6242571ab8bbccaa60a66bc6c5d74c65f07858bb9b213bf4756738",
     ),
     (
         "bundles/verify",

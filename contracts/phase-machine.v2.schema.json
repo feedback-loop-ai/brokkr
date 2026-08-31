@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/phase-machine.v2.json",
+  "title": "Forge phase-machine table v2 (v1 plus the rule-driven park)",
+  "description": "The transition table a bundle pins, as decision 0022 leaves it. v2 is v1's shape plus exactly one addition: a rule may rule a PARK — the run stops running and awaits the operator — instead of naming a next phase. Nothing else moves. A table that declares forge.phase-machine/v1 is read as it always was, and the loader REFUSES a parking rule in a table that calls itself v1: a park is not a stop, and a machine that let one wear the other's version string would be lying about the difference the ruling exists to draw. The v1 event vocabulary already spells the park with no change at all — transition/decided carries the matched rule_id, a null next, a null severity, and the rule's reason as its problem, exactly the shape requires_artifacts writes when its gate blocks an otherwise-matching rule — so contracts/event-envelope.v1 and the fold semantics in contracts/README.md are untouched.",
+  "type": "object",
+  "required": ["schema", "phases", "initial", "terminal", "rules"],
+  "properties": {
+    "schema": { "const": "forge.phase-machine/v2" },
+    "description": { "type": "string" },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "initial": { "type": "string", "description": "Must be one of phases." },
+    "terminal": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Each must be one of phases. No rule may leave a terminal phase."
+    },
+    "shippable_from": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "rules": {
+      "type": "array",
+      "description": "Evaluated in table order; the first rule whose (from, result) matches and whose conditions all hold wins. A rule made unreachable by an unconditional rule for the same (from, result) above it is refused at load.",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "result", "reason"],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": ["next"],
+            "not": { "required": ["park"] }
+          },
+          {
+            "required": ["park"],
+            "not": { "required": ["next"] },
+            "properties": {
+              "severity": false,
+              "requires_artifacts": false
+            }
+          }
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "from": { "type": "string" },
+          "result": { "type": "string" },
+          "next": {
+            "type": "string",
+            "description": "The phase this rule advances to. Mutually exclusive with park."
+          },
+          "park": {
+            "const": true,
+            "description": "The v2 addition (decision 0022): this rule rules a PARK. The run appends run/parked with this rule's reason and waits for the operator — the ruling lands inside the run's journal instead of after its death. Only true is accepted; a park is a ruling, not a switch to leave off. A parking rule takes no transition, so it declares neither severity (a property of a taken transition) nor requires_artifacts (a gate on one)."
+          },
+          "severity": {
+            "enum": ["normal", "flagged", "hard"],
+            "description": "The ruling severity of the transition taken. Defaults to normal."
+          },
+          "requires_artifacts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the rule rules what it rules. For a parking rule this is the park's reason, read back verbatim by the operator."
+          },
+          "when": {
+            "type": "object",
+            "description": "The closed condition vocabulary (decision 0004). Boolean inputs by name; '<counter>_gte' over the declared counters; '<axis>_above' and '<axis>_at_most' over the severity axis (at_most is fail-closed: an absent severity never satisfies it); and, since decision 0022, 'visits_<phase>_gte' over the run's visit count for any phase THIS table declares — an engine-owned fact counted from phase/entered events, never claimed by a seat.",
+            "additionalProperties": {
+              "type": ["boolean", "number", "string"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -13,7 +13,11 @@
 //! ]}}
 //! ```
 //! `vanish` exits without a result (=> indeterminate); `garbage` writes a
-//! non-protocol line (=> failed closed). The last entry repeats.
+//! non-protocol line (=> failed closed). `echo` succeeds like `succeed`
+//! and hands the seat's own input back inside the result, under
+//! `seat_input` — the only way a scripted proof can show WHAT a seat was
+//! told, which decision 0022's returning implement seat needs. The last
+//! entry repeats.
 
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -100,7 +104,7 @@ fn run_fake_session(
                 effect_id,
                 attempt_id,
                 seat,
-                ..
+                input,
             } => {
                 let counter_file = state_dir.join(attempt_file_name(&seat));
                 let attempt_index: usize = std::fs::read_to_string(&counter_file)
@@ -137,17 +141,23 @@ fn run_fake_session(
                 }
 
                 match entry["behavior"].as_str().unwrap_or("vanish") {
-                    "succeed" => {
+                    behavior @ ("succeed" | "echo") => {
                         send(Body::Checkpoint {
                             effect_id: effect_id.clone(),
                             attempt_id: attempt_id.clone(),
                             data: serde_json::json!({"step": "working"}),
                         })?;
+                        let mut result = entry["result"].clone();
+                        if behavior == "echo" {
+                            // The scripted result object gains the input
+                            // this seat was handed, verbatim.
+                            result["seat_input"] = input;
+                        }
                         send(Body::Result {
                             effect_id,
                             attempt_id,
                             status: ResultStatus::Succeeded,
-                            result: Some(entry["result"].clone()),
+                            result: Some(result),
                             error: None,
                         })?;
                     }

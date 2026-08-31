@@ -96,6 +96,8 @@ fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
         phase: phase.map(str::to_string),
         cursor,
         consecutive_failures: BTreeMap::new(),
+        visits: BTreeMap::new(),
+        last_result: None,
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,

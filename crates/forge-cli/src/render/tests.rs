@@ -35,6 +35,8 @@ fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunStat
         phase: Some("design".to_string()),
         cursor: Cursor::Idle,
         consecutive_failures: BTreeMap::new(),
+        visits: BTreeMap::new(),
+        last_result: None,
         reviewed_heads: None,
         last_decision: decision,
         park_reason: park.map(str::to_string),

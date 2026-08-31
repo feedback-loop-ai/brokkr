@@ -726,8 +726,12 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 
 /// The five bundles that declare no `extends`. Their digests are pinned
 /// to what MAIN produces without composition — three of them moved when
-/// those recipes adopted agents (decision 0016), which is a different
-/// bundle and so legitimately a different identity. What this proves is
+/// those recipes adopted agents (decision 0016), and four moved again
+/// when their tables gained the reforging back-edge (decision 0022);
+/// each time that is a different bundle and so legitimately a different
+/// identity, re-recorded as the identity change it is. `bundles/verify`
+/// has no implement phase to return to, so 0022 left it alone and its
+/// digest is the same one it has always had. What this proves is
 /// that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -736,19 +740,19 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "4dc02d70c84b9af7fa3680a0e329bc5faad30eb49eecd38664234abbb4af1900",
+        "140625ae5f6242571ab8bbccaa60a66bc6c5d74c65f07858bb9b213bf4756738",
     ),
     (
         "recipes/panel-review",
-        "e5c5a0fe5f28b25df057e12926e2584674ff997ba6eb6948aeaf0d3ad9948e73",
+        "14116b5833b2924d120165e9361814a65ae016d892748ed1ce77c5012852f7ee",
     ),
     (
         "recipes/sdd",
-        "25460cd74dfa6994cb6c8be654baad97c128c6f1095386ce4e80c9bea274206a",
+        "ee71bb2d4bc915f88e83c40ca21a86398471ceb533e28d7b1b256cb7021c90cb",
     ),
     (
         "bundles/self",
-        "638a4efa2c4a425af0d709be626dfb5dcf0a84c6b1304de0bb830384f28ea29f",
+        "b7ca5b01c3153cd9bd05a1d67606af52112cdb515a11551e76f4d58048fc59f9",
     ),
     (
         "bundles/verify",
@@ -883,10 +887,11 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "7a7530760409bc95d9cce5f5a8f302f1c0ce68f92badb538afc597f063df1af8",
-        "the composed golden — it moved when the base adopted agents, \
-         which is this test's own principle: changing a base changes \
-         the digest of everything derived from it"
+        "7d228bfdd8806aaf9c6be4891e98b1fbded78aec210322257dde62b7e7f8da3f",
+        "the composed golden — it moved when the base adopted agents, and \
+         again when the base's table gained the reforging back-edge \
+         (decision 0022), which is this test's own principle: changing a \
+         base changes the digest of everything derived from it"
     );
 }
 

@@ -24,10 +24,9 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_OWNED_INPUTS,
-    ENGINE_VERSION,
+    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_VERSION,
 };
-use forge_core::policy::SEVERITY_ORDER;
+use forge_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use forge_protocol::AttemptReport;
 
 #[derive(Debug, Error)]
@@ -398,10 +397,26 @@ impl Engine {
             ))
         })?;
         let workdir = self.workdir();
-        let context = json!({
-            "run_id": self.run_id,
-            "last_decision": state.last_decision,
-        });
+        let mut context = Map::new();
+        context.insert("run_id".into(), json!(self.run_id));
+        context.insert("last_decision".into(), json!(state.last_decision));
+        // Reforging (decision 0022): a seat the run RETURNS to receives
+        // the result that sent it back — the review's findings,
+        // severities and notes reach the implementer who has to answer
+        // them, because a precise finding is only useful to whoever
+        // reads it. A seat on its FIRST visit of the run gets nothing
+        // new, so a run that never revisits builds the input, and the
+        // digest, it always built.
+        if state.visits.get(phase).copied().unwrap_or(0) > 1 {
+            context.insert(
+                "returned_from".into(),
+                json!({
+                    "phase": state.last_decision.as_ref().and_then(|d| d.get("from")),
+                    "result": state.last_result,
+                }),
+            );
+        }
+        let context = Value::Object(context);
         let mut input = match &seat.body {
             SeatBody::Single { role_path, .. } => json!({
                 "feature": self.feature,
@@ -1253,13 +1268,18 @@ impl Engine {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        for owned in ENGINE_OWNED_INPUTS {
-            inputs.remove(owned);
-        }
+        inputs.retain(|key, _| !crate::bundle::is_engine_owned(key));
         inputs.retain(|key, _| seat.inputs.iter().any(|declared| declared == key));
         // Journal-computed inputs overlay (never accepted from the seat).
         for (key, value) in computed_inputs(state, &phase, &result) {
             inputs.insert(key, value);
+        }
+        // The phase-visit predicate (decision 0022), supplied for exactly
+        // the phases this phase's rules ask about — counted from
+        // `phase/entered`, never claimed by a seat.
+        for visited in self.bundle.machine.visit_phases(&phase) {
+            let count = state.visits.get(&visited).copied().unwrap_or(0);
+            inputs.insert(format!("{VISIT_PREFIX}{visited}"), Value::from(count));
         }
         if let Some(repo) = &self.repo {
             if phase == self.bundle.protected_phase {
@@ -1325,6 +1345,20 @@ impl Engine {
                     })
                 }
             }
+            // A rule-driven park (decision 0022). The v1 event vocabulary
+            // already spells it: a decision with a rule_id and no next is
+            // exactly "a rule matched and no transition was taken" — the
+            // shape the artifact gate writes. `severity` stays null
+            // because severity is a property of a taken transition.
+            Outcome::Park { rule_id, reason } => json!({
+                "from": phase,
+                "result": result,
+                "rule_id": rule_id,
+                "next": null,
+                "severity": null,
+                "inputs": inputs,
+                "problem": reason,
+            }),
             Outcome::NoRule { problem } => json!({
                 "from": phase,
                 "result": result,

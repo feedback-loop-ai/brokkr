@@ -105,6 +105,139 @@ fn loader_refuses_unreachable_phase_and_required_field_defects() {
         .contains("'when' must be an object"));
 }
 
+/// Decision 0022's phase-visit predicate. The condition vocabulary stays
+/// closed; it just closes over the table's OWN graph — `visits_<phase>`
+/// must name a phase this table declares, and the only comparison is the
+/// `_gte` every counter already speaks, so a bound reads "while the
+/// count has not reached N".
+#[test]
+fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"visits_nowhere_gte": 2});
+    let error = Machine::from_table(&value).unwrap_err().0;
+    assert!(
+        error.contains("unknown counter 'visits_nowhere'"),
+        "{error}"
+    );
+    assert!(error.contains("visits_<phase>"), "{error}");
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"visits_work_gte": "twice"});
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("needs a numeric threshold"));
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"visits_work_gte": 3});
+    let machine = Machine::from_table(&value).unwrap();
+    let visited = |count: Value| json!({"visits_work": count}).as_object().unwrap().clone();
+    let ruled = |inputs: &Map<String, Value>| {
+        matches!(
+            machine.evaluate("work", "complete", inputs),
+            Outcome::Ruling { .. }
+        )
+    };
+    // Absent is never an advantage; below the bound and at it are the
+    // two sides the reforging arithmetic turns on.
+    assert!(!ruled(&Map::new()));
+    assert!(!ruled(&visited(json!(2))));
+    assert!(ruled(&visited(json!(3))));
+    assert!(ruled(&visited(json!(4))));
+    // A visit count is a number. Anything else parks rather than coerces.
+    assert!(matches!(
+        machine.evaluate("work", "complete", &visited(json!("3"))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+
+    // The engine supplies exactly the visit facts a phase's rules ask
+    // for — a counter that is not a visit count, a condition that is not
+    // a counter, and the same phase named twice all read as one answer.
+    let many = json!({
+        "phases": ["work", "check", "done"],
+        "initial": "work",
+        "terminal": ["done"],
+        "rules": [
+            {"id": "A", "from": "work", "result": "a", "next": "done",
+             "when": {"consecutive_failures_gte": 2}, "reason": "a counter, not a visit"},
+            {"id": "B", "from": "work", "result": "b", "next": "done",
+             "when": {"fixes_applied": true}, "reason": "not a counter at all"},
+            {"id": "C", "from": "work", "result": "c", "next": "done",
+             "when": {"visits_check_gte": 2}, "reason": "the predicate"},
+            {"id": "D", "from": "work", "result": "d", "next": "done",
+             "when": {"visits_check_gte": 3}, "reason": "the same phase, twice"},
+        ],
+    });
+    let many = Machine::from_table(&many).unwrap();
+    assert_eq!(many.visit_phases("work"), vec!["check".to_string()]);
+    assert!(many.visit_phases("done").is_empty());
+}
+
+/// Decision 0022's rule-driven park. A park is not a stop, so a table
+/// that contains one has to say which vocabulary it is written in.
+#[test]
+fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
+    let park = || {
+        json!({
+            "id": "WORK-PARK",
+            "from": "work",
+            "result": "complete",
+            "park": true,
+            "reason": "this one is the operator's",
+        })
+    };
+    let v2 = |rule: Value| {
+        let mut value = table(rule);
+        value["schema"] = json!(TABLE_SCHEMA_V2);
+        value
+    };
+
+    // The version string is load-bearing, not decoration.
+    let error = Machine::from_table(&table(park())).unwrap_err().0;
+    assert!(error.contains("no schema"), "{error}");
+    let mut v1 = table(park());
+    v1["schema"] = json!(TABLE_SCHEMA_V1);
+    let error = Machine::from_table(&v1).unwrap_err().0;
+    assert!(error.contains(TABLE_SCHEMA_V1), "{error}");
+    assert!(error.contains(TABLE_SCHEMA_V2), "{error}");
+
+    // Advance or park, never both; and a park is a ruling, not a switch.
+    let mut both = park();
+    both["next"] = json!("done");
+    assert!(Machine::from_table(&v2(both))
+        .unwrap_err()
+        .0
+        .contains("both parks and names a next phase"));
+    let mut off = park();
+    off["park"] = json!(false);
+    assert!(Machine::from_table(&v2(off))
+        .unwrap_err()
+        .0
+        .contains("'park' must be true when present"));
+
+    // A park takes no transition, so it has neither a ruling severity
+    // nor an artifact gate on one.
+    for forbidden in ["severity", "requires_artifacts"] {
+        let mut rule = park();
+        rule[forbidden] = json!("hard");
+        let error = Machine::from_table(&v2(rule)).unwrap_err().0;
+        assert!(
+            error.contains(&format!("parks and declares '{forbidden}'")),
+            "{error}"
+        );
+    }
+
+    let machine = Machine::from_table(&v2(park())).unwrap();
+    assert_eq!(
+        machine.evaluate("work", "complete", &Map::new()),
+        Outcome::Park {
+            rule_id: "WORK-PARK".into(),
+            reason: "this one is the operator's".into(),
+        }
+    );
+    assert!(machine.rules[0].next.is_none());
+}
+
 #[test]
 fn every_runtime_condition_shape_is_strict() {
     let counter = Condition::CounterGte {
@@ -186,4 +319,137 @@ fn every_runtime_condition_shape_is_strict() {
         &json!({"fixes_applied": "yes"}).as_object().unwrap().clone()
     )
     .is_err());
+}
+
+/// The reviewer's own repro, pinned against the REAL self table: a
+/// security residual whose severity is ABSENT (or the contradictory
+/// "none") at the exhausted bound never ships as debt — it falls to the
+/// unfixed arm's park, the operator's door. The at-most predicate is
+/// fail-closed: silence never earns the debt arm, an unranked token is
+/// a refusal to rule, and the ranked cases draw the boundary at low.
+#[test]
+fn an_absent_or_none_severity_at_the_bound_parks_and_never_ships() {
+    let table: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bundles/self/policy.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let machine = Machine::from_table(&table).unwrap();
+    let at_bound = |severity: Option<&str>| {
+        let mut m = json!({
+            "has_security_residual": true,
+            "fixes_applied": true,
+            "visits_implement": 3,
+        });
+        if let Some(s) = severity {
+            m["max_residual_severity"] = json!(s);
+        }
+        m.as_object().unwrap().clone()
+    };
+
+    // Absent severity, bound spent: park, not ship.
+    match machine.evaluate("review", "residual", &at_bound(None)) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
+        }
+        other => panic!("silence must take the operator's door, got {other:?}"),
+    }
+
+    // The contradictory "none": the same door.
+    match machine.evaluate("review", "residual", &at_bound(Some("none"))) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
+        }
+        other => panic!("'none' must take the operator's door, got {other:?}"),
+    }
+
+    // info and low earn the debt arm; medium takes its own park.
+    for severity in ["info", "low"] {
+        match machine.evaluate("review", "residual", &at_bound(Some(severity))) {
+            Outcome::Ruling {
+                rule_id,
+                next_phase,
+                ..
+            } => {
+                assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-DEBT", "{severity}");
+                assert_eq!(next_phase, "ship", "{severity}");
+            }
+            other => panic!("{severity} earns the debt arm, got {other:?}"),
+        }
+    }
+    match machine.evaluate("review", "residual", &at_bound(Some("medium"))) {
+        Outcome::Park { rule_id, .. } => {
+            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-MEDIUM");
+        }
+        other => panic!("medium parks, got {other:?}"),
+    }
+
+    // An unranked token is a refusal to rule, never a quiet arm.
+    assert!(matches!(
+        machine.evaluate("review", "residual", &at_bound(Some("beyond-critical"))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+}
+
+/// Every arm of the at-most predicate, point-blank against a synthetic
+/// table so no earlier rule intercepts: the loader's two refusals
+/// (unknown axis, unranked threshold), and the evaluator's four
+/// verdicts (within, above, unranked token, non-string value).
+#[test]
+fn the_at_most_predicate_is_strict_in_every_arm() {
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"something_at_most": "low"});
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("unknown severity axis 'something'"));
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"max_residual_severity_at_most": "sideways"});
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("not in"));
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"max_residual_severity_at_most": "low"});
+    let machine = Machine::from_table(&value).unwrap();
+    let with = |severity: Value| {
+        json!({"max_residual_severity": severity})
+            .as_object()
+            .unwrap()
+            .clone()
+    };
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("info"))),
+        Outcome::Ruling { .. }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("high"))),
+        Outcome::NoRule { problem: None }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("sideways"))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!(7))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+    // An explicit null is the same silence as an absent key.
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(Value::Null)),
+        Outcome::NoRule { problem: None }
+    ));
+
+    // And the park flag is a ruling, not a switch: false is refused.
+    let mut value = table(rule());
+    value["schema"] = json!(TABLE_SCHEMA_V2);
+    value["rules"][0]["park"] = json!(false);
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("'park' must be true when present"));
 }
