@@ -441,3 +441,47 @@ fn read_only_open_refuses_a_missing_and_a_foreign_database() {
         Err(StoreError::SchemaMismatch { found: 0 })
     ));
 }
+
+/// A journal and the manifest published beside it are one piece of
+/// evidence in two files, so they are scrubbed through ONE redaction:
+/// the same original path is the same placeholder in both, machine
+/// detail that appears only in the manifest still moves, and a username
+/// learned from either is scrubbed from both.
+#[test]
+fn one_redaction_scrubs_a_journal_and_the_manifest_beside_it_alike() {
+    let ndjson = concat!(
+        r#"{"payload":{"driver":"/home/alice/forge/target/debug/forge"},"seq":1}"#,
+        "\n",
+    );
+    let manifest = json!({
+        "bundle_name": "recipe",
+        "realms": {
+            "source": "/home/alice/clients/acme/realms.json",
+            "map": {"realms": [{"name": "acme", "path": "/home/alice/forge"}]},
+        },
+        "owner": "alice",
+    });
+    let raw = serde_json::to_string(&manifest).unwrap();
+
+    let mut redactor = Redactor::learn(&[ndjson, &raw]);
+    let journal = redactor.journal(ndjson).unwrap();
+    let scrubbed = redactor.document(&manifest);
+
+    assert!(journal.contains(r#""driver":"[path-1]""#), "{journal}");
+    // The realm path is the driver path's prefix — a distinct path,
+    // numbered after it, and numbered once for the whole pair.
+    assert_eq!(
+        scrubbed["realms"]["map"]["realms"][0]["path"],
+        json!("[path-2]")
+    );
+    assert!(!journal.contains("[path-2]"), "{journal}");
+    // The map file appears nowhere in the journal, and still moves.
+    let source = scrubbed["realms"]["source"].as_str().unwrap();
+    assert!(source.starts_with("[path-"), "{source}");
+    assert_eq!(scrubbed["owner"], json!("[user-1]"));
+    assert_eq!(scrubbed["bundle_name"], json!("recipe"));
+    assert!(!serde_json::to_string(&scrubbed).unwrap().contains("alice"));
+
+    // Scrubbing the journal alone is still exactly `redact_export`.
+    assert_eq!(redact_export(ndjson).unwrap(), journal);
+}

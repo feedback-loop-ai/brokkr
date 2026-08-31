@@ -43,6 +43,8 @@ pub enum EngineError {
     Other(String),
     #[error("dispatch: {0}")]
     Dispatch(#[from] forge_core::dispatch::DispatchError),
+    #[error("realms: {0}")]
+    World(#[from] crate::realms::WorldError),
 }
 
 pub struct Engine {
@@ -234,10 +236,13 @@ impl Engine {
             run_id: run_id.to_string(),
             feature,
             repo,
-            // Resume takes no map: the world this run believed in is
-            // already pinned in its manifest, and the per-realm lookup
-            // reads a single recorded realm without being told its name.
-            world: None,
+            // Resume takes no map — and needs none. The world this run
+            // believed in is pinned in the manifest just read, content
+            // and all, so it is rehydrated from evidence rather than off
+            // a disk that may have moved on. Without this a resumed run
+            // would silently stop keying its facts by realm, changing
+            // fact-shape mid-run depending on which verb was typed.
+            world: crate::realms::World::from_manifest(&pinned)?,
             current_cause: None,
             secrets_file: None,
         })

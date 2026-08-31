@@ -306,22 +306,63 @@ pub fn verify_export(ndjson: &str) -> Result<forge_core::RunState, VerifyError> 
 /// Windows drive-letter (`C:/`, `C:\\`), and UNC (`\\\\server`) paths,
 /// quote-aware so a quoted path with spaces moves whole; scheme URLs
 /// (`://`, `file:///…` included) survive verbatim as a declared bound.
+/// A caller publishing more than the journal — the CLI also writes a
+/// manifest — scrubs the whole set through one [`Redactor`] instead, so
+/// the files it publishes agree.
 pub fn redact_export(ndjson: &str) -> Result<String, serde_json::Error> {
-    // A username learned from a home-directory path is machine detail
-    // wherever it reappears — the journal records the operator by OS
-    // username — so it is scrubbed even outside paths.
-    let users = harvest_usernames(ndjson);
-    let mut table = PathTable::default();
-    let mut out = String::new();
-    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
-        let mut envelope: Value = serde_json::from_str(line)?;
-        if let Some(payload) = envelope.get_mut("payload") {
-            redact_value(payload, &mut table, &users);
+    Redactor::learn(&[ndjson]).journal(ndjson)
+}
+
+/// One redaction, shared across every document published together.
+///
+/// A journal and the manifest beside it are one piece of evidence in two
+/// files, so they must be scrubbed with ONE vocabulary: the same original
+/// path always becomes the same `[path-N]` in both, and machine detail
+/// that the journal hides cannot survive in the manifest. Two files
+/// scrubbed independently would be worse than either alone — they would
+/// disagree about what `[path-1]` means, and the un-scrubbed one would
+/// hand back exactly what the other was published to withhold.
+pub struct Redactor {
+    users: Vec<String>,
+    table: PathTable,
+}
+
+impl Redactor {
+    /// Learn the machine detail in every document that will be scrubbed
+    /// together, so the username numbering does not depend on which
+    /// document happens to be scrubbed first.
+    pub fn learn(sources: &[&str]) -> Redactor {
+        // A username learned from a home-directory path is machine
+        // detail wherever it reappears — the journal records the
+        // operator by OS username — so it is scrubbed even outside
+        // paths.
+        Redactor {
+            users: harvest_usernames(&sources.join("\n")),
+            table: PathTable::default(),
         }
-        out.push_str(&serde_json::to_string(&envelope)?);
-        out.push('\n');
     }
-    Ok(out)
+
+    /// Scrub an NDJSON journal: payloads only, envelopes untouched.
+    pub fn journal(&mut self, ndjson: &str) -> Result<String, serde_json::Error> {
+        let mut out = String::new();
+        for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+            let mut envelope: Value = serde_json::from_str(line)?;
+            if let Some(payload) = envelope.get_mut("payload") {
+                redact_value(payload, &mut self.table, &self.users);
+            }
+            out.push_str(&serde_json::to_string(&envelope)?);
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// Scrub a whole document — a run manifest, which is not an event
+    /// and has no payload to descend into.
+    pub fn document(&mut self, value: &Value) -> Value {
+        let mut scrubbed = value.clone();
+        redact_value(&mut scrubbed, &mut self.table, &self.users);
+        scrubbed
+    }
 }
 
 /// Every username the export leaks through a home-directory path, in

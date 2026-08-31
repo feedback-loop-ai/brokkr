@@ -27,8 +27,86 @@
     },
     "agents": {
       "type": "object",
-      "description": "Unchanged from run-manifest.v3: the compile-time resolution of every agent reference, keyed by invocation site.",
-      "minProperties": 1
+      "description": "Unchanged from run-manifest.v3: invocation site ('seat', 'seat:member', 'seat:step', 'seat:step:member') -> the pinned resolution. This key is also the pin that replaces the manifest.files entry a charter loses by living in the shared library rather than the bundle directory.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "agent",
+          "agent_digest",
+          "charter_digest",
+          "adapter_digest",
+          "chain",
+          "chosen_index",
+          "model",
+          "provider",
+          "skipped",
+          "notices"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "agent": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "agent_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "charter_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "adapter_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "sha256 over the canonical JSON of {provider -> adapter file digest} for EVERY provider the chain consulted, not only the chosen one: the capability checks that admitted this chain depended on all of them."
+          },
+          "chain": {
+            "type": "array",
+            "description": "The agent's ordered preference chain of abstract model names, as written.",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+          },
+          "chosen_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Load-bearing: a 'model' field alone never says the operator did not get their first choice."
+          },
+          "model": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["model", "reason"],
+              "additionalProperties": false,
+              "properties": {
+                "model": { "type": "string" },
+                "reason": {
+                  "enum": ["unavailable"],
+                  "description": "A closed vocabulary, never prose. A model no adapter maps is a compile ERROR rather than a skip, so 'unmapped' cannot appear in a manifest that exists."
+                }
+              }
+            }
+          },
+          "notices": {
+            "type": "array",
+            "description": "Optional-capability gaps: a compile-time WARNING that lands here, because a warning that only reaches stderr is nothing.",
+            "items": {
+              "type": "object",
+              "required": [
+                "agent",
+                "provider",
+                "model",
+                "capability",
+                "item",
+                "message"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "agent": { "type": "string" },
+                "provider": { "type": "string" },
+                "model": { "type": "string" },
+                "capability": { "enum": ["mcp"] },
+                "item": { "type": "string" },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
     },
     "realms": {
       "type": "object",

@@ -235,7 +235,8 @@ it always was — a world that never drew a map notices nothing.
 ### `brokkr realms` — the world
 
 Every realm with its path, default branch and current HEAD, and the
-journal the world writes. Read-only, like every other readout.
+journal the world writes. Read-only, like every other readout, and
+`--json` emits the same derivation for scripts.
 
 ```
 $ brokkr realms

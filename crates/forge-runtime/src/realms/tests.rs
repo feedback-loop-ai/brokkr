@@ -160,3 +160,69 @@ fn a_pinned_world_carries_its_own_answer() {
         pin["sha256"].as_str().unwrap()
     );
 }
+
+/// The pin read back: `brokkr resume` names a journal and no map, and
+/// still knows the world, because the run's own manifest carries it —
+/// content, digest and source. That is what embedding is for.
+#[test]
+fn a_run_reads_its_world_back_out_of_its_own_manifest() {
+    let dir = workspace(MAP);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let manifest = world.pinned(&serde_json::json!({"bundle_name": "b", "files": {}}));
+
+    let rehydrated = World::from_manifest(&manifest).unwrap().unwrap();
+    assert_eq!(rehydrated.sha256, world.sha256);
+    assert_eq!(rehydrated.content, world.content);
+    assert_eq!(rehydrated.source, world.source);
+    assert_eq!(rehydrated.map.realms[0].name, "the-forge");
+    // And it resolves like the world it came from: the source path is
+    // pinned too, so the realm the repository IS still answers.
+    assert_eq!(
+        rehydrated
+            .realm_for(&dir.path().join("the-forge"))
+            .map(|realm| realm.name.as_str()),
+        Some("the-forge")
+    );
+
+    // A manifest with no pin is a run that had no world — not an error.
+    assert!(World::from_manifest(&serde_json::json!({"files": {}}))
+        .unwrap()
+        .is_none());
+}
+
+/// A pin that does not answer for itself is a refusal, never a quiet
+/// fall back to the unkeyed shape: the whole point of the embedding is
+/// that the evidence, not the disk, decides.
+#[test]
+fn a_pin_that_cannot_answer_for_itself_is_refused() {
+    let dir = workspace(MAP);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let pinned = |pin: Value| serde_json::json!({"files": {}, "realms": pin});
+
+    assert!(refusal(World::from_manifest(&pinned(json!({})))).contains("it names no source"));
+    assert!(
+        refusal(World::from_manifest(&pinned(json!({"source": "m.json"}))))
+            .contains("it carries no digest")
+    );
+    assert!(refusal(World::from_manifest(&pinned(
+        json!({"source": "m.json", "sha256": world.sha256})
+    )))
+    .contains("it embeds no map"));
+
+    let tampered = refusal(World::from_manifest(&pinned(json!({
+        "source": "m.json",
+        "sha256": "0".repeat(64),
+        "map": world.content,
+    }))));
+    assert!(tampered.contains("not the pinned"), "{tampered}");
+    assert!(tampered.contains(&world.sha256), "{tampered}");
+
+    // The embedded content is held to the same rules the file was.
+    let junk = json!({"schema": "forge.realms/v1", "realms": [], "journal": "j"});
+    let refused = refusal(World::from_manifest(&pinned(json!({
+        "source": "m.json",
+        "sha256": forge_core::canonical::sha256_hex(&junk),
+        "map": junk,
+    }))));
+    assert!(refused.contains("names no realms"), "{refused}");
+}

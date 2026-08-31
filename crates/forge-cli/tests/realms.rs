@@ -166,12 +166,25 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     assert_eq!(lines[2], format!("realm    the-forge  realm  main  {head}"));
     assert_eq!(lines.len(), 3, "{out}");
 
+    // `--json` is the same derivation, spelled for a script.
+    let (code, json, stderr) = ws.run(&["realms", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(view["journal"], "./state/world.db");
+    assert!(view["map"].as_str().unwrap().ends_with("realms.json"));
+    assert_eq!(
+        view["realms"],
+        json!([{"name": "the-forge", "path": "realm",
+                "default_branch": "main", "head": head}])
+    );
+
     // A readout writes nothing: no journal was created by asking.
     assert!(!ws.path().join("state/world.db").exists());
     assert!(!ws.path().join(".forge").exists());
 
     // And the lore stays out of the machine's mouth (0019 law 4).
     assert!(!out.to_lowercase().contains("yggdrasil"), "{out}");
+    assert!(!json.to_lowercase().contains("yggdrasil"), "{json}");
 }
 
 /// The whole point, end to end: the map names the journal, the run

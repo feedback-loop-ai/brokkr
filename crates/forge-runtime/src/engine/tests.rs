@@ -2230,3 +2230,87 @@ fn realm_facts_state_only_what_the_tree_answers() {
     // And a seat may not claim any of it.
     assert!(crate::bundle::is_engine_owned(crate::bundle::REALM_FACTS));
 }
+
+/// Ruling 5 must not degrade with the verb typed. `brokkr resume` takes
+/// no map — it names a journal — so the world is rehydrated from the
+/// run's own pin, and a resumed run keeps keying its facts by realm
+/// instead of quietly reverting to the unkeyed shape mid-run.
+#[test]
+fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let world = world_over(dir.path(), &repo, "the-forge");
+    let engine = engine_in(dir.path(), Some(world), &repo);
+    let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
+
+    // The map is DELETED before the resume: a run's answer about its own
+    // world may not depend on the file still being there.
+    std::fs::remove_file(dir.path().join("realms.json")).unwrap();
+    let mut resumed = Engine::resume(engine.store, bundle, &run_id, Some(repo.clone())).unwrap();
+    assert_eq!(
+        resumed
+            .world
+            .as_ref()
+            .map(|world| world.map.realms[0].name.as_str()),
+        Some("the-forge")
+    );
+
+    let reviewed = git_commit(&repo, "reviewed");
+    resumed
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result": "clean"}),
+        )
+        .unwrap();
+    let events = resumed.store.load(&run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().payload["inputs"]["reviewed_heads"],
+        json!({"the-forge": reviewed}),
+        "a resumed run keys by realm exactly as the run that started it did"
+    );
+}
+
+/// A run started with no map resumes with no world, and a manifest whose
+/// pin no longer answers for itself refuses — the pin is the only copy
+/// of that world, so a broken one is evidence of tampering rather than a
+/// reason to guess.
+#[test]
+fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let engine = engine_in(dir.path(), None, &repo);
+    let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
+    assert!(Engine::resume(engine.store, bundle.clone(), &run_id, None)
+        .unwrap()
+        .world
+        .is_none());
+
+    let mut store = Store::open(&dir.path().join("tampered.db")).unwrap();
+    let mut manifest = bundle.manifest.clone();
+    manifest["realms"] = json!({
+        "source": "realms.json",
+        "sha256": "0".repeat(64),
+        "map": {"schema": forge_core::realms::SCHEMA_V1,
+                "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+                "journal": "forge.db"},
+    });
+    store
+        .create_run("tampered", "feature", &bundle.name, &manifest)
+        .unwrap();
+    store
+        .append_next(
+            "tampered",
+            EventType::RunStarted,
+            json!({"feature": "feature", "manifest": manifest}),
+            None,
+            None,
+        )
+        .unwrap();
+    match Engine::resume(store, bundle, "tampered", None) {
+        Ok(_) => panic!("a pin that does not hash to its content must refuse"),
+        Err(error) => assert!(error.to_string().contains("not the pinned"), "{error}"),
+    }
+}

@@ -26,6 +26,8 @@ pub enum WorldError {
     },
     #[error(transparent)]
     Map(#[from] RealmsError),
+    #[error("this run's pinned realms map is unreadable: {0}")]
+    Unpinned(String),
 }
 
 /// A loaded map, with everything a run needs to answer for it later: the
@@ -81,6 +83,48 @@ impl World {
                 }
             }
         }
+    }
+
+    /// The world a run believed in, read back out of its own manifest —
+    /// never off the disk, which may since have changed or gone. This is
+    /// what ruling 4's embedding is FOR: `brokkr resume` names a journal
+    /// and no map, and still keys its facts by realm, because the pin
+    /// answers. A manifest with no pin is a run that had no world.
+    ///
+    /// The embedded content answers for itself: its digest is re-derived
+    /// and must match the pin, and the map is re-validated by the same
+    /// rules that admitted it. A pin that fails either is a refusal, not
+    /// a quiet fall back to the unkeyed shape.
+    pub fn from_manifest(manifest: &Value) -> Result<Option<World>, WorldError> {
+        let Some(pin) = manifest.get("realms") else {
+            return Ok(None);
+        };
+        let unpinned = |problem: &str| WorldError::Unpinned(problem.to_string());
+        let source = pin
+            .get("source")
+            .and_then(Value::as_str)
+            .ok_or_else(|| unpinned("it names no source"))?;
+        let sha256 = pin
+            .get("sha256")
+            .and_then(Value::as_str)
+            .ok_or_else(|| unpinned("it carries no digest"))?;
+        let content = pin
+            .get("map")
+            .cloned()
+            .ok_or_else(|| unpinned("it embeds no map"))?;
+        let derived = canonical::sha256_hex(&content);
+        if derived != sha256 {
+            return Err(WorldError::Unpinned(format!(
+                "the embedded map hashes to {derived}, not the pinned {sha256}"
+            )));
+        }
+        let (map, content) = RealmMap::of(source, content)?;
+        Ok(Some(World {
+            source: PathBuf::from(source),
+            map,
+            content,
+            sha256: sha256.to_string(),
+        }))
     }
 
     /// A map's relative paths are relative to the map file's own

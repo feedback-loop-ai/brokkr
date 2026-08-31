@@ -73,9 +73,13 @@ fn rows_are_the_map_read_against_the_trees_it_names() {
     assert_eq!(rows[0].branch, "main");
     assert_eq!(rows[0].head, NO_HEAD);
 
-    // And `list` states the journal the OTHER read surfaces would open,
+    // The readout states the journal the OTHER read surfaces would open,
     // which is why the caller resolves it and hands it in.
-    let printed = list(&world, std::path::Path::new("/elsewhere/forge.db"));
+    let printed = render(
+        &world.source.display().to_string(),
+        "/elsewhere/forge.db",
+        &rows,
+    );
     assert!(
         printed.contains("journal  /elsewhere/forge.db"),
         "{printed}"
@@ -84,4 +88,30 @@ fn rows_are_the_map_read_against_the_trees_it_names() {
         printed.contains("realm    solo  tree  main  -"),
         "{printed}"
     );
+}
+
+/// `--json` is the same world, unspelled: one derivation of the rows,
+/// two renderings, and the data reaches a parser as it is — the frame's
+/// escaping is for terminals, not for consumers.
+#[test]
+fn the_json_view_is_the_same_world_as_the_frame() {
+    let rows = [row("solo", "/tmp/x", "main", "abc1234")];
+    let seen = view("m.json", "j.db", &rows);
+    assert_eq!(
+        seen,
+        json!({
+            "map": "m.json",
+            "journal": "j.db",
+            "realms": [{
+                "name": "solo",
+                "path": "/tmp/x",
+                "default_branch": "main",
+                "head": "abc1234",
+            }],
+        })
+    );
+    // Unescaped: a bidi mark the frame strips survives to a parser,
+    // which is reading bytes and not painting them.
+    let odd = view("m.json", "j.db", &[row("a\u{202e}b", ".", "main", NO_HEAD)]);
+    assert_eq!(odd["realms"][0]["name"], json!("a\u{202e}b"));
 }

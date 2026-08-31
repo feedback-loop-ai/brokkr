@@ -109,7 +109,11 @@ manifest — which rides inside `run/started` — so the world a run
 believed in is answerable from the journal alone. Repository facts are
 recorded keyed by the realm the repository is; reading them accepts the
 unkeyed shape every earlier journal used, so nothing already recorded
-changes meaning.
+changes meaning. `resume` names a journal and no map, and rehydrates the
+world from that pin rather than off the disk, so a run's fact shape does
+not change with the verb typed. The Looper-bound `--dispatch` lineage
+carries no world: a map NAMED with `--realms` is refused there, and one
+merely lying in the workspace is left unpinned out loud.
 
 The graph has a way BACK (decision 0022, table schema
 `forge.phase-machine/v2`). A rule may read `visits_<phase>_gte` — the

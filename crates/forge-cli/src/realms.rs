@@ -9,9 +9,8 @@
 //! `realms.json`, the verb is `realms`, and the tree the lore names
 //! appears nowhere in the machine's mouth.
 
-use std::path::Path;
-
 use forge_runtime::realms::World;
+use serde_json::{json, Value};
 
 use crate::render::Safe;
 
@@ -66,6 +65,27 @@ pub fn render(source: &str, journal: &str, rows: &[Row]) -> String {
     out
 }
 
+/// The same world as a value, for `--json`. Derived from the SAME rows
+/// the text renders, so the two surfaces can never disagree about what
+/// the world is — only about how it is spelled. Unescaped, because a
+/// consumer parsing JSON is not a terminal: escaping is the text
+/// surface's job, and doing it here would corrupt the data.
+pub fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
+    json!({
+        "map": source,
+        "journal": journal,
+        "realms": rows
+            .iter()
+            .map(|row| json!({
+                "name": row.name,
+                "path": row.path,
+                "default_branch": row.branch,
+                "head": row.head,
+            }))
+            .collect::<Vec<Value>>(),
+    })
+}
+
 /// The rows for a loaded world, each realm's HEAD observed once.
 pub fn rows(world: &World) -> Vec<Row> {
     world
@@ -80,17 +100,6 @@ pub fn rows(world: &World) -> Vec<Row> {
                 .unwrap_or_else(|| NO_HEAD.to_string()),
         })
         .collect()
-}
-
-/// Print the world. `journal` is already resolved by the caller, so what
-/// is printed is the journal the other read surfaces would actually
-/// open — including when `--db` outranked the map's own.
-pub fn list(world: &World, journal: &Path) -> String {
-    render(
-        &world.source.display().to_string(),
-        &journal.display().to_string(),
-        &rows(world),
-    )
 }
 
 #[cfg(test)]

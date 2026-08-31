@@ -80,6 +80,14 @@ impl RealmMap {
                 path: path.to_string(),
                 detail: error.to_string(),
             })?;
+        RealmMap::of(path, content)
+    }
+
+    /// Validate one map already parsed into a value — the shape a reader
+    /// holds when the map arrives embedded in a run's manifest pin rather
+    /// than as a file. Same refusals, same words: a world read back out
+    /// of evidence is held to what it was held to going in.
+    pub fn of(path: &str, content: Value) -> Result<(RealmMap, Value), RealmsError> {
         let map: RealmMap =
             serde_json::from_value(content.clone()).map_err(|error| RealmsError::Malformed {
                 path: path.to_string(),
