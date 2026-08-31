@@ -392,3 +392,64 @@ fn an_absent_or_none_severity_at_the_bound_parks_and_never_ships() {
         Outcome::NoRule { problem: Some(_) }
     ));
 }
+
+/// Every arm of the at-most predicate, point-blank against a synthetic
+/// table so no earlier rule intercepts: the loader's two refusals
+/// (unknown axis, unranked threshold), and the evaluator's four
+/// verdicts (within, above, unranked token, non-string value).
+#[test]
+fn the_at_most_predicate_is_strict_in_every_arm() {
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"something_at_most": "low"});
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("unknown severity axis 'something'"));
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"max_residual_severity_at_most": "sideways"});
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("not in"));
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"max_residual_severity_at_most": "low"});
+    let machine = Machine::from_table(&value).unwrap();
+    let with = |severity: Value| {
+        json!({"max_residual_severity": severity})
+            .as_object()
+            .unwrap()
+            .clone()
+    };
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("info"))),
+        Outcome::Ruling { .. }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("high"))),
+        Outcome::NoRule { problem: None }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!("sideways"))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(json!(7))),
+        Outcome::NoRule { problem: Some(_) }
+    ));
+    // An explicit null is the same silence as an absent key.
+    assert!(matches!(
+        machine.evaluate("work", "complete", &with(Value::Null)),
+        Outcome::NoRule { problem: None }
+    ));
+
+    // And the park flag is a ruling, not a switch: false is refused.
+    let mut value = table(rule());
+    value["schema"] = json!(TABLE_SCHEMA_V2);
+    value["rules"][0]["park"] = json!(false);
+    assert!(Machine::from_table(&value)
+        .unwrap_err()
+        .0
+        .contains("'park' must be true when present"));
+}
