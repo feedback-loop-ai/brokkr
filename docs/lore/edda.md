@@ -160,6 +160,26 @@ Edda existed. Sometimes the myth was already there, waiting.
 
 *Plain form: the `forge-bridge` crate.*
 
+## Sindri and the sons of Ivaldi — the implement seat and the driver fleet
+
+Sindri laid the work in the hearth, told his brother to blow steadily no
+matter what, and shaped the gifts with his own hands. But his was not the
+only anvil: the sons of Ivaldi had already forged Gungnir and Skíðblaðnir
+under the same commission, and the gods judged the crews by their
+artifacts alone.
+
+**The lesson:** the smith never judges his own work, and the anvil does
+not care which crew holds the hammer. The implement seat shapes; the loop
+keeps its heat; judgment happens elsewhere. And a second crew at the same
+commission is not redundancy — it is how the gods learned which hammer to
+trust.
+
+*Plain form: the implement seat; the driver fleet behind one conformance
+suite, decision 0008; `rerun` and `compare`, decision 0010 — the wager's
+mechanic, two crews judged side by side by outcomes. Sindri stays prose
+only (see the names left in the ground); the seat keeps its plain name
+per 0019 ruling 3.*
+
 ## The judging of the gifts — two-step ship
 
 Nothing the dwarves made was Mjölnir until the gods had weighed it against
