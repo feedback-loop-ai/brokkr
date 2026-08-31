@@ -339,9 +339,71 @@ fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
     }
 }
 
-/// The new arm is narrow: only a `stop` whose acceptance matches its
-/// command, only at `EffectInFlight`. Everything else refuses exactly
-/// as before — decision 0001 admits no guessed transition.
+/// Nothing is in flight, so there is no boundary to ride to: the
+/// operator's stop is the run's conclusion at the position it was
+/// accepted. The parked case (the operator answering a park with
+/// `stop`) was always legal; the running-between-effects cases are the
+/// same sentence — an accepted stop that the engine must finish, not a
+/// journal it may refuse to read.
+#[test]
+fn a_stop_accepted_with_nothing_in_flight_concludes_where_it_stands() {
+    let concluded = |cursor: Cursor, status: Status| {
+        let mut current = state(cursor);
+        current.status = status;
+        current.park_reason = Some("waiting on the operator".into());
+        current.pending_command = Some(("c1".into(), "stop".into()));
+        apply(
+            &mut current,
+            &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
+        )
+        .unwrap();
+        current
+    };
+
+    // Every running position the engine can be standing at when the
+    // kill switch fires with no attempt of its own in flight.
+    for cursor in [
+        Cursor::Start,
+        Cursor::EnterPhase {
+            phase: "review".into(),
+        },
+        Cursor::RequestEffect,
+        Cursor::ExecuteEffect {
+            effect_id: "open".into(),
+            seat: "work".into(),
+            failed_attempts: 1,
+        },
+        Cursor::Decide {
+            effect_id: "open".into(),
+            result: json!({"result": "complete"}),
+        },
+        Cursor::Park {
+            reason: "no ruling".into(),
+        },
+    ] {
+        let current = concluded(cursor.clone(), Status::Running);
+        assert_eq!(current.cursor, Cursor::Stop, "{cursor:?}");
+        assert_eq!(current.status, Status::Running, "{cursor:?}");
+        assert!(
+            !current.riding_stop,
+            "nothing in flight to ride: {cursor:?}"
+        );
+        assert_eq!(current.pending_command, None, "{cursor:?}");
+        assert_eq!(current.park_reason, None, "{cursor:?}");
+    }
+
+    // The parked case, unchanged: still running until run/stopped is
+    // journaled, and the park it answered is spent.
+    let parked = concluded(Cursor::Idle, Status::AwaitingOperator);
+    assert_eq!(parked.cursor, Cursor::Stop);
+    assert_eq!(parked.status, Status::Running);
+    assert_eq!(parked.park_reason, None);
+}
+
+/// The stop arm is wide; the rest is as narrow as it was. Only a
+/// command whose acceptance matches it is read at all, `retry` is still
+/// the parked-only command it was, and an unknown one is named —
+/// decision 0001 admits no guessed transition.
 #[test]
 fn the_mid_flight_arm_refuses_everything_it_is_not() {
     let in_flight = || Cursor::EffectInFlight {
@@ -373,15 +435,17 @@ fn the_mid_flight_arm_refuses_everything_it_is_not() {
             command: "invented".into(),
         }
     );
-    // `retry` mid-flight is not evidenced and is not invented here…
+    // `retry` mid-flight is not evidenced and is not invented here —
+    // resuming an attempt that is already running has no meaning, and
+    // unlike `stop` there is no conclusion the journal is owed.
     assert!(matches!(
         refusal(in_flight(), ("c1", "retry")),
         FoldError::OutOfPlace { .. }
     ));
-    // …and a stop accepted at a running cursor with no attempt in
-    // flight stays the refusal it was.
+    // `retry` at a running cursor with nothing to retry is refused the
+    // same way: only a park can be retried out of.
     assert!(matches!(
-        refusal(Cursor::RequestEffect, ("c1", "stop")),
+        refusal(Cursor::RequestEffect, ("c1", "retry")),
         FoldError::OutOfPlace { .. }
     ));
 }

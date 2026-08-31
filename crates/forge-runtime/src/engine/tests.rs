@@ -1179,6 +1179,170 @@ fn operator_and_fenced_replay_cover_every_disposition() {
     ));
 }
 
+/// A journal built event by event, under the pinned bundle manifest so
+/// `Engine::resume` accepts it. Nothing here fabricates an operator's
+/// database: every store is a fresh temp file.
+fn journal(path: &Path, run_id: &str, manifest: &Value, events: &[(EventType, Value)]) -> Store {
+    let mut store = Store::open(path).unwrap();
+    store
+        .create_run(run_id, "feature", "test", manifest)
+        .unwrap();
+    for (event_type, payload) in events {
+        store
+            .append_next(run_id, *event_type, payload.clone(), None, None)
+            .unwrap();
+    }
+    store
+}
+
+/// An accepted operator stop is a sentence the engine must finish: it
+/// reaches the run's next lawful position, journals `run/stopped` there
+/// citing the command that caused it, and the run reads `stopped` — never
+/// `running` forever with the process exiting as if all were well. The
+/// three shapes: mid-flight to a boundary the journal already records,
+/// mid-flight to the boundary the ENGINE itself produces, and between
+/// effects with nothing to wait for.
+#[test]
+fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("work")).unwrap();
+    let bundle = bundle(dir.path(), single_body(vec!["driver".into()]));
+    let manifest = bundle.manifest.clone();
+    let started = json!({"feature":"feature","manifest":manifest});
+    let in_flight = vec![
+        (EventType::RunStarted, started.clone()),
+        (EventType::PhaseEntered, json!({"phase":"work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"effect","seat":"work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"effect","attempt_id":"attempt"}),
+        ),
+    ];
+    let drive = |store: Store, run_id: &str| {
+        let mut engine = Engine::resume(store, bundle.clone(), run_id, None).unwrap();
+        let end = engine.drive().unwrap();
+        let events = engine.store.load(run_id).unwrap();
+        // Round trip: the fold reads back every journal the engine
+        // writes, and reads it as the conclusion it is.
+        let folded = fold(&events).unwrap();
+        assert_eq!(folded.status, Status::Stopped);
+        assert_eq!(folded.cursor, Cursor::Idle);
+        assert_eq!(end.state.status, Status::Stopped);
+        events
+    };
+    let reason = |events: &[EventEnvelope]| {
+        let tail = events.last().unwrap();
+        assert_eq!(tail.event_type, EventType::RunStopped);
+        tail.payload["reason"].as_str().unwrap().to_string()
+    };
+
+    // The fixture's shape: the stop accepted while the attempt was in
+    // flight, the attempt journaling on past it to its own boundary
+    // (decision 0006 — the stop overrides what happens AFTER the
+    // boundary, never the attempt's bounds), then the conclusion.
+    let mut store = journal(&dir.path().join("mid.db"), "mid", &manifest, &in_flight);
+    // An earlier command that was rejected: the citation must name the
+    // command that was ACCEPTED, not the last one anybody typed.
+    for (event_type, payload) in [
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id":"earlier","command":"retry","args":{},"operator":"someone"}),
+        ),
+        (
+            EventType::OperatorRejected,
+            json!({"command_id":"earlier","operator":"someone","reason":"not now"}),
+        ),
+    ] {
+        store
+            .append_next("mid", event_type, payload, None, None)
+            .unwrap();
+    }
+    operator_command(
+        &mut store,
+        "mid",
+        "stop",
+        "vyanakiev",
+        "the mock reads wrong",
+    )
+    .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"effect","data":{"step":"after the stop"}}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id":"effect","result":{"result":"complete"}}),
+        ),
+    ] {
+        store
+            .append_next("mid", event_type, payload, None, None)
+            .unwrap();
+    }
+    let events = drive(store, "mid");
+    let cited = reason(&events);
+    assert!(cited.starts_with("OPERATOR-STOP: "), "{cited}");
+    assert!(cited.contains("commanded stop"), "{cited}");
+    assert!(cited.contains("vyanakiev"), "{cited}");
+    assert!(cited.contains("the mock reads wrong"), "{cited}");
+    assert!(
+        !cited.contains("someone"),
+        "the rejected command is not the cause: {cited}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == EventType::TransitionDecided),
+        "a stopped run takes no further transition",
+    );
+
+    // The boundary the engine itself reaches: a fresh process closes the
+    // in-flight attempt as indeterminate, which alone would PARK. The
+    // accepted stop is what the run concludes on instead.
+    let mut store = journal(
+        &dir.path().join("boundary.db"),
+        "boundary",
+        &manifest,
+        &in_flight,
+    );
+    operator_command(&mut store, "boundary", "stop", "vyanakiev", "enough").unwrap();
+    let events = drive(store, "boundary");
+    let types: Vec<EventType> = events.iter().rev().take(2).map(|e| e.event_type).collect();
+    assert_eq!(
+        types,
+        vec![EventType::RunStopped, EventType::EffectIndeterminate],
+        "the attempt reached its boundary, and there the run stopped",
+    );
+    assert!(reason(&events).contains("enough"));
+
+    // Between effects: nothing is in flight, so the conclusion is
+    // immediate — no effect is requested after an accepted stop.
+    let mut store = journal(
+        &dir.path().join("between.db"),
+        "between",
+        &manifest,
+        &in_flight[..2],
+    );
+    operator_command(
+        &mut store,
+        "between",
+        "stop",
+        "vyanakiev",
+        "between effects",
+    )
+    .unwrap();
+    let events = drive(store, "between");
+    assert_eq!(
+        events.len(),
+        5,
+        "started, phase, commanded, accepted, stopped"
+    );
+    assert!(reason(&events).contains("between effects"));
+}
+
 fn fail_event(path: &Path, event_type: &str) {
     let connection = rusqlite::Connection::open(path).unwrap();
     connection
@@ -1272,6 +1436,23 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
     cursor_shapes
         .advance_running(&[], state(Some("work"), Cursor::Stop))
         .unwrap();
+    // No operator events to cite (only reachable with a journal the
+    // cursor did not come from): the conclusion is still named as one,
+    // never a silent or missing event.
+    let stopped = cursor_shapes
+        .store
+        .load(&cursor_shapes.run_id)
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(stopped.event_type, EventType::RunStopped);
+    assert_eq!(
+        stopped.payload["reason"],
+        json!(
+            "OPERATOR-STOP: operator 'unrecorded' commanded stop (unrecorded): \
+               no reason recorded"
+        )
+    );
     assert!(cursor_shapes
         .advance_running(&[], state(Some("work"), Cursor::Idle))
         .unwrap_err()

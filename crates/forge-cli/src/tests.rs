@@ -102,6 +102,13 @@ pub(crate) fn poisoned_store(db: &std::path::Path, run_id: &str) {
 /// the verify seat's effect was in flight — without fabricating an
 /// operator's database.
 pub(crate) fn stopped_mid_flight_store(db: &std::path::Path, run_id: &str) {
+    stopped_mid_flight_run(db, run_id, &json!({}));
+}
+
+/// The same copy, created under a caller-chosen pinned manifest so a
+/// `resume` can be aimed at it under its bundle. The fixture file itself
+/// is never opened for writing and never edited.
+pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifest: &Value) {
     let ndjson = std::fs::read_to_string(
         workspace().join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"),
     )
@@ -112,7 +119,7 @@ pub(crate) fn stopped_mid_flight_store(db: &std::path::Path, run_id: &str) {
         .collect();
     let mut store = Store::open(db).unwrap();
     store
-        .create_run(run_id, "tui graph: the selection box", "test", &json!({}))
+        .create_run(run_id, "tui graph: the selection box", "test", manifest)
         .unwrap();
     for event in &events {
         store
@@ -1403,6 +1410,62 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
         ExitCode::SUCCESS,
         "the verb reads the journal instead of refusing it"
     );
+}
+
+/// The lawful way to finish a sentence the old engine left hanging: an
+/// accepted-but-unconcluded operator stop, aimed at with `resume`. The
+/// journal is a COPY of the fixture in a temp store — no operator
+/// database is touched and the fixture is never edited — and the run it
+/// leaves behind reads `stopped`, with the process exiting 3 (hard
+/// stop), not 0.
+#[test]
+fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let bundle_path = workspace().join("recipes/fast");
+    let bundle = Bundle::compile(&bundle_path).unwrap();
+    stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
+
+    assert_eq!(
+        run(cli(Cmd::Resume {
+            bundle: Some(bundle_path),
+            recipe: None,
+            recipes_dir: workspace().join("recipes"),
+            run: "stopped-mid-flight".into(),
+            db: db.clone(),
+            repo: None,
+            secrets_file: None,
+        }))
+        .unwrap(),
+        ExitCode::from(3),
+        "a stopped run reporting success would be a lie to the shell",
+    );
+
+    let events = Store::open(&db)
+        .unwrap()
+        .load("stopped-mid-flight")
+        .unwrap();
+    let tail = events.last().unwrap();
+    assert_eq!(tail.seq, 106, "appended, never rewritten");
+    assert_eq!(tail.event_type, EventType::RunStopped);
+    let reason = tail.payload["reason"].as_str().unwrap();
+    // The cause, named: the operator's own command as the journal
+    // recorded it at seq 92/93.
+    assert!(reason.starts_with("OPERATOR-STOP: "), "{reason}");
+    assert!(reason.contains("vyanakiev"), "{reason}");
+    assert!(
+        reason.contains("78af2044-21f4-4ad7-91e0-f141d239f0ce"),
+        "{reason}"
+    );
+    assert!(
+        reason.contains("the fence post through the rail"),
+        "{reason}"
+    );
+
+    // Round trip: the fold reads the tail the engine just wrote.
+    let state = fold(&events).unwrap();
+    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(finish(&state), ExitCode::from(3));
 }
 
 /// One poisoned journal in the fleet is a quarantined row, not a blind
