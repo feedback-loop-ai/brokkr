@@ -27,11 +27,11 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 2] = [
     (
         "recipes/fast",
-        "9a9d28a13bc49cf326c05003f0f23c2e6b8c4cefe8359fb7b9afcbb85ee9f1ca",
+        "4dc02d70c84b9af7fa3680a0e329bc5faad30eb49eecd38664234abbb4af1900",
     ),
     (
         "bundles/verify",
-        "0dc1c9275a64601d35d6b12b190a61fc730566bc54a4ceb401b5fdb38cb2d48a",
+        "66052438d68deeda46271b27f08c64a067cd3801a73d0c9475536b35fe946405",
     ),
 ];
 
