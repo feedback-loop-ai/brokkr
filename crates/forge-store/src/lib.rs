@@ -99,6 +99,27 @@ impl Store {
         Ok(Store { conn })
     }
 
+    /// Open an EXISTING journal for reading only. The connection carries
+    /// `SQLITE_OPEN_READ_ONLY`, so every write refuses at the database
+    /// rather than at a reviewer's memory: a read surface that opens
+    /// this way is *unable* to append, which is what decision 0020 asks
+    /// of Muninn. No file is created and no migration runs — a missing
+    /// database is an error, never an empty fleet.
+    pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        let found: String = conn.query_row(
+            "SELECT value FROM meta WHERE key = 'database_schema'",
+            [],
+            |row| row.get(0),
+        )?;
+        let found: u32 = found.parse().unwrap_or(0);
+        if found != DATABASE_SCHEMA {
+            return Err(StoreError::SchemaMismatch { found });
+        }
+        Ok(Store { conn })
+    }
+
     pub fn create_run(
         &mut self,
         run_id: &str,

@@ -40,6 +40,7 @@ stopped, paid — is a journaled, replayable, anchored fact.
   - [`brokkr watch` — the same, live](#brokkr-watch--the-same-live)
   - [`brokkr tui` — the readouts made explorable](#brokkr-tui--the-readouts-made-explorable)
   - [`brokkr ui` — the browser console](#brokkr-ui--the-browser-console)
+  - [`brokkr muninn` — the fleet, read and advised on](#brokkr-muninn--the-fleet-read-and-advised-on)
 - [Recipes and composition](#recipes-and-composition)
 - [The agent library](#the-agent-library)
 - [Provider adapters](#provider-adapters)
@@ -388,6 +389,42 @@ derivation, same answers, a mouse instead of a keyboard.
 $ brokkr ui --port 8383 --open
 ```
 
+### `brokkr muninn` — the fleet, read and advised on
+
+The read surfaces above show you the fleet. `brokkr muninn` reads it for
+you and writes down what it would suggest — and then stops there.
+
+One invocation opens the workspace database **read-only**, derives a
+dossier from the same `forge-view` models every other readout uses (runs
+with status, phase, age and cost; park reasons and the operator commands
+each parked run admits; consecutive failures; the residual findings the
+verify and review rulings recorded), and hands it to one bounded seat
+under the driver fleet — a deadline, one attempt, no retry ladder. What
+comes back is a fleet summary, a suggested operator command per parked
+run with its reasoning, and the residual findings as a work queue.
+
+Nothing it proposes is executed, and nothing here can execute it. Muninn
+issues no operator command, starts no run, is given no repository tree
+and no secrets, and writes to no run journal — proposals go to its own
+append-only file, `.forge/muninn.ndjson`, beside the journal and inside
+none of it. Every proposal names the run ids and sequence numbers it was
+derived from; a report that cites a fact the dossier does not carry is
+refused and recorded nowhere. Acting on any of it stays the operator's
+own `brokkr operator` command (decision 0020).
+
+```
+$ brokkr muninn run
+2026-08-31T14:26:48Z · 1 proposals for parked runs · 2 findings queued
+  summary: four runs; one is parked on a flaky verify, two are green
+  parked prefix-selectors-8bf6d692 seq 41 · suggest 'retry' · the park
+    reason names one test that has passed on re-run twice before
+  queue review-the-lane-cursor-1f0a seq 33 · max_residual_severity: high
+    · the only high residual in the fleet
+  cites: prefix-selectors-8bf6d692 seq 41, review-the-lane-cursor-1f0a seq 33
+
+$ brokkr muninn list          # every past invocation, citations included
+```
+
 ## Recipes and composition
 
 A recipe is a delivery strategy as reviewable data, identified by
@@ -715,10 +752,9 @@ credited here and nothing else is taken: SwarmForge carries no license,
 which means all rights reserved, so no code, scripts, prompts or prose
 from it has entered — or may enter — this tree.
 
-**Muninn** is reserved, not yet built, and is an independent design with
-an inverted authority model: it reads the journal, remembers across
-runs, proposes to the operator, and rules nothing. Decision 0019 holds
-the name; the authority model will be its own decision.
+**Muninn** is an independent design with an inverted authority model,
+described in decision 0020 and built as `brokkr muninn`: it reads the
+journal, proposes to the operator, and rules nothing.
 
 ## License
 

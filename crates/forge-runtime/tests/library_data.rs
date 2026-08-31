@@ -82,16 +82,22 @@ const CHARTERS: [(&str, &str); 14] = [
     ),
 ];
 
-/// The sixteen definitions over fourteen charters. The `-speckit` suffix
+/// Charters authored here rather than moved: they have no pre-move
+/// bytes to be compared against, and are listed so the accounting below
+/// stays exact instead of merely permissive.
+const AUTHORED_CHARTERS: [&str; 1] = ["muninn.md"];
+
+/// The seventeen definitions over fifteen charters. The `-speckit` suffix
 /// is ugly on purpose: it names WHY the variant exists (it carries the
 /// spec-kit CLI permission) and puts the drift on the surface where
 /// `forge agents list` shows it every time.
-const AGENTS: [&str; 16] = [
+const AGENTS: [&str; 17] = [
     "chief-architect",
     "implementer",
     "implementer-speckit",
     "intake",
     "intake-speckit",
+    "muninn",
     "position-robustness",
     "position-simplicity",
     "review-correctness",
@@ -130,15 +136,21 @@ fn the_charters_moved_without_changing_a_byte() {
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
+    for name in AUTHORED_CHARTERS {
+        assert!(
+            root.join(name).is_file(),
+            "authored charter {name} must exist"
+        );
+    }
     assert_eq!(
         present.len(),
-        CHARTERS.len(),
+        CHARTERS.len() + AUTHORED_CHARTERS.len(),
         "no charter is unaccounted for"
     );
 }
 
 #[test]
-fn the_library_holds_sixteen_agents_over_fourteen_charters() {
+fn the_library_holds_seventeen_agents_over_fifteen_charters() {
     let library = library();
     assert_eq!(library.names(), AGENTS.map(str::to_string).to_vec());
     // Two pairs share a charter file: identical bytes, differing only in
@@ -154,7 +166,7 @@ fn the_library_holds_sixteen_agents_over_fourteen_charters() {
         assert_ne!(left.allow, right.allow, "the tools are what differ");
     }
     // 0007 declarations stay at their default: the phases' rule-referenced
-    // inputs already name exactly the right set for all sixteen.
+    // inputs already name exactly the right set for all of them.
     for name in AGENTS {
         assert!(
             library.agent(name).unwrap().inputs.is_none(),

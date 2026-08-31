@@ -458,6 +458,112 @@ pub fn clamp(text: &str, width: usize) -> String {
     out
 }
 
+// -------------------------------------- operator commands and residuals
+
+/// The two commands `brokkr operator` accepts, in the order it names
+/// them.
+pub const OPERATOR_COMMANDS: [&str; 2] = ["retry", "stop"];
+
+/// The phases whose rulings carry residual findings.
+pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
+
+/// The operator commands a run in this status admits. Only a parked run
+/// admits any: `retry` re-runs its phase, `stop` ends it, and every
+/// other status admits neither. Derived here, once, so a surface that
+/// suggests a command suggests one the engine will actually accept
+/// rather than one it invented.
+pub fn operator_commands(status: &str) -> Vec<String> {
+    match status {
+        "awaiting_operator" => OPERATOR_COMMANDS.iter().map(|c| c.to_string()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// One residual finding, with the journal fact it was read from.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct ResidualFinding {
+    pub run_id: String,
+    /// The sequence number of the ruling this was read from — the
+    /// citation a reader can go and check.
+    pub seq: u64,
+    /// The phase that ruled: `verify` or `review`.
+    pub phase: String,
+    pub rule_id: String,
+    /// The rule input the finding is derived from, by its exact name in
+    /// the evaluator's closed vocabulary.
+    pub input: String,
+    pub value: String,
+    /// The rendered sentence every surface prints, citations included.
+    pub line: String,
+}
+
+/// The one severity input and the two boolean inputs that carry a
+/// residual claim, read through the evaluator's own closed vocabulary.
+/// A severity of `none`, a false flag, an unranked severity name and any
+/// key outside the vocabulary all carry no finding.
+fn residual_value(key: &str, value: &Value) -> Option<String> {
+    match key {
+        "max_residual_severity" => {
+            let name = value.as_str()?;
+            let rank = forge_core::policy::SEVERITY_ORDER
+                .iter()
+                .position(|known| *known == name)?;
+            match rank {
+                0 => None,
+                _ => Some(name.to_string()),
+            }
+        }
+        "has_security_residual" | "high_risk_uncovered" => match value.as_bool() {
+            Some(true) => Some("true".to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Residual findings as the journal actually carries them: the
+/// STRUCTURED rule inputs of every `transition/decided` ruled from
+/// `verify` or `review`. Reviewer prose lives in free-text notes and is
+/// never re-read here as a typed finding — deriving structure from prose
+/// is repair (decision 0001). Each finding names the run and the
+/// sequence number it came from, which is decision 0007's provenance
+/// discipline applied to a readout instead of to a seat input.
+pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
+    let mut out = Vec::new();
+    for event in events {
+        if event.event_type != EventType::TransitionDecided {
+            continue;
+        }
+        let payload = &event.payload;
+        let Some(phase) = field(payload, "from").filter(|from| RESIDUAL_PHASES.contains(from))
+        else {
+            continue;
+        };
+        let Some(inputs) = payload.get("inputs").and_then(Value::as_object) else {
+            continue;
+        };
+        let rule_id = display_or_mark(payload.get("rule_id"));
+        for (input, raw) in inputs {
+            let Some(value) = residual_value(input, raw) else {
+                continue;
+            };
+            out.push(ResidualFinding {
+                run_id: run_id.to_string(),
+                seq: event.seq,
+                phase: phase.to_string(),
+                rule_id: rule_id.clone(),
+                input: input.clone(),
+                value: value.clone(),
+                line: format!(
+                    "{run_id} seq {} · {phase} · {rule_id} · {input}: {value}",
+                    event.seq
+                ),
+            });
+        }
+    }
+    out
+}
+
 // ------------------------------------------------------- run rows
 
 fn run_row(entry: &RunEntry) -> RunRow {
