@@ -448,7 +448,14 @@ fn the_seat_is_given_a_scratch_directory_and_never_a_repository() {
         "and it is gone once the invocation ends"
     );
     let cwd = ws.seen("cwd.txt");
-    assert_eq!(cwd.trim(), workdir, "the driver ran there too");
+    // The driver reports its cwd through its own shell: macOS prints
+    // the /private canonicalization and Windows' sh prints an MSYS
+    // spelling, so the unique scratch component is what both agree on.
+    assert_eq!(
+        Path::new(cwd.trim()).file_name(),
+        Path::new(workdir).file_name(),
+        "the driver ran there too: {cwd} vs {workdir}"
+    );
     let listing = ws.seen("listing.txt");
     assert!(
         !listing.contains("CANARY"),
@@ -532,7 +539,7 @@ fn a_refused_invocation_records_nothing_and_exits_nonzero() {
             "result": {"result": "proposed", "inputs": {
                 "fleet_summary": "too late", "parked_runs": [], "work_queue": []}},
         }),
-        "sleep 5 >/dev/null 2>&1",
+        "read -r stall",
     );
     let output = ws.muninn();
     assert_eq!(output.status.code(), Some(1));
