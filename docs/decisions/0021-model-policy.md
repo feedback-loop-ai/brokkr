@@ -1,6 +1,6 @@
 # 0021 — Model policy: the law, not the scorecard
 
-Status: proposed
+Status: accepted — operator ruled 2026-08-31
 Date: 2026-08-31
 
 ## Context
