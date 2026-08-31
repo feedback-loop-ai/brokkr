@@ -1,0 +1,89 @@
+{
+  "agents": {
+    "implement": {
+      "adapter_digest": "27bbfbfc731f4b52a55bc1464316017a89cfa3959ad20241b28668a01fe63d6d",
+      "agent": "implementer",
+      "agent_digest": "3225a6c13302991c3089cc5c2e6b61f01dd11e573b2e70adf01443317b9c1a7b",
+      "chain": [
+        "opus",
+        "sonnet"
+      ],
+      "charter_digest": "3c0e869efcd3c46c853c13c44fc9c1ff0d0a50df45194ab9e0a3019756443f77",
+      "chosen_index": 0,
+      "model": "opus",
+      "notices": [],
+      "provider": "claude",
+      "skipped": []
+    },
+    "intake": {
+      "adapter_digest": "27bbfbfc731f4b52a55bc1464316017a89cfa3959ad20241b28668a01fe63d6d",
+      "agent": "intake",
+      "agent_digest": "7b02da01203e89a447e824c82e8af871b90a746b0b4593ba59b7df65c21caa8f",
+      "chain": [
+        "sonnet",
+        "opus"
+      ],
+      "charter_digest": "d27fd1983362c158af6b878942b6166482632cff43d23ebff72b55532c31aa9c",
+      "chosen_index": 0,
+      "model": "sonnet",
+      "notices": [],
+      "provider": "claude",
+      "skipped": []
+    },
+    "review": {
+      "adapter_digest": "27bbfbfc731f4b52a55bc1464316017a89cfa3959ad20241b28668a01fe63d6d",
+      "agent": "reviewer",
+      "agent_digest": "d78cb9382a418567fe48b826953f4e54d2c42f3f496ba1d627d93f0c73f858b4",
+      "chain": [
+        "opus",
+        "sonnet"
+      ],
+      "charter_digest": "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
+      "chosen_index": 0,
+      "model": "opus",
+      "notices": [],
+      "provider": "claude",
+      "skipped": []
+    },
+    "ship": {
+      "adapter_digest": "27bbfbfc731f4b52a55bc1464316017a89cfa3959ad20241b28668a01fe63d6d",
+      "agent": "shipper",
+      "agent_digest": "45a168d01250dcf51c89160f818ef0935c71a61253faa0b10e7867d900890822",
+      "chain": [
+        "sonnet",
+        "opus"
+      ],
+      "charter_digest": "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
+      "chosen_index": 0,
+      "model": "sonnet",
+      "notices": [],
+      "provider": "claude",
+      "skipped": []
+    },
+    "verify": {
+      "adapter_digest": "27bbfbfc731f4b52a55bc1464316017a89cfa3959ad20241b28668a01fe63d6d",
+      "agent": "verifier",
+      "agent_digest": "dc11797559c3c87c2b8b66268a5725986ebdf4c4938dad93a010ce6e6434ccee",
+      "chain": [
+        "sonnet",
+        "opus"
+      ],
+      "charter_digest": "b2c93f743e0811e40cc825c28ea74885b292c5df5371f7604fced3715bc54ded",
+      "chosen_index": 0,
+      "model": "sonnet",
+      "notices": [],
+      "provider": "claude",
+      "skipped": []
+    }
+  },
+  "bundle_name": "self",
+  "database_schema": 1,
+  "driver_protocol": 1,
+  "engine": "0.3.6",
+  "event_schema": 1,
+  "files": {
+    "bundle.json": "d260a568c67620a2bcf80273c5eddb8a509f3c74dd52daa7934ceec0df901bf7",
+    "policy.json": "2411ee8ccd32d617fc25c77c81e8850e1dd7b49a08208a7b2262c314103828f5",
+    "shipper.md": "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9"
+  }
+}
