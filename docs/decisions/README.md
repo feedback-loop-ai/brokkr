@@ -26,6 +26,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0017](0017-composable-recipes.md) | Composable recipes: extend, override, and compose delivery strategies | `extends` plus explicit overrides, resolved at compile time into one flat bundle recorded in the run manifest. | accepted |
 | [0018](0018-dual-license.md) | Dual license: MIT OR Apache-2.0 | Permissive, never copyleft: MIT's frictionlessness or Apache-2.0's explicit patent grant, the user's choice. | accepted |
 | [0019](0019-brokkr.md) | Brokkr: the name, the verb, and the lore layer | The product is Brokkr; "forge" survives as the verb and mechanisms keep plain names; the lore layer under `docs/lore/` is bound by five laws. | accepted |
+| [0020](0020-muninn.md) | Muninn: the raven that reads everything and rules nothing | The standing overseer reads only journal-derived models, proposes and never rules, and records every proposal as evidence with provenance; delegation only by future recorded grant. | accepted |
 
 ## How a decision is made
 
