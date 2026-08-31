@@ -149,6 +149,38 @@ fn schema_head_listing_and_append_conflict_fail_closed() {
     ));
 }
 
+/// The journal the fold used to refuse, folded end to end. This is the
+/// verbatim export of a live run (105 events, read-only evidence): the
+/// operator's `stop` was accepted at seq 93 while the verify seat's
+/// effect was in flight, the attempt kept checkpointing to seq 104, and
+/// the effect succeeded at seq 105. The engine accepted and recorded
+/// all of it — the journal is the authority (decision 0001) — so the
+/// whole export must verify, chain, and fold without a refusal.
+#[test]
+fn the_operator_stop_that_came_mid_flight_folds_end_to_end() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+    let ndjson = std::fs::read_to_string(&fixture).unwrap();
+    let state = verify_export(&ndjson).unwrap();
+
+    assert_eq!(state.run_id, "tui-graph-the-selection-box-gets-80f98deb");
+    assert_eq!(state.seq, 105, "the export's last event");
+    // No terminal event was captured in this export: the run is still
+    // running, in the phase whose seat was working when it was stopped.
+    assert_eq!(state.status, forge_core::fold::Status::Running);
+    assert_eq!(state.phase.as_deref(), Some("verify"));
+    // The accepted stop rode the in-flight attempt to its boundary:
+    // instead of the succeeded effect's normal `Decide`, the run
+    // concludes per the operator's command.
+    assert_eq!(state.cursor, forge_core::fold::Cursor::Stop);
+    assert!(!state.riding_stop, "the riding command is spent");
+    assert_eq!(state.pending_command, None, "the stop was disposed of");
+}
+
 #[test]
 fn exported_garbage_is_a_parse_refusal() {
     assert!(matches!(

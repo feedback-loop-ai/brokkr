@@ -47,16 +47,23 @@ fn running_store(db: &std::path::Path, run_id: &str) {
         .unwrap();
 }
 
-/// The journal the live fault wrote, in its recorded order: a seat's
-/// effect is in flight when the operator records `stop`, and the plain
-/// operator path (`engine::operator_command`) journals the command and
-/// its acceptance without reading the run's cursor first. The fold
-/// refuses that acceptance at `EffectInFlight`, so this run does not
-/// fold — which is precisely what a fleet read must survive.
+/// A journal that genuinely does not fold: an `operator/accepted` that
+/// names a command this run never carried. The fold has no rule that
+/// can read it at any cursor — the acceptance is unattached — so the
+/// run is quarantined. The grace exists for exactly this: a journal the
+/// fold cannot read must not blind a fleet read to every other run.
+///
+/// (The stop-accepted-mid-flight shape this helper used to build is no
+/// longer unfoldable — see `an_operator_stop_mid_flight_lists_with_its_real_status`.)
 pub(crate) fn poisoned_store(db: &std::path::Path, run_id: &str) {
     let mut store = Store::open(db).unwrap();
     store
-        .create_run(run_id, "the stop that came mid-flight", "test", &json!({}))
+        .create_run(
+            run_id,
+            "the acceptance that names no command",
+            "test",
+            &json!({}),
+        )
         .unwrap();
     let mut append = |kind, payload| {
         store
@@ -65,7 +72,7 @@ pub(crate) fn poisoned_store(db: &std::path::Path, run_id: &str) {
     };
     append(
         EventType::RunStarted,
-        json!({"feature": "the stop that came mid-flight", "manifest": {}}),
+        json!({"feature": "the acceptance that names no command", "manifest": {}}),
     );
     append(EventType::PhaseEntered, json!({"phase": "verify"}));
     append(
@@ -83,9 +90,35 @@ pub(crate) fn poisoned_store(db: &std::path::Path, run_id: &str) {
     );
     append(
         EventType::OperatorAccepted,
-        json!({"command_id": "cmd", "operator": "operator",
+        json!({"command_id": "a-command-never-issued", "operator": "operator",
                "reason": "stop it now"}),
     );
+}
+
+/// The live journal the fold used to refuse, replayed into a store: the
+/// verbatim fixture export (read-only evidence, 105 events) re-appended
+/// `(type, payload)` pair by pair, so a fleet read meets the exact shape
+/// the engine recorded — the operator's `stop` accepted at seq 93 while
+/// the verify seat's effect was in flight — without fabricating an
+/// operator's database.
+pub(crate) fn stopped_mid_flight_store(db: &std::path::Path, run_id: &str) {
+    let ndjson = std::fs::read_to_string(
+        workspace().join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"),
+    )
+    .unwrap();
+    let events: Vec<forge_core::envelope::EventEnvelope> = ndjson
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run(run_id, "tui graph: the selection box", "test", &json!({}))
+        .unwrap();
+    for event in &events {
+        store
+            .append_next(run_id, event.event_type, event.payload.clone(), None, None)
+            .unwrap();
+    }
 }
 
 fn cli(command: Cmd) -> Cli {
@@ -479,6 +512,7 @@ fn state_constructor_keeps_the_running_cursor_shape_explicit() {
         park_reason: None,
         feature: Some("feature".into()),
         pending_command: None,
+        riding_stop: false,
     };
     assert_eq!(summarize(&state)["status"], "running");
 }
@@ -1307,6 +1341,70 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     assert!(now_rfc3339().ends_with('Z'));
 }
 
+/// The run that used to be the quarantine's own example: an operator
+/// `stop` accepted while the verify seat's effect was in flight. The
+/// fold now has that arm, so the fleet reads it as what it is — there
+/// is nothing to quarantine here, and the verbs aimed at it work.
+#[test]
+fn an_operator_stop_mid_flight_lists_with_its_real_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    stopped_mid_flight_store(&db, "stopped-mid-flight");
+    running_store(&db, "healthy");
+
+    let store = Store::open(&db).unwrap();
+    let events = store.load("stopped-mid-flight").unwrap();
+    let folded = fold_or_quarantine(&events);
+    let state = folded.as_ref().expect("the live journal folds");
+    assert_eq!(state.seq, 105);
+    assert_eq!(state.status, Status::Running);
+    assert_eq!(state.phase.as_deref(), Some("verify"));
+    assert_eq!(state.cursor, Cursor::Stop, "concluded per the operator");
+
+    let entries = [
+        forge_view::RunEntry {
+            run_id: "stopped-mid-flight",
+            feature: "tui graph: the selection box",
+            created_at: "2026-08-30T22:20:34Z",
+            state: folded.as_ref().ok(),
+            detail: folded.as_ref().err().map(String::as_str),
+        },
+        forge_view::RunEntry {
+            run_id: "healthy",
+            feature: "feature",
+            created_at: "2026-08-30T22:21:00Z",
+            state: None,
+            detail: None,
+        },
+    ];
+    let view = serde_json::to_value(forge_view::run_rows(&entries)).unwrap();
+    let row = &view["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["run_id"] == "stopped-mid-flight")
+        .expect("the run is listed")
+        .clone();
+    assert_eq!(row["status"], "running", "its real status, not '?'");
+    assert_eq!(row["status_known"], true);
+    assert_eq!(row["seq"], 105);
+    assert_eq!(row["detail"], Value::Null, "nothing to quarantine");
+
+    // …and the single-run verb aimed at it reads it instead of refusing.
+    assert_eq!(
+        run(cli(Cmd::Inspect {
+            run: "stopped-mid-flight".into(),
+            db: db.clone(),
+            json: true,
+            phase: None,
+            seat: None,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS,
+        "the verb reads the journal instead of refusing it"
+    );
+}
+
 /// One poisoned journal in the fleet is a quarantined row, not a blind
 /// operator. The fleet verb lists every other run and says why this one
 /// carries no status; the single-run verbs aimed AT it still fail
@@ -1379,7 +1477,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         poisoned["detail"]
             .as_str()
             .unwrap()
-            .starts_with("event 6: OperatorAccepted is impossible at cursor EffectInFlight"),
+            .starts_with("event 6: operator/accepted without a matching command"),
         "the fold's own words survive into the row: {poisoned}"
     );
     let healthy = row("healthy");
@@ -1403,7 +1501,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     ] {
         let error = run(cli(command)).unwrap_err().to_string();
         assert!(
-            error.contains("is impossible at cursor"),
+            error.contains("without a matching command"),
             "the verb names the refusal: {error}"
         );
     }

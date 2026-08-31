@@ -76,6 +76,10 @@ pub struct RunState {
     pub feature: Option<String>,
     /// Last operator command awaiting disposition: (command_id, command).
     pub pending_command: Option<(String, String)>,
+    /// An operator stop ACCEPTED while an attempt was in flight. The
+    /// command rides — the attempt is untouched and keeps journaling —
+    /// and the effect's boundary concludes the run per the command.
+    pub riding_stop: bool,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -134,6 +138,19 @@ fn cursor_name(cursor: &Cursor) -> String {
     format!("{cursor:?}")
 }
 
+/// The step taken at an in-flight effect's boundary. An operator stop
+/// accepted mid-flight rides untouched to exactly here: the run then
+/// concludes per the command (`Cursor::Stop`, which the engine turns
+/// into run/stopped) instead of taking the boundary's normal next step.
+/// The riding command is spent once it is honoured.
+fn conclude(state: &mut RunState, normal: Cursor) {
+    state.cursor = match state.riding_stop {
+        true => Cursor::Stop,
+        false => normal,
+    };
+    state.riding_stop = false;
+}
+
 /// Fold a verified journal into state. Callers verify the hash chain
 /// first (`envelope::verify_chain`); fold checks protocol shape only.
 pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
@@ -158,6 +175,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
             .and_then(Value::as_str)
             .map(str::to_string),
         pending_command: None,
+        riding_stop: false,
     };
 
     for event in events {
@@ -260,7 +278,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                                 seq: event.seq,
                                 field: "result".into(),
                             })?;
-                    state.cursor = Cursor::Decide { effect_id, result };
+                    conclude(state, Cursor::Decide { effect_id, result });
                     Ok(())
                 }
                 _ => Err(out_of_place(state)),
@@ -279,11 +297,12 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                     failed_attempts,
                     ..
                 } if *open == effect_id => {
-                    state.cursor = Cursor::ExecuteEffect {
+                    let normal = Cursor::ExecuteEffect {
                         effect_id,
                         seat: seat.clone(),
                         failed_attempts: failed_attempts + 1,
                     };
+                    conclude(state, normal);
                     Ok(())
                 }
                 _ => Err(out_of_place(state)),
@@ -312,9 +331,10 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 .get("reason")
                 .and_then(Value::as_str)
                 .unwrap_or("no detail recorded");
-            state.cursor = Cursor::Park {
+            let normal = Cursor::Park {
                 reason: format!("effect {effect_id} indeterminate: {detail}"),
             };
+            conclude(state, normal);
             Ok(())
         }
 
@@ -371,11 +391,9 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             if pending_id != command_id {
                 return Err(FoldError::NoMatchingCommand { seq: event.seq });
             }
-            if state.status != Status::AwaitingOperator {
-                return Err(out_of_place(state));
-            }
+            let parked = state.status == Status::AwaitingOperator;
             match command.as_str() {
-                "retry" => {
+                "retry" if parked => {
                     if state.phase.is_none() {
                         return Err(out_of_place(state));
                     }
@@ -383,11 +401,21 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                     state.park_reason = None;
                     state.cursor = Cursor::RequestEffect;
                 }
-                "stop" => {
+                "stop" if parked => {
                     state.status = Status::Running;
                     state.park_reason = None;
                     state.cursor = Cursor::Stop;
                 }
+                // `brokkr operator` is a live kill switch: it journals
+                // the command AND its acceptance without reading the
+                // run's cursor first, so a stop legitimately lands while
+                // an attempt is in flight. The command rides — the
+                // attempt is untouched, its checkpoints keep applying —
+                // and the effect's boundary concludes the run per it.
+                "stop" if matches!(state.cursor, Cursor::EffectInFlight { .. }) => {
+                    state.riding_stop = true;
+                }
+                "retry" | "stop" => return Err(out_of_place(state)),
                 other => {
                     return Err(FoldError::UnknownCommand {
                         seq: event.seq,

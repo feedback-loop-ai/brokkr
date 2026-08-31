@@ -32,6 +32,7 @@ fn state(cursor: Cursor) -> RunState {
         park_reason: None,
         feature: Some("feature".into()),
         pending_command: None,
+        riding_stop: false,
     }
 }
 
@@ -264,6 +265,125 @@ fn decision_captures_reviewed_heads() {
         ),
     )
     .unwrap();
+}
+
+/// The operator's kill switch journals a stop AND its acceptance
+/// without reading the run's cursor, so acceptance lands mid-flight.
+/// The fold reads what the engine recorded: the command rides, the
+/// attempt is untouched and keeps journaling, and the effect's boundary
+/// concludes the run per the command.
+#[test]
+fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
+    let in_flight = || Cursor::EffectInFlight {
+        effect_id: "open".into(),
+        attempt_id: "attempt".into(),
+        seat: "verify".into(),
+        failed_attempts: 0,
+    };
+    let riding = || {
+        let mut current = state(in_flight());
+        current.pending_command = Some(("c1".into(), "stop".into()));
+        apply(
+            &mut current,
+            &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
+        )
+        .unwrap();
+        // Accepting it changes nothing about the attempt: same cursor,
+        // still running, the command spent from pending and now riding.
+        assert_eq!(current.cursor, in_flight());
+        assert_eq!(current.status, Status::Running);
+        assert_eq!(current.pending_command, None);
+        assert!(current.riding_stop);
+        current
+    };
+
+    // The in-flight attempt keeps journaling — checkpoints for the same
+    // effect still apply normally after the acceptance.
+    let mut current = riding();
+    apply(
+        &mut current,
+        &event(EventType::EffectCheckpointed, json!({"effect_id": "open"})),
+    )
+    .unwrap();
+    assert_eq!(current.cursor, in_flight());
+    assert!(current.riding_stop, "still riding");
+
+    // The evidenced boundary: the effect succeeds, and instead of its
+    // normal `Decide` the run concludes per the stop.
+    apply(
+        &mut current,
+        &event(
+            EventType::EffectSucceeded,
+            json!({"effect_id": "open", "result": {"result": "complete"}}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(current.cursor, Cursor::Stop);
+    assert!(!current.riding_stop, "the riding command is spent");
+
+    // The same redirect at the other two boundaries of the same
+    // attempt: a generalization of "the effect's boundary", not
+    // separately evidenced. Neither retries nor parks past an accepted
+    // stop — the operator's command is the run's conclusion.
+    for (event_type, payload) in [
+        (EventType::EffectFailed, json!({"effect_id": "open"})),
+        (
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "open", "reason": "engine restarted"}),
+        ),
+    ] {
+        let mut current = riding();
+        apply(&mut current, &event(event_type, payload)).unwrap();
+        assert_eq!(current.cursor, Cursor::Stop, "{event_type:?}");
+        assert!(!current.riding_stop);
+    }
+}
+
+/// The new arm is narrow: only a `stop` whose acceptance matches its
+/// command, only at `EffectInFlight`. Everything else refuses exactly
+/// as before — decision 0001 admits no guessed transition.
+#[test]
+fn the_mid_flight_arm_refuses_everything_it_is_not() {
+    let in_flight = || Cursor::EffectInFlight {
+        effect_id: "open".into(),
+        attempt_id: "attempt".into(),
+        seat: "verify".into(),
+        failed_attempts: 0,
+    };
+    let accepted = event(EventType::OperatorAccepted, json!({"command_id": "c1"}));
+    let refusal = |cursor: Cursor, pending: (&str, &str)| {
+        let mut current = state(cursor);
+        current.pending_command = Some((pending.0.into(), pending.1.into()));
+        let error = apply(&mut current, &accepted).unwrap_err();
+        assert!(!current.riding_stop, "a refused stop never rides");
+        error
+    };
+
+    // An acceptance that names a different command is not this run's
+    // stop, wherever the cursor stands.
+    assert_eq!(
+        refusal(in_flight(), ("other", "stop")),
+        FoldError::NoMatchingCommand { seq: 2 }
+    );
+    // A command the protocol does not know is named as such.
+    assert_eq!(
+        refusal(in_flight(), ("c1", "invented")),
+        FoldError::UnknownCommand {
+            seq: 2,
+            command: "invented".into(),
+        }
+    );
+    // `retry` mid-flight is not evidenced and is not invented here…
+    assert!(matches!(
+        refusal(in_flight(), ("c1", "retry")),
+        FoldError::OutOfPlace { .. }
+    ));
+    // …and a stop accepted at a running cursor with no attempt in
+    // flight stays the refusal it was.
+    assert!(matches!(
+        refusal(Cursor::RequestEffect, ("c1", "stop")),
+        FoldError::OutOfPlace { .. }
+    ));
 }
 
 #[test]

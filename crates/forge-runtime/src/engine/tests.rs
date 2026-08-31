@@ -101,6 +101,7 @@ fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
         park_reason: None,
         feature: Some("feature".into()),
         pending_command: None,
+        riding_stop: false,
     }
 }
 
