@@ -2151,6 +2151,35 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     assert_eq!(facts["head"], json!(git_head(&repo).unwrap()));
 }
 
+/// Fail-closed at the gate: heads WERE recorded, but ship's repo no
+/// longer resolves to a recorded realm — the drift question cannot be
+/// answered, and an unanswerable question is drift, never silence.
+/// (This run's own review caught the silent arm: resume --repo pointed
+/// at an unmapped tree used to fall through SHIP-DRIFT to SHIP-OK.)
+#[test]
+fn an_unresolvable_realm_at_ship_is_drift_not_silence() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let world = world_over(dir.path(), &repo, "the-forge");
+    let mut engine = engine_in(dir.path(), Some(world), &elsewhere);
+    let reviewed = git_commit(&repo, "reviewed");
+    git_commit(&elsewhere, "unrelated");
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "the-forge": reviewed }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    assert_eq!(
+        inputs["drift_detected"],
+        json!(true),
+        "an unresolvable realm answers the drift question with drift"
+    );
+}
+
 /// The both-shapes law at the gate that reads them: a head recorded
 /// before any map — unkeyed — still answers for the one realm this run
 /// works in, so an in-flight run keeps its drift check when a map is

@@ -1347,11 +1347,18 @@ impl Engine {
                 let dirty = git_dirty(repo);
                 let head = git_head(repo);
                 inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
-                let drifted = state
-                    .reviewed_heads
-                    .as_ref()
-                    .and_then(|recorded| recorded_head(recorded, realm.as_deref()))
-                    .map(|reviewed| head.as_deref() != Some(reviewed));
+                // Fail-closed: when the protected phase RECORDED heads,
+                // ship always answers the drift question. A repo that
+                // no longer resolves to a recorded realm, or a realm
+                // whose head was never recorded, is indistinct from
+                // drift — silence here shipped where the old code
+                // re-armed review (this run's own review caught it).
+                let drifted = state.reviewed_heads.as_ref().map(|recorded| {
+                    match recorded_head(recorded, realm.as_deref()) {
+                        Some(reviewed) => head.as_deref() != Some(reviewed),
+                        None => true,
+                    }
+                });
                 if let Some(drifted) = drifted {
                     inputs.insert("drift_detected".into(), Value::Bool(drifted));
                 }
