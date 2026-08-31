@@ -15,6 +15,17 @@ fn run(script: &str) -> AttemptReport {
         .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
 }
 
+struct FailingWriter;
+
+impl std::io::Write for FailingWriter {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("injected writer fault"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 struct BrokenWriter;
 
 impl std::io::Write for BrokenWriter {
@@ -232,7 +243,24 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
         AttemptOutcome::Failed { error } if error.contains("could not send start")
     ));
 
+    // A pipe broken at the greeting is the driver already gone: the
+    // same indeterminate arm as an exit before accepting, never a race
+    // over which error text the operator reads.
     let report = process_with_writer(BrokenWriter).run_attempt(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        |_| {},
+    );
+    assert!(matches!(
+        report.outcome,
+        AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
+    ));
+
+    // Any OTHER write failure at the greeting keeps its own words.
+    let report = process_with_writer(FailingWriter).run_attempt(
         "test",
         "effect",
         "attempt",

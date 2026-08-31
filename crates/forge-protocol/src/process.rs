@@ -211,6 +211,14 @@ impl DriverProcess {
         if let Err(e) = self.send(Body::Hello {
             engine_version: engine_version.to_string(),
         }) {
+            // A pipe broken at the greeting is a driver already gone —
+            // the same fact as exiting without accepting, so it takes
+            // the same arm instead of racing the driver's exit for
+            // which error the operator reads.
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                let outcome = self.eof_outcome(false);
+                return self.finish(outcome, None, Vec::new(), accepted);
+            }
             fail!("could not greet driver: {e}");
         }
         match self.recv() {
