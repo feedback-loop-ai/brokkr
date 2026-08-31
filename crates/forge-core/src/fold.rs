@@ -100,6 +100,24 @@ pub enum FoldError {
     UnknownCommand { seq: u64, command: String },
 }
 
+impl FoldError {
+    /// The journal position the fold refused at — the citation a reader
+    /// can check, and the fact a quarantined row states about itself. An
+    /// empty journal has no event to cite, so it cites the position
+    /// before the first one.
+    pub fn seq(&self) -> u64 {
+        match self {
+            FoldError::Empty => 0,
+            FoldError::FirstEventNotRunStarted { seq }
+            | FoldError::OutOfPlace { seq, .. }
+            | FoldError::BadPayload { seq, .. }
+            | FoldError::AfterTerminal { seq }
+            | FoldError::NoMatchingCommand { seq }
+            | FoldError::UnknownCommand { seq, .. } => *seq,
+        }
+    }
+}
+
 fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> {
     event
         .payload

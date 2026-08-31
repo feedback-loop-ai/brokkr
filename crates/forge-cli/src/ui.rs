@@ -99,18 +99,28 @@ pub fn handle(db: &Path, path: &str) -> Response {
         let mut folded = Vec::new();
         if let Ok(list) = store.list_runs() {
             for (run_id, feature, created_at) in list {
-                let state = store.load(&run_id).ok().and_then(|e| fold(&e).ok());
-                folded.push((run_id, feature, created_at, state));
+                // The same fleet grace the table gives: a run whose
+                // journal does not fold is a quarantined row carrying
+                // the fold error, never a missing row.
+                let folded_run = store
+                    .load(&run_id)
+                    .ok()
+                    .map(|events| crate::fold_or_quarantine(&events));
+                folded.push((run_id, feature, created_at, folded_run));
             }
         }
         let entries: Vec<forge_view::RunEntry> = folded
             .iter()
             .map(
-                |(run_id, feature, created_at, state)| forge_view::RunEntry {
+                |(run_id, feature, created_at, folded_run)| forge_view::RunEntry {
                     run_id,
                     feature,
                     created_at,
-                    state: state.as_ref(),
+                    state: folded_run.as_ref().and_then(|folded| folded.as_ref().ok()),
+                    detail: folded_run
+                        .as_ref()
+                        .and_then(|folded| folded.as_ref().err())
+                        .map(String::as_str),
                 },
             )
             .collect();

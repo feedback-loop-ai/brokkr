@@ -175,6 +175,48 @@ fn operator_and_terminal_refusals_are_explicit() {
     }
 }
 
+/// Every refusal names the position it refused at. A fleet read cites
+/// that number as the quarantined run's one stated fact, so a reader —
+/// or the operator's aide — can go to the journal and check it.
+#[test]
+fn a_refusal_cites_the_position_it_refused_at() {
+    assert_eq!(
+        fold(&[]).unwrap_err().seq(),
+        0,
+        "nothing to cite but the start"
+    );
+    let mut current = state(Cursor::Idle);
+    current.status = Status::AwaitingOperator;
+    let error = apply(
+        &mut current,
+        &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
+    )
+    .unwrap_err();
+    assert_eq!(error.seq(), 2, "the event the fold stopped on");
+    // Every other refusal shape cites its own position too: a reader
+    // must never be told to go and look at event 0.
+    for refusal in [
+        FoldError::FirstEventNotRunStarted { seq: 3 },
+        FoldError::OutOfPlace {
+            seq: 3,
+            event: "OperatorAccepted".into(),
+            cursor: "EffectInFlight".into(),
+        },
+        FoldError::BadPayload {
+            seq: 3,
+            field: "effect_id".into(),
+        },
+        FoldError::AfterTerminal { seq: 3 },
+        FoldError::NoMatchingCommand { seq: 3 },
+        FoldError::UnknownCommand {
+            seq: 3,
+            command: "invented".into(),
+        },
+    ] {
+        assert_eq!(refusal.seq(), 3, "{refusal}");
+    }
+}
+
 #[test]
 fn decision_captures_reviewed_heads() {
     let mut current = state(Cursor::Decide {

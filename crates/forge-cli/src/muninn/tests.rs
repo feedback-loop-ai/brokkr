@@ -77,6 +77,47 @@ impl Fleet {
         );
     }
 
+    /// The journal the live fault wrote: a seat's effect in flight when
+    /// the operator recorded `stop`, and the plain operator path
+    /// journals the command and its acceptance without reading the
+    /// run's cursor first. The fold refuses that acceptance where it
+    /// stands, so this run does not fold — the case the aide must
+    /// surface rather than choke on.
+    fn poisoned(&self, run_id: &str) {
+        let mut store = self.store();
+        store
+            .create_run(run_id, "the stop that came mid-flight", "self", &json!({}))
+            .unwrap();
+        let mut append = |kind, payload| {
+            store
+                .append_next(run_id, kind, payload, None, None)
+                .unwrap();
+        };
+        append(
+            EventType::RunStarted,
+            json!({"feature": "the stop that came mid-flight", "manifest": {}}),
+        );
+        append(EventType::PhaseEntered, json!({"phase": "verify"}));
+        append(
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "verify", "phase": "verify"}),
+        );
+        append(
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "att"}),
+        );
+        append(
+            EventType::OperatorCommanded,
+            json!({"command_id": "cmd", "command": "stop", "args": {},
+                   "operator": "operator"}),
+        );
+        append(
+            EventType::OperatorAccepted,
+            json!({"command_id": "cmd", "operator": "operator",
+                   "reason": "stop it now"}),
+        );
+    }
+
     /// A completed run with no seat telemetry at all.
     fn completed(&self, run_id: &str) {
         let mut store = self.store();
@@ -197,6 +238,100 @@ fn the_dossier_is_derived_from_the_view_models_and_carries_its_citations() {
     assert!(!derived.admits("no-such-run", "retry"));
 }
 
+/// The fleet fault that grounded the aide: one run whose journal does
+/// not fold used to abort the whole dossier, so a single poisoned
+/// journal blinded the overseer to every healthy run. It is now a
+/// quarantined row AND a finding — an unfoldable journal is exactly
+/// what an operator's aide exists to surface — and the seat can propose
+/// about it, because the dossier states the sequence the fold refused
+/// at as a citable fact.
+#[test]
+fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
+    let fleet = Fleet::new();
+    fleet.parked("parked-run");
+    fleet.poisoned("poisoned-run");
+    fleet.completed("done-run");
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+
+    // Every run is still read, and the healthy ones keep their facts.
+    assert_eq!(derived.value["fleet"]["runs"], 3);
+    assert_eq!(derived.value["fleet"]["awaiting_operator"], 1);
+    assert_eq!(derived.value["fleet"]["completed"], 1);
+    assert_eq!(derived.value["fleet"]["quarantined"], 1);
+    let runs = derived.value["runs"].as_array().unwrap();
+    let poisoned = runs
+        .iter()
+        .find(|run| run["run_id"] == "poisoned-run")
+        .expect("the poisoned run is listed, not dropped");
+    assert_eq!(poisoned["status"], "?");
+    assert_eq!(poisoned["seq"], 6, "the sequence the fold refused at");
+    assert_eq!(poisoned["phase"], Value::Null);
+    assert_eq!(poisoned["feature"], "the stop that came mid-flight");
+    assert_eq!(poisoned["operator_commands"], json!([]));
+    let fold_error = poisoned["fold_error"].as_str().unwrap();
+    assert!(
+        fold_error.starts_with("event 6: OperatorAccepted is impossible at cursor EffectInFlight"),
+        "the row carries the fold's own words: {fold_error}"
+    );
+
+    // …and it is raised as a finding beside the evaluator's own.
+    let findings = derived.value["residual_findings"].as_array().unwrap();
+    let quarantined = findings
+        .iter()
+        .find(|finding| finding["run_id"] == "poisoned-run")
+        .expect("the quarantined run is a finding the seat can read");
+    assert_eq!(quarantined["seq"], 6);
+    assert_eq!(quarantined["input"], "journal_folds");
+    assert_eq!(quarantined["value"], "false");
+    assert!(
+        quarantined["line"]
+            .as_str()
+            .unwrap()
+            .contains("journal does not fold"),
+        "{quarantined}"
+    );
+    assert_eq!(
+        findings.len(),
+        3,
+        "the parked run's two residuals are still there: {findings:?}"
+    );
+
+    // The seat may propose about it: the citation validates, and no
+    // operator command is admitted for a run nothing could fold.
+    let queued = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one journal does not fold",
+            "parked_runs": [],
+            "work_queue": [{
+                "run_id": "poisoned-run", "seq": 6,
+                "finding": "the journal does not fold",
+                "reasoning": "an unreadable run is the first thing to look at",
+            }],
+        })),
+    )
+    .unwrap();
+    assert_eq!(queued.citations, [("poisoned-run".to_string(), 6)]);
+    let refused = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one journal does not fold",
+            "parked_runs": [{
+                "run_id": "poisoned-run", "seq": 6, "command": "retry",
+                "reasoning": "just retry it",
+            }],
+            "work_queue": [],
+        })),
+    )
+    .err()
+    .expect("a run nothing could fold admits no command");
+    assert!(
+        refused.contains("not an operator command the dossier states"),
+        "{refused}"
+    );
+}
+
 #[test]
 fn an_empty_fleet_is_an_empty_dossier_not_a_failure() {
     let fleet = Fleet::new();
@@ -211,8 +346,10 @@ fn an_empty_fleet_is_an_empty_dossier_not_a_failure() {
 
 #[test]
 fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
-    // In a console one bad run is a dim row; in a verb it is an error
-    // and a nonzero exit, naming the run so the next command is obvious.
+    // A journal that does not FOLD is quarantined and reported: the aide
+    // still reads the rest of the fleet. A journal that cannot be READ
+    // at all is a store fault, not a protocol one, and stays fatal —
+    // nothing here can say which run the unreadable bytes belonged to.
     let fleet = Fleet::new();
     let mut store = fleet.store();
     store
@@ -220,8 +357,13 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
         .unwrap();
     drop(store);
     let reader = Store::open_read_only(&fleet.db()).unwrap();
-    let error = dossier(&reader, NOW).unwrap_err().to_string();
-    assert!(error.contains("folding run 'empty-run'"), "{error}");
+    let derived = dossier(&reader, NOW).unwrap();
+    assert_eq!(derived.value["runs"][0]["status"], "?");
+    assert_eq!(derived.value["runs"][0]["fold_error"], "journal is empty");
+    assert_eq!(derived.value["fleet"]["quarantined"], 1);
+    // An empty journal has no event to cite: the citation is the
+    // position before the first one.
+    assert!(derived.states("empty-run", 0));
     drop(reader);
 
     let broken = Fleet::new();

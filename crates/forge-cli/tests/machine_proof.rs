@@ -561,6 +561,115 @@ fn runs_lists_completed_run_with_status_and_phase() {
     assert!(!human.contains("1 runs"), "the trailer moved to --json");
 }
 
+/// The fleet-blinding fault, end to end and through shipped commands
+/// only. `brokkr operator` journals a command and its acceptance
+/// WITHOUT reading the run's state first — the deliberate live kill
+/// switch — so an operator can leave behind a journal the fold refuses.
+/// That must cost the operator that one run, never the whole fleet:
+/// `runs` lists everything and quarantines the poisoned row with the
+/// fold's own words, while the verbs aimed at that run still fail.
+#[test]
+fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs() {
+    let ws = Workspace::new(happy_script());
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let healthy = Workspace::run_id(&stderr);
+
+    let db = ws.db();
+    let bundle = ws.bundle_dir();
+    let (code, _, stderr) = ws.forge(&[
+        "rerun",
+        "--run",
+        &healthy,
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let prefix = format!("rerun of {healthy} as ");
+    let poisoned = stderr
+        .lines()
+        .find(|line| line.starts_with(&prefix))
+        .map(|line| line[prefix.len()..].split(' ').next().unwrap().to_string())
+        .unwrap_or_else(|| panic!("rerun announcement on stderr: {stderr}"));
+
+    // The operator's command lands on a run that has already finished:
+    // accepted unconditionally, journaled, and refused by the fold.
+    let (code, _, stderr) = ws.forge_raw(&[
+        "operator",
+        "--run",
+        &poisoned,
+        "--reason",
+        "stop it now",
+        "--db",
+        db.to_str().unwrap(),
+        "stop",
+    ]);
+    assert_eq!(code, Some(0), "the engine accepts it: {stderr}");
+
+    let (code, stdout, stderr) = ws.forge_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "the fleet still lists: {stderr}");
+    let view: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(view["count"], 2, "neither run is dropped: {stdout}");
+    let row = |run_id: &str| -> Value {
+        view["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["run_id"] == run_id)
+            .unwrap_or_else(|| panic!("a row for {run_id}: {stdout}"))
+            .clone()
+    };
+    assert_eq!(row(&healthy)["status"], "completed");
+    assert_eq!(row(&healthy)["detail"], Value::Null);
+    let quarantined = row(&poisoned);
+    assert_eq!(quarantined["status"], Value::Null, "printed as '?'");
+    assert_eq!(quarantined["status_known"], false);
+    assert!(
+        quarantined["detail"]
+            .as_str()
+            .unwrap()
+            .contains("event after terminal status"),
+        "the row carries the fold's own words: {quarantined}"
+    );
+
+    // The human form says it too, under the row it belongs to.
+    let (code, human, stderr) = ws.forge_raw(&["runs", "--db", db.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(human.lines().count(), 3, "two rows, one explained: {human}");
+    assert!(
+        human
+            .lines()
+            .any(|line| line.starts_with("  fold  ") && line.contains("terminal")),
+        "{human}"
+    );
+
+    // Aimed at that run, the refusal is still fatal.
+    for args in [
+        vec!["inspect", "--run", &poisoned, "--db"],
+        vec!["replay", "--run", &poisoned, "--db"],
+    ] {
+        let mut args = args;
+        let db = db.to_str().unwrap().to_string();
+        args.push(&db);
+        let (code, _, stderr) = ws.forge_raw(&args);
+        assert_ne!(code, Some(0), "{args:?} must fail: {stderr}");
+        assert!(stderr.contains("event after terminal status"), "{stderr}");
+    }
+    let (code, _, stderr) = ws.forge_raw(&[
+        "resume",
+        "--run",
+        &poisoned,
+        "--bundle",
+        bundle.to_str().unwrap(),
+        "--db",
+        db.to_str().unwrap(),
+    ]);
+    assert_ne!(code, Some(0), "resume must fail: {stderr}");
+    assert!(stderr.contains("event after terminal status"), "{stderr}");
+}
+
 #[test]
 fn runs_lists_parked_run_as_awaiting_operator_at_its_phase() {
     let mut script = happy_script();

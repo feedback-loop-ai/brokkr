@@ -291,12 +291,14 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
             feature: "the older feature",
             created_at: T0,
             state: None,
+            detail: Some("event 93: OperatorAccepted is impossible at cursor EffectInFlight"),
         },
         RunEntry {
             run_id: "new",
             feature: "the newer feature",
             created_at: T1,
             state: Some(&running),
+            detail: None,
         },
     ];
     let view = run_rows(&entries);
@@ -314,6 +316,37 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     assert_eq!(json["runs"][1]["status"], Value::Null);
     assert_eq!(json["runs"][1]["status_known"], false);
     assert_eq!(json["runs"][1]["seq"], Value::Null);
+    // …and it says why, in the fold's own words. A row that reads `?`
+    // with no reason is the same blindness one row further in.
+    assert_eq!(
+        json["runs"][1]["detail"],
+        "event 93: OperatorAccepted is impossible at cursor EffectInFlight"
+    );
+    assert_eq!(json["runs"][0]["detail"], Value::Null);
+}
+
+/// A run whose journal does not fold is the loudest thing in a fleet:
+/// it travels as a finding, cited by the sequence the fold refused at,
+/// so the operator's aide can propose about it instead of losing it.
+#[test]
+fn a_quarantined_run_becomes_a_finding_that_cites_where_the_fold_stopped() {
+    let finding = quarantine_finding(
+        "tui-graph-run",
+        93,
+        "event 93: OperatorAccepted is impossible at cursor EffectInFlight",
+    );
+    assert_eq!(finding.run_id, "tui-graph-run");
+    assert_eq!(finding.seq, 93);
+    assert_eq!(finding.input, "journal_folds");
+    assert_eq!(finding.value, "false");
+    // The evaluator ruled nothing here: the claim is the fleet read's.
+    assert_eq!(finding.phase, ABSENT);
+    assert_eq!(finding.rule_id, ABSENT);
+    assert_eq!(
+        finding.line,
+        "tui-graph-run seq 93 · journal does not fold · \
+         event 93: OperatorAccepted is impossible at cursor EffectInFlight"
+    );
 }
 
 // ------------------------------------------------------------ AC-2/4

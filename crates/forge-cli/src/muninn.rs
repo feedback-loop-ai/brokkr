@@ -108,7 +108,36 @@ pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
         let events = store
             .load(&run_id)
             .with_context(|| format!("loading run '{run_id}'"))?;
-        let state = fold(&events).with_context(|| format!("folding run '{run_id}'"))?;
+        let state = match fold(&events) {
+            Ok(state) => state,
+            Err(error) => {
+                // One unfoldable journal must not blind the aide to the
+                // fleet. The run is quarantined — listed as `?` with the
+                // fold's own words — and raised as a finding, because an
+                // unfoldable journal is exactly what the operator needs
+                // surfaced, not hidden. Its citation is the sequence the
+                // fold refused at, so a proposal naming it validates.
+                let seq = error.seq();
+                let detail = error.to_string();
+                let finding = forge_view::quarantine_finding(&run_id, seq, &detail);
+                facts.push((run_id.clone(), seq));
+                findings.push(serde_json::to_value(&finding)?);
+                commands.insert(run_id.clone(), Vec::new());
+                *counts.entry("quarantined".to_string()).or_default() += 1;
+                rows.push(json!({
+                    "run_id": run_id,
+                    "seq": seq,
+                    "status": "?",
+                    "phase": Value::Null,
+                    "feature": feature,
+                    "created_at": created_at,
+                    "age": forge_view::age(&created_at, now),
+                    "fold_error": detail,
+                    "operator_commands": Vec::<String>::new(),
+                }));
+                continue;
+            }
+        };
         let view = forge_view::run_view(&events, Some(&state));
         let summary = view
             .summary
@@ -168,6 +197,9 @@ pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
             "awaiting_operator": count("awaiting_operator"),
             "completed": count("completed"),
             "stopped": count("stopped"),
+            // A run whose journal does not fold has no status to count
+            // as; it is counted as what it is.
+            "quarantined": count("quarantined"),
         },
         "runs": rows,
         "residual_findings": findings,

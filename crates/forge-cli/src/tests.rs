@@ -47,6 +47,47 @@ fn running_store(db: &std::path::Path, run_id: &str) {
         .unwrap();
 }
 
+/// The journal the live fault wrote, in its recorded order: a seat's
+/// effect is in flight when the operator records `stop`, and the plain
+/// operator path (`engine::operator_command`) journals the command and
+/// its acceptance without reading the run's cursor first. The fold
+/// refuses that acceptance at `EffectInFlight`, so this run does not
+/// fold — which is precisely what a fleet read must survive.
+pub(crate) fn poisoned_store(db: &std::path::Path, run_id: &str) {
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run(run_id, "the stop that came mid-flight", "test", &json!({}))
+        .unwrap();
+    let mut append = |kind, payload| {
+        store
+            .append_next(run_id, kind, payload, None, None)
+            .unwrap();
+    };
+    append(
+        EventType::RunStarted,
+        json!({"feature": "the stop that came mid-flight", "manifest": {}}),
+    );
+    append(EventType::PhaseEntered, json!({"phase": "verify"}));
+    append(
+        EventType::EffectRequested,
+        json!({"effect_id": "eff", "seat": "verify", "phase": "verify"}),
+    );
+    append(
+        EventType::EffectStarted,
+        json!({"effect_id": "eff", "attempt_id": "att"}),
+    );
+    append(
+        EventType::OperatorCommanded,
+        json!({"command_id": "cmd", "command": "stop", "args": {},
+               "operator": "operator"}),
+    );
+    append(
+        EventType::OperatorAccepted,
+        json!({"command_id": "cmd", "operator": "operator",
+               "reason": "stop it now"}),
+    );
+}
+
 fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
@@ -1264,4 +1305,118 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
 
     // The clock the derivation refuses to read.
     assert!(now_rfc3339().ends_with('Z'));
+}
+
+/// One poisoned journal in the fleet is a quarantined row, not a blind
+/// operator. The fleet verb lists every other run and says why this one
+/// carries no status; the single-run verbs aimed AT it still fail
+/// loudly, because a command naming one run must not quietly succeed
+/// against a journal it could not read.
+#[test]
+fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "healthy");
+    poisoned_store(&db, "poisoned");
+
+    for json in [false, true] {
+        assert_eq!(
+            run(cli(Cmd::Runs {
+                db: db.clone(),
+                json,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS,
+            "the fleet listing survives the poisoned run"
+        );
+    }
+
+    // The rows that listing built, checked at the model rather than
+    // through the terminal: both runs present, one of them quarantined
+    // in the fold's own words.
+    let store = Store::open(&db).unwrap();
+    let folded: Vec<(
+        String,
+        String,
+        String,
+        std::result::Result<RunState, String>,
+    )> = store
+        .list_runs()
+        .unwrap()
+        .into_iter()
+        .map(|(run_id, feature, created_at)| {
+            let folded = fold_or_quarantine(&store.load(&run_id).unwrap());
+            (run_id, feature, created_at, folded)
+        })
+        .collect();
+    let entries: Vec<forge_view::RunEntry> = folded
+        .iter()
+        .map(
+            |(run_id, feature, created_at, folded)| forge_view::RunEntry {
+                run_id,
+                feature,
+                created_at,
+                state: folded.as_ref().ok(),
+                detail: folded.as_ref().err().map(String::as_str),
+            },
+        )
+        .collect();
+    let view = serde_json::to_value(forge_view::run_rows(&entries)).unwrap();
+    assert_eq!(view["count"], 2, "no run is dropped: {view}");
+    let row = |run_id: &str| -> Value {
+        view["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["run_id"] == run_id)
+            .expect("every run is listed")
+            .clone()
+    };
+    let poisoned = row("poisoned");
+    assert_eq!(poisoned["status"], Value::Null, "rendered as '?'");
+    assert_eq!(poisoned["status_known"], false);
+    assert!(
+        poisoned["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("event 6: OperatorAccepted is impossible at cursor EffectInFlight"),
+        "the fold's own words survive into the row: {poisoned}"
+    );
+    let healthy = row("healthy");
+    assert_eq!(healthy["status"], "running");
+    assert_eq!(healthy["detail"], Value::Null);
+
+    // Aimed at that run, the same refusal is fatal: these verbs keep
+    // their bare `fold(..)?` and are not softened by the fleet's grace.
+    for command in [
+        Cmd::Inspect {
+            run: "poisoned".into(),
+            db: db.clone(),
+            json: false,
+            phase: None,
+            seat: None,
+        },
+        Cmd::Replay {
+            run: "poisoned".into(),
+            db: db.clone(),
+        },
+    ] {
+        let error = run(cli(command)).unwrap_err().to_string();
+        assert!(
+            error.contains("is impossible at cursor"),
+            "the verb names the refusal: {error}"
+        );
+    }
+    // `watch` keeps the console's own unchanged behaviour: it renders
+    // the absence rather than a status, and never exits success on it.
+    assert_eq!(
+        run(cli(Cmd::Watch {
+            run: "poisoned".into(),
+            db: db.clone(),
+            once: true,
+            interval_ms: 100,
+        }))
+        .unwrap(),
+        ExitCode::from(1)
+    );
 }

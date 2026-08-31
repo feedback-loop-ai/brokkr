@@ -168,12 +168,14 @@ fn runs_view() -> forge_view::RunsView {
                       and must be clamped rather than wrapped",
             created_at: T0,
             state: Some(&older),
+            detail: None,
         },
         forge_view::RunEntry {
             run_id: "run-7",
             feature: "one derivation, two surfaces",
             created_at: T1,
             state: Some(&newer),
+            detail: None,
         },
     ];
     forge_view::run_rows(&entries)
@@ -241,6 +243,7 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
         feature: "feature\rforged",
         created_at: T0,
         state: Some(&hostile),
+        detail: None,
     }];
     let rows = forge_view::run_rows(&entries);
     let out = runs(&rows, NOW, &Style::plain(80));
@@ -336,6 +339,7 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
         feature: "ééééééééééééééééééééééééééééééééééééééééééééééééé",
         created_at: T0,
         state: Some(&running),
+        detail: None,
     }];
     let out = runs(&forge_view::run_rows(&entries), NOW, &Style::plain(40));
     assert!(out.ends_with("…\n"), "{out:?}");
@@ -379,9 +383,51 @@ fn a_run_whose_journal_does_not_fold_still_lists() {
         feature: "unfoldable",
         created_at: "not a time",
         state: None,
+        detail: None,
     }];
     let out = runs(&forge_view::run_rows(&entries), NOW, &Style::plain(80));
     assert_eq!(out, "r1 ? - seq - — unfoldable\n");
+}
+
+/// The quarantine the fleet listing gives a poisoned journal: the row
+/// keeps its place, reads `?`, and carries the fold's own words under
+/// itself the way a park reason does. Sanitized like every other line
+/// that comes from outside — a fold error quotes journal payloads.
+#[test]
+fn a_quarantined_row_prints_the_fold_error_under_itself() {
+    let healthy = state(Status::Running, None, None);
+    let entries = [
+        forge_view::RunEntry {
+            run_id: "poisoned",
+            feature: "the stop that came mid-flight",
+            created_at: T0,
+            state: None,
+            detail: Some(
+                "event 93: OperatorAccepted is impossible at cursor \
+                 EffectInFlight\r\x1b[2Jforged",
+            ),
+        },
+        forge_view::RunEntry {
+            run_id: "healthy",
+            feature: "still readable",
+            created_at: T1,
+            state: Some(&healthy),
+            detail: None,
+        },
+    ];
+    let out = runs(&forge_view::run_rows(&entries), NOW, &Style::plain(120));
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "two rows, one of them explained: {out:?}");
+    assert_eq!(
+        lines[0],
+        "healthy  running design seq 14 6m58s still readable"
+    );
+    assert!(lines[1].starts_with("poisoned ?"), "{out:?}");
+    assert_eq!(
+        lines[2],
+        "  fold  event 93: OperatorAccepted is impossible at cursor EffectInFlight[2Jforged"
+    );
+    assert!(!out.contains('\x1b'), "{out:?}");
 }
 
 // ------------------------------------------------------------- AC-20

@@ -182,6 +182,7 @@ fn push_line(out: &mut String, line: &str) {
 pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
     let mut rows: Vec<[Safe; 6]> = Vec::new();
     let mut codes: Vec<&'static str> = Vec::new();
+    let mut details: Vec<Option<Safe>> = Vec::new();
     for run in &view.runs {
         let status = match &run.status {
             Some(status) => status.clone(),
@@ -200,6 +201,7 @@ pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
             None => forge_view::ABSENT.to_string(),
         };
         codes.push(status_code(&status));
+        details.push(run.detail.as_deref().map(Safe::new));
         rows.push([
             Safe::new(&run.run_id),
             Safe::new(&status),
@@ -218,7 +220,7 @@ pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
     let used = widths.iter().sum::<usize>() + widths.len();
     let remaining = style.width.saturating_sub(used);
     let mut out = String::new();
-    for (row, code) in rows.iter().zip(codes) {
+    for ((row, code), detail) in rows.iter().zip(codes).zip(&details) {
         let mut line = String::new();
         for (index, width) in widths.iter().enumerate() {
             let piece = row[index].padded(*width);
@@ -233,6 +235,12 @@ pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
             line.push_str(&forge_view::clamp(row[5].as_str(), remaining));
         }
         push_line(&mut out, &line);
+        // A quarantined row says why underneath itself, the way a park
+        // reason does on the run readout: `?` alone tells an operator
+        // nothing they can act on.
+        if let Some(detail) = detail {
+            push_line(&mut out, &format!("  fold  {}", detail.as_str()));
+        }
     }
     out
 }
