@@ -1050,6 +1050,10 @@ fn tone_style(status: &str) -> Style {
 /// whenever the fleet is forging (the favicon flip, in cells). Idle,
 /// the third node stands as the calibrated dot; the wordmark itself
 /// never animates.
+///
+/// The wordmark is BROKKR (decision 0019 ruling 1). The mark is the
+/// whole of the lore the TUI is allowed to wear: ruling 6's law 4
+/// keeps myth out of the machine's mouth, so nothing else here says it.
 fn brand(fleet_live: bool, ticks: usize, animate: bool) -> Line<'static> {
     let third = match fleet_live {
         true => LIVE_RAMP[pulse(ticks, true, animate)],
@@ -1063,8 +1067,7 @@ fn brand(fleet_live: bool, ticks: usize, animate: bool) -> Line<'static> {
         span("[ ", Style::new().add_modifier(Modifier::DIM)),
         span("∙ ∙ ", Style::new().fg(Color::Magenta)),
         span(third, tone),
-        span(" the_", Style::new().add_modifier(Modifier::DIM)),
-        span("FORGE", Style::new().add_modifier(Modifier::BOLD)),
+        span(" BROKKR", Style::new().add_modifier(Modifier::BOLD)),
         span(" ]", Style::new().add_modifier(Modifier::DIM)),
     ])
 }

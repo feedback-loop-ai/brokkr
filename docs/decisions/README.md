@@ -25,6 +25,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0016](0016-agent-library.md) | The agent library: seats reference agents, adapters map them to providers | An agent is one file; a provider adapter is data; what a provider cannot express is written down and fails compilation. | accepted |
 | [0017](0017-composable-recipes.md) | Composable recipes: extend, override, and compose delivery strategies | `extends` plus explicit overrides, resolved at compile time into one flat bundle recorded in the run manifest. | accepted |
 | [0018](0018-dual-license.md) | Dual license: MIT OR Apache-2.0 | Permissive, never copyleft: MIT's frictionlessness or Apache-2.0's explicit patent grant, the user's choice. | accepted |
+| [0019](0019-brokkr.md) | Brokkr: the name, the verb, and the lore layer | The product is Brokkr; "forge" survives as the verb and mechanisms keep plain names; the lore layer under `docs/lore/` is bound by five laws. | accepted |
 
 ## How a decision is made
 
