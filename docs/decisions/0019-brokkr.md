@@ -53,9 +53,13 @@ asset. An undisciplined one is a theme park.
      for one ruling, then set down — may appear in prose about the chief,
      but never on a marquee: an adjacent company holds that name's mindshare
      and a mark in a neighboring category.
-   - **The operator has no myth name, deliberately.** The smith is the
-     human. Costuming the operator in a god-name would misstate the
-     authority model, which is the product.
+   - **The operator has no myth name, deliberately.** And the operator
+     is not the smith — the seats swing the hammers. In the wager story
+     the gods commission the work, judge it, and wield what survives
+     judgment; that is the operator's seat, and it stays unnamed for the
+     same reason Odin stays in the ground: the judge is not a part of the
+     forge. (Errata 2026-08-31, the operator's own correction: an earlier
+     draft of this ruling called the operator the smith.)
 
 5. **Releases carry artifact names.** Version numbers stay the identity;
    each release may take a forged-artifact name (Gungnir, Skíðblaðnir,
