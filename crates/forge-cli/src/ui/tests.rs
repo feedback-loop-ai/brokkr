@@ -36,7 +36,7 @@ fn page_runs_and_run_detail_serve_read_only() {
     let (_dir, db) = fixture();
     let page = handle(&db, "/");
     assert_eq!(page.status, "200 OK");
-    assert!(page.body.contains("<title>forge</title>"));
+    assert!(page.body.contains("<title>brokkr</title>"));
 
     let runs = handle(&db, "/api/runs");
     let parsed: Value = serde_json::from_str(&runs.body).unwrap();
@@ -342,6 +342,36 @@ fn the_page_paints_and_derives_nothing() {
     // What it DOES carry: model consumption and geometry.
     for kept in ["/api/view/", "renderLoops", "svgEl", "textContent"] {
         assert!(PAGE.contains(kept), "the page still paints with {kept}");
+    }
+}
+
+/// Decision 0019: the console wears the new name and keeps the motto.
+/// The wordmark is BROKKR with no dimmed prefix, the title matches, and
+/// the tagline — the product's motto, never the old product name —
+/// survives the rename untouched. Law 4 of ruling 6 holds: the console
+/// gains no myth text beyond the wordmark.
+#[test]
+fn the_console_wears_the_brokkr_wordmark_and_keeps_the_motto() {
+    assert!(
+        PAGE.contains("<title>brokkr</title>"),
+        "the tab says brokkr"
+    );
+    assert!(
+        PAGE.contains(r#"<span class="word">BROKKR</span>"#),
+        "the wordmark is BROKKR, with no prefix element"
+    );
+    assert!(
+        PAGE.contains(r#"<span class="tag">&gt; the machine is the outer loop_</span>"#),
+        "the motto survives the rename"
+    );
+    for retired in ["the_", "FORGE", "the-forge", "class=\"the\""] {
+        assert!(
+            !PAGE.contains(retired),
+            "no user-facing surface still says {retired}"
+        );
+    }
+    for myth in ["Mjölnir", "Sindri", "Loki", "Muninn", "Edda"] {
+        assert!(!PAGE.contains(myth), "law 4: the lore stays off the page");
     }
 }
 
