@@ -173,9 +173,9 @@ Stated plainly, because this is a 0.x tree:
 
 - **CLI flags and defaults may still move.** Decision 0023's realms flag
   reached `run` and seven read surfaces in its first phase; `resume`,
-  `rerun`, `doctor`, `ui`, `costs`, `compare`, `anchor` and `bridge`
-  still take `--db` alone. Closing that gap will change those command
-  lines.
+  `conclude`, `rerun`, `doctor`, `ui`, `costs`, `compare`, `anchor` and
+  `bridge` still take `--db` alone. Closing that gap will change those
+  command lines.
 - **Bundle-schema additions may land.** New optional seat keys, new
   aggregates, new step forms. These are additive by construction — a
   bundle that compiles today should keep compiling — but a bundle
