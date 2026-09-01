@@ -221,11 +221,14 @@ The rules:
   silently winning:
 
   ```
-  recipes/sdd-paranoid/bundle.json: redefines seat 'review', which
-  recipes/sdd/bundle.json already defines; mark it 'override.seats:
+  …/recipes/sdd-paranoid/bundle.json: redefines seat 'review', which
+  …/recipes/sdd/bundle.json already defines; mark it 'override.seats:
   ["review"]' to replace it deliberately, or give it another name to
   add one
   ```
+
+  (paths print absolute — the composer canonicalizes every layer's
+  directory before it speaks; abbreviated here with `…`)
 
 - **A marker that describes nothing is also a refusal.** `override` or
   `remove` naming something no ancestor defines fails with "a marker
@@ -265,7 +268,7 @@ $ brokkr compile --bundle recipes/sdd-paranoid
   "phases": ["intake", "design", "implement", "verify", "review", "ship", "done", "stop"],
   "seats": ["design", "implement", "intake", "review", "ship", "verify"],
   "manifest": { "…": "one sha256 per bundle file" },
-  "composed_from": [ { "recipe": "sdd", "digest": "3743484daa2b…", "dir": "recipes/sdd" } ]
+  "composed_from": [ { "recipe": "sdd", "digest": "3743484daa2b…", "dir": "…/recipes/sdd" } ]
 }
 ```
 
@@ -305,7 +308,11 @@ Three consequences worth internalising:
 }
 ```
 
-`schema`, `phases`, `initial`, `terminal` and `rules` are required.
+`phases`, `initial`, `terminal` and `rules` are what the loader
+hard-requires. `schema` is read when present — and a table that declares
+a park rule MUST declare `forge.phase-machine/v2`, or the loader refuses
+it; the reference JSON Schema in `contracts/` lists `schema` as required
+for conformance, but the runtime loader does not enforce its absence.
 `initial` and every `terminal` must be one of `phases`, and no rule may
 leave a terminal phase.
 
