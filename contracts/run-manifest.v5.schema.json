@@ -1,0 +1,202 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v5.json",
+  "title": "Forge run manifest v5",
+  "description": "v4's bytes plus one optional 'drivers' property: the adapter declarations that authorised the bundle's inline gate and binding seats (decision 0021), pinned by digest. Unlike 'realms', this key IS part of the bundle manifest \u2014 a tier demoted in adapters/ moves the digest of every bundle whose gates it stood behind, which is the point. Absent when no inline seat consulted a declaration, so a bundle that asked nobody's permission keeps the exact v4 shape and identity. Agent sites are not recorded here: their resolution records under 'agents' already pin every adapter the chain consulted. The Looper-bound run-manifest/v2 lineage cannot carry this key and refuses it loudly rather than dropping it.",
+  "type": "object",
+  "required": [
+    "engine",
+    "event_schema",
+    "database_schema",
+    "driver_protocol",
+    "bundle_name",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "engine": {
+      "type": "string"
+    },
+    "event_schema": {
+      "const": 1
+    },
+    "database_schema": {
+      "const": 1
+    },
+    "driver_protocol": {
+      "const": 1
+    },
+    "bundle_name": {
+      "type": "string"
+    },
+    "files": {
+      "type": "object",
+      "description": "bundle-relative path -> sha256 hex digest of file bytes",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "minProperties": 1
+    },
+    "agents": {
+      "type": "object",
+      "description": "Unchanged from run-manifest.v3: invocation site ('seat', 'seat:member', 'seat:step', 'seat:step:member') -> the pinned resolution. This key is also the pin that replaces the manifest.files entry a charter loses by living in the shared library rather than the bundle directory.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "agent",
+          "agent_digest",
+          "charter_digest",
+          "adapter_digest",
+          "chain",
+          "chosen_index",
+          "model",
+          "provider",
+          "skipped",
+          "notices"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "agent_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "charter_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "adapter_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "sha256 over the canonical JSON of {provider -> adapter file digest} for EVERY provider the chain consulted, not only the chosen one: the capability checks that admitted this chain depended on all of them."
+          },
+          "chain": {
+            "type": "array",
+            "description": "The agent's ordered preference chain of abstract model names, as written.",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            }
+          },
+          "chosen_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Load-bearing: a 'model' field alone never says the operator did not get their first choice."
+          },
+          "model": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "provider": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "model",
+                "reason"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reason": {
+                  "enum": [
+                    "unavailable"
+                  ],
+                  "description": "A closed vocabulary, never prose. A model no adapter maps is a compile ERROR rather than a skip, so 'unmapped' cannot appear in a manifest that exists."
+                }
+              }
+            }
+          },
+          "notices": {
+            "type": "array",
+            "description": "Optional-capability gaps: a compile-time WARNING that lands here, because a warning that only reaches stderr is nothing.",
+            "items": {
+              "type": "object",
+              "required": [
+                "agent",
+                "provider",
+                "model",
+                "capability",
+                "item",
+                "message"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "capability": {
+                  "enum": [
+                    "mcp"
+                  ]
+                },
+                "item": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "realms": {
+      "type": "object",
+      "required": [
+        "source",
+        "sha256",
+        "map"
+      ],
+      "additionalProperties": false,
+      "description": "The map is workspace data, not bundle data: it is pinned here and it is NOT part of the bundle manifest, so adopting a map moves no bundle digest.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "The map file as it was named at invocation. Display and diagnostics only \u2014 identity is the digest, and the answer is the embedded content."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 over the CANONICAL JSON of the embedded map, computed exactly like every other digest in this family \u2014 so the pin is re-derivable from the embedded content alone, by a reader who no longer has the file."
+        },
+        "map": {
+          "type": "object",
+          "description": "The map's content verbatim: a forge.realms/v1 document (contracts/realms.v1.schema.json)."
+        }
+      }
+    },
+    "drivers": {
+      "type": "object",
+      "description": "invocation site ('phase', 'phase:member', 'phase:step') -> driver name -> sha256 hex digest of the adapter declaration that authorised it",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

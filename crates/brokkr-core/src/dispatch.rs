@@ -22,7 +22,7 @@ pub const PRODUCER_EFFECTS: [&str; 5] = [
     "intervention_response",
     "terminal_report",
 ];
-const REQUIRED_FORBIDDEN_ACTIONS: [&str; 5] = [
+pub const REQUIRED_FORBIDDEN_ACTIONS: [&str; 5] = [
     "grant_create",
     "grant_widen",
     "artifact_decide",
@@ -179,11 +179,27 @@ pub enum DispatchError {
          Looper-bound run-manifest/v2 lineage cannot carry them: the v2 \
          round-trip reconstructs the bundle manifest from six named keys, so \
          the pin would be dropped and the run would become unresumable. Run \
-         this bundle without --dispatch, or use a recipe whose seats inline \
-         their drivers, until a jointly agreed v2-lineage manifest version \
-         exists"
+         this bundle without --dispatch until a jointly agreed v2-lineage \
+         manifest version exists"
     )]
     AgentsUnsupportedByDispatchLineage,
+    /// The same limit, fail-closed over the whole key space. `agents`
+    /// was refused by name, and then decision 0021's `drivers` witness
+    /// reached the manifest through a different key and the guard did
+    /// not fire — the exact silent drop the named refusal existed to
+    /// prevent, reachable again (found by this run's own third review;
+    /// the operator ruled remedy ii). So the lineage now refuses every
+    /// key beyond the six it can round-trip, and the NEXT witness the
+    /// local lineage learns is refused loudly on the day it lands.
+    #[error(
+        "this bundle's manifest carries '{0}' and the Looper-bound \
+         run-manifest/v2 lineage cannot: the v2 round-trip reconstructs \
+         the bundle manifest from six named keys, so the key would be \
+         dropped and the run would become unresumable with a diff that \
+         blames no file. Run this bundle without --dispatch until a \
+         jointly agreed v2-lineage manifest version carries it"
+    )]
+    ManifestKeyUnsupportedByDispatchLineage(String),
 }
 
 fn is_hex_64(value: &str) -> bool {
@@ -410,6 +426,25 @@ pub fn build_run_manifest_v2(
     if object.contains_key("agents") {
         return Err(DispatchError::AgentsUnsupportedByDispatchLineage);
     }
+    // And fail-closed for every key the round-trip cannot carry — the
+    // v5 `drivers` witness proved the named refusal above was a list
+    // that could fall behind the manifest it guards.
+    const V2_ROUND_TRIP_KEYS: [&str; 6] = [
+        "engine",
+        "event_schema",
+        "database_schema",
+        "driver_protocol",
+        "bundle_name",
+        "files",
+    ];
+    if let Some(unsupported) = object
+        .keys()
+        .find(|key| !V2_ROUND_TRIP_KEYS.contains(&key.as_str()))
+    {
+        return Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            unsupported.clone(),
+        ));
+    }
     let bundle_sha256 = canonical::sha256_hex(bundle_manifest);
     if dispatch.recipe.compiled_sha256 != bundle_sha256 {
         return Err(DispatchError::RecipeMismatch);
@@ -446,7 +481,7 @@ pub fn bundle_manifest_from_run(manifest: &Value) -> Result<Value, DispatchError
     if manifest.get("schema").and_then(Value::as_str) != Some(RUN_MANIFEST_SCHEMA_V2) {
         // The local lineage IS the bundle manifest, minus the one thing
         // that was never part of it: the world the run was invoked into
-        // (run-manifest/v4). The map is workspace data — a run started
+        // (run-manifest/v4, carried forward by v5). The map is workspace data — a run started
         // with one must still resume against the same bundle, so the pin
         // is dropped here rather than compared against a bundle that
         // never carried it.

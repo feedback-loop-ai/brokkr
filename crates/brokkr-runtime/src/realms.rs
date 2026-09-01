@@ -168,7 +168,7 @@ impl World {
         })
     }
 
-    /// A run manifest with this world pinned into it (run-manifest/v4).
+    /// A run manifest with this world pinned into it (run-manifest/v4, carried forward by v5).
     /// The bundle manifest is untouched — the map is workspace data, not
     /// bundle data, so adopting a map moves no bundle digest.
     pub fn pinned(&self, manifest: &Value) -> Value {

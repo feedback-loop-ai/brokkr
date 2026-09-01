@@ -91,6 +91,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/run-manifest.v4.schema.json",
             "Forge run manifest v4",
         ),
+        // Decision 0021's witness (remedy ii of the reforged run): the
+        // authorising adapters pinned as a new version beside v4, whose
+        // bytes are asserted above and did not move.
+        (
+            "contracts/run-manifest.v5.schema.json",
+            "Forge run manifest v5",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

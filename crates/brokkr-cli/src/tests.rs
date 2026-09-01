@@ -149,6 +149,31 @@ fn stage_adapters(workspace_dir: &std::path::Path) {
     }
 }
 
+/// A copy of `recipes/fast` whose judging seats are declared work-class,
+/// so no seat consults an adapter declaration and the manifest carries
+/// no `drivers` witness — the shape a bundle must have to ride the
+/// Looper-bound v2 lineage since the reforging of run
+/// implement-decision-0021 (remedy ii). Lawful, if unwise: 0021 ruling 1
+/// leaves the class division as bundle data, and this test needs the
+/// dispatchable shape, not the wise one.
+fn stage_declassed_fast(workspace_dir: &std::path::Path) -> std::path::PathBuf {
+    let from = workspace().join("recipes/fast");
+    let to = workspace_dir.join("fast-declassed");
+    std::fs::create_dir_all(to.join("roles")).unwrap();
+    for name in ["policy.json", "shipper.md"] {
+        std::fs::copy(from.join(name), to.join(name)).unwrap();
+    }
+    for entry in std::fs::read_dir(from.join("roles")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), to.join("roles").join(entry.file_name())).unwrap();
+    }
+    let manifest = std::fs::read_to_string(from.join("bundle.json"))
+        .unwrap()
+        .replace("\"class\": \"gate\"", "\"class\": \"work\"");
+    std::fs::write(to.join("bundle.json"), manifest).unwrap();
+    to
+}
+
 fn compiled_recipe(relative: &str) -> Bundle {
     Bundle::compile_with(
         &workspace().join(relative),
@@ -588,11 +613,50 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         .to_string()
         .contains("parsing forge-dispatch/v2"));
 
-    let bundle = compiled_recipe("recipes/fast");
+    // Decision 0021's witness meets 0016's frozen lineage: the REAL
+    // recipes/fast seats gates, whose authorising adapters are pinned
+    // under `drivers`, and the v2 round-trip cannot carry the pin. The
+    // dispatch is refused out loud — naming the key — rather than the
+    // witness dropped in silence and the run left unresumable (the
+    // reforging of run implement-decision-0021, remedy ii).
+    let gated = compiled_recipe("recipes/fast");
+    let gated_dispatch = dispatch_for(&gated, "bound-run-gated", "https://dogfood.example");
+    let gated_path = dir.path().join("dispatch-gated.json");
+    std::fs::write(&gated_path, serde_json::to_string(&gated_dispatch).unwrap()).unwrap();
+    let refusal = run_in(&unmapped, cli(base(Some(gated_path))))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("'drivers'"), "{refusal}");
+    assert!(refusal.contains("unresumable"), "{refusal}");
+
+    // A bundle that consulted no declaration still dispatches: the
+    // de-classed copy pins no witness, so the v2 round-trip is lossless.
+    let declassed = stage_declassed_fast(dir.path());
+    let bundle = Bundle::compile_with(
+        &declassed,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
+    assert!(
+        bundle.manifest.get("drivers").is_none(),
+        "a work-class copy consults nothing and pins nothing"
+    );
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
-    let code = run_in(&unmapped, cli(base(Some(path.clone())))).unwrap();
+    let accept = |dispatch_path| Cmd::Run {
+        bundle: Some(declassed.clone()),
+        recipe: None,
+        recipes_dir: recipes_dir.clone(),
+        feature: "feature".into(),
+        realms: None,
+        db: Some(dir.path().join("dispatch.db")),
+        repo: None,
+        dispatch: Some(dispatch_path),
+        secrets_file: None,
+    };
+    let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 
     // A map merely LYING in the workspace is not an instruction, and a
@@ -602,7 +666,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let second = dispatch_for(&bundle, "bound-run-2", "https://dogfood.example");
     let second_path = dir.path().join("dispatch-2.json");
     std::fs::write(&second_path, serde_json::to_string(&second).unwrap()).unwrap();
-    let code = run_in(dir.path(), cli(base(Some(second_path)))).unwrap();
+    let code = run_in(dir.path(), cli(accept(second_path))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 }
 
