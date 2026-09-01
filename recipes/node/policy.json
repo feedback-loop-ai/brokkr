@@ -1,0 +1,234 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "description": "Node/TypeScript delivery recipe: no intake phase - the feature text is the framing. Same verify/review/ship constitution as fast; only the seats' drivers and charters are Node.",
+  "phases": [
+    "implement",
+    "verify",
+    "review",
+    "ship",
+    "done",
+    "stop"
+  ],
+  "initial": "implement",
+  "terminal": [
+    "done",
+    "stop"
+  ],
+  "shippable_from": [
+    "review"
+  ],
+  "rules": [
+    {
+      "id": "IMPL-BROKEN-TWICE",
+      "from": "implement",
+      "result": "broken",
+      "when": {
+        "consecutive_failures_gte": 2
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Two consecutive broken implement runs; stop and report rather than thrash."
+    },
+    {
+      "id": "IMPL-BROKEN-RETRY",
+      "from": "implement",
+      "result": "broken",
+      "next": "implement",
+      "reason": "First broken run; one re-run with the specific gap named is permitted."
+    },
+    {
+      "id": "IMPL-BLOCKED",
+      "from": "implement",
+      "result": "blocked",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Implementer blocked; report the blocker, never silently continue."
+    },
+    {
+      "id": "IMPL-OK",
+      "from": "implement",
+      "result": "complete",
+      "next": "verify",
+      "reason": "Implementation complete and committed."
+    },
+    {
+      "id": "VERIFY-FAIL",
+      "from": "verify",
+      "result": "fail",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Failures survived; not shippable."
+    },
+    {
+      "id": "VERIFY-PASS",
+      "from": "verify",
+      "result": "pass",
+      "next": "review",
+      "reason": "Full suite green; reviewers read verified code."
+    },
+    {
+      "id": "REVIEW-SECURITY-HOLD",
+      "from": "review",
+      "result": "security-hold",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Unresolved high-severity security findings. NEVER ship. Risk acceptance is the operator's, never an agent's."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "max_residual_severity_above": "medium"
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Two reforgings spent and the security residual is still above medium; the machine tried, and now the piece is the operator's (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "max_residual_severity_above": "low"
+      },
+      "park": true,
+      "reason": "Two reforgings spent and a medium security residual survives; the run parks awaiting the operator, the residual as its reason, so the ruling lands inside the run's journal instead of after its death (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-DEBT",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3,
+        "fixes_applied": true,
+        "max_residual_severity_above": "none",
+        "max_residual_severity_at_most": "low"
+      },
+      "next": "ship",
+      "severity": "flagged",
+      "reason": "Two reforgings spent; the surviving security residual is POSITIVELY low or info with fixes applied, so it ships as tracked debt named in the notes. An absent or unranked severity never takes this arm (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true,
+        "visits_implement_gte": 3
+      },
+      "park": true,
+      "reason": "Two reforgings spent and a low or info security residual survives unfixed; the run parks awaiting the operator, the same door a medium takes (decision 0022)."
+    },
+    {
+      "id": "REVIEW-REFORGE",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "has_security_residual": true
+      },
+      "next": "implement",
+      "severity": "flagged",
+      "reason": "Security residual, any severity: back into the fire. Implement answers the finding it is handed, then verify and review rule again (decision 0022)."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "max_residual_severity_above": "medium"
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Residual severity above medium; not shippable."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-OK",
+      "from": "review",
+      "result": "residual",
+      "next": "ship",
+      "severity": "flagged",
+      "reason": "Non-security residuals at or below medium proceed only as tracked debt named in the notes."
+    },
+    {
+      "id": "REVIEW-CLEAN-NO-FIXES",
+      "from": "review",
+      "result": "clean",
+      "when": {
+        "fixes_applied": false
+      },
+      "next": "ship",
+      "reason": "Review clean and no code changed; verification evidence stands."
+    },
+    {
+      "id": "REVIEW-CLEAN",
+      "from": "review",
+      "result": "clean",
+      "next": "verify",
+      "reason": "Review clean but fixes were applied; re-verify before shipping."
+    },
+    {
+      "id": "SHIP-DRIFT",
+      "from": "ship",
+      "result": "ready",
+      "when": {
+        "drift_detected": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "HEAD moved after the review verdict; re-arm a scoped review (security rides along) before shipping."
+    },
+    {
+      "id": "SHIP-DIRTY",
+      "from": "ship",
+      "result": "ready",
+      "when": {
+        "dirty_worktrees": true
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "A dirty worktree at ship time is a defect: seats commit their work."
+    },
+    {
+      "id": "SHIP-READY",
+      "from": "ship",
+      "result": "ready",
+      "next": "ship",
+      "reason": "Gates passed and ledger written; confirm close-out and report shipped."
+    },
+    {
+      "id": "SHIPPED-DRIFT",
+      "from": "ship",
+      "result": "shipped",
+      "when": {
+        "drift_detected": true
+      },
+      "next": "review",
+      "severity": "flagged",
+      "reason": "HEAD moved between ready and close-out; re-arm a scoped review (security rides along) before shipping."
+    },
+    {
+      "id": "SHIPPED-DIRTY",
+      "from": "ship",
+      "result": "shipped",
+      "when": {
+        "dirty_worktrees": true
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "A dirty worktree at close-out is a defect: seats commit their work."
+    },
+    {
+      "id": "SHIP-COMPLETE",
+      "from": "ship",
+      "result": "shipped",
+      "next": "done",
+      "reason": "Close-out confirmed: clean tree, review concluded, verification green, no drift. The operator pushes and merges."
+    }
+  ]
+}
