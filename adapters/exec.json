@@ -2,7 +2,7 @@
   "provider": "exec",
   "binary": "sh",
   "driver": [
-    "{forge}",
+    "{brokkr}",
     "driver",
     "exec",
     "--"

@@ -1,0 +1,37 @@
+[package]
+name = "brokkr-cli"
+description = "The brokkr binary: compile, run, resume, operator, inspect, replay, export, verify-run."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "brokkr_cli"
+path = "src/lib.rs"
+
+# The only bin (decision 0019 ruling 9: the one-release `forge` shim is
+# gone), so `cargo run -p brokkr-cli` needs no `default-run`.
+[[bin]]
+name = "brokkr"
+path = "src/bin/brokkr.rs"
+
+[dependencies]
+brokkr-core = { workspace = true }
+brokkr-bridge = { workspace = true }
+brokkr-store = { workspace = true }
+brokkr-protocol = { workspace = true }
+brokkr-runtime = { workspace = true }
+brokkr-view = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+ratatui = { workspace = true }
+
+[dev-dependencies]
+rusqlite = { workspace = true }

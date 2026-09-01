@@ -6,8 +6,8 @@ The console's UX pass produced genuine domain logic — which member
 concludes when, what a phase's traffic is, what a seat cost, when an
 absence is deliberate — and all of it is JavaScript inside `ui.html`,
 where **none of it runs under the coverage gate**. The CLI never got
-that pass: `forge runs` prints each run's entire feature text and
-`forge inspect` dumps raw `RunState` JSON, which is the readout the
+that pass: `brokkr runs` prints each run's entire feature text and
+`brokkr inspect` dumps raw `RunState` JSON, which is the readout the
 operator actually has while a forge runs over SSH. Building terminal
 views on a second, hand-written derivation would fork the answer to
 "what did this seat cost" into two implementations that drift — the
@@ -21,8 +21,8 @@ honest.
 
 ## What Changes
 
-- **`forge-view` — a new crate, not a module.** Its `Cargo.toml`
-  depends on exactly `forge-core`, `serde` and `serde_json`, so the
+- **`brokkr-view` — a new crate, not a module.** Its `Cargo.toml`
+  depends on exactly `brokkr-core`, `serde` and `serde_json`, so the
   ruling's "no I/O, no rendering, no terminal or DOM concepts" is a
   compile error rather than a review convention, and the absence of
   `time` forces `now` to be a parameter — which is what makes the golden
@@ -38,7 +38,7 @@ honest.
   `0.03125` is exactly representable and renders `$0.0313` on today's
   console but `$0.0312` from `format!("{:.4}")` — the new surface
   disagreeing with the old one about money.
-- **The console keeps painting only.** `forge ui` gains one route,
+- **The console keeps painting only.** `brokkr ui` gains one route,
   `/api/view/<run>`, carrying summary, ruling, participants, live lines,
   phases and one journal array whose rows are tagged `in_trail` and with
   their scope membership; `/api/runs` is reserialized from the run-row
@@ -53,9 +53,9 @@ honest.
   one**. The `textContent`-only discipline is unchanged and class names
   still come from fixed allowlists, now as closed-set keys the page maps
   through its own table.
-- **CLI static renderers from the same models.** `forge runs` becomes
+- **CLI static renderers from the same models.** `brokkr runs` becomes
   one clamped line per run, newest first (the `N runs` trailer moves to
-  `--json`). `forge inspect` becomes a human readout — header, ruling
+  `--json`). `brokkr inspect` becomes a human readout — header, ruling
   line, park reason, the console's six-column seats table, the decision
   trail, and the phase graph as a terminal tree where `⑂` precedes
   parallel members and `→` precedes sequential steps — with
@@ -65,7 +65,7 @@ honest.
   "this phase did nothing". Every such command keeps `--json`, emitting
   the view model verbatim with `view_version: 1` and today's nine
   `summarize()` keys preserved under `summary`.
-- **`forge watch <run>`** polls `head_hash` (comparing seq **and** hash,
+- **`brokkr watch <run>`** polls `head_hash` (comparing seq **and** hash,
   so a rewritten journal redraws rather than sitting blind) and redraws
   a frame that is `inspect` without the trail; `--once` prints one
   frame; `--interval` tunes the poll at the existing 100ms floor; a
@@ -85,7 +85,7 @@ honest.
   `↓`, `…` and `—` and an ASCII mode would need a second derivation of
   every one of them.
 - **No new dependencies.** The only manifest additions are the
-  `forge-view` path entries in `[workspace] members` and
+  `brokkr-view` path entries in `[workspace] members` and
   `[workspace.dependencies]`. Frozen contracts v1,
   `policy/phase-machine.json`, `reference/` and the `fixtures/`
   evaluator corpus are untouched: view models are derived output, not
@@ -105,33 +105,33 @@ Design artifacts:
 
 ## Impact
 
-- **New**: `crates/forge-view/` (`Cargo.toml`, `src/lib.rs`,
+- **New**: `crates/brokkr-view/` (`Cargo.toml`, `src/lib.rs`,
   `src/js.rs`, `src/tests.rs`, `src/js/tests.rs`);
-  `crates/forge-cli/src/render.rs` + `src/render/tests.rs`.
+  `crates/brokkr-cli/src/render.rs` + `src/render/tests.rs`.
 - **Edited**: `Cargo.toml` (`[workspace] members`,
   `[workspace.dependencies]` — path entries only),
-  `crates/forge-cli/Cargo.toml`, `crates/forge-cli/src/ui.rs` (one route
+  `crates/brokkr-cli/Cargo.toml`, `crates/brokkr-cli/src/ui.rs` (one route
   arm, `/api/runs` reserialized, module doc),
-  `crates/forge-cli/src/ui.html` (a net deletion of roughly 350 lines of
-  derivation, consumption added), `crates/forge-cli/src/ui/tests.rs`,
-  `crates/forge-cli/src/main.rs` (`Cmd::Runs`/`Cmd::Inspect` rewritten,
+  `crates/brokkr-cli/src/ui.html` (a net deletion of roughly 350 lines of
+  derivation, consumption added), `crates/brokkr-cli/src/ui/tests.rs`,
+  `crates/brokkr-cli/src/main.rs` (`Cmd::Runs`/`Cmd::Inspect` rewritten,
   `Cmd::Watch` added, the style/width detection and the one clock read),
-  `crates/forge-cli/src/tests.rs`,
-  `crates/forge-cli/tests/machine_proof.rs` (three `forge runs` pins
+  `crates/brokkr-cli/src/tests.rs`,
+  `crates/brokkr-cli/tests/machine_proof.rs` (three `brokkr runs` pins
   migrate to `--json`, never to human output), `README.md`,
   `ARCHITECTURE.md`, `docs/target-architecture.md`.
-- **Untouched**: `forge-core`, `forge-store`, `forge-protocol`,
-  `forge-runtime`, `forge-bridge`; the `/api/run/<id>`,
+- **Untouched**: `brokkr-core`, `brokkr-store`, `brokkr-protocol`,
+  `brokkr-runtime`, `brokkr-bridge`; the `/api/run/<id>`,
   `/api/session/<id>` and `/sse/<id>` responses and their tests; frozen
   contracts v1; `policy/phase-machine.json`; `reference/`; the frozen
-  evaluator corpus; `forge costs`, `compare`, `export`, `replay`,
+  evaluator corpus; `brokkr costs`, `compare`, `export`, `replay`,
   `verify-run`, `anchor` and the bridge; the engine, reducer, evaluator,
   journal schema and checkpoint vocabulary. No new dependency, no new
   runtime, no TUI framework, no panes or keyboard navigation.
-- **Operational, and deliberately breaking**: `forge runs` and
-  `forge inspect` change default output shape — human first, machines
+- **Operational, and deliberately breaking**: `brokkr runs` and
+  `brokkr inspect` change default output shape — human first, machines
   move to `--json`, which decision 0013 accepts by name.
-  `forge inspect --json | jq .summary` reproduces today's `forge inspect`
+  `brokkr inspect --json | jq .summary` reproduces today's `brokkr inspect`
   output verbatim, all nine keys including `cursor`. The console's
   observable behaviour is unchanged. Two honest admissions ship with it:
   without a Unicode-width dependency, CJK and emoji columns misalign,

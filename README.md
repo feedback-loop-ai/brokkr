@@ -68,13 +68,14 @@ collided word in software, and so was never findable.
 Brokkr forges. The proper noun retired from the marquee, not from the
 vocabulary — and the mechanism keeps its plain names, so a new operator
 can still guess what a command does with no glossary: `.forge/`,
-`forge.db`, `refs/forge/`, the `forge-*` crates, the wire protocols.
+`forge.db`, `refs/forge/`, the wire protocols.
 
-**The binary is `brokkr`.** The old binary name works for one more
-release: every archive carries a `forge` shim beside it, which writes a
-single notice to stderr — never to stdout, so pipes and `--json`
-consumers read exactly what `brokkr` writes — and then behaves
-identically. Repoint your scripts before the release after this one.
+**The binary is `brokkr`, and now the only one.** The `forge` shim that
+rode along for one release is gone, and the crates are `brokkr-*`. Two
+old spellings still answer for one more release, each saying so once on
+stderr the first time it is used: the `FORGE_CODEX_BIN`, `FORGE_DSH_BIN`,
+`FORGE_EXEC_NAME` and `FORGE_BROWSER_BIN` overrides, now `BROKKR_*`, and
+the `{forge}` token in bundle argv, now `{brokkr}`.
 
 [Decision 0019](docs/decisions/0019-brokkr.md) is the ruling, with the
 reasoning and the five laws that bound it. [The Edda](docs/lore/edda.md)
@@ -139,7 +140,7 @@ effect discipline, verification layers. This README stays the tour.
 
 1. **Decisions are pure.** Given the same journal and pinned bundle,
    the next action is always the same. Transition logic is a data table
-   evaluated first-match-wins by `forge-core`; changing a ruling is a
+   evaluated first-match-wins by `brokkr-core`; changing a ruling is a
    reviewed one-line diff.
 2. **State is derived, never mutated.** `state = fold(events)`; resume
    is replay; counters, drift, and reviewed heads are journal-computed,
@@ -163,7 +164,7 @@ against the release's `SHA256SUMS`, then unpack:
 curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/brokkr-linux-x86_64.tar.gz
 curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS      # brokkr-linux-x86_64.tar.gz: OK
-tar xzf brokkr-linux-x86_64.tar.gz            # → ./brokkr, plus the one-release ./forge shim
+tar xzf brokkr-linux-x86_64.tar.gz            # → ./brokkr
 ```
 
 Every archive and the `SHA256SUMS` manifest carry a signed GitHub
@@ -177,7 +178,7 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 **Or build it.** Rust 1.85 or newer:
 
 ```
-cargo install --path crates/forge-cli    # installs the `brokkr` binary (and the `forge` shim)
+cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
 ```
 
 **Then deliver something.**
@@ -212,7 +213,7 @@ the thing you were handed is a thing that runs.
 
 ## The read surfaces
 
-Every readout shares ONE derivation (decision 0013): `forge-view` turns
+Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
 `inspect` and `watch` each take `--json` to emit that model verbatim.
@@ -424,7 +425,7 @@ The read surfaces above show you the fleet. `brokkr muninn` reads it for
 you and writes down what it would suggest — and then stops there.
 
 One invocation opens the workspace database **read-only**, derives a
-dossier from the same `forge-view` models every other readout uses (runs
+dossier from the same `brokkr-view` models every other readout uses (runs
 with status, phase, age and cost; park reasons and the operator commands
 each parked run admits; consecutive failures; the residual findings the
 verify and review rulings recorded), and hands it to one bounded seat
@@ -692,7 +693,7 @@ attestations; verify an asset with
 | Path | What it is |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
-| `crates/` | The engine: `forge-core` (pure) · `forge-store` · `forge-protocol` (+ built-in claude/codex/dsh/exec adapters) · `forge-runtime` · `forge-view` (one display derivation, no I/O) · `forge-bridge` · `forge-cli` (builds `brokkr` and the one-release `forge` shim). Crate names lag the rename by a release (decision 0019 ruling 9). |
+| `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), and `forge.realms/v1` (the world's map, decision 0023). |
 | `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |

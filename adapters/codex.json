@@ -2,7 +2,7 @@
   "provider": "codex",
   "binary": "codex",
   "driver": [
-    "{forge}",
+    "{brokkr}",
     "driver",
     "codex",
     "--"

@@ -43,6 +43,6 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-7 and AC-8 machine proofs.
 - [x] **T7 — Workspace regression sweep.** `cargo test` across the
   whole workspace: differential corpus untouched and green,
-  `policy_lint.rs` unchanged and green, forge-core diff empty
-  (`git diff --stat crates/forge-core` shows nothing).
+  `policy_lint.rs` unchanged and green, brokkr-core diff empty
+  (`git diff --stat crates/brokkr-core` shows nothing).
   *Proven by*: AC-9 (full suite) plus the empty-diff check in review.

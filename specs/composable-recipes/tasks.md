@@ -112,7 +112,7 @@ merge logic exists** (M1), so every later movement runs against it.
   `extends: "sdd"`, `override: { "seats": ["review"] }` and one review
   seat; two role files; a `README.md` stating its `bundle.json` line
   count against `recipes/sdd/bundle.json`'s 227. Existing
-  `forge recipes list` assertions updated in the same commit.
+  `brokkr recipes list` assertions updated in the same commit.
   *Proven by*: AC-32 (it compiles, extends `sdd`, overrides only the
   review seat, README states the contrast) and the CLI suite staying
   green (plan risk R8).
@@ -167,7 +167,7 @@ merge logic exists** (M1), so every later movement runs against it.
 - [x] **T20 — Full gate.** `cargo test --workspace`, `cargo clippy
   --all-targets --all-features -D warnings`, `cargo fmt --check`,
   `scripts/coverage-exact.sh`, the 97-case differential evaluator
-  corpus, the machine-proof suite, and the `forge-view`/render goldens —
+  corpus, the machine-proof suite, and the `brokkr-view`/render goldens —
   all green, with `fixtures/evaluator/corpus.ndjson`,
   `policy/phase-machine.json`, `reference/` and every frozen contract
   file untouched (`git diff --stat` asserted clean for those paths).

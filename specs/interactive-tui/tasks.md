@@ -1,4 +1,4 @@
-# Tasks: `forge tui`
+# Tasks: `brokkr tui`
 
 **Feature slug**: `interactive-tui`
 **Spec**: [spec.md](spec.md) · **Plan**: [plan.md](plan.md)
@@ -64,26 +64,26 @@ byte, it must surface now and not inside a large new file.
 - [x] **T6 — `ratatui` joins the workspace.**
   One `[workspace.dependencies]` entry,
   `{ version = "0.30", default-features = false, features = ["crossterm"] }`,
-  referenced by `crates/forge-cli/Cargo.toml` only. `Cargo.lock`
-  committed. `forge-cli` declares no cargo features.
-  *Proven by*: AC-18 — `cargo tree -p forge-view` shows no terminal crate
-  and `crates/forge-view/Cargo.toml` still lists exactly `forge-core`,
+  referenced by `crates/brokkr-cli/Cargo.toml` only. `Cargo.lock`
+  committed. `brokkr-cli` declares no cargo features.
+  *Proven by*: AC-18 — `cargo tree -p brokkr-view` shows no terminal crate
+  and `crates/brokkr-view/Cargo.toml` still lists exactly `brokkr-core`,
   `serde`, `serde_json`; `cargo build --workspace --locked` green; the
   RustSec audit job passing over the added tree.
 
 - [x] **T7 — `Cmd::Tui`, `mod tui`, and the injected dispatch arm.**
-  `forge tui [--run <id>] [--db <path>]` with `--db` defaulting to
+  `brokkr tui [--run <id>] [--db <path>]` with `--db` defaulting to
   `.forge/forge.db`. `run_with` gains a `run_tui` parameter exactly as it
   has `serve_ui`. Re-check `main` for a shared run-id prefix/`latest`
   helper (`slice-run-selectors`) and route `--run` through it if present;
   otherwise verbatim. Never duplicate resolution.
   *Proven by*: AC-1 — a `src/tests.rs` case driving the arm through
-  `run_with` with an injected `run_tui`, and a subprocess `forge tui
+  `run_with` with an injected `run_tui`, and a subprocess `brokkr tui
   --help` listing the verb.
 
 - [x] **T8 — `refuse()` and the startup gate.**
   `refuse(is_tty, size, db_is_file) -> Option<String>` naming **both**
-  `forge inspect` and `forge watch`; `run()` calls it before anything
+  `brokkr inspect` and `brokkr watch`; `run()` calls it before anything
   else and `bail!`s. `Store::open` is unreachable when the db is not an
   existing file.
   *Proven by*: AC-2 — unit tests of all `refuse` branches with literal
@@ -198,8 +198,8 @@ byte, it must surface now and not inside a large new file.
 
 - [x] **T20 — `draw_footer`, `draw_help`, `draw_too_small`.**
   The footer at the bottom of every frame; `?` overlaying `Clear` + a
-  centred paragraph; a centred too-small frame naming `forge inspect` and
-  `forge watch` with `q`/`Ctrl+C` live.
+  centred paragraph; a centred too-small frame naming `brokkr inspect` and
+  `brokkr watch` with `q`/`Ctrl+C` live.
   *Proven by*: AC-8, AC-13 — `TestBackend` at two different levels
   producing two different footer lines; a `TestBackend` sized below the
   minimum producing the degradation frame and not a corrupted one.
@@ -235,13 +235,13 @@ byte, it must surface now and not inside a large new file.
   (relative path, length, bytes); drive the state machine through every
   navigation path; export and hash again; byte-compare **both**.
   *Proven by*: AC-15 — the test itself, plus a source test asserting
-  `tui.rs` names no `Store`, `forge_runtime`, `append_next` or
-  `create_run`. (`forge-cli` has no `[lib]` target, so this half cannot
+  `tui.rs` names no `Store`, `brokkr_runtime`, `append_next` or
+  `create_run`. (`brokkr-cli` has no `[lib]` target, so this half cannot
   live in `tests/`.)
 
 - [x] **T24 — the subprocess read-only proof.**
   In `tests/machine_proof.rs`, on the `Workspace::exported_events` /
-  `forge export` idiom: export and tree-hash, run the real `forge tui`
+  `brokkr export` idiom: export and tree-hash, run the real `brokkr tui`
   binary against a real run's db, export and tree-hash again,
   byte-compare both.
   *Proven by*: AC-15, AC-2 — the test itself, which also covers `run()`'s
@@ -252,7 +252,7 @@ byte, it must surface now and not inside a large new file.
 
 - [x] **T25 — docs.**
   `ARCHITECTURE.md` §"Operating surface" and `README.md`'s
-  install/operate block and readouts paragraph each gain `forge tui`:
+  install/operate block and readouts paragraph each gain `brokkr tui`:
   one sentence on what it is for, one on its read-only boundary.
   *Proven by*: AC-20 — the diff, and any existing docs test still green.
 
@@ -260,8 +260,8 @@ byte, it must surface now and not inside a large new file.
   `scripts/coverage-exact.sh` reporting literal nonzero 100%
   line/branch/function equality; `cargo test --workspace`; `cargo clippy
   --workspace --all-targets --all-features` warning-free; `cargo fmt
-  --check`; RustSec audit; `forge runs`/`inspect`/`watch`/`ui` output
-  unchanged; `crates/forge-view` untouched and `VIEW_VERSION` unmoved.
+  --check`; RustSec audit; `brokkr runs`/`inspect`/`watch`/`ui` output
+  unchanged; `crates/brokkr-view` untouched and `VIEW_VERSION` unmoved.
   *Proven by*: AC-19, AC-20 — the gate's own output. Run it once at the
   end of Movement 1 on the walking skeleton, so the gate is proven on a
   small surface before the surface is large.

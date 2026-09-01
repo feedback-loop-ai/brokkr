@@ -17,7 +17,7 @@ visual experience in the TUI than in the WebUI — with proper navigation
 and proper graphical visualization of the graph, with pulsating circles
 etc."*
 
-The console (`crates/forge-cli/src/ui.html::renderLoops`) draws the run
+The console (`crates/brokkr-cli/src/ui.html::renderLoops`) draws the run
 as **one rail**: phases are segments joined by arrowed edges that read as
 *then*, a panel **forks** into vertically symmetric lanes that **rejoin
 the rail** before the next step, phase names share one baseline with `×N`
@@ -26,7 +26,7 @@ and the active node on a live run **pulses**. Every one of those carries
 meaning. The rejoin *is* the join dependency. The pulse *is* "this is
 happening now, and the frame you are looking at is not stale."
 
-`forge tui`'s graph pane today (`tui.rs::draw_graph`) is the 0013 *tree*:
+`brokkr tui`'s graph pane today (`tui.rs::draw_graph`) is the 0013 *tree*:
 one indented line per phase, `→` for a sequential step, `⑂` for a fork,
 `state` printed as a word, no colour, no rail, **no join**, no animation.
 It lists the topology; it does not show it. An operator moving between
@@ -64,13 +64,13 @@ name and `enter`'s `(Level::Run, 0)` arm is unchanged byte-for-byte.
 
 ## The rule that governs every other choice
 
-> **`forge tui` is a THIRD RENDERER, never a fourth derivation.**
+> **`brokkr tui` is a THIRD RENDERER, never a fourth derivation.**
 > A renderer may branch on a model field; it may not compute one.
 
 Selecting, filtering, ordering for display, **geometry and layout** are
 rendering. Deriving status, topology or scope membership is not. This
 feature is entirely on the rendering side of that line, and it stays
-there: `forge-view` gains **no field, no model change, no
+there: `brokkr-view` gains **no field, no model change, no
 `VIEW_VERSION` move** — only one test (§8).
 
 ---
@@ -98,7 +98,7 @@ established fact rather than re-deriving it.
    of reach of the read-only and sanitization greps.
 6. **Intake's open question resolves to option (a)**: branch in `tui.rs`
    on `phase.current` + `summary.status`. Option (b) — a phase-level
-   `Phase.state_class` in `forge-view` — is a cross-surface contract
+   `Phase.state_class` in `brokkr-view` — is a cross-surface contract
    change (`VIEW_VERSION`, the `/api` shape, the console's allowlist)
    bought to save match arms in one renderer, and would either force a
    `ui.html` edit the non-goals forbid or leave the console computing
@@ -169,7 +169,7 @@ asserted on the glyph/modifier channel.
 `visits` is a fold keyed by name, so a revisited phase is one segment.
 The graph now *depends* on that for selection identity; if it stopped
 holding, two segments would share a cursor key and `Enter` would scope
-the wrong one, invisibly. Pinned by one `forge-view` test (§8).
+the wrong one, invisibly. Pinned by one `brokkr-view` test (§8).
 
 ### Ruled for simplicity
 
@@ -224,7 +224,7 @@ silent" rule; they were arguing past each other. Adopted.
 **C3 — `render::tone` is *not* reused for the graph, and that is not an
 oversight.** `tone` maps `awaiting_operator` to `Quiet` (it falls to
 `_`), while the graph's vocabulary needs **park** as a distinct, yellow
-class — deliverable 2 names it. Widening `tone` would move `forge runs`
+class — deliverable 2 names it. Widening `tone` would move `brokkr runs`
 colour, and the goldens must stay byte-identical. The graph's table is
 the *console's* classification (`NODE_CLASS` + the phase branch), which
 is a different classification from "how a run status reads in a table
@@ -478,9 +478,9 @@ sanitized text, so there is no second width implementation to disagree
 with the first. The graph stays inside `tui.rs` so `SOURCE`'s read-only
 and sanitization greps keep covering it.
 
-### 8. `forge-view`: no model change, one test
+### 8. `brokkr-view`: no model change, one test
 
-`forge-view` gains **no field and no rendering concern**; `VIEW_VERSION`
+`brokkr-view` gains **no field and no rendering concern**; `VIEW_VERSION`
 does not move. It gains **one test**, pinning that phase names are unique
 within a `RunView` — the invariant the `visits` fold already holds, and
 which the graph now depends on for selection identity (R7). A test is not
@@ -572,14 +572,14 @@ widths are ratatui's measurement of the sanitized text.
 `width_of` reports 12, not 6, and the next node lands where `plan` says.
 
 **AC-safe-3** `tui.rs` still contains exactly one `Cell::from(` and one
-`Span::styled(`, names no `Store`/`forge_runtime`, and names no canvas.
+`Span::styled(`, names no `Store`/`brokkr_runtime`, and names no canvas.
 
 **AC-width-1** At `MIN_WIDTH = 60` the graph is legible by the stated
 degradation rule and no frame is corrupted; at 80 columns the full
 grammar — rail, arrow, fork, rejoin, name baseline — is present.
 
 **AC-view-1** Phase names are unique within a `RunView`, asserted in
-`forge-view`'s own tests.
+`brokkr-view`'s own tests.
 
 **AC-gate** `scripts/coverage-exact.sh` passes: literal nonzero 100%
 source-line / branch / function equality. Every class arm, every layout
@@ -598,10 +598,10 @@ unchanged.
 - **No new dependencies and no manifest edit.** Verified: none is needed
   either way.
 - **No `Canvas`, braille, float world-space or `ctx.print`.**
-- **No `forge-view` model change**, no `Phase.state_class`, no
+- **No `brokkr-view` model change**, no `Phase.state_class`, no
   `VIEW_VERSION` move, no `/api` shape change.
 - **No `ui.html` edit.** It is the reference being matched, not a target.
-- **`forge inspect` / `forge watch` / `forge ui` untouched.**
+- **`brokkr inspect` / `brokkr watch` / `brokkr ui` untouched.**
   `render::graph_block` and every golden stay byte-identical.
 - **No new module file.** The graph stays in `tui.rs`.
 - **No animation timer, thread, `Instant`, or frame budget.**
@@ -622,7 +622,7 @@ unchanged.
 
 1. **A long run shows only a window of its rail at 60–80 columns.** The
    arrow keys walk it, the status line names the scoped phase, and
-   `forge inspect` prints the whole tree. The console's own answer was
+   `brokkr inspect` prints the whole tree. The console's own answer was
    also "you cannot see it all at once — scroll".
 2. **Forks wider than the available lane rows collapse to `+k`.** Panels
    are small in practice, and a visible honest count beats a silently

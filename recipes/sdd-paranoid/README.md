@@ -27,7 +27,7 @@ redefine any of them.
 
 Nothing of the above. Composition is resolved at compile time into one
 flat bundle; there is no inheritance at run time and no dynamic lookup.
-`forge compile --bundle recipes/sdd-paranoid` prints the resolved
+`brokkr compile --bundle recipes/sdd-paranoid` prints the resolved
 result, and a `composed_from` chain naming `sdd` and its digest — the
 same chain that rides in the run manifest under `@compose/`, so a run
 states not just what it ran but what it was composed from. Change

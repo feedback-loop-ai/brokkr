@@ -14,7 +14,7 @@ collision is.
 
 ## Movement 0 — the invariant the graph will depend on
 
-- [x] **T1 — pin phase-name uniqueness in `forge-view`.**
+- [x] **T1 — pin phase-name uniqueness in `brokkr-view`.**
   One test asserting that no two `Phase`es in a `RunView` share a `name`,
   over a fixture whose journal revisits a phase. **No `lib.rs` change, no
   new field, `VIEW_VERSION` unmoved.** The graph is about to use

@@ -7,8 +7,8 @@ no code, fix nothing, commit nothing: one honest run is the signal.
 Always run, from the repository root:
 
 1. `cargo test --workspace` — the full Rust suite.
-2. `cargo run -p forge-cli -- compile --bundle bundles/self` and
-   `cargo run -p forge-cli -- compile --bundle bundles/verify` — both
+2. `cargo run -p brokkr-cli -- compile --bundle bundles/self` and
+   `cargo run -p brokkr-cli -- compile --bundle bundles/verify` — both
    bundles compile under the constitutional lint.
 
 Then run every slice-specific check the feature text names (new test

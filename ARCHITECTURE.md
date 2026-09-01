@@ -15,25 +15,25 @@ stopped, paid — is a journaled, replayable fact.
 ## One binary, six crates
 
 ```
-forge-cli        the shipped `forge` binary: commands, embedded UI, adapters entry
-  forge-runtime  bundles · agent library + provider adapters · engine loop ·
+brokkr-cli        the shipped `brokkr` binary: commands, embedded UI, adapters entry
+  brokkr-runtime  bundles · agent library + provider adapters · engine loop ·
                  recovery · confinement · anchoring
-    forge-core   PURE: envelope · canonical hashing · fold · policy evaluation
-    forge-store  SQLite journal (append-only, hash-chained) · export · verify
-    forge-protocol  forge-driver/v1 · subprocess transport · built-in adapters
-  forge-view     PURE: one display derivation — run rows, participants,
+    brokkr-core   PURE: envelope · canonical hashing · fold · policy evaluation
+    brokkr-store  SQLite journal (append-only, hash-chained) · export · verify
+    brokkr-protocol  forge-driver/v1 · subprocess transport · built-in adapters
+  brokkr-view     PURE: one display derivation — run rows, participants,
                  phase topology, decision trail; no I/O, no clock, no
                  terminal or DOM concept (decision 0013)
 ```
 
-Trust separates the crates, not deployment: `forge-core` performs no
+Trust separates the crates, not deployment: `brokkr-core` performs no
 I/O, clock reads, randomness, or process execution — given the same
 journal and bundle it always returns the same state and ruling.
 Everything effectful sits above it and is journaled around it.
-`forge-view` is pure for a different reason: it is the ONE answer to
+`brokkr-view` is pure for a different reason: it is the ONE answer to
 every display question, rendered by `ui.html` as pixels and by
 `render.rs` as text, so the two surfaces cannot drift. Its manifest
-depends on exactly `forge-core`, `serde` and `serde_json`, which makes
+depends on exactly `brokkr-core`, `serde` and `serde_json`, which makes
 that purity a compile error rather than a review convention.
 
 ## The journal is the run
@@ -51,8 +51,8 @@ replay.
 
 Storage is bundled SQLite with append-only triggers and the chain built
 inside the append transaction (a concurrent writer conflicts instead of
-forking history). `forge export` writes canonical NDJSON;
-`forge verify-run` checks it offline; `forge anchor` records the
+forking history). `brokkr export` writes canonical NDJSON;
+`brokkr verify-run` checks it offline; `brokkr anchor` records the
 journal head in `refs/forge/<run>` commit chains — tamper *evidence*,
 not tamper-proofing (the ref is unsigned; decision 0008 defers the
 signing service).
@@ -86,7 +86,7 @@ core (decision 0004): a closed condition vocabulary checked at load (a
 typo'd deny key refuses to load rather than silently dying), absent
 inputs never satisfy a condition, unreadable inputs park. The outer
 machine is a linear FSM by constitution (decision 0002) — one active
-phase, a totally ordered journal — and `forge compile` rejects any
+phase, a totally ordered journal — and `brokkr compile` rejects any
 table where the protected review phase is avoidable on a path to a
 non-stop terminal.
 
@@ -162,7 +162,7 @@ indeterminate). The adapters for Claude Code (`claude` directly, or
 `lanetally` — the same harness through LaneTally's session-capture
 wrapper), Codex, and any template-shaped harness (dsh/Surface profiles,
 ssh-carried remote execution, prompt-in/result-file-out CLIs) are built
-into the binary — `{forge} driver <kind>` in bundle data (decision
+into the binary — `{brokkr} driver <kind>` in bundle data (decision
 0009) — while the protocol stays language-neutral for third-party
 drivers. On cost provenance: `total_cost_usd` stays the
 harness-reported list price for both claude and lanetally; LaneTally
@@ -186,19 +186,19 @@ because an empty map is ambiguous between "cannot" and "not filled in
 yet". No Rust match arm over provider names is ever written; adding a
 provider or a model is a file.
 
-`crates/forge-runtime/src/agents.rs` is the resolver and it is pure by
+`crates/brokkr-runtime/src/agents.rs` is the resolver and it is pure by
 signature: availability is an argument and the module reaches for no
 filesystem, environment, process or clock — the I/O that loads the two
 trees lives behind a named boundary in `agents/load.rs`. `Bundle::compile`
 passes availability *unspecified*, so compile-time resolution depends on
 exactly two digested inputs and one bundle cannot have two digests.
-`forge doctor` is the real consumer of the probed arms.
+`brokkr doctor` is the real consumer of the probed arms.
 
 Resolution is pinned into the run manifest under one `agents` key,
 **absent** when no seat references an agent, keyed by invocation site,
 carrying the agent, charter and adapter digests, the full chain and the
 chosen index — names and digests only, never resolved argv, whose
-`{forge}` expansion is a machine-local absolute path. Per-invocation
+`{brokkr}` expansion is a machine-local absolute path. Per-invocation
 provenance reaches the journal as optional, absent-by-default payload
 fields at `event_schema: 1`, published as
 `contracts/effect-provenance.v1.schema.json`; `fold` never reads them,
@@ -240,21 +240,21 @@ effect's own events so a restart cannot change which model runs next.
 ## Operating surface
 
 ```
-forge init · doctor · compile · run · resume · operator · inspect ·
+brokkr init · doctor · compile · run · resume · operator · inspect ·
       replay · export · verify-run · runs · costs · anchor · ui · tui ·
       driver
 ```
 
 Exit codes: `0` completed · `2` parked (operator needed) · `3` stopped.
-`forge ui` serves an embedded read-only page on loopback (Host-pinned
+`brokkr ui` serves an embedded read-only page on loopback (Host-pinned
 against DNS rebinding, GET-only, SSE updates) — it submits no commands
-and can be removed without changing execution semantics. `forge tui` is
+and can be removed without changing execution semantics. `brokkr tui` is
 the same fleet explored with the keyboard: a navigable table of runs,
 one run's phase graph, seats and decision trail, and one seat's
 checkpoint and session stream (decision 0014). Its read-only boundary is
-the same one: a third renderer over `forge-view`'s models that issues no
+the same one: a third renderer over `brokkr-view`'s models that issues no
 operator command, starts no run and writes nothing to the journal — a
-missing database is a refusal, never an initialized empty store. `forge costs`
+missing database is a refusal, never an initialized empty store. `brokkr costs`
 reports per-seat attempts, turns, and USD from journal checkpoints,
 keyed by the stable seat ids the LaneTally layer joins on.
 

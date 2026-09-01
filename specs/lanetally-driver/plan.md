@@ -8,9 +8,9 @@
 The panel agreed on the load-bearing shape: the adapter is the claude
 adapter with a different binary and one constant; `capture` attaches in
 `run_seat`, kind-guarded, never at fold time; `fold_stream_event` is
-untouched; no new module, trait, or file in `forge-protocol`; no
+untouched; no new module, trait, or file in `brokkr-protocol`; no
 spawn-time fallback to plain `claude`; no wrapper metadata; no
-`forge costs`/UI changes; no configurability beyond
+`brokkr costs`/UI changes; no configurability beyond
 `FORGE_LANETALLY_BIN`; doctor is advisory with the four existing
 warning strings byte-identical; docs get exactly the framed
 cost-provenance sentence. The chief's rulings on the divergences:
@@ -93,7 +93,7 @@ cost-provenance sentence. The chief's rulings on the divergences:
 
 Six edits in dependency order; no new production files.
 
-1. **`crates/forge-protocol/src/adapters.rs`**:
+1. **`crates/brokkr-protocol/src/adapters.rs`**:
    - `AdapterKind::Lanetally`; `parse("lanetally")`;
      `driver_name() = "claude-lanetally"`; module doc comment env list
      gains `FORGE_LANETALLY_BIN`.
@@ -110,14 +110,14 @@ Six edits in dependency order; no new production files.
      of `capture: "lanetally"`.
    - Unit tests beside the code: parse/name rows, capture-after-extend
      ordering.
-2. **`crates/forge-cli/src/main.rs`**: `:616` unknown-driver error and
+2. **`crates/brokkr-cli/src/main.rs`**: `:616` unknown-driver error and
    the `Driver` doc/help text (`:226,230`) gain `lanetally`.
-3. **`crates/forge-cli/src/doctor.rs`**: probe tuple grows an optional
+3. **`crates/brokkr-cli/src/doctor.rs`**: probe tuple grows an optional
    hint; `("claude-lanetally", "claude-lanetally", hint)` row whose
    warning names the install path and the env override; existing four
    warnings byte-identical. `doctor/tests.rs`: missing→warning-with-path,
    present→ok, existing-strings-unchanged.
-4. **`crates/forge-cli/tests/driver_conformance.rs`**:
+4. **`crates/brokkr-cli/tests/driver_conformance.rs`**:
    - `drive()` gains `.env("FORGE_LANETALLY_BIN", shim)` beside its
      three siblings (unconditional).
    - `all_adapters()` gains `("lanetally", vec!["lanetally"])`;
@@ -147,8 +147,8 @@ Six edits in dependency order; no new production files.
    `reference/`, `fixtures/`, `contracts/`, `policy/`.
 
 Untouched: `fold_stream_event`, the codex/dsh/exec arms, secrets
-machinery (`secret.rs`), `forge costs` aggregation, `ui.rs`/`ui.html`,
-`crates/forge-core`, frozen contracts v1, the differential corpus, all
+machinery (`secret.rs`), `brokkr costs` aggregation, `ui.rs`/`ui.html`,
+`crates/brokkr-core`, frozen contracts v1, the differential corpus, all
 recipes. No new dependencies.
 
 ## Risks and mitigations
@@ -179,7 +179,7 @@ recipes. No new dependencies.
   it would silently un-capture sessions.
 - **Step-name greppers mis-bucket lanetally sessions.** The spec pins
   the rule (discriminator is `capture`, step names are cosmetic and
-  forgeable); `forge costs`/UI key off checkpoint data, not step
+  forgeable); `brokkr costs`/UI key off checkpoint data, not step
   strings.
 - **LaneTally's wrapper drifts from argv compatibility.** The argv
   assertion in the adversarial leg names the break determinately

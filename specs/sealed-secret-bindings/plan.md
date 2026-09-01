@@ -6,11 +6,11 @@
 ## Position reconciliation (how this plan was synthesized)
 
 The panel agreed on the load-bearing shape: one new module
-(`crates/forge-protocol/src/secret.rs`) holding type + store + masker +
+(`crates/brokkr-protocol/src/secret.rs`) holding type + store + masker +
 scanner; zero new dependencies; resolution and injection confined to
 the exec arm so values never enter the engine process or cross the
 NDJSON protocol; a single masking choke point in the adapter; no
-`forge secrets get`; no backend trait; no streaming masker; UI
+`brokkr secrets get`; no backend trait; no streaming masker; UI
 untouched (journal envelopes are its only source). The chief's rulings
 on the genuine divergences:
 
@@ -50,14 +50,14 @@ on the genuine divergences:
 5. **Denylist** — *robustness adopted*. Exact set
    `{PATH, IFS, LD_PRELOAD, LD_LIBRARY_PATH}` plus the `FORGE_`
    prefix, one shared constant, enforced at bundle compile and at
-   `forge secrets set`. All are grammar-legal names that would turn
+   `brokkr secrets set`. All are grammar-legal names that would turn
    the injector into a code-loading or harness-spoofing primitive.
 6. **Digest-stability hazard** — *robustness adopted with one cut*.
    Adopted: the end-to-end rotation test (set → compile → rotate →
    compile → digests byte-equal) and a compile refusal of a file named
    `secrets.env` inside the bundle dir (exact-name check; a store
    inside the bundle both breaks digest stability and embeds a
-   guessable hash in the manifest). Rejected: `forge secrets set`
+   guessable hash in the manifest). Rejected: `brokkr secrets set`
    detecting "a target inside a bundle dir it can recognize" — the CLI
    has no reliable bundle-dir oracle, and the compile lint catches the
    harm where it manifests.
@@ -78,7 +78,7 @@ on the genuine divergences:
    fold and model-Bash postures are untouched (unanimous).
 9. **Dependency and abstraction floor** — *simplicity adopted
    throughout*: zero new crates (hand-rolled encode-only base64 and
-   hex — hex *is* in the workspace but only forge-core depends on it,
+   hex — hex *is* in the workspace but only brokkr-core depends on it,
    and ~10 lines of encode beats a Cargo.toml edge for a
    trust-boundary module), no regex, no dotenv, no zeroize crate
    (std `write_volatile` + `compiler_fence`), no secrets-manager
@@ -101,7 +101,7 @@ on the genuine divergences:
 
 One new module, five edited files, in dependency order:
 
-1. **`crates/forge-protocol/src/secret.rs`** (new; registered in
+1. **`crates/brokkr-protocol/src/secret.rs`** (new; registered in
    `lib.rs`) — the whole plaintext trust boundary:
    - `Secret`: `Vec<u8>` newtype; no `Display`/`Clone`/`Serialize`;
      `Debug` → `Secret(REDACTED)`; `Drop` zeroizes via
@@ -117,7 +117,7 @@ One new module, five edited files, in dependency order:
      padded/unpadded; hex lower/upper; percent upper/lower per value),
      built in-module from private bytes; byte-level,
      longest-needle-first replacement with `[secret:NAME]`.
-2. **`crates/forge-runtime/src/bundle.rs`** — parse `"secrets"` next
+2. **`crates/brokkr-runtime/src/bundle.rs`** — parse `"secrets"` next
    to the 0007 `inputs` handling; validate names (grammar + denylist);
    in `parse_command` (~:548) scan raw template parts and refuse
    undeclared/malformed references with the existing
@@ -125,11 +125,11 @@ One new module, five edited files, in dependency order:
    bundle dir. Names ride `manifest_for` (~:639) via the charter as
    today — digest stability across rotation is free by construction
    and asserted by test.
-3. **`crates/forge-runtime/src/engine.rs`** — thread declared names +
+3. **`crates/brokkr-runtime/src/engine.rs`** — thread declared names +
    store path into the exec driver `start` input (names-only,
    journal-safe). That is the entire engine change; no store read
-   exists in `forge-runtime`.
-4. **`crates/forge-protocol/src/adapters.rs`** — the exec arm (~:406):
+   exists in `brokkr-runtime`.
+4. **`crates/brokkr-protocol/src/adapters.rs`** — the exec arm (~:406):
    resolve `{{secret:NAME}}` → `$NAME` in template text alongside
    `{workdir}`; open the store, resolve all declared names (refusing
    determinately on a missing one), pass env pairs into `run_cli`
@@ -139,16 +139,16 @@ One new module, five edited files, in dependency order:
    before checkpoints, before `Body::Result`; journal the
    pre-substitution template (80-char clamp, reusing the clamp
    discipline at :135–176) as the checkpoint target.
-5. **`crates/forge-cli/src/main.rs`** — `Secrets` subcommand
+5. **`crates/brokkr-cli/src/main.rs`** — `Secrets` subcommand
    (`Set`/`List`/`Remove`), `--secrets-file` flag (also plumbed to run
    entry points, default `.forge/secrets.env`), `set` reading the
    value from stdin.
 6. **Tests** — unit tests beside each piece; machine proofs appended
-   to `crates/forge-cli/tests/machine_proof.rs` (scripted-child
+   to `crates/brokkr-cli/tests/machine_proof.rs` (scripted-child
    pattern per `driver_conformance.rs`); the CI grep test for the
    single call site.
 
-Untouched: `crates/forge-core/*`, `crates/forge-cli/src/ui.rs`,
+Untouched: `crates/brokkr-core/*`, `crates/brokkr-cli/src/ui.rs`,
 `ui.html`, `policy/phase-machine.json`, `reference/`, `fixtures/`,
 `contracts/`, all recipes.
 

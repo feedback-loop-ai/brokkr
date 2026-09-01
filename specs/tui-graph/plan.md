@@ -11,10 +11,10 @@ their mitigations.
 
 | File | Change |
 | --- | --- |
-| `crates/forge-cli/src/tui.rs` | the constants block gains `PULSE_TICKS`/`PULSE_FRAMES`; `Tui` gains `node: Option<String>` and `animate: bool`; `Key` gains `Left`/`Right` and `from_key` gains two arms; `apply` gains two arms; `step`/`keys_for`'s graph slots gain the lane cursor; `enter` **unchanged**; `assign_run` clears `node`; `footer_for`'s `(Level::Run, 0)` arm and `HELP` gain a line; `draw_graph` is replaced by `plan` + `paint` + `look` + `pulse` + `width_of` + `mode_for` |
-| `crates/forge-cli/src/tui/tests.rs` | headless navigation cases; `TestBackend` cases for fork/join, the three modes, hostile and CJK phase names, minimum-width legibility, selection-vs-current on a colour-free channel; direct `plan`/`pulse`/`look` unit cases; the discipline test gains a no-canvas assertion; existing `Up`/`Down`-at-graph cases re-pointed at `j`/`k` |
-| `crates/forge-cli/src/main.rs` | one argument at the `tui::start` call site in `run_tui`: `render::Style::detect().color` |
-| `crates/forge-view/tests.rs` | **one test**: phase names are unique within a `RunView`. No `lib.rs` change, no `VIEW_VERSION` move |
+| `crates/brokkr-cli/src/tui.rs` | the constants block gains `PULSE_TICKS`/`PULSE_FRAMES`; `Tui` gains `node: Option<String>` and `animate: bool`; `Key` gains `Left`/`Right` and `from_key` gains two arms; `apply` gains two arms; `step`/`keys_for`'s graph slots gain the lane cursor; `enter` **unchanged**; `assign_run` clears `node`; `footer_for`'s `(Level::Run, 0)` arm and `HELP` gain a line; `draw_graph` is replaced by `plan` + `paint` + `look` + `pulse` + `width_of` + `mode_for` |
+| `crates/brokkr-cli/src/tui/tests.rs` | headless navigation cases; `TestBackend` cases for fork/join, the three modes, hostile and CJK phase names, minimum-width legibility, selection-vs-current on a colour-free channel; direct `plan`/`pulse`/`look` unit cases; the discipline test gains a no-canvas assertion; existing `Up`/`Down`-at-graph cases re-pointed at `j`/`k` |
+| `crates/brokkr-cli/src/main.rs` | one argument at the `tui::start` call site in `run_tui`: `render::Style::detect().color` |
+| `crates/brokkr-view/tests.rs` | **one test**: phase names are unique within a `RunView`. No `lib.rs` change, no `VIEW_VERSION` move |
 | `specs/tui-graph/{spec,plan,tasks}.md`, `openspec/changes/tui-graph/proposal.md` | the committed design artifacts |
 
 Not touched, deliberately: `render.rs` (beyond calling `keeps_phase` and
@@ -200,7 +200,7 @@ Three properties, all held by tests over `SOURCE` rather than by memory:
 - **The graph stays in `tui.rs`.** `SOURCE` is
   `include_str!("../tui.rs")`. Moving the renderer to `tui/graph.rs`
   would silently drop it out of reach of the read-only
-  (`Store`, `forge_runtime`, `process::exit`) and sanitization greps.
+  (`Store`, `brokkr_runtime`, `process::exit`) and sanitization greps.
   Concurrency argues for a new file to dodge the rebase; that trade is
   refused. A contiguous block rebases as a block move.
 
@@ -215,7 +215,7 @@ Three properties, all held by tests over `SOURCE` rather than by memory:
 | **A compacted fork reads as a sequential step** | Every mode that cannot draw lanes still emits `⑂n`. Asserted by AC-mode-1. |
 | **An unknown `summary.status` paints a dead run live-green** | The `Unknown` class is the fallback, and AC-look-2 executes it. Divergence from `ui.html` is stated in spec R3, not smuggled. |
 | **Selection and current look alike under `NO_COLOR`** | They differ in modifier and glyph, and AC-nav-4 asserts on the non-colour channel. Same rule for `Active` vs `Finished` (AC-look-3). |
-| **Phase-name collision would make `Enter` scope the wrong segment** | The dependency is stated in spec §8 and pinned by one `forge-view` test (AC-view-1). |
+| **Phase-name collision would make `Enter` scope the wrong segment** | The dependency is stated in spec §8 and pinned by one `brokkr-view` test (AC-view-1). |
 | **Re-pointing `Up`/`Down` breaks existing tests** | Bounded and named: only rail-movement cases move to `j`/`k`, which assert the same movement. No case asserting a scope is touched (AC-nav-2). |
 | **A ratatui bump changes glyph widths** | Every width is ratatui's own measurement taken at runtime, so a bump changes the frame's tightness, never its correctness. |
 </content>

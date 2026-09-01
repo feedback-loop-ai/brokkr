@@ -15,7 +15,7 @@
       },
       "driver": {
         "command": [
-          "{forge}",
+          "{brokkr}",
           "driver",
           "claude",
           "--",
@@ -44,7 +44,7 @@
       },
       "driver": {
         "command": [
-          "{forge}",
+          "{brokkr}",
           "driver",
           "claude",
           "--",

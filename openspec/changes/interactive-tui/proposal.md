@@ -2,10 +2,10 @@
 
 ## Why
 
-Decision 0013 gave the terminal two static readouts (`forge runs`,
-`forge inspect`) and one live one (`forge watch`), and put panes and
+Decision 0013 gave the terminal two static readouts (`brokkr runs`,
+`brokkr inspect`) and one live one (`brokkr watch`), and put panes and
 keyboard navigation explicitly out of scope pending their own decision.
-Using them proved the gap: `forge watch` answers "what is happening now"
+Using them proved the gap: `brokkr watch` answers "what is happening now"
 but cannot be *explored*. The operator cannot move a cursor over the
 fleet, descend into one seat, watch it, and come back — which is exactly
 what they asked for, in their words: *"a proper ASCII table with
@@ -20,20 +20,20 @@ only, because raw-mode entry, key decoding, resize handling and the
 Windows console API cannot be hand-rolled responsibly and CI tests
 Windows. This change implements that ruling in full.
 
-The invariant that governs every choice below: **`forge tui` is a third
+The invariant that governs every choice below: **`brokkr tui` is a third
 renderer, never a fourth derivation.** A renderer may branch on a model
 field; it may not compute one.
 
 ## What Changes
 
-- **`crates/forge-cli/src/tui.rs` — one new file, in family with
+- **`crates/brokkr-cli/src/tui.rs` — one new file, in family with
   `render.rs` and `ui.rs`.** It holds a state struct of owned scalars
-  that **retains no `forge-view` model**: `RunsView` and `RunView` are
+  that **retains no `brokkr-view` model**: `RunsView` and `RunView` are
   derived fresh per refresh and dropped, so selection is by stable key
   (`RunRow.run_id`, `Phase.name`, `Participant.key`) resolved against the
   fresh models every frame. "Selection survives a refresh" and "clears
   itself when its subject vanishes" therefore become the *absence* of
-  code rather than a diffing routine — and `forge-view` gains no
+  code rather than a diffing routine — and `brokkr-view` gains no
   `Clone`/`PartialEq` derives and no change at all, so `VIEW_VERSION`
   does not move. One `move_to()` is the only place wrap-around, `g`/`G`
   and paging exist, for every list at every level.
@@ -90,17 +90,17 @@ field; it may not compute one.
   creates the parent directory, creates the database file, switches it to
   WAL (creating `-wal`/`-shm`), runs the migration DDL and INSERTs a meta
   row — so an NDJSON byte-compare passes cleanly through real writes and
-  does **not** prove read-only. `forge tui` therefore refuses a `--db`
+  does **not** prove read-only. `brokkr tui` therefore refuses a `--db`
   that is not an existing file *before* `Store::open` is reachable, and
   the machine proof is a **directory-tree hash** of the db's parent
   alongside the NDJSON byte-compare, taken headlessly around a scripted
   drive and by subprocess around the real binary. Structurally, `tui.rs`
-  names no `Store` and nothing from `forge_runtime`: the pure core and
+  names no `Store` and nothing from `brokkr_runtime`: the pure core and
   draw path take view models and the shell takes a `FnMut` refresh
   source, asserted by a source test.
 - **Degradation and restoration are branches with tests, not prose.**
   Startup — not a tty, too small, or a missing db — exits with a message
-  naming `forge inspect` and `forge watch`, outside any alternate screen.
+  naming `brokkr inspect` and `brokkr watch`, outside any alternate screen.
   A *runtime* resize below the minimum draws a centred in-TUI frame
   naming the same two verbs with `q` still live, because an operator
   dragging a window edge should not lose their session. Restoration is
@@ -114,7 +114,7 @@ field; it may not compute one.
   rewritten journal at equal seq is the tamper case `anchor` exists for.
   The RUNS fleet cannot poll that way (it has no single run), and cloning
   `Cmd::Runs` into a 250 ms tick would re-read and re-fold every event of
-  every run four times a second while a `forge run` holds the write lock,
+  every run four times a second while a `brokkr run` holds the write lock,
   so it refolds on a named slower cadence and on `r`. `Cmd::Runs`'s `?`
   is **not** copied: the TUI passes `fold(..).ok()` and lets
   `RunRow.status_known` produce the absence mark, because one corrupt run
@@ -137,7 +137,7 @@ field; it may not compute one.
 - **One dependency entry.** `ratatui = { version = "0.30",
   default-features = false, features = ["crossterm"] }` in
   `[workspace.dependencies]`, referenced only by
-  `crates/forge-cli/Cargo.toml`; crossterm arrives through ratatui's own
+  `crates/brokkr-cli/Cargo.toml`; crossterm arrives through ratatui's own
   re-export. The ruling adopts crossterm as a capability, not as a
   manifest line, and a separate entry can resolve a different crossterm
   than `ratatui-crossterm` links — two raw-mode implementations, one of
@@ -163,8 +163,8 @@ Design artifacts:
 
 - **Surfaces**: three (console, CLI readouts, TUI) over one derivation.
   0013's invariant holds by construction — this change adds no derivation
-  and modifies `forge-view` not at all.
-- **Existing behaviour**: `forge runs`, `inspect`, `watch` and `ui` are
+  and modifies `brokkr-view` not at all.
+- **Existing behaviour**: `brokkr runs`, `inspect`, `watch` and `ui` are
   unchanged; their goldens are the parity baseline and stay
   byte-identical, including through the `Safe`, `tone()` and
   `session_turns` refactors. The `/api/session` response body is
@@ -174,11 +174,11 @@ Design artifacts:
 - **Dependency tree**: the forge gains ratatui and its crossterm backend
   — the price of the capability, ruled deliberately by 0014 rather than
   smuggled in, covered by CI's RustSec audit job, and confined to
-  `forge-cli`. `forge-view`'s manifest stays exactly `forge-core`,
+  `brokkr-cli`. `brokkr-view`'s manifest stays exactly `brokkr-core`,
   `serde`, `serde_json`, which is what makes its purity a compile error.
 - **Operator boundary**: unchanged. The TUI issues no operator commands,
   starts no runs, writes nothing to the journal, and now also creates no
-  database it promised only to read. `forge operator retry|stop` stay CLI
+  database it promised only to read. `brokkr operator retry|stop` stay CLI
   verbs precisely because they are consequential (0003, restated by
   0014).
 - **CI**: the Windows leg gains a real dependency on crossterm's console
@@ -186,7 +186,7 @@ Design artifacts:
   full-screen program whose every impure line has a named seam; the
   audit job gains a tree.
 - **Known deviations, flagged not smuggled**: CJK and emoji align better
-  inside the TUI than in `forge runs`, because ratatui carries
+  inside the TUI than in `brokkr runs`, because ratatui carries
   `unicode-width` internally — a consequence of the ruling's own
   adoption, improving the newer surface and changing no older one. The
   five process-global crossterm calls are never executed under coverage;

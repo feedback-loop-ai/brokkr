@@ -42,7 +42,7 @@ which the self-forge loop runs) is one revertible commit.
   `codex`, `dsh`, `exec`. Each declares binary, driver prefix, models,
   and for `model_flag` / `tool_permissions` / `mcp` either a mapping or
   the explicit string `"unsupported"`. Every value is derived from
-  `crates/forge-protocol/src/adapters.rs` and the provider CLI's
+  `crates/brokkr-protocol/src/adapters.rs` and the provider CLI's
   documented flags; where the truth is not established, the file says
   `"unsupported"` rather than guessing.
   *Proven by*: AC-9's fixture test proving the loader is data-driven,
@@ -62,7 +62,7 @@ which the self-forge loop runs) is one revertible commit.
 - [x] **T6 — `resolve()` and `Availability`.** The signature of
   plan.md; `Presence` tri-state; `unspecified()` performs no
   availability filtering. First mapped candidate wins; `unavailable`
-  skips and records `skipped[]`; the composed argv keeps `{forge}`
+  skips and records `skipped[]`; the composed argv keeps `{brokkr}`
   unexpanded.
   *Proven by*: AC-1 — two processes, byte-identical output including key
   order, and an anti-drift test asserting `agents.rs` contains no
@@ -148,7 +148,7 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 5 — the readouts
 
-- [x] **T16 — One derivation.** `forge-view` gains `Provenance` on
+- [x] **T16 — One derivation.** `brokkr-view` gains `Provenance` on
   `Participant`, derived at the `EffectStarted` arm; run-level notices
   read from the already-journaled `run/started.payload.manifest.agents`;
   `VIEW_VERSION` → 2.
@@ -161,9 +161,9 @@ which the self-forge loop runs) is one revertible commit.
   *Proven by*: AC-8, AC-17, and the anti-drift test that no surface
   formats provenance itself.
 
-- [x] **T18 — `forge compare` resolution divergence.** A first-class
+- [x] **T18 — `brokkr compare` resolution divergence.** A first-class
   `resolution_divergence` per seat and member, computed by calling the
-  `forge-view` derivation for each run — what actually ran, not what was
+  `brokkr-view` derivation for each run — what actually ran, not what was
   pinned — reported unconditionally, including when `same_recipe` is
   `true`.
   *Proven by*: AC-18, including the case where the digests agree and the
@@ -171,14 +171,14 @@ which the self-forge loop runs) is one revertible commit.
 
 ## Movement 6 — the CLI
 
-- [x] **T19 — `forge agents list|show`.** `list` prints
+- [x] **T19 — `brokkr agents list|show`.** `list` prints
   `name ⇥ chain ⇥ description`, warning without aborting on a broken
   file; `show` prints the definition plus a `resolution` block from the
   same `resolve`; unknown name errors naming the known set.
   `--agents-dir` / `--adapters-dir` default to `agents` / `adapters`.
   *Proven by*: AC-10.
 
-- [x] **T20 — `forge doctor` reads the adapter files.** The hardcoded
+- [x] **T20 — `brokkr doctor` reads the adapter files.** The hardcoded
   five-tuple is replaced by a loop over `adapters/`, reporting per
   provider its binary, its probe result and its declared models, and per
   agent which model would be chosen **here** — by calling `resolve` with

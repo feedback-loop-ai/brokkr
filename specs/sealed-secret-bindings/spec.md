@@ -27,7 +27,7 @@ testable, plus one amendment to the checkpoint-target ruling.
 ## The confinement statement (the spec in one paragraph)
 
 **One process holds plaintext: the exec driver. One module holds
-plaintext: `crates/forge-protocol/src/secret.rs`. One choke point
+plaintext: `crates/brokkr-protocol/src/secret.rs`. One choke point
 masks: the exec arm, on the raw captured bytes, before anything else
 touches them.** The engine passes *names* and the *store path* through
 the driver `start` input (both journal-safe); the exec arm opens the
@@ -46,7 +46,7 @@ reach model seats — a claude/codex seat in the same bundle cannot
   dropped; undeclared names never resolve. The key is a bundle-format
   addition only; no frozen contract changes.
 - Bundle compile (`parse_command` / charter parsing in
-  `crates/forge-runtime/src/bundle.rs`) fails, in the existing
+  `crates/brokkr-runtime/src/bundle.rs`) fails, in the existing
   `CompileError::Invalid` load-time-refusal shape (decisions 0004/0007),
   on any of:
   1. **Undeclared reference** — a well-formed `{{secret:NAME}}` whose
@@ -63,7 +63,7 @@ reach model seats — a claude/codex seat in the same bundle cannot
      harness-owned prefix `FORGE_`. All match the name grammar; all
      would turn the injector into an env-hijack or harness-spoofing
      primitive. One shared constant, also enforced by
-     `forge secrets set` (layer 2).
+     `brokkr secrets set` (layer 2).
 - The lint is **one-directional**: referenced ⇒ declared.
   Declared-but-unreferenced is legal and injected (layer 3) — the
   headline consumers (`gh` reading `GH_TOKEN`) take secrets from the
@@ -71,7 +71,7 @@ reach model seats — a claude/codex seat in the same bundle cannot
 
 ## Layer 2 — Operator-side store
 
-- `forge secrets set|list|remove NAME` manages an env-format
+- `brokkr secrets set|list|remove NAME` manages an env-format
   (`NAME=value`, line-oriented, `#` comments and blank lines ignored)
   file outside the bundle and outside version control. Default
   `.forge/secrets.env` (`.forge/` is already gitignored); overridable
@@ -96,7 +96,7 @@ reach model seats — a claude/codex seat in the same bundle cannot
   `[secret:X]` confetti and destroys the evidence trail). `set` also
   enforces the layer-1 name grammar and denylist.
 - **`list`** prints names, never values. There is **no
-  `forge secrets get`** — a value-printing verb is the one thing this
+  `brokkr secrets get`** — a value-printing verb is the one thing this
   decision exists to prevent.
 - **Digest stability**: bundles and their digests carry names only, so
   rotation never changes a digest. This holds *only because* the store
@@ -112,7 +112,7 @@ reach model seats — a claude/codex seat in the same bundle cannot
 
 - Values reach the child **only via the child environment**
   (`Command::env`), resolved at spawn time inside the exec arm of
-  `crates/forge-protocol/src/adapters.rs`. Never via argv
+  `crates/brokkr-protocol/src/adapters.rs`. Never via argv
   (`/proc/*/cmdline` is world-readable), never via template
   substitution.
 - **Injection is driven by declaration, not by template reference**:
@@ -138,14 +138,14 @@ reach model seats — a claude/codex seat in the same bundle cannot
 - If a declared name collides with a pre-existing child env entry, the
   declared secret wins (documented; no `FORGE_SECRET_*` namespacing —
   the ruling pins the `$NAME` spelling).
-- The engine (`crates/forge-runtime/src/engine.rs`) threads exactly two
+- The engine (`crates/brokkr-runtime/src/engine.rs`) threads exactly two
   facts into the driver `start` input: the declared names and the store
   path. Both are journal-safe. Resolution never happens engine-side —
-  grep-able: no secret-store read exists in `forge-runtime`.
+  grep-able: no secret-store read exists in `brokkr-runtime`.
 
 ## Layer 4 — The `Secret` type
 
-Lives in the new module `crates/forge-protocol/src/secret.rs`, which is
+Lives in the new module `crates/brokkr-protocol/src/secret.rs`, which is
 the plaintext trust boundary, not just a type:
 
 - No `Display` (pinned by a compile-fail test); hand-implemented
@@ -170,7 +170,7 @@ the plaintext trust boundary, not just a type:
   references (one literal prefix, one character class, one suffix — a
   `regex` dependency fails the decision-0009 posture for no gain).
   Layer 4's justify-any-dependency clause is satisfied by having
-  nothing to justify; forge-protocol's `Cargo.toml` is untouched.
+  nothing to justify; brokkr-protocol's `Cargo.toml` is untouched.
 
 ## Layer 5 — Known-plaintext masking
 
@@ -213,13 +213,13 @@ the plaintext trust boundary, not just a type:
   spec so a one-line "optimize to streaming" PR cannot drop it
   unnoticed.
 - Exact matching against known literals only — no entropy or blocklist
-  guessing. UI (`forge ui`) reads only journal envelopes via
+  guessing. UI (`brokkr ui`) reads only journal envelopes via
   `store.load`, so journal-side masking covers it with zero UI code
   (verified by the panel; `ui.rs`/`ui.html` untouched).
 
 ## Layer 6 — Journal invariant (machine proof)
 
-A machine proof in `crates/forge-cli/tests/machine_proof.rs`
+A machine proof in `crates/brokkr-cli/tests/machine_proof.rs`
 (scripted-child pattern per `driver_conformance.rs`): bind a secret,
 run an exec effect whose child prints the value in **every** listed
 encoding to **stdout and stderr**, and also writes it into its **result
@@ -255,7 +255,7 @@ stderr-tail journal path).
   encrypted store needs a key, which needs a store — that regress is
   Vault's job); no remote/managed backends and no backend trait for a
   single implementation.
-- No `forge secrets get`; no per-step scoping, TTLs, audit log, or
+- No `brokkr secrets get`; no per-step scoping, TTLs, audit log, or
   rotation history; no new protocol message kinds; no streaming
   masker; no `sh -c` wrapping.
 - No changes to `policy/phase-machine.json`, `reference/`, `fixtures/`
@@ -268,7 +268,7 @@ stderr-tail journal path).
 ## Acceptance Criteria
 
 Each criterion is testable; unit tests live beside the code they prove,
-machine proofs in `crates/forge-cli/tests/machine_proof.rs`.
+machine proofs in `crates/brokkr-cli/tests/machine_proof.rs`.
 
 1. **Name grammar and reference scanning**: `[A-Z][A-Z0-9_]*`
    accept/reject vectors; the scanner finds well-formed references and

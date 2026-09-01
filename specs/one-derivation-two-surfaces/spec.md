@@ -15,7 +15,7 @@ The read-only console grew real domain logic during the UX pass — which
 member concludes when, what a phase's traffic is, what a seat cost, when
 an absence is deliberate. All of it is JavaScript inside `ui.html`, and
 **none of it runs under the coverage gate**. Meanwhile the CLI never got
-that pass: `forge runs` prints each run's entire feature text, `forge
+that pass: `brokkr runs` prints each run's entire feature text, `forge
 inspect` dumps raw `RunState` JSON — and the operator sits in a terminal
 over SSH while a forge runs, which is exactly where the readout is worst.
 
@@ -27,8 +27,8 @@ render surfaces it makes honest.
 
 ## The design in one paragraph
 
-`forge-view` is a **new crate** whose `Cargo.toml` depends on exactly
-`forge-core`, `serde` and `serde_json` — so "no I/O, no rendering, no
+`brokkr-view` is a **new crate** whose `Cargo.toml` depends on exactly
+`brokkr-core`, `serde` and `serde_json` — so "no I/O, no rendering, no
 terminal or DOM concepts" is a compile error rather than a review
 convention, and `now` must be a parameter because the crate has no
 clock. It derives over `serde_json::Value` with the same `typeof` guards
@@ -38,10 +38,10 @@ displayed scalar reaches the model as a **(structured value, rendered
 text) pair**: the console's renderer is JavaScript and cannot call a
 Rust helper, so a model that carried only raw values would force the
 page to re-derive its formatting — the exact duplication this decision
-exists to end. `forge ui` gains one route, `/api/view/<run>`;
+exists to end. `brokkr ui` gains one route, `/api/view/<run>`;
 `/api/runs` is reserialized as run rows; `ui.html` keeps SVG geometry,
 DOM building and interaction, and its derivation is deleted under a test
-that fails if it comes back. `forge-cli` gains `render.rs`: two pure
+that fails if it comes back. `brokkr-cli` gains `render.rs`: two pure
 string functions (`runs`, `inspect`) where a `watch` frame is `inspect`
 without the trail, colour is a post-processing wrap gated on
 `IsTerminal`/`NO_COLOR`/`TERM=dumb`, and every string reaching a
@@ -137,7 +137,7 @@ because neither knows the rule.
 
 ## Rules ported verbatim from `ui.html`
 
-`crates/forge-cli/src/ui.html` as it stands today **is** the
+`crates/brokkr-cli/src/ui.html` as it stands today **is** the
 specification. Line references are to that file. The rules the framing
 enumerates (§1a–§1g) are adopted in full and are not restated here;
 what follows is the list of places where the obvious Rust is **not** the
@@ -170,7 +170,7 @@ it into `Participant.activity` would delete an observable surface.
 
 ## Surfaces
 
-### `forge ui` — the console keeps painting only
+### `brokkr ui` — the console keeps painting only
 
 - **`GET /api/view/<run>`** returns `RunView`: one journal array whose
   rows carry `in_trail` and `phases`, so the full-journal toggle filters
@@ -191,7 +191,7 @@ it into `Participant.activity` would delete an observable surface.
   never a class name. `textContent` discipline is unchanged; the models
   are still untrusted seat-authored content.
 
-### `forge runs`
+### `brokkr runs`
 
 One clamped line per run, newest first: id, status, phase, `seq N`, age,
 feature. Columns are sized to the widest value in the batch (saturating);
@@ -200,7 +200,7 @@ below 8 remaining columns the feature is omitted rather than mangled.
 The `N runs` trailer leaves the human output and survives as
 `RunsView.count` in `--json`.
 
-### `forge inspect`
+### `brokkr inspect`
 
 Header, ruling line, park reason when present, the seats table with the
 console's six columns (participant, status, attempts, turns, cost,
@@ -232,7 +232,7 @@ about the run. A `--phase`/`--seat` value matching nothing exits nonzero
 naming the valid values; an empty table would read as "this phase did
 nothing".
 
-### `forge watch <run>`
+### `brokkr watch <run>`
 
 Polls `Store::head_hash` and compares **both** seq and hash — a rewritten
 journal at equal seq is the tamper case `anchor` exists for, and `watch`
@@ -240,7 +240,7 @@ should redraw rather than sit blind. On change it reloads, re-derives and
 redraws a frame that is `inspect` without the trail. `--once` prints one
 frame. `--interval` tunes the poll with the existing 100ms floor
 (`main.rs:596`) and rejects garbage rather than defaulting silently. A
-transient store error (`SQLITE_BUSY` while a `forge run` holds the write
+transient store error (`SQLITE_BUSY` while a `brokkr run` holds the write
 lock) is a frame that says so, not an exit; a persistent error exits
 nonzero. Exit is on `status != Running` — including `AwaitingOperator`,
 because a park admits no further events until a human acts and "keep
@@ -275,7 +275,7 @@ for scripts using `--json`.
 
 `COLUMNS` parses to `Option<usize>`, defaults 80, clamps to `[20, 1000]`.
 All column arithmetic saturating; all truncation on `char` boundaries —
-byte-slicing a UTF-8 feature panics, and a panic in `forge runs` is worse
+byte-slicing a UTF-8 feature panics, and a panic in `brokkr runs` is worse
 than any misalignment. Without a Unicode-width dependency (forbidden),
 CJK and emoji columns **will** misalign; this is stated in the module doc
 and here, not pretended away.
@@ -294,7 +294,7 @@ any kind. No writes from any of these surfaces. No change to the engine,
 reducer, evaluator, policy semantics, journal schema or checkpoint
 vocabulary. No new geometry or visual redesign of the console — this is
 an extraction, not a UX pass. No second derivation anywhere. No changes
-to `forge costs`, `compare`, `export`, `replay`, `verify-run`, `anchor`
+to `brokkr costs`, `compare`, `export`, `replay`, `verify-run`, `anchor`
 or the bridge. No transcript-format changes.
 
 ## Constitutional constraints
@@ -311,12 +311,12 @@ coerced or defaulted into a plausible value.
 
 ## Acceptance Criteria
 
-- **AC-1 — `forge-view` purity is structural.** The crate's
-  `[dependencies]` are exactly `forge-core`, `serde`, `serde_json`. Its
+- **AC-1 — `brokkr-view` purity is structural.** The crate's
+  `[dependencies]` are exactly `brokkr-core`, `serde`, `serde_json`. Its
   sources contain no `std::fs`, `std::env`, `IsTerminal`, `print!`/
   `println!`, and no clock; `run_rows`/`age` take `now` as a parameter.
   Proven by an anti-drift test asserting the banned tokens are absent
-  from `crates/forge-view/src/*.rs`, plus the manifest.
+  from `crates/brokkr-view/src/*.rs`, plus the manifest.
 - **AC-2 — Participants.** Keying (`effect_id` / `effect_id:member`) and
   labelling (`seat` / `seat:member`); `seat` defaults `'?'`; `phase` only
   when a string; unknown-`effect_id` events skipped; insertion order
@@ -412,20 +412,20 @@ coerced or defaulted into a plausible value.
   legend, live pulsing and the stateful favicon, selection survival and
   self-clearing across SSE re-renders, the 5s `loadRuns` poll, and the
   textContent-only discipline with class names from fixed allowlists.
-- **AC-19 — `forge runs`.** Golden line output at several widths
+- **AC-19 — `brokkr runs`.** Golden line output at several widths
   including the feature-clamp boundary and the width below which the
   feature column is dropped; newest-first order; no `N runs` trailer;
   `--json` emits `RunsView` verbatim.
-- **AC-20 — `forge inspect`.** Golden readout: header, ruling line, park
+- **AC-20 — `brokkr inspect`.** Golden readout: header, ruling line, park
   reason present and absent, the six-column seats table, the trail, and
   the tree with a fork, with a sequence, and with both. `--phase` and
   `--seat` each golden-tested; the two are rejected together by
   `ArgGroup`; `--seat` returns every matching occurrence and also matches
   an exact participant key; a non-matching value exits nonzero naming the
   valid values. `--json` emits the `RunView` verbatim with
-  `view_version: 1`, and `forge inspect --json | jq .summary` reproduces
-  today's `forge inspect` output verbatim.
-- **AC-21 — `forge watch`.** `--once` golden frame (graph, seats, last
+  `view_version: 1`, and `brokkr inspect --json | jq .summary` reproduces
+  today's `brokkr inspect` output verbatim.
+- **AC-21 — `brokkr watch`.** `--once` golden frame (graph, seats, last
   ruling, live activity; no trail); a redraw triggered by a seq change
   and by a hash-only change; `--interval` floored at 100ms and rejecting
   garbage; non-tty appends timestamped frames with no ANSI; exit on

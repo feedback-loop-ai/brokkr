@@ -119,6 +119,101 @@ dependencies = [
 ]
 
 [[package]]
+name = "brokkr-bridge"
+version = "0.4.0"
+dependencies = [
+ "brokkr-core",
+ "brokkr-runtime",
+ "brokkr-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "time",
+ "ureq",
+]
+
+[[package]]
+name = "brokkr-cli"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "brokkr-bridge",
+ "brokkr-core",
+ "brokkr-protocol",
+ "brokkr-runtime",
+ "brokkr-store",
+ "brokkr-view",
+ "clap",
+ "ratatui",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "time",
+]
+
+[[package]]
+name = "brokkr-core"
+version = "0.4.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "time",
+ "url",
+]
+
+[[package]]
+name = "brokkr-protocol"
+version = "0.4.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "brokkr-runtime"
+version = "0.4.0"
+dependencies = [
+ "brokkr-core",
+ "brokkr-protocol",
+ "brokkr-store",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "brokkr-store"
+version = "0.4.0"
+dependencies = [
+ "brokkr-core",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "brokkr-view"
+version = "0.4.0"
+dependencies = [
+ "brokkr-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -433,101 +528,6 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
-
-[[package]]
-name = "forge-bridge"
-version = "0.4.0"
-dependencies = [
- "forge-core",
- "forge-runtime",
- "forge-store",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "ureq",
-]
-
-[[package]]
-name = "forge-cli"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "clap",
- "forge-bridge",
- "forge-core",
- "forge-protocol",
- "forge-runtime",
- "forge-store",
- "forge-view",
- "ratatui",
- "rusqlite",
- "serde_json",
- "tempfile",
- "time",
-]
-
-[[package]]
-name = "forge-core"
-version = "0.4.0"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "time",
- "url",
-]
-
-[[package]]
-name = "forge-protocol"
-version = "0.4.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "uuid",
-]
-
-[[package]]
-name = "forge-runtime"
-version = "0.4.0"
-dependencies = [
- "forge-core",
- "forge-protocol",
- "forge-store",
- "rusqlite",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "uuid",
-]
-
-[[package]]
-name = "forge-store"
-version = "0.4.0"
-dependencies = [
- "forge-core",
- "rusqlite",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "uuid",
-]
-
-[[package]]
-name = "forge-view"
-version = "0.4.0"
-dependencies = [
- "forge-core",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "form_urlencoded"
