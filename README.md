@@ -9,7 +9,7 @@
 [![coverage · literal 100%](https://img.shields.io/badge/coverage%20%C2%B7%20literal%20100%25-brightgreen)](scripts/coverage-exact.sh)
 [![deps · permissive-only](https://img.shields.io/badge/deps%20%C2%B7%20permissive--only-brightgreen)](deny.toml)
 [![platforms](https://img.shields.io/badge/linux%20x86__64%2Faarch64%20%C2%B7%20macos%20x86__64%2Farm64%20%C2%B7%20windows-blue)](https://github.com/feedback-loop-ai/brokkr/releases/latest)
-[![rust](https://img.shields.io/badge/rust-1.85%2B-orange)](Cargo.toml)
+[![rust](https://img.shields.io/badge/rust-1.88%2B-orange)](Cargo.toml)
 
 **Coordination tools help agents work together. Brokkr proves what they
 did** — runs you can replay, rulings you can audit, releases you can
@@ -176,7 +176,7 @@ checked against the workflow that produced it:
 gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 ```
 
-**Or build it.** Rust 1.85 or newer:
+**Or build it.** Rust 1.88 or newer:
 
 ```
 cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
