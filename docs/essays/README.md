@@ -11,3 +11,4 @@ and the journals they cite are the footnotes.
 | [Decisions as Code](decisions-as-code.md) | ADRs with teeth, policy with a memory: deliberate → rule → encode → enforce → evidence → amend. |
 | [The Lore](the-lore.md) | Why a mythology layer is an engineering decision: a name that carries its lesson is documentation with a recall rate — if, and only if, the fun is under law. |
 | [The Machine That Argued With Itself](the-machine-that-argued-with-itself.md) | Self-review is theater until structure makes it argument: fresh contexts, typed verdicts, real consequences, bounded returns, and a judge that is not a model. |
+| [The Wager](the-wager.md) | Fair model comparison is an architecture property: two crews, one commission, two confessions from the referee — and the gods judged the gifts without asking which dwarf made them. |
