@@ -69,7 +69,21 @@ cannot be recalled is not delegation; it is abdication.
    proposes (that is Muninn's office) nor improvises. Act within the
    loan, or hand the piece back.
 
-6. **Layering.** Per the OSS-core ruling, the grant *schema* and the
+6. **Determinism verifies; judgment never guards its own walls.** The
+   operator's ruling, general before it is specific: *a feedback loop
+   that can be specified deterministically must never be implemented
+   stochastically.* Everything that checks a grant is deterministic
+   code with an exit status — the signature by `gpg --verify`, the
+   expiry by a clock comparison, the ceiling and schema by the loader's
+   refusal, the budgets by journaled counters — and none of it is ever
+   a model reading a file and deciding. Skírnir's judgment begins only
+   inside walls he cannot check, hold, or move; he is never his own
+   auditor. (The evidence is this project's own week: a merge tally
+   enforced by agent discipline failed three times; the same tally as
+   branch-protection law cannot fail. Judgment is lawful only where
+   determinism is impossible.)
+
+7. **Layering.** Per the OSS-core ruling, the grant *schema* and the
    loader's refusals may land in the open core (they are contract and
    law); the standing runner — summons, cadence, briefing assembly — is
    build-on-top territory and waits for the core's v1.0.
