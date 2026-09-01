@@ -517,3 +517,410 @@ fn one_redaction_scrubs_a_journal_and_the_manifest_beside_it_alike() {
     // Scrubbing the journal alone is still exactly `redact_export`.
     assert_eq!(redact_export(ndjson).unwrap(), journal);
 }
+
+// ── import: the verb paired with export (decision 0027) ──────────────
+
+/// A native run in its own journal, exported the way `brokkr export`
+/// exports it: the canonical NDJSON and the pinned manifest beside it.
+fn exported_run(run_id: &str, phase: &str) -> (tempfile::TempDir, Store, String, Value) {
+    let (dir, mut store) = store();
+    let manifest = json!({"bundle_name": "self", "files": {"recipe": "sha"}});
+    store
+        .create_run(run_id, "the missing verb", "self", &manifest)
+        .unwrap();
+    store
+        .append_next(
+            run_id,
+            EventType::RunStarted,
+            json!({"feature": "the missing verb", "manifest": manifest}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            run_id,
+            EventType::PhaseEntered,
+            json!({"phase": phase}),
+            None,
+            None,
+        )
+        .unwrap();
+    let ndjson = store.export_ndjson(run_id).unwrap();
+    (dir, store, ndjson, manifest)
+}
+
+/// A destination journal, empty until something relocates into it.
+fn destination() -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("destination.db")).unwrap();
+    (dir, store)
+}
+
+/// The export path an adoption records as the place the run arrived from.
+fn origin(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from("/exports/wave-1").join(name)
+}
+
+/// A journal that arrives is the journal that left: the destination
+/// re-exports the very bytes it was handed, and folds to the same state.
+#[test]
+fn import_adopts_an_exported_run_byte_identically() {
+    let (_source_dir, source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+
+    let adoption = dest
+        .import_run(&ndjson, &manifest, &origin("r1.ndjson"))
+        .unwrap();
+    assert_eq!(adoption.run_id, "r1");
+    assert_eq!(adoption.events, 2);
+
+    // Bytes, not semantics: a re-export of the adopted run reproduces
+    // the source export exactly.
+    assert_eq!(dest.export_ndjson("r1").unwrap(), ndjson);
+    let here = source.load("r1").unwrap();
+    let there = dest.load("r1").unwrap();
+    assert_eq!(
+        format!("{:?}", brokkr_core::fold(&there).unwrap()),
+        format!("{:?}", brokkr_core::fold(&here).unwrap()),
+    );
+    // The head is the head it always was — the bytes it was computed
+    // over never moved.
+    assert_eq!(adoption.head_hash, there.last().unwrap().event_hash);
+    assert_eq!(dest.head_hash("r1").unwrap().1, adoption.head_hash);
+    // The runs row is derived from the verified chain, not the sidecar.
+    assert_eq!(dest.manifest("r1").unwrap(), manifest);
+    assert_eq!(
+        dest.list_runs().unwrap(),
+        vec![(
+            "r1".to_string(),
+            "the missing verb".to_string(),
+            there[0].recorded_at.clone(),
+        )]
+    );
+}
+
+/// Arrival is bookkeeping BESIDE the chain: queryable on the adopted
+/// run, absent on a native one, and invisible to the events either way.
+#[test]
+fn an_adopted_run_carries_arrival_metadata_beside_an_untouched_chain() {
+    let (_source_dir, source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+    let from = origin("r1.ndjson");
+    dest.import_run(&ndjson, &manifest, &from).unwrap();
+
+    let arrival = dest
+        .arrival("r1")
+        .unwrap()
+        .expect("adopted run has arrival");
+    assert_eq!(arrival.imported_from, from.display().to_string());
+    // An RFC3339 instant, not a placeholder.
+    assert!(
+        OffsetDateTime::parse(&arrival.imported_at, &Rfc3339).is_ok(),
+        "{arrival:?}"
+    );
+
+    // The native original's row is untouched by this feature: nothing
+    // on `create_run`'s path populates arrival columns.
+    assert_eq!(source.arrival("r1").unwrap(), None);
+    assert!(matches!(
+        dest.arrival("nope"),
+        Err(StoreError::RunNotFound(_))
+    ));
+
+    // And the chain the arrival sits beside says nothing about it.
+    let stored: Vec<String> = dest
+        .conn
+        .prepare("SELECT envelope FROM events WHERE run_id = 'r1' ORDER BY seq")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for envelope in &stored {
+        assert!(!envelope.contains("import"), "{envelope}");
+    }
+}
+
+/// One broken link refuses the WHOLE import. No prefix of good events
+/// is adopted, and the destination is left exactly as it was.
+#[test]
+fn import_refuses_a_broken_chain_and_adopts_no_prefix_of_it() {
+    let (_source_dir, _source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+
+    // One byte inside a payload field of the SECOND event: its recorded
+    // hash no longer covers its content, while every seq and
+    // previous_hash still lines up.
+    let mut lines: Vec<String> = ndjson.lines().map(str::to_string).collect();
+    let mut second: Value = serde_json::from_str(&lines[1]).unwrap();
+    second["payload"]["phase"] = json!("intakf");
+    lines[1] = serde_json::to_string(&second).unwrap();
+    let corrupt = format!("{}\n", lines.join("\n"));
+
+    let refusal = dest
+        .import_run(&corrupt, &manifest, &origin("r1.ndjson"))
+        .unwrap_err();
+    assert!(
+        matches!(
+            refusal,
+            ImportError::Verify(VerifyError::Chain(ChainError::BadHash { seq: 2 }))
+        ),
+        "{refusal}"
+    );
+    // Nothing landed: not the run, not its first, good event.
+    assert!(dest.list_runs().unwrap().is_empty());
+    assert!(matches!(dest.load("r1"), Err(StoreError::RunNotFound(_))));
+
+    // A line that is not an envelope at all refuses the same way.
+    let refusal = dest
+        .import_run("{ not an envelope }\n", &manifest, &origin("r1.ndjson"))
+        .unwrap_err();
+    assert!(
+        matches!(refusal, ImportError::Verify(VerifyError::Parse(_))),
+        "{refusal}"
+    );
+    assert!(dest.list_runs().unwrap().is_empty());
+}
+
+/// A chain can verify and still not be a run. The fold's refusal is the
+/// import's refusal, with the fold's own citation.
+#[test]
+fn import_refuses_a_journal_the_fold_refuses() {
+    // Every hash, seq and previous_hash is correct — the journal simply
+    // does not open with `run/started`, so no fold can read it.
+    let (_source_dir, mut source) = destination();
+    source
+        .create_run("r1", "feat", "self", &json!({"bundle_name": "self"}))
+        .unwrap();
+    source
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "intake"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let ndjson = source.export_ndjson("r1").unwrap();
+
+    let (_dest_dir, mut dest) = destination();
+    let refusal = dest
+        .import_run(
+            &ndjson,
+            &json!({"bundle_name": "self"}),
+            &origin("r1.ndjson"),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            refusal,
+            ImportError::Verify(VerifyError::Fold(
+                brokkr_core::FoldError::FirstEventNotRunStarted { seq: 1 }
+            ))
+        ),
+        "{refusal}"
+    );
+    assert!(dest.list_runs().unwrap().is_empty());
+
+    // An empty export is the same kind of refusal: there is no run in it.
+    let refusal = dest
+        .import_run("", &json!({}), &origin("empty.ndjson"))
+        .unwrap_err();
+    assert!(
+        matches!(
+            refusal,
+            ImportError::Verify(VerifyError::Fold(brokkr_core::FoldError::Empty))
+        ),
+        "{refusal}"
+    );
+}
+
+/// A run_id is hashed into every envelope of its chain, so an adoption
+/// can neither rename nor overwrite a collision. It refuses, and what is
+/// already here is untouched.
+#[test]
+fn import_refuses_a_run_id_collision_outright() {
+    let (_source_dir, _source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+    dest.import_run(&ndjson, &manifest, &origin("r1.ndjson"))
+        .unwrap();
+
+    // A genuinely DIFFERENT run that happens to share the run_id: other
+    // events, other hashes, same name.
+    let (_other_dir, _other, other, other_manifest) = exported_run("r1", "verify");
+    assert_ne!(other, ndjson);
+    let refusal = dest
+        .import_run(&other, &other_manifest, &origin("r1.ndjson"))
+        .unwrap_err();
+    assert!(
+        matches!(refusal, ImportError::Collision(ref run) if run == "r1"),
+        "{refusal}"
+    );
+    // The copy already here is the one still here — not overwritten, not
+    // appended to, not duplicated.
+    assert_eq!(dest.export_ndjson("r1").unwrap(), ndjson);
+    assert_eq!(dest.list_runs().unwrap().len(), 1);
+}
+
+/// Adoption is once, not idempotent: the same export twice is the same
+/// refusal a stranger sharing the run_id gets. Named on its own so
+/// "import is idempotent" is never quietly assumed.
+#[test]
+fn a_second_import_of_the_same_export_is_not_a_quiet_no_op() {
+    let (_source_dir, _source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+    let from = origin("r1.ndjson");
+    let first = dest.import_run(&ndjson, &manifest, &from).unwrap();
+
+    let refusal = dest.import_run(&ndjson, &manifest, &from).unwrap_err();
+    assert!(
+        matches!(refusal, ImportError::Collision(ref run) if run == "r1"),
+        "{refusal}"
+    );
+    assert!(refusal.to_string().contains("already carries run 'r1'"));
+    // Byte-identical to the first adoption, and its arrival is the first
+    // arrival — the second call recorded nothing.
+    assert_eq!(dest.export_ndjson("r1").unwrap(), ndjson);
+    assert_eq!(dest.arrival("r1").unwrap(), Some(first.arrival));
+    assert_eq!(dest.list_runs().unwrap().len(), 1);
+}
+
+/// A redacted export's recorded hashes never verify against its
+/// rewritten bytes, so importing one could only ever adopt unverifiable
+/// content. Refused by either mark, before content is read at all —
+/// there is no `--force`.
+#[test]
+fn import_refuses_a_redacted_derivative_by_either_mark() {
+    let (_source_dir, _source, ndjson, manifest) = exported_run("r1", "intake");
+    let (_dest_dir, mut dest) = destination();
+
+    // By filename — and with content that would fail every later gate
+    // on its own, to prove the refusal happens before any of them.
+    let refusal = dest
+        .import_run(
+            "this is not NDJSON at all",
+            &manifest,
+            &origin("r1.redacted.ndjson"),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(refusal, ImportError::Redacted(ref named) if named == "r1.redacted.ndjson"),
+        "{refusal}"
+    );
+    assert!(refusal.to_string().contains("redacted derivative"));
+
+    // By the manifest's own marker, on a pair somebody renamed back —
+    // here with a path that has no file name to sniff at all, and a
+    // journal whose chain would otherwise verify.
+    let marked = json!({"bundle_name": "self", "redacted": true});
+    let refusal = dest
+        .import_run(&ndjson, &marked, std::path::Path::new("/"))
+        .unwrap_err();
+    assert!(matches!(refusal, ImportError::Redacted(_)), "{refusal}");
+
+    // The real redacted journal `export --redact` writes, under its own
+    // name: refused, and nothing landed from any of the three attempts.
+    let redacted = redact_export(&ndjson).unwrap();
+    assert!(dest
+        .import_run(&redacted, &marked, &origin("r1.redacted.ndjson"))
+        .is_err());
+    assert!(dest.list_runs().unwrap().is_empty());
+}
+
+/// The destination's `runs` row is derived from the verified chain, so an
+/// export whose `run/started` cannot answer for it is refused rather than
+/// filled in from the sidecar manifest no hash covers.
+#[test]
+fn import_refuses_an_export_whose_chain_cannot_answer_for_the_runs_row() {
+    let sealed = |payload: Value| {
+        let envelope = EventEnvelope {
+            run_id: "r1".into(),
+            seq: 1,
+            event_id: "e1".into(),
+            event_schema_version: 1,
+            event_type: EventType::RunStarted,
+            payload,
+            causation_id: None,
+            correlation_id: "r1".into(),
+            attempt_id: None,
+            recorded_at: "2026-01-01T00:00:00Z".into(),
+            previous_hash: ZERO_HASH.into(),
+            event_hash: String::new(),
+        }
+        .sealed();
+        format!(
+            "{}\n",
+            serde_json::to_string(&serde_json::to_value(&envelope).unwrap()).unwrap()
+        )
+    };
+    let (_dest_dir, mut dest) = destination();
+    // A sidecar that says everything — and is believed for nothing.
+    let sidecar = json!({"bundle_name": "self", "feature": "invented"});
+
+    for (payload, field) in [
+        (json!({"manifest": {"bundle_name": "self"}}), "feature"),
+        (json!({"feature": "f"}), "manifest"),
+    ] {
+        let refusal = dest
+            .import_run(&sealed(payload), &sidecar, &origin("r1.ndjson"))
+            .unwrap_err();
+        assert!(
+            matches!(refusal, ImportError::Unattested { field: found } if found == field),
+            "{refusal}"
+        );
+    }
+    assert!(dest.list_runs().unwrap().is_empty());
+
+    // A manifest without `bundle_name` is not refused: the column is a
+    // denormalization nothing selects, and `runs.manifest` still carries
+    // the chain's manifest exactly as the chain stated it.
+    let bare = json!({"feature": "f", "manifest": {"files": {}}});
+    dest.import_run(&sealed(bare), &sidecar, &origin("r1.ndjson"))
+        .unwrap();
+    assert_eq!(dest.manifest("r1").unwrap(), json!({"files": {}}));
+    assert_eq!(
+        dest.list_runs().unwrap(),
+        vec![(
+            "r1".to_string(),
+            "f".to_string(),
+            "2026-01-01T00:00:00Z".to_string()
+        )]
+    );
+}
+
+/// The arrival columns are additive, and adding them is idempotent: a
+/// journal an older binary left behind migrates on the open that needs
+/// them, and an open that finds them adds nothing.
+#[test]
+fn arrival_columns_are_added_once_and_an_older_journal_migrates() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+
+    // A journal as an older binary left it: MIGRATION_V1 only.
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch(MIGRATION_V1).unwrap();
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES ('database_schema', '1')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+         VALUES ('old', 'before import existed', 'self', '{}', '2026-01-01T00:00:00Z')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    // Opening it migrates; the pre-existing run reads as native.
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.arrival("old").unwrap(), None);
+    drop(store);
+
+    // Opening it again finds the columns present and adds nothing —
+    // `DATABASE_SCHEMA` never moved, so neither open refused.
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.list_runs().unwrap().len(), 1);
+    assert_eq!(store.arrival("old").unwrap(), None);
+}

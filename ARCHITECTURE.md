@@ -52,7 +52,10 @@ replay.
 Storage is bundled SQLite with append-only triggers and the chain built
 inside the append transaction (a concurrent writer conflicts instead of
 forking history). `brokkr export` writes canonical NDJSON;
-`brokkr verify-run` checks it offline; `brokkr anchor` records the
+`brokkr verify-run` checks it offline; `brokkr import` adopts it into
+another journal byte-identically, verifying the whole chain and refusing
+a run-id collision outright (journals never merge — one run relocates,
+decision 0027); `brokkr anchor` records the
 journal head in `refs/forge/<run>` commit chains — tamper *evidence*,
 not tamper-proofing (the ref is unsigned; decision 0008 defers the
 signing service).
@@ -273,8 +276,8 @@ effect's own events so a restart cannot change which model runs next.
 
 ```
 brokkr init · doctor · compile · run · resume · operator · inspect ·
-      replay · export · verify-run · runs · costs · anchor · ui · tui ·
-      driver
+      replay · export · import · verify-run · runs · costs · anchor ·
+      ui · tui · driver
 ```
 
 Exit codes: `0` completed · `2` parked (operator needed) · `3` stopped.
