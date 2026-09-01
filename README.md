@@ -694,7 +694,42 @@ $ brokkr replay --run latest                     # rebuild twice, compare
   "replay": "deterministic",
   …
 }
+
+$ brokkr import --from ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson \
+      --db ./canonical/forge.db                  # adopt that run into another journal
+{
+  "adopted": "byte-identical",
+  "chain": "verified",
+  "events": 38,
+  "imported_from": "./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson",
+  …
+}
 ```
+
+`import` is the verb paired with `export`: **journals never merge, but
+one run can relocate.** Nothing lands until the whole chain re-verifies
+and the events fold — one broken link refuses the entire import, never a
+good prefix of it — and a run_id that already exists in the destination
+is refused outright. There is no rename and no overwrite: the run_id is
+hashed into every envelope of its chain, so a collision is structurally
+not a rename-and-retry, and it is the operator's to rule on. A second
+import of the same export refuses the same way, because adoption is once
+and not idempotent. A `--redact`ed derivative is refused by name, under
+no flag: redaction rewrites payload bytes and leaves the recorded hashes
+behind, so importing one could only ever adopt unverifiable content. And
+the run_id itself must be one this journal would have minted — ASCII
+letters, digits, `-` and `_`: event hashes are unkeyed, so a verified
+chain proves its bytes were not altered and never that whoever sealed
+them was entitled to the name, and the name goes on to be a path
+component the next `export` writes.
+
+The adopted events keep their exact bytes, hashes, seqs and `recorded_at`,
+so `brokkr runs`, `brokkr tui` and `brokkr inspect` render the run
+indistinguishably from one driven there natively. Where it arrived from
+and when is store bookkeeping *beside* the chain — two columns on the
+`runs` table, invisible to `fold` — so `state = fold(events)` holds
+identically for a native run and an adopted one
+([decision 0027](docs/decisions/0027-import.md)).
 
 `brokkr costs --run <id>` reports per-seat attempts, turns and USD — the
 LaneTally join surface, computed from journal checkpoints with stable

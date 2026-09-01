@@ -323,6 +323,25 @@ enum Cmd {
         #[arg(long)]
         redact: bool,
     },
+    /// Adopt an exported run into this journal, byte-identically — the
+    /// verb paired with `export`. Journals never merge; one run
+    /// relocates. Nothing lands unless the whole chain verifies, the
+    /// events fold, the run_id does not already exist here, and the
+    /// export is not a redacted derivative.
+    Import {
+        /// The exported `<run>.ndjson`. Its `<run>.manifest.json`
+        /// sidecar is read from beside it and must be there.
+        #[arg(long)]
+        from: PathBuf,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The destination journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
     /// Verify an exported journal offline: chain, envelopes, fold.
     VerifyRun { file: PathBuf },
     /// Synchronize a Looper-bound run over the authenticated producer API.
@@ -933,6 +952,20 @@ fn journal_of(
         .journal)
 }
 
+/// The pinned manifest an export wrote beside its journal, named the
+/// way `Cmd::Export` names it: `<run>.ndjson` is paired with
+/// `<run>.manifest.json`, and — since the stem carries the marker —
+/// `<run>.redacted.ndjson` with `<run>.redacted.manifest.json`, so a
+/// redacted pair can be named in full and refused by name.
+fn manifest_beside(journal: &std::path::Path) -> PathBuf {
+    let stem = journal
+        .file_stem()
+        .unwrap_or(journal.as_os_str())
+        .to_string_lossy()
+        .to_string();
+    journal.with_file_name(format!("{stem}.manifest.json"))
+}
+
 /// Compile a bundle against the tree the invocation stands in. The
 /// agent library and the adapters are read from the WORKSPACE for the
 /// same reason `realms.json` is (decision 0023): what a command resolves
@@ -1327,6 +1360,47 @@ fn run_with(
                 )?;
                 eprintln!("exported {} (redacted)", redacted_path.display());
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Import { from, realms, db } => {
+            let db = journal_of(workspace, realms, db)?;
+            // The sidecar is required, not optional: it is where an
+            // export declares itself redacted, and an import that
+            // shrugged at a missing manifest would accept exactly the
+            // pair whose declaration went missing.
+            let manifest_path = manifest_beside(&from);
+            let ndjson =
+                std::fs::read_to_string(&from).context(format!("reading {}", from.display()))?;
+            let raw = std::fs::read_to_string(&manifest_path)
+                .context(format!("reading {}", manifest_path.display()))?;
+            let manifest: Value = serde_json::from_str(&raw)
+                .context(format!("parsing {}", manifest_path.display()))?;
+            let mut store = Store::open(&db)?;
+            let adoption = store.import_run(&ndjson, &manifest, &from)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "run_id": adoption.run_id,
+                    "events": adoption.events,
+                    "chain": "verified",
+                    "adopted": "byte-identical",
+                    "journal_head_hash": adoption.head_hash,
+                    "imported_at": adoption.arrival.imported_at,
+                    "imported_from": adoption.arrival.imported_from,
+                }))?
+            );
+            // `import_run`'s run_id gate already refuses anything a
+            // terminal could not print plainly, so this is belt over
+            // braces — but the house rule is that a journal string
+            // reaching a tty goes through `Safe`, and the one line
+            // telling an operator the adoption happened is a poor place
+            // to start making exceptions.
+            eprintln!(
+                "imported {} into {} ({} events)",
+                render::Safe::new(&adoption.run_id).as_str(),
+                db.display(),
+                adoption.events
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::VerifyRun { file } => {

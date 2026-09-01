@@ -2124,3 +2124,174 @@ fn the_realms_verb_reads_the_world_or_says_there_is_none() {
     assert!(refusal.contains("no map"), "{refusal}");
     assert!(refusal.contains("realms.json"), "{refusal}");
 }
+
+/// `import` is `export`'s mirror image at the CLI: the pair a native
+/// export wrote, adopted into another journal, re-exports to the same
+/// bytes — and every readout renders the adopted run exactly as the
+/// journal it came from renders it. The arrival is queryable beside the
+/// chain (decision 0027) and appears in no readout that existed before.
+#[test]
+fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let native = dir.path().join("native.db");
+    running_store(&native, "r1");
+    let out = dir.path().join("export");
+    // `--redact` so the marked derivative is here to be refused by name.
+    assert_eq!(
+        run(cli(Cmd::Export {
+            run: "r1".into(),
+            out: out.clone(),
+            realms: None,
+            db: Some(native.clone()),
+            redact: true,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+
+    let adopted = dir.path().join("adopted.db");
+    assert_eq!(
+        run(cli(Cmd::Import {
+            from: out.join("r1.ndjson"),
+            realms: None,
+            db: Some(adopted.clone()),
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+
+    // Byte equality, through a re-export from the destination.
+    let reexport = dir.path().join("reexport");
+    run(cli(Cmd::Export {
+        run: "r1".into(),
+        out: reexport.clone(),
+        realms: None,
+        db: Some(adopted.clone()),
+        redact: false,
+    }))
+    .unwrap();
+    assert_eq!(
+        std::fs::read(reexport.join("r1.ndjson")).unwrap(),
+        std::fs::read(out.join("r1.ndjson")).unwrap(),
+    );
+
+    // The one derivation both surfaces read renders identically from
+    // either journal — the adopted run is not a different run.
+    let rendered = |db: &std::path::Path| {
+        let store = Store::open(db).unwrap();
+        let events = store.load("r1").unwrap();
+        let state = fold(&events).unwrap();
+        let view = brokkr_view::run_view(&events, Some(&state));
+        let lens = render::lens_for(&view, None).unwrap();
+        render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
+    };
+    assert_eq!(rendered(&adopted), rendered(&native));
+
+    // The fleet row carries the run's own facts and nothing this feature
+    // added: `RunEntry` has no field an arrival column can reach, and
+    // the emitted view model says so.
+    let store = Store::open(&adopted).unwrap();
+    let listed = store.list_runs().unwrap();
+    let events = store.load("r1").unwrap();
+    let state = fold(&events).unwrap();
+    let entries = vec![brokkr_view::RunEntry {
+        run_id: &listed[0].0,
+        feature: &listed[0].1,
+        created_at: &listed[0].2,
+        state: Some(&state),
+        detail: None,
+    }];
+    let fleet = serde_json::to_string(&brokkr_view::run_rows(&entries)).unwrap();
+    assert!(!fleet.contains("import"), "{fleet}");
+    let native_listing = Store::open(&native).unwrap().list_runs().unwrap();
+    assert_eq!(listed[0].0, native_listing[0].0);
+    assert_eq!(listed[0].1, native_listing[0].1);
+
+    // And the arrival is there to be asked about — on the adopted copy
+    // only.
+    let arrival = store.arrival("r1").unwrap().expect("adopted");
+    assert_eq!(
+        arrival.imported_from,
+        out.join("r1.ndjson").display().to_string()
+    );
+    assert_eq!(Store::open(&native).unwrap().arrival("r1").unwrap(), None);
+    drop(store);
+
+    // Both readouts run over the adopted journal like any other.
+    for json in [false, true] {
+        assert_eq!(
+            run(cli(Cmd::Runs {
+                realms: None,
+                db: Some(adopted.clone()),
+                json,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(
+            run(cli(Cmd::Inspect {
+                run: "r1".into(),
+                realms: None,
+                db: Some(adopted.clone()),
+                json,
+                phase: None,
+                seat: None,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+
+    // A second import of the same export is the collision refusal, not a
+    // quiet success.
+    let refusal = run(cli(Cmd::Import {
+        from: out.join("r1.ndjson"),
+        realms: None,
+        db: Some(adopted.clone()),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("already carries run 'r1'"), "{refusal}");
+
+    // The redacted derivative, named in full: refused by name, and its
+    // sidecar carries the second mark either way.
+    let refusal = run(cli(Cmd::Import {
+        from: out.join("r1.redacted.ndjson"),
+        realms: None,
+        db: Some(adopted.clone()),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("redacted derivative"), "{refusal}");
+
+    // The sidecar is required, not optional: it is where an export
+    // declares itself redacted.
+    let lonely = dir.path().join("lonely");
+    std::fs::create_dir(&lonely).unwrap();
+    std::fs::copy(out.join("r1.ndjson"), lonely.join("r1.ndjson")).unwrap();
+    let refusal = run(cli(Cmd::Import {
+        from: lonely.join("r1.ndjson"),
+        realms: None,
+        db: Some(adopted.clone()),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("r1.manifest.json"), "{refusal}");
+
+    // A sidecar that is not JSON, and a journal that is not a file.
+    std::fs::write(lonely.join("r1.manifest.json"), "{").unwrap();
+    let refusal = run(cli(Cmd::Import {
+        from: lonely.join("r1.ndjson"),
+        realms: None,
+        db: Some(adopted.clone()),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("parsing"), "{refusal}");
+    assert!(run(cli(Cmd::Import {
+        from: PathBuf::from("/"),
+        realms: None,
+        db: Some(adopted),
+    }))
+    .is_err());
+}
