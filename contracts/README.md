@@ -250,3 +250,27 @@ mistyped-input park cases. Expected `problem` strings are diagnostic
 evidence, not contract: differential tests compare rule id, next phase,
 severity, and park-vs-rule (including whether `problem` is set), never the
 prose.
+
+Decision 0021's witness (the reforging of run `implement-decision-0021` ruled
+remedy ii) adds one more file and changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with the authorising adapters pinned | `run-manifest.v5.schema.json` | forge-runtime, forge-store export/resume |
+
+`run-manifest.v5` is `v4` plus one optional `drivers` property: invocation
+site → driver name → the sha256 of the adapter declaration that authorised an
+inline gate or binding seat. Unlike `realms`, this key IS bundle data — a tier
+demoted in `adapters/` moves the digest of every bundle whose gates it stood
+behind, which is the point of the witness. A bundle that consulted no
+declaration carries no key and keeps the exact v4 shape and identity. Agent
+sites are not recorded twice: their `agents` resolution records already pin
+every adapter the chain consulted.
+
+The Looper-bound `run-manifest.v2` lineage cannot carry `drivers`, for the
+reason it carries no `agents`: the v2 round-trip reconstructs the bundle
+manifest from six named keys and would drop the pin in silence, leaving the
+run unresumable with a diff that blames no file. `build_run_manifest_v2`
+refuses `agents` by name and now refuses EVERY key beyond the six it can
+round-trip — fail closed, so the next witness key added to the local lineage
+is refused loudly on the day it lands rather than dropped quietly.

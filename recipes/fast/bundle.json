@@ -10,6 +10,7 @@
         "broken",
         "blocked"
       ],
+      "class": "work",
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 5400
@@ -33,6 +34,7 @@
         "pass",
         "fail"
       ],
+      "class": "gate",
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 3600
@@ -57,6 +59,7 @@
         "residual",
         "security-hold"
       ],
+      "class": "gate",
       "inputs": [
         "fixes_applied",
         "has_security_residual",
@@ -85,6 +88,7 @@
         "ready",
         "shipped"
       ],
+      "class": "gate",
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 1800

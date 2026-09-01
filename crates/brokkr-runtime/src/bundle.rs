@@ -17,7 +17,7 @@ pub mod compose;
 
 use compose::{Ancestor, COMPOSE_PREFIX};
 
-use crate::agents::{Adapters, Availability, Candidate, Library};
+use crate::agents::{Adapters, Availability, Candidate, Library, TrustTier};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -172,6 +172,27 @@ impl Aggregate {
     }
 }
 
+/// Which side of decision 0021 ruling 1 a driver-bearing site sits on.
+/// Work sites produce output the machine checks; gate sites ARE the
+/// check, and nobody stands behind the judges. The division is bundle
+/// data declared per site — the engine holds no roster of which phase
+/// judges, exactly as it holds no roster of which vendor is trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeatClass {
+    Work,
+    Gate,
+}
+
+impl SeatClass {
+    fn parse(name: &str) -> Option<SeatClass> {
+        match name {
+            "work" => Some(SeatClass::Work),
+            "gate" => Some(SeatClass::Gate),
+            _ => None,
+        }
+    }
+}
+
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
 /// behavior: one attempt, one-hour deadline.
 #[derive(Debug, Clone, Copy)]
@@ -216,10 +237,23 @@ pub const DEFAULT_ADAPTERS_DIR: &str = "adapters";
 
 /// The agent library and adapters for one compilation, plus the
 /// per-invocation-site records that become the manifest's `agents` key.
+///
+/// The adapters are the wider need: an agent reference resolves through
+/// them, AND decision 0021's two refusals read a driver's declarations
+/// out of them. The LIBRARY is opened only when a seat actually names an
+/// agent, which is what keeps a missing one a non-event for every bundle
+/// that inlines.
 struct AgentContext {
-    library: Library,
+    library: Option<Library>,
     adapters: Adapters,
     records: Map<String, Value>,
+    /// Per INLINE driver-bearing site, the adapter digests decision
+    /// 0021's refusals consulted to let it stand. An agent site pins its
+    /// adapters through the resolution record in `records`; a raw
+    /// `driver.command` had nothing to pin, so the declaration that
+    /// authorised a gate would otherwise sit outside the bundle's
+    /// identity — a demotion could not be told from a re-run.
+    drivers: Map<String, Value>,
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -238,6 +272,26 @@ fn mentions_agent(value: &Value) -> bool {
     match value {
         Value::Object(map) => map.contains_key("agent") || map.values().any(mentions_agent),
         Value::Array(items) => items.iter().any(mentions_agent),
+        _ => false,
+    }
+}
+
+/// Does this bundle need the ADAPTER data at compile time? An agent
+/// reference resolves through it, and decision 0021's refusals read a
+/// driver's tier and grant out of it — so a gate-class site or a
+/// declared secret binding needs it too, even in a bundle that names no
+/// agent at all (`bundles/verify` and `recipes/fast` are exactly that).
+/// A bundle with none of the three has nothing to check and still
+/// compiles with no `adapters/` directory in sight.
+fn needs_adapters(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            map.contains_key("agent")
+                || map.contains_key("secrets")
+                || map.get("class").and_then(Value::as_str) == Some("gate")
+                || map.values().any(needs_adapters)
+        }
+        Value::Array(items) => items.iter().any(needs_adapters),
         _ => false,
     }
 }
@@ -310,14 +364,26 @@ impl Bundle {
         // make an in-flight run unresumable after an `apt install`. The
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
-        let mut agents = match resolved.seats.values().any(mentions_agent) {
+        let mut agents = match resolved.seats.values().any(needs_adapters) {
             false => None,
             true => Some(AgentContext {
-                library: Library::load(library_root)
-                    .map_err(|e| CompileError::Invalid(e.to_string()))?,
-                adapters: Adapters::load(adapters_root)
-                    .map_err(|e| CompileError::Invalid(e.to_string()))?,
+                library: match resolved.seats.values().any(mentions_agent) {
+                    false => None,
+                    true => Some(
+                        Library::load(library_root)
+                            .map_err(|e| CompileError::Invalid(e.to_string()))?,
+                    ),
+                },
+                adapters: Adapters::load(adapters_root).map_err(|e| {
+                    CompileError::Invalid(format!(
+                        "{e}; the adapter data is where a driver's model mapping \
+                         (decision 0016) and its trust tier and binding grant \
+                         (decision 0021) are declared, and this bundle names an \
+                         agent, seats a gate, or declares a secret binding"
+                    ))
+                })?,
                 records: Map::new(),
+                drivers: Map::new(),
             }),
         };
 
@@ -332,6 +398,7 @@ impl Bundle {
                     "seat '{phase}' names a phase the policy does not have"
                 )));
             }
+            refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             let results = raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -412,6 +479,15 @@ impl Bundle {
                     candidates: Vec::new(),
                 }
             };
+            // Decision 0021, at the seat's own driver-bearing site. A
+            // panel or a sequence has none: its members and steps were
+            // each checked where they were built.
+            match &body {
+                SeatBody::Single { candidates, .. } => {
+                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?
+                }
+                _ => refuse_class_without_a_driver(phase, raw)?,
+            }
             let limits = match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
                 // An agent's 0006 bounds ARE the seat's bounds: `limits`
                 // is forbidden beside `agent:`, so there is nothing to
@@ -503,6 +579,7 @@ impl Bundle {
             &name,
             &resolved.chain,
             agents.as_ref().map(|a| &a.records),
+            agents.as_ref().map(|a| &a.drivers),
         )?;
         Ok(Bundle {
             name,
@@ -586,10 +663,13 @@ enum Site {
 /// An agent reference is TOTAL: a seat that could amend the agent it
 /// names would make `agent: implementer` stop being a complete statement
 /// about what ran — inlining with extra steps, and drift with a name on
-/// it. `results`, `secrets` and `driver.confine` stay legal beside it,
-/// because they are bindings the SEAT provides rather than statements
-/// about what the agent is, and `brokkr agents show` never claims to show
-/// them.
+/// it. `results`, `secrets`, `class` and `driver.confine` stay legal
+/// beside it, because they are bindings the SEAT provides rather than
+/// statements about what the agent is, and `brokkr agents show` never
+/// claims to show them. `class` in particular is the seat's authority,
+/// never the agent's: one charter may sit in a work seat here and a gate
+/// seat there, which is why decision 0021 ruling 1 puts the division in
+/// bundle data.
 fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
     let refuse = |key: &str| {
         Err(CompileError::Invalid(format!(
@@ -637,8 +717,12 @@ fn resolve_reference(
     let context = agents
         .as_mut()
         .expect("a bundle mentioning an agent loads the library");
+    let library = context
+        .library
+        .as_ref()
+        .expect("a bundle mentioning an agent opens the library");
     let resolution = crate::agents::resolve(
-        &context.library,
+        library,
         &context.adapters,
         &Availability::unspecified(),
         name,
@@ -682,6 +766,207 @@ fn resolve_reference(
         limits: resolution.limits,
         inputs: resolution.inputs.clone(),
     })
+}
+
+/// A site's decision-0021 class, as written. ABSENT is `Work`: the
+/// division is a declaration, and a site that declares nothing claims no
+/// judging authority, so nothing about it is being trusted. A class the
+/// vocabulary does not name is a refusal, in the manner of an unknown
+/// aggregate — the closed vocabularies of this engine all fail the same
+/// way.
+fn parse_class(what: &str, raw: &Value) -> Result<SeatClass, CompileError> {
+    let Some(declared) = raw.get("class") else {
+        return Ok(SeatClass::Work);
+    };
+    declared.as_str().and_then(SeatClass::parse).ok_or_else(|| {
+        CompileError::Invalid(format!(
+            "seat '{what}' has unknown class {declared}; known: work, gate \
+             (decision 0021 ruling 1) — an undeclared site is work"
+        ))
+    })
+}
+
+/// The keys a SEAT may write. Closed, like the class vocabulary itself
+/// and for the same reason — see [`refuse_unknown_keys`].
+const SEAT_KEYS: &[&str] = &[
+    "results",
+    "inputs",
+    "limits",
+    "secrets",
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "panel",
+    "aggregate",
+    "sequence",
+];
+
+/// The keys a PANEL MEMBER may write. Narrower than a seat's: a member
+/// has no `results`, `limits`, `inputs` or `secrets` of its own — the
+/// seat above it does — which is why an agent declaring them at a member
+/// site is already refused rather than silently discarded.
+const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver"];
+
+/// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
+/// the two a step needs to be a panel of its own.
+const STEP_KEYS: &[&str] = &[
+    "name",
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "panel",
+    "aggregate",
+];
+
+/// The vocabulary of a site object is CLOSED, because since decision
+/// 0021 a dropped key is a dropped refusal. `class` is read by absence —
+/// an undeclared site is work — so `"clas": "gate"` would leave a
+/// judging site classed work, and every gate refusal below it unarmed,
+/// with nothing anywhere to say so. The same silence would swallow a
+/// misspelled `secrets`. So a key this compiler does not read is refused
+/// where it is written, in the manner of an unknown class or an unknown
+/// aggregate: the fail-closed reading of an absent declaration is only
+/// honest if an absence cannot be manufactured by a typo.
+fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), CompileError> {
+    let Some(object) = raw.as_object() else {
+        return Ok(());
+    };
+    for key in object.keys() {
+        if !known.contains(&key.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' has unknown key '{key}'; known: {}. The site \
+                 vocabulary is closed because a declaration this compiler \
+                 cannot see is a declaration that was never made — a \
+                 misspelled 'class' would leave a gate reading as work \
+                 (decision 0021 ruling 1)",
+                known.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A panel or a sequence has no driver of its own, so it has no class of
+/// its own: `recipes/sdd`'s `design` seat is a panel of work positions,
+/// a gate chief and a work check, and a single word on the seat could
+/// only be an approximation of all three. Refused rather than averaged.
+fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileError> {
+    match raw.get("class") {
+        None => Ok(()),
+        Some(_) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares a class but bears no driver of its own; \
+             decision 0021 ruling 1 classes each driver-bearing site, so a \
+             panel's members and a sequence's steps each carry their own"
+        ))),
+    }
+}
+
+/// The driver an INLINE site names, read structurally off its raw
+/// (pre-expansion) command: decision 0009's dispatch convention is
+/// `<engine> driver <name> -- …`, so the token after the literal
+/// `driver` IS the driver, the same way `{brokkr}` is a protocol marker
+/// this compiler already recognises. The engine token itself is not
+/// matched on — a bundle may spell it `{brokkr}`, `{forge}`, or the
+/// absolute path of the binary it means, and all three are the same
+/// dispatch. `None` for any other shape: a raw process is a driver that
+/// declares nothing, which decision 0021 reads as untrusted and
+/// ungranted rather than as exempt.
+fn dispatch_driver(parts: &[String]) -> Option<String> {
+    match parts {
+        [_, marker, name, ..] if marker == "driver" => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// Decision 0021's two compile-time prohibitions, at one driver-bearing
+/// site. Both are a lookup and a comparison — deterministic code with an
+/// exit status (decision 0025 ruling 6), refusing before any prompt
+/// exists to leak, in the manner of a digest mismatch:
+///
+/// - a GATE-class site whose driver lacks the trusted tier (ruling 2);
+/// - a site under a seat that declares secret bindings, whose driver
+///   holds no binding grant (ruling 4).
+///
+/// Both fail closed on ABSENCE — an undeclared tier is untrusted, an
+/// undeclared grant is none, and a driver no adapter declares has
+/// neither. `candidates` is the resolved fallback chain of an agent site
+/// and empty for an inline one; EVERY link is checked, because ruling 5
+/// says an unavailable driver parks rather than substitutes, and a chain
+/// that could fall back to an untrusted judge at run time would have
+/// defeated the gate at compile time.
+///
+/// A site that SURVIVES both is witnessed when it is inline: the adapter
+/// whose declaration authorised it is pinned into the manifest, so the
+/// bundle's identity carries what let it judge. An agent site needs no
+/// entry here — its resolution record already pins every adapter its
+/// chain consulted.
+fn enforce_model_policy(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    secrets: &[String],
+    agents: &mut Option<AgentContext>,
+) -> Result<(), CompileError> {
+    let class = parse_class(what, raw)?;
+    if class == SeatClass::Work && secrets.is_empty() {
+        return Ok(());
+    }
+    // Destructured rather than borrowed whole: the lookup reads the
+    // adapters while the witness writes beside them, and they are
+    // disjoint fields of the same context.
+    let AgentContext {
+        adapters,
+        drivers: witnessed,
+        ..
+    } = agents
+        .as_mut()
+        .expect("a gate-class or secret-binding seat opens the adapters");
+    let mut authorised = Map::new();
+    let drivers: Vec<Option<String>> = match candidates.is_empty() {
+        true => vec![dispatch_driver(&command_parts(raw))],
+        false => candidates
+            .iter()
+            .map(|candidate| Some(candidate.provider.clone()))
+            .collect(),
+    };
+    for driver in drivers {
+        let adapter = driver
+            .as_deref()
+            .and_then(|provider| adapters.adapter(provider));
+        let named = match &driver {
+            Some(provider) => format!("driver '{provider}'"),
+            None => "an unnamed driver (the command is no driver dispatch)".to_string(),
+        };
+        if class == SeatClass::Gate && adapter.map(|a| a.trust_tier) != Some(TrustTier::Trusted) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' is gate class but seats {named}, which does not \
+                 hold the trusted tier; a gate seat IS the check, and nobody \
+                 stands behind the judges (decision 0021 ruling 2 — an \
+                 undeclared tier is untrusted)"
+            )));
+        }
+        if !secrets.is_empty() && adapter.map(|a| a.binding_grant) != Some(true) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' declares secret bindings {secrets:?} but seats \
+                 {named}, which holds no binding grant; trust to judge and \
+                 clearance to receive are different grants (decision 0021 \
+                 ruling 4 — an undeclared grant is none)"
+            )));
+        }
+        // Both prohibitions passed, so an adapter answered for this
+        // driver. Only an inline site is recorded: `candidates` is empty
+        // exactly there.
+        if let (Some(provider), Some(adapter)) = (driver.filter(|_| candidates.is_empty()), adapter)
+        {
+            authorised.insert(provider, Value::String(adapter.digest.clone()));
+        }
+    }
+    if !authorised.is_empty() {
+        witnessed.insert(what.to_string(), Value::Object(authorised));
+    }
+    Ok(())
 }
 
 /// A seat's decision-0006 bounds, as written inline.
@@ -756,6 +1041,7 @@ fn parse_panel(
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
         }
+        refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
         let (role_path, command, candidates) = match member_raw.get("agent") {
             None => (
                 parse_role(dir, &site, member_raw)?,
@@ -775,6 +1061,7 @@ fn parse_panel(
                 (resolved.role_path, resolved.command, resolved.candidates)
             }
         };
+        enforce_model_policy(&site, member_raw, &candidates, secrets, agents)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
@@ -845,6 +1132,7 @@ fn parse_sequence(
                  or panel"
             )));
         }
+        refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
         let body = if has_agent {
             let resolved =
                 resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;
@@ -873,6 +1161,12 @@ fn parse_sequence(
                 candidates: Vec::new(),
             }
         };
+        match &body {
+            StepBody::Single { candidates, .. } => {
+                enforce_model_policy(&what, step_raw, candidates, secrets, agents)?
+            }
+            StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
+        }
         steps.push(SequenceStep {
             name: name.to_string(),
             body,
@@ -926,20 +1220,35 @@ fn parse_secrets(phase: &str, raw: &Value) -> Result<Vec<String>, CompileError> 
     Ok(names)
 }
 
+/// A site's command tokens as WRITTEN, before `{brokkr}` and `./` are
+/// expanded. Two readers share it: the one that expands it into argv,
+/// and decision 0021's refusals, which need the dispatch shape the
+/// expansion erases (`{brokkr}` becomes a machine-local absolute path).
+fn command_parts(raw: &Value) -> Vec<String> {
+    raw.get("driver")
+        .and_then(|d| d.get("command"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_command(
     dir: &Path,
     what: &str,
     raw: &Value,
     secrets: &[String],
 ) -> Result<Vec<String>, CompileError> {
-    let parts: Vec<&str> = raw
-        .get("driver")
-        .and_then(|d| d.get("command"))
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).collect())
-        .filter(|c: &Vec<&str>| !c.is_empty())
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' needs driver.command")))?;
-    let parts: Vec<String> = parts.into_iter().map(str::to_string).collect();
+    let parts = command_parts(raw);
+    if parts.is_empty() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' needs driver.command"
+        )));
+    }
     lint_secret_refs(what, &parts, secrets)?;
     Ok(expand_command(dir, &parts))
 }
@@ -1095,6 +1404,7 @@ fn manifest_for(
     bundle_name: &str,
     chain: &[Ancestor],
     agents: Option<&Map<String, Value>>,
+    drivers: Option<&Map<String, Value>>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -1173,6 +1483,15 @@ fn manifest_for(
     if let Some(records) = agents.filter(|records| !records.is_empty()) {
         manifest["agents"] = Value::Object(records.clone());
     }
+    // ABSENT on the same terms, and for the same reason: a bundle whose
+    // inline seats neither judge nor bind never consults a tier or a
+    // grant, so nothing authorised it and there is nothing to pin. Where
+    // something did (decision 0021), the adapter digest that answered
+    // rides the bundle's identity — a tier demoted in `adapters/` moves
+    // the digest of every bundle whose gates it was standing behind.
+    if let Some(records) = drivers.filter(|records| !records.is_empty()) {
+        manifest["drivers"] = Value::Object(records.clone());
+    }
     Ok(manifest)
 }
 
@@ -1180,6 +1499,9 @@ fn manifest_for(
 mod agent_tests;
 #[cfg(test)]
 mod compose_tests;
+
+#[cfg(test)]
+mod model_policy_tests;
 
 #[cfg(test)]
 mod secret_binding_tests;

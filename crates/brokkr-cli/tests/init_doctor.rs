@@ -1,6 +1,11 @@
 //! `brokkr init` scaffolds a bundle that compiles under the
 //! constitutional lint; `brokkr doctor` reports health without executing
 //! any agent.
+//!
+//! Every verb below is run FROM INSIDE the scaffold, because that is what
+//! the scaffold is: a workspace carrying its own `adapters/`, where the
+//! trust tier its gate seats judge on is declared (decision 0021), read
+//! from the workspace like every other root (decision 0023).
 
 use std::process::Command;
 
@@ -24,12 +29,14 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("digest"), "stderr: {stderr}");
+    // The scaffold says where to stand, once, on stderr.
+    assert!(
+        stderr.contains("run brokkr from inside"),
+        "stderr: {stderr}"
+    );
 
     // The scaffold passes the same compile gate as any bundle.
-    let (code, stdout, stderr) = brokkr(
-        &["compile", "--bundle", bundle.to_str().unwrap()],
-        dir.path(),
-    );
+    let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stdout.contains("\"starter\""));
 
@@ -38,10 +45,72 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(policy.contains("SHIP-COMPLETE"));
     assert!(policy.contains("SHIPPED-DIRTY"));
 
+    // Decision 0021 ruling 1's roster is declared, not left to default:
+    // the three gate seats say so, and the two work seats say so too.
+    let scaffolded = std::fs::read_to_string(bundle.join("bundle.json")).unwrap();
+    assert_eq!(scaffolded.matches("\"class\": \"gate\"").count(), 3);
+    assert_eq!(scaffolded.matches("\"class\": \"work\"").count(), 2);
+    // …and the tier they judge on is a file in the operator's tree,
+    // theirs to demote, rather than a constant inside this binary.
+    let adapter = std::fs::read_to_string(bundle.join("adapters/claude.json")).unwrap();
+    assert!(adapter.contains("\"trust_tier\": \"trusted\""), "{adapter}");
+    assert!(adapter.contains("\"binding_grant\": false"), "{adapter}");
+
     // Refuses to clobber an existing bundle.
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(1));
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+}
+
+/// The other half of that: the scaffold WRITES a trust declaration, and
+/// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
+/// its bundle against clobbering; the declaration is workspace data and
+/// is guarded on the same terms, so scaffolding into a tree that already
+/// declares one cannot silently re-promote what the operator demoted.
+#[test]
+fn init_refuses_to_overwrite_an_operators_trust_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("adapters")).unwrap();
+    let declaration = bundle.join("adapters/claude.json");
+    std::fs::write(&declaration, "{\"trust_tier\": \"untrusted\"}\n").unwrap();
+
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+    // The demotion is still the operator's, and nothing else was written.
+    let kept = std::fs::read_to_string(&declaration).unwrap();
+    assert!(kept.contains("untrusted"), "{kept}");
+    assert!(!bundle.join("bundle.json").exists());
+}
+
+/// Decision 0021, from the operator's side: the scaffold's gate seats
+/// stand on a declaration in the operator's own tree, so demoting the
+/// tier there refuses the very next compile — naming the seat and the
+/// driver — rather than quietly leaving three judges unbacked.
+#[test]
+fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+
+    let adapter = bundle.join("adapters/claude.json");
+    let declared = std::fs::read_to_string(&adapter).unwrap();
+    std::fs::write(
+        &adapter,
+        declared.replace(
+            "\"trust_tier\": \"trusted\"",
+            "\"trust_tier\": \"untrusted\"",
+        ),
+    )
+    .unwrap();
+
+    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("gate class") && stderr.contains("claude"),
+        "stderr: {stderr}"
+    );
 }
 
 /// Decision 0019: a bundle still written with the old `{forge}` token
@@ -62,10 +131,7 @@ fn the_old_token_still_compiles_and_is_noticed_once_on_stderr() {
     );
     std::fs::write(&manifest, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
 
-    let (code, stdout, stderr) = brokkr(
-        &["compile", "--bundle", bundle.to_str().unwrap()],
-        dir.path(),
-    );
+    let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(!stdout.contains("notice:"), "the notice reached stdout");
     let notices: Vec<&str> = stderr
@@ -84,14 +150,8 @@ fn doctor_reports_health_and_validates_a_bundle() {
 
     let db = dir.path().join("forge.db");
     let (code, stdout, _) = brokkr(
-        &[
-            "doctor",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--db",
-            db.to_str().unwrap(),
-        ],
-        dir.path(),
+        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
+        &bundle,
     );
     // git and python3 exist on dev and CI machines; claude may only warn.
     assert_eq!(code, Some(0), "doctor output: {stdout}");
@@ -110,14 +170,8 @@ fn doctor_reports_health_and_validates_a_bundle() {
     // A broken bundle turns the report unhealthy.
     std::fs::write(bundle.join("policy.json"), "{}").unwrap();
     let (code, stdout, _) = brokkr(
-        &[
-            "doctor",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--db",
-            db.to_str().unwrap(),
-        ],
-        dir.path(),
+        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
+        &bundle,
     );
     assert_eq!(code, Some(1), "doctor output: {stdout}");
     assert!(stdout.contains("MISSING  bundle"));

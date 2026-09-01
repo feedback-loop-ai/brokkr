@@ -139,11 +139,40 @@ pub struct McpSupport {
     pub servers: BTreeMap<String, String>,
 }
 
+/// An operator-granted trust tier (decision 0021 ruling 2). A closed
+/// vocabulary rather than a boolean, because ruling 3 makes tiers
+/// earnable in BOTH directions and a third tier must not need a breaking
+/// rename. No vendor sits in an arm here: a tier is data an operator
+/// rules into an adapter file, cited to the scorecard, and an ABSENT
+/// declaration is `Untrusted` — the `at_most` lesson, applied to trust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustTier {
+    Untrusted,
+    Trusted,
+}
+
+impl TrustTier {
+    pub fn parse(name: &str) -> Option<TrustTier> {
+        match name {
+            "trusted" => Some(TrustTier::Trusted),
+            "untrusted" => Some(TrustTier::Untrusted),
+            _ => None,
+        }
+    }
+}
+
 /// One provider adapter: data, never a Rust match arm. Adding a provider
 /// or a model is a file, not a release.
 #[derive(Debug, Clone)]
 pub struct Adapter {
     pub provider: String,
+    /// Decision 0021 ruling 2: what this driver is trusted to be. Gate
+    /// seats require `Trusted`; absence is `Untrusted`.
+    pub trust_tier: TrustTier,
+    /// Decision 0021 ruling 4: clearance to RECEIVE, the other axis. A
+    /// driver without the grant may not appear in a seat that declares
+    /// secret bindings; absence is no grant.
+    pub binding_grant: bool,
     /// The binary `brokkr doctor` probes for on this machine.
     pub binary: String,
     /// Optional operator-written advice `brokkr doctor` prints when the

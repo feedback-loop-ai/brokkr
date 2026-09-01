@@ -15,17 +15,52 @@ const POLICY: &str = r#"{
       ]
     }"#;
 
+/// The adapter tree these bundles compile against. A seat that declares
+/// secret bindings must seat a driver the operator granted them
+/// (decision 0021 ruling 4), so the fixture grants one — and its name is
+/// invented here rather than borrowed from a vendor, which is the whole
+/// point: the engine matches on the declaration, never on the name.
+fn write_adapters(dir: &Path) -> PathBuf {
+    let adapters = dir.join("adapters");
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(
+        adapters.join("granted.json"),
+        serde_json::to_string(&json!({
+            "provider": "granted",
+            "binding_grant": true,
+            "binary": "granted",
+            "driver": ["{brokkr}", "driver", "granted", "--"],
+            "models": {},
+            "model_flag": "unsupported",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    adapters
+}
+
 /// A minimal compilable bundle whose `work` seat carries the given
-/// declaration and command template.
+/// declaration and command template. The template rides BEHIND the
+/// driver dispatch decision 0009 fixed, which is where the compiler
+/// reads an inline seat's driver identity from.
 fn write_bundle(dir: &Path, secrets: Value, command: Value) -> PathBuf {
     let bundle = dir.join("bundle");
     std::fs::create_dir_all(bundle.join("roles")).unwrap();
     std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
+    let mut dispatched = vec![
+        json!("{brokkr}"),
+        json!("driver"),
+        json!("granted"),
+        json!("--"),
+    ];
+    dispatched.extend(command.as_array().unwrap().iter().cloned());
     let mut work = json!({
         "role": "roles/role.md",
         "results": ["built"],
-        "driver": {"command": command},
+        "driver": {"command": dispatched},
     });
     if !secrets.is_null() {
         work["secrets"] = secrets;
@@ -50,9 +85,21 @@ fn write_bundle(dir: &Path, secrets: Value, command: Value) -> PathBuf {
     bundle
 }
 
+/// Compile against the fixture adapter tree beside the bundle. The
+/// library root is deliberately absent: no seat here names an agent, so
+/// a missing one stays the non-event it always was.
+fn compile(dir: &Path, bundle: &Path) -> Result<Bundle, CompileError> {
+    Bundle::compile_with(
+        bundle,
+        Path::new("/nonexistent-library"),
+        &write_adapters(dir),
+    )
+}
+
 fn compile_error(secrets: Value, command: Value) -> String {
     let dir = tempfile::tempdir().unwrap();
-    match Bundle::compile(&write_bundle(dir.path(), secrets, command)) {
+    let bundle = write_bundle(dir.path(), secrets, command);
+    match compile(dir.path(), &bundle) {
         Ok(_) => panic!("expected a compile refusal"),
         Err(e) => e.to_string(),
     }
@@ -66,7 +113,7 @@ fn declared_and_referenced_template_compiles() {
         json!(["GH_TOKEN"]),
         json!(["bash", "-c", "curl -H 'auth: {{secret:GH_TOKEN}}' x"]),
     );
-    let compiled = Bundle::compile(&bundle).unwrap();
+    let compiled = compile(dir.path(), &bundle).unwrap();
     assert_eq!(compiled.seats["work"].secrets, vec!["GH_TOKEN"]);
 }
 
@@ -77,7 +124,7 @@ fn declared_but_unreferenced_compiles() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = write_bundle(dir.path(), json!(["GH_TOKEN"]), json!(["gh", "pr", "list"]));
     assert_eq!(
-        Bundle::compile(&bundle).unwrap().seats["work"].secrets,
+        compile(dir.path(), &bundle).unwrap().seats["work"].secrets,
         vec!["GH_TOKEN"]
     );
 }
@@ -122,7 +169,7 @@ fn secrets_env_inside_the_bundle_dir_refuses() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = write_bundle(dir.path(), Value::Null, json!(["true"]));
     std::fs::write(bundle.join("secrets.env"), "GH_TOKEN=oops\n").unwrap();
-    let error = Bundle::compile(&bundle).unwrap_err().to_string();
+    let error = compile(dir.path(), &bundle).unwrap_err().to_string();
     assert!(error.contains("secrets.env"), "{error}");
     assert!(error.contains("outside the bundle"), "{error}");
 }
@@ -140,8 +187,8 @@ fn rotation_never_changes_the_manifest_digest() {
         json!(["GH_TOKEN"]),
         json!(["bash", "-c", "echo {{secret:GH_TOKEN}}"]),
     );
-    let before = Bundle::compile(&bundle).unwrap().manifest_digest();
+    let before = compile(dir.path(), &bundle).unwrap().manifest_digest();
     brokkr_protocol::secret::store_set(&store, "GH_TOKEN", "rotated-value").unwrap();
-    let after = Bundle::compile(&bundle).unwrap().manifest_digest();
+    let after = compile(dir.path(), &bundle).unwrap().manifest_digest();
     assert_eq!(before, after, "rotation must never change a digest");
 }

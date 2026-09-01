@@ -933,11 +933,30 @@ fn journal_of(
         .journal)
 }
 
+/// Compile a bundle against the tree the invocation stands in. The
+/// agent library and the adapters are read from the WORKSPACE for the
+/// same reason `realms.json` is (decision 0023): what a command resolves
+/// is a function of its arguments, not of where the caller happens to
+/// stand. The default workspace is `.`, so an operator sees exactly the
+/// roots they always did — but since decision 0021 a compile reads the
+/// adapter data for a bundle that names no agent at all (a gate seat's
+/// trust tier and a secret binding's grant live there), and a verb that
+/// resolved one tree while compiling against another would be the forge
+/// diagnosing itself wrong.
+pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
+    Ok(Bundle::compile_with(
+        dir,
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+    )?)
+}
+
 fn run_with(
     cli: Cli,
-    // The directory `realms.json` is discovered in. Injected rather than
-    // read from the process, so what a command resolves is a function of
-    // its arguments and not of where the caller happens to stand.
+    // The directory `realms.json`, `agents/` and `adapters/` are
+    // discovered in. Injected rather than read from the process, so what
+    // a command resolves is a function of its arguments and not of where
+    // the caller happens to stand.
     workspace: &std::path::Path,
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
     bridge_iteration_limit: Option<usize>,
@@ -949,6 +968,16 @@ fn run_with(
             let digest = init::init(&dir)?;
             eprintln!(
                 "initialized reviewable bundle at {} (digest {digest})",
+                dir.display()
+            );
+            // The scaffold carries its own `adapters/`, where the trust
+            // tier its gate seats compile against is declared (decision
+            // 0021). Every other verb reads that tree from the workspace,
+            // which is the directory brokkr is run in — so say once,
+            // here, where to stand.
+            eprintln!(
+                "run brokkr from inside {} — its adapters/ declares the trust \
+                 tier the verify, review and ship seats judge on",
                 dir.display()
             );
             Ok(ExitCode::SUCCESS)
@@ -1012,7 +1041,7 @@ fn run_with(
             })
         }
         Cmd::Compile { bundle } => {
-            let bundle = Bundle::compile(&bundle)?;
+            let bundle = compile_in(workspace, &bundle)?;
             println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
             Ok(ExitCode::SUCCESS)
         }
@@ -1051,7 +1080,7 @@ fn run_with(
                  believed in. Run without --dispatch, or without --realms, until a \
                  jointly agreed v2-lineage manifest version exists"
             );
-            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
                 // A map merely lying in the workspace is a different
@@ -1089,7 +1118,7 @@ fn run_with(
             repo,
             secrets_file,
         } => {
-            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             engine.secrets_file = secrets_file;
@@ -1118,7 +1147,7 @@ fn run_with(
                     anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
                 })?
                 .to_string();
-            let bundle = Bundle::compile(&recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
             let mut engine = Engine::start(store, bundle, &feature, repo)?;
             engine.secrets_file = secrets_file;
             eprintln!(
@@ -1423,10 +1452,12 @@ fn run_with(
         }
         Cmd::Recipes { command } => {
             match command {
-                RecipesCmd::List { dir } => recipes::list(&dir)?,
-                RecipesCmd::Add { source, name, dir } => recipes::add(&source, &name, &dir)?,
+                RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
+                RecipesCmd::Add { source, name, dir } => {
+                    recipes::add(workspace, &source, &name, &dir)?
+                }
                 RecipesCmd::Show { name, dir } => {
-                    let bundle = Bundle::compile(&recipes::resolve(None, Some(name), &dir)?)?;
+                    let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
                     println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
                 }
             }

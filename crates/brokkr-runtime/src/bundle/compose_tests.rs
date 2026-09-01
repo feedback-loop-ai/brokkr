@@ -732,7 +732,16 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// identity, re-recorded as the identity change it is. All five moved
 /// again with decision 0019's rename: the `{forge}` token in bundle
 /// argv became `{brokkr}`, and the adapters and charters those bundles
-/// resolve moved with it. Every one of them is a different bundle now.
+/// resolve moved with it. All five moved a fourth time when decision
+/// 0021's compile-time refusals landed: every seat, step and panel
+/// member gained the class that says whether it works or judges, and
+/// every adapter gained the trust tier and binding grant those refusals
+/// read — the law is part of what a bundle IS, so a bundle that now
+/// declares it is a different bundle. Every one of them is a different
+/// bundle now. The two with INLINE gates — `recipes/fast` and
+/// `bundles/verify` — moved once more when those gates began pinning
+/// the adapter declaration that authorises them, so a tier demoted in
+/// `adapters/` moves the identity of the bundles it was standing behind.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -741,23 +750,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "096fbfbcda1e74b1d4d9262f20935eac2381047754e2a02f9d139dfb516ec08e",
+        "4a6bb31cdfaf75eae5a7d30cb030c58ecbdda3db23c6f925db11b5bc228651b0",
     ),
     (
         "recipes/panel-review",
-        "831f5edd2d1a1e4c8710d20a8fe2de2d075fc4f691688499bafa064736a8a452",
+        "066627bd685e5ad7365c752e451a970ffb408aef381fe5d81866efdbe3b13dca",
     ),
     (
         "recipes/sdd",
-        "6b97157afc091379d964c1f2b9b299660dd3832238ac6878325ee160fdc8895b",
+        "dafe2bd9e876f9971c0b6ff465b946ae20fd71582a7d1a4376b09b384e6e5483",
     ),
     (
         "bundles/self",
-        "2d11cff7878589f7de6ad217f699fd951dbbec562fbafb99514fac0307c8a2fb",
+        "5a14b64a1d2392c2a6b0a095e4304e24767ddc6a439ccba929479baf36ef8e29",
     ),
     (
         "bundles/verify",
-        "9951969eed3af5035b09abff1a875244194b262ca381577639100acb6d4b7dc5",
+        "bc618ec482f28a1e29eb50377a9d7f2cf3faf80dfb71800db75f146e1bdce68e",
     ),
 ];
 
@@ -869,7 +878,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     // resolution, which belongs to the composed bundle rather than to
     // any layer of it.
     let layer_digest = brokkr_core::canonical::sha256_hex(
-        &super::manifest_for(&sdd.dir, "sdd", &[], None).unwrap(),
+        &super::manifest_for(&sdd.dir, "sdd", &[], None, None).unwrap(),
     );
     assert_eq!(
         bundle.chain,
@@ -888,12 +897,14 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "c3b722cd01ab22452c3051a3a2b88a5be2185804bcb8b9fa98ffd3563c361c81",
+        "8fc61a07930a215b3f0256c93dfd649c8c59b63739f21330650ff8aea8235f00",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
-         (decision 0022), and again when the base's argv token was \
-         renamed (decision 0019), which is this test's own principle: \
-         changing a base changes the digest of everything derived from it"
+         (decision 0022), again when the base's argv token was renamed \
+         (decision 0019), and again when its inline review panel began \
+         pinning the adapter declarations that authorise it to judge \
+         (decision 0021), which is this test's own principle: changing a \
+         base changes the digest of everything derived from it"
     );
 }
 

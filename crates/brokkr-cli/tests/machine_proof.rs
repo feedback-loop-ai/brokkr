@@ -2324,6 +2324,22 @@ mod journal_invariant {
         )
     }
 
+    /// The adapter tree the workspace compiles against. A seat that
+    /// declares secret bindings may only seat a driver the operator
+    /// granted them (decision 0021 ruling 4), and this proof's seat is
+    /// the exec driver — the one decision 0012 put the resolution in.
+    /// The shipped adapters are copied verbatim rather than invented, so
+    /// the proof runs against the same declarations the tree ships.
+    fn stage_adapters(ws: &Workspace) {
+        let shipped = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates/")
+            .parent()
+            .expect("workspace root")
+            .join("adapters");
+        copy_dir(&shipped, &ws.path().join("adapters"));
+    }
+
     /// Swap one phase's fake-driver seat for a real exec seat with a
     /// declared secret binding and a {{secret:NAME}} template reference.
     fn make_exec_seat(ws: &Workspace, phase: &str, script: &Path) {
@@ -2357,6 +2373,7 @@ mod journal_invariant {
         let script = ws.path().join("leaky.sh");
         write_executable(&script, &leaky_script(exit_code));
         make_exec_seat(&ws, "implement", &script);
+        stage_adapters(&ws);
         let store = ws.path().join("secrets.env");
         brokkr_protocol::secret::store_set(&store, "API_TOKEN", SECRET_VALUE).unwrap();
         // The child prints the needles the SAME shared constant defines —

@@ -9,6 +9,7 @@
         "pass",
         "fail"
       ],
+      "class": "gate",
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 3600
@@ -33,6 +34,7 @@
         "residual",
         "security-hold"
       ],
+      "class": "gate",
       "inputs": [
         "fixes_applied",
         "has_security_residual",

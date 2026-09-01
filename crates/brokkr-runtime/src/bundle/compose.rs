@@ -678,9 +678,10 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
     let mut chain: Vec<Ancestor> = Vec::new();
     for layer in layers.iter().skip(1).rev() {
         // An ancestor's digest covers its own files and its own
-        // ancestors — never the leaf's agent resolution, which belongs
+        // ancestors — never the leaf's agent resolution or the adapter
+        // declarations that authorised its gates, both of which belong
         // to the composed bundle rather than to any layer.
-        let manifest = super::manifest_for(&layer.dir, &layer.name, &chain, None)?;
+        let manifest = super::manifest_for(&layer.dir, &layer.name, &chain, None, None)?;
         chain.insert(
             0,
             Ancestor {

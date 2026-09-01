@@ -13,7 +13,7 @@ use time::format_description::well_known::Rfc3339;
 /// the whole binary, named where both surfaces' test modules can see it.
 pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn workspace() -> PathBuf {
+pub(crate) fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -130,6 +130,57 @@ pub(crate) fn stopped_mid_flight_run(db: &std::path::Path, run_id: &str, manifes
 
 fn cli(command: Cmd) -> Cli {
     Cli { command }
+}
+
+/// A shipped recipe, compiled against the tree it ships in. Since
+/// decision 0021 a compile reads the adapter data even for a bundle that
+/// names no agent — a gate seat's trust tier lives there — and a test
+/// binary stands in its own crate directory, not in the workspace.
+/// Copy the shipped adapter files into a workspace a test invocation
+/// stands in. Flat by construction: `Adapters::load` reads the `.json`
+/// files directly under the root and nothing else.
+fn stage_adapters(workspace_dir: &std::path::Path) {
+    let from = workspace().join("adapters");
+    let to = workspace_dir.join("adapters");
+    std::fs::create_dir_all(&to).unwrap();
+    for entry in std::fs::read_dir(&from).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+    }
+}
+
+/// A copy of `recipes/fast` whose judging seats are declared work-class,
+/// so no seat consults an adapter declaration and the manifest carries
+/// no `drivers` witness — the shape a bundle must have to ride the
+/// Looper-bound v2 lineage since the reforging of run
+/// implement-decision-0021 (remedy ii). Lawful, if unwise: 0021 ruling 1
+/// leaves the class division as bundle data, and this test needs the
+/// dispatchable shape, not the wise one.
+fn stage_declassed_fast(workspace_dir: &std::path::Path) -> std::path::PathBuf {
+    let from = workspace().join("recipes/fast");
+    let to = workspace_dir.join("fast-declassed");
+    std::fs::create_dir_all(to.join("roles")).unwrap();
+    for name in ["policy.json", "shipper.md"] {
+        std::fs::copy(from.join(name), to.join(name)).unwrap();
+    }
+    for entry in std::fs::read_dir(from.join("roles")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), to.join("roles").join(entry.file_name())).unwrap();
+    }
+    let manifest = std::fs::read_to_string(from.join("bundle.json"))
+        .unwrap()
+        .replace("\"class\": \"gate\"", "\"class\": \"work\"");
+    std::fs::write(to.join("bundle.json"), manifest).unwrap();
+    to
+}
+
+fn compiled_recipe(relative: &str) -> Bundle {
+    Bundle::compile_with(
+        &workspace().join(relative),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap()
 }
 
 /// A workspace holding no `realms.json`. Named explicitly by the tests
@@ -504,6 +555,12 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
 #[test]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
+    // The tempdir is the workspace these invocations stand in, so it
+    // carries the adapter data a compile reads since decision 0021 —
+    // `recipes/fast` seats gates, and a gate's trust tier is declared
+    // there. Copied from the tree rather than invented, for the same
+    // reason the digest witnesses are recorded rather than asserted.
+    stage_adapters(dir.path());
     let bundle_path = workspace().join("recipes/fast");
     let recipes_dir = workspace().join("recipes");
     let base = |dispatch| Cmd::Run {
@@ -539,22 +596,67 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         "and no journal was created to refuse into"
     );
 
-    assert!(run(cli(base(Some(missing))))
+    // The same invocations from a workspace that drew NO map: it carries
+    // the adapter data a compile reads (decision 0021) and nothing else,
+    // so a dispatched run there pins no world and says nothing about one.
+    let unmapped = dir.path().join("unmapped");
+    std::fs::create_dir_all(&unmapped).unwrap();
+    stage_adapters(&unmapped);
+    assert!(run_in(&unmapped, cli(base(Some(missing))))
         .unwrap_err()
         .to_string()
         .contains("reading dispatch"));
     let malformed = dir.path().join("malformed.json");
     std::fs::write(&malformed, "not json").unwrap();
-    assert!(run(cli(base(Some(malformed))))
+    assert!(run_in(&unmapped, cli(base(Some(malformed))))
         .unwrap_err()
         .to_string()
         .contains("parsing forge-dispatch/v2"));
 
-    let bundle = Bundle::compile(&bundle_path).unwrap();
+    // Decision 0021's witness meets 0016's frozen lineage: the REAL
+    // recipes/fast seats gates, whose authorising adapters are pinned
+    // under `drivers`, and the v2 round-trip cannot carry the pin. The
+    // dispatch is refused out loud — naming the key — rather than the
+    // witness dropped in silence and the run left unresumable (the
+    // reforging of run implement-decision-0021, remedy ii).
+    let gated = compiled_recipe("recipes/fast");
+    let gated_dispatch = dispatch_for(&gated, "bound-run-gated", "https://dogfood.example");
+    let gated_path = dir.path().join("dispatch-gated.json");
+    std::fs::write(&gated_path, serde_json::to_string(&gated_dispatch).unwrap()).unwrap();
+    let refusal = run_in(&unmapped, cli(base(Some(gated_path))))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("'drivers'"), "{refusal}");
+    assert!(refusal.contains("unresumable"), "{refusal}");
+
+    // A bundle that consulted no declaration still dispatches: the
+    // de-classed copy pins no witness, so the v2 round-trip is lossless.
+    let declassed = stage_declassed_fast(dir.path());
+    let bundle = Bundle::compile_with(
+        &declassed,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
+    assert!(
+        bundle.manifest.get("drivers").is_none(),
+        "a work-class copy consults nothing and pins nothing"
+    );
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
-    let code = run(cli(base(Some(path.clone())))).unwrap();
+    let accept = |dispatch_path| Cmd::Run {
+        bundle: Some(declassed.clone()),
+        recipe: None,
+        recipes_dir: recipes_dir.clone(),
+        feature: "feature".into(),
+        realms: None,
+        db: Some(dir.path().join("dispatch.db")),
+        repo: None,
+        dispatch: Some(dispatch_path),
+        secrets_file: None,
+    };
+    let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 
     // A map merely LYING in the workspace is not an instruction, and a
@@ -564,7 +666,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let second = dispatch_for(&bundle, "bound-run-2", "https://dogfood.example");
     let second_path = dir.path().join("dispatch-2.json");
     std::fs::write(&second_path, serde_json::to_string(&second).unwrap()).unwrap();
-    let code = run_in(dir.path(), cli(base(Some(second_path)))).unwrap();
+    let code = run_in(dir.path(), cli(accept(second_path))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 }
 
@@ -630,7 +732,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         "engine":"0.2.0", "event_schema":1, "database_schema":1,
         "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
     });
-    let mut shell_bundle = Bundle::compile(&workspace().join("recipes/fast")).unwrap();
+    let mut shell_bundle = compiled_recipe("recipes/fast");
     shell_bundle.name = "fast".into();
     shell_bundle.manifest = base_manifest.clone();
     let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", &base_url);
@@ -1652,19 +1754,22 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let bundle_path = workspace().join("recipes/fast");
-    let bundle = Bundle::compile(&bundle_path).unwrap();
+    let bundle = compiled_recipe("recipes/fast");
     stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
 
     assert_eq!(
-        run(cli(Cmd::Resume {
-            bundle: Some(bundle_path),
-            recipe: None,
-            recipes_dir: workspace().join("recipes"),
-            run: "stopped-mid-flight".into(),
-            db: db.clone(),
-            repo: None,
-            secrets_file: None,
-        }))
+        run_in(
+            &workspace(),
+            cli(Cmd::Resume {
+                bundle: Some(bundle_path),
+                recipe: None,
+                recipes_dir: workspace().join("recipes"),
+                run: "stopped-mid-flight".into(),
+                db: db.clone(),
+                repo: None,
+                secrets_file: None,
+            })
+        )
         .unwrap(),
         ExitCode::from(3),
         "a stopped run reporting success would be a lie to the shell",

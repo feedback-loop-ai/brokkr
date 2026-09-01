@@ -407,6 +407,35 @@ fn manifest_conversion_refuses_every_malformed_boundary() {
     let message = refusal.unwrap_err().to_string();
     assert!(message.contains("unresumable"), "{message}");
     assert!(message.contains("v2-lineage manifest version"), "{message}");
+    // The reforging of run implement-decision-0021 (operator ruled
+    // remedy ii): the v5 `drivers` witness reached the manifest through
+    // a key the named refusal above did not guard, so the lineage now
+    // refuses EVERY key beyond the six it can round-trip — fail closed,
+    // naming the key it cannot carry.
+    let mut witnessed = valid.clone();
+    witnessed["drivers"] = json!({"verify": {"claude": "e".repeat(64)}});
+    let witnessed_sha = canonical::sha256_hex(&witnessed);
+    let refusal = build_run_manifest_v2(&witnessed, fixture(&witnessed_sha));
+    assert_eq!(
+        refusal,
+        Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            "drivers".into()
+        ))
+    );
+    let message = refusal.unwrap_err().to_string();
+    assert!(message.contains("'drivers'"), "{message}");
+    assert!(message.contains("unresumable"), "{message}");
+    // And the guard is the whole key space, not a longer list: a key
+    // this crate has never heard of is refused the same way.
+    let mut unknown = valid.clone();
+    unknown["witness_of_2027"] = json!(true);
+    let unknown_sha = canonical::sha256_hex(&unknown);
+    assert_eq!(
+        build_run_manifest_v2(&unknown, fixture(&unknown_sha)),
+        Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            "witness_of_2027".into()
+        ))
+    );
     // Non-adopting bundles dispatch exactly as they did.
     assert!(build_run_manifest_v2(&valid, fixture(&bundle_sha)).is_ok());
 

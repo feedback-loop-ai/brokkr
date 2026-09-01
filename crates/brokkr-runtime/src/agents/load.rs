@@ -17,7 +17,9 @@ use brokkr_core::canonical::{sha256_bytes, sha256_hex};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use super::{valid_name, Adapter, Agent, McpNeed, McpSupport, ToolPermissions, NAME_GRAMMAR};
+use super::{
+    valid_name, Adapter, Agent, McpNeed, McpSupport, ToolPermissions, TrustTier, NAME_GRAMMAR,
+};
 use crate::bundle::Limits;
 
 #[derive(Debug, Error)]
@@ -188,6 +190,42 @@ fn capability<'a>(
         _ => invalid(format!(
             "{what} needs '{key}': either its mapping, or the explicit string \
              \"unsupported\""
+        )),
+    }
+}
+
+/// A provider's operator-granted trust tier (decision 0021 ruling 2).
+/// Absent is `Untrusted` — fail-closed, and NOT an error: a newcomer
+/// adapter that declares nothing is exactly ruling 7's symmetric
+/// starting position. A tier the vocabulary does not name IS an error,
+/// at load time, in the style decision 0004 established for the phase
+/// machine: a misspelled `"trusetd"` must never read as untrusted by
+/// accident, because then a promotion would silently not have happened.
+fn trust_tier(map: &Map<String, Value>, what: &str) -> Result<TrustTier, LibraryError> {
+    let Some(declared) = map.get("trust_tier") else {
+        return Ok(TrustTier::Untrusted);
+    };
+    match declared.as_str().and_then(TrustTier::parse) {
+        Some(tier) => Ok(tier),
+        None => invalid(format!(
+            "{what} 'trust_tier' is {declared}; the vocabulary is closed — \
+             \"trusted\" or \"untrusted\" — and an absent tier is untrusted"
+        )),
+    }
+}
+
+/// A provider's egress grant for secret bindings (decision 0021 ruling
+/// 4). Absent is no grant, and a non-boolean is an error for the same
+/// reason a misspelled tier is.
+fn binding_grant(map: &Map<String, Value>, what: &str) -> Result<bool, LibraryError> {
+    let Some(declared) = map.get("binding_grant") else {
+        return Ok(false);
+    };
+    match declared.as_bool() {
+        Some(granted) => Ok(granted),
+        None => invalid(format!(
+            "{what} 'binding_grant' is {declared}; the grant is a boolean, and \
+             an absent grant is none"
         )),
     }
 }
@@ -463,6 +501,13 @@ impl Adapters {
         self.adapters.get(provider).map(|a| a.digest.as_str())
     }
 
+    /// One provider's adapter by name. `None` for a driver no adapter
+    /// declares, which decision 0021's refusals read as "declares
+    /// nothing": untrusted, ungranted.
+    pub fn adapter(&self, provider: &str) -> Option<&Adapter> {
+        self.adapters.get(provider)
+    }
+
     /// The adapter files consulted, named in every unmapped-model error
     /// so a reader knows exactly where to add the mapping.
     pub fn files(&self) -> &[String] {
@@ -485,6 +530,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         map,
         &[
             "provider",
+            "trust_tier",
+            "binding_grant",
             "binary",
             "hint",
             "driver",
@@ -541,6 +588,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     };
     Ok(Adapter {
         provider,
+        trust_tier: trust_tier(map, &what)?,
+        binding_grant: binding_grant(map, &what)?,
         binary,
         hint,
         driver,

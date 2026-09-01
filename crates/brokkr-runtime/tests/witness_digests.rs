@@ -6,6 +6,13 @@
 //! manifest digest must not move, and their manifest must carry no
 //! `agents` key at all — absence, not an empty object, is what keeps a
 //! non-adopting bundle's identity exactly what it was.
+//!
+//! Adopting no agent is not the same as answering to nobody. Both seat
+//! INLINE gates, and since decision 0021 a gate stands on an adapter's
+//! declared tier — so both now carry a `drivers` key naming the adapter
+//! digest that authorised each judging seat. That key is the witness the
+//! refusals were missing: without it a demoted tier would change what
+//! the compiler allows while leaving the bundle's identity untouched.
 
 use std::path::PathBuf;
 
@@ -27,24 +34,44 @@ fn workspace() -> PathBuf {
 /// moved `recipes/fast`, which gained the reforging back-edge, and left
 /// `bundles/verify` — which has no implement phase to return to —
 /// exactly where it was; decision 0019's rename moved both, because the
-/// `{forge}` token in their argv became `{brokkr}`), or the byte
-/// identity this slice promised to keep. Never a silent fourth thing.
+/// `{forge}` token in their argv became `{brokkr}`; decision 0021's
+/// compile-time refusals moved both again, because every seat in them
+/// now declares whether it works or judges, and once more because their
+/// inline gates now pin the adapter declaration that authorises them),
+/// or the byte identity this slice promised to keep. Never a silent
+/// fourth thing.
 const WITNESSES: [(&str, &str); 2] = [
     (
         "recipes/fast",
-        "096fbfbcda1e74b1d4d9262f20935eac2381047754e2a02f9d139dfb516ec08e",
+        "4a6bb31cdfaf75eae5a7d30cb030c58ecbdda3db23c6f925db11b5bc228651b0",
     ),
     (
         "bundles/verify",
-        "9951969eed3af5035b09abff1a875244194b262ca381577639100acb6d4b7dc5",
+        "bc618ec482f28a1e29eb50377a9d7f2cf3faf80dfb71800db75f146e1bdce68e",
     ),
+];
+
+/// The INLINE gate seats of each, by name: exactly what a `drivers`
+/// witness must account for, one entry per judging seat and none for a
+/// working one. `bundles/verify` has no ship phase to gate.
+const INLINE_GATES: [(&str, &[&str]); 2] = [
+    ("recipes/fast", &["review", "ship", "verify"]),
+    ("bundles/verify", &["review", "verify"]),
 ];
 
 #[test]
 fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
+    let root = workspace();
     for (relative, digest) in WITNESSES {
-        let bundle = Bundle::compile(&workspace().join(relative))
-            .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
+        // Explicit roots, as in the compile below: since decision 0021 a
+        // compile reads the adapter data even for these two, which adopt
+        // no agent — a gate seat's trust tier is declared there.
+        let bundle = Bundle::compile_with(
+            &root.join(relative),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
         assert_eq!(
             bundle.manifest_digest(),
             digest,
@@ -55,6 +82,40 @@ fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
             "{relative} manifest gained an 'agents' key; a non-adopting \
              bundle carries none"
         );
+    }
+}
+
+/// What authorises an inline gate is pinned where the bundle's identity
+/// can see it (decision 0021): one entry per gate-class seat, naming the
+/// driver and the digest of the adapter file whose declared tier let it
+/// judge — and no entry for a work-class seat, which consulted nothing.
+#[test]
+fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
+    let root = workspace();
+    let adapters = brokkr_runtime::agents::Adapters::load(&root.join("adapters"))
+        .expect("the shipped adapters load");
+    let claude = adapters
+        .digest("claude")
+        .expect("the incumbent adapter is declared");
+    for (relative, gates) in INLINE_GATES {
+        let bundle = Bundle::compile_with(
+            &root.join(relative),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
+        let witnessed = bundle.manifest["drivers"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{relative} witnesses no driver for its gates"));
+        let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
+        assert_eq!(seats, gates, "{relative} witnessed the wrong seats");
+        for seat in gates {
+            assert_eq!(
+                witnessed[*seat],
+                serde_json::json!({ "claude": claude }),
+                "{relative} seat '{seat}' pins the wrong adapter"
+            );
+        }
     }
 }
 

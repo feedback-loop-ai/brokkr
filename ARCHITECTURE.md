@@ -173,6 +173,38 @@ are data too: no confinement is a trusted native child;
 `driver.confine {image, network, mounts}` wraps the command in a
 pinned container with the workdir mounted at the same path.
 
+Model policy is data with two compile-time refusals behind it (decision
+0021). Every driver-bearing site — a seat, a panel member, a sequence
+step — declares a `class`: `work` sites produce output the machine
+checks, `gate` sites ARE the check. Every adapter declares a
+`trust_tier` (`trusted`/`untrusted`, an operator ruling cited to the
+scorecard, never a vendor name in an arm) and a `binding_grant` (the
+other axis: clearance to RECEIVE). `Bundle::assemble` then refuses a
+gate site whose driver is not trusted, and a site under a seat with
+declared secret bindings whose driver holds no grant — a lookup and a
+comparison, before any prompt exists to leak, in the manner of a digest
+mismatch. Both fail closed on absence: an undeclared tier is untrusted,
+an undeclared grant is none, and a driver no adapter declares has
+neither. Because the class is read by absence, the key vocabulary of
+every site — seat, panel member, sequence step — is CLOSED: a key the
+compiler does not read is refused where it is written, so `"clas":
+"gate"` cannot manufacture the silence the fail-closed reading trusts.
+An agent's whole fallback chain is checked, not just its first
+link, because a chain that could fall back to an untrusted judge at run
+time would have defeated the gate at compile time. An inline site's
+driver is read structurally off the token after `driver` in its command
+(decision 0009's dispatch shape); a command that is no dispatch names no
+driver, and so declares nothing. What ALLOWED a site is pinned where the
+bundle's identity can see it: an agent site through its resolution
+record, an inline one through a `drivers` manifest key naming, per
+judging or binding seat, the digest of the adapter file that answered —
+so demoting a tier in `adapters/` moves the identity of every bundle
+that was standing on it. Absent, like `agents`, when nothing was
+consulted. `brokkr init` scaffolds this whole shape: the starter's
+verify, review and ship seats are classed `gate`, and the scaffold
+carries its own `adapters/` declaring the tier they judge on, which is
+why brokkr is then run from inside it.
+
 ## Agents are defined once; adapters are data
 
 A seat may name an agent instead of inlining what it is (decision 0016).

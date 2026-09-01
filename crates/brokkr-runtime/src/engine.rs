@@ -200,7 +200,7 @@ impl Engine {
             repo,
             // A Looper-bound run pins a run-manifest/v2, whose bytes a
             // counterpart system reads; the map's pin belongs to the
-            // v1→v4 local lineage. The CLI refuses the combination
+            // v1→v5 local lineage. The CLI refuses the combination
             // rather than dropping a world silently.
             world: None,
             current_cause: None,
