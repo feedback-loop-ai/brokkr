@@ -1898,14 +1898,13 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     // invocation back unchanged.
     assert_eq!(found.announce().notice, Some(notice));
 
-    // The operator's own `--db` is the operator's own answer.
+    // The operator's own `--db` outranks the journal, but the map is
+    // still adopted for realms and fact keys — so it is still said.
     let chosen = dir.path().join("chosen.db");
-    assert_eq!(
-        Invocation::resolve(dir.path(), None, Some(chosen))
-            .unwrap()
-            .notice,
-        None
-    );
+    let overridden = Invocation::resolve(dir.path(), None, Some(chosen)).unwrap();
+    let notice = overridden.notice.expect("an adopted map is never silent");
+    assert!(notice.contains("(journal unchanged)"), "{notice}");
+    assert!(notice.contains("--realms names it explicitly"), "{notice}");
 
     // And a map that names the journal which was going to be opened
     // anyway has redirected nothing, so it announces nothing — this is
@@ -1924,9 +1923,17 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     .unwrap();
     let ambient = Invocation::resolve(plain.path(), None, None).unwrap();
     assert_eq!(ambient.journal, default_journal);
+    let notice = ambient
+        .notice
+        .expect("a map that moved nothing is still an adoption, and adoption is said");
+    assert!(notice.contains("(journal unchanged)"), "{notice}");
+    // A map the operator NAMED is the one silent case: typed is known.
     assert_eq!(
-        ambient.notice, None,
-        "the default journal is no redirection"
+        Invocation::resolve(plain.path(), Some(plain.path().join("realms.json")), None)
+            .unwrap()
+            .notice,
+        None,
+        "a typed map owes no note"
     );
 
     // One journal, however it is written — and a path that cannot be

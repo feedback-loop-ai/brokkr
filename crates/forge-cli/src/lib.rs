@@ -879,26 +879,32 @@ impl Invocation {
         let journal = db
             .or_else(|| mapped.clone())
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DB));
-        // A note is owed exactly when a map nobody typed is what moved
-        // the journal: a map the operator named is one the operator
-        // knows about, `--db` is the operator's own answer, and a map
-        // naming the journal that was going to be opened anyway moved
-        // nothing.
+        // A note is owed whenever a map nobody typed is adopted at all
+        // (the run's own review caught the quiet arm: a map that keeps
+        // the journal in place still decides realm paths and fact
+        // keys). A map the operator named is one the operator knows
+        // about; everything ambient is said out loud — once, on
+        // stderr, before anything opens.
         let notice = mapped
             .zip(
                 world
                     .as_ref()
                     .map(|world| world.source.display().to_string()),
             )
-            .filter(|(mapped, _)| {
-                !named && !overridden && !same_journal(mapped, std::path::Path::new(DEFAULT_DB))
-            })
+            .filter(|_| !named)
             .map(|(mapped, source)| {
-                format!(
-                    "note: the journal is {}, named by the map {source} found in this \
-                     workspace rather than typed with --realms; --db outranks it",
-                    mapped.display(),
-                )
+                if overridden || same_journal(&mapped, std::path::Path::new(DEFAULT_DB)) {
+                    format!(
+                        "note: the map {source} found in this workspace is adopted \
+                         (journal unchanged); --realms names it explicitly"
+                    )
+                } else {
+                    format!(
+                        "note: the journal is {}, named by the map {source} found in this \
+                         workspace rather than typed with --realms; --db outranks it",
+                        mapped.display(),
+                    )
+                }
             });
         Ok(Invocation {
             world,
