@@ -1035,10 +1035,10 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
 fn the_quickstart_install_step_carries_the_manager_matrix() {
     let quickstart = read("docs/guides/quickstart.md");
     let install = quickstart
-        .split("## 1. Install")
+        .split("### Step 1 — install")
         .nth(1)
         .expect("the install step")
-        .split("\n## ")
+        .split("\n### ")
         .next()
         .expect("the step ends");
 
@@ -1056,9 +1056,13 @@ fn the_quickstart_install_step_carries_the_manager_matrix() {
     // The accuracy law: nothing that needs the bench's secret or the
     // sibling repositories is written as if it were tested.
     assert!(install.contains("wired at the bench"), "{install}");
-    // The forward note the framing asked for, about the bootstrap
-    // slice's spine.
-    assert!(install.contains("slice-bootstrap"), "{install}");
+    // The forward note about the bootstrap spine resolved itself: the
+    // matrix now lives ON the spine, and the tarball row remains the
+    // one the 60-second budget gates — assert the merged reality.
+    assert!(
+        install.contains("60-second budget"),
+        "the tarball row no longer names the budget it gates:\n{install}"
+    );
 }
 
 /// The packaging README is where the operator's steps live: the secrets
