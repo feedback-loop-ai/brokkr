@@ -343,6 +343,11 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
     );
     let prior_claude = std::env::var_os("FORGE_CLAUDE_BIN");
     let prior_codex = std::env::var_os("FORGE_CODEX_BIN");
+    // Codex is pinned here through its OLD spelling, which the new one
+    // outranks (decision 0019): an inherited BROKKR_CODEX_BIN would
+    // send this test at a real codex, so it goes for the duration.
+    let prior_brokkr_codex = std::env::var_os("BROKKR_CODEX_BIN");
+    std::env::remove_var("BROKKR_CODEX_BIN");
 
     for (kind, variable) in [
         (AdapterKind::Claude, "FORGE_CLAUDE_BIN"),
@@ -367,6 +372,9 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
     match prior_codex {
         Some(value) => std::env::set_var("FORGE_CODEX_BIN", value),
         None => std::env::remove_var("FORGE_CODEX_BIN"),
+    }
+    if let Some(value) = prior_brokkr_codex {
+        std::env::set_var("BROKKR_CODEX_BIN", value);
     }
 }
 

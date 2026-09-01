@@ -96,8 +96,11 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         // Deliberately split: codex is pinned through the new spelling
         // and dsh through the old one, so a conformance run proves both
         // reach the same adapter for the release the old names survive
-        // (decision 0019).
+        // (decision 0019). The new dsh spelling is REMOVED rather than
+        // left inherited: it outranks the old one, so an operator who
+        // has it exported would otherwise send this test at a real dsh.
         .env("BROKKR_CODEX_BIN", shim)
+        .env_remove("BROKKR_DSH_BIN")
         .env("FORGE_DSH_BIN", shim)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
