@@ -2565,10 +2565,15 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
 /// record that quietly edits its own evidence is worth less than one
 /// that does not, and the contract's `{reason}` is a string, not a
 /// terminal instruction. Neutralizing happens where the string becomes
-/// pixels, at the one `Safe` every rendering already crosses — the
-/// console's trail here, and `tui.rs`'s three surfaces through the same
-/// sanitizer. `brokkr-view` draws nothing itself and has no consumer
-/// outside those two, so this is the whole boundary, not a sample of it.
+/// pixels, and each surface neutralizes in its own alphabet: the two
+/// terminal drawings — the console's trail, tested here, and `tui.rs`'s
+/// surfaces — cross the one `Safe` sanitizer, and the browser draws the
+/// same `brokkr-view` models through `ui.html`'s `textContent`
+/// discipline, which `ui.rs`'s own test pins by banning `innerHTML`.
+/// `brokkr-view` draws nothing itself, so it holds no third alphabet;
+/// its remaining consumers (`muninn.rs`, `compare.rs`) emit JSON, where
+/// verbatim is the right answer for the same reason it is in the
+/// journal. This test is the terminal half of that boundary.
 #[test]
 fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     let dir = tempfile::tempdir().unwrap();
