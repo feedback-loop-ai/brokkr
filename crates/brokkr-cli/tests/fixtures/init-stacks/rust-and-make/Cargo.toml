@@ -1,0 +1,7 @@
+# Both markers, on purpose: the manifest outranks the Makefile wrapper.
+[package]
+name = "stack-fixture"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]

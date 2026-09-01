@@ -1,0 +1,8 @@
+# Marker only. `brokkr init` reads that this file is here and nothing
+# else; `[workspace]` keeps it out of the workspace it happens to sit in.
+[package]
+name = "stack-fixture"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
