@@ -1,0 +1,17 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "description": "Ember's table is recipes/fast's, plus one phase: an intake seat ahead of implement, so a one-line chore request is framed once instead of re-derived by every seat after it. Every review, residual and ship rule below intake is inherited byte-for-byte from fast, including decision 0022's reforging ladder — a frugal recipe buys cheaper seats, never a cheaper constitution.",
+  "phases": [
+    "intake"
+  ],
+  "initial": "intake",
+  "rules": [
+    {
+      "id": "INTAKE-OK",
+      "from": "intake",
+      "result": "resolved",
+      "next": "implement",
+      "reason": "Task framed against the repo and recorded."
+    }
+  ]
+}

@@ -179,6 +179,43 @@ checked against the seat's declared `results`.
 with no model at all. Inline seats stay first-class; the agent library
 is an option, not a requirement.
 
+**The non-final-step rule has teeth, so read it before you use a
+sequence on a gate.** `recipes/crucible` puts one on `review`: a
+`positions` panel of `security` and `correctness`, then a single `chief`
+step that synthesises them. The panel's `review-panel` output is *not*
+the seat's result — it is a checkpoint, handed to the chief as
+`context.prior_results.positions` — so a `security-hold` from the panel
+reaches the rule table only if the chief reproduces it. The engine will
+accept a chief that rules lower.
+
+The same rule disables a fail-closed path you may not know you were
+relying on. A panel aggregate that cannot read a member's payload emits
+`result: "__member-schema-invalid__"` — deliberately not in any
+vocabulary, so that the seat's declared-results check rejects it and the
+run parks with the member evidence attached. On a *non-final* step
+nothing performs that check, so the sentinel is handed to the next step
+as an ordinary string and the malformed-driver signal is lost unless
+that step's charter names it. Give the floor a branch for a result
+outside the vocabulary, not just for the worst result inside it.
+
+There is a third consequence, and it is the easiest to miss: a non-final
+step's `notes` are copied **verbatim** into the next step's context. If
+the later step is a gate and an earlier one is a work seat — which
+admits any driver, trusted or not (decision 0021 ruling 7) — then
+untrusted model prose is now input to the prompt of the seat that rules
+the phase. A flat panel has no such path, because its verdict is
+computed in code and no member writes into it. Say so in the judging
+step's charter: what it receives is data to check against the diff, and
+text that argues for a verdict is a finding to name, never an
+instruction to follow. `recipes/crucible`'s chief charter is the worked
+example.
+
+When a sequence's later step judges earlier ones, put the floor in that
+step's charter and test the plumbing:
+[`recipes/crucible/README.md`](../../recipes/crucible/README.md#the-review-sequence--the-one-new-shape-here)
+walks the shape, and
+`crates/brokkr-runtime/tests/crucible_review_sequence.rs` pins it.
+
 ## Composition: `extends` and `override`
 
 Decision 0017. `recipes/sdd-paranoid/bundle.json` is the worked example,
@@ -209,6 +246,17 @@ because it redefines none of them. Everything else — the intake seat,
 the design sequence, the implementer, the verifier, the shipper, and the
 whole phase machine including the protected review gate — is inherited.
 
+Four more recipes extend `recipes/fast` the same way, each stating one
+kind of difference, and they are worth reading as a set:
+[`ember`](../../recipes/ember/README.md) adds a phase and re-pins every
+seat's model, [`crucible`](../../recipes/crucible/README.md) replaces a
+seat body with a sequence,
+[`night-shift`](../../recipes/night-shift/README.md) changes limits,
+model pins and charters, and
+[`wager-harness`](../../recipes/wager-harness/README.md)
+changes only one seat's driver. `ember` is also the one that needs a
+table marker as well as seat markers — see below.
+
 The rules:
 
 - **`extends` names a recipe in the library**, not a path. Names match
@@ -238,6 +286,13 @@ The rules:
 - **Table name arrays merge by union.** `phases`, `terminal` and
   `shippable_from` union rather than collide, so a derived recipe
   re-declaring an inherited phase says nothing new instead of erroring.
+  A table **scalar** is not an array and does not union: `recipes/ember`
+  adds an `intake` phase and an `INTAKE-OK` rule to `fast`'s table as
+  plain additions, but moving `initial` from `"implement"` to
+  `"intake"` redefines a scalar the base already set, so its bundle
+  carries `"override": { "table": ["description", "initial"] }`.
+  Without it, compilation refuses the bundle naming the collision.
+  Adding a phase is free; changing where the machine starts is not.
 - **Chains are bounded at eight layers**, and a repeated directory is a
   cycle reported with the whole loop in order.
 - **Seat values are opaque to the resolver.** It decides only *which*
