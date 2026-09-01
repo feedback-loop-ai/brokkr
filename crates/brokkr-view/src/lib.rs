@@ -788,7 +788,13 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     .checkpoints
                     .push((checkpoint.clone(), event.recorded_at.clone()));
                 let step = checkpoint.get("step").and_then(Value::as_str);
-                if step == Some("seat-turn") {
+                // A turn is a turn whoever counts it. Claude numbers a
+                // turn per tool use and journals `seat-turn`; codex
+                // closes each turn with `turn-completed` and journals no
+                // `seat-turn` at all. Folding only the first left every
+                // codex seat showing `—` turns while its turn numbers
+                // sat in the journal, unread.
+                if matches!(step, Some("seat-turn" | "turn-completed")) {
                     if let Some(turn) = checkpoint.get("turn").and_then(Value::as_u64) {
                         let current = scan.parts[part].turns;
                         scan.parts[part].turns = Some(match current {
@@ -796,6 +802,8 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                             None => turn,
                         });
                     }
+                }
+                if step == Some("seat-turn") {
                     scan.parts[part].last_turn = Some(checkpoint);
                 } else if step.is_some_and(|step| step.ends_with("-session-finished")) {
                     scan.parts[part].session = Some(checkpoint);
@@ -1031,6 +1039,54 @@ fn session_cost(part: &Build) -> Option<f64> {
         .and_then(Value::as_f64)
 }
 
+/// The tokens a seat actually spent, summed across its own turns.
+///
+/// Deliberately NOT read off `Build.session` the way the cost is. The
+/// codex adapter writes each turn's counts into its session meta with an
+/// insert, which overwrites rather than accumulates, so the finished
+/// checkpoint carries the LAST turn's counts and calls them the
+/// session's. The per-turn `turn-completed` checkpoints are the only
+/// complete record, and they are already collected here.
+///
+/// `cache_read_tokens` is not an addend: a cache read IS an input token,
+/// billed differently, and it arrives inside `input_tokens` already
+/// (3,830,272 of the wager's 3,975,322). Adding it would double-count.
+fn session_tokens(part: &Build) -> Option<u64> {
+    let mut total: Option<u64> = None;
+    for (checkpoint, _) in &part.checkpoints {
+        if checkpoint.get("step").and_then(Value::as_str) != Some("turn-completed") {
+            continue;
+        }
+        for key in ["input_tokens", "output_tokens"] {
+            if let Some(count) = checkpoint.get(key).and_then(Value::as_u64) {
+                total = Some(total.unwrap_or_default().saturating_add(count));
+            }
+        }
+    }
+    total
+}
+
+/// A token count as a table cell: `842 tok`, `312k tok`, `3.99M tok`.
+///
+/// Three tiers on powers of a thousand, rounded the way every other
+/// number this view humanizes is. The unit is spelled out because the
+/// column this lands in otherwise holds dollars, and a bare `312k` next
+/// to a `$0.0313` invites reading it as money — which is the one thing
+/// this cell must never say.
+fn fmt_tokens(total: u64) -> String {
+    if total < 1_000 {
+        return format!("{total} tok");
+    }
+    let thousands = js::round_half_up(total as f64 / 1_000.0);
+    if thousands < 1_000 {
+        return format!("{thousands}k tok");
+    }
+    // Hundredths of a million, placed with integer arithmetic: rounding
+    // once here keeps the printed digits from rounding a second time.
+    let hundredths = js::round_half_up(total as f64 / 10_000.0);
+    format!("{}.{:02}M tok", hundredths / 100, hundredths % 100)
+}
+
 fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
     let mut out = Vec::new();
     for part in &scan.parts {
@@ -1045,13 +1101,19 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .collect()
         };
         let mut cost = session_cost(part);
+        let mut tokens = session_tokens(part);
         let mut turns = part.turns;
         let mut cost_aggregated = false;
+        let mut tokens_aggregated = false;
         let mut turns_aggregated = false;
         if !members.is_empty() {
             let costs: Vec<f64> = members
                 .iter()
                 .filter_map(|other| session_cost(other))
+                .collect();
+            let member_tokens: Vec<u64> = members
+                .iter()
+                .filter_map(|other| session_tokens(other))
                 .collect();
             let member_turns: Vec<u64> = members.iter().filter_map(|other| other.turns).collect();
             if cost.is_none() && !costs.is_empty() {
@@ -1064,6 +1126,14 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 cost = Some(total);
                 cost_aggregated = true;
             }
+            if tokens.is_none() && !member_tokens.is_empty() {
+                let mut total = 0u64;
+                for value in &member_tokens {
+                    total = total.saturating_add(*value);
+                }
+                tokens = Some(total);
+                tokens_aggregated = true;
+            }
             if turns.is_none() && !member_turns.is_empty() {
                 let mut total = 0u64;
                 for value in &member_turns {
@@ -1075,6 +1145,25 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         }
         let turns_prefix = if turns_aggregated { "Σ " } else { "" };
         let cost_prefix = if cost_aggregated { "Σ " } else { "" };
+        let tokens_prefix = if tokens_aggregated { "Σ " } else { "" };
+        // What this seat spent, in the only unit its harness reported.
+        // A price when there is one; otherwise the tokens the turns
+        // counted; otherwise the absence mark, as before. Never a
+        // conversion between the two, and never both in one cell: a
+        // subscription harness reports no marginal price, and a null
+        // price stays null rather than becoming an invented number.
+        //
+        // Dollars win when a Σ's members disagree in kind — the Σ is a
+        // dollar total over the members that reported dollars, and the
+        // token-only members show their own tokens on their own rows
+        // right beneath it. Folding tokens into a dollar figure, or
+        // printing both in one cell, would be the unit mixing this
+        // whole cell exists to refuse.
+        let cost_text = match (cost, tokens) {
+            (Some(cost), _) => Some(format!("{cost_prefix}${}", js::to_fixed_4(cost))),
+            (None, Some(tokens)) => Some(format!("{tokens_prefix}{}", fmt_tokens(tokens))),
+            (None, None) => None,
+        };
         out.push(Participant {
             key: part.key.clone(),
             label: part.label.clone(),
@@ -1091,10 +1180,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             ),
             cost,
             cost_aggregated,
-            cost_cell: cell_of(
-                cost.map(|cost| format!("{cost_prefix}${}", js::to_fixed_4(cost))),
-                Some("no session cost recorded"),
-            ),
+            cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
             activity: activity_for(events, scan, part, members.len()),
             member_count: members.len(),
             session_id: part
