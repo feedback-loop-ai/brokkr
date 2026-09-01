@@ -476,13 +476,13 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-fast	5779cd13be64	6 phases	implement, review, ship, verify	recipes/fast
+fast	4a6bb31cdfaf	6 phases	implement, review, ship, verify	recipes/fast
 node	66a30b26ed1c	6 phases	implement, review, ship, verify	recipes/node
-panel-review	b44de756c398	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-sdd	3743484daa2b	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
-sdd-paranoid	368569ad218d	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
-self	e36523e469d0	7 phases	implement, intake, review, ship, verify	bundles/self
-verify	66052438d68d	4 phases	review, verify	bundles/verify
+panel-review	066627bd685e	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+sdd	dafe2bd9e876	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+sdd-paranoid	8fc61a07930a	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
+self	5a14b64a1d23	7 phases	implement, intake, review, ship, verify	./bundles/self
+verify	bc618ec482f2	4 phases	review, verify	./bundles/verify
 ```
 
 `recipes/node` is the same four-seat constitution as `fast`, driving a

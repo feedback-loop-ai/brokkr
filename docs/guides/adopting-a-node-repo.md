@@ -25,6 +25,14 @@ your project and drives it. Your `package.json` never learns it exists.
   committed `package-lock.json` and a `test` script in `package.json`.
   The recipe's verifier runs `npm ci`, so a repo without a lockfile
   fails at step one, honestly and immediately.
+- `typescript` among that repo's `devDependencies`. The recipe's type
+  check is `npx tsc --noEmit`, and after `npm ci` that resolves to
+  `node_modules/.bin/tsc` — your lockfile's pinned copy, no network.
+  Without a local install `npx` resolves the name outward to the
+  registry instead, which is not what you want a gate seat doing. A
+  plain-JavaScript repo should drop the type-check step from
+  `roles/verifier.md` and `roles/implementer.md` rather than let it
+  reach out; see [section 8](#8-fitting-the-recipe-to-your-repo).
 - `node` and `npm` on your `PATH`. The recipe is wired for npm because
   npm ships with Node — nothing to install before the first seat can
   work. pnpm and yarn are a documented fork, not a second bundle; see
@@ -247,7 +255,10 @@ sync.
 **Your repo's own scripts.** If your suite is `npm run test:ci`, or your
 type check is `npm run typecheck`, edit `roles/verifier.md` and
 `roles/implementer.md` to say so. A charter naming a script that exists
-beats a charter naming a command a seat has to guess at.
+beats a charter naming a command a seat has to guess at. A repository
+with no TypeScript at all deletes the `npx tsc --noEmit` step from both
+charters for the same reason — one step short beats a step that resolves
+to something the repo never installed.
 
 **Limits.** `max_attempts` is 2 everywhere; the timeouts (4800s to
 implement, 2400s to verify, 3000s to review, 1200s to ship) assume a
