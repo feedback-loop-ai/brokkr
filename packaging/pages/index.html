@@ -36,7 +36,13 @@ sudo apt-get update &amp;&amp; sudo apt-get install brokkr</code></pre>
 sudo dnf install brokkr</code></pre>
 
 <h2>Verifying what you got</h2>
-<pre><code>gh attestation verify $(command -v brokkr) -R feedback-loop-ai/brokkr</code></pre>
+<p>
+  The attestation covers the files the release publishes — the
+  <code>.deb</code>, the <code>.rpm</code>, the tarball — and not the binary
+  apt or dnf unpacked out of one, which has a digest of its own. Verify the
+  file, either the one you downloaded or the one your package manager cached:
+</p>
+<pre><code>gh attestation verify brokkr-linux-x86_64.deb -R feedback-loop-ai/brokkr</code></pre>
 
 <footer>
   The repository metadata is signed with the Brokkr archive key served above.

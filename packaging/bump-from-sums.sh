@@ -47,8 +47,14 @@ esac
 ARTIFACTS="brokkr-linux-x86_64.tar.gz brokkr-linux-aarch64.tar.gz brokkr-macos-arm64.tar.gz brokkr-macos-x86_64.tar.gz brokkr-windows-x86_64.zip"
 
 digest_of() {
+  # The windows sidecar is written by PowerShell's `Out-File`, so its one
+  # line ends CRLF, and `cat *.sha256 > SHA256SUMS` keeps those bytes.
+  # `sha256sum -c` strips the carriage return and stays green, so the
+  # manifest ships with it; awk splits on spaces and tabs only, which
+  # would leave the CR stuck to the file name and hide the windows asset
+  # from every channel that reads this file.
   awk -v want="$1" '
-    { name = $NF; sub(/^\*/, "", name) }
+    { name = $NF; sub(/\r$/, "", name); sub(/^\*/, "", name) }
     name == want { print $1; found = 1; exit }
     END { if (!found) exit 1 }
   ' "$sums"

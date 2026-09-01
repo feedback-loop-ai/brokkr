@@ -880,6 +880,68 @@ fn the_bump_script_refuses_an_incomplete_manifest() {
     );
 }
 
+/// The manifest a release actually publishes is not written by one tool.
+/// The four unix sidecars come from `shasum` on a unix runner; the
+/// windows one comes from PowerShell's `Out-File`, which ends its line
+/// the way Windows does — CRLF — and `cat *.sha256 > SHA256SUMS` keeps
+/// those bytes exactly. `sha256sum -c` strips the carriage return, so
+/// the publish job stays green and the manifest ships with it in place.
+/// Anything that splits that line on whitespace alone keeps the CR on
+/// the *file name*, and would then refuse the release's own complete
+/// manifest as incomplete — after `publish` succeeded, with every
+/// downstream channel left unrendered.
+#[test]
+fn the_bump_script_reads_the_manifest_the_windows_leg_actually_writes() {
+    if !usable(&["bash", "awk", "sed"]) {
+        return;
+    }
+    let work = tempfile::tempdir().expect("a temporary directory");
+    let root = work.path().join("tree");
+    for relative in [
+        "flake.nix",
+        "packaging/homebrew/brokkr.rb",
+        "packaging/scoop/brokkr.json",
+    ] {
+        let destination = root.join(relative);
+        std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
+        std::fs::copy(workspace().join(relative), &destination).expect("a copy");
+    }
+
+    let mut manifest = String::new();
+    let mut windows_digest = String::new();
+    for (index, artifact) in release_artifacts().into_values().enumerate() {
+        let digit = char::from_digit(index as u32 + 1, 10).expect("a digit");
+        let digest: String = std::iter::repeat_n(digit, 64).collect();
+        // Byte for byte what `cat`ting the five sidecars together gives.
+        let ending = if artifact.ends_with(".zip") {
+            windows_digest = digest.clone();
+            "\r\n"
+        } else {
+            "\n"
+        };
+        manifest.push_str(&format!("{digest}  {artifact}{ending}"));
+    }
+    let sums = work.path().join("SHA256SUMS");
+    std::fs::write(&sums, &manifest).expect("a manifest");
+
+    run(Command::new("bash")
+        .arg(workspace().join("packaging/bump-from-sums.sh"))
+        .arg("--version")
+        .arg("9.9.9")
+        .arg("--sums")
+        .arg(&sums)
+        .arg("--root")
+        .arg(&root));
+
+    let scoop = std::fs::read_to_string(root.join("packaging/scoop/brokkr.json"))
+        .expect("a rendered manifest");
+    assert!(scoop.contains(&windows_digest), "{scoop}");
+    assert!(
+        !scoop.contains('\r'),
+        "a carriage return reached the manifest"
+    );
+}
+
 /// The flake's `sha256 = "…"; # <artifact>` lines, as the artifact each
 /// is tagged with and the digest it currently carries, in file order.
 fn flake_digests(flake: &str) -> Vec<(String, String)> {
