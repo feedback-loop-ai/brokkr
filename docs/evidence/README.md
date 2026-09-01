@@ -13,6 +13,7 @@ export; these copies are evidence of shape, never of authorship.
 | `implement-decision-0022-reforgin-54a88e9b` | The run that implemented the reforging law — and was stopped by the severity-blind rule it retires: the last guillotine. Its review's medium finding was answered before merge ([PR #87](https://github.com/feedback-loop-ai/brokkr/pull/87)). |
 | `brokkr-export-gains-redact-a-san-3d19f5c1` | The wager, crew A (claude, `recipes/fast`): the same commission as crew B, judged by artifacts. |
 | `brokkr-export-gains-redact-a-san-c5d011df` | The wager, crew B (codex, `recipes/fast-codex`, parity rigging). The landed feature is the judged synthesis of both. |
+| `implement-decision-0023-phase-1--e58706d5` | The first complete reforging arc (decision 0022, exercised end to end): three reviews, two reforgings, two parks, two recorded operator rulings, and a lawful ship — 897 events, one story. |
 
 One honest wrinkle, visible in the evidence itself: two review notes quote the
 `file://` carve-out they were flagging, so the generic string `/home/` survives
