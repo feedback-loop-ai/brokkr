@@ -132,6 +132,32 @@ fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
+/// A shipped recipe, compiled against the tree it ships in. Since
+/// decision 0021 a compile reads the adapter data even for a bundle that
+/// names no agent — a gate seat's trust tier lives there — and a test
+/// binary stands in its own crate directory, not in the workspace.
+/// Copy the shipped adapter files into a workspace a test invocation
+/// stands in. Flat by construction: `Adapters::load` reads the `.json`
+/// files directly under the root and nothing else.
+fn stage_adapters(workspace_dir: &std::path::Path) {
+    let from = workspace().join("adapters");
+    let to = workspace_dir.join("adapters");
+    std::fs::create_dir_all(&to).unwrap();
+    for entry in std::fs::read_dir(&from).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+    }
+}
+
+fn compiled_recipe(relative: &str) -> Bundle {
+    Bundle::compile_with(
+        &workspace().join(relative),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap()
+}
+
 /// A workspace holding no `realms.json`. Named explicitly by the tests
 /// that turn on map DISCOVERY, so what they assert is a function of the
 /// arguments and not of the directory the harness happens to stand in.
@@ -504,6 +530,12 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
 #[test]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
+    // The tempdir is the workspace these invocations stand in, so it
+    // carries the adapter data a compile reads since decision 0021 —
+    // `recipes/fast` seats gates, and a gate's trust tier is declared
+    // there. Copied from the tree rather than invented, for the same
+    // reason the digest witnesses are recorded rather than asserted.
+    stage_adapters(dir.path());
     let bundle_path = workspace().join("recipes/fast");
     let recipes_dir = workspace().join("recipes");
     let base = |dispatch| Cmd::Run {
@@ -539,22 +571,28 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         "and no journal was created to refuse into"
     );
 
-    assert!(run(cli(base(Some(missing))))
+    // The same invocations from a workspace that drew NO map: it carries
+    // the adapter data a compile reads (decision 0021) and nothing else,
+    // so a dispatched run there pins no world and says nothing about one.
+    let unmapped = dir.path().join("unmapped");
+    std::fs::create_dir_all(&unmapped).unwrap();
+    stage_adapters(&unmapped);
+    assert!(run_in(&unmapped, cli(base(Some(missing))))
         .unwrap_err()
         .to_string()
         .contains("reading dispatch"));
     let malformed = dir.path().join("malformed.json");
     std::fs::write(&malformed, "not json").unwrap();
-    assert!(run(cli(base(Some(malformed))))
+    assert!(run_in(&unmapped, cli(base(Some(malformed))))
         .unwrap_err()
         .to_string()
         .contains("parsing forge-dispatch/v2"));
 
-    let bundle = Bundle::compile(&bundle_path).unwrap();
+    let bundle = compiled_recipe("recipes/fast");
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
-    let code = run(cli(base(Some(path.clone())))).unwrap();
+    let code = run_in(&unmapped, cli(base(Some(path.clone())))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 
     // A map merely LYING in the workspace is not an instruction, and a
@@ -630,7 +668,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         "engine":"0.2.0", "event_schema":1, "database_schema":1,
         "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
     });
-    let mut shell_bundle = Bundle::compile(&workspace().join("recipes/fast")).unwrap();
+    let mut shell_bundle = compiled_recipe("recipes/fast");
     shell_bundle.name = "fast".into();
     shell_bundle.manifest = base_manifest.clone();
     let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", &base_url);
@@ -1652,19 +1690,22 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let bundle_path = workspace().join("recipes/fast");
-    let bundle = Bundle::compile(&bundle_path).unwrap();
+    let bundle = compiled_recipe("recipes/fast");
     stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
 
     assert_eq!(
-        run(cli(Cmd::Resume {
-            bundle: Some(bundle_path),
-            recipe: None,
-            recipes_dir: workspace().join("recipes"),
-            run: "stopped-mid-flight".into(),
-            db: db.clone(),
-            repo: None,
-            secrets_file: None,
-        }))
+        run_in(
+            &workspace(),
+            cli(Cmd::Resume {
+                bundle: Some(bundle_path),
+                recipe: None,
+                recipes_dir: workspace().join("recipes"),
+                run: "stopped-mid-flight".into(),
+                db: db.clone(),
+                repo: None,
+                secrets_file: None,
+            })
+        )
         .unwrap(),
         ExitCode::from(3),
         "a stopped run reporting success would be a lie to the shell",

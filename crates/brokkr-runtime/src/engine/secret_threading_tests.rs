@@ -14,6 +14,31 @@ const POLICY: &str = r#"{
       ]
     }"#;
 
+/// The adapter tree the bundle compiles against: a seat that declares
+/// secret bindings must seat a driver the operator granted them
+/// (decision 0021 ruling 4), and the fixture grants one under a name no
+/// vendor answers to.
+fn write_adapters(dir: &std::path::Path) -> std::path::PathBuf {
+    let adapters = dir.join("adapters");
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(
+        adapters.join("granted.json"),
+        serde_json::to_string(&json!({
+            "provider": "granted",
+            "binding_grant": true,
+            "binary": "granted",
+            "driver": ["{brokkr}", "driver", "granted", "--"],
+            "models": {},
+            "model_flag": "unsupported",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    adapters
+}
+
 /// An engine over a compiled two-seat bundle; `work` optionally
 /// declares secret bindings.
 fn engine_with(dir: &std::path::Path, secrets: Option<Vec<&str>>) -> Engine {
@@ -24,7 +49,7 @@ fn engine_with(dir: &std::path::Path, secrets: Option<Vec<&str>>) -> Engine {
     let mut work = json!({
         "role": "roles/role.md",
         "results": ["built"],
-        "driver": {"command": ["true"]},
+        "driver": {"command": ["{brokkr}", "driver", "granted", "--", "true"]},
     });
     if let Some(secrets) = secrets {
         work["secrets"] = json!(secrets);
@@ -46,7 +71,12 @@ fn engine_with(dir: &std::path::Path, secrets: Option<Vec<&str>>) -> Engine {
         serde_json::to_string(&config).unwrap(),
     )
     .unwrap();
-    let bundle = Bundle::compile(&bundle_dir).unwrap();
+    let bundle = Bundle::compile_with(
+        &bundle_dir,
+        std::path::Path::new("/nonexistent-library"),
+        &write_adapters(dir),
+    )
+    .unwrap();
     let store = Store::open(&dir.join("forge.db")).unwrap();
     Engine::start(store, bundle, "threading proof", Some(dir.join("work"))).unwrap()
 }

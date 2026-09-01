@@ -10,13 +10,13 @@ pub mod realms;
 
 pub use agents::{
     report as report_agent, resolve as resolve_agent, Adapters, Availability, Candidate, Library,
-    LibraryError, Presence, ResolveError,
+    LibraryError, Presence, ResolveError, TrustTier,
 };
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
 pub use bundle::compose::Ancestor;
 pub use bundle::{
-    Aggregate, Bundle, CompileError, Confine, PanelMember, Seat, SeatBody, SequenceStep, StepBody,
-    ENGINE_VERSION,
+    Aggregate, Bundle, CompileError, Confine, PanelMember, Seat, SeatBody, SeatClass, SequenceStep,
+    StepBody, ENGINE_VERSION,
 };
 pub use engine::{
     apply_fenced_operator_command, git_head, operator_command, DriveEnd, Engine, EngineError,

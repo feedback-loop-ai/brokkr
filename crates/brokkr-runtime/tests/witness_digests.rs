@@ -27,24 +27,34 @@ fn workspace() -> PathBuf {
 /// moved `recipes/fast`, which gained the reforging back-edge, and left
 /// `bundles/verify` — which has no implement phase to return to —
 /// exactly where it was; decision 0019's rename moved both, because the
-/// `{forge}` token in their argv became `{brokkr}`), or the byte
-/// identity this slice promised to keep. Never a silent fourth thing.
+/// `{forge}` token in their argv became `{brokkr}`; decision 0021's
+/// compile-time refusals moved both again, because every seat in them
+/// now declares whether it works or judges), or the byte identity this
+/// slice promised to keep. Never a silent fourth thing.
 const WITNESSES: [(&str, &str); 2] = [
     (
         "recipes/fast",
-        "096fbfbcda1e74b1d4d9262f20935eac2381047754e2a02f9d139dfb516ec08e",
+        "7ee80dee662bcd254984d84abac439992bccff9253205bc43afbfbb3554c46e3",
     ),
     (
         "bundles/verify",
-        "9951969eed3af5035b09abff1a875244194b262ca381577639100acb6d4b7dc5",
+        "62304b89f8e313396cacc9c31c1eb5a5e4d7c11ca450e65927cd963ed183371d",
     ),
 ];
 
 #[test]
 fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
+    let root = workspace();
     for (relative, digest) in WITNESSES {
-        let bundle = Bundle::compile(&workspace().join(relative))
-            .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
+        // Explicit roots, as in the compile below: since decision 0021 a
+        // compile reads the adapter data even for these two, which adopt
+        // no agent — a gate seat's trust tier is declared there.
+        let bundle = Bundle::compile_with(
+            &root.join(relative),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
         assert_eq!(
             bundle.manifest_digest(),
             digest,

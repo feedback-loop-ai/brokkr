@@ -205,7 +205,12 @@ fn doctor_with_probe(
     }
 
     if let Some(dir) = bundle {
-        match Bundle::compile(dir) {
+        // Against the roots doctor was ASKED about, not the process's
+        // own: a bundle's compile now reads the adapter data for
+        // decision 0021's refusals as well as for agent resolution, and
+        // doctor reporting on one tree while compiling against another
+        // would be the forge diagnosing itself wrong.
+        match Bundle::compile_with(dir, library_root, adapters_root) {
             Ok(bundle) => report.ok(
                 "bundle",
                 format!(

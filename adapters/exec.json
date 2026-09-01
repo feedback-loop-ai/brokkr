@@ -1,5 +1,7 @@
 {
   "provider": "exec",
+  "trust_tier": "untrusted",
+  "binding_grant": true,
   "binary": "sh",
   "driver": [
     "{brokkr}",

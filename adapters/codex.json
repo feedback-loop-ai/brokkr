@@ -1,5 +1,7 @@
 {
   "provider": "codex",
+  "trust_tier": "untrusted",
+  "binding_grant": false,
   "binary": "codex",
   "driver": [
     "{brokkr}",

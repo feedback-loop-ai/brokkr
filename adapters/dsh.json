@@ -1,5 +1,7 @@
 {
   "provider": "dsh",
+  "trust_tier": "untrusted",
+  "binding_grant": false,
   "binary": "dsh",
   "driver": [
     "{brokkr}",

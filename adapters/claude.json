@@ -1,5 +1,7 @@
 {
   "provider": "claude",
+  "trust_tier": "trusted",
+  "binding_grant": true,
   "binary": "claude",
   "driver": [
     "{brokkr}",

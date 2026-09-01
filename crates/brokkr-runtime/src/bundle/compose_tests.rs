@@ -732,7 +732,13 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// identity, re-recorded as the identity change it is. All five moved
 /// again with decision 0019's rename: the `{forge}` token in bundle
 /// argv became `{brokkr}`, and the adapters and charters those bundles
-/// resolve moved with it. Every one of them is a different bundle now.
+/// resolve moved with it. All five moved a fourth time when decision
+/// 0021's compile-time refusals landed: every seat, step and panel
+/// member gained the class that says whether it works or judges, and
+/// every adapter gained the trust tier and binding grant those refusals
+/// read — the law is part of what a bundle IS, so a bundle that now
+/// declares it is a different bundle. Every one of them is a different
+/// bundle now.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -741,23 +747,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "096fbfbcda1e74b1d4d9262f20935eac2381047754e2a02f9d139dfb516ec08e",
+        "7ee80dee662bcd254984d84abac439992bccff9253205bc43afbfbb3554c46e3",
     ),
     (
         "recipes/panel-review",
-        "831f5edd2d1a1e4c8710d20a8fe2de2d075fc4f691688499bafa064736a8a452",
+        "066627bd685e5ad7365c752e451a970ffb408aef381fe5d81866efdbe3b13dca",
     ),
     (
         "recipes/sdd",
-        "6b97157afc091379d964c1f2b9b299660dd3832238ac6878325ee160fdc8895b",
+        "dafe2bd9e876f9971c0b6ff465b946ae20fd71582a7d1a4376b09b384e6e5483",
     ),
     (
         "bundles/self",
-        "2d11cff7878589f7de6ad217f699fd951dbbec562fbafb99514fac0307c8a2fb",
+        "5a14b64a1d2392c2a6b0a095e4304e24767ddc6a439ccba929479baf36ef8e29",
     ),
     (
         "bundles/verify",
-        "9951969eed3af5035b09abff1a875244194b262ca381577639100acb6d4b7dc5",
+        "62304b89f8e313396cacc9c31c1eb5a5e4d7c11ca450e65927cd963ed183371d",
     ),
 ];
 
@@ -888,7 +894,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "c3b722cd01ab22452c3051a3a2b88a5be2185804bcb8b9fa98ffd3563c361c81",
+        "df6f974b7382c8775ceaf884266368d9c9410dd1c532cb5b09635e998986dd6f",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), and again when the base's argv token was \

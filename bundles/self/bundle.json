@@ -7,6 +7,7 @@
       "results": [
         "resolved"
       ],
+      "class": "work",
       "agent": "intake"
     },
     "implement": {
@@ -15,6 +16,7 @@
         "broken",
         "blocked"
       ],
+      "class": "work",
       "agent": "implementer"
     },
     "verify": {
@@ -22,6 +24,7 @@
         "pass",
         "fail"
       ],
+      "class": "gate",
       "agent": "verifier"
     },
     "review": {
@@ -30,6 +33,7 @@
         "residual",
         "security-hold"
       ],
+      "class": "gate",
       "agent": "reviewer"
     },
     "ship": {
@@ -37,6 +41,7 @@
         "ready",
         "shipped"
       ],
+      "class": "gate",
       "agent": "shipper"
     }
   }

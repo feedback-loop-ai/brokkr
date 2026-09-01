@@ -7,6 +7,7 @@
       "results": [
         "resolved"
       ],
+      "class": "work",
       "agent": "intake-speckit"
     },
     "design": {
@@ -24,20 +25,24 @@
           "aggregate": "unanimous-pass",
           "panel": {
             "simplicity": {
-              "agent": "position-simplicity"
+              "agent": "position-simplicity",
+              "class": "work"
             },
             "robustness": {
-              "agent": "position-robustness"
+              "agent": "position-robustness",
+              "class": "work"
             }
           }
         },
         {
           "name": "chief",
-          "agent": "chief-architect"
+          "agent": "chief-architect",
+          "class": "gate"
         },
         {
           "name": "speckit-check",
           "role": "roles/speckit-check.md",
+          "class": "work",
           "driver": {
             "command": [
               "{brokkr}",
@@ -58,6 +63,7 @@
         "broken",
         "blocked"
       ],
+      "class": "work",
       "agent": "implementer-speckit"
     },
     "verify": {
@@ -65,6 +71,7 @@
         "pass",
         "fail"
       ],
+      "class": "gate",
       "agent": "verifier-speckit"
     },
     "review": {
@@ -85,10 +92,12 @@
       "aggregate": "review-panel",
       "panel": {
         "spec-compliance": {
-          "agent": "review-spec-compliance"
+          "agent": "review-spec-compliance",
+          "class": "gate"
         },
         "security": {
-          "agent": "review-security-speckit"
+          "agent": "review-security-speckit",
+          "class": "gate"
         }
       }
     },
@@ -97,6 +106,7 @@
         "ready",
         "shipped"
       ],
+      "class": "gate",
       "agent": "shipper-speckit"
     }
   }
