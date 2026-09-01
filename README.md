@@ -135,6 +135,15 @@ brokkr compare <a> <b>                              # journal-backed A/B
   real security findings, twice. The operator keeps push and merge
   authority.
 
+- **Foreign delivery, proven**: Brokkr's first delivery to a repository
+  that is not its own is merged —
+  [looper#346](https://github.com/feedback-loop-ai/looper/pull/346), a
+  CI-gate fix driven end to end through `recipes/node` in the target
+  repo's own worktree, and accepted under that repository's own
+  candidate-bound evidence law before landing. The
+  [adoption guide](docs/guides/adopting-a-node-repo.md) is the path
+  that run took.
+
 [ARCHITECTURE.md](ARCHITECTURE.md) is the deep dive: crates, journal,
 effect discipline, verification layers. This README stays the tour.
 
@@ -202,7 +211,7 @@ cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
 
 ```
 $ brokkr doctor                           # tools, agent CLIs, database, contracts
-ok       contracts: engine 0.3.4, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.6.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
@@ -390,6 +399,25 @@ graph
 Every line above is a rule id and a journal sequence number: the run
 states which rule fired, from where, on which typed result. Nothing in
 that trail was written by a model.
+
+The graph also shows the **way back**. When a review finds a security
+residual, decision 0022 sends the run back to implement — and the
+record shows it, visits counted per phase. A real one, from the run
+that implemented the model-policy refusals (reforged twice, then
+lawfully stopped by its own third review):
+
+```
+graph
+  intake ×1
+  implement ×3
+  verify ×3
+  review ×3
+  stop ×1  ←current
+```
+
+In `brokkr tui` the same journal draws the return as a solid arc under
+the span with a mirrored arrowhead (`╰ᐸ╯`) at the landing phase —
+drawn only when a return was actually taken, never as decoration.
 
 ### `brokkr watch` — the same, live
 
@@ -863,6 +891,7 @@ you open anything.
 
 | Gate | Command | Where it lives |
 |---|---|---|
+| MSRV honesty | `cargo +1.88.0 check --workspace --locked` | `ci.yml` → job `msrv` |
 | Canonical formatting | `cargo fmt --all -- --check` | `ci.yml` → job `quality` |
 | Clippy, warnings as errors | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | `ci.yml` → job `quality` |
 | Contracts compile | `brokkr compile --bundle bundles/self` and `bundles/verify` | `ci.yml` → jobs `quality`, `engine` |
