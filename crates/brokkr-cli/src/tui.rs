@@ -1341,7 +1341,14 @@ fn tab_bar(tui: &Tui) -> Line<'static> {
             true => Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
             false => Style::new().add_modifier(Modifier::DIM),
         };
-        spans.push(span(&format!(" {} {} ", index + 1, label), style));
+        // Through the same sanitizer every other operator-written string
+        // on this frame crosses. A realm name is already held to a closed
+        // charset by the loader, so nothing here changes today — which is
+        // exactly why it must not be the one string that skips the gate.
+        spans.push(span(
+            &format!(" {} {} ", index + 1, safe(label).as_str()),
+            style,
+        ));
         spans.push(span(" ", plain()));
     }
     Line::from(spans)
