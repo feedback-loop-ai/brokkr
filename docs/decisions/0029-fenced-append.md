@@ -1,6 +1,6 @@
 # 0029 — The fenced append: a writer commits onto the head it folded
 
-Status: proposed
+Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
 ## Context

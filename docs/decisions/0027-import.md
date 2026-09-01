@@ -1,6 +1,6 @@
 # 0027 — Import: journals never merge, runs relocate
 
-Status: proposed
+Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
 ## Context
