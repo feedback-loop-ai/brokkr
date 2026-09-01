@@ -1,6 +1,6 @@
 # 0025 — Skírnir and the grant: the sword is a signed loan
 
-Status: proposed
+Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
 ## Context
