@@ -274,6 +274,105 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
     ));
 }
 
+/// A driver that stalls on a read that never comes and leaves a child
+/// of its own running behind it — the shape the deadline kill has to
+/// take down. The child's stdio is pointed away from the harness's
+/// pipes so that a kill which misses it still lets the harness see EOF:
+/// this test must fail with an assertion when the tree survives, never
+/// hang waiting on the CI job timeout to notice. The child announces
+/// its survival by writing `marker` a beat after the deadline.
+#[cfg(unix)]
+fn stalling_tree(_dir: &std::path::Path, marker: &std::path::Path) -> Vec<String> {
+    command(&format!(
+        "read -r hello\n\
+         (sleep 2; : > '{}') </dev/null >/dev/null 2>&1 &\n\
+         read -r stall\n",
+        marker.display()
+    ))
+}
+
+/// The Windows twin: `cmd` blocking on `set /p` with a detached-console
+/// `cmd` child of its own. Written as batch files rather than nested
+/// `cmd /C` quoting because the quoting is the part most likely to be
+/// wrong from a machine that cannot run it.
+#[cfg(windows)]
+fn stalling_tree(dir: &std::path::Path, marker: &std::path::Path) -> Vec<String> {
+    let child = dir.join("stall-child.bat");
+    std::fs::write(
+        &child,
+        format!(
+            "@echo off\r\nping -n 3 127.0.0.1 >NUL\r\necho alive >\"{}\"\r\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    let parent = dir.join("stall-parent.bat");
+    std::fs::write(
+        &parent,
+        format!(
+            "@echo off\r\n\
+             set /p hello=\r\n\
+             start \"\" /B cmd /C \"{}\" >NUL 2>&1\r\n\
+             set /p stall=\r\n",
+            child.display()
+        ),
+    )
+    .unwrap();
+    vec![
+        "cmd".into(),
+        "/C".into(),
+        parent.to_string_lossy().into_owned(),
+    ]
+}
+
+/// The deadline kill must unblock the harness, not merely signal the
+/// one process the harness holds a handle to. Both platforms have to
+/// come back with a determinate `Failed(deadline)` inside the deadline
+/// plus a bounded margin; the twenty-minute CI job timeout is the hang
+/// backstop, never the assertion.
+///
+/// Windows carries the extra claim, because it is the platform where a
+/// surviving grandchild holds the inherited pipes open and the harness
+/// waits forever: the whole tree has to be gone, which a single-process
+/// stall could not tell apart from "killed the child". The author
+/// cannot run Windows — windows-latest in CI is the judge of that half.
+#[test]
+fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("the-child-outlived-the-kill");
+    let driver = stalling_tree(dir.path(), &marker);
+    let deadline = Duration::from_millis(300);
+
+    let started = std::time::Instant::now();
+    let report = DriverProcess::spawn(&driver, dir.path(), Some(deadline))
+        .unwrap()
+        .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
+    let elapsed = started.elapsed();
+
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Failed { error } if error.contains("deadline")),
+        "{:?}",
+        report.outcome
+    );
+    assert!(
+        elapsed < deadline + Duration::from_secs(10),
+        "the kill must unblock the harness inside the deadline plus a \
+         bounded margin, took {elapsed:?}"
+    );
+
+    // The child was scheduled to announce itself a beat after the
+    // deadline. Nothing may announce itself.
+    #[cfg(windows)]
+    {
+        std::thread::sleep(Duration::from_secs(5));
+        assert!(
+            !marker.exists(),
+            "the deadline kill took the driver's whole tree, not only \
+             the process the harness held a handle to"
+        );
+    }
+}
+
 fn poison_child_lock(process: &DriverProcess) {
     let child = Arc::clone(&process.child);
     assert!(std::thread::spawn(move || {
