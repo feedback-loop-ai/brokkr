@@ -193,6 +193,30 @@ fn listing_groups_every_runs_exhibits() {
     assert_eq!(delete(path, "run-a").unwrap(), 0);
 }
 
+/// Releasing is one run's alone even when another run's id begins with
+/// it. `delete` names the namespace by pattern, and a pattern that took
+/// `run-a-second` along with `run-a` would destroy exhibits no operator
+/// asked to release — so the boundary is asserted, not assumed.
+#[test]
+fn releasing_one_run_spares_a_run_whose_id_extends_it() {
+    let dir = repo();
+    let path = dir.path();
+    let one = commit(path, "one");
+    let two = commit(path, "two");
+    let mut store = store(path);
+    journal(&mut store, "run-a", &[&one], &[]);
+    journal(&mut store, "run-a-second", &[&two], &[]);
+    plant(&store, path, "run-a").unwrap();
+    plant(&store, path, "run-a-second").unwrap();
+
+    assert_eq!(delete(path, "run-a").unwrap(), 1, "exactly its own");
+    assert_eq!(
+        list(path).unwrap(),
+        BTreeMap::from([("run-a-second".to_string(), vec![two])]),
+        "the neighbour keeps its exhibits"
+    );
+}
+
 /// A citation this repository cannot resolve is reported, not planted
 /// and not fatal: another realm's head, or an object already collected.
 #[test]
