@@ -260,9 +260,9 @@ enum Cmd {
     /// else, so it needs no pinned recipe to be honest about what it
     /// wrote. It cannot retry: that re-enters the policy loop, and the
     /// policy loop needs the bundle by construction. For a run believed
-    /// dead: it does not check for a live driver, and closing a run that
-    /// another process is still driving leaves that journal unfoldable
-    /// (decision 0024, proposed). Check `brokkr runs` first.
+    /// dead: every write is fenced, so a journal that moves beneath the
+    /// conclusion — something still driving the run — refuses instead
+    /// of being closed over (decision 0029). Check `brokkr runs` first.
     Conclude {
         #[arg(long)]
         run: String,

@@ -1802,20 +1802,35 @@ fn operator_command_racing(
 /// position is re-derived by re-folding the journal after each append,
 /// and an unexpected one is an error rather than a guess.
 ///
-/// What this does NOT check is whether another process is driving the
-/// run right now. Against a live driver it closes an attempt that is
-/// genuinely in flight, and the driver's later `effect/succeeded` lands
-/// after a `run/stopped`, where the fold admits no position for it — the
-/// journal stops folding for good. `resume` carries the same hazard on
-/// its fresh-process branch and neither verb fences it today; decision
-/// 0024 (proposed) rules on the fenced append that would. Until it
-/// lands, look before closing: `conclude` is for a run believed dead,
-/// and `brokkr runs` says whether it is.
+/// Every write is FENCED (the operator's park ruling, 2026-09-01,
+/// applying the compare-and-append the concurrent-writers slice
+/// landed): the stop command re-decides on a moved head and its
+/// refusal ends the conclusion, and both closing appends land only on
+/// the exact head this process just folded. A run something else is
+/// still driving therefore refuses instead of being closed over: ANY
+/// movement of the head is evidence the run is not dead, and a
+/// conclusion is for a run believed dead. `resume`'s fresh-process
+/// branch still carries the unfenced hazard; decision 0029 (proposed)
+/// rules on fencing it. `brokkr runs` remains the way to look first.
 pub fn conclude(
     store: &mut Store,
     run_id: &str,
     operator: &str,
     reason: &str,
+) -> Result<RunState, EngineError> {
+    conclude_racing(store, run_id, operator, reason, |_| {})
+}
+
+/// [`conclude`] with the windows held open: `between` runs before the
+/// stop command and inside each fence — after the head is taken, before
+/// the append lands on it. Production passes a no-op; tests pass the
+/// live driver the fences exist to refuse.
+fn conclude_racing(
+    store: &mut Store,
+    run_id: &str,
+    operator: &str,
+    reason: &str,
+    mut between: impl FnMut(&mut Store),
 ) -> Result<RunState, EngineError> {
     // `load` verifies the hash chain and never returns a partial journal,
     // so a broken chain refuses the whole conclusion here — before any
@@ -1837,8 +1852,16 @@ pub fn conclude(
     // names, and a second command would put a second name on the
     // conclusion. Only a run with no stop pending gets one, naming the
     // operator invoking `conclude`.
+    between(store);
     if state.cursor != Cursor::Stop && !state.riding_stop {
-        operator_command(store, run_id, "stop", operator, reason)?;
+        if let FencedCommandOutcome::Rejected {
+            reason: refusal, ..
+        } = operator_command(store, run_id, "stop", operator, reason)?
+        {
+            return Err(EngineError::Other(format!(
+                "conclude: run '{run_id}' refused the stop ({refusal}); the                  journal moved beneath the conclusion, so something may still                  be driving this run — look with `brokkr runs` before closing"
+            )));
+        }
     }
 
     // The accepted stop rides an in-flight attempt to its boundary. This
@@ -1849,17 +1872,26 @@ pub fn conclude(
     // the re-folded cursor, never a count kept here.
     let mut events = store.load(run_id)?;
     while let Some((effect_id, attempt_id)) = riding_attempt(run_id, &fold(&events)?)? {
-        store.append_next(
+        let head = events.last().expect("a foldable journal has a head");
+        let (head_seq, head_hash, head_cause) =
+            (head.seq, head.event_hash.clone(), head.event_id.clone());
+        between(store);
+        concluded_or_alive(
             run_id,
-            EventType::EffectIndeterminate,
-            json!({
-                "effect_id": effect_id,
-                "attempt_id": attempt_id,
-                "reason": "the run was concluded from its journal while the attempt \
-                           was in flight; completion cannot be established",
-            }),
-            events.last().map(|event| event.event_id.clone()),
-            Some(attempt_id),
+            store.append_next_if_head(
+                run_id,
+                head_seq,
+                &head_hash,
+                EventType::EffectIndeterminate,
+                json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "reason": "the run was concluded from its journal while the attempt \
+                               was in flight; completion cannot be established",
+                }),
+                Some(head_cause),
+                Some(attempt_id),
+            ),
         )?;
         events = store.load(run_id)?;
     }
@@ -1867,14 +1899,39 @@ pub fn conclude(
     // `riding_attempt` answering None IS the statement that the cursor is
     // `Cursor::Stop`; it refuses anything else rather than letting a
     // `run/stopped` be appended somewhere it does not belong.
-    store.append_next(
+    let head = events.last().expect("a foldable journal has a head");
+    let (head_seq, head_hash, head_cause) =
+        (head.seq, head.event_hash.clone(), head.event_id.clone());
+    between(store);
+    concluded_or_alive(
         run_id,
-        EventType::RunStopped,
-        json!({"reason": operator_stop_reason(&events)}),
-        events.last().map(|event| event.event_id.clone()),
-        None,
+        store.append_next_if_head(
+            run_id,
+            head_seq,
+            &head_hash,
+            EventType::RunStopped,
+            json!({"reason": operator_stop_reason(&events)}),
+            Some(head_cause),
+            None,
+        ),
     )?;
     Ok(fold(&store.load(run_id)?)?)
+}
+
+/// The fence's verdict, read as `conclude` must read it: a head that
+/// moved beneath a conclusion is not a race to win but evidence the run
+/// is alive, so it refuses with the look-first instruction instead of
+/// retrying against a journal something else is writing.
+fn concluded_or_alive(
+    run_id: &str,
+    written: Result<EventEnvelope, brokkr_store::StoreError>,
+) -> Result<EventEnvelope, EngineError> {
+    match written {
+        Err(brokkr_store::StoreError::HeadMoved { .. }) => Err(EngineError::Other(format!(
+            "conclude: the journal moved beneath the conclusion of run '{run_id}',              so something may still be driving it — a conclusion is for a run              believed dead; look with `brokkr runs` before closing"
+        ))),
+        other => Ok(other?),
+    }
 }
 
 /// Where a run with an accepted stop stands, read off the cursor a

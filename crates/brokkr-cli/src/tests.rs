@@ -2460,6 +2460,8 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         db: Some(adopted),
     }))
     .is_err());
+}
+
 /// The conclude fixture pairs, replayed into a store the way
 /// `engine::conclude_tests` replays them: the sealed envelopes inserted
 /// VERBATIM, never re-appended through `append_next`. Re-appending would

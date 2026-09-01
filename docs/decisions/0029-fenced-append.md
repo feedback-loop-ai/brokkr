@@ -1,4 +1,4 @@
-# 0024 — The fenced append: a writer commits onto the head it folded
+# 0029 — The fenced append: a writer commits onto the head it folded
 
 Status: proposed
 Date: 2026-09-01
@@ -103,3 +103,23 @@ Until this is accepted and implemented, `conclude`'s documentation says
 plainly that it writes without checking for a live driver, and names
 `brokkr runs` as the way to look before closing. A hazard an operator can
 read is a smaller hazard than one only the reviewer knows about.
+
+## Erratum — 2026-09-01, at the landing bench
+
+Renumbered from the run's draft 0024: that number is reserved for the
+OSS-core scope decision, and three parallel fires claiming consecutive
+numbers mid-burn is the collision the decision record cannot tolerate
+(the wave's recorded pattern; a reservation step is queued).
+
+Scope moved while this run was parked. The concurrent-writers slice
+landed the primitive this decision asks for (`append_next_if_head`,
+compare-and-append) and fenced the operator verbs; under the operator's
+park ruling (2026-09-01, resuming this run's REVIEW-REFORGE-EXHAUSTED-
+UNFIXED park), `conclude` was fenced at the landing bench with that
+primitive — its stop command's refusal ends the conclusion, and both
+closing appends land only on the head just folded. What remains for
+this decision to rule is the tail: `resume`'s fresh-process branch, and
+whether every remaining control-plane `append_next` moves behind the
+fence. The identity residual (a self-asserted `$USER`) is decision
+0025's, not this one's.
+

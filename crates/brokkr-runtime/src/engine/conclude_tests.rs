@@ -582,3 +582,87 @@ fn an_engine_version_that_moved_refuses_resume_and_concludes_anyway() {
         "the same journal the pinned bundle locked out reaches its conclusion",
     );
 }
+
+/// The fences, each proven against the live driver it exists to refuse
+/// (the operator's park ruling, 2026-09-01). First: the driver concludes
+/// the run in the window between `conclude`'s fold and the stop command
+/// — the command re-decides against the moved journal and its refusal
+/// ends the conclusion with the look-first instruction.
+#[test]
+fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-stopped-mid-effect-hand-built";
+    let mut store = replay_upto(&dir.path().join("finished.db"), name, &pinned(name), 9);
+
+    let mut struck = false;
+    let refused = conclude_racing(&mut store, name, "operator", "believed dead", |store| {
+        if !struck {
+            struck = true;
+            for (event_type, payload, attempt) in [
+                (
+                    EventType::EffectSucceeded,
+                    json!({"effect_id":"effect-verify","result":{"result":"pass"}}),
+                    Some("attempt-verify".to_string()),
+                ),
+                (
+                    EventType::TransitionDecided,
+                    json!({"from":"verify","result":"pass","next":"done","inputs":{}}),
+                    None,
+                ),
+                (EventType::RunCompleted, json!({}), None),
+            ] {
+                store
+                    .append_next(name, event_type, payload, None, attempt)
+                    .unwrap();
+            }
+        }
+    })
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("look with `brokkr runs`"),
+        "{refused}"
+    );
+    assert!(
+        fold(&events(&store, name)).is_ok(),
+        "and the journal still folds — nothing was closed over live work"
+    );
+}
+
+/// Second: the driver's own result lands inside the fence's window —
+/// after the head was taken for the boundary close, before the close
+/// could land on it. The append refuses on the moved head, the
+/// conclusion ends, and the journal keeps folding.
+#[test]
+fn a_result_landing_inside_the_fence_window_refuses_the_close() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-stopped-mid-effect-hand-built";
+    let mut store = store_for(&dir, name);
+    assert!(fold(&events(&store, name)).unwrap().riding_stop);
+
+    let mut calls = 0;
+    let refused = conclude_racing(&mut store, name, "operator", "believed dead", |store| {
+        calls += 1;
+        // Call 1 is before the (skipped) stop command; call 2 is inside
+        // the indeterminate close's fence — the window under test.
+        if calls == 2 {
+            store
+                .append_next(
+                    name,
+                    EventType::EffectSucceeded,
+                    json!({"effect_id":"effect-verify","result":{"result":"pass"}}),
+                    None,
+                    Some("attempt-verify".into()),
+                )
+                .unwrap();
+        }
+    })
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("moved beneath the conclusion"),
+        "{refused}"
+    );
+    assert!(
+        fold(&events(&store, name)).is_ok(),
+        "the journal still folds; the driver's result stands and the run lives"
+    );
+}
