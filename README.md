@@ -221,6 +221,7 @@ walkthrough, written for someone arriving from outside this repository.
 |---|---|
 | [Quickstart](docs/guides/quickstart.md) | A repo, an agent CLI, and twenty minutes: install, `doctor`, `init`, one run, reading its ending, the escape hatches, and what it costs. |
 | [Recipe authoring](docs/guides/recipe-authoring.md) | `bundle.json` + `policy.json` + `roles/` anatomy, composition via `extends`/`override`, digest identity, the rule grammar including `visits` and the reforging ladder. |
+| [Adopting a Node repo](docs/guides/adopting-a-node-repo.md) | Driving a Node/TypeScript repository with `recipes/node`: the four files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
 | [Driver authoring](docs/guides/driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code or Codex: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
 | [Versioning](docs/guides/versioning.md) | What is stable and what may still move: the frozen-contract law, the two manifest lineages, semver as of 1.0, and the live deprecation window. |
 
@@ -476,12 +477,19 @@ content digest. The library is a directory of them.
 ```
 $ brokkr recipes list
 fast	5779cd13be64	6 phases	implement, review, ship, verify	recipes/fast
+node	66a30b26ed1c	6 phases	implement, review, ship, verify	recipes/node
 panel-review	b44de756c398	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
 sdd	3743484daa2b	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
 sdd-paranoid	368569ad218d	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
 self	e36523e469d0	7 phases	implement, intake, review, ship, verify	bundles/self
 verify	66052438d68d	4 phases	review, verify	bundles/verify
 ```
+
+`recipes/node` is the same four-seat constitution as `fast`, driving a
+Node/TypeScript repository instead of this Rust one: the phase table is
+identical, only the seats' driver commands and role charters are
+JavaScript. [Adopting a Node repo](docs/guides/adopting-a-node-repo.md)
+walks a stranger from an unmodified repo to a first run.
 
 Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
 lines: it extends `sdd` and replaces exactly one seat, and it has to say

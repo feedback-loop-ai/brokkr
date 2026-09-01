@@ -1,0 +1,110 @@
+{
+  "name": "node",
+  "policy": "policy.json",
+  "protected_phase": "review",
+  "seats": {
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 4800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
+      }
+    },
+    "verify": {
+      "role": "roles/verifier.md",
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 2400
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
+      }
+    },
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "class": "gate",
+      "inputs": [
+        "fixes_applied",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3000
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
+      }
+    },
+    "ship": {
+      "role": "roles/shipper.md",
+      "results": [
+        "ready",
+        "shipped"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1200
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+        ]
+      }
+    }
+  }
+}

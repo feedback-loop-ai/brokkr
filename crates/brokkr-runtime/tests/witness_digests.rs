@@ -2,10 +2,10 @@
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
 //!
-//! `recipes/fast` and `bundles/verify` adopt no agent. Their pinned
-//! manifest digest must not move, and their manifest must carry no
-//! `agents` key at all — absence, not an empty object, is what keeps a
-//! non-adopting bundle's identity exactly what it was.
+//! `recipes/fast`, `recipes/node` and `bundles/verify` adopt no agent.
+//! Their pinned manifest digest must not move, and their manifest must
+//! carry no `agents` key at all — absence, not an empty object, is what
+//! keeps a non-adopting bundle's identity exactly what it was.
 //!
 //! Adopting no agent is not the same as answering to nobody. Both seat
 //! INLINE gates, and since decision 0021 a gate stands on an adapter's
@@ -40,10 +40,19 @@ fn workspace() -> PathBuf {
 /// inline gates now pin the adapter declaration that authorises them),
 /// or the byte identity this slice promised to keep. Never a silent
 /// fourth thing.
-const WITNESSES: [(&str, &str); 2] = [
+///
+/// `recipes/node` joined them when the Node reference recipe landed,
+/// pinned from its first compile: it ships as reference material a
+/// stranger copies, so an unreviewed edit to a charter or a driver's
+/// tool list must fail a test here exactly as it would for `fast`.
+const WITNESSES: [(&str, &str); 3] = [
     (
         "recipes/fast",
         "4a6bb31cdfaf75eae5a7d30cb030c58ecbdda3db23c6f925db11b5bc228651b0",
+    ),
+    (
+        "recipes/node",
+        "66a30b26ed1c26a89a0fc839d0fbd27741a1cdeada172fb989dbebabaad0caf9",
     ),
     (
         "bundles/verify",
@@ -54,8 +63,9 @@ const WITNESSES: [(&str, &str); 2] = [
 /// The INLINE gate seats of each, by name: exactly what a `drivers`
 /// witness must account for, one entry per judging seat and none for a
 /// working one. `bundles/verify` has no ship phase to gate.
-const INLINE_GATES: [(&str, &[&str]); 2] = [
+const INLINE_GATES: [(&str, &[&str]); 3] = [
     ("recipes/fast", &["review", "ship", "verify"]),
+    ("recipes/node", &["review", "ship", "verify"]),
     ("bundles/verify", &["review", "verify"]),
 ];
 
