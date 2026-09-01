@@ -398,6 +398,328 @@ fn a_seat_participant_carries_its_attempts_turns_cost_and_activity() {
     assert_eq!(view.event_count, 7);
 }
 
+// ------------------------------------------- tokens where dollars aren't
+
+/// A codex seat as `docs/evidence/brokkr-export-gains-redact-a-san-c5d011df.ndjson`
+/// journals one: `turn-started`/`turn-completed` where claude journals
+/// `seat-turn`, per-turn token counts, and — the whole point — no
+/// `total_cost_usd` anywhere, because a subscription harness reports no
+/// marginal price and the adapter invents none.
+///
+/// Each element is one turn's `turn-completed` usage. The finished
+/// checkpoint is built the way the adapter builds it: its session meta
+/// is an insert, not an accumulate, so it ends up carrying the LAST
+/// turn's counts while calling them the session's.
+fn codex_journal(turns: Vec<Value>) -> Vec<EventEnvelope> {
+    let mut events = vec![
+        ev(
+            1,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "att1"}),
+            T0,
+        ),
+    ];
+    let mut session = json!({"step": "codex-session-finished", "exit_code": 0,
+                             "session_id": "01a05992-e55c-7fc1-852a-0bbe590fcc2e"});
+    for (index, usage) in turns.into_iter().enumerate() {
+        let turn = index as u64 + 1;
+        let seq = events.len() as u64 + 1;
+        events.push(ev(
+            seq,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": {"harness": "codex", "step": "turn-started", "turn": turn}}),
+            T0,
+        ));
+        let mut checkpoint = usage;
+        checkpoint["harness"] = json!("codex");
+        checkpoint["step"] = json!("turn-completed");
+        checkpoint["turn"] = json!(turn);
+        for key in ["input_tokens", "cache_read_tokens", "output_tokens"] {
+            if let Some(value) = checkpoint.get(key) {
+                session[key] = value.clone();
+            }
+        }
+        let seq = events.len() as u64 + 1;
+        events.push(ev(
+            seq,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": checkpoint}),
+            T0,
+        ));
+    }
+    let seq = events.len() as u64 + 1;
+    events.push(ev(
+        seq,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": session}),
+        T1,
+    ));
+    let seq = events.len() as u64 + 1;
+    events.push(ev(
+        seq,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "att1", "result": {"result": "complete"}}),
+        T2,
+    ));
+    events
+}
+
+/// A two-member panel, each member's telemetry given as the
+/// `turn-completed`-or-`seat-turn` checkpoint it journals and the
+/// finished checkpoint that closes it.
+fn panel_of(members: Vec<(&str, Value, Value)>) -> Vec<EventEnvelope> {
+    let mut events = vec![
+        ev(
+            1,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "design", "phase": "design"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "att1"}),
+            T0,
+        ),
+    ];
+    for (member, working, finished) in members {
+        for mut checkpoint in [working, finished] {
+            checkpoint["member"] = json!(member);
+            let seq = events.len() as u64 + 1;
+            events.push(ev(
+                seq,
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": checkpoint}),
+                T0,
+            ));
+        }
+    }
+    let seq = events.len() as u64 + 1;
+    events.push(ev(
+        seq,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "att1", "result": {"result": "designed"}}),
+        T2,
+    ));
+    events
+}
+
+#[test]
+fn a_codex_seat_shows_its_tokens_where_a_price_would_be() {
+    // The wager's crew-B numbers exactly: 3,975,322 input tokens, of
+    // which 3,830,272 were cache reads, and 14,051 output. The cache
+    // reads sit INSIDE the input count — a cache hit is still an input
+    // token, billed differently — so the total is input + output only.
+    let events = codex_journal(vec![json!({
+        "input_tokens": 3_975_322, "cache_read_tokens": 3_830_272, "output_tokens": 14_051
+    })]);
+    let view = run_view(&events, None);
+    let part = &view.participants[0];
+    assert_eq!(part.cost, None, "no price was reported, so none is claimed");
+    assert_eq!(part.cost_cell.text, "3.99M tok");
+    assert!(!part.cost_cell.absent);
+    assert_eq!(part.cost_cell.note, None);
+    assert!(
+        !part.cost_cell.text.contains('$'),
+        "a token count is never money"
+    );
+    // The turns gap: not one `seat-turn` in this journal, and the seat
+    // shows the turn it took rather than an absence mark.
+    assert_eq!(part.turns, Some(1));
+    assert_eq!(part.turns_cell.text, "1");
+    assert!(!part.turns_cell.absent);
+    assert_eq!(
+        part.session_id.as_deref(),
+        Some("01a05992-e55c-7fc1-852a-0bbe590fcc2e")
+    );
+}
+
+#[test]
+fn a_multi_turn_codex_seat_sums_its_turns_rather_than_its_last_one() {
+    let events = codex_journal(vec![
+        json!({"input_tokens": 200_000, "cache_read_tokens": 180_000, "output_tokens": 5_000}),
+        json!({"input_tokens": 100_000, "cache_read_tokens": 90_000, "output_tokens": 7_000}),
+    ]);
+    let view = run_view(&events, None);
+    let part = &view.participants[0];
+    // 205,000 + 107,000. The finished checkpoint carries only turn two's
+    // 107,000: reading the tokens off the session the way the cost is
+    // read would print `107k tok` and lose the first turn entirely.
+    assert_eq!(part.cost_cell.text, "312k tok");
+    assert_eq!(
+        part.turns,
+        Some(2),
+        "the highest turn number, as with seat-turn"
+    );
+    assert_eq!(part.turns_cell.text, "2");
+}
+
+#[test]
+fn a_codex_seat_with_no_usage_journaled_keeps_the_absence_mark() {
+    // A turn ran and closed and the harness counted nothing with it.
+    // There is no price and no token count, so the cell says nothing —
+    // which is the honest answer, not a zero.
+    let events = codex_journal(vec![json!({})]);
+    let view = run_view(&events, None);
+    let part = &view.participants[0];
+    assert_eq!(part.cost, None);
+    assert_eq!(part.cost_cell.text, ABSENT);
+    assert!(part.cost_cell.absent);
+    assert_eq!(
+        part.cost_cell.note.as_deref(),
+        Some("no session cost or token usage recorded")
+    );
+    assert_eq!(
+        part.turns_cell.text, "1",
+        "a turn that counted no tokens is still a turn"
+    );
+}
+
+#[test]
+fn a_priced_seat_shows_dollars_even_when_tokens_are_journaled_too() {
+    let mut events = codex_journal(vec![json!({
+        "input_tokens": 300_000, "cache_read_tokens": 250_000, "output_tokens": 12_000
+    })]);
+    // The same seat on a harness that DOES report a price. The price is
+    // the answer; the token count is what fills the cell in its absence,
+    // never a second opinion printed beside it.
+    let session = events
+        .iter_mut()
+        .find(|event| event.payload["checkpoint"]["step"] == "codex-session-finished")
+        .expect("the helper journals a finished session");
+    session.payload["checkpoint"]["total_cost_usd"] = json!(0.03125);
+    let view = run_view(&events, None);
+    let part = &view.participants[0];
+    assert_eq!(part.cost, Some(0.03125));
+    assert_eq!(part.cost_cell.text, "$0.0313");
+    assert!(
+        !part.cost_cell.text.contains("tok"),
+        "dollars and tokens never share a cell"
+    );
+}
+
+#[test]
+fn a_panel_of_unpriced_members_sums_their_tokens_with_a_sigma() {
+    let events = panel_of(vec![
+        (
+            "simplicity",
+            json!({"step": "turn-completed", "turn": 1,
+                   "input_tokens": 200_000, "output_tokens": 12_000}),
+            json!({"step": "codex-session-finished", "session_id": "s1"}),
+        ),
+        (
+            "robustness",
+            json!({"step": "turn-completed", "turn": 1,
+                   "input_tokens": 290_000, "output_tokens": 10_000}),
+            json!({"step": "codex-session-finished", "session_id": "s2"}),
+        ),
+    ]);
+    let view = run_view(&events, None);
+    let parent = &view.participants[0];
+    assert_eq!(parent.cost_cell.text, "Σ 512k tok");
+    assert!(
+        !parent.cost_aggregated,
+        "there was no cost to aggregate — the Σ here is over tokens"
+    );
+    assert_eq!(parent.cost, None);
+    assert_eq!(
+        view.participants[1].cost_cell.text, "212k tok",
+        "no Σ on a member"
+    );
+    assert_eq!(view.participants[2].cost_cell.text, "300k tok");
+}
+
+#[test]
+fn a_parent_with_its_own_tokens_does_not_aggregate_its_members() {
+    let mut events = panel_of(vec![
+        (
+            "simplicity",
+            json!({"step": "turn-completed", "turn": 1,
+                   "input_tokens": 200_000, "output_tokens": 12_000}),
+            json!({"step": "codex-session-finished", "session_id": "s1"}),
+        ),
+        (
+            "robustness",
+            json!({"step": "turn-completed", "turn": 1,
+                   "input_tokens": 290_000, "output_tokens": 10_000}),
+            json!({"step": "codex-session-finished", "session_id": "s2"}),
+        ),
+    ]);
+    // The seat counted tokens of its own. Its own count is the answer —
+    // a Σ over its members would be a second, different claim about the
+    // same seat, which is what the cost rule already refuses.
+    let seq = events.len() as u64 + 1;
+    events.push(ev(
+        seq,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att1",
+               "checkpoint": {"step": "turn-completed", "turn": 1,
+                              "input_tokens": 40_000, "output_tokens": 2_000}}),
+        T0,
+    ));
+    let view = run_view(&events, None);
+    let parent = &view.participants[0];
+    assert_eq!(parent.cost_cell.text, "42k tok");
+    assert!(
+        !parent.cost_cell.text.starts_with('Σ'),
+        "its own telemetry, so nothing was aggregated"
+    );
+}
+
+#[test]
+fn a_sigma_whose_members_disagree_in_kind_stays_in_dollars() {
+    let events = panel_of(vec![
+        (
+            "priced",
+            json!({"step": "seat-turn", "turn": 1, "tool": "Write"}),
+            json!({"step": "claude-session-finished", "session_id": "s1",
+                   "total_cost_usd": 0.25}),
+        ),
+        (
+            "unpriced",
+            json!({"step": "turn-completed", "turn": 1,
+                   "input_tokens": 290_000, "output_tokens": 10_000}),
+            json!({"step": "codex-session-finished", "session_id": "s2"}),
+        ),
+    ]);
+    let view = run_view(&events, None);
+    let parent = &view.participants[0];
+    // The Σ is a dollar total over the members that reported dollars. It
+    // does not grow by a token and it does not print one: a roll-up that
+    // mixed the units would be a number nothing in the world matches.
+    assert_eq!(parent.cost_cell.text, "Σ $0.2500");
+    assert!(parent.cost_aggregated);
+    assert!(!parent.cost_cell.text.contains("tok"));
+    // The unpriced member's tokens are not lost — they are on its own
+    // row, in their own unit, one line below the Σ.
+    assert_eq!(view.participants[2].cost_cell.text, "300k tok");
+}
+
+#[test]
+fn the_token_humanizer_pins_its_three_tiers() {
+    assert_eq!(fmt_tokens(0), "0 tok");
+    assert_eq!(fmt_tokens(842), "842 tok");
+    assert_eq!(fmt_tokens(999), "999 tok");
+    // Half-up, the rounding every other humanized number here uses.
+    assert_eq!(fmt_tokens(1_499), "1k tok");
+    assert_eq!(fmt_tokens(1_500), "2k tok");
+    assert_eq!(fmt_tokens(312_400), "312k tok");
+    // The rounding picks the tier, so 999,999 reads as a million rather
+    // than as the `1000k` a threshold check would print.
+    assert_eq!(fmt_tokens(999_999), "1.00M tok");
+    assert_eq!(fmt_tokens(3_989_373), "3.99M tok");
+    assert_eq!(fmt_tokens(12_000_000), "12.00M tok");
+    // Absurd input still reads as tokens and never as money.
+    assert!(!fmt_tokens(u64::MAX).contains('$'));
+}
+
 #[test]
 fn a_live_seat_shows_the_tool_and_a_shortened_target() {
     let mut events = seat_journal();
@@ -437,7 +759,7 @@ fn a_live_seat_shows_the_tool_and_a_shortened_target() {
     assert_eq!(part.cost_cell.text, ABSENT);
     assert_eq!(
         part.cost_cell.note.as_deref(),
-        Some("no session cost recorded")
+        Some("no session cost or token usage recorded")
     );
     // The live block is a second scan and it is populated here.
     assert_eq!(view.live.len(), 1);
