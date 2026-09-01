@@ -394,4 +394,41 @@ fn git_failures_name_their_boundary() {
         Err(KeepRefsError::Git { verb: "wait", .. })
     ));
     assert!(matches!(list(missing), Err(KeepRefsError::Git { .. })));
+    // Releasing exhibits from a repository that is not one fails at the
+    // same boundary: the listing that would name the refs to delete.
+    assert!(matches!(
+        delete(missing, "run-a"),
+        Err(KeepRefsError::Git { .. })
+    ));
+}
+
+/// git refusing a BATCH is reported with git's own complaint, not the
+/// broken pipe the refusal causes: a loose ref squatting where the
+/// run's namespace must go makes `update-ref --stdin` refuse the whole
+/// batch deterministically (a directory/file conflict), and the error
+/// names the update-ref boundary rather than a failed write.
+#[test]
+fn a_refused_batch_reports_gits_complaint_not_the_pipe() {
+    let dir = repo();
+    let path = dir.path();
+    let head = commit(path, "base");
+    let mut journal_store = store(path);
+    journal(&mut journal_store, "run-a", &[&head], &[]);
+    git(
+        path,
+        &["update-ref", &format!("{KEEP_PREFIX}/run-a"), &head],
+        None,
+    )
+    .unwrap();
+    let refused = plant(&journal_store, path, "run-a");
+    assert!(
+        matches!(
+            refused,
+            Err(KeepRefsError::Git {
+                verb: "command",
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
 }

@@ -1497,9 +1497,34 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
 fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     let (missing_dir, mut missing) = engine(single_body(vec!["driver".into()]));
     missing.repo = Some(missing_dir.path().join("not-a-repository"));
-    missing
-        .append(EventType::RunCompleted, json!({}), None)
-        .unwrap();
+    // The run cites a head, so the conclusion has an exhibit it cannot
+    // keep in a repository that is not one: the anchor gap AND the
+    // keep-ref gap are both reported, and neither fails the run.
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "effect", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "effect", "attempt_id": "attempt"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "effect", "result": {"result": "complete"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({
+                "from": "work", "result": "complete", "next": "done",
+                "inputs": {"reviewed_heads": {"repo": "a".repeat(40)}},
+            }),
+        ),
+        (EventType::RunCompleted, json!({})),
+    ] {
+        missing.append(event_type, payload, None).unwrap();
+    }
     assert_eq!(missing.drive().unwrap().state.status, Status::Completed);
 
     let (dir, mut anchored) = engine(single_body(vec!["driver".into()]));
