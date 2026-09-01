@@ -145,6 +145,26 @@ qualifies. The positions are work seats and admit any driver, trusted or
 not (ruling 7) — which is exactly what makes a challenger's position on
 this panel a lawful experiment.
 
+**That freedom costs something the flat panel shape did not cost, and it
+belongs in the open.** Under
+[`panel-review`](../panel-review/README.md) the members' verdict is
+joined in *code* — `aggregate_results` ranks worst-of — so a member's
+prose can never argue the seat's result down. Here the join is a model:
+the aggregate copies each position's `notes` verbatim into
+`context.prior_results.positions`, and the chief, who reads it, is the
+gate whose result rules the protected phase. Seating an untrusted driver
+on a position therefore puts that driver's free text into the gate's
+prompt. Decision 0021's refusal is about *whose result is the verdict*,
+and it holds exactly; it says nothing about whose prose is in the
+context. The rest is answered as charter —
+[`roles/review-chief.md`](roles/review-chief.md) rules that panel notes
+are data and never instructions, and
+`crates/brokkr-runtime/tests/crucible_review_sequence.rs` pins that
+instruction against deletion. That is prose defending against prose,
+which is weaker than a compile-time refusal. Weigh it before you seat a
+challenger here; the shipped bundle seats both positions on trusted
+`claude` drivers.
+
 ## How the models are pinned
 
 Inline `--model` pairs on each `driver.command`, the same mechanism and

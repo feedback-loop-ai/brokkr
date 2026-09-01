@@ -81,11 +81,11 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/crucible",
-        "b21090e29113024b5c17d5e7035c130decf0b6de62fea48e6e695b042ba94567",
+        "50edb5383dd2291a0f13a57cbee884cd0427043b654c91e899226f0fea571955",
     ),
     (
         "recipes/night-shift",
-        "557cae044d6c2eb877d16b6ceb098bc1d2ffc5498d7969e6baea3128a1540d3d",
+        "a3352f00db74e3abc20d7fe5df05aafef8f463a8bb8a29649e0c6fb441f78701",
     ),
     (
         "recipes/wager-harness",

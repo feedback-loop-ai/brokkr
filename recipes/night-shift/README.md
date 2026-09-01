@@ -18,7 +18,8 @@ dark.
 `max_attempts` is decision 0006's **per-attempt** bound: crashes,
 timeouts, malformed driver output. Setting it to 1 means an effect-level
 failure exhausts immediately and the run parks with its evidence,
-instead of spending a second session on the same wall at 03:00.
+instead of spending a second session on the same wall while nobody is
+awake to read the first one.
 
 It is **orthogonal to the phase table**. A *valid* `broken` result from
 `implement` is not an effect failure — it is a typed result, and
@@ -100,8 +101,11 @@ and validated at load), and a recipe is declarative data, not
 control flow (decision 0002's linear outer machine). Scheduling lives
 entirely outside Brokkr, in whatever cron or timer the operator runs.
 
-If the window moves, nothing in this directory changes. Grep this
-recipe for a time and you will find one string: this paragraph.
+If the window moves, nothing in this directory changes. Grep
+`bundle.json` and every file under `roles/` for a time and you will find
+none: no seat, no charter and no driver command names an hour. The only
+hours in this recipe are the two ends of the window, written in prose,
+in this README, where they cannot execute.
 
 ## When to use it
 
