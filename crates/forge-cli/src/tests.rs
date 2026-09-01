@@ -1872,11 +1872,12 @@ fn the_map_names_the_journal_and_db_outranks_it() {
     );
 }
 
-/// A map nobody typed still moves where the journal is created. Ruling 3
-/// wants that adoption; it does not want it silent, so the surfaces say
-/// once, on stderr, which journal an ambient map chose — and say nothing
-/// when the operator's own `--db` chose it, or when the map's journal is
-/// the one that was going to be opened anyway.
+/// A map nobody typed still moves where the journal is created — and one
+/// that leaves the journal alone still decides the realm paths and the
+/// fact keys. Ruling 3 wants that adoption; it does not want it silent,
+/// so the surfaces say once, on stderr, that an ambient map was adopted,
+/// naming the journal when the map is what moved it. Only a map the
+/// operator typed is quiet.
 #[test]
 fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     let dir = tempfile::tempdir().unwrap();
@@ -1907,8 +1908,9 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     assert!(notice.contains("--realms names it explicitly"), "{notice}");
 
     // And a map that names the journal which was going to be opened
-    // anyway has redirected nothing, so it announces nothing — this is
-    // the case this repository's own root map is in.
+    // anyway has redirected nothing — but it is adopted all the same, so
+    // it is said all the same. This is the case this repository's own
+    // root map is in.
     let plain = tempfile::tempdir().unwrap();
     let default_journal = std::path::absolute(DEFAULT_DB).unwrap();
     std::fs::write(

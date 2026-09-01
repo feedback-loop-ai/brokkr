@@ -849,10 +849,11 @@ struct Invocation {
     /// typed.
     named: bool,
     journal: PathBuf,
-    /// What an ambient map moved without being asked to. Ruling 3 wants
-    /// a map found to be adopted; it does not want the adoption silent,
-    /// so a journal that is somewhere else BECAUSE of a map nobody typed
-    /// is said out loud — once, on stderr, before anything opens it.
+    /// What an ambient map is doing without being asked to. Ruling 3
+    /// wants a map found to be adopted; it does not want the adoption
+    /// silent, so EVERY map nobody typed is said out loud — once, on
+    /// stderr, before anything opens — whether it moved the journal or
+    /// merely decides the realm paths and the fact keys.
     notice: Option<String>,
 }
 
