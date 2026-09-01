@@ -124,6 +124,16 @@ sudo apt-get update && sudo apt-get install brokkr
 
 `apt-get upgrade` picks up later releases from the same line.
 
+The `Release` file carries a `Valid-Until` 90 days past the release that
+built it. That is what lets apt notice a frozen or replayed repository —
+an old signature is still a valid one, so without an end date a stale
+copy of the site is indistinguishable from the current one. The cost is
+the other edge: 90 days after the last release, `apt-get update` refuses
+the repository until a new tag rebuilds and re-signs the site. Cutting a
+release resets it; follow-up 6 is the scheduled re-sign that removes the
+dependence on cadence, and `--valid-days` on
+`packaging/apt/build-repo.sh` is the knob.
+
 **dnf** (Fedora, RHEL, openSUSE) — *wired at the bench*:
 
 ```
@@ -177,11 +187,22 @@ reads the release's attested manifest and rewrites, in place:
 
 The rule is one line: a line whose trailing comment names an artifact
 gets that artifact's digest; a line tagged `# brokkr-version` gets the
-version. The committed templates carry sixty-four zeros, so an
-unrendered file cannot be mistaken for a publishable one —
-`packaging/open-channel-pr.sh` refuses to open a pull request carrying
-the placeholder, and the test suite asserts the placeholder is still
-there in this repository.
+version.
+
+The two templates bound for sibling repositories are rendered on the
+runner and never committed here: `packaging/open-channel-pr.sh` refuses
+to open a pull request carrying the placeholder, and the test suite
+asserts the sixty-four zeros are still in the tap formula and the scoop
+manifest, so neither can be published out of band.
+
+`flake.nix` is the exception, and deliberately: `nix profile install
+github:feedback-loop-ai/brokkr` reads the *default branch*, so the flake
+has to end up carrying live digests. The `channels` job opens that pull
+request against the default branch after each release, and merging it is
+what makes the nix row work. The test therefore asserts the flake's
+*shape* — four artifact-tagged 64-hex digests, all placeholder or all
+rendered, never a mix — rather than the zeros, which would go red the
+moment the release's own pull request merged.
 
 ## Files
 
@@ -242,3 +263,10 @@ None of the scripts carries an executable bit; each is invoked as
    its `| Step | Budget |` spine becomes the right home for them, and
    the 60-second tarball budget stays that path's gate: the manager rows
    are additional roads in, never a reason to loosen it.
+6. **Re-signing the apt metadata on a schedule.** `Valid-Until` bounds a
+   replay at 90 days, which also means a quarter without a release turns
+   into `apt-get update` refusing the repository. A scheduled workflow
+   that rebuilt and re-signed the site from the current release would let
+   the window shrink to Debian's week without ever lapsing. Not done here
+   because it wants the signing key on a timer rather than on a tag, and
+   where that key is allowed to run is the operator's call.

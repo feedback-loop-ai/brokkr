@@ -2,6 +2,7 @@
 # Build a flat, static APT repository out of already-built .deb files.
 #
 #   build-repo.sh --debs <dir> --out <dir> [--suite stable] [--component main]
+#                 [--valid-days 90]
 #
 # What it writes, and nothing else:
 #
@@ -26,6 +27,10 @@ suite="stable"
 component="main"
 origin="Brokkr"
 label="Brokkr"
+# How long the signature over this metadata claims to be current. See
+# the `Valid-Until` comment below for why it is neither shorter nor
+# absent; the operator tightens it once the release cadence is regular.
+valid_days="90"
 
 die() {
   printf 'apt/build-repo: %s\n' "$1" >&2
@@ -40,9 +45,15 @@ while [ $# -gt 0 ]; do
     --component) component="${2:-}"; shift 2 ;;
     --origin) origin="${2:-}"; shift 2 ;;
     --label) label="${2:-}"; shift 2 ;;
+    --valid-days) valid_days="${2:-}"; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
+
+case "$valid_days" in
+  '' | *[!0-9]*) die "--valid-days takes a whole number of days: $valid_days" ;;
+esac
+[ "$valid_days" -gt 0 ] || die "--valid-days must be at least 1"
 
 [ -n "$debs" ] || die "--debs <dir> is required"
 [ -n "$out" ] || die "--out <dir> is required"
@@ -114,8 +125,17 @@ done
 # `date -u -R` is locale-sensitive; apt wants the C locale's English
 # day and month names. SOURCE_DATE_EPOCH makes the file reproducible,
 # which is what lets a test assert on it.
-release_date="$(LC_ALL=C date -u -d "@${SOURCE_DATE_EPOCH:-$(date -u +%s)}" '+%a, %d %b %Y %H:%M:%S UTC' 2>/dev/null ||
-  LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S UTC')"
+built_at="${SOURCE_DATE_EPOCH:-$(date -u +%s)}"
+
+# GNU and BSD date spell "format this epoch second" differently, and a
+# repository built on either has to carry the same field.
+stamp() {
+  LC_ALL=C date -u -d "@$1" '+%a, %d %b %Y %H:%M:%S UTC' 2>/dev/null ||
+    LC_ALL=C date -u -r "$1" '+%a, %d %b %Y %H:%M:%S UTC'
+}
+
+release_date="$(stamp "$built_at")"
+valid_until="$(stamp "$((built_at + valid_days * 86400))")"
 
 release="dists/${suite}/Release"
 {
@@ -126,6 +146,21 @@ release="dists/${suite}/Release"
   printf 'Architectures: %s\n' "$architectures"
   printf 'Components: %s\n' "$component"
   printf 'Date: %s\n' "$release_date"
+  # A signature with no end date cannot tell apt that the metadata it was
+  # handed is stale. Without this line, anything able to serve old bytes
+  # for this origin — a caching intermediary, a mirror the operator keeps
+  # — can pin a user to a frozen repository state for as long as it likes
+  # and apt reports nothing, because an old signature is still a good
+  # signature. Debian's own archives bound it for exactly this reason.
+  #
+  # The window is 90 days rather than Debian's week because the far worse
+  # failure here is the other one: past `Valid-Until`, `apt-get update`
+  # refuses the repository outright, so a window shorter than the gap
+  # between two releases would break every user during a quiet quarter.
+  # 90 days comfortably exceeds this project's cadence and still bounds a
+  # replay to one quarter. Follow-up 6 in packaging/README.md is the
+  # scheduled re-sign that lets the operator tighten it.
+  printf 'Valid-Until: %s\n' "$valid_until"
   printf 'Acquire-By-Hash: no\n'
   printf 'Description: Brokkr releases — the same attested artifacts the GitHub release carries\n'
 } >"$release"

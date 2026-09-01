@@ -74,6 +74,20 @@ gh repo clone "$repo" "$work/checkout" -- --depth 1 >/dev/null 2>&1 ||
   die "cannot clone $repo — is the token scoped to it?"
 
 cd "$work/checkout"
+
+# `gh repo clone` authenticates its own fetch, but the push below is
+# plain git against an https remote, and gh is not a credential helper
+# until something says so. Without this the release would publish, the
+# clone would succeed, and the run would then die at the push with the
+# channel's pull request never opened — the loud-but-late failure the
+# whole token dance exists to avoid.
+#
+# Configured local to this throwaway checkout, so it dies with the temp
+# directory and touches no config that outlives the run. The helper reads
+# GH_TOKEN from the environment: the token still never lands on disk, and
+# never goes into the remote URL, where `git remote -v` would print it.
+git config credential.helper '!gh auth git-credential'
+
 branch="brokkr-${version}"
 git checkout -b "$branch" >/dev/null
 mkdir -p "$(dirname "$destination")"

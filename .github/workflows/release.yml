@@ -258,26 +258,16 @@ jobs:
           gh release download "${GITHUB_REF_NAME}" --pattern SHA256SUMS --dir .
           bash packaging/bump-from-sums.sh --version "${GITHUB_REF_NAME#v}" --sums SHA256SUMS
           rm SHA256SUMS
-      - name: the flake's digests, as a pull request against this repository
-        uses: peter-evans/create-pull-request@v7
-        with:
-          # A tag build is a detached HEAD, and the action refuses to
-          # guess a base from one — the branch the pull request targets
-          # has to be named here or the step fails on every release.
-          base: ${{ github.event.repository.default_branch }}
-          add-paths: flake.nix
-          branch: channels/flake-${{ github.ref_name }}
-          commit-message: "packaging: the flake's digests catch up with ${{ github.ref_name }}"
-          title: "packaging: flake.nix digests for ${{ github.ref_name }}"
-          body: |
-            Rendered by `packaging/bump-from-sums.sh` from the attested
-            `SHA256SUMS` of ${{ github.ref_name }}. The flake fetches the
-            release artifacts, so its digests can only land after the
-            release exists.
       # The tap and the bucket live in sibling repositories that a
       # workflow token cannot reach. Each step is skipped — loudly, not
       # silently — until the bench provisions its token; see
       # packaging/README.md.
+      #
+      # These read the files the bump just rendered, so they run before
+      # `create-pull-request`, which moves the working tree through its
+      # own branch to build the flake's pull request. Ordering them this
+      # way means no one has to know whether that action puts an
+      # unlisted file back exactly as it found it.
       - name: open the homebrew tap pull request
         env:
           BROKKR_TAP_TOKEN: ${{ secrets.BROKKR_TAP_TOKEN }}
@@ -306,3 +296,19 @@ jobs:
             --source packaging/scoop/brokkr.json \
             --destination bucket/brokkr.json \
             --version "${GITHUB_REF_NAME#v}"
+      - name: the flake's digests, as a pull request against this repository
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # A tag build is a detached HEAD, and the action refuses to
+          # guess a base from one — the branch the pull request targets
+          # has to be named here or the step fails on every release.
+          base: ${{ github.event.repository.default_branch }}
+          add-paths: flake.nix
+          branch: channels/flake-${{ github.ref_name }}
+          commit-message: "packaging: the flake's digests catch up with ${{ github.ref_name }}"
+          title: "packaging: flake.nix digests for ${{ github.ref_name }}"
+          body: |
+            Rendered by `packaging/bump-from-sums.sh` from the attested
+            `SHA256SUMS` of ${{ github.ref_name }}. The flake fetches the
+            release artifacts, so its digests can only land after the
+            release exists.

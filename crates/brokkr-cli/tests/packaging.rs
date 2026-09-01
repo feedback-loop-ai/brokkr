@@ -328,6 +328,35 @@ fn the_release_workflow_keeps_secret_values_off_the_process_table() {
     }
 }
 
+/// The order of the `channels` job is load-bearing. Both sibling-repo
+/// steps read files the bump rendered into the working tree, and
+/// `create-pull-request` moves that tree through a branch of its own to
+/// build the flake's pull request — it is told to commit `flake.nix`
+/// alone, and what it does with the other rendered files in passing is
+/// its business, not something a release should depend on. Render,
+/// publish the siblings, then hand the tree to the action.
+#[test]
+fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
+    let workflow = read(".github/workflows/release.yml");
+    let channels = workflow
+        .split("\n  channels:\n")
+        .nth(1)
+        .expect("the channels job");
+    let at = |needle: &str| {
+        channels
+            .find(needle)
+            .unwrap_or_else(|| panic!("no {needle} in:\n{channels}"))
+    };
+
+    let bump = at("bash packaging/bump-from-sums.sh");
+    let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-brokkr\"");
+    let bucket = at("--repo \"${GITHUB_REPOSITORY_OWNER}/scoop-brokkr\"");
+    let action = at("peter-evans/create-pull-request@v7");
+
+    assert!(bump < tap && bump < bucket, "{channels}");
+    assert!(tap < action && bucket < action, "{channels}");
+}
+
 /// The script's half of the same rule: it takes the name of a variable,
 /// refuses a value handed to it by mistake, and refuses an empty one
 /// rather than reaching for a token it was not given.
@@ -389,6 +418,30 @@ fn the_channel_pull_request_script_reads_its_token_from_the_environment() {
         String::from_utf8_lossy(&provided.stderr).contains("still carries a placeholder digest"),
         "{provided:?}"
     );
+
+    // Past that guard the script clones, commits and pushes, and no test
+    // can follow it there without a network and a real tap. The one step
+    // that has no other witness is the credential the push needs: `gh`
+    // authenticates its own clone, but a plain `git push` to an https
+    // remote has nothing unless the checkout is told to ask gh. Getting
+    // this wrong fails *after* the release published, so it is asserted
+    // where it can be — in the order of the script's own lines.
+    // bash parses a script as it runs it, so every guard above proves
+    // only the lines before it. The clone-commit-push tail is never
+    // reached without a network and would carry a syntax error all the
+    // way to a release. `-n` parses the whole file and runs none of it.
+    run(Command::new("bash").arg("-n").arg(&script));
+
+    let text = std::fs::read_to_string(&script).expect("the script");
+    let helper = text
+        .find(r#"git config credential.helper '!gh auth git-credential'"#)
+        .expect("the push has no credential helper");
+    let push = text.find("git push").expect("the push");
+    assert!(helper < push, "the helper is configured after the push");
+    // And the token reaches git through that helper, never by being
+    // written into the remote URL, where `git remote -v` would print it.
+    assert!(!text.contains("set-url"), "{text}");
+    assert!(!text.contains("x-access-token"), "{text}");
 }
 
 /// Part 2's constitutional half (decision 0012): the signing key is a
@@ -464,6 +517,18 @@ fn the_apt_repository_builder_writes_a_release_that_checks_out() {
         .expect("a Date line");
     assert!(date.ends_with(" UTC"), "{date}");
     assert_eq!(date.split_whitespace().count(), 6, "{date}");
+
+    // The signature has an end. Without one apt cannot tell a frozen
+    // mirror from a current one: an old signature is still a good
+    // signature, so anything able to serve stale bytes for this origin
+    // could pin a user to an old repository state indefinitely. Same
+    // format as `Date`, and reproducible from SOURCE_DATE_EPOCH — the
+    // default 90 days past 2025-09-02.
+    let valid_until = release
+        .lines()
+        .find_map(|line| line.strip_prefix("Valid-Until: "))
+        .expect("a Valid-Until line");
+    assert_eq!(valid_until, "Mon, 01 Dec 2025 00:00:00 UTC", "{release}");
 
     // One index directory per architecture the pool actually holds.
     let mut architectures: Vec<String> = std::fs::read_dir(dists.join("main"))
@@ -815,10 +880,33 @@ fn the_bump_script_refuses_an_incomplete_manifest() {
     );
 }
 
-/// Parts 5 and 6, in the committed tree: the templates carry the
-/// placeholder digest, so no channel can be published from this
-/// repository by hand and pass for a real one — and each names exactly
-/// the artifacts the release matrix builds.
+/// The flake's `sha256 = "…"; # <artifact>` lines, as the artifact each
+/// is tagged with and the digest it currently carries, in file order.
+fn flake_digests(flake: &str) -> Vec<(String, String)> {
+    flake
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("sha256 = \"")?;
+            let (digest, tail) = rest.split_once('"')?;
+            let (_, tag) = tail.split_once('#')?;
+            Some((tag.trim().to_string(), digest.to_string()))
+        })
+        .collect()
+}
+
+/// Parts 5 and 6, in the committed tree: no channel can be published
+/// from this repository by hand and pass for a real one, and each
+/// template names exactly the artifacts the release matrix builds.
+///
+/// The tap and the bucket are rendered on a runner and pushed to sibling
+/// repositories, so the copies here must stay unrendered — a real digest
+/// in either is a formula somebody could publish out of band. `flake.nix`
+/// is the one template a release renders *back into this repository*: the
+/// `channels` job opens that pull request, and `nix profile install
+/// github:…` reads the default branch, so the flake is meant to end up
+/// carrying live digests. Asserting the placeholder here would go red the
+/// moment that pull request merged and stay red. What holds either way is
+/// the shape: four artifact-tagged digests, all rendered together.
 #[test]
 fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() {
     let placeholder = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -828,9 +916,37 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
     let formula = read("packaging/homebrew/brokkr.rb");
     let scoop = read("packaging/scoop/brokkr.json");
 
-    assert_eq!(flake.matches(placeholder).count(), 4, "{flake}");
     assert_eq!(formula.matches(placeholder).count(), 4, "{formula}");
     assert_eq!(scoop.matches(placeholder).count(), 1, "{scoop}");
+
+    let digests = flake_digests(&flake);
+    let mut tagged: Vec<&str> = digests.iter().map(|(tag, _)| tag.as_str()).collect();
+    tagged.sort_unstable();
+    let mut unix: Vec<&str> = artifacts
+        .iter()
+        .map(String::as_str)
+        .filter(|artifact| !artifact.ends_with(".zip"))
+        .collect();
+    unix.sort_unstable();
+    assert_eq!(tagged, unix, "{flake}");
+
+    for (tag, digest) in &digests {
+        assert_eq!(digest.len(), 64, "{tag}: {digest}");
+        assert!(
+            digest.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            "{tag}: {digest}"
+        );
+    }
+    // `bump-from-sums.sh` renders all four from one manifest and refuses
+    // an incomplete one, so the only two honest states are "none" and
+    // "all". A flake carrying three real digests and one placeholder
+    // would install three platforms and fail the fourth on a hash
+    // mismatch — the render is broken, not the release.
+    let rendered = digests
+        .iter()
+        .filter(|(_, digest)| digest.as_str() != placeholder)
+        .count();
+    assert!(rendered == 0 || rendered == 4, "{flake}");
 
     for artifact in &artifacts {
         let windows = artifact.ends_with(".zip");

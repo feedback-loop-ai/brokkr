@@ -46,7 +46,7 @@ together.
 |---|---|---|
 | tarball | `tar xzf brokkr-linux-x86_64.tar.gz` (full recipe below) | works today, and it is the path the 60-second budget measures |
 | cargo | `cargo binstall brokkr-cli` | **wired at the bench** — binstall reads the crate through crates.io, and no workflow publishes `brokkr-cli` there yet |
-| nix | `nix profile install github:feedback-loop-ai/brokkr` | works from the first release after this slice |
+| nix | `nix profile install github:feedback-loop-ai/brokkr` | works from the first release after this slice, once that release's flake-digest pull request is merged — nix reads the default branch |
 | apt | `sudo apt-get install brokkr` | **wired at the bench** — needs the signing secret and the Pages site |
 | dnf | `sudo dnf install brokkr` | **wired at the bench** — same |
 | brew | `brew install feedback-loop-ai/brokkr/brokkr` | **wired at the bench** — needs the tap repository |
