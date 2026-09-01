@@ -1,4 +1,5 @@
-//! The map of the world (decision 0023, phase 1): `forge.realms/v1`.
+//! The map of the world (decision 0023, phase 1): `forge.realms/v1`, and
+//! its many-hearth amendment `forge.realms/v2` (decision 0026 ruling 1).
 //!
 //! A repository is a realm; the map that holds them is the connective
 //! truth and is not itself a realm. This module is the PURE half — the
@@ -13,14 +14,27 @@
 //! amendment, deliberately not speculatively schema'd; unknown fields
 //! are REFUSED here so that amendment must arrive as a version rather
 //! than as drift in a file still calling itself v1.
+//!
+//! v2 adds exactly ONE optional field, and lands beside v1 rather than
+//! inside it: a realm may name its own `journal`, and a realm that names
+//! none falls back to the world's — which is what every v1 realm does,
+//! which is why a v1 map keeps loading exactly as it always has. The
+//! vocabulary stays closed at both levels in both versions, and the one
+//! new word is refused in a map that still calls itself v1: a version is
+//! a promise about what a file may say, and a loader that shrugged at
+//! v2 vocabulary under a v1 label would have made the promise a hint.
 
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-/// The one shape this build reads. A map calling itself anything else is
-/// refused by name, never read hopefully.
+/// The original shape. A map calling itself anything this build does not
+/// read is refused by name, never read hopefully.
 pub const SCHEMA_V1: &str = "forge.realms/v1";
+
+/// Many hearths (decision 0026 ruling 1): v1 plus the optional per-realm
+/// `journal`, and nothing else.
+pub const SCHEMA_V2: &str = "forge.realms/v2";
 
 /// The file an invocation defaults to when it names no map.
 pub const DEFAULT_MAP_FILE: &str = "realms.json";
@@ -49,6 +63,12 @@ pub struct Realm {
     pub path: String,
     /// The branch this realm's work is measured against.
     pub default_branch: String,
+    /// This realm's own hearth, when it has one — `forge.realms/v2`
+    /// vocabulary, absent in every v1 map and refused in one. Absent
+    /// means the world's journal, so the fallback is not a special case
+    /// anywhere: see [`RealmMap::journal_of`].
+    #[serde(default)]
+    pub journal: Option<String>,
 }
 
 /// The map as written: realms, and the journal the world writes.
@@ -97,9 +117,9 @@ impl RealmMap {
             path: path.to_string(),
             problem,
         };
-        if map.schema != SCHEMA_V1 {
+        if map.schema != SCHEMA_V1 && map.schema != SCHEMA_V2 {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1}",
+                "it calls itself '{}'; this build reads {SCHEMA_V1} and {SCHEMA_V2}",
                 map.schema
             )));
         }
@@ -129,8 +149,38 @@ impl RealmMap {
             if map.realms[..index].iter().any(|e| e.name == realm.name) {
                 return Err(invalid(format!("realm '{}' is named twice", realm.name)));
             }
+            // The one new word, held to the version that introduced it.
+            // `deny_unknown_fields` cannot do this job any more — the
+            // field is known to the reader now — so the refusal is
+            // written out, and it names the version that would admit it
+            // rather than merely saying no.
+            match &realm.journal {
+                Some(_) if map.schema == SCHEMA_V1 => {
+                    return Err(invalid(format!(
+                        "realm '{}' names its own journal, which is {SCHEMA_V2} vocabulary \
+                         in a map calling itself {SCHEMA_V1}",
+                        realm.name
+                    )))
+                }
+                Some(journal) if journal.trim().is_empty() => {
+                    return Err(invalid(format!(
+                        "realm '{}' has an empty journal",
+                        realm.name
+                    )))
+                }
+                _ => {}
+            }
         }
         Ok((map, content))
+    }
+
+    /// The journal one realm's runs live in: its own when it names one,
+    /// else the world's. This is the whole of ruling 1's resolution, in
+    /// one place, so that every fleet reader answers "which hearth?" the
+    /// same way — and so that a v1 map, where no realm names a journal,
+    /// resolves every realm to the single journal it always had.
+    pub fn journal_of<'a>(&'a self, realm: &'a Realm) -> &'a str {
+        realm.journal.as_deref().unwrap_or(&self.journal)
     }
 }
 

@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v2.json",
+  "title": "Forge realms map v2",
+  "description": "The world an invocation opens, with many hearths (decision 0026, ruling 1). v1's bytes are frozen and untouched; this version lands beside it and adds exactly ONE optional field per realm: `journal`. A realm that names its own journal keeps its runs there; a realm that names none falls back to the world's journal, which is what every v1 realm does and why a v1 map keeps loading exactly as it did. The vocabulary stays closed at BOTH levels — unknown fields are refused here as they are in v1 — so decision 0021's per-realm driver and egress constraints must still arrive as a further version rather than as drift in a file calling itself v2. Journals never merge (ruling 5): a many-hearth world is several append-only truths read side by side, never folded together.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v2" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per repository. A single-project workspace is the degenerate map with one entry, and pays nothing for the shape.",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "description": "The realm's identity, and the key every per-realm fact is recorded under in the journal — the shape the heritage protocol recorded as 'repository name to observed HEAD'. Unique within a map, and the name a fleet reader groups this realm's runs under."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The realm's working tree: absolute, or relative to the directory the map file itself lives in, so a map is portable with the workspace it describes."
+          },
+          "default_branch": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The branch this realm's work is measured against. Recorded and read out; this version acts on nothing else."
+          },
+          "journal": {
+            "type": "string",
+            "minLength": 1,
+            "description": "This realm's own hearth: absolute, or relative to the map file's own directory, exactly like the world's journal. ABSENT is the v1 shape and means the world's journal. Present, it is the journal this realm's runs are read from and written to; several realms may name the same one, and a fleet reader opens each DISTINCT journal once."
+          }
+        }
+      }
+    },
+    "journal": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The world's workspace database: absolute, or relative to the map file's own directory. It is what a realm naming no journal of its own falls back to. `--db` is retained and OUTRANKS this, and with neither map nor `--db` the default journal path is exactly what it always was."
+    }
+  }
+}

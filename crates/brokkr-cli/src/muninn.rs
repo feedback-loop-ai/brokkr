@@ -34,6 +34,7 @@ use anyhow::{Context, Result};
 use brokkr_core::fold::fold;
 use brokkr_protocol::oneshot::{self, OneShot};
 use brokkr_runtime::bundle::expand_command;
+use brokkr_runtime::realms::Hearth;
 use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
 use serde_json::{json, Value};
@@ -72,19 +73,42 @@ const TASK: &str = "Read the fleet dossier below and propose operator actions. \
 pub struct Dossier {
     /// The dossier as the seat receives it.
     pub value: Value,
-    /// Every (run id, sequence number) the dossier states — the closed
-    /// set a proposal may cite. Decision 0007's provenance discipline,
-    /// applied to advice instead of to a seat input.
-    pub facts: Vec<(String, u64)>,
+    /// Every (realm, run id, sequence number) the dossier states — the
+    /// closed set a proposal may cite. Decision 0007's provenance
+    /// discipline, applied to advice instead of to a seat input, and
+    /// carrying the realm since decision 0026 ruling 3: in a many-hearth
+    /// world a fact belongs to the journal it was read from, and a
+    /// finding that cannot name that journal cannot be followed back.
+    /// The realm is absent exactly when the world has one hearth, which
+    /// is every world that never drew a second journal.
+    pub facts: Vec<(Option<String>, String, u64)>,
     /// Per run, the operator commands `brokkr-view` derives as legal.
+    /// Keyed by run id alone, as the report cites it: a run id is unique
+    /// within the journal it lives in, and where two hearths hold one id
+    /// the hearth the map names first answers for it — the same rule
+    /// [`Dossier::realm_of`] follows, so the two never disagree.
     pub commands: BTreeMap<String, Vec<String>>,
 }
 
 impl Dossier {
-    fn states(&self, run_id: &str, seq: u64) -> bool {
+    /// The realm this fact was read in, or `None` if the dossier states
+    /// no such fact at all. Two `Option`s, and they mean different
+    /// things: the outer is "is this stated?", the inner is "under which
+    /// realm?" — absent in a one-hearth world.
+    fn realm_of(&self, run_id: &str, seq: u64) -> Option<Option<&str>> {
         self.facts
             .iter()
-            .any(|(known, at)| known == run_id && *at == seq)
+            .find(|(_, known, at)| known == run_id && *at == seq)
+            .map(|(realm, _, _)| realm.as_deref())
+    }
+
+    /// Whether the dossier states a fact at all, whatever realm it was
+    /// read in. The validator asks [`Dossier::realm_of`], which answers
+    /// both questions at once; this is how the closed set itself is
+    /// asserted.
+    #[cfg(test)]
+    fn states(&self, run_id: &str, seq: u64) -> bool {
+        self.realm_of(run_id, seq).is_some()
     }
 
     fn admits(&self, run_id: &str, command: &str) -> bool {
@@ -95,103 +119,130 @@ impl Dossier {
     }
 }
 
+/// One hearth this command reads: the journal, and the realm its runs
+/// belong to when the world holds more than one (decision 0026 ruling
+/// 3). A one-hearth world names no realm, and its dossier is exactly the
+/// dossier it always was.
+pub struct Source<'a> {
+    pub realm: Option<&'a str>,
+    pub store: &'a Store,
+}
+
 /// The fleet, derived from the same view models every read surface
 /// consumes (decision 0013). Nothing is re-read from the journal by hand
 /// here: a second derivation is a second answer waiting to disagree.
-pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
+///
+/// Several hearths are read in sequence and stated side by side, each
+/// row and each finding carrying the realm it came from. Nothing folds
+/// across a journal boundary and nothing is written (ruling 5): the
+/// stores arrive already opened read-only.
+pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
     let mut rows: Vec<Value> = Vec::new();
     let mut findings: Vec<Value> = Vec::new();
-    let mut facts: Vec<(String, u64)> = Vec::new();
+    let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
     let mut commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    for (run_id, feature, created_at) in store.list_runs()? {
-        let events = store
-            .load(&run_id)
-            .with_context(|| format!("loading run '{run_id}'"))?;
-        let state = match fold(&events) {
-            Ok(state) => state,
-            Err(error) => {
-                // One unfoldable journal must not blind the aide to the
-                // fleet. The run is quarantined — listed as `?` with the
-                // fold's own words — and raised as a finding, because an
-                // unfoldable journal is exactly what the operator needs
-                // surfaced, not hidden. Its citation is the sequence the
-                // fold refused at, so a proposal naming it validates.
-                let seq = error.seq();
-                let detail = error.to_string();
-                let finding = brokkr_view::quarantine_finding(&run_id, seq, &detail);
-                facts.push((run_id.clone(), seq));
-                findings.push(serde_json::to_value(&finding)?);
-                commands.insert(run_id.clone(), Vec::new());
-                *counts.entry("quarantined".to_string()).or_default() += 1;
-                rows.push(json!({
+    for source in sources {
+        let realm = source.realm.map(str::to_string);
+        let store = source.store;
+        for (run_id, feature, created_at) in store.list_runs()? {
+            let events = store
+                .load(&run_id)
+                .with_context(|| format!("loading run '{run_id}'"))?;
+            let state = match fold(&events) {
+                Ok(state) => state,
+                Err(error) => {
+                    // One unfoldable journal must not blind the aide to the
+                    // fleet. The run is quarantined — listed as `?` with the
+                    // fold's own words — and raised as a finding, because an
+                    // unfoldable journal is exactly what the operator needs
+                    // surfaced, not hidden. Its citation is the sequence the
+                    // fold refused at, so a proposal naming it validates.
+                    let seq = error.seq();
+                    let detail = error.to_string();
+                    let finding = brokkr_view::quarantine_finding(&run_id, seq, &detail);
+                    facts.push((realm.clone(), run_id.clone(), seq));
+                    findings.push(keyed(&realm, serde_json::to_value(&finding)?));
+                    commands.entry(run_id.clone()).or_default();
+                    *counts.entry("quarantined".to_string()).or_default() += 1;
+                    rows.push(keyed(
+                        &realm,
+                        json!({
+                            "run_id": run_id,
+                            "seq": seq,
+                            "status": "?",
+                            "phase": Value::Null,
+                            "feature": feature,
+                            "created_at": created_at,
+                            "age": brokkr_view::age(&created_at, now),
+                            "fold_error": detail,
+                            "operator_commands": Vec::<String>::new(),
+                        }),
+                    ));
+                    continue;
+                }
+            };
+            let view = brokkr_view::run_view(&events, Some(&state));
+            let summary = view
+                .summary
+                .as_ref()
+                .expect("a folded state always summarizes");
+            let admits = brokkr_view::operator_commands(&summary.status);
+            *counts.entry(summary.status.clone()).or_default() += 1;
+            facts.push((realm.clone(), run_id.clone(), summary.seq));
+            // First hearth wins, matching [`Dossier::realm_of`]: where
+            // two journals hold one run id, one answer is stated for it
+            // and it is the same one on both sides.
+            commands.entry(run_id.clone()).or_insert(admits.clone());
+            for finding in brokkr_view::residual_findings(&run_id, &events) {
+                facts.push((realm.clone(), run_id.clone(), finding.seq));
+                findings.push(keyed(&realm, serde_json::to_value(&finding)?));
+            }
+            // A panel or sequence seat's row already aggregates its members'
+            // cost, so counting members again would bill the run twice.
+            let seats: Vec<&brokkr_view::Participant> = view
+                .participants
+                .iter()
+                .filter(|part| part.member.is_none())
+                .collect();
+            let costs: Vec<f64> = seats.iter().filter_map(|part| part.cost).collect();
+            let cost = match costs.is_empty() {
+                true => None,
+                false => Some(costs.iter().sum::<f64>()),
+            };
+            rows.push(keyed(
+                &realm,
+                json!({
                     "run_id": run_id,
-                    "seq": seq,
-                    "status": "?",
-                    "phase": Value::Null,
+                    "seq": summary.seq,
+                    "status": summary.status,
+                    "phase": summary.phase,
                     "feature": feature,
                     "created_at": created_at,
                     "age": brokkr_view::age(&created_at, now),
-                    "fold_error": detail,
-                    "operator_commands": Vec::<String>::new(),
-                }));
-                continue;
-            }
-        };
-        let view = brokkr_view::run_view(&events, Some(&state));
-        let summary = view
-            .summary
-            .as_ref()
-            .expect("a folded state always summarizes");
-        let admits = brokkr_view::operator_commands(&summary.status);
-        *counts.entry(summary.status.clone()).or_default() += 1;
-        facts.push((run_id.clone(), summary.seq));
-        commands.insert(run_id.clone(), admits.clone());
-        for finding in brokkr_view::residual_findings(&run_id, &events) {
-            facts.push((run_id.clone(), finding.seq));
-            findings.push(serde_json::to_value(&finding)?);
+                    "park_reason": summary.park_reason,
+                    "operator_commands": admits,
+                    "consecutive_failures": summary.consecutive_failures,
+                    "last_ruling": serde_json::to_value(&view.ruling)?,
+                    "cost_usd": cost,
+                    "seats": seats.iter().map(|part| json!({
+                        "seat": part.label,
+                        "phase": part.phase,
+                        "status": part.status,
+                        "attempts": part.attempts,
+                        "cost_usd": part.cost,
+                    })).collect::<Vec<Value>>(),
+                }),
+            ));
         }
-        // A panel or sequence seat's row already aggregates its members'
-        // cost, so counting members again would bill the run twice.
-        let seats: Vec<&brokkr_view::Participant> = view
-            .participants
-            .iter()
-            .filter(|part| part.member.is_none())
-            .collect();
-        let costs: Vec<f64> = seats.iter().filter_map(|part| part.cost).collect();
-        let cost = match costs.is_empty() {
-            true => None,
-            false => Some(costs.iter().sum::<f64>()),
-        };
-        rows.push(json!({
-            "run_id": run_id,
-            "seq": summary.seq,
-            "status": summary.status,
-            "phase": summary.phase,
-            "feature": feature,
-            "created_at": created_at,
-            "age": brokkr_view::age(&created_at, now),
-            "park_reason": summary.park_reason,
-            "operator_commands": admits,
-            "consecutive_failures": summary.consecutive_failures,
-            "last_ruling": serde_json::to_value(&view.ruling)?,
-            "cost_usd": cost,
-            "seats": seats.iter().map(|part| json!({
-                "seat": part.label,
-                "phase": part.phase,
-                "status": part.status,
-                "attempts": part.attempts,
-                "cost_usd": part.cost,
-            })).collect::<Vec<Value>>(),
-        }));
     }
     facts.sort();
     facts.dedup();
     let count = |status: &str| counts.get(status).copied().unwrap_or(0);
-    let value = json!({
-        "dossier_version": DOSSIER_VERSION,
-        "generated_at": now,
-        "fleet": {
+    // The world's shape, stated only by a world that has one to state: a
+    // one-hearth dossier is the dossier it always was, byte for byte.
+    let realms: Vec<&str> = sources.iter().filter_map(|source| source.realm).collect();
+    let mut fleet = json!({
             "runs": rows.len(),
             "running": count("running"),
             "awaiting_operator": count("awaiting_operator"),
@@ -200,7 +251,14 @@ pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
             // A run whose journal does not fold has no status to count
             // as; it is counted as what it is.
             "quarantined": count("quarantined"),
-        },
+    });
+    if !realms.is_empty() {
+        fleet["realms"] = json!(realms);
+    }
+    let value = json!({
+        "dossier_version": DOSSIER_VERSION,
+        "generated_at": now,
+        "fleet": fleet,
         "runs": rows,
         "residual_findings": findings,
     });
@@ -209,6 +267,19 @@ pub fn dossier(store: &Store, now: &str) -> Result<Dossier> {
         facts,
         commands,
     })
+}
+
+/// A dossier fact, keyed by the realm it was read in — and left exactly
+/// as it was when there is no realm to key it by, which is every
+/// one-hearth world.
+fn keyed(realm: &Option<String>, value: Value) -> Value {
+    match (realm, value) {
+        (Some(realm), Value::Object(mut fields)) => {
+            fields.insert("realm".to_string(), json!(realm));
+            Value::Object(fields)
+        }
+        (_, value) => value,
+    }
 }
 
 // -------------------------------------------------------- the seat
@@ -277,7 +348,7 @@ pub struct Report {
     pub fleet_summary: String,
     pub parked_runs: Vec<Value>,
     pub work_queue: Vec<Value>,
-    pub citations: Vec<(String, u64)>,
+    pub citations: Vec<Cited>,
 }
 
 fn string_field(what: &str, object: &Value, key: &str) -> Result<String, String> {
@@ -297,18 +368,49 @@ fn array_field<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String
 /// The citation check: a proposal may only name a run and a sequence
 /// number the dossier actually stated. A reader who cannot follow a
 /// citation back to a journal fact cannot tell advice from invention.
-fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<(String, u64), String> {
+/// The realm comes back with the citation rather than being asked for:
+/// in a many-hearth world every recorded proposal names the journal its
+/// fact was read in (decision 0026 ruling 3), and a report that names a
+/// realm the dossier does not state for that fact is refused rather than
+/// quietly corrected.
+type Cited = (Option<String>, String, u64);
+
+fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<Cited, String> {
     let run_id = string_field(what, entry, "run_id")?;
     let seq = entry
         .get("seq")
         .and_then(Value::as_u64)
         .ok_or_else(|| format!("{what} is missing a numeric 'seq'"))?;
-    if !dossier.states(&run_id, seq) {
+    let Some(realm) = dossier.realm_of(&run_id, seq) else {
         return Err(format!(
             "{what} cites {run_id} seq {seq}, which the dossier does not state"
         ));
+    };
+    if let Some(claimed) = entry.get("realm").and_then(Value::as_str) {
+        if Some(claimed) != realm {
+            return Err(format!(
+                "{what} cites {run_id} seq {seq} in realm '{claimed}'; the dossier states \
+                 that fact in {}",
+                match realm {
+                    Some(realm) => format!("realm '{realm}'"),
+                    None => "no realm".to_string(),
+                }
+            ));
+        }
     }
-    Ok((run_id, seq))
+    Ok((realm.map(str::to_string), run_id, seq))
+}
+
+/// One citation's fields, realm first when there is one. Absent for a
+/// one-hearth world, so its record keeps exactly the shape it had.
+fn cite(realm: &Option<String>, run_id: &str, seq: u64) -> serde_json::Map<String, Value> {
+    let mut fields = serde_json::Map::new();
+    if let Some(realm) = realm {
+        fields.insert("realm".to_string(), json!(realm));
+    }
+    fields.insert("run_id".to_string(), json!(run_id));
+    fields.insert("seq".to_string(), json!(seq));
+    fields
 }
 
 /// Read the seat's result into a report, or say exactly what is wrong
@@ -326,11 +428,11 @@ pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
         .get("inputs")
         .ok_or_else(|| "the report carries no 'inputs' object".to_string())?;
     let fleet_summary = string_field("the report", inputs, "fleet_summary")?;
-    let mut citations: Vec<(String, u64)> = Vec::new();
+    let mut citations: Vec<Cited> = Vec::new();
     let mut parked_runs = Vec::new();
     for entry in array_field(inputs, "parked_runs")? {
         let what = "a parked-run proposal";
-        let (run_id, seq) = citation(what, dossier, entry)?;
+        let (realm, run_id, seq) = citation(what, dossier, entry)?;
         let command = string_field(what, entry, "command")?;
         if !dossier.admits(&run_id, &command) {
             return Err(format!(
@@ -339,27 +441,23 @@ pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
             ));
         }
         let reasoning = string_field(what, entry, "reasoning")?;
-        citations.push((run_id.clone(), seq));
-        parked_runs.push(json!({
-            "run_id": run_id,
-            "seq": seq,
-            "command": command,
-            "reasoning": reasoning,
-        }));
+        let mut fields = cite(&realm, &run_id, seq);
+        fields.insert("command".to_string(), json!(command));
+        fields.insert("reasoning".to_string(), json!(reasoning));
+        citations.push((realm, run_id, seq));
+        parked_runs.push(Value::Object(fields));
     }
     let mut work_queue = Vec::new();
     for entry in array_field(inputs, "work_queue")? {
         let what = "a work-queue entry";
-        let (run_id, seq) = citation(what, dossier, entry)?;
+        let (realm, run_id, seq) = citation(what, dossier, entry)?;
         let finding = string_field(what, entry, "finding")?;
         let reasoning = string_field(what, entry, "reasoning")?;
-        citations.push((run_id.clone(), seq));
-        work_queue.push(json!({
-            "run_id": run_id,
-            "seq": seq,
-            "finding": finding,
-            "reasoning": reasoning,
-        }));
+        let mut fields = cite(&realm, &run_id, seq);
+        fields.insert("finding".to_string(), json!(finding));
+        fields.insert("reasoning".to_string(), json!(reasoning));
+        citations.push((realm, run_id, seq));
+        work_queue.push(Value::Object(fields));
     }
     citations.sort();
     citations.dedup();
@@ -412,7 +510,7 @@ fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Valu
         "parked_runs": report.parked_runs,
         "work_queue": report.work_queue,
         "citations": report.citations.iter()
-            .map(|(run_id, seq)| json!({"run_id": run_id, "seq": seq}))
+            .map(|(realm, run_id, seq)| Value::Object(cite(realm, run_id, *seq)))
             .collect::<Vec<Value>>(),
         "usage": usage,
     })
@@ -443,6 +541,17 @@ fn number(value: &Value, key: &str) -> String {
     }
 }
 
+/// A cited run, named the way the record cites it: `realm/run-id` where
+/// the world had several hearths to read, the bare run id where it had
+/// one. A reader must be able to follow a proposal back to the journal
+/// it was read in (decision 0026 ruling 3).
+fn cited_run(value: &Value) -> String {
+    match value.get("realm").and_then(Value::as_str) {
+        Some(realm) => format!("{}/{}", Safe::new(realm).as_str(), text(value, "run_id")),
+        None => text(value, "run_id"),
+    }
+}
+
 fn rows<'a>(value: &'a Value, key: &str) -> &'a [Value] {
     value
         .get(key)
@@ -466,7 +575,7 @@ fn render(entry: &Value) -> String {
     for proposal in parked {
         out.push_str(&format!(
             "  parked {} seq {} · suggest '{}' · {}\n",
-            text(proposal, "run_id"),
+            cited_run(proposal),
             number(proposal, "seq"),
             text(proposal, "command"),
             text(proposal, "reasoning")
@@ -475,7 +584,7 @@ fn render(entry: &Value) -> String {
     for item in queued {
         out.push_str(&format!(
             "  queue {} seq {} · {} · {}\n",
-            text(item, "run_id"),
+            cited_run(item),
             number(item, "seq"),
             text(item, "finding"),
             text(item, "reasoning")
@@ -483,7 +592,7 @@ fn render(entry: &Value) -> String {
     }
     let cited: Vec<String> = rows(entry, "citations")
         .iter()
-        .map(|fact| format!("{} seq {}", text(fact, "run_id"), number(fact, "seq")))
+        .map(|fact| format!("{} seq {}", cited_run(fact), number(fact, "seq")))
         .collect();
     out.push_str(&format!("  cites: {}\n", cited.join(", ")));
     out
@@ -495,15 +604,37 @@ fn render(entry: &Value) -> String {
 /// record nothing, print one plain line, and exit nonzero: the record is
 /// evidence, and evidence nobody can check is not evidence.
 pub fn run(
-    db: &Path,
+    hearths: &[Hearth],
     agents_dir: &Path,
     adapters_dir: &Path,
     record_path: &Path,
     now: &str,
 ) -> Result<ExitCode> {
-    let store = Store::open_read_only(db)
-        .with_context(|| format!("opening {} for reading", db.display()))?;
-    let dossier = dossier(&store, now)?;
+    // Every hearth the map names is read (decision 0026 ruling 3), and
+    // each of them READ-ONLY: this path cannot append to any journal it
+    // reads, however many it reads.
+    let stores = hearths
+        .iter()
+        .map(|hearth| {
+            Store::open_read_only(&hearth.journal)
+                .with_context(|| format!("opening {} for reading", hearth.journal.display()))
+        })
+        .collect::<Result<Vec<Store>>>()?;
+    // A one-hearth world names no realm, and its dossier, its report and
+    // its record are exactly what they were before many hearths existed.
+    let labels: Vec<Option<String>> = match hearths.len() {
+        0 | 1 => vec![None; hearths.len()],
+        _ => hearths.iter().map(|h| Some(h.label())).collect(),
+    };
+    let sources: Vec<Source> = stores
+        .iter()
+        .zip(&labels)
+        .map(|(store, realm)| Source {
+            realm: realm.as_deref(),
+            store,
+        })
+        .collect();
+    let dossier = dossier_of(&sources, now)?;
     let seat = seat(agents_dir, adapters_dir)?;
     let outcome = oneshot::run_once(&seat.command, SEAT, seat.deadline, |scratch| {
         seat_input(&seat, &dossier, scratch)

@@ -33,6 +33,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 name: "the-forge".to_string(),
                 path: ".".to_string(),
                 default_branch: "main".to_string(),
+                journal: None,
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -89,12 +90,13 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v2"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v3"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v2'"),
+        refusal.contains("it calls itself 'forge.realms/v3'"),
         "{refusal}"
     );
     assert!(refusal.contains(SCHEMA_V1), "{refusal}");
+    assert!(refusal.contains(SCHEMA_V2), "{refusal}");
 }
 
 #[test]
@@ -145,6 +147,108 @@ fn a_name_used_twice_is_refused() {
         ]);
     });
     assert!(refusal.contains("is named twice"), "{refusal}");
+}
+
+// ------------------------------------- many hearths (0026 ruling 1)
+
+/// The v2 map, with two realms and two journals, plus a third realm
+/// falling back to the world's. Every hearth case in one file.
+const MANY: &str = r#"{
+  "schema": "forge.realms/v2",
+  "realms": [
+    {"name": "alpha", "path": "a", "default_branch": "main", "journal": "a/.forge/forge.db"},
+    {"name": "beta", "path": "b", "default_branch": "main", "journal": "b/.forge/forge.db"},
+    {"name": "gamma", "path": "c", "default_branch": "main"}
+  ],
+  "journal": ".forge/forge.db"
+}"#;
+
+fn many() -> RealmMap {
+    RealmMap::parse("realms.json", MANY).unwrap().0
+}
+
+/// Ruling 1: one optional field per realm, and the fallback is the world's
+/// journal — which is exactly what a v1 realm has always resolved to.
+#[test]
+fn a_v2_realm_may_carry_its_own_journal_and_falls_back_when_it_does_not() {
+    let map = many();
+    assert_eq!(map.schema, SCHEMA_V2);
+    let journals: Vec<&str> = map.realms.iter().map(|r| map.journal_of(r)).collect();
+    assert_eq!(
+        journals,
+        vec!["a/.forge/forge.db", "b/.forge/forge.db", ".forge/forge.db"]
+    );
+}
+
+/// The regression bar: a v1 map keeps loading exactly as it does today,
+/// and every one of its realms resolves to the one journal it always had.
+#[test]
+fn a_v1_map_loads_unchanged_and_every_realm_resolves_to_the_worlds_journal() {
+    let (map, _) = RealmMap::parse("realms.json", MAP).unwrap();
+    assert_eq!(map.schema, SCHEMA_V1);
+    assert!(map.realms.iter().all(|realm| realm.journal.is_none()));
+    for realm in &map.realms {
+        assert_eq!(map.journal_of(realm), ".forge/forge.db");
+    }
+}
+
+/// A version is a promise about what a file may say. The one new word is
+/// refused in a map still calling itself v1, and the refusal names the
+/// version that would admit it.
+#[test]
+fn a_v1_map_naming_a_per_realm_journal_is_refused_by_version() {
+    let refusal = with(|map| map["realms"][0]["journal"] = json!("other.db"));
+    assert!(refusal.contains("names its own journal"), "{refusal}");
+    assert!(refusal.contains(SCHEMA_V2), "{refusal}");
+    assert!(refusal.contains(SCHEMA_V1), "{refusal}");
+}
+
+/// Closed vocabulary, at both levels, in v2 as in v1 — so decision 0021's
+/// per-realm constraints still cannot drift into a file calling itself v2.
+#[test]
+fn a_v2_map_refuses_unknown_fields_at_both_levels() {
+    let mutate = |mutate: fn(&mut Value)| {
+        let mut map: Value = serde_json::from_str(MANY).unwrap();
+        mutate(&mut map);
+        match RealmMap::of("realms.json", map) {
+            Ok(_) => panic!("expected a refusal"),
+            Err(error) => error.to_string(),
+        }
+    };
+    let world = mutate(|map| map["driver"] = json!("claude"));
+    assert!(world.contains("not a readable realms map"), "{world}");
+    assert!(world.contains("driver"), "{world}");
+    let realm = mutate(|map| map["realms"][0]["egress"] = json!(["github.com"]));
+    assert!(realm.contains("egress"), "{realm}");
+}
+
+/// An empty per-realm journal is the same refusal an empty world journal
+/// is: validation applies identically at both levels.
+#[test]
+fn a_v2_realm_with_an_empty_journal_is_refused() {
+    let mut map: Value = serde_json::from_str(MANY).unwrap();
+    map["realms"][0]["journal"] = json!("  ");
+    let refusal = RealmMap::of("realms.json", map).unwrap_err().to_string();
+    assert!(
+        refusal.contains("realm 'alpha' has an empty journal"),
+        "{refusal}"
+    );
+}
+
+/// Names, paths and branches are held to the same rules under v2 — the
+/// version widened the vocabulary, not the discipline.
+#[test]
+fn v2_holds_every_v1_rule() {
+    let mutate = |mutate: fn(&mut Value)| {
+        let mut map: Value = serde_json::from_str(MANY).unwrap();
+        mutate(&mut map);
+        RealmMap::of("realms.json", map).unwrap_err().to_string()
+    };
+    assert!(mutate(|map| map["realms"][1]["name"] = json!("alpha")).contains("is named twice"));
+    assert!(mutate(|map| map["realms"][0]["name"] = json!("Alpha")).contains("realm 0 is named"));
+    assert!(mutate(|map| map["realms"][0]["path"] = json!(" ")).contains("has no path"));
+    assert!(mutate(|map| map["journal"] = json!("")).contains("journal is empty"));
+    assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
 }
 
 /// The fold-side law: a journal written before any map recorded one

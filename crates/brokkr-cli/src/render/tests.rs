@@ -184,6 +184,120 @@ fn runs_view() -> brokkr_view::RunsView {
     brokkr_view::run_rows(&entries)
 }
 
+// ------------------------------- many hearths (0026 rulings 3 and 5)
+
+/// A many-hearth world's fleet: one realm with runs, one whose journal
+/// would not open. Each section aligns its own columns.
+fn fleet_view() -> brokkr_view::FleetView {
+    let running = state(Status::Running, None, None);
+    let alpha = [brokkr_view::RunEntry {
+        run_id: "run-a",
+        feature: "alpha's work",
+        created_at: T1,
+        state: Some(&running),
+        detail: None,
+    }];
+    let beta = [
+        brokkr_view::RunEntry {
+            run_id: "run-b1",
+            feature: "beta's older work",
+            created_at: T0,
+            state: Some(&running),
+            detail: None,
+        },
+        brokkr_view::RunEntry {
+            run_id: "run-b2",
+            feature: "beta's newer work",
+            created_at: T1,
+            state: Some(&running),
+            detail: None,
+        },
+    ];
+    brokkr_view::fleet_rows(&[
+        brokkr_view::HearthEntries {
+            realm: "alpha",
+            journal: "a/forge.db",
+            entries: &alpha,
+            detail: None,
+        },
+        brokkr_view::HearthEntries {
+            realm: "beta",
+            journal: "b/forge.db",
+            entries: &beta,
+            detail: None,
+        },
+        brokkr_view::HearthEntries {
+            realm: "gamma",
+            journal: "c/forge.db",
+            entries: &[],
+            detail: Some("unable to open database file"),
+        },
+    ])
+}
+
+/// Grouped by realm, not interleaved: each hearth under its own heading,
+/// naming the journal it was read from and how many runs it holds.
+#[test]
+fn a_many_hearth_fleet_lists_each_realm_under_its_own_heading() {
+    let out = fleet(&fleet_view(), NOW, &Style::plain(80));
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "alpha · 1 run · a/forge.db");
+    assert!(lines[1].starts_with("run-a "), "{out}");
+    assert_eq!(lines[2], "", "a blank line parts the hearths");
+    assert_eq!(lines[3], "beta · 2 runs · b/forge.db");
+    // Newest first inside a hearth, and no run crosses into another's
+    // section (ruling 5): nothing is folded across journals.
+    assert!(lines[4].starts_with("run-b2 "), "{out}");
+    assert!(lines[5].starts_with("run-b1 "), "{out}");
+    assert_eq!(lines[7], "gamma · 0 runs · c/forge.db");
+    assert_eq!(lines[8], "  journal  unable to open database file");
+    assert_eq!(lines.len(), 9, "{out}");
+}
+
+/// One hearth's section is the SAME text `brokkr runs` prints for that
+/// journal on its own — the heading is the only thing grouping adds.
+#[test]
+fn a_hearths_section_is_the_listing_runs_already_prints() {
+    let one = brokkr_view::fleet_rows(&[brokkr_view::HearthEntries {
+        realm: "the-forge",
+        journal: "j.db",
+        entries: &[],
+        detail: None,
+    }]);
+    assert_eq!(
+        fleet(&one, NOW, &Style::plain(80)),
+        "the-forge · 0 runs · j.db\n"
+    );
+    let flat = runs(&runs_view(), NOW, &Style::plain(80));
+    let grouped = fleet(&fleet_view(), NOW, &Style::plain(80));
+    assert!(!flat.is_empty() && !grouped.is_empty());
+}
+
+/// A realm name and a journal path are operator-written, and they still
+/// cross the one sanitizer every journal string does.
+#[test]
+fn a_hostile_realm_name_or_journal_path_renders_as_inert_text() {
+    let view = brokkr_view::fleet_rows(&[
+        brokkr_view::HearthEntries {
+            realm: "a\u{1b}[2Jb",
+            journal: "j\rforged.db",
+            entries: &[],
+            detail: Some("boom\u{1b}[2J"),
+        },
+        brokkr_view::HearthEntries {
+            realm: "ok",
+            journal: "j.db",
+            entries: &[],
+            detail: None,
+        },
+    ]);
+    let out = fleet(&view, NOW, &Style::plain(80));
+    assert!(!out.contains('\u{1b}'), "{out:?}");
+    assert!(!out.contains('\r'), "{out:?}");
+    assert!(out.contains("a[2Jb"), "{out}");
+    assert!(out.contains("jforged.db"), "{out}");
+}
+
 // ------------------------------------------------------------- AC-22
 
 #[test]

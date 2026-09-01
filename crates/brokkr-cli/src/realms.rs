@@ -26,6 +26,12 @@ pub struct Row {
     pub path: String,
     pub branch: String,
     pub head: String,
+    /// This realm's effective journal (decision 0026 ruling 1): its own
+    /// when the map gives it one, else the world's. Read out only when
+    /// some realm's differs from the world's — a one-hearth world has
+    /// already said its journal once, at the top, and saying it again
+    /// per realm would be noise.
+    pub journal: String,
 }
 
 /// The world as text: two facts about the world, then one line per
@@ -53,13 +59,22 @@ pub fn render(source: &str, journal: &str, rows: &[Row]) -> String {
         Safe::new(source).as_str(),
         Safe::new(journal).as_str()
     );
-    for row in &cells {
+    // Many hearths, said only where there are many: a world whose realms
+    // all share ONE journal reads exactly as it always did — the journal
+    // is already named above — and a world whose realms do not gets told
+    // which hearth is whose.
+    let hearths = rows.iter().any(|row| row.journal != rows[0].journal);
+    for (row, hearth) in cells.iter().zip(rows) {
         out.push_str("realm    ");
         for (index, width) in widths.iter().enumerate() {
             out.push_str(&row[index].padded(*width));
             out.push_str("  ");
         }
         out.push_str(row[3].as_str());
+        if hearths {
+            out.push_str("  ");
+            out.push_str(Safe::new(&hearth.journal).as_str());
+        }
         out.push('\n');
     }
     out
@@ -81,6 +96,7 @@ pub fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
                 "path": row.path,
                 "default_branch": row.branch,
                 "head": row.head,
+                "journal": row.journal,
             }))
             .collect::<Vec<Value>>(),
     })
@@ -98,6 +114,7 @@ pub fn rows(world: &World) -> Vec<Row> {
             branch: realm.default_branch.clone(),
             head: brokkr_runtime::git_head(&world.path_of(realm))
                 .unwrap_or_else(|| NO_HEAD.to_string()),
+            journal: world.journal_of(realm).display().to_string(),
         })
         .collect()
 }

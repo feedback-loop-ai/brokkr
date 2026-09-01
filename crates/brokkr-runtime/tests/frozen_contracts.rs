@@ -21,8 +21,14 @@ fn digest(relative: &str) -> String {
     brokkr_core::canonical::sha256_bytes(&bytes)
 }
 
-/// Recorded from this tree before the agent library existed.
-const FROZEN: [(&str, &str); 6] = [
+/// Recorded from this tree before the agent library existed, plus the
+/// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
+/// beside it, so "beside, never inside" is machine-checked.
+const FROZEN: [(&str, &str); 7] = [
+    (
+        "contracts/realms.v1.schema.json",
+        "4a9d0051823995b090935a2a5b326d12ec7953f62c61161b30ec1dbaf0135fbb",
+    ),
     (
         "contracts/event-envelope.v1.schema.json",
         "8863a07c8f5e879afe472b6a2c3060a40e0aa7a46a4132d4302a488d4e9b4f11",
@@ -98,6 +104,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/run-manifest.v5.schema.json",
             "Forge run manifest v5",
         ),
+        // Decision 0026's many hearths: the per-realm journal arrives as
+        // `forge.realms/v2`, a new file beside v1 — whose bytes are
+        // pinned below and did not move.
+        ("contracts/realms.v2.schema.json", "Forge realms map v2"),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

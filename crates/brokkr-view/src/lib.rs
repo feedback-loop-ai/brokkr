@@ -105,6 +105,36 @@ pub struct RunsView {
     pub count: usize,
 }
 
+/// One hearth's runs, under the realm name they belong to (decision 0026
+/// ruling 3). Journals never merge (ruling 5): this is a listing of one
+/// journal, standing beside the others, never folded into them.
+#[derive(Serialize)]
+pub struct RealmRuns {
+    /// The realms sharing this hearth, as the world names them.
+    pub realm: String,
+    pub journal: String,
+    pub runs: Vec<RunRow>,
+    pub count: usize,
+    /// Why this hearth lists no runs, when the journal could not be
+    /// read at all: the open's own words. A world does not lose its
+    /// other hearths because one realm's journal is missing, and
+    /// nothing is repaired — the refusal is reported (README law 2).
+    pub detail: Option<String>,
+}
+
+/// The fleet of a many-hearth world: one section per distinct journal,
+/// in map order. The one derivation both `brokkr runs` surfaces render
+/// (decision 0013), so text and `--json` cannot disagree about which
+/// realm a run belongs to.
+#[derive(Serialize)]
+pub struct FleetView {
+    pub view_version: u32,
+    pub realms: Vec<RealmRuns>,
+    /// Every run the world holds, across every hearth — a count, never
+    /// a merged listing.
+    pub count: usize,
+}
+
 /// The nine `summarize()` keys, verbatim and in the same order the
 /// existing `brokkr inspect` prints them.
 #[derive(Serialize)]
@@ -638,6 +668,42 @@ pub fn run_rows(entries: &[RunEntry]) -> RunsView {
     RunsView {
         view_version: VIEW_VERSION,
         runs,
+        count,
+    }
+}
+
+/// One hearth as a fleet reader hands it over: the realm it belongs to,
+/// the journal it was read from, and either that journal's entries or
+/// the words of the refusal that stopped it being read.
+pub struct HearthEntries<'a> {
+    pub realm: &'a str,
+    pub journal: &'a str,
+    pub entries: &'a [RunEntry<'a>],
+    pub detail: Option<&'a str>,
+}
+
+/// The world's fleet, grouped by realm. Each hearth's rows are derived
+/// by exactly the same [`run_rows`] a one-journal world uses — the
+/// grouping is an arrangement of that derivation, never a second one,
+/// and no fold ever crosses a journal boundary (decision 0026 ruling 5).
+pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
+    let realms: Vec<RealmRuns> = hearths
+        .iter()
+        .map(|hearth| {
+            let view = run_rows(hearth.entries);
+            RealmRuns {
+                realm: hearth.realm.to_string(),
+                journal: hearth.journal.to_string(),
+                runs: view.runs,
+                count: view.count,
+                detail: hearth.detail.map(str::to_string),
+            }
+        })
+        .collect();
+    let count = realms.iter().map(|realm| realm.count).sum();
+    FleetView {
+        view_version: VIEW_VERSION,
+        realms,
         count,
     }
 }

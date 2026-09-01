@@ -256,6 +256,19 @@ found rather than typed is still adopted, but not silently: when it sends
 the journal somewhere other than the path that would have been opened
 anyway, the surface names that journal on stderr before opening it.
 
+A map may name **many hearths** (`forge.realms/v2`, decision 0026): each
+realm may carry its own `journal`, and a realm that carries none falls
+back to the world's — which is what every `forge.realms/v1` realm already
+does, so a v1 map loads and reads exactly as it always has. Where a world
+holds more than one journal, the fleet readers show it grouped: `runs`
+prints one section per realm, `tui` grows a tab bar in the runs pane
+(`[`, `]` and the number keys switch; each tab keeps its own selection,
+filter and cursor), and `muninn run` reads every hearth and cites the
+realm behind every fact. Journals never merge: nothing folds across a
+journal boundary, and no fleet read creates or writes one. Single-run
+verbs are unchanged — a run id lives in exactly one journal, so naming it
+is a lookup, never a merge.
+
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
 The others (`resume`, `conclude`, `rerun`, `doctor`, `ui`, `costs`,
@@ -283,6 +296,19 @@ One clamped line per run, newest first.
 ```
 $ brokkr runs
 prefix-selectors-for-the-read-su-8bf6d692 completed done seq 38 3s prefix selec…
+```
+
+In a world of many hearths, the same listing is grouped by realm — each
+section naming the journal it was read from, and no run crossing into
+another realm's section.
+
+```
+$ brokkr runs
+alpha · 1 run · ./a/.forge/forge.db
+many-hearths-8bf6d692 running implement seq 12 3s many hearths…
+
+beta · 1 run · ./b/.forge/forge.db
+the-other-slice-1a2b3c4d completed done seq 40 9m the other sli…
 ```
 
 ### `brokkr inspect` — one run, explained
@@ -774,7 +800,7 @@ attestations; verify an asset with
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
 | `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
-| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), and `forge.realms/v1` (the world's map, decision 0023). |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), `forge.realms/v1` (the world's map, decision 0023) and `forge.realms/v2` (a realm may name its own journal — many hearths, decision 0026). |
 | `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `node` — the Node/TypeScript reference — `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |

@@ -226,6 +226,11 @@ impl Workspace {
 
     /// Drive one run to its conclusion and return its run id.
     fn run_once(&self, feature: &str) -> String {
+        self.run_once_in(feature, ".forge/forge.db")
+    }
+
+    /// The same, into a named hearth — how a many-hearth world is staged.
+    fn run_once_in(&self, feature: &str, db: &str) -> String {
         let output = self.brokkr(&[
             "run",
             "--bundle",
@@ -233,7 +238,7 @@ impl Workspace {
             "--feature",
             feature,
             "--db",
-            ".forge/forge.db",
+            db,
             "--repo",
             "repo",
         ]);
@@ -251,6 +256,21 @@ impl Workspace {
             "run",
             "--db",
             ".forge/forge.db",
+            "--agents-dir",
+            "agents",
+            "--adapters-dir",
+            "adapters",
+            "--record",
+            ".forge/muninn.ndjson",
+        ])
+    }
+
+    /// The same command with no `--db`: the world's own map decides which
+    /// hearths are read (decision 0026 ruling 3).
+    fn muninn_over_world(&self) -> Output {
+        self.brokkr(&[
+            "muninn",
+            "run",
             "--agents-dir",
             "agents",
             "--adapters-dir",
@@ -391,6 +411,94 @@ fn a_proposal_is_recorded_with_its_citations_and_read_back_by_list() {
     ]);
     let parsed: Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(parsed.as_array().unwrap().len(), 2);
+}
+
+/// Decision 0026 ruling 3, end to end: with a many-hearth map and no
+/// `--db`, the overseer reads EVERY journal the map names, the dossier
+/// states which realm each run came from, and the proposal it records —
+/// and prints — cites the realm behind every fact.
+#[test]
+fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
+    let (ws, alpha_run, seq) = staged();
+    let beta_run = ws.run_once_in("beta's own work", ".forge/beta.db");
+    // The map is written AFTER both runs, so nothing about the runs
+    // themselves changed — only how the fleet is read afterwards.
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main"},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/beta.db"},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    ws.proposes(json!({
+        "fleet_summary": "two hearths, a stopped run in each",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "alpha",
+            "run_id": alpha_run,
+            "seq": seq,
+            "finding": "max_residual_severity: high",
+            "reasoning": "the highest residual in the world",
+        }],
+    }));
+
+    let bytes_before = std::fs::read(ws.db()).unwrap();
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+
+    // The dossier the seat received names both hearths, and every run in
+    // it says which one it was read from.
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["fleet"]["realms"], json!(["alpha", "beta"]));
+    assert_eq!(
+        context["fleet"]["runs"], 2,
+        "the whole world, not one hearth"
+    );
+    let runs: Vec<(&str, &str)> = context["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["realm"].as_str().unwrap(),
+                row["run_id"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        vec![("alpha", alpha_run.as_str()), ("beta", beta_run.as_str())]
+    );
+    // Findings are cited per realm too.
+    let findings = context["residual_findings"].as_array().unwrap();
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding["realm"] == json!("beta")),
+        "{findings:?}"
+    );
+
+    // The record, and the line an operator reads, both name the realm.
+    let entry = &ws.records()[0];
+    assert_eq!(entry["work_queue"][0]["realm"], json!("alpha"));
+    assert_eq!(
+        entry["citations"],
+        json!([{"realm": "alpha", "run_id": alpha_run, "seq": seq}])
+    );
+    let printed = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        printed.contains(&format!("queue alpha/{alpha_run}")),
+        "{printed}"
+    );
+
+    // Ruling 5: reading two journals wrote to neither.
+    assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
 }
 
 #[test]

@@ -22,7 +22,7 @@ pub(crate) fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-fn running_store(db: &std::path::Path, run_id: &str) {
+pub(crate) fn running_store(db: &std::path::Path, run_id: &str) {
     let mut store = Store::open(db).unwrap();
     store
         .create_run(run_id, "feature", "test", &json!({"files": {}}))
@@ -1299,8 +1299,8 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
@@ -1308,7 +1308,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     assert_eq!(code, ExitCode::SUCCESS);
     assert_eq!(
         seen,
-        Some((db.clone(), Some("run-alpha".to_string()))),
+        Some((db.clone(), Some("run-alpha".to_string()), 0)),
         "a prefix resolves through the one resolver, never a second copy"
     );
 
@@ -1326,13 +1326,13 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
     .unwrap();
-    assert_eq!(seen, Some((missing.clone(), Some("latest".to_string()))));
+    assert_eq!(seen, Some((missing.clone(), Some("latest".to_string()), 0)));
     assert!(!missing.exists(), "a read never creates a database");
     assert!(!dir.path().join("nowhere.db-wal").exists());
 
@@ -1348,17 +1348,59 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
     .unwrap();
-    assert_eq!(seen, Some((db, None)));
+    assert_eq!(seen, Some((db, None, 0)));
 
     use clap::CommandFactory;
     let help = Cli::command().render_help().to_string();
     assert!(help.contains("tui"), "the verb is listed: {help}");
+}
+
+/// A run id lives in exactly ONE journal (decision 0026 ruling 3), so a
+/// `--run` selector in a many-hearth world is a lookup ACROSS hearths —
+/// answered by the hearth that holds it, which is also the hearth the
+/// console opens on. No journal is merged into another to find it.
+#[test]
+fn a_run_selector_is_resolved_by_the_hearth_that_holds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "run-alpha");
+    running_store(&beta, "run-beta");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    assert_eq!(
+        resolve_in_hearths(&world, "run-be".to_string()).unwrap(),
+        (1, "run-beta".to_string()),
+        "the second hearth answered, so the console opens there"
+    );
+    assert_eq!(
+        resolve_in_hearths(&world, "run-al".to_string()).unwrap(),
+        (0, "run-alpha".to_string())
+    );
+
+    // A selector no hearth answers is the refusal of the first that
+    // tried — never a guess, and never a merge.
+    let refusal = resolve_in_hearths(&world, "nowhere".to_string()).unwrap_err();
+    assert!(refusal.to_string().contains("nowhere"), "{refusal}");
+
+    // A world whose journals are not on disk yet consults no selector:
+    // resolving would create the database a read came only to read.
+    let empty = [hearth("ghost", &dir.path().join("ghost.db"))];
+    assert_eq!(
+        resolve_in_hearths(&empty, "latest".to_string()).unwrap(),
+        (0, "latest".to_string())
+    );
+    assert!(!dir.path().join("ghost.db").exists());
 }
 
 /// The console's liveness, at the one place a store is opened on its
@@ -1371,6 +1413,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     running_store(&db, "r1");
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let ask = |run, force, fleet| tui::Ask {
+        tab: 0,
         run,
         session: None,
         working: false,
@@ -1381,6 +1424,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
 
     let first = tui_views(
         &db,
+        true,
         ask(Some("r1"), true, false),
         &mut head,
         &mut None,
@@ -1396,6 +1440,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, false),
             &mut head,
             &mut None,
@@ -1408,6 +1453,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, true),
             &mut head,
             &mut None,
@@ -1418,9 +1464,16 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         "the fleet's slower cadence rebuilds anyway"
     );
     assert!(
-        tui_views(&db, ask(None, false, false), &mut head, &mut None, clock)
-            .unwrap()
-            .is_some(),
+        tui_views(
+            &db,
+            true,
+            ask(None, false, false),
+            &mut head,
+            &mut None,
+            clock
+        )
+        .unwrap()
+        .is_some(),
         "leaving a run behind moves the head to None"
     );
     head = Some((2, String::new()));
@@ -1439,6 +1492,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, false),
             &mut head,
             &mut None,
@@ -1456,6 +1510,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     assert!(tui_views(
         &tampered,
+        true,
         ask(Some("r1"), true, false),
         &mut head,
         &mut None,
@@ -1480,6 +1535,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &tampered,
+            true,
             ask(Some("r1"), false, false),
             &mut head_at_equal_seq,
             &mut None,
@@ -1506,9 +1562,16 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         )
         .unwrap();
     let mut head = None;
-    let views = tui_views(&mixed, ask(None, true, false), &mut head, &mut None, clock)
-        .unwrap()
-        .unwrap();
+    let views = tui_views(
+        &mixed,
+        true,
+        ask(None, true, false),
+        &mut head,
+        &mut None,
+        clock,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(views.runs.runs.len(), 2, "both runs are listed");
     let broken = views
         .runs
@@ -1522,7 +1585,9 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     let views = tui_views(
         &mixed,
+        true,
         tui::Ask {
+            tab: 0,
             run: None,
             session: Some("9999-9999"),
             working: false,
@@ -1543,6 +1608,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     assert!(tui_views(
         &corrupt,
+        true,
         ask(None, true, false),
         &mut head,
         &mut None,
@@ -1553,9 +1619,13 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     // The production source binds the workspace clock, and reading
     // through it leaves the journal exactly as it was.
     let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
-    let mut head = None;
+    let mut heads = vec![None];
     let mut seen = None;
-    let mut source = tui_source(&db, &mut head, &mut seen);
+    let hearths = [Hearth {
+        realms: vec!["solo".to_string()],
+        journal: db.clone(),
+    }];
+    let mut source = tui_source(&hearths, &mut heads, &mut seen);
     let views = source(ask(Some("r1"), true, false)).unwrap().unwrap();
     assert!(views.now.ends_with('Z'));
     assert_eq!(
@@ -1583,6 +1653,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
 
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let poll = |session, working| tui::Ask {
+        tab: 0,
         run: Some("r1"),
         session,
         working,
@@ -1598,7 +1669,9 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     // The first frame is forced; it settles the head and the length.
     assert!(tui_views(
         &db,
+        true,
         tui::Ask {
+            tab: 0,
             run: Some("r1"),
             session: Some("abcd-1234"),
             working: true,
@@ -1614,6 +1687,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), true),
             &mut head,
             &mut seen,
@@ -1630,6 +1704,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     std::fs::write(&file, turn("the first words")).unwrap();
     let views = tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), true),
         &mut head,
         &mut seen,
@@ -1641,6 +1716,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), true),
             &mut head,
             &mut seen,
@@ -1657,6 +1733,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     .unwrap();
     let views = tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), true),
         &mut head,
         &mut seen,
@@ -1682,6 +1759,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("0000-1111"), true),
             &mut head,
             &mut seen,
@@ -1696,6 +1774,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     // journal's own head is the only thing left that can move.
     assert!(tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), false),
         &mut head,
         &mut seen,
@@ -1716,6 +1795,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), false),
             &mut head,
             &mut seen,

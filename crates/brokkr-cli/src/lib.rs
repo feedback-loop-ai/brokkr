@@ -21,7 +21,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, RunState, Status};
-use brokkr_runtime::realms::World;
+use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use clap::{ArgGroup, Parser, Subcommand};
@@ -886,12 +886,21 @@ pub(crate) fn fold_or_quarantine(
 /// than sit blind.
 fn tui_views(
     db: &std::path::Path,
+    // Whether this world has exactly one hearth. A one-hearth world
+    // opens its journal exactly as it always has; a many-hearth world
+    // opens each hearth READ-ONLY, because a console that CREATED the
+    // journal of a realm the operator merely tabbed past would have
+    // written to a world it came only to read (decision 0026 ruling 5).
+    sole: bool,
     ask: tui::Ask,
     head: &mut Option<(u64, String)>,
     seen: &mut Option<(String, u64)>,
     clock: fn() -> String,
 ) -> Result<tui::Refreshed> {
-    let store = Store::open(db)?;
+    let store = match sole {
+        true => Store::open(db)?,
+        false => Store::open_read_only(db)?,
+    };
     let current = match ask.run {
         Some(run) => Some(store.head_hash(run)?),
         None => None,
@@ -951,26 +960,83 @@ fn tui_views(
 /// The refresh source the console runs on, with the workspace clock
 /// bound in. Built by a named function so it is reachable from a test
 /// as well as from `brokkr tui`.
+///
+/// One hearth or many, the ACTIVE tab's journal is the only one this
+/// ever opens: a tab nobody has visited has never been asked about, so
+/// its store is never opened at all and its journal is never polled
+/// (decision 0026 ruling 2). The laziness is the absence of a question,
+/// not a cache that could go stale.
 fn tui_source<'a>(
-    db: &'a std::path::Path,
-    head: &'a mut Option<(u64, String)>,
+    hearths: &'a [Hearth],
+    heads: &'a mut [Option<(u64, String)>],
     seen: &'a mut Option<(String, u64)>,
 ) -> impl FnMut(tui::Ask) -> Result<tui::Refreshed> + 'a {
-    move |ask| tui_views(db, ask, head, seen, now_rfc3339)
+    let sole = hearths.len() < 2;
+    move |ask| {
+        let tab = ask.tab.min(hearths.len().saturating_sub(1));
+        tui_views(
+            &hearths[tab].journal,
+            sole,
+            ask,
+            &mut heads[tab],
+            seen,
+            now_rfc3339,
+        )
+    }
+}
+
+/// Where a `--run` selector resolves in a world of many hearths: the
+/// hearth that holds it, and the id it resolved to. A run id lives in
+/// exactly ONE journal (decision 0026 ruling 3), so this is a lookup
+/// across hearths and never a merge — the first hearth that answers is
+/// the answer, and when none does the refusal is the first hearth's own.
+///
+/// A hearth whose journal is not on disk yet is not consulted, because
+/// resolving would open it and `Store::open` creates a file, a WAL and a
+/// meta row. When NO hearth has one, the selector passes through
+/// unresolved and `tui::start` does the refusing — a read must not create
+/// the database it came to read.
+fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    let mut refusal: Option<anyhow::Error> = None;
+    for (index, hearth) in hearths.iter().enumerate() {
+        if !hearth.journal.is_file() {
+            continue;
+        }
+        let resolved = Store::open(&hearth.journal)
+            .map_err(anyhow::Error::from)
+            .and_then(|store| selector::resolve_run(&store, &run));
+        match resolved {
+            Ok(id) => return Ok((index, id)),
+            Err(error) => {
+                refusal.get_or_insert(error);
+            }
+        }
+    }
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok((0, run)),
+    }
 }
 
 /// `brokkr tui`'s impure entry: the environment facts are read once here
 /// and everything else is injected. The refusals live inside
 /// `tui::start`, and the source above opens a store only when it is
 /// called — which is after that gate.
-fn run_tui(db: PathBuf, run: Option<String>) -> Result<ExitCode> {
-    let mut head: Option<(u64, String)> = None;
+fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<ExitCode> {
+    let mut heads: Vec<Option<(u64, String)>> = vec![None; hearths.len()];
     let mut seen: Option<(String, u64)> = None;
-    let db_is_file = db.is_file();
-    let mut source = tui_source(&db, &mut head, &mut seen);
+    let db_is_file = hearths.iter().any(|hearth| hearth.journal.is_file());
+    // A world with one hearth names no tabs, and the console draws none.
+    let tabs: Vec<String> = match hearths.len() {
+        0 | 1 => Vec::new(),
+        _ => hearths.iter().map(Hearth::label).collect(),
+    };
+    let mut source = tui_source(&hearths, &mut heads, &mut seen);
     tui::start(
         db_is_file,
         run,
+        tabs,
+        tab,
         tui::production_ops(),
         std::io::stdout().is_terminal(),
         // Animation is enabled exactly when colour is, through the same
@@ -1098,6 +1164,56 @@ fn journal_of(
         .journal)
 }
 
+/// The journals a FLEET read opens (decision 0026 rulings 2 and 3): one
+/// per DISTINCT hearth the world's realms name, in map order.
+///
+/// Two rules on top of [`Invocation::resolve`]'s three, and no third.
+/// `--db` names one journal and outranks the map here exactly as it does
+/// for a single-run verb — an operator who typed one journal reads one
+/// journal. And a workspace with no map has the one journal it always
+/// had. Either way the answer is a single hearth, which every surface
+/// below renders exactly as it did before this existed: a world that
+/// never drew two journals notices nothing.
+fn hearths_of(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+) -> Result<Vec<Hearth>> {
+    let overridden = db.is_some();
+    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
+    let hearths = match (&invocation.world, overridden) {
+        (Some(world), false) => world.hearths(),
+        _ => Vec::new(),
+    };
+    Ok(match hearths.is_empty() {
+        true => vec![Hearth {
+            realms: Vec::new(),
+            journal: invocation.journal,
+        }],
+        false => hearths,
+    })
+}
+
+/// One hearth's runs, folded. A journal that will not open at all is the
+/// hearth's own refusal, in its own words: a many-hearth listing survives
+/// a realm whose journal is not there yet, the same way a fleet listing
+/// already survives one unfoldable run.
+///
+/// Opened READ-ONLY, and deliberately: a reading surface that creates the
+/// journal it came to read has written to a world it was only asked to
+/// look at (decision 0026 ruling 5).
+type FoldedRun = (String, String, String, Result<RunState, String>);
+
+fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
+    let store = Store::open_read_only(journal).map_err(|error| error.to_string())?;
+    let mut folded = Vec::new();
+    for (run_id, feature, created_at) in store.list_runs().map_err(|error| error.to_string())? {
+        let events = store.load(&run_id).map_err(|error| error.to_string())?;
+        folded.push((run_id, feature, created_at, fold_or_quarantine(&events)));
+    }
+    Ok(folded)
+}
+
 /// The pinned manifest an export wrote beside its journal, named the
 /// way `Cmd::Export` names it: `<run>.ndjson` is paired with
 /// `<run>.manifest.json`, and — since the stem carries the marker —
@@ -1140,7 +1256,7 @@ fn run_with(
     serve_ui: impl FnOnce(PathBuf, u16, bool) -> std::io::Result<()>,
     bridge_iteration_limit: Option<usize>,
     watch_iteration_limit: Option<usize>,
-    run_tui: impl FnOnce(PathBuf, Option<String>) -> Result<ExitCode>,
+    run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<ExitCode>,
 ) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { dir } => {
@@ -1204,18 +1320,22 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Tui { run, realms, db } => {
-            let db = journal_of(workspace, realms, db)?;
+            let hearths = hearths_of(workspace, realms, db)?;
             // Selectors resolve through decision 0015's one resolver —
             // but resolving needs a store, and `brokkr tui` refuses a
             // missing database *before* anything opens one, because
             // `Store::open` creates a file, a WAL and a meta row. So
-            // resolution waits until the file is known to exist and
-            // `tui::start` does the refusing.
-            let run = match (run, db.is_file()) {
-                (Some(run), true) => Some(selector::resolve_run(&Store::open(&db)?, &run)?),
-                (run, _) => run,
+            // resolution waits until a file is known to exist and
+            // `tui::start` does the refusing. In a many-hearth world it
+            // also says which hearth to open on: the one holding the run.
+            let (tab, run) = match run {
+                Some(run) => {
+                    let (tab, run) = resolve_in_hearths(&hearths, run)?;
+                    (tab, Some(run))
+                }
+                None => (0, None),
             };
-            run_tui(db, run)
+            run_tui(hearths, run, tab)
         }
         Cmd::Doctor { bundle, db } => {
             let report = doctor::doctor(bundle.as_deref(), &db);
@@ -1659,7 +1779,62 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Runs { realms, db, json } => {
-            let db = journal_of(workspace, realms, db)?;
+            let hearths = hearths_of(workspace, realms, db)?;
+            // A world with several hearths lists each one under its own
+            // realm; a world with one is byte-for-byte the listing it
+            // always was, down to opening its journal the same way.
+            if hearths.len() > 1 {
+                let read: Vec<Result<Vec<FoldedRun>, String>> = hearths
+                    .iter()
+                    .map(|hearth| hearth_runs(&hearth.journal))
+                    .collect();
+                let entries: Vec<Vec<brokkr_view::RunEntry>> = read
+                    .iter()
+                    .map(|folded| match folded {
+                        Err(_) => Vec::new(),
+                        Ok(runs) => runs
+                            .iter()
+                            .map(
+                                |(run_id, feature, created_at, state)| brokkr_view::RunEntry {
+                                    run_id,
+                                    feature,
+                                    created_at,
+                                    state: state.as_ref().ok(),
+                                    detail: state.as_ref().err().map(String::as_str),
+                                },
+                            )
+                            .collect(),
+                    })
+                    .collect();
+                let labels: Vec<String> = hearths.iter().map(Hearth::label).collect();
+                let journals: Vec<String> = hearths
+                    .iter()
+                    .map(|hearth| hearth.journal.display().to_string())
+                    .collect();
+                let grouped: Vec<brokkr_view::HearthEntries> = (0..hearths.len())
+                    .map(|index| brokkr_view::HearthEntries {
+                        realm: &labels[index],
+                        journal: &journals[index],
+                        entries: &entries[index],
+                        detail: read[index].as_ref().err().map(String::as_str),
+                    })
+                    .collect();
+                let view = brokkr_view::fleet_rows(&grouped);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&view)?);
+                } else {
+                    print!(
+                        "{}",
+                        render::fleet(&view, &now_rfc3339(), &render::Style::detect())
+                    );
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+            let db = hearths
+                .into_iter()
+                .next()
+                .expect("a world resolves to at least one hearth")
+                .journal;
             let store = Store::open(&db)?;
             let mut folded = Vec::new();
             for (run_id, feature, created_at) in store.list_runs()? {
@@ -1739,8 +1914,14 @@ fn run_with(
                 adapters_dir,
                 record,
             } => {
-                let db = journal_of(workspace, realms, db)?;
-                muninn::run(&db, &agents_dir, &adapters_dir, &record, &now_rfc3339())
+                let hearths = hearths_of(workspace, realms, db)?;
+                muninn::run(
+                    &hearths,
+                    &agents_dir,
+                    &adapters_dir,
+                    &record,
+                    &now_rfc3339(),
+                )
             }
             MuninnCmd::List { record, json } => {
                 muninn::list(&record, json)?;

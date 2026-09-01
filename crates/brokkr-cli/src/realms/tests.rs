@@ -1,11 +1,16 @@
 use super::*;
 
 fn row(name: &str, path: &str, branch: &str, head: &str) -> Row {
+    hearth_row(name, path, branch, head, "j.db")
+}
+
+fn hearth_row(name: &str, path: &str, branch: &str, head: &str, journal: &str) -> Row {
     Row {
         name: name.to_string(),
         path: path.to_string(),
         branch: branch.to_string(),
         head: head.to_string(),
+        journal: journal.to_string(),
     }
 }
 
@@ -90,6 +95,75 @@ fn rows_are_the_map_read_against_the_trees_it_names() {
     );
 }
 
+/// Decision 0026 ruling 1, read out: a world whose realms sit at
+/// different hearths says which is whose; a world whose realms share one
+/// says it once, at the top, exactly as it always did.
+#[test]
+fn a_many_hearth_world_reads_out_each_realms_own_journal() {
+    let one = render(
+        "m.json",
+        "j.db",
+        &[
+            hearth_row("alpha", "a", "main", "aaa", "j.db"),
+            hearth_row("beta", "b", "main", "bbb", "j.db"),
+        ],
+    );
+    assert_eq!(
+        one,
+        "map      m.json\n\
+         journal  j.db\n\
+         realm    alpha  a  main  aaa\n\
+         realm    beta   b  main  bbb\n"
+    );
+
+    let many = render(
+        "m.json",
+        "j.db",
+        &[
+            hearth_row("alpha", "a", "main", "aaa", "a/forge.db"),
+            hearth_row("beta", "b", "main", "bbb", "j.db"),
+        ],
+    );
+    assert_eq!(
+        many,
+        "map      m.json\n\
+         journal  j.db\n\
+         realm    alpha  a  main  aaa  a/forge.db\n\
+         realm    beta   b  main  bbb  j.db\n"
+    );
+}
+
+/// The rows carry each realm's EFFECTIVE journal: its own when the map
+/// gives it one, the world's when it does not.
+#[test]
+fn rows_carry_the_effective_journal_of_every_realm() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        r#"{"schema":"forge.realms/v2",
+            "realms":[{"name":"alpha","path":"tree","default_branch":"main",
+                       "journal":"a/forge.db"},
+                      {"name":"beta","path":"tree","default_branch":"main"}],
+            "journal":"j.db"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("tree")).unwrap();
+    let world = World::load(&map).unwrap();
+    let rows = rows(&world);
+    assert_eq!(
+        rows[0].journal,
+        dir.path().join("a/forge.db").display().to_string()
+    );
+    assert_eq!(
+        rows[1].journal,
+        dir.path().join("j.db").display().to_string()
+    );
+    // And `--json` carries it too, so a consumer sees the same world.
+    let seen = view("m.json", "j.db", &rows);
+    assert_eq!(seen["realms"][0]["journal"], json!(rows[0].journal));
+}
+
 /// `--json` is the same world, unspelled: one derivation of the rows,
 /// two renderings, and the data reaches a parser as it is — the frame's
 /// escaping is for terminals, not for consumers.
@@ -107,6 +181,7 @@ fn the_json_view_is_the_same_world_as_the_frame() {
                 "path": "/tmp/x",
                 "default_branch": "main",
                 "head": "abc1234",
+                "journal": "j.db",
             }],
         })
     );

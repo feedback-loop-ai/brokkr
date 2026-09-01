@@ -2,6 +2,21 @@ use super::*;
 
 use brokkr_core::EventType;
 
+/// The fleet of ONE journal — what a world with a single hearth has
+/// always handed the seat, and the shape every test below that predates
+/// many hearths (decision 0026) still asserts.
+fn dossier(store: &Store, now: &str) -> Result<Dossier> {
+    dossier_of(&[Source { realm: None, store }], now)
+}
+
+/// One hearth, named by the journal it reads.
+fn hearth(realm: &str, journal: &Path) -> Hearth {
+    Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    }
+}
+
 // ------------------------------------------------------- a fixture fleet
 
 struct Fleet {
@@ -368,7 +383,7 @@ fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
         })),
     )
     .unwrap();
-    assert_eq!(queued.citations, [("poisoned-run".to_string(), 6)]);
+    assert_eq!(queued.citations, [(None, "poisoned-run".to_string(), 6)]);
     let refused = validate(
         &derived,
         &reported(json!({
@@ -445,7 +460,7 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
 fn a_database_that_cannot_be_opened_is_named_before_anything_is_asked_of_it() {
     let dir = tempfile::tempdir().unwrap();
     let error = run(
-        &dir.path().join("absent.db"),
+        &[hearth("solo", &dir.path().join("absent.db"))],
         &dir.path().join("agents"),
         &dir.path().join("adapters"),
         &dir.path().join("muninn.ndjson"),
@@ -455,6 +470,190 @@ fn a_database_that_cannot_be_opened_is_named_before_anything_is_asked_of_it() {
     .to_string();
     assert!(error.contains("absent.db"), "{error}");
     assert!(error.contains("for reading"), "{error}");
+}
+
+// -------------------------------- many hearths (0026 rulings 3 and 5)
+
+/// Two hearths, each with its own runs, read side by side.
+fn many_hearth_dossier(alpha: &Fleet, beta: &Fleet) -> Dossier {
+    let alpha_store = Store::open_read_only(&alpha.db()).unwrap();
+    let beta_store = Store::open_read_only(&beta.db()).unwrap();
+    dossier_of(
+        &[
+            Source {
+                realm: Some("alpha"),
+                store: &alpha_store,
+            },
+            Source {
+                realm: Some("beta"),
+                store: &beta_store,
+            },
+        ],
+        NOW,
+    )
+    .unwrap()
+}
+
+/// The raven flies over every hearth the map names, and every fact it
+/// states says which one it came from (decision 0026 ruling 3).
+#[test]
+fn a_many_hearth_dossier_states_the_realm_every_fact_came_from() {
+    let alpha = Fleet::new();
+    alpha.parked("parked-run");
+    let beta = Fleet::new();
+    beta.completed("done-run");
+    beta.poisoned("poisoned-run");
+    let derived = many_hearth_dossier(&alpha, &beta);
+
+    let rows = derived.value["runs"].as_array().unwrap();
+    let seen: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row["realm"].as_str().unwrap(),
+                row["run_id"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("alpha", "parked-run"),
+            ("beta", "done-run"),
+            ("beta", "poisoned-run"),
+        ]
+    );
+    // The world states its shape, and the counts are the whole world's.
+    assert_eq!(derived.value["fleet"]["realms"], json!(["alpha", "beta"]));
+    assert_eq!(derived.value["fleet"]["runs"], json!(3));
+    assert_eq!(derived.value["fleet"]["quarantined"], json!(1));
+
+    // Findings are cited per realm too — the quarantined journal is
+    // beta's, and the parked run's residuals are alpha's.
+    let findings = derived.value["residual_findings"].as_array().unwrap();
+    assert!(findings
+        .iter()
+        .any(|f| f["realm"] == json!("beta") && f["run_id"] == json!("poisoned-run")));
+    assert!(findings
+        .iter()
+        .any(|f| f["realm"] == json!("alpha") && f["run_id"] == json!("parked-run")));
+
+    // And the closed set a proposal may cite carries the realm.
+    assert!(derived
+        .facts
+        .iter()
+        .any(|(realm, run_id, _)| realm.as_deref() == Some("alpha") && run_id == "parked-run"));
+}
+
+/// A validated report carries the realm back out, whether or not the
+/// seat wrote one — and a seat that names the WRONG realm is refused
+/// rather than quietly corrected (decision 0001).
+#[test]
+fn a_proposal_is_recorded_under_the_realm_the_dossier_states_for_it() {
+    let alpha = Fleet::new();
+    alpha.parked("parked-run");
+    let beta = Fleet::new();
+    beta.completed("done-run");
+    let derived = many_hearth_dossier(&alpha, &beta);
+
+    let report = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one parked run in alpha",
+            "parked_runs": [{
+                "realm": "alpha",
+                "run_id": "parked-run", "seq": 8, "command": "stop",
+                "reasoning": "the ruling was hard",
+            }],
+            "work_queue": [{
+                "run_id": "parked-run", "seq": 7,
+                "finding": "max_residual_severity: high",
+                "reasoning": "the highest residual in the world",
+            }],
+        })),
+    )
+    .unwrap();
+    // Named or unnamed in the report, the record cites the realm.
+    assert_eq!(report.parked_runs[0]["realm"], json!("alpha"));
+    assert_eq!(report.work_queue[0]["realm"], json!("alpha"));
+    assert_eq!(
+        report.citations,
+        vec![
+            (Some("alpha".to_string()), "parked-run".to_string(), 7),
+            (Some("alpha".to_string()), "parked-run".to_string(), 8),
+        ]
+    );
+
+    let wrong = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one parked run",
+            "parked_runs": [{
+                "realm": "beta",
+                "run_id": "parked-run", "seq": 8, "command": "stop",
+                "reasoning": "in the wrong world",
+            }],
+            "work_queue": [],
+        })),
+    )
+    .err()
+    .expect("a report naming the wrong realm is refused");
+    assert!(wrong.contains("in realm 'beta'"), "{wrong}");
+    assert!(wrong.contains("realm 'alpha'"), "{wrong}");
+}
+
+/// A reader must be able to follow a proposal back to the journal it was
+/// read in, so the record spells the realm — and a one-hearth world's
+/// record is exactly the record it always was.
+#[test]
+fn the_record_names_the_realm_only_where_there_was_more_than_one() {
+    let many = render(&json!({
+        "recorded_at": NOW,
+        "fleet_summary": "one parked run in alpha",
+        "parked_runs": [{"realm": "alpha", "run_id": "parked-run", "seq": 8,
+                         "command": "stop", "reasoning": "hard ruling"}],
+        "work_queue": [],
+        "citations": [{"realm": "alpha", "run_id": "parked-run", "seq": 8}],
+    }));
+    assert!(many.contains("parked alpha/parked-run seq 8"), "{many}");
+    assert!(many.contains("cites: alpha/parked-run seq 8"), "{many}");
+
+    let one = render(&json!({
+        "recorded_at": NOW,
+        "fleet_summary": "one parked run",
+        "parked_runs": [{"run_id": "parked-run", "seq": 8,
+                         "command": "stop", "reasoning": "hard ruling"}],
+        "work_queue": [],
+        "citations": [{"run_id": "parked-run", "seq": 8}],
+    }));
+    assert!(one.contains("parked parked-run seq 8"), "{one}");
+    assert!(one.contains("cites: parked-run seq 8"), "{one}");
+}
+
+/// Ruling 5: journals never merge. Two hearths holding a run under the
+/// SAME id are two rows in two realms — never one row, and never one
+/// fold across both journals.
+#[test]
+fn two_hearths_holding_one_run_id_stay_two_runs() {
+    let alpha = Fleet::new();
+    alpha.completed("shared-id");
+    let beta = Fleet::new();
+    beta.parked("shared-id");
+    let derived = many_hearth_dossier(&alpha, &beta);
+    let rows = derived.value["runs"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0]["realm"], json!("alpha"));
+    assert_eq!(rows[0]["status"], json!("completed"));
+    assert_eq!(rows[1]["realm"], json!("beta"));
+    assert_eq!(rows[1]["status"], json!("awaiting_operator"));
+    // The two sides of a citation agree on which hearth answers for a
+    // shared id: the first the map names, for the realm and for the
+    // commands alike. Alpha's run is completed, so it admits none.
+    assert_eq!(
+        derived.realm_of("shared-id", rows[0]["seq"].as_u64().unwrap()),
+        Some(Some("alpha"))
+    );
+    assert_eq!(derived.commands["shared-id"], Vec::<String>::new());
 }
 
 // ------------------------------------------------------------ the seat
@@ -621,7 +820,10 @@ fn a_well_formed_report_validates_with_its_citations_collected() {
     assert_eq!(report.work_queue.len(), 1);
     assert_eq!(
         report.citations,
-        vec![("parked-run".to_string(), 7), ("parked-run".to_string(), 8),]
+        vec![
+            (None, "parked-run".to_string(), 7),
+            (None, "parked-run".to_string(), 8),
+        ]
     );
 
     // A report with nothing to advise is still a complete report.

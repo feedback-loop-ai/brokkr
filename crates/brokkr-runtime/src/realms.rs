@@ -43,6 +43,34 @@ pub struct World {
     pub sha256: String,
 }
 
+/// One hearth of a world (decision 0026 ruling 1): a journal, and the
+/// realms whose runs live in it. A v1 map has exactly one — every realm
+/// falls back to the world's journal — which is why every surface that
+/// groups by hearth shows a v1 world exactly as it always did.
+///
+/// Journals never merge (ruling 5). A hearth is a place to READ from;
+/// nothing here folds two of them together.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Hearth {
+    /// The realms sharing this journal, in map order. Never empty.
+    pub realms: Vec<String>,
+    pub journal: PathBuf,
+}
+
+impl Hearth {
+    /// The hearth's name on a tab bar or a section header. Several
+    /// realms sharing one journal share one heading, joined — a reader
+    /// is told which realms a listing is of, not made to guess.
+    pub fn label(&self) -> String {
+        match self.realms.is_empty() {
+            // Only reachable for a hearth built from a bare journal with
+            // no map at all, which is never grouped or tabbed.
+            true => "world".to_string(),
+            false => self.realms.join("+"),
+        }
+    }
+}
+
 /// A path made comparable. An unresolvable path (a realm whose directory
 /// does not exist yet) compares as written rather than failing the whole
 /// lookup: the map is evidence about intent, not a mount check.
@@ -145,6 +173,40 @@ impl World {
     /// One realm's working tree.
     pub fn path_of(&self, realm: &Realm) -> PathBuf {
         self.resolve(&realm.path)
+    }
+
+    /// One realm's effective journal, resolved the way every other path
+    /// in a map is: against the MAP FILE's own directory, never against
+    /// the world journal's directory. A realm's hearth travels with the
+    /// workspace the map describes, exactly as its working tree does.
+    pub fn journal_of(&self, realm: &Realm) -> PathBuf {
+        self.resolve(self.map.journal_of(realm))
+    }
+
+    /// The DISTINCT journals this world's realms carry, in map order —
+    /// what a fleet reader opens (decision 0026 rulings 2 and 3).
+    ///
+    /// Realms sharing a journal share a hearth: most maps still name one
+    /// journal for the whole world, and those must not pay for the
+    /// many-hearth case by opening or listing it twice. A v1 map always
+    /// yields exactly one hearth.
+    pub fn hearths(&self) -> Vec<Hearth> {
+        let mut hearths: Vec<Hearth> = Vec::new();
+        for realm in &self.map.realms {
+            let journal = self.journal_of(realm);
+            let at = absolute(&journal);
+            match hearths
+                .iter_mut()
+                .find(|hearth| absolute(&hearth.journal) == at)
+            {
+                Some(hearth) => hearth.realms.push(realm.name.clone()),
+                None => hearths.push(Hearth {
+                    realms: vec![realm.name.clone()],
+                    journal,
+                }),
+            }
+        }
+        hearths
     }
 
     /// The realm a repository IS, when the world knows it. Facts about a
