@@ -68,14 +68,19 @@ git checkout -b "$branch" >/dev/null
 mkdir -p "$(dirname "$destination")"
 cp "$rendered" "$destination"
 
-if git diff --quiet -- "$destination"; then
+# Staged first, then compared against the index: `git diff` alone is
+# silent about a destination the tap does not carry yet, so the very
+# first bump into a fresh tap would report "nothing to open" and open
+# nothing — a channel that never gets its formula, and a green release.
+git config user.name "brokkr release"
+git config user.email "noreply@github.com"
+git add "$destination"
+
+if git diff --cached --quiet -- "$destination"; then
   printf 'open-channel-pr: %s already carries v%s, nothing to open\n' "$repo" "$version"
   exit 0
 fi
 
-git config user.name "brokkr release"
-git config user.email "noreply@github.com"
-git add "$destination"
 git commit --quiet --message "brokkr ${version}"
 git push --quiet origin "$branch"
 

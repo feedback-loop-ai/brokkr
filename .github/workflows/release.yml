@@ -253,6 +253,10 @@ jobs:
       - name: the flake's digests, as a pull request against this repository
         uses: peter-evans/create-pull-request@v7
         with:
+          # A tag build is a detached HEAD, and the action refuses to
+          # guess a base from one — the branch the pull request targets
+          # has to be named here or the step fails on every release.
+          base: ${{ github.event.repository.default_branch }}
           add-paths: flake.nix
           branch: channels/flake-${{ github.ref_name }}
           commit-message: "packaging: the flake's digests catch up with ${{ github.ref_name }}"

@@ -25,7 +25,7 @@ step (a secret, a Pages site, a sibling repository) is the operator's.
 | `.deb` / `.rpm` build (nfpm) | working, first published in the next release | CI job `packaging` builds both from the real binary |
 | apt repository (Pages) | **wired at the bench** — needs `BROKKR_APT_SIGNING_KEY` and Pages enabled | `packaging/apt/build-repo.sh` is run against real `.deb` files in CI and its `Release` digests are verified |
 | dnf repository (Pages) | **wired at the bench** — same secret, same site | `packaging/rpm/build-repo.sh` is run in CI; `createrepo_c` produces real repodata |
-| `cargo binstall` | working, from the next release onward | the binstall metadata is resolved against the release matrix in CI |
+| `cargo binstall` | **wired at the bench** — needs `brokkr-cli` published to crates.io | the binstall metadata is resolved against the release matrix in CI |
 | nix flake | evaluates today; installs from the next release's rendered digests | `nix flake check` in CI |
 | homebrew tap | **wired at the bench** — needs `BROKKR_TAP_TOKEN` and the tap repository | the render is tested; the pull request is not opened until the token exists |
 | scoop bucket | **wired at the bench** — needs `BROKKR_BUCKET_TOKEN` and the bucket repository | same |
@@ -132,11 +132,17 @@ form needs no Pages site and no secret, only a release that carries the
 sudo dnf install https://github.com/feedback-loop-ai/brokkr/releases/download/vX.Y.Z/brokkr-linux-x86_64.rpm
 ```
 
-**cargo binstall**:
+**cargo binstall** — *wired at the bench*:
 
 ```
 cargo binstall brokkr-cli
 ```
+
+`cargo binstall` resolves a crate through crates.io first and only then
+reads the `[package.metadata.binstall]` block that points it at our
+release asset. Nothing in this repository publishes `brokkr-cli` to
+crates.io, so this line waits on that — see the follow-ups. The metadata
+itself is tested against the release matrix in CI today.
 
 **nix**:
 
@@ -206,7 +212,12 @@ None of the scripts carries an executable bit; each is invoked as
 3. **Pinning nfpm.** The release installs it with `go install …@latest`,
    which is the only form that works unchanged on both runner
    architectures. A pin — a version or a digest — is a bench call.
-4. **The bootstrap spine.** The manager matrix landed as rows inside the
+4. **Publishing `brokkr-cli` to crates.io.** `cargo binstall brokkr-cli`
+   cannot resolve a crate the registry has never seen, so the binstall
+   metadata is correct and inert until a release publishes the crate.
+   Whether Brokkr's crates belong on crates.io at all is the operator's
+   call, not this directory's.
+5. **The bootstrap spine.** The manager matrix landed as rows inside the
    quickstart's existing install section. When `slice-bootstrap` merges,
    its `| Step | Budget |` spine becomes the right home for them, and
    the 60-second tarball budget stays that path's gate: the manager rows

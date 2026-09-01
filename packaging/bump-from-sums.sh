@@ -57,9 +57,10 @@ digest_of() {
 for artifact in $ARTIFACTS; do
   digest="$(digest_of "$artifact")" ||
     die "SHA256SUMS names no $artifact — this is not a complete release manifest"
+  # Every character, not just the first: what goes into a channel's
+  # template has to be a digest and nothing else.
   case "$digest" in
-    [0-9a-f]*) ;;
-    *) die "$artifact: digest is not lowercase hex: $digest" ;;
+    *[!0-9a-f]*) die "$artifact: digest is not lowercase hex: $digest" ;;
   esac
   [ "${#digest}" -eq 64 ] || die "$artifact: digest is not 64 hex digits: $digest"
 done
