@@ -1,6 +1,6 @@
 # 0028 — Keep-refs: the journal's exhibits outlive the branch
 
-Status: proposed
+Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
 ## Context
