@@ -3,6 +3,13 @@
 **Status**: implementation blueprint, accepted 2026-08-22 under
 [decision 0003](decisions/0003-native-rust-runtime.md).
 
+> **Name errata** (2026-09-02): this blueprint predates the rename
+> ruled by [decision 0019](decisions/0019-brokkr.md) and is kept as
+> the dated record it is — "Forge" below reads **Brokkr**. Wire
+> identifiers (`forge-driver/v1`, `forge.phase-machine/*`,
+> `forge-dispatch/v2`, `forge.*` schema ids, `.forge/`, `refs/forge/`)
+> never rename, by the same ruling.
+
 ## Product contract
 
 Forge is an event-sourced, deterministic process manager around stochastic and
