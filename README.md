@@ -258,10 +258,10 @@ anyway, the surface names that journal on stderr before opening it.
 
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
-The others (`resume`, `rerun`, `doctor`, `ui`, `costs`, `compare`,
-`anchor`, `bridge`) still take `--db` alone, so a run started in a world
-whose map names a journal other than `.forge/forge.db` is resumed by
-naming that journal with `--db`.
+The others (`resume`, `conclude`, `rerun`, `doctor`, `ui`, `costs`,
+`compare`, `anchor`, `bridge`) still take `--db` alone, so a run started
+in a world whose map names a journal other than `.forge/forge.db` is
+resumed by naming that journal with `--db`.
 
 ### `brokkr realms` — the world
 

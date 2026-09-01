@@ -311,6 +311,39 @@ resumed one.
 takes **no `--realms`**: a run started in a mapped world whose journal
 is not `.forge/forge.db` is resumed by naming that journal with `--db`.
 
+### Conclude — closing a run whose bundle no longer compiles
+
+```
+brokkr conclude --run <id> --reason "the engine moved on without it"
+```
+
+The refusal above is right for `resume`, which spends money against a
+pinned policy — but it also means a run journaled under an older engine,
+or against a recipe file that has since changed, can never reach a
+lawful ending at all. `brokkr conclude` is the other door: it opens the
+journal, verifies the chain, folds the state, and appends **only** the
+operator stop conclusion — the command and its acceptance, the
+indeterminate close of any attempt that was in flight, and
+`run/stopped` citing the operator by name. It takes no `--bundle` or
+`--recipe`, compiles nothing, and spawns no effect, so it needs no
+pinned recipe to be honest about what it wrote.
+
+It refuses a run that is already concluded and refuses a broken hash
+chain whole. It cannot retry: retrying re-enters the policy loop, and
+the policy loop needs the bundle by construction — a parked run whose
+operator wants to retry still needs a working `resume`. Exit codes are
+the usual mapping, so a concluded run exits 3.
+
+Every write it makes is **fenced**: the conclusion lands only on the
+exact head it folded, so a journal that moves beneath it — something
+still driving the run — makes `conclude` refuse with the look-first
+instruction rather than close over live work. A refusal is evidence,
+not an inconvenience: a moved head means the run is not dead, and
+`conclude` is for a run believed dead. `resume` still carries the
+unfenced hazard on its fresh-process branch; decision 0029 (proposed)
+rules on fencing that tail. Either way, `brokkr runs` is how you look
+before closing.
+
 ### Re-run under another strategy
 
 Not an escape hatch so much as the next experiment:
@@ -361,8 +394,9 @@ Be clear-eyed about this:
   per-realm journal.
 - **`--realms` reaches only some commands.** `run` and the read surfaces
   the ruling names — `runs`, `realms`, `tui`, `watch`, `inspect`,
-  `export`, `muninn run` — accept it. `resume`, `rerun`, `doctor`, `ui`,
-  `costs`, `compare`, `anchor` and `bridge` take `--db` alone.
+  `export`, `muninn run` — accept it. `resume`, `conclude`, `rerun`,
+  `doctor`, `ui`, `costs`, `compare`, `anchor` and `bridge` take `--db`
+  alone.
 - **A Looper-dispatched run (`--dispatch`) cannot adopt agents and
   carries no realms map.** The v2 manifest lineage would silently drop
   both, so the engine refuses instead.

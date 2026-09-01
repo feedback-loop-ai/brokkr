@@ -2461,3 +2461,200 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     }))
     .is_err());
 }
+
+/// The conclude fixture pairs, replayed into a store the way
+/// `engine::conclude_tests` replays them: the sealed envelopes inserted
+/// VERBATIM, never re-appended through `append_next`. Re-appending would
+/// re-seal every envelope against a fresh chain — which drops the
+/// envelope-level `attempt_id` the mid-effect fixtures carry, and, worse,
+/// would quietly heal a fixture whose chain was tampered on purpose into
+/// a valid one, so a test meant to prove a refusal would pass because
+/// there was nothing left to refuse. What the fixture says is what the
+/// store holds, for every fixture this helper is ever pointed at. The
+/// fixture files are opened read-only and never edited.
+fn conclude_fixture_store(db: &std::path::Path, name: &str) {
+    let ndjson =
+        std::fs::read_to_string(workspace().join(format!("fixtures/journals/{name}.ndjson")))
+            .unwrap();
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            workspace().join(format!("fixtures/journals/{name}.manifest.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run(name, "fixture", "self", &manifest)
+        .unwrap();
+    let connection = rusqlite::Connection::open(db).unwrap();
+    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+        let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
+        connection
+            .execute(
+                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![name, event.seq as i64, event.event_hash, line],
+            )
+            .unwrap();
+    }
+}
+
+/// `brokkr conclude` at the console: it takes no bundle, exits 3 on the
+/// run it stops (`finish`'s one mapping, so a script reads a conclusion
+/// the same way whichever verb reached it), and refuses a run that is
+/// already concluded or one that is not there at all.
+#[test]
+fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+
+    // The standing example itself: an operator stop accepted mid-flight,
+    // its attempt already past its boundary in the journal. No bundle is
+    // compiled and none is asked for.
+    stopped_mid_flight_run(&db, "stranded", &json!({"engine": "0.3.6", "files": {}}));
+    assert_eq!(
+        run(cli(Cmd::Conclude {
+            run: "stranded".into(),
+            reason: "the engine moved on without it".into(),
+            db: db.clone(),
+        }))
+        .unwrap(),
+        ExitCode::from(3),
+        "a concluded run exits stopped, like every other stop",
+    );
+    let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
+    assert_eq!(state.status, Status::Stopped);
+
+    let refusal = run(cli(Cmd::Conclude {
+        run: "stranded".into(),
+        reason: "again".into(),
+        db: db.clone(),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("already concluded"), "{refusal}");
+    assert!(refusal.contains("stopped"), "{refusal}");
+
+    // A parked run gets its stop commanded under the invoking operator's
+    // name, read from the same `USER` fallback `Cmd::Operator` uses.
+    conclude_fixture_store(&db, "conclude-parked-hand-built");
+    assert_eq!(
+        run(cli(Cmd::Conclude {
+            run: "conclude-parked-hand-built".into(),
+            reason: "closing the books".into(),
+            db: db.clone(),
+        }))
+        .unwrap(),
+        ExitCode::from(3),
+    );
+    let events = Store::open(&db)
+        .unwrap()
+        .load("conclude-parked-hand-built")
+        .unwrap();
+    let operator = std::env::var("USER").unwrap_or("operator".into());
+    let cited = events.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.starts_with("OPERATOR-STOP: "), "{cited}");
+    assert!(cited.contains(&operator), "{cited}");
+    assert!(cited.contains("closing the books"), "{cited}");
+
+    let missing = run(cli(Cmd::Conclude {
+        run: "no-such-run".into(),
+        reason: "nothing to close".into(),
+        db,
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(missing.contains("no-such-run"), "{missing}");
+}
+
+/// `run/stopped`'s cause is composed from two strings an operator hands
+/// in — the `--reason` they type and the `USER` their shell reports —
+/// so where that text stops being dangerous is a question worth a test
+/// rather than a grep. The answer is: at the surface, not at the write.
+///
+/// The journal keeps what was actually typed, escapes and all. An audit
+/// record that quietly edits its own evidence is worth less than one
+/// that does not, and the contract's `{reason}` is a string, not a
+/// terminal instruction. Neutralizing happens where the string becomes
+/// pixels, and each surface neutralizes in its own alphabet: the two
+/// terminal drawings — the console's trail, tested here, and `tui.rs`'s
+/// surfaces — cross the one `Safe` sanitizer, and the browser draws the
+/// same `brokkr-view` models through `ui.html`'s `textContent`
+/// discipline, which `ui.rs`'s own test pins by banning `innerHTML`.
+/// `brokkr-view` draws nothing itself, so it holds no third alphabet;
+/// its remaining consumers (`muninn.rs`, `compare.rs`) emit JSON, where
+/// verbatim is the right answer for the same reason it is in the
+/// journal. This test is the terminal half of that boundary.
+#[test]
+fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let run_id = "conclude-parked-hand-built";
+    conclude_fixture_store(&db, run_id);
+
+    // Everything a hostile string has to work with: an ANSI sequence to
+    // recolour or reposition the line, a right-to-left override to
+    // reverse what follows it, a zero-width space to split a word past
+    // a filter, and a newline forging a second citation of its own.
+    let operator = "root\u{1b}[31m";
+    let reason = "closed\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
+    let mut store = Store::open(&db).unwrap();
+    let state = conclude(&mut store, run_id, operator, reason).unwrap();
+    assert_eq!(state.status, Status::Stopped);
+
+    // Verbatim in the journal: the citation names the operator as given,
+    // and the operator's own words are quoted, not laundered.
+    let events = store.load(run_id).unwrap();
+    let cited = events.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.contains(operator), "{cited:?}");
+    assert!(cited.contains(reason), "{cited:?}");
+
+    // Harmless where it is drawn. Not "no ESC" — every control character
+    // and every reordering character, because the danger is the class,
+    // and `\n` only because the renderer's own line breaks are made of it.
+    let drawn = crate::render::inspect(
+        &brokkr_view::run_view(&events, Some(&state)),
+        None,
+        true,
+        &crate::render::Style::plain(400),
+    );
+    let dropped: String = drawn
+        .chars()
+        .filter(|c| {
+            (c.is_control() && *c != '\n')
+                || matches!(c,
+                    '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'..='\u{2064}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{FEFF}')
+        })
+        .collect();
+    assert_eq!(
+        dropped, "",
+        "the trail drew {dropped:?} from a hostile reason"
+    );
+
+    // Stripped, not swallowed. The conclusion stays legible — the
+    // operator is named, their words are quoted — and what is left of
+    // the ANSI sequence is the inert `[31m` that colours nothing.
+    let stopped = drawn
+        .lines()
+        .find(|line| line.contains("run/stopped"))
+        .unwrap_or_default();
+    assert!(stopped.contains("operator 'root[31m'"), "{stopped:?}");
+    assert!(stopped.contains("closeddrawrof"), "{stopped:?}");
+
+    // The forged citation is left as the plain text it always was, and
+    // the newline meant to give it a line of its own is gone with the
+    // rest of the control characters. Every trail line still opens with
+    // the seq and type the renderer put there, so hostile text can only
+    // ever appear INSIDE a row a reader can attribute — which is the
+    // most a free-text field can promise, and it promises it here.
+    assert!(
+        !drawn
+            .lines()
+            .any(|line| line.trim_start().starts_with("OPERATOR-STOP")),
+        "a quoted reason opened a line of its own: {drawn}",
+    );
+}
