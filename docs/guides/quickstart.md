@@ -82,13 +82,24 @@ init` writes one you are meant to open and edit.
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 5de309d50685ec831e14b905e0c8f4ee01f5745ea7bac0d0885ed17b275f8a75)
+initialized reviewable bundle at my-bundle (digest …)
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
 refuses rather than overwriting a directory that already has a
 `bundle.json`, and it compiles the bundle before printing the digest, so
 what you were handed is a thing that runs.
+
+`init` looks before it scaffolds: the repository you ran it from is read
+for the manifests and lockfiles at its root — `Cargo.toml`,
+`package.json` with pnpm's or yarn's lockfile or neither,
+`pyproject.toml`, `go.mod`, `Makefile` — and the implementer's and
+verifier's charters name that stack's own build, test and lint commands,
+quoting back which files the guess came from. Nothing is executed to find
+out, and where no marker is recognized the charters say so in those words
+and call their commands generic placeholders. The digest above is elided
+because it is a function of what was scaffolded: two repositories with
+different stacks get different charters and so different digests.
 
 What it wrote:
 

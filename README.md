@@ -193,7 +193,7 @@ ok       agent implementer: would run opus via claude here (chain opus → sonne
 …
 
 $ brokkr init my-bundle                   # scaffold a reviewable starter recipe
-initialized reviewable bundle at my-bundle (digest 5de309d50685ec831e14b905e0c8f4ee01f5745ea7bac0d0885ed17b275f8a75)
+initialized reviewable bundle at my-bundle (digest …)
 
 $ brokkr run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
@@ -210,7 +210,13 @@ apart without parsing anything.
 policy table (five working phases plus `done` and `stop`) with the review
 gate constitutionally protected, one seat per working phase, and a role
 charter per seat. It compiles the bundle before printing the digest, so
-the thing you were handed is a thing that runs.
+the thing you were handed is a thing that runs. It also reads the
+repository you ran it from — the manifests and lockfiles at that root,
+nothing executed — so the implementer's and verifier's charters name
+that stack's own build, test and lint commands, and say plainly when no
+stack was recognized. The digest is therefore a function of what was
+scaffolded and differs from repository to repository; the one printed
+above is elided for that reason.
 
 ## Guides
 

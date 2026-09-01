@@ -965,7 +965,13 @@ fn run_with(
 ) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { dir } => {
-            let digest = init::init(&dir)?;
+            // The recipe lands in `dir`; the repository it describes is
+            // the WORKSPACE, read for its manifests so the implement and
+            // verify seats are told commands that would actually run
+            // there. Same tree every other verb resolves (decision 0023),
+            // for the same reason: what a command produces is a function
+            // of its arguments, not of where the caller happens to stand.
+            let digest = init::init(&dir, workspace)?;
             eprintln!(
                 "initialized reviewable bundle at {} (digest {digest})",
                 dir.display()
