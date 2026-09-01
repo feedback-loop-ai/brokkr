@@ -247,6 +247,13 @@ struct AgentContext {
     library: Option<Library>,
     adapters: Adapters,
     records: Map<String, Value>,
+    /// Per INLINE driver-bearing site, the adapter digests decision
+    /// 0021's refusals consulted to let it stand. An agent site pins its
+    /// adapters through the resolution record in `records`; a raw
+    /// `driver.command` had nothing to pin, so the declaration that
+    /// authorised a gate would otherwise sit outside the bundle's
+    /// identity — a demotion could not be told from a re-run.
+    drivers: Map<String, Value>,
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -376,6 +383,7 @@ impl Bundle {
                     ))
                 })?,
                 records: Map::new(),
+                drivers: Map::new(),
             }),
         };
 
@@ -475,7 +483,7 @@ impl Bundle {
             // each checked where they were built.
             match &body {
                 SeatBody::Single { candidates, .. } => {
-                    enforce_model_policy(phase, raw, candidates, &secrets, &agents)?
+                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?
                 }
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
@@ -570,6 +578,7 @@ impl Bundle {
             &name,
             &resolved.chain,
             agents.as_ref().map(|a| &a.records),
+            agents.as_ref().map(|a| &a.drivers),
         )?;
         Ok(Bundle {
             name,
@@ -824,21 +833,34 @@ fn dispatch_driver(parts: &[String]) -> Option<String> {
 /// says an unavailable driver parks rather than substitutes, and a chain
 /// that could fall back to an untrusted judge at run time would have
 /// defeated the gate at compile time.
+///
+/// A site that SURVIVES both is witnessed when it is inline: the adapter
+/// whose declaration authorised it is pinned into the manifest, so the
+/// bundle's identity carries what let it judge. An agent site needs no
+/// entry here — its resolution record already pins every adapter its
+/// chain consulted.
 fn enforce_model_policy(
     what: &str,
     raw: &Value,
     candidates: &[Candidate],
     secrets: &[String],
-    agents: &Option<AgentContext>,
+    agents: &mut Option<AgentContext>,
 ) -> Result<(), CompileError> {
     let class = parse_class(what, raw)?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }
-    let adapters = &agents
-        .as_ref()
-        .expect("a gate-class or secret-binding seat opens the adapters")
-        .adapters;
+    // Destructured rather than borrowed whole: the lookup reads the
+    // adapters while the witness writes beside them, and they are
+    // disjoint fields of the same context.
+    let AgentContext {
+        adapters,
+        drivers: witnessed,
+        ..
+    } = agents
+        .as_mut()
+        .expect("a gate-class or secret-binding seat opens the adapters");
+    let mut authorised = Map::new();
     let drivers: Vec<Option<String>> = match candidates.is_empty() {
         true => vec![dispatch_driver(&command_parts(raw))],
         false => candidates
@@ -870,6 +892,16 @@ fn enforce_model_policy(
                  ruling 4 — an undeclared grant is none)"
             )));
         }
+        // Both prohibitions passed, so an adapter answered for this
+        // driver. Only an inline site is recorded: `candidates` is empty
+        // exactly there.
+        if let (Some(provider), Some(adapter)) = (driver.filter(|_| candidates.is_empty()), adapter)
+        {
+            authorised.insert(provider, Value::String(adapter.digest.clone()));
+        }
+    }
+    if !authorised.is_empty() {
+        witnessed.insert(what.to_string(), Value::Object(authorised));
     }
     Ok(())
 }
@@ -1307,6 +1339,7 @@ fn manifest_for(
     bundle_name: &str,
     chain: &[Ancestor],
     agents: Option<&Map<String, Value>>,
+    drivers: Option<&Map<String, Value>>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -1384,6 +1417,15 @@ fn manifest_for(
     // charter digest.
     if let Some(records) = agents.filter(|records| !records.is_empty()) {
         manifest["agents"] = Value::Object(records.clone());
+    }
+    // ABSENT on the same terms, and for the same reason: a bundle whose
+    // inline seats neither judge nor bind never consults a tier or a
+    // grant, so nothing authorised it and there is nothing to pin. Where
+    // something did (decision 0021), the adapter digest that answered
+    // rides the bundle's identity — a tier demoted in `adapters/` moves
+    // the digest of every bundle whose gates it was standing behind.
+    if let Some(records) = drivers.filter(|records| !records.is_empty()) {
+        manifest["drivers"] = Value::Object(records.clone());
     }
     Ok(manifest)
 }

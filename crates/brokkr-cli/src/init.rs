@@ -2,12 +2,23 @@
 //! compiles. The template carries the tightened ship taxonomy (`ready` →
 //! `shipped` as the sole entry into `done`), the protected review phase,
 //! one charter-defined seat per phase, per-seat limits (decision 0006),
-//! and the bundled headless Claude Code driver. Everything written is
-//! ordinary text meant to be reviewed and edited in git.
+//! the work/gate division of decision 0021 ruling 1, and the bundled
+//! headless Claude Code driver. Everything written is ordinary text meant
+//! to be reviewed and edited in git.
+//!
+//! The scaffold is a WORKSPACE, not only a bundle: it carries its own
+//! `adapters/` tree, because since decision 0021 the tier that lets a
+//! gate seat judge is adapter data, and a starter whose review seat
+//! judged on nobody's authority would teach the wrong lesson on day one.
+//! The operator's trust declarations are theirs to edit — which is why
+//! they are scaffolded as a file in their tree rather than compiled into
+//! this binary — and `brokkr` is run from inside the scaffold, where its
+//! `adapters/` is the workspace's.
 
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::Bundle;
 
 // Drivers are built into the brokkr binary itself (decision 0009):
@@ -80,35 +91,66 @@ const BUNDLE: &str = r#"{
   "seats": {
     "intake": {
       "role": "roles/intake.md",
+      "class": "work",
       "results": ["resolved"],
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
       "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "implement": {
       "role": "roles/implementer.md",
+      "class": "work",
       "results": ["complete", "broken", "blocked"],
       "limits": {"max_attempts": 2, "timeout_seconds": 5400},
       "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "verify": {
       "role": "roles/verifier.md",
+      "class": "gate",
       "results": ["pass", "fail"],
       "limits": {"max_attempts": 2, "timeout_seconds": 3600},
       "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "review": {
       "role": "roles/reviewer.md",
+      "class": "gate",
       "results": ["clean", "residual", "security-hold"],
       "limits": {"max_attempts": 2, "timeout_seconds": 3600},
       "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     },
     "ship": {
       "role": "roles/shipper.md",
+      "class": "gate",
       "results": ["ready", "shipped"],
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
       "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
     }
   }
+}
+"#;
+
+/// The scaffold's own trust declaration (decision 0021 rulings 2 and 4),
+/// for the one driver it seats. `trusted`, because the starter's verify,
+/// review and ship seats are the gate roster of ruling 1 and would
+/// otherwise refuse to compile — the operator inherits the incumbent's
+/// journaled record and may demote it by editing this file. No binding
+/// grant: no seat here declares `secrets`, and a grant nothing needs is
+/// one more thing to take away later (ruling 4 — trust to judge and
+/// clearance to receive are different grants).
+const ADAPTER: &str = r#"{
+  "provider": "claude",
+  "trust_tier": "trusted",
+  "binding_grant": false,
+  "binary": "claude",
+  "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
+  "models": {
+    "fable": "claude-fable-5",
+    "opus": "claude-opus-5",
+    "sonnet": "claude-sonnet-5",
+    "haiku": "claude-haiku-4-5-20251001"
+  },
+  "model_flag": "--model",
+  "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": {}},
+  "mcp": {"flag": "--mcp-config", "servers": {}}
 }
 "#;
 
@@ -143,13 +185,24 @@ pub fn init(dir: &Path) -> Result<String> {
         );
     }
     std::fs::create_dir_all(dir.join("roles"))?;
+    std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
+    std::fs::write(dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json"), ADAPTER)?;
     for (name, content) in ROLES {
         std::fs::write(dir.join("roles").join(name), content)?;
     }
     // init proves its own output: the scaffold must compile under the
-    // constitutional lint before we call it a bundle.
-    let bundle = Bundle::compile(dir).context("scaffolded bundle failed to compile")?;
+    // constitutional lint before we call it a bundle. Against the
+    // SCAFFOLD's own roots, not the process's: what init proves must be
+    // a property of what it wrote, and a starter that compiled only
+    // because the caller happened to stand in a tree with an `adapters/`
+    // would be a proof about the caller.
+    let bundle = Bundle::compile_with(
+        dir,
+        &dir.join(DEFAULT_AGENTS_DIR),
+        &dir.join(DEFAULT_ADAPTERS_DIR),
+    )
+    .context("scaffolded bundle failed to compile")?;
     Ok(bundle.manifest_digest())
 }

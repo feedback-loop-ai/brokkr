@@ -1,4 +1,8 @@
 use super::*;
+/// The tree these compiles resolve against: the workspace, never the
+/// process's directory (decision 0023, and since 0021 a compile reads
+/// the adapter data even for a recipe that names no agent).
+use crate::tests::workspace;
 use brokkr_core::policy::Machine;
 use brokkr_runtime::bundle::Limits;
 use brokkr_runtime::{Seat, SequenceStep, StepBody};
@@ -94,12 +98,38 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
 
     let recipes_file = empty.path().join("not-a-directory");
     std::fs::write(&recipes_file, "x").unwrap();
-    list(&recipes_file).unwrap();
+    list(&workspace(), &recipes_file).unwrap();
 
     let library = empty.path().join("library");
     std::fs::create_dir(&library).unwrap();
     std::fs::create_dir(library.join("already")).unwrap();
-    assert!(add("unused", "already", &library).is_err());
+    assert!(add(&workspace(), "unused", "already", &library).is_err());
+}
+
+/// Installing a recipe whose seats JUDGE resolves the trust tier from
+/// the WORKSPACE (decision 0021 read through 0023), not from wherever
+/// the process happens to stand — this test's own directory is the
+/// crate, which has no `adapters/` at all. Before that, `add` refused
+/// such a recipe and then DELETED the copy for failing a check it was
+/// never given the data for.
+#[test]
+fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
+    let library = tempfile::tempdir().unwrap();
+    let source = workspace().join("bundles/verify");
+    add(
+        &workspace(),
+        source.to_str().unwrap(),
+        "gated",
+        library.path(),
+    )
+    .expect("a recipe whose gates the workspace vouches for installs");
+    assert!(
+        library.path().join("gated/bundle.json").is_file(),
+        "the installed copy survives"
+    );
+    // …and the listing that follows reads the same tree, so the recipe
+    // it just accepted is not reported broken one command later.
+    list(&workspace(), library.path()).unwrap();
 }
 
 #[test]

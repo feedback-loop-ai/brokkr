@@ -943,7 +943,7 @@ fn journal_of(
 /// trust tier and a secret binding's grant live there), and a verb that
 /// resolved one tree while compiling against another would be the forge
 /// diagnosing itself wrong.
-fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
+pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
     Ok(Bundle::compile_with(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
@@ -968,6 +968,16 @@ fn run_with(
             let digest = init::init(&dir)?;
             eprintln!(
                 "initialized reviewable bundle at {} (digest {digest})",
+                dir.display()
+            );
+            // The scaffold carries its own `adapters/`, where the trust
+            // tier its gate seats compile against is declared (decision
+            // 0021). Every other verb reads that tree from the workspace,
+            // which is the directory brokkr is run in — so say once,
+            // here, where to stand.
+            eprintln!(
+                "run brokkr from inside {} — its adapters/ declares the trust \
+                 tier the verify, review and ship seats judge on",
                 dir.display()
             );
             Ok(ExitCode::SUCCESS)
@@ -1442,8 +1452,10 @@ fn run_with(
         }
         Cmd::Recipes { command } => {
             match command {
-                RecipesCmd::List { dir } => recipes::list(&dir)?,
-                RecipesCmd::Add { source, name, dir } => recipes::add(&source, &name, &dir)?,
+                RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
+                RecipesCmd::Add { source, name, dir } => {
+                    recipes::add(workspace, &source, &name, &dir)?
+                }
                 RecipesCmd::Show { name, dir } => {
                     let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
                     println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);

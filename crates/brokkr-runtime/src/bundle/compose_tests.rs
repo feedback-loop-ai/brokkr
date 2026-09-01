@@ -738,7 +738,10 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// every adapter gained the trust tier and binding grant those refusals
 /// read — the law is part of what a bundle IS, so a bundle that now
 /// declares it is a different bundle. Every one of them is a different
-/// bundle now.
+/// bundle now. The two with INLINE gates — `recipes/fast` and
+/// `bundles/verify` — moved once more when those gates began pinning
+/// the adapter declaration that authorises them, so a tier demoted in
+/// `adapters/` moves the identity of the bundles it was standing behind.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -747,7 +750,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "7ee80dee662bcd254984d84abac439992bccff9253205bc43afbfbb3554c46e3",
+        "4a6bb31cdfaf75eae5a7d30cb030c58ecbdda3db23c6f925db11b5bc228651b0",
     ),
     (
         "recipes/panel-review",
@@ -763,7 +766,7 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "bundles/verify",
-        "62304b89f8e313396cacc9c31c1eb5a5e4d7c11ca450e65927cd963ed183371d",
+        "bc618ec482f28a1e29eb50377a9d7f2cf3faf80dfb71800db75f146e1bdce68e",
     ),
 ];
 
@@ -875,7 +878,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     // resolution, which belongs to the composed bundle rather than to
     // any layer of it.
     let layer_digest = brokkr_core::canonical::sha256_hex(
-        &super::manifest_for(&sdd.dir, "sdd", &[], None).unwrap(),
+        &super::manifest_for(&sdd.dir, "sdd", &[], None, None).unwrap(),
     );
     assert_eq!(
         bundle.chain,
@@ -894,12 +897,14 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "df6f974b7382c8775ceaf884266368d9c9410dd1c532cb5b09635e998986dd6f",
+        "8fc61a07930a215b3f0256c93dfd649c8c59b63739f21330650ff8aea8235f00",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
-         (decision 0022), and again when the base's argv token was \
-         renamed (decision 0019), which is this test's own principle: \
-         changing a base changes the digest of everything derived from it"
+         (decision 0022), again when the base's argv token was renamed \
+         (decision 0019), and again when its inline review panel began \
+         pinning the adapter declarations that authorise it to judge \
+         (decision 0021), which is this test's own principle: changing a \
+         base changes the digest of everything derived from it"
     );
 }
 

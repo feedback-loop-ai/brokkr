@@ -190,7 +190,16 @@ link, because a chain that could fall back to an untrusted judge at run
 time would have defeated the gate at compile time. An inline site's
 driver is read structurally off the token after `driver` in its command
 (decision 0009's dispatch shape); a command that is no dispatch names no
-driver, and so declares nothing.
+driver, and so declares nothing. What ALLOWED a site is pinned where the
+bundle's identity can see it: an agent site through its resolution
+record, an inline one through a `drivers` manifest key naming, per
+judging or binding seat, the digest of the adapter file that answered —
+so demoting a tier in `adapters/` moves the identity of every bundle
+that was standing on it. Absent, like `agents`, when nothing was
+consulted. `brokkr init` scaffolds this whole shape: the starter's
+verify, review and ship seats are classed `gate`, and the scaffold
+carries its own `adapters/` declaring the tier they judge on, which is
+why brokkr is then run from inside it.
 
 ## Agents are defined once; adapters are data
 

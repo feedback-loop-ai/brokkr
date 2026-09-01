@@ -1,9 +1,16 @@
 //! `brokkr recipes` — the recipe library. A recipe is a bundle directory
 //! (policy.json + bundle.json + roles/) treated as a named, swappable
 //! delivery strategy: list what is installed, install one from a local
-//! path or a git URL. Validation is `Bundle::compile`, unmodified — a
+//! path or a git URL. Validation is the ordinary compile, unmodified — a
 //! recipe that fails the constitutional lints is warned or rejected,
 //! never repaired (decision 0001).
+//!
+//! Every compile here runs against the WORKSPACE's roots (decision 0023,
+//! as `run`, `resume` and `recipes show` already do): since decision 0021
+//! a compile reads the adapter data even for a recipe that names no
+//! agent, and a listing that resolved one tree while compiling against
+//! whichever directory the operator happened to stand in would report
+//! working recipes as broken — and, in `add`, delete them for it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,8 +18,10 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::{Bundle, SeatBody};
 
+use crate::compile_in;
+
 /// The two bundles shipped in-repo, always listed alongside `--dir`.
-/// Paths are as written, relative to the current working directory.
+/// Paths are as written, relative to the workspace.
 const BUILTINS: [&str; 2] = ["bundles/self", "bundles/verify"];
 
 /// Resolve the run/resume bundle directory from the exactly-one-of
@@ -69,7 +78,7 @@ fn seat_summary(bundle: &Bundle) -> String {
 
 /// One line per recipe that compiles; a warning line per one that does
 /// not. Nothing aborts the listing: a broken recipe is information.
-pub fn list(dir: &Path) -> Result<()> {
+pub fn list(workspace: &Path, dir: &Path) -> Result<()> {
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     match std::fs::read_dir(dir) {
         Ok(entries) => {
@@ -93,12 +102,12 @@ pub fn list(dir: &Path) -> Result<()> {
         ),
     }
     for builtin in BUILTINS {
-        let path = PathBuf::from(builtin);
+        let path = workspace.join(builtin);
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         candidates.push((name, path));
     }
     for (name, path) in candidates {
-        match Bundle::compile(&path) {
+        match compile_in(workspace, &path) {
             Ok(bundle) => println!(
                 "{name}\t{}\t{} phases\t{}\t{}",
                 &bundle.manifest_digest()[..12],
@@ -182,7 +191,7 @@ fn copy_into(from: &Path, dest: &Path) -> Result<()> {
 /// Install a recipe: clone or copy into `<dir>/<name>`, then
 /// compile-verify the copy. A copy that fails to compile is removed —
 /// the library only ever holds recipes the compiler accepted or nothing.
-pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
+pub fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let dest = dir.join(name);
     if dest.exists() {
         bail!(
@@ -219,7 +228,7 @@ pub fn add(source: &str, name: &str, dir: &Path) -> Result<()> {
         copy_into(src, &dest)?;
     }
 
-    match Bundle::compile(&dest) {
+    match compile_in(workspace, &dest) {
         Ok(bundle) => {
             eprintln!(
                 "added recipe '{name}' ({}) at {}",

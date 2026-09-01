@@ -559,3 +559,74 @@ fn a_gate_with_no_adapter_tree_to_read_refuses() {
     let error = error.to_string();
     assert!(error.contains("trust tier and binding grant"), "{error}");
 }
+
+// ------------------------------------- what authorised it, in the manifest
+
+/// The digest of one adapter file in the fixture's tree, read the way
+/// the compiler reads it.
+fn adapter_digest(fixture: &Fixture, provider: &str) -> String {
+    Adapters::load(&fixture.dir.path().join("adapters"))
+        .expect("the fixture adapters load")
+        .digest(provider)
+        .expect("the fixture declares this provider")
+        .to_string()
+}
+
+#[test]
+fn an_inline_gate_pins_the_adapter_that_authorised_it() {
+    // The refusal reads a declaration; the manifest must say WHICH one,
+    // or a tier demoted in `adapters/` would change what the compiler
+    // allows while leaving the bundle's identity untouched.
+    let fixture = Fixture::new();
+    let bundle = fixture
+        .compile(seat("judge", Some("gate"), None))
+        .expect("a trusted driver holds a gate");
+    assert_eq!(
+        bundle.manifest["drivers"],
+        json!({"work": {"judge": adapter_digest(&fixture, "judge")}}),
+        "only the gate seat consulted a declaration; the work-class \
+         review seat beside it consulted none"
+    );
+}
+
+#[test]
+fn an_inline_binding_pins_the_adapter_that_granted_it() {
+    let fixture = Fixture::new();
+    let bundle = fixture
+        .compile(seat("judge", None, Some(json!(["TOKEN"]))))
+        .expect("a granted driver may receive a binding");
+    assert_eq!(
+        bundle.manifest["drivers"],
+        json!({"work": {"judge": adapter_digest(&fixture, "judge")}})
+    );
+}
+
+#[test]
+fn a_bundle_that_consulted_nothing_carries_no_drivers_key() {
+    // ABSENT, not an empty object — the `agents` key's own rule, for the
+    // same reason: a bundle that asked nobody's permission must have the
+    // identity it always had.
+    let fixture = Fixture::new();
+    let bundle = fixture
+        .compile(seat("newcomer", Some("work"), None))
+        .expect("a work seat needs no tier");
+    assert!(bundle.manifest.get("drivers").is_none());
+}
+
+#[test]
+fn an_agent_gate_is_witnessed_by_its_resolution_not_a_second_time() {
+    // An agent site already pins every adapter its chain consulted, in
+    // `agents`. Recording it again under `drivers` would put the same
+    // fact in the manifest twice, and the two could then disagree.
+    let fixture = Fixture::new();
+    fixture.write_agent("steady", &[("first", "promoted", "trusted")]);
+    let bundle = fixture
+        .compile(json!({
+            "results": ["pass", "fail"],
+            "class": "gate",
+            "agent": "steady",
+        }))
+        .expect("a trusted chain holds a gate");
+    assert!(bundle.manifest["agents"]["work"]["adapter_digest"].is_string());
+    assert!(bundle.manifest.get("drivers").is_none());
+}

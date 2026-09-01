@@ -13,7 +13,7 @@ use time::format_description::well_known::Rfc3339;
 /// the whole binary, named where both surfaces' test modules can see it.
 pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn workspace() -> PathBuf {
+pub(crate) fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
