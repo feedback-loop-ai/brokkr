@@ -6,6 +6,7 @@ pub mod agents;
 pub mod anchor;
 pub mod bundle;
 pub mod engine;
+pub mod keep_refs;
 pub mod realms;
 
 pub use agents::{
@@ -21,5 +22,9 @@ pub use bundle::{
 pub use engine::{
     apply_fenced_operator_command, git_head, operator_command, DriveEnd, Engine, EngineError,
     FencedCommandOutcome,
+};
+pub use keep_refs::{
+    delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,
+    KeepRefsError, Planted,
 };
 pub use realms::{World, WorldError};

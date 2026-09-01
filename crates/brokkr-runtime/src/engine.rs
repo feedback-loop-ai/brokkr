@@ -263,6 +263,19 @@ impl Engine {
                         if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
                             eprintln!("anchor gap for {}: {e}", self.run_id);
                         }
+                        // And the exhibits the journal cites, kept
+                        // reachable past the branch delete and the gc
+                        // that follow a landing (decision 0028). Same
+                        // shape of act as the anchor: derived entirely
+                        // from the journal, writing refs and never
+                        // branches, so it crosses into no authority the
+                        // operator keeps. Best-effort in the same way —
+                        // a ref-planting gap is reported, never fatal.
+                        if let Some(gap) =
+                            crate::keep_refs::plant_or_report(&self.store, repo, &self.run_id)
+                        {
+                            eprintln!("{gap}");
+                        }
                     }
                     return Ok(DriveEnd { state });
                 }

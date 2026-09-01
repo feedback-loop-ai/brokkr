@@ -519,6 +519,154 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     assert_eq!(seen, Some((db, 4321, true)));
 }
 
+#[test]
+fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "--quiet"]);
+    for (key, value) in [
+        ("user.name", "Forge Test"),
+        ("user.email", "forge@test"),
+        ("commit.gpgsign", "false"),
+    ] {
+        git(&["config", key, value]);
+    }
+    std::fs::write(repo.join("exhibit"), "exhibit").unwrap();
+    git(&["add", "exhibit"]);
+    git(&["commit", "-q", "-m", "exhibit"]);
+    let head = git(&["rev-parse", "HEAD"]);
+
+    // The journal cites that commit, so planting must keep exactly it.
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::TransitionDecided,
+            json!({
+                "from": "review", "result": "ok", "next": "ship",
+                "inputs": {"reviewed_heads": {"repo": head}},
+            }),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let keep = |command| run(cli(Cmd::KeepRefs { command })).unwrap();
+    assert_eq!(
+        keep(KeepRefsCmd::Plant {
+            run: "latest".into(),
+            db: db.clone(),
+            repo: repo.clone(),
+        }),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(
+        brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
+        Some(&vec![head.clone()])
+    );
+
+    // A later decision citing a commit this repository does not hold:
+    // the replant keeps what it can and says what it could not.
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::TransitionDecided,
+            json!({
+                "from": "ship", "result": "ok", "next": "done",
+                "inputs": {"realm_facts": {"repo": {"head": "b".repeat(40)}}},
+            }),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        keep(KeepRefsCmd::Plant {
+            run: "r1".into(),
+            db: db.clone(),
+            repo: repo.clone(),
+        }),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(
+        brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
+        Some(&vec![head.clone()]),
+        "replanting kept the exhibit it holds and invented nothing"
+    );
+
+    // Listed whole, listed for one run, and listed for a run whose
+    // workspace database is gone — the refs outlive the journal, so the
+    // selector is taken literally rather than refused.
+    for run_selector in [None, Some("r1".to_string())] {
+        assert_eq!(
+            keep(KeepRefsCmd::List {
+                run: run_selector,
+                db: db.clone(),
+                repo: repo.clone(),
+            }),
+            ExitCode::SUCCESS
+        );
+    }
+    let moved_on = dir.path().join("moved-on.db");
+    assert_eq!(
+        keep(KeepRefsCmd::List {
+            run: Some("r1".into()),
+            db: moved_on.clone(),
+            repo: repo.clone(),
+        }),
+        ExitCode::SUCCESS
+    );
+
+    // `latest` is not a name, it is a question for the run table — so a
+    // database that has moved on cannot answer it, and the verbs refuse
+    // rather than take it literally. Taken literally it would list, or
+    // release, the nothing a run called `latest` holds, and report that
+    // nothing as the answer.
+    for command in [
+        KeepRefsCmd::List {
+            run: Some(selector::LATEST.into()),
+            db: moved_on.clone(),
+            repo: repo.clone(),
+        },
+        KeepRefsCmd::Delete {
+            run: selector::LATEST.into(),
+            db: moved_on.clone(),
+            repo: repo.clone(),
+        },
+    ] {
+        let refused = run(cli(Cmd::KeepRefs { command })).unwrap_err().to_string();
+        assert!(refused.contains("brokkr keep-refs list"), "{refused}");
+    }
+    assert_eq!(
+        brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
+        Some(&vec![head.clone()]),
+        "and the refusal released nothing"
+    );
+
+    // Releasing is the operator's, and it takes the refs with it.
+    assert_eq!(
+        keep(KeepRefsCmd::Delete {
+            run: "r1".into(),
+            db,
+            repo: repo.clone(),
+        }),
+        ExitCode::SUCCESS
+    );
+    assert!(brokkr_runtime::list_keep_refs(&repo).unwrap().is_empty());
+}
+
 fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelopeV2 {
     let now = time::OffsetDateTime::now_utc();
     serde_json::from_value::<DispatchEnvelopeV2>(json!({

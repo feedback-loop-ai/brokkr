@@ -7,9 +7,11 @@ pub mod canonical;
 pub mod dispatch;
 pub mod envelope;
 pub mod fold;
+pub mod keep_refs;
 pub mod policy;
 pub mod realms;
 
 pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};
+pub use keep_refs::cited_shas;
 pub use policy::{Machine, Outcome, PolicyError};

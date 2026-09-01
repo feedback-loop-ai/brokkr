@@ -33,6 +33,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0025](0025-skirnir.md) | Skírnir and the grant: the sword is a signed loan | The standing executor acts only within an operator-GPG-signed, expiring, runtime-configurable grant, under a compiled never-list ceiling; every exercise journaled as the grant's, escalation the default. | accepted |
 | [0026](0026-many-hearths.md) | Many hearths: per-realm journals and the tabbed fleet | realms/v2 journals per realm (products, not worktrees) with per-realm tabs; same-realm parallelism instead hardens concurrent writers into ONE journal; muninn flies the whole world; journals never merge. | accepted |
 | [0027](0027-import.md) | Import: journals never merge, runs relocate | One run moves from a canonical export into a destination journal byte-identically, behind full verification; a broken chain, a run-id collision and a redacted derivative each refuse the import whole; arrival is recorded beside the chain, never inside it. | proposed |
+| [0028](0028-keep-refs.md) | Keep-refs: the journal's exhibits outlive the branch | Every SHA a run's journal cites gets `refs/forge/keep/<run>/<sha>`, planted automatically at conclusion and by verb; idempotent, listed by one `for-each-ref`, deleted only by the operator. | proposed |
 
 ## How a decision is made
 
