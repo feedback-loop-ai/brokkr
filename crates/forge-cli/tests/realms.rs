@@ -162,7 +162,8 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].starts_with("map      "), "{out}");
     assert!(lines[0].ends_with("realms.json"), "{out}");
-    assert_eq!(lines[1], "journal  ./state/world.db");
+    // Paths print platform-native; the pin normalizes for the compare.
+    assert_eq!(lines[1].replace('\\', "/"), "journal  ./state/world.db");
     assert_eq!(lines[2], format!("realm    the-forge  realm  main  {head}"));
     assert_eq!(lines.len(), 3, "{out}");
 
@@ -256,7 +257,10 @@ fn the_run_manifest_pins_the_maps_hash_and_embeds_the_map() {
     .unwrap();
     let pin = &manifest["realms"];
     assert_eq!(pin["map"], map_over("."));
-    assert_eq!(pin["source"], "./realms.json");
+    assert_eq!(
+        pin["source"].as_str().unwrap().replace('\\', "/"),
+        "./realms.json"
+    );
     assert_eq!(
         pin["sha256"].as_str().unwrap(),
         forge_core::canonical::sha256_hex(&map_over("."))
