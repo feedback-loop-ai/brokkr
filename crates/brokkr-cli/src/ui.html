@@ -144,6 +144,12 @@
   .loops .edge { stroke: var(--line); stroke-width: 2; marker-end: url(#arr); }
   .loops .arr-tip { fill: var(--dim); }
   .loops .lane { fill: none; }
+  /* The road back (decision 0022): SOLID, in the rail's own line
+     colour, never dashed — dashes read as "not taken", and this road
+     was taken. The head is the mirror of the forward arrow's and wears
+     the same fill, because it means the same thing: arrival. */
+  .loops .ret { fill: none; stroke: var(--line); stroke-width: 2; }
+  .loops .ret-tip { fill: var(--dim); }
   .loops .seg-hit { fill: transparent; }
   .loops .seg-sel { fill: rgba(124,92,255,.06); stroke: var(--dim);
                     stroke-dasharray: 4 3; pointer-events: none; }
@@ -370,6 +376,30 @@ function row(cells) {
   return tr;
 }
 
+// Every road back the rail can draw, as [landing, departure] pairs of
+// phase INDICES. The pairs themselves are `phase.returns` — derived
+// once in brokkr-view from the ruling that sent the run BACK, already
+// deduped there, one name per distinct backward transition — so this
+// reads a model field and never infers a road from `visits > 1`: the
+// count says a phase was entered twice, and only the transition says
+// where from.
+//
+// Two pairs are dropped, both for want of geometry and neither as a
+// judgement about the journal: a departure naming no phase on this rail
+// has no column to leave from, and a landing sitting at or after its
+// departure is not a road drawn leftward — the head has one direction.
+// Same rule the TUI's rail applies (decision 0022).
+function returnPairs(rail) {
+  const roads = [];
+  rail.forEach((phase, to) => {
+    for (const source of phase.returns) {
+      const from = rail.findIndex((other) => other.name === source);
+      if (from > to) roads.push([to, from]);
+    }
+  });
+  return roads;
+}
+
 // The loops view — ONE graph: the phase rail with each phase's inner
 // topology inlined. A phase whose newest effect shows structure
 // (sequence steps, panel members) renders as a capsule of inner nodes
@@ -400,6 +430,12 @@ function renderLoops(detail, view, id) {
   const Y = TOP + Math.ceil(maxHalf) + 8;
   const stepLabelY = Y + maxHalf + 22;
   const nameY = stepLabelY + 18;
+  // The roads back ride two rows of their own UNDER the names, clear of
+  // the ×N markers that sit at nameY + 12 — and those rows exist only
+  // for a run whose journal recorded a return. A forward-only run's
+  // graph is exactly the graph it was before arcs existed.
+  const roads = returnPairs(rail);
+  const retTopY = nameY + 18, retY = nameY + 30;
 
   let cursor = 12;
   const segs = rail.map((phase) => {
@@ -441,7 +477,7 @@ function renderLoops(detail, view, id) {
   const wrap = el('div', 'loops');
   const svg = svgEl('svg');
   svg.setAttribute('width', cursor - PHASE_GAP + 12);
-  svg.setAttribute('height', nameY + 24);
+  svg.setAttribute('height', roads.length ? retY + 8 : nameY + 24);
   const defs = svgEl('defs');
   const marker = svgEl('marker');
   marker.setAttribute('id', 'arr');
@@ -620,9 +656,49 @@ function renderLoops(detail, view, id) {
     nameG.onclick = togglePhase(seg.name);
     svg.appendChild(nameG);
   });
+
+  // The road back. A reforging is a road, and a road is drawn: without
+  // this the rail says `review` finished and `implement` lit up again,
+  // which reads as teleportation rather than a loop. Drawn last, on its
+  // own rows beneath the names, so it passes UNDER the selection box
+  // instead of through it — the paint-order answer to the TUI's arc row.
+  //
+  // One road per distinct pair, however many times the journal took it:
+  // the repeats ride the ×N marker, which was already the rail's answer
+  // to a revisit.
+  roads.forEach(([to, from]) => {
+    const xa = segs[to].cx, xb = segs[from].cx;
+    const r = Math.min(9, Math.max(0, (xb - xa) / 2));
+    const g = svgEl('g');
+    g.appendChild(svgEl('title', null,
+      segs[from].name + ' → ' + segs[to].name + ' · the run went back'));
+    // Corners rise toward the phases they belong to, so the arc reads
+    // as one road leaving the rail and returning to it.
+    const road = svgEl('path', 'ret');
+    road.setAttribute('d',
+      'M' + xb + ' ' + retTopY +
+      ' L' + xb + ' ' + (retY - r) +
+      ' Q' + xb + ' ' + retY + ' ' + (xb - r) + ' ' + retY +
+      ' L' + (xa + r) + ' ' + retY +
+      ' Q' + xa + ' ' + retY + ' ' + xa + ' ' + (retY - r) +
+      ' L' + xa + ' ' + retTopY);
+    g.appendChild(road);
+    // The head marks the LANDING only, mirroring the rail's own arrow:
+    // it marks arrival, never departure. It sits inside the landing
+    // corner, pointing into it.
+    const tip = svgEl('path', 'ret-tip');
+    tip.setAttribute('d',
+      'M' + (xa + r + 8) + ' ' + (retY - 4) +
+      ' L' + (xa + r) + ' ' + retY +
+      ' L' + (xa + r + 8) + ' ' + (retY + 4) + ' Z');
+    g.appendChild(tip);
+    svg.appendChild(g);
+  });
+
   wrap.appendChild(svg);
   wrap.appendChild(el('div', 'sub',
-    '→ sequential · forked lanes run in parallel and rejoin before the next step · click a phase to scope the tables'));
+    '→ sequential · forked lanes run in parallel and rejoin before the next step · click a phase to scope the tables'
+    + (roads.length ? ' · the arc under the rail is a reforging: the run went back' : '')));
   detail.appendChild(wrap);
 }
 

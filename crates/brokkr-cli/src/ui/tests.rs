@@ -351,6 +351,194 @@ fn the_page_paints_and_derives_nothing() {
     }
 }
 
+// -------------------------------------------------------- the road back
+//
+// A reforging is a road, and roads are drawn — the TUI's rail has drawn
+// one since decision 0022, and the console drew none. There is no JS
+// runtime in this Rust-only workspace, so what is proved here is the
+// pair the surfaces share: the MODEL the console is served (asserted on
+// committed journal fixtures, through the console's own route) and the
+// rendering rules the page states about it (asserted on the served
+// page's own source). Geometry beyond that is the browser's.
+
+/// The reforging journal: `REVIEW-REFORGE` twice, then the exhausted
+/// ruling ships. `implement` is entered three times and the road in is
+/// `review`'s.
+const REFORGED: &str = "reforging-the-road-back-hand-built";
+
+/// The linear self-run: intake, implement, verify — no revisit anywhere.
+const LINEAR: &str = "tui-graph-the-selection-box-gets-80f98deb";
+
+/// A committed fixture replayed into a store the way the fleet reaches
+/// any run — the export's own `(type, payload)` pairs re-appended — so
+/// a console read meets the shape the engine recorded. The fixture file
+/// is opened read-only and never edited.
+fn replayed(name: &str) -> (tempfile::TempDir, PathBuf) {
+    let ndjson = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(format!("fixtures/journals/{name}.ndjson")),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run(name, "fixture", "self", &json!({"files": {}}))
+        .unwrap();
+    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+        let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
+        store
+            .append_next(name, event.event_type, event.payload.clone(), None, None)
+            .unwrap();
+    }
+    (dir, db)
+}
+
+fn phases(db: &Path, run_id: &str) -> Vec<Value> {
+    let view: Value =
+        serde_json::from_str(&handle(db, &format!("/api/view/{run_id}")).body).unwrap();
+    view["phases"].as_array().unwrap().clone()
+}
+
+#[test]
+fn the_console_is_served_the_road_back_and_the_page_draws_it() {
+    let (_dir, db) = replayed(REFORGED);
+    let rail = phases(&db, REFORGED);
+    let named = |name: &str| {
+        rail.iter()
+            .find(|phase| phase["name"] == name)
+            .unwrap_or_else(|| panic!("the rail carries {name}"))
+            .clone()
+    };
+
+    // The counts the ×N marker already paints, unchanged by this work.
+    assert_eq!(named("implement")["visits"], 3);
+    assert_eq!(named("verify")["visits"], 3);
+    assert_eq!(named("review")["visits"], 3);
+    assert_eq!(named("intake")["visits"], 1);
+
+    // And the road itself, already on the wire: the phase whose ruling
+    // sent the run back, named on the phase it landed in. Two reforgings
+    // were taken and ONE name is carried — the model deduped it, so a
+    // surface that draws a road per name draws one road.
+    assert_eq!(named("implement")["returns"], json!(["review"]));
+
+    // The loop's other two legs are recorded as returns too — entering
+    // `verify` from `implement` a second time IS a transition into a
+    // phase already entered — and neither is a road the rail can draw:
+    // a road is drawn LEFTWARD, and both of those departures lie left
+    // of where they land. The page drops them on geometry, exactly as
+    // the TUI's rail does, and one road is left.
+    assert_eq!(named("verify")["returns"], json!(["implement"]));
+    assert_eq!(named("review")["returns"], json!(["verify"]));
+    let order: Vec<&str> = rail
+        .iter()
+        .map(|phase| phase["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        order,
+        vec!["intake", "implement", "verify", "review", "ship", "done"]
+    );
+    let index = |name: &str| order.iter().position(|other| *other == name).unwrap();
+    let leftward: Vec<(usize, usize)> = rail
+        .iter()
+        .enumerate()
+        .flat_map(|(to, phase)| {
+            phase["returns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(move |source| (to, index(source.as_str().unwrap())))
+        })
+        .filter(|(to, from)| from > to)
+        .collect();
+    assert_eq!(
+        leftward,
+        vec![(index("implement"), index("review"))],
+        "one road: from beneath the phase that ruled to beneath the phase it landed in"
+    );
+    let page = handle(&db, "/").body;
+    assert!(page.contains("function returnPairs(rail)"));
+    assert!(page.contains("for (const source of phase.returns)"));
+    assert!(page.contains("if (from > to) roads.push([to, from]);"));
+    assert!(
+        page.contains("const roads = returnPairs(rail);"),
+        "the loops view asks the model for its roads"
+    );
+    // Solid, and headed at the LANDING only — the mirror of the rail's
+    // own arrow, which marks arrival and never departure.
+    assert!(page.contains("svgEl('path', 'ret')"));
+    assert!(page.contains("svgEl('path', 'ret-tip')"));
+    // Solid: the road was TAKEN, and a dashed road reads as one that
+    // was not.
+    assert!(page.contains(".loops .ret { fill: none; stroke: var(--line); stroke-width: 2; }"));
+}
+
+#[test]
+fn a_run_that_never_went_back_renders_the_graph_it_did_before() {
+    // The regression that matters most: the rendering is ADDITIVE and
+    // conditional. On a real linear journal there is no road on the
+    // wire, and every line of the page that could add one — the SVG's
+    // own height, the arc elements, the legend — is gated on the same
+    // empty list, so the graph is the graph it was before roads existed.
+    let (_dir, db) = replayed(LINEAR);
+    let rail = phases(&db, LINEAR);
+    assert!(!rail.is_empty());
+    assert!(
+        rail.iter()
+            .all(|phase| phase["returns"].as_array().unwrap().is_empty()),
+        "the linear fixture recorded no backward transition: {rail:?}"
+    );
+
+    let page = handle(&db, "/").body;
+    assert!(
+        page.contains("svg.setAttribute('height', roads.length ? retY + 8 : nameY + 24);"),
+        "no road, no rows: the height is the height it was"
+    );
+    assert!(
+        page.contains("+ (roads.length ? ' · the arc under the rail is a reforging"),
+        "and the legend gains its clause only when a road is drawn"
+    );
+    // Exactly one place appends arc elements, and it iterates the pairs:
+    // an empty list appends nothing at all.
+    assert_eq!(
+        page.matches("roads.forEach").count(),
+        1,
+        "one drawing site, iterating the roads"
+    );
+    for arc in ["svgEl('path', 'ret')", "svgEl('path', 'ret-tip')"] {
+        assert_eq!(page.matches(arc).count(), 1, "{arc} is drawn in one place");
+    }
+}
+
+#[test]
+fn the_road_back_is_never_inferred_from_a_repeated_visit() {
+    // `visits` says a phase was entered twice; only the transition says
+    // where from. The page's own non-inference, mirroring the TUI's: no
+    // line that reads a visit count also reaches for a road, and the
+    // pairing drops what has no geometry — a departure naming no phase
+    // on this rail, and a landing that does not lie left of it.
+    for line in PAGE.lines().filter(|line| line.contains("visits")) {
+        assert!(
+            !line.contains("roads") && !line.contains("returnPairs"),
+            "a road drawn from a visit count: {line}"
+        );
+    }
+    for line in PAGE.lines().filter(|line| line.contains("roads.push")) {
+        assert!(
+            !line.contains("visits"),
+            "a road pushed from a visit count: {line}"
+        );
+    }
+    // `findIndex` returns -1 for a departure the rail never drew, which
+    // the same `from > to` test drops — one rule, both arms.
+    assert!(PAGE.contains("const from = rail.findIndex((other) => other.name === source);"));
+}
+
 /// Decision 0019: the console wears the new name and keeps the motto.
 /// The wordmark is BROKKR with no dimmed prefix, the title matches, and
 /// the tagline — the product's motto, never the old product name —
