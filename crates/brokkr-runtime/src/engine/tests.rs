@@ -1785,7 +1785,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
     assert!(reason(&events).contains("between effects"));
 }
 
-fn fail_event(path: &Path, event_type: &str) {
+pub(super) fn fail_event(path: &Path, event_type: &str) {
     let connection = rusqlite::Connection::open(path).unwrap();
     connection
         .execute_batch(&format!(

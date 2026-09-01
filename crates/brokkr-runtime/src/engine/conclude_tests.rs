@@ -399,6 +399,77 @@ fn a_cursor_no_accepted_stop_can_produce_refuses_instead_of_guessing() {
     }
 }
 
+/// Past its refusals a conclusion still makes two writes, and the store
+/// can refuse either one. Neither failure is swallowed — and what each
+/// leaves behind is the point: a refused boundary close leaves the
+/// journal exactly as long as it was, and a refused `run/stopped` leaves
+/// it standing AT `Cursor::Stop`, the one position that event belongs
+/// at, so a second `conclude` finishes what the first could not without
+/// commanding a second stop. A conclusion interrupted is a conclusion
+/// postponed, never a run stranded a second time.
+#[test]
+fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // The boundary close refuses. The stop was already in force, so
+    // `conclude` had commanded nothing of its own: nothing is appended.
+    let mid = "conclude-stopped-mid-effect-hand-built";
+    let mid_db = dir.path().join("indeterminate.db");
+    let mut store = replay(&mid_db, mid, &pinned(mid));
+    let before = events(&store, mid).len();
+    super::tests::fail_event(&mid_db, "effect/indeterminate");
+    let refusal = conclude(&mut store, mid, "vyanakiev", "close it").unwrap_err();
+    assert!(
+        refusal.to_string().contains("forced event failure"),
+        "{refusal}",
+    );
+    assert_eq!(
+        events(&store, mid).len(),
+        before,
+        "a refusal appends nothing"
+    );
+
+    // The terminal event refuses. The stop this conclusion commanded
+    // stands, and the journal is left where the next one picks it up.
+    let parked = "conclude-parked-hand-built";
+    let parked_db = dir.path().join("stopped.db");
+    let mut store = replay(&parked_db, parked, &pinned(parked));
+    super::tests::fail_event(&parked_db, "run/stopped");
+    let refusal = conclude(&mut store, parked, "vyanakiev", "close it").unwrap_err();
+    assert!(
+        refusal.to_string().contains("forced event failure"),
+        "{refusal}",
+    );
+    let interrupted = fold(&events(&store, parked)).unwrap();
+    assert_eq!(interrupted.status, Status::Running);
+    assert_eq!(
+        interrupted.cursor,
+        Cursor::Stop,
+        "the commanded stop stands, waiting for the event that records it",
+    );
+
+    rusqlite::Connection::open(&parked_db)
+        .unwrap()
+        .execute_batch("DROP TRIGGER forced_event_failure;")
+        .unwrap();
+    let state = conclude(&mut store, parked, "someone-else", "again").unwrap();
+    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(
+        events(&store, parked)
+            .iter()
+            .filter(|event| event.event_type == EventType::OperatorCommanded)
+            .count(),
+        1,
+        "the stop the first attempt commanded was not commanded a second time",
+    );
+    let cited = events(&store, parked).last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(cited.contains("close it"), "{cited}");
+    assert!(!cited.contains("again"), "{cited}");
+}
+
 /// The regression this door exists to route around, pinned as a
 /// contrast rather than assumed: a run whose manifest pins an engine
 /// this tree has moved past cannot be resumed — `resume` compiles the

@@ -334,6 +334,15 @@ the policy loop needs the bundle by construction — a parked run whose
 operator wants to retry still needs a working `resume`. Exit codes are
 the usual mapping, so a concluded run exits 3.
 
+What it does **not** check is whether another process is still driving
+the run. Closing a run that is genuinely live writes `run/stopped` over
+work in flight, and the driver's own next event then lands where the
+fold admits no position for it — the journal stops folding for good.
+`resume` carries the same hazard on its fresh-process branch and neither
+verb fences it today; decision 0024 (proposed) rules on the fenced append
+that would. Until it lands, look before closing: `conclude` is for a run
+believed dead, and `brokkr runs` says whether it is.
+
 ### Re-run under another strategy
 
 Not an escape hatch so much as the next experiment:
