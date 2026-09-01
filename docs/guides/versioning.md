@@ -52,8 +52,10 @@ Three things follow, and all three are enforced rather than trusted:
    `additionalProperties: false` and the loaders refuse unknown fields.
    `forge.realms/v1` refuses unknown keys at both levels specifically so
    that decision 0021's per-realm driver and egress constraints must
-   arrive as `forge.realms/v2` rather than as drift inside a file still
-   calling itself v1.
+   arrive as a later version rather than as drift inside a file still
+   calling itself v1. Decision 0026's per-realm `journal` did exactly
+   that: it landed as `forge.realms/v2` beside an untouched v1, and the
+   loader refuses the new word in a map still calling itself v1.
 3. **A version cannot quietly narrow either.** The loader refuses a
    parking rule in a phase-machine table that calls itself
    `forge.phase-machine/v1` — a park is not a stop, and a machine that
@@ -116,6 +118,7 @@ either needs a jointly agreed v2-lineage manifest version.
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | The Looper-bound envelope, embedded whole in `run-manifest.v2`. |
 | Phase-machine table | `phase-machine.v2.schema.json` | `v2` = `v1` plus exactly one thing: a rule may rule a park. `v1` tables are read exactly as they always were. |
 | The world's map | `realms.v1.schema.json` | `forge.realms/v1`: realms (name, path, default branch) and the world's single `journal`. |
+| The world's map, many hearths | `realms.v2.schema.json` | `v2` = `v1` plus exactly one thing: a realm may name its own `journal`, falling back to the world's when it does not. `v1` maps are read exactly as they always were, and the one new word is refused under a `v1` label. |
 | Evaluator behavior | `fixtures/evaluator/corpus.ndjson` | Frozen contract data. Never regenerated, only versioned. |
 
 The binary reports the versions it was built against:

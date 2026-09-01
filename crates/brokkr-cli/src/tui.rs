@@ -87,6 +87,14 @@ pub(crate) struct Views {
     pub runs: RunsView,
     pub run: Option<RunView>,
     pub transcript: Option<(Vec<Turn>, bool)>,
+    /// What this frame has to SAY about the hearth it was read from, as
+    /// opposed to what it failed to do. A realm whose journal is not
+    /// there yet is empty rather than unreadable (decision 0026 ruling
+    /// 2), so it arrives as an ordinary frame carrying a sentence — the
+    /// status line states it and the keys stay live, where an `Err`
+    /// would have counted toward the give-up bound and ended the
+    /// console over a realm that has simply not run yet.
+    pub note: Option<String>,
 }
 
 impl Views {
@@ -102,6 +110,7 @@ impl Views {
             },
             run: None,
             transcript: None,
+            note: None,
         }
     }
 }
@@ -123,6 +132,11 @@ pub(crate) struct Ask<'a> {
     pub force: bool,
     /// The fleet's slower cadence is due.
     pub fleet: bool,
+    /// Which hearth is being read (decision 0026 ruling 2). The shell
+    /// asks about the ACTIVE tab and no other, so a tab nobody has
+    /// visited has had no store opened for it — the laziness is the
+    /// absence of a question, not a cache.
+    pub tab: usize,
 }
 
 // -------------------------------------------------------------- the state
@@ -132,6 +146,18 @@ pub(crate) enum Level {
     Runs,
     Run,
     Participant,
+}
+
+/// One tab's own place in its hearth: what was selected, what was
+/// filtered for, and where a paragraph pane was scrolled to. Parked when
+/// a tab is left and restored when it is returned to, so a switch
+/// neither resets a tab nor bleeds one tab's state into another's
+/// (decision 0026 ruling 2).
+#[derive(Clone, Default)]
+pub(crate) struct TabState {
+    pub cursor: Option<String>,
+    pub filter: String,
+    pub offset: usize,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -180,18 +206,44 @@ pub(crate) struct Tui {
     pub ticks: usize,
     /// Consumed by the shell: `r`, a level change, or the first frame.
     pub force: bool,
+    /// The world's hearths, as realm names, when it holds more than one
+    /// journal (decision 0026 ruling 2). EMPTY or one-long is a world
+    /// that draws no tab bar and behaves exactly as it always did.
+    pub tabs: Vec<String>,
+    /// Which of them is being read. Always `0` without tabs.
+    pub tab: usize,
+    /// One parked [`TabState`] per tab, so switching away and back is a
+    /// return rather than a reset.
+    pub parked: Vec<TabState>,
 }
 
 impl Tui {
+    /// The console over a world that named no hearths — the shape every
+    /// headless test drives, and exactly what [`Tui::over`] reduces to
+    /// when the world holds one journal.
+    #[cfg(test)]
+    pub(crate) fn new(run: Option<String>) -> Tui {
+        Tui::over(run, Vec::new(), 0)
+    }
+
+    /// The console over a world's hearths, opening on the one that holds
+    /// the named run. One hearth (or none named) is the console this file
+    /// has always drawn: no bar, no switching, and nothing on the frame
+    /// that says a tab exists.
+    ///
     /// `--run <id>` opens at the RUN level for that run; `Esc` then walks
     /// the ladder to the full fleet rather than exiting, so the flag
     /// needs no special case anywhere else.
-    pub(crate) fn new(run: Option<String>) -> Tui {
+    pub(crate) fn over(run: Option<String>, tabs: Vec<String>, tab: usize) -> Tui {
         let level = match run {
             Some(_) => Level::Run,
             None => Level::Runs,
         };
+        let parked = vec![TabState::default(); tabs.len()];
         Tui {
+            tab: tab.min(tabs.len().saturating_sub(1)),
+            tabs,
+            parked,
             level,
             run,
             seat: None,
@@ -230,6 +282,47 @@ impl Tui {
         self.offset = 0;
         self.force = true;
     }
+}
+
+/// The runs pane has tabs exactly when the world holds more than one
+/// journal. One hearth draws no bar and binds no tab key: a world that
+/// never drew two journals notices nothing (decision 0026 ruling 2).
+fn tabbed(tui: &Tui) -> bool {
+    tui.tabs.len() > 1
+}
+
+/// Move to another hearth. Each tab's selection, filter and scroll are
+/// parked on the way out and restored on the way in; everything below
+/// the fleet — the open run, the seat, the scope — is NOT carried
+/// across, because a run id lives in exactly one journal and the one
+/// being left is not the one being entered (ruling 3).
+fn switch(tui: &mut Tui, index: usize) {
+    if !tabbed(tui) || index >= tui.tabs.len() || index == tui.tab {
+        return;
+    }
+    tui.parked[tui.tab] = TabState {
+        cursor: tui.cursor[0].clone(),
+        filter: tui.filter.clone(),
+        offset: tui.offset,
+    };
+    let resumed = tui.parked[index].clone();
+    tui.tab = index;
+    tui.cursor = [resumed.cursor, None, None];
+    tui.filter = resumed.filter;
+    tui.offset = resumed.offset;
+    tui.level = Level::Runs;
+    tui.pane = 0;
+    tui.run = None;
+    tui.seat = None;
+    tui.scope = None;
+    tui.node = None;
+    tui.turn = None;
+    tui.typing = false;
+    tui.reading = None;
+    tui.read_offset = 0;
+    // This hearth's journal has not been read yet; the shell asks for it
+    // on the next frame, which is when its store is first opened at all.
+    tui.force = true;
 }
 
 /// Any run in the fleet is running: the gate for the brand mark's
@@ -877,6 +970,27 @@ fn typed(tui: &mut Tui, views: &Views, character: char) -> Flow {
         tui.filter.push_str(safe(&character.to_string()).as_str());
         return Flow::Continue;
     }
+    // The hearth keys, bound only where there are hearths to move
+    // between and only at the level that has the bar. Everywhere else
+    // these are characters nothing binds, exactly as they were.
+    if tabbed(tui) && tui.level == Level::Runs {
+        match character {
+            '[' => {
+                switch(tui, tui.tab.saturating_sub(1));
+                return Flow::Continue;
+            }
+            ']' => {
+                switch(tui, (tui.tab + 1).min(tui.tabs.len() - 1));
+                return Flow::Continue;
+            }
+            // The bar numbers its tabs, so the numbers are the keys.
+            '1'..='9' => {
+                switch(tui, character as usize - '1' as usize);
+                return Flow::Continue;
+            }
+            _ => {}
+        }
+    }
     match character {
         'q' => return Flow::Quit,
         'j' => step(tui, views, Step::Down),
@@ -950,6 +1064,11 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
     }
     let tail = "· / filter · r refresh · ? help · q quit";
     match (tui.level, tui.pane) {
+        // The tab keys are said where they are bound, and only there:
+        // a one-hearth world's footer is the footer it always was.
+        (Level::Runs, _) if tabbed(tui) => format!(
+            "↑↓/jk move · Enter open run · [ ] 1-9 realm · g/G top/bottom {tail}"
+        ),
         (Level::Runs, _) => format!("↑↓/jk move · Enter open run · g/G top/bottom {tail}"),
         // The lane cursor scopes, so the footer must say so where it
         // happens (decision 0014's discoverability rule): an operator
@@ -1004,6 +1123,13 @@ fn status_line(tui: &Tui) -> String {
         return status.clone();
     }
     let mut line = String::from("runs");
+    // Which hearth's runs, in a world that has more than one to be at.
+    // `tab` is in range by construction: [`Tui::over`] clamps it and
+    // [`switch`] refuses an index the world does not have.
+    if tabbed(tui) {
+        line.push_str(" · realm ");
+        line.push_str(safe(&tui.tabs[tui.tab]).as_str());
+    }
     if let Some(run) = &tui.run {
         line.push_str(" · run ");
         line.push_str(safe(run).as_str());
@@ -1214,7 +1340,41 @@ fn draw_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(lines).block(pane("help", true)), area);
 }
 
+/// The runs pane's tab bar: one entry per hearth, numbered so the number
+/// keys are discoverable, the active one marked. Drawn only in a world
+/// that has more than one hearth — see [`draw_runs`].
+fn tab_bar(tui: &Tui) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (index, label) in tui.tabs.iter().enumerate() {
+        let style = match index == tui.tab {
+            true => Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            false => Style::new().add_modifier(Modifier::DIM),
+        };
+        // Through the same sanitizer every other operator-written string
+        // on this frame crosses. A realm name is already held to a closed
+        // charset by the loader, so nothing here changes today — which is
+        // exactly why it must not be the one string that skips the gate.
+        spans.push(span(
+            &format!(" {} {} ", index + 1, safe(label).as_str()),
+            style,
+        ));
+        spans.push(span(" ", plain()));
+    }
+    Line::from(spans)
+}
+
 fn draw_runs(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
+    // A one-hearth world draws no bar and loses no row to one: the whole
+    // area is the table, exactly as it was.
+    let area = match tabbed(tui) {
+        false => area,
+        true => {
+            let [bar, rest] =
+                Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+            frame.render_widget(Paragraph::new(tab_bar(tui)), bar);
+            rest
+        }
+    };
     let keys = keys_for(tui, views);
     let cursor = tui.cursor[0].as_deref();
     let header = Row::new(
@@ -2862,12 +3022,18 @@ where
             working: session_is_live(tui, &views),
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks % RUNS_REFRESH_TICKS == 0,
+            // Only the ACTIVE hearth is ever asked about, so an inactive
+            // tab's journal is neither polled nor opened.
+            tab: tui.tab,
         };
         match source(ask) {
             Ok(Some(fresh)) => {
+                // A frame that arrived says whatever it has to say — a
+                // hearth with no journal yet says so — and a frame with
+                // nothing to say clears the last sentence.
+                tui.status = fresh.note.clone();
                 views = fresh;
                 failures = 0;
-                tui.status = None;
             }
             Ok(None) => failures = 0,
             Err(error) => {
@@ -2906,6 +3072,11 @@ where
 pub(crate) fn start<B: Backend, R: Write>(
     db_is_file: bool,
     run: Option<String>,
+    // The world's hearths as realm names (decision 0026 ruling 2).
+    // Empty or one-long draws no tab bar. `tab` is the one to open on:
+    // the hearth a named `--run` was found in.
+    tabs: Vec<String>,
+    tab: usize,
     ops: TerminalOps,
     is_tty: bool,
     // Animation is enabled exactly when colour is: the same line kind
@@ -2932,7 +3103,7 @@ where
     execute!(guard.out, EnterAlternateScreen, Hide)?;
     install_panic_hook(restore_stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut state = Tui::new(run);
+    let mut state = Tui::over(run, tabs, tab);
     state.animate = animate;
     let code = drive(&mut terminal, &ops, source, &mut state, max_iterations);
     // Uninstalled on the normal path: a panic later in this process must

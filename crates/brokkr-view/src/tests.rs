@@ -328,6 +328,103 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
     assert_eq!(json["runs"][0]["detail"], Value::Null);
 }
 
+/// A many-hearth world's fleet is grouped by realm and never merged
+/// (decision 0026 rulings 3 and 5): each section is the SAME derivation
+/// `run_rows` produces for one journal, arranged under the realm it was
+/// read from, and the world's count is a sum rather than a fold.
+#[test]
+fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
+    let running = state(Some("design"), Status::Running, None);
+    let alpha = [
+        RunEntry {
+            run_id: "a-old",
+            feature: "alpha's older feature",
+            created_at: T0,
+            state: Some(&running),
+            detail: None,
+        },
+        RunEntry {
+            run_id: "a-new",
+            feature: "alpha's newer feature",
+            created_at: T1,
+            state: Some(&running),
+            detail: None,
+        },
+    ];
+    let beta = [RunEntry {
+        run_id: "b-one",
+        feature: "beta's only feature",
+        created_at: T1,
+        state: None,
+        detail: Some("event 4: the journal does not fold"),
+    }];
+    let view = fleet_rows(&[
+        HearthEntries {
+            realm: "alpha",
+            journal: "a/forge.db",
+            entries: &alpha,
+            detail: None,
+        },
+        HearthEntries {
+            realm: "beta",
+            journal: "b/forge.db",
+            entries: &beta,
+            detail: None,
+        },
+        HearthEntries {
+            realm: "gamma",
+            journal: "c/forge.db",
+            entries: &[],
+            detail: Some("unable to open database file"),
+        },
+    ]);
+    assert_eq!(view.view_version, VIEW_VERSION);
+    assert_eq!(view.count, 3, "the world's runs, summed and not merged");
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(json["realms"][0]["realm"], "alpha");
+    assert_eq!(json["realms"][0]["journal"], "a/forge.db");
+    assert_eq!(json["realms"][0]["count"], 2);
+    // Newest first WITHIN a hearth: the ordering rule is per journal,
+    // because there is no ordering across journals to have.
+    assert_eq!(json["realms"][0]["runs"][0]["run_id"], "a-new");
+    assert_eq!(json["realms"][0]["runs"][1]["run_id"], "a-old");
+    assert_eq!(json["realms"][1]["realm"], "beta");
+    assert_eq!(json["realms"][1]["runs"][0]["run_id"], "b-one");
+    assert_eq!(
+        json["realms"][1]["runs"][0]["detail"],
+        "event 4: the journal does not fold"
+    );
+    // A hearth whose journal would not open lists nothing and says why;
+    // the rest of the world is still listed.
+    assert_eq!(json["realms"][2]["count"], 0);
+    assert_eq!(json["realms"][2]["detail"], "unable to open database file");
+    assert_eq!(json["realms"][0]["detail"], Value::Null);
+}
+
+/// A world with one hearth derives exactly what `run_rows` derives for
+/// it — the grouping is an arrangement, never a second derivation.
+#[test]
+fn one_hearth_groups_to_the_same_rows_run_rows_derives() {
+    let running = state(Some("design"), Status::Running, None);
+    let entries = [RunEntry {
+        run_id: "solo",
+        feature: "the one feature",
+        created_at: T0,
+        state: Some(&running),
+        detail: None,
+    }];
+    let flat = serde_json::to_value(run_rows(&entries)).unwrap();
+    let grouped = serde_json::to_value(fleet_rows(&[HearthEntries {
+        realm: "the-forge",
+        journal: "j.db",
+        entries: &entries,
+        detail: None,
+    }]))
+    .unwrap();
+    assert_eq!(grouped["realms"][0]["runs"], flat["runs"]);
+    assert_eq!(grouped["count"], flat["count"]);
+}
+
 /// A run whose journal does not fold is the loudest thing in a fleet:
 /// it travels as a finding, cited by the sequence the fold refused at,
 /// so the operator's aide can propose about it instead of losing it.

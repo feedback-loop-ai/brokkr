@@ -214,6 +214,7 @@ fn views_with(seat: &str) -> Views {
         runs: fleet(),
         run: Some(run_view_for(seat)),
         transcript: None,
+        note: None,
     }
 }
 
@@ -616,6 +617,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &empty);
     assert!(tui.scope.is_none(), "the phase went away");
@@ -648,6 +650,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         }]),
         run: None,
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &others);
     assert_eq!(tui.run, None);
@@ -1175,6 +1178,8 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let code = start(
         true,
         None,
+        Vec::new(),
+        0,
         test_ops(),
         true,
         false,
@@ -1199,6 +1204,8 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let error = start(
         true,
         None,
+        Vec::new(),
+        0,
         test_ops(),
         true,
         false,
@@ -1222,6 +1229,8 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let error = start(
         true,
         None,
+        Vec::new(),
+        0,
         ops,
         true,
         false,
@@ -1238,6 +1247,8 @@ fn the_terminal_is_entered_and_left_on_every_path_including_the_error_ones() {
     let refused = start(
         false,
         None,
+        Vec::new(),
+        0,
         test_ops(),
         true,
         false,
@@ -1482,6 +1493,7 @@ fn panel_views() -> Views {
         }]),
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
+        note: None,
     }
 }
 
@@ -1677,6 +1689,7 @@ fn graph_views(phases: Vec<Phase>, status: &str) -> Views {
         runs: fleet(),
         run: Some(view),
         transcript: None,
+        note: None,
     }
 }
 
@@ -2406,6 +2419,7 @@ fn a_graph_selection_survives_a_refresh_and_a_vanished_node_highlights_nothing()
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &empty);
     assert!(selected(&tui, &empty).is_none());
@@ -2807,7 +2821,7 @@ fn a_whole_tui_session_writes_nothing_at_all() {
     ]);
     let mut head = None;
     let mut source =
-        |ask: Ask| crate::tui_views(&db, ask, &mut head, &mut None, || NOW.to_string());
+        |ask: Ask| crate::tui_views(&db, true, ask, &mut head, &mut None, || NOW.to_string());
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 40).unwrap();
@@ -3232,6 +3246,7 @@ fn adopting_views() -> Views {
         runs: fleet(),
         run: Some(brokkr_view::run_view(&events, Some(&state()))),
         transcript: None,
+        note: None,
     }
 }
 
@@ -4068,6 +4083,7 @@ fn the_lane_cursor_scopes_the_member_and_the_seats_and_trail_filter_to_it() {
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &gone);
     assert!(
@@ -4492,4 +4508,304 @@ fn the_return_arc_names_only_the_solid_vocabulary() {
             "the dashed set is not the arc's: {forbidden}"
         );
     }
+}
+
+// ------------------------------- many hearths (0026 rulings 2 and 5)
+
+use brokkr_runtime::realms::Hearth;
+
+fn tabbed_tui(tabs: &[&str]) -> Tui {
+    Tui::over(None, tabs.iter().map(|t| t.to_string()).collect(), 0)
+}
+
+/// The guard on `switch` holds at every leg: an untabbed console
+/// switches nowhere, and a tabbed one refuses an index past the bar and
+/// a switch to the tab already open — nothing parked, nothing restored.
+#[test]
+fn a_switch_out_of_range_or_to_the_open_tab_moves_nothing() {
+    let mut plain = Tui::new(None);
+    switch(&mut plain, 1);
+    assert_eq!(plain.tab, 0);
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    switch(&mut tui, 5);
+    assert_eq!(tui.tab, 0, "past the bar is a no-op");
+    switch(&mut tui, 0);
+    assert_eq!(tui.tab, 0, "the open tab is a no-op");
+    switch(&mut tui, 1);
+    assert_eq!(tui.tab, 1, "and a real switch still switches");
+}
+
+/// The regression bar: a world with one journal draws no tab bar, binds
+/// no tab key, and says nothing about a realm — the same frame, byte for
+/// byte, as the console that never knew hearths existed.
+#[test]
+fn a_one_hearth_world_draws_no_tab_bar_and_binds_no_tab_key() {
+    let views = views();
+    let plain = frame_of(&Tui::new(None), &views, 100, 20);
+    for tabs in [Vec::new(), vec!["the-forge"]] {
+        let mut tui = tabbed_tui(&tabs);
+        assert_eq!(frame_of(&tui, &views, 100, 20), plain, "{tabs:?}");
+        assert_eq!(
+            footer_for(&tui, &views),
+            footer_for(&Tui::new(None), &views)
+        );
+        assert_eq!(status_line(&tui), "runs");
+        // The keys are characters nothing binds, exactly as before.
+        for key in ['[', ']', '2'] {
+            apply(&mut tui, &views, Key::Char(key));
+            assert_eq!(tui.tab, 0, "{key} moved a world with no tabs");
+        }
+        assert_eq!(frame_of(&tui, &views, 100, 20), plain);
+    }
+}
+
+/// More than one journal, and the runs pane grows a numbered bar of the
+/// realms — the tab bar is the only thing that appears.
+#[test]
+fn a_many_hearth_world_names_its_realms_on_a_numbered_tab_bar() {
+    let views = views();
+    let tui = tabbed_tui(&["alpha", "beta+delta"]);
+    let lines = buffer_of(&tui, &views, 100, 20);
+    assert!(lines[0].contains("1 alpha"), "{}", lines[0]);
+    assert!(lines[0].contains("2 beta+delta"), "{}", lines[0]);
+    // The status line says which hearth is being read.
+    assert_eq!(status_line(&tui), "runs · realm alpha");
+    // And the footer says how to move between them, where it is bound.
+    assert!(footer_for(&tui, &views).contains("[ ] 1-9 realm"));
+    // The table is still there, one row down.
+    assert!(lines.iter().any(|line| line.contains("run-7")), "{lines:?}");
+}
+
+/// `[`, `]` and the number keys move between hearths, and the ends
+/// clamp rather than wrap — a key that does nothing is better than a key
+/// that silently lands somewhere else.
+#[test]
+fn the_brackets_and_the_number_keys_move_between_hearths() {
+    let views = views();
+    let mut tui = tabbed_tui(&["alpha", "beta", "gamma"]);
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 1);
+    apply(&mut tui, &views, Key::Char(']'));
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 2, "the last hearth is the last");
+    apply(&mut tui, &views, Key::Char('['));
+    assert_eq!(tui.tab, 1);
+    apply(&mut tui, &views, Key::Char('['));
+    apply(&mut tui, &views, Key::Char('['));
+    assert_eq!(tui.tab, 0, "the first hearth is the first");
+    apply(&mut tui, &views, Key::Char('3'));
+    assert_eq!(tui.tab, 2);
+    apply(&mut tui, &views, Key::Char('9'));
+    assert_eq!(tui.tab, 2, "a number past the last hearth names none");
+
+    // While a filter is being typed, they are letters — the existing
+    // boundary, unmoved.
+    tui.tab = 0;
+    tui.typing = true;
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 0);
+    assert_eq!(tui.filter, "]");
+}
+
+/// Each tab keeps its OWN selection, filter and scroll: switching away
+/// and back is a return, and neither tab's state bleeds into the other's.
+#[test]
+fn each_hearth_keeps_its_own_selection_filter_and_cursor() {
+    let views = views();
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    tui.cursor[0] = Some("run-7".to_string());
+    tui.filter = "deriv".to_string();
+    tui.offset = 4;
+
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 1);
+    assert_eq!(tui.cursor[0], None, "a fresh hearth is fresh");
+    assert_eq!(tui.filter, "");
+    assert_eq!(tui.offset, 0);
+
+    tui.cursor[0] = Some("run-old".to_string());
+    tui.filter = "older".to_string();
+    tui.offset = 9;
+
+    apply(&mut tui, &views, Key::Char('['));
+    assert_eq!(tui.tab, 0);
+    assert_eq!(
+        tui.cursor[0].as_deref(),
+        Some("run-7"),
+        "returned, not reset"
+    );
+    assert_eq!(tui.filter, "deriv");
+    assert_eq!(tui.offset, 4);
+
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.cursor[0].as_deref(), Some("run-old"));
+    assert_eq!(tui.filter, "older");
+    assert_eq!(tui.offset, 9);
+}
+
+/// A run id lives in exactly one journal (ruling 3), so leaving a hearth
+/// leaves the run that was open in it — nothing selected under one
+/// journal survives into another, and the next frame is forced because
+/// the new hearth has not been read at all.
+#[test]
+fn leaving_a_hearth_leaves_the_run_that_was_open_in_it() {
+    let views = views();
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    tui.cursor[0] = Some("run-7".to_string());
+    apply(&mut tui, &views, Key::Enter);
+    assert_eq!(tui.level, Level::Run);
+    assert_eq!(tui.run.as_deref(), Some("run-7"));
+    // The tab keys are the runs pane's, so they are not bound here.
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 0, "the bar belongs to the fleet, not to a run");
+
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    assert_eq!(tui.level, Level::Runs);
+    tui.force = false;
+    apply(&mut tui, &views, Key::Char(']'));
+    assert_eq!(tui.tab, 1);
+    assert_eq!(tui.run, None, "the run belonged to the hearth it was in");
+    assert_eq!(tui.seat, None);
+    assert!(tui.scope.is_none());
+    assert!(tui.force, "the new hearth's journal has not been read yet");
+}
+
+/// Stores open lazily and only the ACTIVE hearth is polled: a tab nobody
+/// visits is never asked about, so its journal is never opened — and
+/// when it is visited, it is opened READ-ONLY, so a console still
+/// creates no journal (ruling 5).
+#[test]
+fn an_unvisited_hearth_is_never_asked_about_and_no_read_creates_a_journal() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    crate::tests::running_store(&alpha, "run-a");
+    // Never created, and it must stay that way.
+    let beta = dir.path().join("beta.db");
+    let hearths = [
+        Hearth {
+            realms: vec!["alpha".to_string()],
+            journal: alpha.clone(),
+        },
+        Hearth {
+            realms: vec!["beta".to_string()],
+            journal: beta.clone(),
+        },
+    ];
+
+    let mut heads = vec![None, None];
+    let mut seen = None;
+    let mut asked: Vec<usize> = Vec::new();
+    {
+        let mut inner = crate::tui_source(&hearths, &mut heads, &mut seen);
+        let mut source = |ask: Ask| {
+            asked.push(ask.tab);
+            inner(ask)
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        script(&[Key::Down, Key::Quit]);
+        let mut tui = tabbed_tui(&["alpha", "beta"]);
+        drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
+    }
+    assert!(!asked.is_empty());
+    assert!(
+        asked.iter().all(|tab| *tab == 0),
+        "only the active hearth was asked about: {asked:?}"
+    );
+    assert!(!beta.exists(), "an unvisited hearth's journal was opened");
+
+    // Visiting it asks about it — and still creates nothing.
+    let mut heads = vec![None, None];
+    let mut seen = None;
+    let mut asked: Vec<usize> = Vec::new();
+    {
+        let mut inner = crate::tui_source(&hearths, &mut heads, &mut seen);
+        let mut source = |ask: Ask| {
+            asked.push(ask.tab);
+            inner(ask)
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        script(&[Key::Char(']'), Key::Quit]);
+        let mut tui = tabbed_tui(&["alpha", "beta"]);
+        drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
+        // A hearth with no journal yet is a frame that says so, with the
+        // keys still live and nothing counted against the give-up bound.
+        assert!(
+            tui.status
+                .as_deref()
+                .is_some_and(|said| said.contains("no journal yet")),
+            "the empty hearth said so: {:?}",
+            tui.status
+        );
+    }
+    assert!(asked.contains(&1), "the visited hearth was asked about");
+    assert!(!beta.exists(), "a read created a journal");
+    assert!(!dir.path().join("beta.db-wal").exists());
+}
+
+/// A realm the map names before its first run has no journal yet, and
+/// that is an ordinary state of the world: the hearth is EMPTY, not
+/// unreadable. Visiting it shows an empty fleet, says why, and the
+/// console keeps running — where an error would have counted toward
+/// `WATCH_TRANSIENT_FRAMES` and ended the session in a second and a
+/// quarter over a realm that has simply not run yet (ruling 2). The
+/// world's other hearth is still there when the operator tabs back.
+#[test]
+fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    crate::tests::running_store(&alpha, "run-a");
+    let beta = dir.path().join("beta.db");
+    let hearths = [
+        Hearth {
+            realms: vec!["alpha".to_string()],
+            journal: alpha.clone(),
+        },
+        Hearth {
+            realms: vec!["beta".to_string()],
+            journal: beta.clone(),
+        },
+    ];
+
+    let mut heads = vec![None, None];
+    let mut seen = None;
+    let mut source = crate::tui_source(&hearths, &mut heads, &mut seen);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    script(&[Key::Char(']')]);
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    // Well past the give-up bound: the old behaviour bailed on the
+    // fifth unreadable poll, so surviving this many is the assertion.
+    let code = drive(
+        &mut terminal,
+        &test_ops(),
+        &mut source,
+        &mut tui,
+        crate::WATCH_TRANSIENT_FRAMES * 4,
+    );
+    assert!(code.is_ok(), "the console gave up: {code:?}");
+    assert_eq!(tui.tab, 1);
+    assert!(
+        tui.status
+            .as_deref()
+            .is_some_and(|said| said.contains("no journal yet")),
+        "{:?}",
+        tui.status
+    );
+    // The sentence is on the frame, sanitized like every other string.
+    let frame = terminal.backend().buffer().clone();
+    let drawn: String = frame
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(drawn.contains("no journal yet"), "{drawn}");
+    assert!(!beta.exists(), "a read created a journal");
+
+    // And the hearth that DOES have a journal is unharmed by the visit.
+    script(&[Key::Char('[')]);
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
+    assert_eq!(tui.tab, 0);
+    assert_eq!(tui.status, None, "the read hearth has nothing to say");
 }

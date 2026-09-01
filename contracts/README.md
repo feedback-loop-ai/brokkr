@@ -73,6 +73,24 @@ unresumable. The event vocabulary needed nothing — the manifest already rides
 inside `run/started`, which is exactly why embedding it there answers "what
 world did this run believe in?" from the journal alone.
 
+Many hearths (decision 0026) add one more file and change none of the bytes
+above — v1's included, which is now pinned by digest alongside the original
+frozen five:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with per-realm journals | `realms.v2.schema.json` | forge-core (shape), forge-runtime (hearths), every fleet read surface |
+
+`forge.realms/v2` is `v1` plus exactly one optional property per realm:
+`journal`. A realm that names none falls back to the world's journal, which is
+what every v1 realm already resolves to — so a v1 map loads, and every surface
+draws it, exactly as before. The vocabulary stays closed at both levels, and
+the one new word is refused in a map still calling itself v1: a version is a
+promise about what a file may say. Journals never merge (ruling 5): a
+many-hearth world is several append-only truths read side by side, so `runs`
+groups by realm, `tui` tabs by realm, and `muninn` cites the realm each fact
+came from — and no fold ever crosses a journal boundary.
+
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six
 named keys, so the pin would be dropped in silence. `brokkr run` refuses

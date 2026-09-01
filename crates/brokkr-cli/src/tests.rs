@@ -22,7 +22,7 @@ pub(crate) fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-fn running_store(db: &std::path::Path, run_id: &str) {
+pub(crate) fn running_store(db: &std::path::Path, run_id: &str) {
     let mut store = Store::open(db).unwrap();
     store
         .create_run(run_id, "feature", "test", &json!({"files": {}}))
@@ -181,6 +181,59 @@ fn compiled_recipe(relative: &str) -> Bundle {
         &workspace().join("adapters"),
     )
     .unwrap()
+}
+
+/// The selector's two quiet arms, driven rather than presumed. A world
+/// whose only journal on disk refuses to open answers `latest` with the
+/// refusal — never by inventing an empty fleet over a broken store. And
+/// a NAMED run in a world whose journals are not on disk resolves to the
+/// first hearth carrying the name along, so the verb behind it does the
+/// refusing without a database ever being created by a read.
+#[test]
+fn a_broken_hearth_refuses_latest_and_a_ghost_world_carries_a_name_along() {
+    let dir = tempfile::tempdir().unwrap();
+    let broken = dir.path().join("broken.db");
+    std::fs::write(&broken, "this is prose, not pages").unwrap();
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let refusal = resolve_in_hearths(&[hearth("broken", &broken)], "latest".to_string())
+        .unwrap_err()
+        .to_string();
+    assert!(!refusal.is_empty());
+
+    let ghosts = [
+        hearth("ghost-a", &dir.path().join("a.db")),
+        hearth("ghost-b", &dir.path().join("b.db")),
+    ];
+    assert_eq!(
+        resolve_in_hearths(&ghosts, "named-run".to_string()).unwrap(),
+        (0, "named-run".to_string())
+    );
+    assert!(!dir.path().join("a.db").exists(), "a read created nothing");
+}
+
+/// The production `run_tui` entry in a many-hearth world builds the tab
+/// bar from the realm labels before the console's own gate refuses the
+/// missing journals — the one-hearth world keeps building none.
+#[test]
+fn run_tui_names_a_tab_per_hearth_in_a_many_hearth_world() {
+    let dir = tempfile::tempdir().unwrap();
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = vec![
+        hearth("alpha", &dir.path().join("alpha.db")),
+        hearth("beta", &dir.path().join("beta.db")),
+    ];
+    // Journals absent: the console's gate refuses after the tabs are
+    // named, and no database is created by the attempt.
+    let _ = run_tui(world, None, 0);
+    assert!(!dir.path().join("alpha.db").exists());
+    let _ = run_tui(vec![hearth("solo", &dir.path().join("solo.db"))], None, 0);
+    assert!(!dir.path().join("solo.db").exists());
 }
 
 /// A workspace holding no `realms.json`. Named explicitly by the tests
@@ -1299,8 +1352,8 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
@@ -1308,7 +1361,7 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     assert_eq!(code, ExitCode::SUCCESS);
     assert_eq!(
         seen,
-        Some((db.clone(), Some("run-alpha".to_string()))),
+        Some((db.clone(), Some("run-alpha".to_string()), 0)),
         "a prefix resolves through the one resolver, never a second copy"
     );
 
@@ -1326,13 +1379,13 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
     .unwrap();
-    assert_eq!(seen, Some((missing.clone(), Some("latest".to_string()))));
+    assert_eq!(seen, Some((missing.clone(), Some("latest".to_string()), 0)));
     assert!(!missing.exists(), "a read never creates a database");
     assert!(!dir.path().join("nowhere.db-wal").exists());
 
@@ -1348,17 +1401,140 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
         ui::serve,
         None,
         None,
-        |db, run| {
-            seen = Some((db, run));
+        |hearths, run, tab| {
+            seen = Some((hearths[0].journal.clone(), run, tab));
             Ok(ExitCode::SUCCESS)
         },
     )
     .unwrap();
-    assert_eq!(seen, Some((db, None)));
+    assert_eq!(seen, Some((db, None, 0)));
 
     use clap::CommandFactory;
     let help = Cli::command().render_help().to_string();
     assert!(help.contains("tui"), "the verb is listed: {help}");
+}
+
+/// A run id lives in exactly ONE journal (decision 0026 ruling 3), so a
+/// `--run` selector in a many-hearth world is a lookup ACROSS hearths —
+/// answered by the hearth that holds it, which is also the hearth the
+/// console opens on. No journal is merged into another to find it.
+#[test]
+fn a_run_selector_is_resolved_by_the_hearth_that_holds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "run-alpha");
+    running_store(&beta, "run-beta");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    assert_eq!(
+        resolve_in_hearths(&world, "run-be".to_string()).unwrap(),
+        (1, "run-beta".to_string()),
+        "the second hearth answered, so the console opens there"
+    );
+    assert_eq!(
+        resolve_in_hearths(&world, "run-al".to_string()).unwrap(),
+        (0, "run-alpha".to_string())
+    );
+
+    // A selector no hearth answers is the refusal of the first that
+    // tried — never a guess, and never a merge.
+    let refusal = resolve_in_hearths(&world, "nowhere".to_string()).unwrap_err();
+    assert!(refusal.to_string().contains("nowhere"), "{refusal}");
+
+    // A world whose journals are not on disk yet consults no selector:
+    // resolving would create the database a read came only to read.
+    let empty = [hearth("ghost", &dir.path().join("ghost.db"))];
+    assert_eq!(
+        resolve_in_hearths(&empty, "latest".to_string()).unwrap(),
+        (0, "latest".to_string())
+    );
+    assert!(!dir.path().join("ghost.db").exists());
+}
+
+/// A selector that answers in SEVERAL hearths is refused by name, never
+/// silently opened on the first (decision 0026 ruling 3): a prefix that
+/// one journal would call ambiguous cannot become an answer merely
+/// because the world grew a second journal. `latest` is the exception
+/// the selector itself defines — it means the newest run, so the
+/// recorded stamp decides which hearth holds it rather than the world's
+/// order deciding for it.
+#[test]
+fn a_selector_that_several_hearths_answer_is_refused_and_latest_is_the_newest() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "run-shared-a");
+    running_store(&beta, "run-shared-b");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    let refusal = resolve_in_hearths(&world, "run-shared".to_string()).unwrap_err();
+    let said = refusal.to_string();
+    assert!(said.contains("2 realms"), "{said}");
+    assert!(said.contains("alpha"), "{said}");
+    assert!(said.contains("beta"), "{said}");
+    assert!(said.contains("--db"), "the way out is named: {said}");
+
+    // `latest` still resolves — every hearth holding runs answers it,
+    // and that is an answer about the world, not an ambiguity.
+    let (tab, id) = resolve_in_hearths(&world, "latest".to_string()).unwrap();
+    assert_eq!(id, format!("run-shared-{}", ["a", "b"][tab]));
+
+    // The stamp is what decides between them, and a tie leaves the
+    // earlier hearth in place: map order is the world's own order.
+    assert_eq!(
+        newest_answer(vec![
+            (0, "old".to_string(), "2026-01-01T00:00:00Z".to_string()),
+            (1, "new".to_string(), "2026-01-02T00:00:00Z".to_string()),
+        ]),
+        Some((1, "new".to_string()))
+    );
+    assert_eq!(
+        newest_answer(vec![
+            (0, "first".to_string(), "2026-01-01T00:00:00Z".to_string()),
+            (1, "same".to_string(), "2026-01-01T00:00:00Z".to_string()),
+        ]),
+        Some((0, "first".to_string()))
+    );
+    assert_eq!(newest_answer(Vec::new()), None);
+}
+
+/// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
+/// console asked about ONE run must not migrate the journals of the
+/// realms it merely walked past. An empty file is the proof — a
+/// read-write open would write a schema and a meta row into it, and a
+/// read-only one refuses it and moves on.
+#[test]
+fn resolving_across_hearths_migrates_no_journal_it_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let unborn = dir.path().join("alpha.db");
+    std::fs::write(&unborn, b"").unwrap();
+    let beta = dir.path().join("beta.db");
+    running_store(&beta, "run-beta");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &unborn), hearth("beta", &beta)];
+
+    assert_eq!(
+        resolve_in_hearths(&world, "run-be".to_string()).unwrap(),
+        (1, "run-beta".to_string())
+    );
+    assert_eq!(
+        std::fs::metadata(&unborn).unwrap().len(),
+        0,
+        "a journal the lookup passed was written to"
+    );
+    assert!(!dir.path().join("alpha.db-wal").exists());
 }
 
 /// The console's liveness, at the one place a store is opened on its
@@ -1371,6 +1547,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     running_store(&db, "r1");
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let ask = |run, force, fleet| tui::Ask {
+        tab: 0,
         run,
         session: None,
         working: false,
@@ -1381,6 +1558,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
 
     let first = tui_views(
         &db,
+        true,
         ask(Some("r1"), true, false),
         &mut head,
         &mut None,
@@ -1396,6 +1574,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, false),
             &mut head,
             &mut None,
@@ -1408,6 +1587,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, true),
             &mut head,
             &mut None,
@@ -1418,9 +1598,16 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         "the fleet's slower cadence rebuilds anyway"
     );
     assert!(
-        tui_views(&db, ask(None, false, false), &mut head, &mut None, clock)
-            .unwrap()
-            .is_some(),
+        tui_views(
+            &db,
+            true,
+            ask(None, false, false),
+            &mut head,
+            &mut None,
+            clock
+        )
+        .unwrap()
+        .is_some(),
         "leaving a run behind moves the head to None"
     );
     head = Some((2, String::new()));
@@ -1439,6 +1626,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &db,
+            true,
             ask(Some("r1"), false, false),
             &mut head,
             &mut None,
@@ -1456,6 +1644,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     assert!(tui_views(
         &tampered,
+        true,
         ask(Some("r1"), true, false),
         &mut head,
         &mut None,
@@ -1480,6 +1669,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     assert!(
         tui_views(
             &tampered,
+            true,
             ask(Some("r1"), false, false),
             &mut head_at_equal_seq,
             &mut None,
@@ -1506,9 +1696,16 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         )
         .unwrap();
     let mut head = None;
-    let views = tui_views(&mixed, ask(None, true, false), &mut head, &mut None, clock)
-        .unwrap()
-        .unwrap();
+    let views = tui_views(
+        &mixed,
+        true,
+        ask(None, true, false),
+        &mut head,
+        &mut None,
+        clock,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(views.runs.runs.len(), 2, "both runs are listed");
     let broken = views
         .runs
@@ -1522,7 +1719,9 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     let views = tui_views(
         &mixed,
+        true,
         tui::Ask {
+            tab: 0,
             run: None,
             session: Some("9999-9999"),
             working: false,
@@ -1543,6 +1742,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let mut head = None;
     assert!(tui_views(
         &corrupt,
+        true,
         ask(None, true, false),
         &mut head,
         &mut None,
@@ -1553,9 +1753,13 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     // The production source binds the workspace clock, and reading
     // through it leaves the journal exactly as it was.
     let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
-    let mut head = None;
+    let mut heads = vec![None];
     let mut seen = None;
-    let mut source = tui_source(&db, &mut head, &mut seen);
+    let hearths = [Hearth {
+        realms: vec!["solo".to_string()],
+        journal: db.clone(),
+    }];
+    let mut source = tui_source(&hearths, &mut heads, &mut seen);
     let views = source(ask(Some("r1"), true, false)).unwrap().unwrap();
     assert!(views.now.ends_with('Z'));
     assert_eq!(
@@ -1583,6 +1787,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
 
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let poll = |session, working| tui::Ask {
+        tab: 0,
         run: Some("r1"),
         session,
         working,
@@ -1598,7 +1803,9 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     // The first frame is forced; it settles the head and the length.
     assert!(tui_views(
         &db,
+        true,
         tui::Ask {
+            tab: 0,
             run: Some("r1"),
             session: Some("abcd-1234"),
             working: true,
@@ -1614,6 +1821,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), true),
             &mut head,
             &mut seen,
@@ -1630,6 +1838,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     std::fs::write(&file, turn("the first words")).unwrap();
     let views = tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), true),
         &mut head,
         &mut seen,
@@ -1641,6 +1850,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), true),
             &mut head,
             &mut seen,
@@ -1657,6 +1867,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     .unwrap();
     let views = tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), true),
         &mut head,
         &mut seen,
@@ -1682,6 +1893,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("0000-1111"), true),
             &mut head,
             &mut seen,
@@ -1696,6 +1908,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     // journal's own head is the only thing left that can move.
     assert!(tui_views(
         &db,
+        true,
         poll(Some("abcd-1234"), false),
         &mut head,
         &mut seen,
@@ -1716,6 +1929,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     assert!(
         tui_views(
             &db,
+            true,
             poll(Some("abcd-1234"), false),
             &mut head,
             &mut seen,
@@ -2100,6 +2314,44 @@ fn realms_map(dir: &std::path::Path) -> PathBuf {
     )
     .unwrap();
     path
+}
+
+/// Two hearths on disk and `brokkr runs` lists each under its own
+/// realm, read through the same fold the one-hearth listing uses — and
+/// a hearth whose journal refuses to open lists as empty rather than
+/// taking the world down with it (decision 0026 rulings 3 and 5).
+#[test]
+fn runs_lists_a_many_hearth_world_grouped_by_realm() {
+    let dir = tempfile::tempdir().unwrap();
+    running_store(&dir.path().join("alpha.db"), "run-alpha");
+    running_store(&dir.path().join("beta.db"), "run-beta");
+    // The third hearth's journal is prose: its listing is empty, its
+    // refusal is its own, and the readable hearths list regardless.
+    std::fs::write(dir.path().join("gamma.db"), "prose, not pages").unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
+                {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
+                {"name": "gamma", "path": ".", "default_branch": "main", "journal": "gamma.db"},
+            ],
+            "journal": "alpha.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let code = run_in(
+        dir.path(),
+        cli(Cmd::Runs {
+            realms: None,
+            db: None,
+            json: false,
+        }),
+    )
+    .unwrap();
+    assert_eq!(code, ExitCode::SUCCESS);
 }
 
 /// The three rules of resolution every surface shares (decision 0023

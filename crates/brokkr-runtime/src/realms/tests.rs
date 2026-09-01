@@ -226,3 +226,108 @@ fn a_pin_that_cannot_answer_for_itself_is_refused() {
     }))));
     assert!(refused.contains("names no realms"), "{refused}");
 }
+
+// ------------------------------------- many hearths (0026 ruling 1)
+
+/// A v2 world: two realms with their own journals, one falling back to
+/// the world's, and a fourth sharing the second realm's hearth.
+const MANY: &str = r#"{
+  "schema": "forge.realms/v2",
+  "realms": [
+    {"name": "alpha", "path": "the-forge", "default_branch": "main", "journal": "a/forge.db"},
+    {"name": "beta", "path": "the-forge", "default_branch": "main", "journal": "b/forge.db"},
+    {"name": "gamma", "path": "the-forge", "default_branch": "main"},
+    {"name": "delta", "path": "the-forge", "default_branch": "main", "journal": "b/forge.db"}
+  ],
+  "journal": "state/forge.db"
+}"#;
+
+/// A realm's own journal resolves against the MAP FILE's directory, like
+/// every other path a map carries — not against the world journal's.
+#[test]
+fn a_realms_own_journal_resolves_against_the_map_file() {
+    let dir = workspace(MANY);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    assert_eq!(
+        world.journal_of(&world.map.realms[0]),
+        dir.path().join("a/forge.db")
+    );
+    // The world's journal is unmoved, and the realm naming none gets it.
+    assert_eq!(world.journal(), dir.path().join("state/forge.db"));
+    assert_eq!(
+        world.journal_of(&world.map.realms[2]),
+        dir.path().join("state/forge.db")
+    );
+}
+
+/// The distinct journals, in map order, with realms sharing one hearth
+/// listed together — a fleet reader opens each journal exactly once.
+#[test]
+fn a_many_hearth_world_enumerates_its_distinct_journals_once_each() {
+    let dir = workspace(MANY);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let hearths = world.hearths();
+    assert_eq!(
+        hearths,
+        vec![
+            Hearth {
+                realms: vec!["alpha".to_string()],
+                journal: dir.path().join("a/forge.db"),
+            },
+            Hearth {
+                realms: vec!["beta".to_string(), "delta".to_string()],
+                journal: dir.path().join("b/forge.db"),
+            },
+            Hearth {
+                realms: vec!["gamma".to_string()],
+                journal: dir.path().join("state/forge.db"),
+            },
+        ]
+    );
+    assert_eq!(hearths[1].label(), "beta+delta");
+    // A hearth built from a bare journal — a workspace with no map at
+    // all — has no realm to name itself by, and says so rather than
+    // labelling itself with nothing.
+    assert_eq!(
+        Hearth {
+            realms: Vec::new(),
+            journal: PathBuf::from("j.db"),
+        }
+        .label(),
+        "world"
+    );
+}
+
+/// The regression bar: a v1 world is ONE hearth, so every surface that
+/// groups by hearth draws it exactly as it drew it before this existed.
+#[test]
+fn a_v1_world_is_one_hearth_carrying_the_journal_it_always_had() {
+    let dir = workspace(MAP);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let hearths = world.hearths();
+    assert_eq!(hearths.len(), 1);
+    assert_eq!(hearths[0].journal, world.journal());
+    assert_eq!(hearths[0].label(), "the-forge");
+}
+
+/// The degenerate many-hearth case: a v2 map whose one realm names the
+/// journal the world already names is still ONE hearth, not two.
+#[test]
+fn a_v2_realm_naming_the_worlds_own_journal_adds_no_hearth() {
+    let dir = workspace(
+        r#"{
+  "schema": "forge.realms/v2",
+  "realms": [{"name": "solo", "path": "the-forge", "default_branch": "main",
+              "journal": "state/forge.db"}],
+  "journal": "state/forge.db"
+}"#,
+    );
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    assert_eq!(
+        world.hearths(),
+        vec![Hearth {
+            realms: vec!["solo".to_string()],
+            journal: dir.path().join("state/forge.db"),
+        }]
+    );
+}

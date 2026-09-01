@@ -1,11 +1,16 @@
 use super::*;
 
 fn row(name: &str, path: &str, branch: &str, head: &str) -> Row {
+    hearth_row(name, path, branch, head, "j.db")
+}
+
+fn hearth_row(name: &str, path: &str, branch: &str, head: &str, journal: &str) -> Row {
     Row {
         name: name.to_string(),
         path: path.to_string(),
         branch: branch.to_string(),
         head: head.to_string(),
+        journal: journal.to_string(),
     }
 }
 
@@ -20,6 +25,7 @@ fn the_world_reads_out_as_the_map_the_journal_and_the_realms() {
             row("the-forge", ".", "main", "5a4bf4a"),
             row("lanetally", "../lanetally", "trunk", "0f0f0f0"),
         ],
+        false,
     );
     assert_eq!(
         out,
@@ -34,7 +40,12 @@ fn the_world_reads_out_as_the_map_the_journal_and_the_realms() {
 /// readout marks an absent fact.
 #[test]
 fn a_realm_with_no_readable_head_is_marked_absent() {
-    let out = render("m.json", "j.db", &[row("solo", "/tmp/x", "main", NO_HEAD)]);
+    let out = render(
+        "m.json",
+        "j.db",
+        &[row("solo", "/tmp/x", "main", NO_HEAD)],
+        false,
+    );
     assert!(out.ends_with("realm    solo  /tmp/x  main  -\n"), "{out}");
 }
 
@@ -46,6 +57,7 @@ fn a_map_cannot_smuggle_an_escape_sequence_into_the_frame() {
         "m\u{1b}[2J.json",
         "j.db",
         &[row("a\u{202e}b", ".", "main", "abc")],
+        false,
     );
     assert!(!out.contains('\u{1b}'), "{out:?}");
     assert!(!out.contains('\u{202e}'), "{out:?}");
@@ -79,6 +91,7 @@ fn rows_are_the_map_read_against_the_trees_it_names() {
         &world.source.display().to_string(),
         "/elsewhere/forge.db",
         &rows,
+        per_realm(&world, &rows),
     );
     assert!(
         printed.contains("journal  /elsewhere/forge.db"),
@@ -88,6 +101,134 @@ fn rows_are_the_map_read_against_the_trees_it_names() {
         printed.contains("realm    solo  tree  main  -"),
         "{printed}"
     );
+}
+
+/// Decision 0026 ruling 1, read out: a world whose realms sit at
+/// different hearths says which is whose; a world whose realms share one
+/// says it once, at the top, exactly as it always did.
+#[test]
+fn a_many_hearth_world_reads_out_each_realms_own_journal() {
+    let one = render(
+        "m.json",
+        "j.db",
+        &[
+            hearth_row("alpha", "a", "main", "aaa", "j.db"),
+            hearth_row("beta", "b", "main", "bbb", "j.db"),
+        ],
+        false,
+    );
+    assert_eq!(
+        one,
+        "map      m.json\n\
+         journal  j.db\n\
+         realm    alpha  a  main  aaa\n\
+         realm    beta   b  main  bbb\n"
+    );
+
+    let many = render(
+        "m.json",
+        "j.db",
+        &[
+            hearth_row("alpha", "a", "main", "aaa", "a/forge.db"),
+            hearth_row("beta", "b", "main", "bbb", "j.db"),
+        ],
+        true,
+    );
+    assert_eq!(
+        many,
+        "map      m.json\n\
+         journal  j.db\n\
+         realm    alpha  a  main  aaa  a/forge.db\n\
+         realm    beta   b  main  bbb  j.db\n"
+    );
+}
+
+/// The column is decided against the WORLD's journal, not against the
+/// other realms. A map whose realms all name one journal OF THEIR OWN
+/// holds no disagreement between realms — and would otherwise print a
+/// header naming a journal no realm reads, with no column to correct it.
+/// The other side of the same rule: `--db` renames the header for one
+/// invocation without changing what the map says, so a v1 world read
+/// with `--db` still grows no column.
+#[test]
+fn the_journal_column_answers_to_the_world_and_not_to_the_other_realms() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("tree")).unwrap();
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        r#"{"schema":"forge.realms/v2",
+            "realms":[{"name":"alpha","path":"tree","default_branch":"main",
+                       "journal":"shared.db"},
+                      {"name":"beta","path":"tree","default_branch":"main",
+                       "journal":"shared.db"}],
+            "journal":"j.db"}"#,
+    )
+    .unwrap();
+    let world = World::load(&map).unwrap();
+    let agreed = rows(&world);
+    assert!(
+        per_realm(&world, &agreed),
+        "the realms agree with each other and not with the world"
+    );
+    let printed = render("m.json", "j.db", &agreed, per_realm(&world, &agreed));
+    assert!(
+        printed
+            .lines()
+            .filter(|line| line.starts_with("realm"))
+            .all(|line| line.ends_with("shared.db")),
+        "{printed}"
+    );
+
+    // A v1 world, read with `--db`: the header is the operator's
+    // journal, the map still says one thing, and no column appears.
+    let v1 = dir.path().join("v1.json");
+    std::fs::write(
+        &v1,
+        r#"{"schema":"forge.realms/v1",
+            "realms":[{"name":"solo","path":"tree","default_branch":"main"}],
+            "journal":"j.db"}"#,
+    )
+    .unwrap();
+    let world = World::load(&v1).unwrap();
+    let plain = rows(&world);
+    assert!(!per_realm(&world, &plain));
+    let printed = render("v1.json", "/elsewhere/forge.db", &plain, false);
+    assert!(
+        printed.ends_with("realm    solo  tree  main  -\n"),
+        "{printed}"
+    );
+}
+
+/// The rows carry each realm's EFFECTIVE journal: its own when the map
+/// gives it one, the world's when it does not.
+#[test]
+fn rows_carry_the_effective_journal_of_every_realm() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        r#"{"schema":"forge.realms/v2",
+            "realms":[{"name":"alpha","path":"tree","default_branch":"main",
+                       "journal":"a/forge.db"},
+                      {"name":"beta","path":"tree","default_branch":"main"}],
+            "journal":"j.db"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("tree")).unwrap();
+    let world = World::load(&map).unwrap();
+    let rows = rows(&world);
+    assert_eq!(
+        rows[0].journal,
+        dir.path().join("a/forge.db").display().to_string()
+    );
+    assert_eq!(
+        rows[1].journal,
+        dir.path().join("j.db").display().to_string()
+    );
+    // And `--json` carries it too, so a consumer sees the same world.
+    let seen = view("m.json", "j.db", &rows);
+    assert_eq!(seen["realms"][0]["journal"], json!(rows[0].journal));
 }
 
 /// `--json` is the same world, unspelled: one derivation of the rows,
@@ -107,6 +248,7 @@ fn the_json_view_is_the_same_world_as_the_frame() {
                 "path": "/tmp/x",
                 "default_branch": "main",
                 "head": "abc1234",
+                "journal": "j.db",
             }],
         })
     );

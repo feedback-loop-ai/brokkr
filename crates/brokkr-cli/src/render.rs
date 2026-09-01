@@ -26,7 +26,7 @@
 
 use std::io::IsTerminal;
 
-use brokkr_view::{JournalRow, Participant, Phase, RunView, RunsView};
+use brokkr_view::{FleetView, JournalRow, Participant, Phase, RunRow, RunView, RunsView};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -180,10 +180,17 @@ fn push_line(out: &mut String, line: &str) {
 /// feature. Columns are sized to the widest value in the batch; the
 /// feature takes what is left.
 pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
+    run_lines(&view.runs, now, style)
+}
+
+/// The lines one batch of rows renders to. Named apart from [`runs`] so
+/// a many-hearth listing is the SAME rendering repeated under a heading
+/// rather than a second implementation of a run line.
+fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
     let mut rows: Vec<[Safe; 6]> = Vec::new();
     let mut codes: Vec<&'static str> = Vec::new();
     let mut details: Vec<Option<Safe>> = Vec::new();
-    for run in &view.runs {
+    for run in view_runs {
         let status = match &run.status {
             Some(status) => status.clone(),
             None => "?".to_string(),
@@ -241,6 +248,39 @@ pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
         if let Some(detail) = detail {
             push_line(&mut out, &format!("  fold  {}", detail.as_str()));
         }
+    }
+    out
+}
+
+/// A many-hearth world's fleet: one section per realm, its runs listed
+/// under its own heading rather than interleaved with another realm's
+/// (decision 0026 ruling 3). A one-hearth world never reaches here —
+/// `brokkr runs` renders it exactly as it always has.
+pub fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
+    let mut out = String::new();
+    for (index, realm) in view.realms.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let count = match realm.count {
+            1 => "1 run".to_string(),
+            count => format!("{count} runs"),
+        };
+        let head = format!(
+            "{} · {count} · {}",
+            Safe::new(&realm.realm).as_str(),
+            Safe::new(&realm.journal).as_str()
+        );
+        push_line(&mut out, &tint(&head, BOLD, style));
+        // A hearth whose journal would not open says so where its runs
+        // would have been; the rest of the world is still listed.
+        if let Some(detail) = &realm.detail {
+            push_line(
+                &mut out,
+                &format!("  journal  {}", Safe::new(detail).as_str()),
+            );
+        }
+        out.push_str(&run_lines(&realm.runs, now, style));
     }
     out
 }
