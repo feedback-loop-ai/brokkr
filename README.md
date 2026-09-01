@@ -34,6 +34,7 @@ stopped, paid — is a journaled, replayable, anchored fact.
 - [What it does](#what-it-does)
 - [Determinism laws](#determinism-laws)
 - [60-second quickstart](#60-second-quickstart)
+- [Guides](#guides)
 - [The read surfaces](#the-read-surfaces)
   - [`brokkr runs` — the fleet](#brokkr-runs--the-fleet)
   - [`brokkr inspect` — one run, explained](#brokkr-inspect--one-run-explained)
@@ -210,6 +211,18 @@ policy table (five working phases plus `done` and `stop`) with the review
 gate constitutionally protected, one seat per working phase, and a role
 charter per seat. It compiles the bundle before printing the digest, so
 the thing you were handed is a thing that runs.
+
+## Guides
+
+The quickstart above is the tour. [`docs/guides/`](docs/guides/) is the
+walkthrough, written for someone arriving from outside this repository.
+
+| Guide | For |
+|---|---|
+| [Quickstart](docs/guides/quickstart.md) | A repo, an agent CLI, and twenty minutes: install, `doctor`, `init`, one run, reading its ending, the escape hatches, and what it costs. |
+| [Recipe authoring](docs/guides/recipe-authoring.md) | `bundle.json` + `policy.json` + `roles/` anatomy, composition via `extends`/`override`, digest identity, the rule grammar including `visits` and the reforging ladder. |
+| [Driver authoring](docs/guides/driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code or Codex: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
+| [Versioning](docs/guides/versioning.md) | What is stable and what may still move: the frozen-contract law, the two manifest lineages, semver as of 1.0, and the live deprecation window. |
 
 ## The read surfaces
 
