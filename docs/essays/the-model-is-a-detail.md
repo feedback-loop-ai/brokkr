@@ -85,6 +85,20 @@ distribution, the honest answer to all three is a shrug.
 
 When control flow is a fold over a journal, the answers are `grep`.
 
+The axis now has a mainstream name. Andrew Ng's AI Engineering Skills
+Map (August 2026) draws the spectrum from *workflows* — a predefined
+sequence of LLM calls — to *agent harnesses* that let the model
+repeatedly decide its own next step, and makes choosing your point on
+that spectrum a core engineering skill, alongside the disciplined
+eval and error-analysis loops that turn an unpredictable system into
+a governable one. Brokkr is a deliberate stake at the far workflow
+end — for the delivery loop itself. The sequence is a signed table;
+the harness's freedom lives only *inside* each leaf; and the eval
+loop Ng asks for is the journal, where every decision is graded by
+its own record. The industry default drifts toward harnesses because
+they demo well. Our claim is that the outermost loop of software
+delivery is precisely where the workflow end wins.
+
 ## What it buys, concretely
 
 This is not a thought experiment. The machine builds itself — roughly ninety
