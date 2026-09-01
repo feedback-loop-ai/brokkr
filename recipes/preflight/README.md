@@ -17,7 +17,7 @@ faces, from the same two seats, before a human has read a line.
 
 | Seat | Class | Results | Runs |
 |---|---|---|---|
-| `verify` | `gate` | `pass`, `fail` | The gates CI will run, locally: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence allowlist. |
+| `verify` | `gate` | `pass`, `fail` | The gates CI will run, locally: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence allowlist, the release build. |
 | `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of `git diff main...HEAD` across correctness, fit and security. Read-only. |
 
 `verify` gets 5400 seconds because it runs the coverage gate, which

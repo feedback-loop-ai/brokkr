@@ -204,7 +204,7 @@ instrumented copy of the workspace under a temporary directory:
 forge_coverage_dir="$(mktemp -d "${TMPDIR:-/tmp}/forge-coverage.XXXXXX")"
 ```
 
-— `scripts/coverage-exact.sh:19`. On a machine where `/tmp` is a tmpfs
+— `scripts/coverage-exact.sh:17`. On a machine where `/tmp` is a tmpfs
 (RAM-backed, and commonly a few gigabytes), that instrumented target
 directory can fill it and the run dies with `ENOSPC` partway through a
 link step. This project has hit exactly that. If your `/tmp` is small or
@@ -307,6 +307,13 @@ unmerged branch:
 brokkr run --recipe preflight --repo . --feature "<what the branch does, and its base if not main>"
 ```
 
+You need the binary first — `cargo install --path crates/brokkr-cli`
+puts `brokkr` on your path, or run it out of the tree with `cargo run
+--locked -p brokkr-cli -- run --recipe preflight …`. Either way, run it
+from the repository root: `--recipe <name>` resolves to
+`<recipes-dir>/<name>`, and `--recipes-dir` defaults to the relative
+`recipes`.
+
 The recipe has two phases and stops:
 
 ```
@@ -396,7 +403,7 @@ exist yet. This repository does not carry code ahead of its use.
 
 **Test-harness source in the production report.** The script checks for
 this before it checks coverage
-(`scripts/coverage-exact.sh:26-32`):
+(`scripts/coverage-exact.sh:43-50`):
 
 ```
 coverage refusal: test harness source leaked into the production report
@@ -453,16 +460,17 @@ That is worth stating precisely, because `main` in this repository
 carries only signed commits and it would be reasonable to conclude you
 need a key. What was observed in this tree's history:
 
-- Every commit reachable from `main` carries a signature — all 167 of
-  them at the time of writing. There are no unsigned commits on the
-  branch.
-- The most recent 35 of those, contiguously, are signed with GPG key
-  `B5690EEEBB952194` and have committer `GitHub <noreply@github.com>`.
-  That is GitHub's own web-flow key: the signature the platform applies
-  to a commit it creates itself. The older ones carry the operator's own
-  key, from the period when work was pushed directly.
-- Every one of those 35 has exactly one parent and a subject ending in
-  `(#NNN)`. `main` has no merge commits at all. That is squash-merge:
+- Every commit reachable from `main` carries a signature. There are no
+  unsigned commits on the branch.
+- The recent history is uniformly platform-created: those commits have
+  committer `GitHub <noreply@github.com>` and are signed with GitHub's
+  own web-flow key, `B5690EEEBB952194` — the signature the platform
+  applies to a commit it creates itself. (That key id has rotated over
+  the repository's life; `git log main --pretty='%GK|%cn'` shows the
+  current one and where it changed.)
+- Every one of those has exactly one parent and a subject ending in
+  `(#NNN)`, and `main` has no merge commits at all —
+  `git rev-list --count --merges main` prints `0`. That is squash-merge:
   GitHub collapses the pull request into a single new commit, authors it
   to you, commits it as itself, and signs it with its own key on the way
   in.

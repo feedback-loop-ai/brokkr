@@ -35,6 +35,9 @@ refusal first. Run each one exactly as written:
 7. `cargo deny check licenses` — the dependency licence allowlist in
    `deny.toml`. If `cargo-deny` is not installed, say so; absence is
    not a pass.
+8. `cargo build --release --locked -p brokkr-cli` — the release binary
+   CI ships. Last because it is the most expensive, and it is the one
+   gate a green debug suite does not imply.
 
 Then run every branch-specific check the feature text names.
 

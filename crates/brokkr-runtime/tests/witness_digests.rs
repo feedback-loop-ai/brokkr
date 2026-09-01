@@ -63,7 +63,7 @@ const WITNESSES: [(&str, &str); 4] = [
     ),
     (
         "recipes/preflight",
-        "9ced264de753818dd1f2462be4ce992006b86613b0f8d8559c6c5224e7266580",
+        "2d7d0ef60f6b38fed6683ac740d1208d02e707b63d3d6b2d44981480b0d6bd97",
     ),
     (
         "bundles/verify",
