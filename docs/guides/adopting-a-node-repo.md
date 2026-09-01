@@ -33,6 +33,20 @@ your project and drives it. Your `package.json` never learns it exists.
   for a reason [section 3](#3-give-your-repo-the-four-files) explains.
 - `git`.
 
+Know what you are granting. Every seat's driver may run `npm` and `npx`,
+so every seat — the gates included — executes third-party code by
+design: `npm ci` runs the `preinstall`/`install`/`postinstall` scripts of
+your whole dependency tree, and `npx` resolves a package from the
+registry and runs it. That is the JavaScript toolchain, not something
+this recipe adds, and it is the same exposure your CI already has. Two
+consequences worth holding: `verify` installs before `review` has read
+the diff, so a dependency the `implement` seat added has already run its
+install scripts by the time anyone reviews its provenance (the reviewer
+charter names lockfile provenance and install scripts as a review
+dimension for exactly this reason); and a run wants the network the same
+way `npm ci` does. Run it against a repository whose dependency tree you
+would install by hand.
+
 ## 2. Install the binary
 
 Grab the archive for your platform from the

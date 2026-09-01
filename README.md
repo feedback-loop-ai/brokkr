@@ -718,7 +718,7 @@ attestations; verify an asset with
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), and `forge.realms/v1` (the world's map, decision 0023). |
 | `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
-| `recipes/` | The user recipe library (`fast`, `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
+| `recipes/` | The user recipe library (`fast`, `node` — the Node/TypeScript reference — `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
 | `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
