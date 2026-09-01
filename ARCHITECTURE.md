@@ -185,7 +185,11 @@ declared secret bindings whose driver holds no grant — a lookup and a
 comparison, before any prompt exists to leak, in the manner of a digest
 mismatch. Both fail closed on absence: an undeclared tier is untrusted,
 an undeclared grant is none, and a driver no adapter declares has
-neither. An agent's whole fallback chain is checked, not just its first
+neither. Because the class is read by absence, the key vocabulary of
+every site — seat, panel member, sequence step — is CLOSED: a key the
+compiler does not read is refused where it is written, so `"clas":
+"gate"` cannot manufacture the silence the fail-closed reading trusts.
+An agent's whole fallback chain is checked, not just its first
 link, because a chain that could fall back to an untrusted judge at run
 time would have defeated the gate at compile time. An inline site's
 driver is read structurally off the token after `driver` in its command

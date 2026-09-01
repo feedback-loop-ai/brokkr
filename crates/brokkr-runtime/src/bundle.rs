@@ -398,6 +398,7 @@ impl Bundle {
                     "seat '{phase}' names a phase the policy does not have"
                 )));
             }
+            refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             let results = raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -785,6 +786,68 @@ fn parse_class(what: &str, raw: &Value) -> Result<SeatClass, CompileError> {
     })
 }
 
+/// The keys a SEAT may write. Closed, like the class vocabulary itself
+/// and for the same reason — see [`refuse_unknown_keys`].
+const SEAT_KEYS: &[&str] = &[
+    "results",
+    "inputs",
+    "limits",
+    "secrets",
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "panel",
+    "aggregate",
+    "sequence",
+];
+
+/// The keys a PANEL MEMBER may write. Narrower than a seat's: a member
+/// has no `results`, `limits`, `inputs` or `secrets` of its own — the
+/// seat above it does — which is why an agent declaring them at a member
+/// site is already refused rather than silently discarded.
+const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver"];
+
+/// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
+/// the two a step needs to be a panel of its own.
+const STEP_KEYS: &[&str] = &[
+    "name",
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "panel",
+    "aggregate",
+];
+
+/// The vocabulary of a site object is CLOSED, because since decision
+/// 0021 a dropped key is a dropped refusal. `class` is read by absence —
+/// an undeclared site is work — so `"clas": "gate"` would leave a
+/// judging site classed work, and every gate refusal below it unarmed,
+/// with nothing anywhere to say so. The same silence would swallow a
+/// misspelled `secrets`. So a key this compiler does not read is refused
+/// where it is written, in the manner of an unknown class or an unknown
+/// aggregate: the fail-closed reading of an absent declaration is only
+/// honest if an absence cannot be manufactured by a typo.
+fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), CompileError> {
+    let Some(object) = raw.as_object() else {
+        return Ok(());
+    };
+    for key in object.keys() {
+        if !known.contains(&key.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' has unknown key '{key}'; known: {}. The site \
+                 vocabulary is closed because a declaration this compiler \
+                 cannot see is a declaration that was never made — a \
+                 misspelled 'class' would leave a gate reading as work \
+                 (decision 0021 ruling 1)",
+                known.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// A panel or a sequence has no driver of its own, so it has no class of
 /// its own: `recipes/sdd`'s `design` seat is a panel of work positions,
 /// a gate chief and a work check, and a single word on the seat could
@@ -978,6 +1041,7 @@ fn parse_panel(
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
         }
+        refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
         let (role_path, command, candidates) = match member_raw.get("agent") {
             None => (
                 parse_role(dir, &site, member_raw)?,
@@ -1068,6 +1132,7 @@ fn parse_sequence(
                  or panel"
             )));
         }
+        refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
         let body = if has_agent {
             let resolved =
                 resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;

@@ -352,6 +352,69 @@ fn a_seat_that_bears_no_driver_may_not_carry_a_class() {
     assert!(refusal.contains("bears no driver of its own"), "{refusal}");
 }
 
+// ----------------------------- the vocabulary a declaration is written in
+
+#[test]
+fn a_misspelled_class_refuses_rather_than_reading_as_work() {
+    // The whole fail-closed reading turns on this: `class` is read by
+    // ABSENCE, so a key this compiler cannot see is a declaration that
+    // was never made. If `clas` were tolerated, a gate would compile as
+    // work and both refusals would be off, silently.
+    let fixture = Fixture::new();
+    let mut work = seat("newcomer", None, None);
+    work["clas"] = json!("gate");
+    let refusal = fixture.refusal(work);
+    assert!(refusal.contains("unknown key 'clas'"), "{refusal}");
+    assert!(refusal.contains("known: results"), "{refusal}");
+    assert!(refusal.contains("0021 ruling 1"), "{refusal}");
+
+    // And the same for the other declaration a silence would swallow.
+    let mut work = seat("newcomer", None, None);
+    work["secret"] = json!(["GH_TOKEN"]);
+    assert!(fixture.refusal(work).contains("unknown key 'secret'"));
+}
+
+#[test]
+fn a_panel_member_and_a_sequence_step_have_their_own_narrower_vocabulary() {
+    // A member has no `results`/`limits`/`inputs`/`secrets` of its own —
+    // the seat above it does — so writing one there could only be
+    // discarded, which is exactly the silence this refusal closes.
+    let fixture = Fixture::new();
+    let refusal = fixture.refusal(json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {
+            "a": {"role": "roles/role.md",
+                  "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
+            "b": {"role": "roles/role.md", "secrets": ["GH_TOKEN"],
+                  "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
+        },
+    }));
+    assert!(refusal.contains("seat 'work:b'"), "{refusal}");
+    assert!(refusal.contains("unknown key 'secrets'"), "{refusal}");
+
+    let refusal = fixture.refusal(json!({
+        "results": ["pass", "fail"],
+        "sequence": [
+            {"name": "first", "role": "roles/role.md",
+             "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
+            {"name": "second", "clas": "gate", "role": "roles/role.md",
+             "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
+        ],
+    }));
+    assert!(refusal.contains("seat 'work:second'"), "{refusal}");
+    assert!(refusal.contains("unknown key 'clas'"), "{refusal}");
+}
+
+#[test]
+fn a_seat_that_is_not_an_object_at_all_keeps_its_own_refusal() {
+    // Nothing to spell wrong in a string, so the vocabulary has nothing
+    // to say: the seat falls through to the refusal it always had.
+    let fixture = Fixture::new();
+    let refusal = fixture.refusal(json!("judge"));
+    assert!(refusal.contains("needs non-empty 'results'"), "{refusal}");
+}
+
 // --------------------------------- every driver-bearing site, not just seats
 
 #[test]
