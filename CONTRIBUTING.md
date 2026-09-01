@@ -397,9 +397,13 @@ usually an error arm. The fix is the test case that takes the arm — not
 deleting the arm. Find it by searching `lcov.info` for the `BRDA` record
 whose taken count is `0` or `-` under your file's `SF:` heading.
 
-**A new function nothing calls.** Same shape, one level up: `FNDA:0,`
-against the mangled name. Either a test calls it, or it should not
-exist yet. This repository does not carry code ahead of its use.
+**A new function nothing calls.** Same shape, one level up, with one
+wrinkle: the fold identifies a source function by file and start line
+and sums the hits of every compiled instantiation of it, so a single
+`FNDA:0,` against a mangled name is not the miss. The miss is a `FN:`
+start line under your file's `SF:` heading whose every `FNDA` record
+reads `0`. Either a test calls it, or it should not exist yet. This
+repository does not carry code ahead of its use.
 
 **Test-harness source in the production report.** The script checks for
 this before it checks coverage

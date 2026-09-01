@@ -31,7 +31,13 @@ refusal first. Run each one exactly as written:
 6. `bash scripts/coverage-exact.sh` — literal 100% lines, branches and
    functions across the workspace, or refusal. It needs a nightly
    toolchain, `cargo-llvm-cov` and `jq`; a missing one of those is a
-   missing check, not a pass.
+   missing check, not a pass. It builds a second, instrumented copy of
+   the workspace under `TMPDIR`, so on a machine whose `/tmp` is small
+   or RAM-backed it can die with `ENOSPC` partway through. You cannot
+   set `TMPDIR` — your grant is that exact command and no other — so if
+   it dies that way, report `fail`, name `ENOSPC` as the cause, and
+   point at the `TMPDIR` workaround in `CONTRIBUTING.md`. Do not report
+   it as a coverage refusal; it is not one.
 7. `cargo deny check licenses` — the dependency licence allowlist in
    `deny.toml`. If `cargo-deny` is not installed, say so; absence is
    not a pass.

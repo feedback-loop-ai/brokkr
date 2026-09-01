@@ -2,8 +2,16 @@
 
 Two seats, both gates: `verify` → `review` → `done`/`stop`. No intake,
 no implement, no ship. The table ends after `review` with a terminal
-ruling, so a preflight run can produce findings and nothing else — it
-cannot change your branch, and it cannot merge it.
+ruling, so there is no phase that changes your branch and no phase that
+merges it: findings are the only thing a preflight run produces.
+
+That is a property of the table, not of a sandbox. Both seats run on
+your machine with your credentials and are charged to touch nothing; the
+table's part is that a seat which reports having applied fixes hard-stops
+the run (`REVIEW-CLEAN-FIXED`, `REVIEW-RESIDUAL-FIXED`) instead of being
+believed. If you want the assurance rather than the promise, the check is
+one line: `git status --short` and `git log --oneline main..HEAD` should
+read the same after the run as before it.
 
 ```
 brokkr run --recipe preflight --repo . --feature "<what the branch does, and its base if not main>"
