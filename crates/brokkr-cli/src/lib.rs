@@ -1348,9 +1348,13 @@ fn run_with(
                     Ok(ExitCode::SUCCESS)
                 }
                 FencedCommandOutcome::Rejected { reason, .. } => {
+                    // Why the run cannot take it is the journal's to say,
+                    // not this line's: the same refusal covers a run that
+                    // moved on under the operator and one that was never
+                    // in a state to take the command at all.
                     eprintln!(
-                        "refused operator {command} ({reason}): the run moved on before the \
-                         command landed; the refusal is journaled. Re-read it with: \
+                        "refused operator {command} ({reason}): the run is not in a state \
+                         this command can apply to; the refusal is journaled. Read it with: \
                          brokkr inspect --run {run}"
                     );
                     Ok(ExitCode::FAILURE)
