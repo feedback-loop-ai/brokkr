@@ -8,9 +8,11 @@ Date: 2026-09-01
 The first full-parallel burn — five slices forging at once, each in its
 own worktree with its own journal so the engines never contend — made a
 gap flesh within the hour: the operator's TUI, faithful to one world,
-showed none of the five fires. Realms v1 deliberately gave a world one
-journal; parallelism gives a workspace many. The operator's ruling
-instinct named the surface: tabs in the runs pane, per realm.
+showed none of the five fires. The first framing reached for per-realm
+tabs; the operator caught the category error: **worktrees are not
+realms.** A realm is a product (0023). The burn's five journals are one
+realm's hearths, scattered only because concurrent engine writers to a
+single store are unproven. Two different problems, two rulings.
 
 ## Decision
 
@@ -34,7 +36,18 @@ instinct named the surface: tabs in the runs pane, per realm.
    exactly one journal, and naming the realm (or letting a unique prefix
    resolve) is the lookup, never a merge.
 
-4. **Journals never merge.** Each hearth's journal stays its own
+4. **Same-realm parallelism belongs in ONE journal — the realm's own.**
+   Concurrent runs of one product are not many worlds; they are one
+   hearth burning several pieces. The engine slice this ruling orders:
+   prove and harden concurrent engine writers to DIFFERENT runs in one
+   store (the same-run dual-writer hazard is already fenced territory;
+   cross-run appends contend only on the store's write lock), then
+   parallel burns write to the realm's journal and every fleet surface
+   shows them natively — no tabs, no scattering, no workaround
+   vocabulary. Worktree-local journals retire to what they should have
+   been: an emergency isolation, not a topology.
+
+5. **Journals never merge.** Each hearth's journal stays its own
    append-only, hash-chained truth; the tabs are a reading surface, not
    a store operation. Nothing in this decision writes.
 
