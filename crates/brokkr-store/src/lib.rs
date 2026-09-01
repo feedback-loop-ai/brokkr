@@ -4,9 +4,43 @@
 //! protects against ordinary defects, not a hostile database owner
 //! (target-architecture). The journal is runtime truth; canonical NDJSON
 //! export is the portable, human-auditable form. Single-host,
-//! single-logical-writer: a concurrent writer loses on the (run_id, seq)
-//! primary key inside its append transaction — optimistic fencing
-//! instead of a lease service.
+//! single-logical-writer *per run*: a concurrent writer on the same run
+//! loses on the (run_id, seq) primary key inside its append transaction
+//! — optimistic fencing instead of a lease service. A writer whose event
+//! is legal only against the state it read fences on that state too, with
+//! [`Store::append_next_if_head`].
+//!
+//! # Many fires, one journal
+//!
+//! Writers on *different* runs in the same file never contend for a
+//! `(run_id, seq)` slot, so their chains are independent by
+//! construction. What they do share is SQLite's database-wide write
+//! lock, and that is a measured property, not an assumed one. Six
+//! writers, each with its own [`Connection`] to one file, appending
+//! back-to-back to six different runs, completed with zero errors and
+//! every chain contiguous and verifying: WAL plus the busy timeout is
+//! sufficient for the append path exactly as it stood, so nothing about
+//! [`Store::append_next`] changed. Its `Immediate` transaction is the
+//! reason — taking the write lock at `BEGIN` cannot deadlock against a
+//! peer doing the same, and the busy handler resolves the wait.
+//!
+//! Two tests hold that ground.
+//! `tests::parallel_burns_on_different_runs_share_one_journal` races
+//! four writer threads, and `tests/concurrent_processes.rs` races four
+//! writer *processes* — the faithful one, since POSIX advisory locks are
+//! per-process and same-realm parallel burns are separate `brokkr`
+//! processes.
+//!
+//! Opening the journal was the part that did not hold, and both defects
+//! were in the ordering of [`Store::open`]'s prologue rather than in any
+//! append. See [`Store::open`] and [`Store::migrate`] for what
+//! measurement found and what each line now buys.
+//!
+//! This is what lets a realm's `journal` path in `realms.json` be the
+//! shared target for same-realm parallel burns: several `brokkr`
+//! processes, each driving its own run, appending into one journal. A
+//! worktree-local `.forge/forge.db` remains entirely legal — it is
+//! emergency isolation now, not the assumed steady state.
 
 use std::path::Path;
 
@@ -19,6 +53,31 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 pub const DATABASE_SCHEMA: u32 = 1;
+
+/// How long any statement waits for a peer's write lock before giving
+/// up. Every connection sets this as its FIRST act, so no statement in
+/// the crate — pragma, migration, or append — is ever the one that runs
+/// without it.
+///
+/// Thirty seconds, not ten, and the number comes from a measurement.
+/// SQLite's busy handler is not a fair queue: it wakes, retries, and
+/// takes its chances, so waiting for the write lock is heavy-tailed
+/// rather than bounded. Against a deliberately pathological peer —
+/// another writer appending with *no* gap at all, tens of thousands of
+/// appends a second — a second writer's wait for the lock ran to 8s and
+/// 17s in different runs. It always eventually got the lock; nothing
+/// deadlocks, because the peer makes progress and the wait is only for a
+/// turn. But a tail like that under a ten-second budget is a coin flip,
+/// and it came up wrong: three of forty `create_run` calls died with
+/// `database is locked` at the old timeout, none at this one.
+///
+/// No timeout makes an unfair lock fair — a longer one buys margin, not
+/// a guarantee. What makes the margin sufficient is that real cadence is
+/// nowhere near the adversary: a burn appends around a driver that runs
+/// for *seconds*, and at a peer gap of even 100µs the same wait falls to
+/// 18ms, at 1ms to about one. The generous timeout is insurance against
+/// the pathological case, not the price of the ordinary one.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -36,6 +95,8 @@ pub enum StoreError {
     SchemaMismatch { found: u32 },
     #[error("append conflict: seq {seq} already written by another writer")]
     AppendConflict { seq: u64 },
+    #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
+    HeadMoved { expected_seq: u64, found_seq: u64 },
 }
 
 /// Why an adoption refused. Every variant refuses the import WHOLE:
@@ -196,6 +257,19 @@ const ARRIVAL_COLUMNS: [(&str, &str); 2] = [
 /// no `ADD COLUMN IF NOT EXISTS`, so presence is asked rather than an
 /// error swallowed — a swallowed error is how a real migration failure
 /// would hide here.
+/// Does the `runs` table lack any arrival column? A read, so the
+/// steady-state open writes nothing while a pre-0027 journal still gets
+/// noticed.
+fn arrival_columns_missing(conn: &Connection) -> Result<bool, StoreError> {
+    let present: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_table_info('runs')")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ARRIVAL_COLUMNS
+        .iter()
+        .any(|(column, _)| !present.iter().any(|name| name == column)))
+}
+
 fn migrate_arrival_columns(conn: &Connection) -> Result<(), StoreError> {
     let present: Vec<String> = conn
         .prepare("SELECT name FROM pragma_table_info('runs')")?
@@ -210,31 +284,102 @@ fn migrate_arrival_columns(conn: &Connection) -> Result<(), StoreError> {
 }
 
 impl Store {
+    /// Open (creating if absent) a journal for writing.
+    ///
+    /// The order of the four lines below is load-bearing, and both
+    /// orderings it corrects were measured failures of six burns racing
+    /// to open one shared realm journal:
+    ///
+    /// - `busy_timeout` comes FIRST, before any pragma. `journal_mode =
+    ///   WAL` takes an exclusive lock to convert a fresh rollback-journal
+    ///   file, and a connection that has not yet set a timeout has none
+    ///   — it fails on the spot. Set after the pragmas, as it was, one
+    ///   or two of six simultaneous first-opens died with `database is
+    ///   locked`.
+    /// - The WAL conversion is asked for only when the file is not
+    ///   already in WAL, and retried when it is; see [`ensure_wal`].
+    /// - The schema check is a *read* in the steady state; see
+    ///   [`Store::migrate`] for why writing there starved.
     pub fn open(path: &Path) -> Result<Store, StoreError> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+        let mut conn = Connection::open(path)?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
+        ensure_wal(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        conn.busy_timeout(std::time::Duration::from_secs(10))?;
-        conn.execute_batch(MIGRATION_V1)?;
-        migrate_arrival_columns(&conn)?;
-        let schema = DATABASE_SCHEMA.to_string();
-        conn.execute(
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
-            [&schema],
-        )?;
-        let found: String = conn.query_row(
-            "SELECT value FROM meta WHERE key = 'database_schema'",
-            [],
-            |row| row.get(0),
-        )?;
-        let found: u32 = found.parse().unwrap_or(0);
-        if found != DATABASE_SCHEMA {
-            return Err(StoreError::SchemaMismatch { found });
-        }
+        Store::migrate(&mut conn)?;
         Ok(Store { conn })
+    }
+
+    /// Bring a journal to [`DATABASE_SCHEMA`], writing only when it is
+    /// not already there.
+    ///
+    /// Opening is the one thing every burn does, so it must not take the
+    /// database's write lock in the steady state. The prologue used to
+    /// run `MIGRATION_V1` and an unconditional `INSERT OR IGNORE INTO
+    /// meta` on every open. Measured against a single peer appending
+    /// back-to-back, that insert starved past a *whole* busy timeout,
+    /// over and over: an implicit statement runs in a deferred
+    /// transaction, which reads first and only then asks to upgrade to
+    /// the write lock, and against a steady writer that upgrade loses
+    /// indefinitely. The DDL itself was innocent — `CREATE … IF NOT
+    /// EXISTS` short-circuits without a write lock once the objects
+    /// exist — but the insert dragged it down with it.
+    ///
+    /// So: read the recorded schema first, and return on the common path
+    /// having written nothing. Only a journal with no schema recorded
+    /// gets the DDL and the seed row, and those go inside an `Immediate`
+    /// transaction — the write lock taken up front, the same discipline
+    /// [`Store::append_next`] uses and the one measurement shows
+    /// survives contention. A peer that wins the initialization race in
+    /// between is harmless: the DDL is `IF NOT EXISTS`, the seed is
+    /// `INSERT OR IGNORE`, and the schema is re-read inside the
+    /// transaction, so both writers agree on what they found.
+    ///
+    /// One thing the old unconditional `MIGRATION_V1` did buy, and this
+    /// keeps: a journal whose append-only guards have gone missing gets
+    /// them back. `IF NOT EXISTS` DDL on every open repaired that for
+    /// free; reading the schema instead would have left a journal with a
+    /// recorded version and no triggers unguarded forever. So the guards
+    /// are counted — a read, on the steady path, like the schema — and
+    /// only a journal actually missing one takes the write lock.
+    fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
+        if let Some(found) = schema_version(conn)? {
+            schema_supported(found)?;
+            // Two additive repairs, each a READ in the steady state —
+            // the starvation measurement holds — and each taking the
+            // immediate transaction only when something is actually
+            // missing, so racing openers serialise on the lock instead
+            // of colliding on the DDL. First: a journal that predates
+            // the arrival columns (decision 0027) grows them, presence
+            // re-asked inside the transaction. Second: a journal whose
+            // append guards predate compare-and-append re-runs the
+            // idempotent migration batch that carries them.
+            if arrival_columns_missing(conn)? {
+                let tx =
+                    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                migrate_arrival_columns(&tx)?;
+                tx.commit()?;
+            }
+            if guards_intact(conn)? {
+                return Ok(());
+            }
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            tx.execute_batch(MIGRATION_V1)?;
+            tx.commit()?;
+            return Ok(());
+        }
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute_batch(MIGRATION_V1)?;
+        migrate_arrival_columns(&tx)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
+            [&DATABASE_SCHEMA.to_string()],
+        )?;
+        let found = schema_version(&tx)?.unwrap_or(0);
+        tx.commit()?;
+        schema_supported(found)
     }
 
     /// Open an EXISTING journal for reading only. The connection carries
@@ -245,19 +390,31 @@ impl Store {
     /// database is an error, never an empty fleet.
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         let found: String = conn.query_row(
             "SELECT value FROM meta WHERE key = 'database_schema'",
             [],
             |row| row.get(0),
         )?;
-        let found: u32 = found.parse().unwrap_or(0);
-        if found != DATABASE_SCHEMA {
-            return Err(StoreError::SchemaMismatch { found });
-        }
+        schema_supported(found.parse().unwrap_or(0))?;
         Ok(Store { conn })
     }
 
+    /// Declare a run in the journal. The existence check and the insert
+    /// are one `Immediate` transaction — the write lock taken at `BEGIN`,
+    /// the same discipline [`Store::append_next`] uses.
+    ///
+    /// A burn starting while a sibling burn is mid-flight is the ordinary
+    /// case for a shared realm journal, and this was the last place it
+    /// was unsafe. Read-then-insert on the bare connection left the
+    /// insert in an implicit deferred transaction, which reads first and
+    /// only then asks to upgrade to the write lock; measured against one
+    /// peer appending back-to-back, three of forty `create_run` calls
+    /// burned the entire ten-second timeout and failed with `database is
+    /// locked`. Taking the lock up front, none do. It closes the
+    /// check-then-insert window too: two writers claiming one `run_id`
+    /// can no longer both pass the check, so the loser gets
+    /// [`StoreError::RunExists`] rather than a primary-key error.
     pub fn create_run(
         &mut self,
         run_id: &str,
@@ -265,8 +422,12 @@ impl Store {
         bundle_name: &str,
         manifest: &Value,
     ) -> Result<(), StoreError> {
-        let existing: Option<String> = self
+        let manifest = serde_json::to_string(manifest)?;
+        let created_at = now_rfc3339();
+        let tx = self
             .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: Option<String> = tx
             .query_row(
                 "SELECT run_id FROM runs WHERE run_id = ?1",
                 params![run_id],
@@ -276,13 +437,12 @@ impl Store {
         if existing.is_some() {
             return Err(StoreError::RunExists(run_id.to_string()));
         }
-        let manifest = serde_json::to_string(manifest)?;
-        let created_at = now_rfc3339();
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![run_id, feature, bundle_name, manifest, created_at],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -329,9 +489,70 @@ impl Store {
     /// Envelope identity (seq, previous_hash) comes from the journal head
     /// inside the transaction; a concurrent writer conflicts instead of
     /// forking the chain.
+    ///
+    /// The head is whatever the transaction finds, so this always lands.
+    /// A caller whose event is only legal against the head it read —
+    /// anything it decided by folding — wants
+    /// [`Store::append_next_if_head`] instead.
     pub fn append_next(
         &mut self,
         run_id: &str,
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<String>,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, StoreError> {
+        self.append(run_id, None, event_type, payload, causation_id, attempt_id)
+    }
+
+    /// Append, but only onto the head the caller decided against —
+    /// compare-and-append.
+    ///
+    /// [`Store::append_next`] recomputes the head inside its own
+    /// transaction and always succeeds, which is right for a writer whose
+    /// event is legal wherever it lands: the engine appending to its own
+    /// run is the only writer of that run. It is wrong for a writer whose
+    /// event is legal only against a particular state. An
+    /// `operator/accepted` is the case that forced this: whether `fold`
+    /// can read it back depends on the run's status at that exact seq, so
+    /// a peer's append between the deciding fold and the write turns an
+    /// acceptance into `FoldError::AfterTerminal` for every reader
+    /// afterwards — and events are immutable, so nothing takes it back.
+    ///
+    /// The check runs INSIDE the same `Immediate` transaction that
+    /// writes, under the same write lock, which is what makes decide-then-
+    /// append atomic rather than merely narrow: either the head is still
+    /// `(expected_seq, expected_hash)` and the event lands, or the head
+    /// moved, nothing at all is written, and [`StoreError::HeadMoved`]
+    /// sends the caller back to re-read and decide again. `expected_seq`
+    /// of 0 with [`ZERO_HASH`] fences an append onto an empty run.
+    // Two of these arguments are the fence; the rest are `append_next`'s.
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_next_if_head(
+        &mut self,
+        run_id: &str,
+        expected_seq: u64,
+        expected_hash: &str,
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<String>,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, StoreError> {
+        self.append(
+            run_id,
+            Some((expected_seq, expected_hash)),
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append(
+        &mut self,
+        run_id: &str,
+        expected_head: Option<(u64, &str)>,
         event_type: EventType,
         payload: Value,
         causation_id: Option<String>,
@@ -352,6 +573,16 @@ impl Store {
             Some((seq, hash)) => (seq as u64, hash),
             None => (0, ZERO_HASH.to_string()),
         };
+        if let Some((expected_seq, expected_hash)) = expected_head {
+            if last_seq != expected_seq || previous_hash != expected_hash {
+                // Dropping the transaction rolls it back: a fence that
+                // fails writes nothing, not even the row it was building.
+                return Err(StoreError::HeadMoved {
+                    expected_seq,
+                    found_seq: last_seq,
+                });
+            }
+        }
         let envelope = EventEnvelope {
             run_id: run_id.to_string(),
             seq: last_seq + 1,
@@ -909,6 +1140,107 @@ pub enum VerifyError {
     Chain(ChainError),
     #[error("fold: {0}")]
     Fold(brokkr_core::FoldError),
+}
+
+/// Put the journal in WAL, which is what lets readers and a writer share
+/// one realm file at all.
+///
+/// The busy timeout does not cover this one. Converting a database to
+/// WAL needs a moment with no other connection on the file, and SQLite
+/// answers `SQLITE_BUSY` *without* consulting the busy handler when it
+/// cannot get it — so a plain `pragma_update` is a single throw of the
+/// dice. Measured on a virgin realm journal opened by six burns at once,
+/// one of the six lost that throw and the whole open failed, even with
+/// the timeout already set.
+///
+/// The conversion is also unnecessary almost always: a journal is WAL
+/// from birth and stays that way, so ask what mode the file is in first
+/// and, in the overwhelmingly common case, write nothing. Only a file
+/// that really is not in WAL attempts the conversion, and it retries
+/// until [`BUSY_TIMEOUT`] elapses — the race is self-resolving, because
+/// a peer that beats us to it leaves the file in exactly the mode we
+/// wanted, which the next read observes.
+fn ensure_wal(conn: &Connection) -> Result<(), StoreError> {
+    ensure_wal_by(conn, std::time::Instant::now() + BUSY_TIMEOUT)
+}
+
+/// [`ensure_wal`] with the deadline in hand: patience is an argument so
+/// the test that proves it runs out does not have to wait it out.
+fn ensure_wal_by(conn: &Connection, deadline: std::time::Instant) -> Result<(), StoreError> {
+    loop {
+        let mode: String = conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+        if mode.eq_ignore_ascii_case("wal") {
+            return Ok(());
+        }
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Ok(()) => return Ok(()),
+            Err(error) if is_busy(&error) && std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn is_busy(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+    )
+}
+
+/// The append-only and immutability triggers `MIGRATION_V1` installs, by
+/// name. Named here so [`Store::migrate`] can ask whether a journal still
+/// carries all of them.
+const GUARD_TRIGGERS: [&str; 3] = [
+    "events_append_only_update",
+    "events_append_only_delete",
+    "runs_manifest_immutable",
+];
+
+/// Does this journal still carry every guard trigger? A pure read of
+/// `sqlite_master`, so an open that finds them all takes no write lock.
+fn guards_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let present: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger'
+         AND name IN (?1, ?2, ?3)",
+        params![GUARD_TRIGGERS[0], GUARD_TRIGGERS[1], GUARD_TRIGGERS[2]],
+        |row| row.get(0),
+    )?;
+    Ok(present == GUARD_TRIGGERS.len() as i64)
+}
+
+/// The schema a journal records, or `None` for a file that has never
+/// been migrated. A pure read: it asks `sqlite_master` whether `meta`
+/// exists rather than provoking a "no such table" error, so it is safe
+/// on a virgin file and takes no write lock on an established one.
+fn schema_version(conn: &Connection) -> Result<Option<u32>, StoreError> {
+    let has_meta = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_meta {
+        return Ok(None);
+    }
+    let recorded: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'database_schema'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(recorded.map(|value| value.parse().unwrap_or(0)))
+}
+
+fn schema_supported(found: u32) -> Result<(), StoreError> {
+    if found != DATABASE_SCHEMA {
+        return Err(StoreError::SchemaMismatch { found });
+    }
+    Ok(())
 }
 
 fn now_rfc3339() -> String {

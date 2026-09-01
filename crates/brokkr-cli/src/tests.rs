@@ -213,7 +213,12 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         db: db.clone(),
     }))
     .is_err());
-    for command in ["retry", "stop"] {
+    // `ops` is RUNNING, never parked. A `retry` there is refused and
+    // says so with a failing exit code: accepting it would write an
+    // `operator/accepted` that fold reads as `OutOfPlace` — a journal
+    // that never folds again. `stop` is a live kill switch and lands
+    // wherever the run stands, so it is accepted.
+    for (command, expected) in [("retry", ExitCode::FAILURE), ("stop", ExitCode::SUCCESS)] {
         assert_eq!(
             run(cli(Cmd::Operator {
                 run: "ops".into(),
@@ -222,9 +227,22 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
                 db: db.clone(),
             }))
             .unwrap(),
-            ExitCode::SUCCESS
+            expected,
+            "operator {command} on a running run",
         );
     }
+    // Both dispositions are journaled, and the journal still folds.
+    let ops = Store::open(&db).unwrap().load("ops").unwrap();
+    assert!(
+        fold(&ops).is_ok(),
+        "the refused retry left the journal readable"
+    );
+    assert_eq!(
+        ops.iter()
+            .filter(|event| event.event_type == EventType::OperatorRejected)
+            .count(),
+        1,
+    );
 
     assert_eq!(
         run(cli(Cmd::Costs {

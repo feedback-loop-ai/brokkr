@@ -7,6 +7,307 @@ fn store() -> (tempfile::TempDir, Store) {
     (dir, store)
 }
 
+/// One turn of a run that folds: enter a phase, request an effect, run
+/// it, succeed, and rule the way back to the same phase. Five real
+/// events, so a concurrency test contends with the vocabulary the engine
+/// actually writes rather than with a repeated filler event.
+fn one_cycle(store: &mut Store, run_id: &str, turn: usize) {
+    let effect_id = format!("effect-{turn}");
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": effect_id, "seat": "implementer"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": effect_id, "attempt_id": format!("attempt-{turn}")}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": effect_id, "result": "complete"}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({
+                "from": "implement",
+                "result": "complete",
+                "rule_id": "WORK",
+                "next": "implement",
+                "severity": null,
+                "inputs": {},
+                "problem": null,
+            }),
+        ),
+    ] {
+        store
+            .append_next(run_id, event_type, payload, None, None)
+            .expect("an append to this writer's own run never conflicts");
+    }
+}
+
+/// Many fires, one journal: writers on DIFFERENT runs in the SAME file,
+/// each with its own connection, racing from a shared barrier — the
+/// open, the `create_run`, and every append all contending.
+///
+/// Per-run hash chains are independent by construction, since no two
+/// writers ever compete for one `(run_id, seq)` slot. What this proves
+/// is the store layer underneath them: that SQLite's database-wide write
+/// lock, WAL, and the busy timeout carry real concurrent writers without
+/// dropping a write, forking a chain, or failing an open. Every
+/// assertion here is on the finished journals, so the test is
+/// deterministic even though the interleaving never is.
+#[test]
+fn parallel_burns_on_different_runs_share_one_journal() {
+    use std::sync::{Arc, Barrier};
+
+    const WRITERS: usize = 4;
+    const TURNS: usize = 12;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("realm.db");
+    // Nothing pre-creates the journal: the writers race to bring it into
+    // existence too, which is where the WAL conversion and the migration
+    // contend.
+    let gate = Arc::new(Barrier::new(WRITERS));
+    let writers: Vec<_> = (0..WRITERS)
+        .map(|writer| {
+            let path = path.clone();
+            let gate = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                let run_id = format!("run-{writer}");
+                gate.wait();
+                let mut store = Store::open(&path).expect("a racing open still opens");
+                store
+                    .create_run(&run_id, "feat", "self", &json!({"files": {}}))
+                    .expect("a racing create_run still creates");
+                store
+                    .append_next(
+                        &run_id,
+                        EventType::RunStarted,
+                        json!({"feature": "feat", "manifest": {}}),
+                        None,
+                        None,
+                    )
+                    .expect("a racing first append still appends");
+                for turn in 0..TURNS {
+                    one_cycle(&mut store, &run_id, turn);
+                }
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().expect("no writer panicked");
+    }
+
+    // Every chain, read back through one connection afterward.
+    let reader = Store::open(&path).unwrap();
+    assert_eq!(reader.list_runs().unwrap().len(), WRITERS);
+    let mut every_event_id = std::collections::HashSet::new();
+    for writer in 0..WRITERS {
+        let run_id = format!("run-{writer}");
+        // `load` verifies the chain and refuses to return a partial one.
+        let events = reader.load(&run_id).unwrap();
+        assert_eq!(
+            events.len(),
+            1 + TURNS * 5,
+            "{run_id} lost or gained an event"
+        );
+        // Contiguous from 1, every link intact, and nothing from another
+        // writer's run anywhere in it.
+        let mut previous = ZERO_HASH.to_string();
+        for (index, event) in events.iter().enumerate() {
+            assert_eq!(event.seq, index as u64 + 1, "{run_id} seq {index}");
+            assert_eq!(event.run_id, run_id, "{run_id} carries a foreign run_id");
+            assert_eq!(event.correlation_id, run_id);
+            assert_eq!(event.previous_hash, previous, "{run_id} chain broke");
+            previous = event.event_hash.clone();
+            assert!(
+                every_event_id.insert(event.event_id.clone()),
+                "an event id was reused across runs"
+            );
+        }
+        // And the whole thing still folds: interleaved writing did not
+        // scramble anyone's run state.
+        let state = brokkr_core::fold(&events).unwrap();
+        assert_eq!(state.phase.as_deref(), Some("implement"));
+        assert_eq!(state.seq, events.len() as u64);
+    }
+}
+
+/// Opening a shared journal takes no write lock. A burn starting while a
+/// sibling holds the write lock must not have to wait for it, let alone
+/// fail: the schema is *read*, and only a journal that has never been
+/// migrated is written to. Regression fence for the measured defect —
+/// the old prologue wrote `INSERT OR IGNORE INTO meta` on every open and
+/// starved past its whole busy timeout against a busy peer.
+#[test]
+fn opening_a_journal_a_peer_is_writing_takes_no_write_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("realm.db");
+    let mut peer = Store::open(&db).unwrap();
+    peer.create_run("held", "feat", "self", &json!({})).unwrap();
+
+    // A peer's write transaction, left open and uncommitted: for as long
+    // as this lives, nobody else can write this file.
+    let holder = Connection::open(&db).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder
+        .execute(
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+    // Opening is a read, so it does not queue behind that lock. Asked on
+    // another thread with a deadline far below the busy timeout, because
+    // the regression this fences is a WAIT: opening inline would sit on
+    // the lock for the full thirty seconds and then fail, which reads as
+    // a hung test rather than as the defect.
+    let (done, opened) = std::sync::mpsc::channel();
+    let probe = db.clone();
+    let opener = std::thread::spawn(move || {
+        let read = Store::open(&probe).map(|store| {
+            (
+                store.list_runs().unwrap().len(),
+                store.head_hash("held").unwrap(),
+            )
+        });
+        let _ = done.send(read);
+    });
+    let read = opened
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("opening queued behind the peer's write lock instead of reading")
+        .expect("a racing open still opens");
+    opener.join().unwrap();
+    assert_eq!(read, (1, (0, ZERO_HASH.to_string())));
+
+    holder.execute_batch("ROLLBACK").unwrap();
+}
+
+/// Compare-and-append: the fence a caller needs when what it may legally
+/// write depends on the state it just read. The check is inside the
+/// append's own transaction, so a peer landing in between takes the head
+/// away rather than slipping underneath the decision.
+#[test]
+fn a_fenced_append_lands_only_on_the_head_it_was_decided_against() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    // An empty run has a head too, and it can be fenced on.
+    store
+        .append_next_if_head(
+            "r1",
+            0,
+            ZERO_HASH,
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let (seq, hash) = store.head_hash("r1").unwrap();
+    // The peer this fence exists for: another writer, appending between
+    // the caller's read and its write.
+    store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let moved = store.append_next_if_head(
+        "r1",
+        seq,
+        &hash,
+        EventType::PhaseEntered,
+        json!({"phase": "review"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(
+            moved,
+            Err(StoreError::HeadMoved {
+                expected_seq: 1,
+                found_seq: 2
+            })
+        ),
+        "{moved:?}",
+    );
+    // Nothing was written: a fence that fails leaves no trace, which is
+    // the whole difference between refusing and repenting.
+    assert_eq!(store.load("r1").unwrap().len(), 2);
+
+    // Re-read, re-decide, and it lands.
+    let (seq, hash) = store.head_hash("r1").unwrap();
+    store
+        .append_next_if_head(
+            "r1",
+            seq,
+            &hash,
+            EventType::PhaseEntered,
+            json!({"phase": "review"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let events = store.load("r1").unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[2].previous_hash, events[1].event_hash);
+}
+
+/// The append-only guards are repaired on open. `MIGRATION_V1` used to
+/// run unconditionally, so a journal that had lost a trigger got it back
+/// for free; reading the schema instead would have left one recorded as
+/// migrated and unguarded forever.
+#[test]
+fn a_journal_that_lost_its_guards_gets_them_back_on_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    {
+        let mut store = Store::open(&db).unwrap();
+        store
+            .create_run("r1", "feat", "self", &json!({"files": {}}))
+            .unwrap();
+        store
+            .append_next(
+                "r1",
+                EventType::RunStarted,
+                json!({"feature": "feat", "manifest": {}}),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .conn
+            .execute_batch("DROP TRIGGER events_append_only_update")
+            .unwrap();
+        assert!(
+            store
+                .conn
+                .execute("UPDATE events SET envelope = 'x'", [])
+                .is_ok(),
+            "the trigger really was gone",
+        );
+    }
+
+    let store = Store::open(&db).unwrap();
+    assert!(
+        store
+            .conn
+            .execute("UPDATE events SET envelope = 'y'", [])
+            .is_err(),
+        "reopening restored the guard",
+    );
+}
+
 #[test]
 fn append_load_roundtrip_and_chain() {
     let (_dir, mut store) = store();
@@ -667,6 +968,198 @@ fn an_adopted_run_carries_arrival_metadata_beside_an_untouched_chain() {
     for envelope in &stored {
         assert!(!envelope.contains("import"), "{envelope}");
     }
+}
+
+/// The WAL conversion waits out a writer that got there first: a fresh
+/// rollback-journal file being converted takes an exclusive lock, so a
+/// second opener arriving mid-conversion sees `database is locked` — and
+/// retries until the first is done, instead of dying on the spot. This
+/// is the measured failure the open order was rebuilt around, driven
+/// deterministically: the lock is held on purpose and released on
+/// purpose.
+#[test]
+fn an_open_arriving_during_anothers_wal_conversion_waits_its_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("contested.db");
+    // A non-WAL file, as an interrupted first open would leave it.
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let contender = {
+        let path = path.clone();
+        std::thread::spawn(move || Store::open(&path).map(|_| ()))
+    };
+    // The contender is now inside the busy-retry loop; let it spin
+    // there, then yield the lock and watch it finish.
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    holder.execute_batch("COMMIT").unwrap();
+    drop(holder);
+    contender.join().unwrap().unwrap();
+    let mode: String = rusqlite::Connection::open(&path)
+        .unwrap()
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .unwrap();
+    assert!(mode.eq_ignore_ascii_case("wal"), "{mode}");
+}
+
+/// The retry loop itself, not the busy handler under it: a connection
+/// given NO handler patience sees `database is locked` immediately, and
+/// `ensure_wal`'s own loop — sleep, ask again — is what carries it to
+/// the other side of a reader that eventually leaves.
+#[test]
+fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("held.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+        conn.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    // A RESERVED lock: readers still read (the mode query must answer),
+    // but the conversion's brief exclusive is refused until commit.
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder.execute_batch("INSERT INTO seed VALUES (2)").unwrap();
+    let released = std::thread::spawn({
+        let path = path.clone();
+        move || {
+            // No busy handler: every locked answer returns at once, so
+            // the loop's own sleep-and-retry is the only patience there is.
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            ensure_wal(&conn)
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    holder.execute_batch("COMMIT").unwrap();
+    drop(holder);
+    released.join().unwrap().unwrap();
+}
+
+/// And patience is finite: still locked at the deadline, the loop stops
+/// sleeping and returns the lock as the error it is.
+#[test]
+fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stubborn.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let expired = std::time::Instant::now() - std::time::Duration::from_millis(1);
+    assert!(ensure_wal_by(&conn, expired).is_err());
+}
+
+/// An error that is not contention does not get patience: a file the
+/// process may not write fails the WAL conversion immediately, with the
+/// real error, instead of being retried against a permission that will
+/// never change.
+#[test]
+fn a_wal_conversion_refused_for_a_reason_other_than_busy_fails_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sealed.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    let refused = Store::open(&path).err().map(|error| error.to_string());
+    assert!(refused.is_some(), "a sealed file opened anyway");
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+}
+
+/// The guard question is a question, not an assumption: asked of a file
+/// that is not a database at all, it fails with the real error instead
+/// of reporting the guards absent and re-running a migration into ruin.
+#[test]
+fn asking_a_non_database_about_its_guards_is_an_error_not_an_absence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not-a.db");
+    std::fs::write(&path, "this is prose, not pages").unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert!(guards_intact(&conn).is_err());
+}
+
+/// The fence compares the hash as well as the seq: a journal rewritten
+/// to the same LENGTH but different content is still a moved head, and
+/// the acceptance the caller decided elsewhere still refuses to land.
+#[test]
+fn a_matching_seq_with_a_foreign_hash_is_still_a_moved_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("hash.db")).unwrap();
+    store
+        .create_run("r", "feature", "bundle", &json!({"files":{}}))
+        .unwrap();
+    let started = store
+        .append_next(
+            "r",
+            EventType::RunStarted,
+            json!({"feature":"f","manifest":{}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let moved = store.append_next_if_head(
+        "r",
+        started.seq,
+        &"0".repeat(64),
+        EventType::RunCompleted,
+        json!({}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(moved, Err(StoreError::HeadMoved { .. })),
+        "{moved:?}"
+    );
+}
+
+/// A journal from before the arrival columns — or one that crashed
+/// between the two ALTERs that add them — is finished at the next open,
+/// inside the immediate transaction, and a journal already whole writes
+/// nothing. The half-migrated shape is real: two ALTERs are two
+/// statements, and a process can die between them.
+#[test]
+fn a_journal_that_predates_the_arrival_columns_is_finished_at_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
+            [&DATABASE_SCHEMA.to_string()],
+        )
+        .unwrap();
+        // Half the migration already applied: one column of two.
+        conn.execute("ALTER TABLE runs ADD COLUMN imported_at TEXT", [])
+            .unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    let present: Vec<String> = store
+        .conn
+        .prepare("SELECT name FROM pragma_table_info('runs')")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for (column, _) in ARRIVAL_COLUMNS {
+        assert!(present.iter().any(|name| name == column), "{column}");
+    }
+    // And the finished journal is a plain read at the next open.
+    assert!(!arrival_columns_missing(&Store::open(&path).unwrap().conn).unwrap());
 }
 
 /// One broken link refuses the WHOLE import. No prefix of good events

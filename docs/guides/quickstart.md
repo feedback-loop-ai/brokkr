@@ -264,8 +264,19 @@ brokkr operator --run <id> stop  --reason "requirements changed"
 The command is a **positional argument** and `--reason` is **required**;
 `--db` defaults to `.forge/forge.db`. There are exactly two commands:
 `retry` re-runs the current phase, `stop` ends the run. Both are
-recorded as `operator/commanded` + `operator/accepted` journal events —
-approval is an entry in the record, not a prose convention.
+recorded as `operator/commanded` plus the engine's disposition —
+`operator/accepted` when it lands, `operator/rejected` when it does not.
+Approval is an entry in the record, not a prose convention, and so is a
+refusal.
+
+The command is **fenced**: the engine re-reads the run's state after the
+`operator/commanded` lands and before it writes a disposition, because
+an engine process driving the same run can conclude it or un-park it in
+that window. A command the run can no longer take is refused — `retry`
+anywhere but `awaiting_operator`, either command on a run that has
+already finished — and `brokkr operator` then exits **1** and prints the
+journaled reason. It never accepts a command the fold would refuse to
+read back.
 
 **There is no `park` command.** Parking is something the engine does,
 never an operator verb. A run parks when the machine cannot rule:

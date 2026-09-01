@@ -22,7 +22,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_runtime::realms::World;
-use brokkr_runtime::{operator_command, Bundle, Engine};
+use brokkr_runtime::{operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use clap::{ArgGroup, Parser, Subcommand};
 use serde_json::{json, Value};
@@ -30,6 +30,16 @@ use serde_json::{json, Value};
 /// The workspace journal a command opens when neither a map nor `--db`
 /// says otherwise. Unchanged since the first release, and the reason a
 /// world that never drew a map notices nothing.
+///
+/// It is a fallback now, not the steady state. Same-realm parallel burns
+/// belong in the realm's one `journal` from `realms.json`, which several
+/// `brokkr` processes driving different runs can share safely — measured
+/// and fenced at the store layer, see `brokkr_store`'s module doc. A
+/// worktree-local `.forge/forge.db` stays entirely legal and is what a
+/// mapless world still gets, but reaching for one per worktree to keep
+/// parallel burns apart is emergency isolation: it buys nothing the
+/// shared journal does not already give, and it scatters one realm's
+/// history across files that no single reader can fold together.
 pub const DEFAULT_DB: &str = ".forge/forge.db";
 
 /// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
@@ -1326,9 +1336,33 @@ fn run_with(
             );
             let mut store = Store::open(&db)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
-            operator_command(&mut store, &run, &command, &operator, &reason)?;
-            eprintln!("recorded operator {command}; continue with: brokkr resume --run {run}");
-            Ok(ExitCode::SUCCESS)
+            // The command is fenced against a concurrently-driving
+            // engine, so it can come back refused. Saying "recorded"
+            // there would tell the operator the opposite of what the
+            // journal says.
+            match operator_command(&mut store, &run, &command, &operator, &reason)? {
+                FencedCommandOutcome::Accepted { .. } => {
+                    eprintln!(
+                        "recorded operator {command}; continue with: brokkr resume --run {run}"
+                    );
+                    Ok(ExitCode::SUCCESS)
+                }
+                FencedCommandOutcome::Rejected { reason, .. } => {
+                    // The reason word carries which condition it was —
+                    // `lost_fence` for a run that moved under the
+                    // operator, `after_terminal` or
+                    // `run_not_awaiting_operator` for a command the run
+                    // was never in a state to take — so this line states
+                    // the condition and passes the word through rather
+                    // than paraphrasing it into one story.
+                    eprintln!(
+                        "refused operator {command} ({reason}): the run is not in a state \
+                         this command can apply to; the refusal is journaled. Read it with: \
+                         brokkr inspect --run {run}"
+                    );
+                    Ok(ExitCode::FAILURE)
+                }
+            }
         }
         Cmd::Inspect {
             run,
