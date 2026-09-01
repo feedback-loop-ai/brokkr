@@ -2460,4 +2460,98 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         db: Some(adopted),
     }))
     .is_err());
+/// The conclude fixture pairs, replayed into a store the way
+/// `stopped_mid_flight_run` replays the standing example: `(type,
+/// payload)` pair by pair, so the CLI meets the recorded shape without
+/// fabricating an operator's database. The fixture files are opened
+/// read-only and never edited.
+fn conclude_fixture_store(db: &std::path::Path, name: &str) {
+    let ndjson =
+        std::fs::read_to_string(workspace().join(format!("fixtures/journals/{name}.ndjson")))
+            .unwrap();
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            workspace().join(format!("fixtures/journals/{name}.manifest.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run(name, "fixture", "self", &manifest)
+        .unwrap();
+    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+        let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
+        store
+            .append_next(name, event.event_type, event.payload, None, None)
+            .unwrap();
+    }
+}
+
+/// `brokkr conclude` at the console: it takes no bundle, exits 3 on the
+/// run it stops (`finish`'s one mapping, so a script reads a conclusion
+/// the same way whichever verb reached it), and refuses a run that is
+/// already concluded or one that is not there at all.
+#[test]
+fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+
+    // The standing example itself: an operator stop accepted mid-flight,
+    // its attempt already past its boundary in the journal. No bundle is
+    // compiled and none is asked for.
+    stopped_mid_flight_run(&db, "stranded", &json!({"engine": "0.3.6", "files": {}}));
+    assert_eq!(
+        run(cli(Cmd::Conclude {
+            run: "stranded".into(),
+            reason: "the engine moved on without it".into(),
+            db: db.clone(),
+        }))
+        .unwrap(),
+        ExitCode::from(3),
+        "a concluded run exits stopped, like every other stop",
+    );
+    let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
+    assert_eq!(state.status, Status::Stopped);
+
+    let refusal = run(cli(Cmd::Conclude {
+        run: "stranded".into(),
+        reason: "again".into(),
+        db: db.clone(),
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("already concluded"), "{refusal}");
+    assert!(refusal.contains("stopped"), "{refusal}");
+
+    // A parked run gets its stop commanded under the invoking operator's
+    // name, read from the same `USER` fallback `Cmd::Operator` uses.
+    conclude_fixture_store(&db, "conclude-parked-hand-built");
+    assert_eq!(
+        run(cli(Cmd::Conclude {
+            run: "conclude-parked-hand-built".into(),
+            reason: "closing the books".into(),
+            db: db.clone(),
+        }))
+        .unwrap(),
+        ExitCode::from(3),
+    );
+    let events = Store::open(&db)
+        .unwrap()
+        .load("conclude-parked-hand-built")
+        .unwrap();
+    let operator = std::env::var("USER").unwrap_or("operator".into());
+    let cited = events.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.starts_with("OPERATOR-STOP: "), "{cited}");
+    assert!(cited.contains(&operator), "{cited}");
+    assert!(cited.contains("closing the books"), "{cited}");
+
+    let missing = run(cli(Cmd::Conclude {
+        run: "no-such-run".into(),
+        reason: "nothing to close".into(),
+        db,
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(missing.contains("no-such-run"), "{missing}");
 }

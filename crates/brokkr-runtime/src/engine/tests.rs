@@ -21,7 +21,7 @@ fn machine() -> Machine {
     .unwrap()
 }
 
-fn single_body(command: Vec<String>) -> SeatBody {
+pub(super) fn single_body(command: Vec<String>) -> SeatBody {
     SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command,
@@ -30,7 +30,7 @@ fn single_body(command: Vec<String>) -> SeatBody {
     }
 }
 
-fn bundle(dir: &Path, body: SeatBody) -> Bundle {
+pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -87,7 +87,7 @@ fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
     (dir, engine)
 }
 
-fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
+pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
     RunState {
         run_id: "run".into(),
         seq: 1,

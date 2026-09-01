@@ -1,0 +1,11 @@
+{
+  "bundle_name": "self",
+  "database_schema": 1,
+  "driver_protocol": 1,
+  "engine": "0.3.6",
+  "event_schema": 1,
+  "files": {
+    "bundle.json": "d260a568c67620a2bcf80273c5eddb8a509f3c74dd52daa7934ceec0df901bf7",
+    "policy.json": "2411ee8ccd32d617fc25c77c81e8850e1dd7b49a08208a7b2262c314103828f5"
+  }
+}

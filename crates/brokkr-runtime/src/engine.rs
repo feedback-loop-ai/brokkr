@@ -39,6 +39,12 @@ pub enum EngineError {
     Fold(#[from] brokkr_core::FoldError),
     #[error("run '{run_id}' pins a different bundle: {detail}")]
     ManifestMismatch { run_id: String, detail: String },
+    /// `conclude` refuses a run that already has its conclusion. There is
+    /// nothing lawful left to append — a second `run/stopped` would fail
+    /// the fold as an event after terminal — so the refusal comes before
+    /// the first append, not after a half-written closure.
+    #[error("run '{run_id}' is already concluded ({status}); conclude appends nothing")]
+    AlreadyConcluded { run_id: String, status: String },
     #[error("engine: {0}")]
     Other(String),
     #[error("dispatch: {0}")]
@@ -1770,6 +1776,118 @@ fn operator_command_racing(
     Ok(disposition)
 }
 
+/// Close a run from its journal alone: no bundle, no recipe, no process.
+///
+/// `resume` is bundle-in, bundle-out — it compiles the exact pinned
+/// recipe and refuses on any drift (`ManifestMismatch`) before it looks
+/// at the cursor, because the branches it drives (`RequestEffect`,
+/// `ExecuteEffect`, `Decide`) SPEND money against a pinned policy and
+/// must not spend it against a different one. That gate is correct, and
+/// it is also why a run journaled under an engine that has since moved
+/// can never reach a lawful conclusion: the door it needs is behind a
+/// lock that exists for other doors.
+///
+/// This is the other door. An operator stop conclusion appends nothing
+/// but bookkeeping — `operator/commanded`, `operator/accepted`,
+/// at most one `effect/indeterminate`, and `run/stopped` — and reads no
+/// policy to append any of it: `fold`'s `"stop"` arm lands at any cursor
+/// (riding an in-flight attempt to its boundary, concluding where it
+/// stands otherwise), and the boundary close is the same event
+/// `advance_running` writes at `Cursor::EffectInFlight` on a fresh
+/// process, which consults no bundle either. A closure that spawns
+/// nothing needs no pinned recipe to be honest about what it wrote.
+///
+/// Deterministic throughout (law 2): the caller supplies a run id, an
+/// operator identity, and a reason — never a cursor or a status. Every
+/// position is re-derived by re-folding the journal after each append,
+/// and an unexpected one is an error rather than a guess.
+pub fn conclude(
+    store: &mut Store,
+    run_id: &str,
+    operator: &str,
+    reason: &str,
+) -> Result<RunState, EngineError> {
+    // `load` verifies the hash chain and never returns a partial journal,
+    // so a broken chain refuses the whole conclusion here — before any
+    // append. No second verification, and the error is never swallowed.
+    let state = fold(&store.load(run_id)?)?;
+    if matches!(state.status, Status::Completed | Status::Stopped) {
+        return Err(EngineError::AlreadyConcluded {
+            run_id: run_id.to_string(),
+            status: match state.status {
+                Status::Completed => "completed",
+                _ => "stopped",
+            }
+            .to_string(),
+        });
+    }
+
+    // A stop already in force is not re-commanded: the operator who
+    // typed `brokkr operator stop` is the cause the journal already
+    // names, and a second command would put a second name on the
+    // conclusion. Only a run with no stop pending gets one, naming the
+    // operator invoking `conclude`.
+    if state.cursor != Cursor::Stop && !state.riding_stop {
+        operator_command(store, run_id, "stop", operator, reason)?;
+    }
+
+    // The accepted stop rides an in-flight attempt to its boundary. This
+    // process holds no driver for that attempt, so completion cannot be
+    // established: close it indeterminate, exactly as a fresh drive
+    // would. Closing the boundary is what SPENDS the ride (fold's
+    // `conclude`), so the loop turns at most once — but what ends it is
+    // the re-folded cursor, never a count kept here.
+    let mut events = store.load(run_id)?;
+    while let Some((effect_id, attempt_id)) = riding_attempt(run_id, &fold(&events)?)? {
+        store.append_next(
+            run_id,
+            EventType::EffectIndeterminate,
+            json!({
+                "effect_id": effect_id,
+                "attempt_id": attempt_id,
+                "reason": "the run was concluded from its journal while the attempt \
+                           was in flight; completion cannot be established",
+            }),
+            events.last().map(|event| event.event_id.clone()),
+            Some(attempt_id),
+        )?;
+        events = store.load(run_id)?;
+    }
+
+    // `riding_attempt` answering None IS the statement that the cursor is
+    // `Cursor::Stop`; it refuses anything else rather than letting a
+    // `run/stopped` be appended somewhere it does not belong.
+    store.append_next(
+        run_id,
+        EventType::RunStopped,
+        json!({"reason": operator_stop_reason(&events)}),
+        events.last().map(|event| event.event_id.clone()),
+        None,
+    )?;
+    Ok(fold(&store.load(run_id)?)?)
+}
+
+/// Where a run with an accepted stop stands, read off the cursor a
+/// re-fold produced rather than predicted: `None` at `Cursor::Stop` —
+/// the position `run/stopped` belongs at — and the in-flight attempt the
+/// ride must close first otherwise. Under an accepted stop the fold
+/// admits no third position, so any other cursor is a fold or engine
+/// defect and refuses rather than guessing at a conclusion.
+fn riding_attempt(run_id: &str, state: &RunState) -> Result<Option<(String, String)>, EngineError> {
+    match &state.cursor {
+        Cursor::Stop => Ok(None),
+        Cursor::EffectInFlight {
+            effect_id,
+            attempt_id,
+            ..
+        } if state.riding_stop => Ok(Some((effect_id.clone(), attempt_id.clone()))),
+        cursor => Err(EngineError::Other(format!(
+            "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
+             a stop reaches Stop or rides an in-flight attempt and nothing else"
+        ))),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FencedCommandOutcome {
     Accepted {
@@ -2433,6 +2551,9 @@ mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
+
+#[cfg(test)]
+mod conclude_tests;
 
 #[cfg(test)]
 mod secret_threading_tests;

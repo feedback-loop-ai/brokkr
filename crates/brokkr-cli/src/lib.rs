@@ -22,7 +22,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_runtime::realms::World;
-use brokkr_runtime::{operator_command, Bundle, Engine, FencedCommandOutcome};
+use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use clap::{ArgGroup, Parser, Subcommand};
 use serde_json::{json, Value};
@@ -251,6 +251,22 @@ enum Cmd {
     Secrets {
         #[command(subcommand)]
         command: SecretsCmd,
+    },
+    /// Close a stopped or parked run from its journal alone — no bundle,
+    /// no recipe, no effect. `resume` compiles the exact pinned recipe
+    /// and refuses on any drift, which is right for the branches that
+    /// spend money but leaves a run from a moved engine with no lawful
+    /// ending. This appends the operator stop conclusion and nothing
+    /// else, so it needs no pinned recipe to be honest about what it
+    /// wrote. It cannot retry: that re-enters the policy loop, and the
+    /// policy loop needs the bundle by construction.
+    Conclude {
+        #[arg(long)]
+        run: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
     },
     /// Record an operator command (retry | stop) as journal events.
     Operator {
@@ -1323,6 +1339,12 @@ fn run_with(
             );
             let end = engine.drive()?;
             Ok(finish(&end.state))
+        }
+        Cmd::Conclude { run, reason, db } => {
+            let mut store = Store::open(&db)?;
+            let operator = std::env::var("USER").unwrap_or("operator".into());
+            let state = conclude(&mut store, &run, &operator, &reason)?;
+            Ok(finish(&state))
         }
         Cmd::Operator {
             run,
