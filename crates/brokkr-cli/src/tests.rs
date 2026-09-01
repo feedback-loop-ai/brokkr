@@ -619,13 +619,40 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
             ExitCode::SUCCESS
         );
     }
+    let moved_on = dir.path().join("moved-on.db");
     assert_eq!(
         keep(KeepRefsCmd::List {
             run: Some("r1".into()),
-            db: dir.path().join("moved-on.db"),
+            db: moved_on.clone(),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
+    );
+
+    // `latest` is not a name, it is a question for the run table — so a
+    // database that has moved on cannot answer it, and the verbs refuse
+    // rather than take it literally. Taken literally it would list, or
+    // release, the nothing a run called `latest` holds, and report that
+    // nothing as the answer.
+    for command in [
+        KeepRefsCmd::List {
+            run: Some(selector::LATEST.into()),
+            db: moved_on.clone(),
+            repo: repo.clone(),
+        },
+        KeepRefsCmd::Delete {
+            run: selector::LATEST.into(),
+            db: moved_on.clone(),
+            repo: repo.clone(),
+        },
+    ] {
+        let refused = run(cli(Cmd::KeepRefs { command })).unwrap_err().to_string();
+        assert!(refused.contains("brokkr keep-refs list"), "{refused}");
+    }
+    assert_eq!(
+        brokkr_runtime::list_keep_refs(&repo).unwrap().get("r1"),
+        Some(&vec![head.clone()]),
+        "and the refusal released nothing"
     );
 
     // Releasing is the operator's, and it takes the refs with it.

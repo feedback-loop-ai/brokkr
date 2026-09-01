@@ -104,6 +104,12 @@ operator's own routine, done long after the run concluded.
   removal, alongside every other reference the repository holds. The set
   is bounded and listable, which is the point: an exhibit the operator
   cannot see is one they cannot release.
+- Keep-refs outlive journals, so the reading and releasing verbs take a
+  literal run id when the workspace database is gone — the refs
+  themselves name the run. `latest` is the exception and is refused
+  there: it is a question for the run table, not a name, and answering
+  it literally would report a listing (or a release) of nothing as
+  though it were the answer.
 - Pushing keep-refs to a remote is deliberately out of scope: a remote's
   own gc policy is a separate, undesigned question.
 - Signing keep-refs stays deferred with the signing service (0008), as

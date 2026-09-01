@@ -82,13 +82,30 @@ fn git(repo: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, KeepRe
             .stderr(std::process::Stdio::piped())
             .spawn();
         let mut child = git_io(child, "spawn")?;
-        let write = child
-            .stdin
-            .take()
-            .expect("piped")
-            .write_all(input.as_bytes());
-        git_io(write, "write")?;
-        git_io(child.wait_with_output(), "wait")?
+        let mut sink = child.stdin.take().expect("piped");
+        // The batch is written BESIDE the reply, not before it. git
+        // reports on a batch while it is still reading one, so a caller
+        // that wrote the whole thing first would wedge the moment
+        // either pipe filled: git blocked writing a report nobody is
+        // reading, this blocked writing a batch git has stopped
+        // reading. `anchor.rs` can write first — its input is one
+        // commit — but a keep-ref batch grows with the exhibits a
+        // journal cites, so it is not the sort of thing to bound by
+        // hoping.
+        let (written, finished) = std::thread::scope(|scope| {
+            let writer = scope.spawn(move || sink.write_all(input.as_bytes()));
+            let finished = child.wait_with_output();
+            (writer.join(), finished)
+        });
+        let finished = git_io(finished, "wait")?;
+        // git refusing a batch closes its stdin early, so the write
+        // then fails with the pipe rather than with the reason. git's
+        // own complaint below is the better one; a failed write is news
+        // only when git was otherwise content.
+        if finished.status.success() {
+            git_io(written.expect("the batch writer does not panic"), "write")?;
+        }
+        finished
     } else {
         git_io(command.output(), "run")?
     };

@@ -733,11 +733,25 @@ fn watch_loop(
 /// selector goes through decision 0015's one resolver when there IS a
 /// workspace database and is taken literally when there is not, rather
 /// than refusing a run the refs themselves can name.
+///
+/// `latest` is the exception, and is refused rather than taken
+/// literally: it is not a name, it is a question only the run table can
+/// answer, and no repository holds a run called `latest`. Answering it
+/// literally would report a released or listed nothing as if it were an
+/// answer — the quiet outcome these verbs exist to prevent.
 fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
-    match db.is_file() {
-        true => selector::resolve_run(&Store::open(db)?, run),
-        false => Ok(run.to_string()),
+    if db.is_file() {
+        return selector::resolve_run(&Store::open(db)?, run);
     }
+    anyhow::ensure!(
+        run != selector::LATEST,
+        "'{}' is a question for the workspace database, and {} is not there; \
+         name the run itself — `brokkr keep-refs list` prints the runs this \
+         repository holds exhibits for",
+        selector::LATEST,
+        db.display()
+    );
+    Ok(run.to_string())
 }
 
 /// The keep-ref verbs. Planting reads the journal (so it resolves

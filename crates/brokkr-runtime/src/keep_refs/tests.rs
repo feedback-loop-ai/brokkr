@@ -354,6 +354,30 @@ fn a_run_id_that_could_reshape_the_namespace_is_refused() {
     }
 }
 
+/// A batch past the pipe buffer completes. No real journal cites this
+/// many objects — a run cites two or three — but the writer either runs
+/// beside git's reply or it does not, and the difference only shows once
+/// a pipe fills in both directions at once. Bounded by a timeout so a
+/// regression here fails the suite instead of hanging it.
+#[test]
+fn a_batch_larger_than_the_pipe_buffer_does_not_wedge() {
+    let dir = repo();
+    let path = dir.path().to_path_buf();
+    // Names this repository does not hold: `--batch-check` answers
+    // `missing` for each, which is what fills the reply pipe while the
+    // batch is still going in.
+    let asked: BTreeSet<String> = (0..8000).map(|n| format!("{n:040x}")).collect();
+    let (finished, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = finished.send(present(&path, &asked));
+    });
+    let held = answer
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the batch goes in while the reply comes out, so neither pipe wedges")
+        .unwrap();
+    assert!(held.is_empty(), "none of those names is an object here");
+}
+
 #[test]
 fn git_failures_name_their_boundary() {
     let missing = Path::new("/forge/definitely/missing/repository");
