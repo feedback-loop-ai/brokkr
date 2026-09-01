@@ -174,7 +174,7 @@ fn push_line(out: &mut String, line: &str) {
     out.push('\n');
 }
 
-// ------------------------------------------------------------ forge runs
+// ----------------------------------------------------------- brokkr runs
 
 /// One clamped line per run, newest first: id, status, phase, seq, age,
 /// feature. Columns are sized to the widest value in the batch; the
@@ -245,7 +245,7 @@ pub fn runs(view: &RunsView, now: &str, style: &Style) -> String {
     out
 }
 
-// --------------------------------------------------------- forge inspect
+// -------------------------------------------------------- brokkr inspect
 
 /// The console's exclusive scoping, as the verbs a terminal has.
 pub enum Scope {

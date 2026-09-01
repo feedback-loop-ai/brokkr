@@ -10,7 +10,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::Bundle;
 
-// Drivers are built into the forge binary itself (decision 0009):
+// Drivers are built into the brokkr binary itself (decision 0009):
 // scaffolds reference them as {brokkr} driver <kind>.
 
 const POLICY: &str = r#"{

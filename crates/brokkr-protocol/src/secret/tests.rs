@@ -35,19 +35,27 @@ fn name_grammar_vectors() {
 }
 
 #[test]
-fn denylist_covers_exact_names_and_forge_prefix() {
+fn denylist_covers_exact_names_and_both_harness_prefixes() {
+    // Both spellings of the harness-owned prefix: `BROKKR_` is the one
+    // that configures this release's binary, `FORGE_` the one it still
+    // answers to (decision 0019). Either would be a code-loading
+    // primitive in a seat's hands, so both are pinned here — the
+    // release that deletes the fallback must delete only the fallback.
     for name in [
         "PATH",
         "IFS",
         "LD_PRELOAD",
         "LD_LIBRARY_PATH",
+        "BROKKR_X",
+        "BROKKR_",
+        "BROKKR_CODEX_BIN",
         "FORGE_X",
         "FORGE_",
     ] {
         assert!(denylisted(name), "{name} must be denylisted");
         assert!(validate_name(name).is_err(), "{name} must not validate");
     }
-    for name in ["PATHS", "GH_TOKEN", "LD", "FORG_X"] {
+    for name in ["PATHS", "GH_TOKEN", "LD", "FORG_X", "BROKKR", "BROKK_X"] {
         assert!(!denylisted(name), "{name} must not be denylisted");
     }
 }
