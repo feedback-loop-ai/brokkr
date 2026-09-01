@@ -1622,6 +1622,9 @@ fn gphase(name: &str, visits: u64, current: bool, columns: Vec<Column>) -> Phase
         current,
         plain: columns.is_empty(),
         columns,
+        // No road in: a synthetic phase is a forward one unless a case
+        // says otherwise, which `returned` is for.
+        returns: Vec::new(),
     }
 }
 
@@ -4243,4 +4246,250 @@ fn the_graph_footer_names_no_member_once_the_lane_cursor_no_longer_scopes_it() {
         !seats.contains(&"eff-d:positions:simplicity".to_string()),
         "and the seats pane is not filtered to it either: {seats:?}"
     );
+}
+
+// ------------------------------------------------------- the return edge
+//
+// A reforging is a road, and roads are drawn. Decision 0022 gave the
+// machine a backward transition — a review that finds a security
+// residual sends the run back to implement — and without the arc the
+// rail said only that `implement` lit up again, which reads as
+// teleportation. Geometry is asserted against the `Plan`; the glyphs
+// are asserted on the painted row.
+
+/// A committed journal fixture folded the way a live pane reaches a
+/// run: the export's own events, `brokkr-core`'s fold, `brokkr-view`'s
+/// derivation. Nothing synthetic on the path.
+fn folded(name: &str) -> RunView {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(format!("fixtures/journals/{name}.ndjson"));
+    let ndjson = std::fs::read_to_string(&path).unwrap();
+    let events: Vec<EventEnvelope> = ndjson
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let state = brokkr_core::fold::fold(&events).unwrap();
+    brokkr_view::run_view(&events, Some(&state))
+}
+
+/// The reforging journal: `REVIEW-REFORGE` twice, then the exhausted
+/// ruling to `ship`. Hand-built to the documented shape, and pinned as
+/// a real chaining journal by `brokkr-store`'s own fixture test.
+const REFORGED: &str = "reforging-the-road-back-hand-built";
+
+/// The linear self-run: intake, implement, verify — no revisit anywhere.
+const LINEAR: &str = "tui-graph-the-selection-box-gets-80f98deb";
+
+fn segment<'a>(plan: &'a Plan, key: &str) -> &'a Seg {
+    plan.segments
+        .iter()
+        .find(|seg| seg.key == key)
+        .unwrap_or_else(|| panic!("the frame drew {key}"))
+}
+
+/// The same phase, carrying the roads the journal recorded INTO it —
+/// the fact `brokkr-view` derives from the ruling, never from `visits`.
+fn returned(phase: Phase, sources: &[&str]) -> Phase {
+    Phase {
+        returns: sources.iter().map(|name| name.to_string()).collect(),
+        ..phase
+    }
+}
+
+#[test]
+fn a_recorded_reforging_draws_one_return_arc_under_the_names() {
+    // The road back, from beneath the phase that ruled to beneath the
+    // phase it landed in, on its own row under the name baseline.
+    let view = folded(REFORGED);
+    let plan = plan(&view.phases, None, "completed", None, None, 100, 12);
+
+    assert_eq!(plan.arc_row, Some(11), "the last row is the arc's");
+    assert_eq!(plan.box_row, Some(10), "the box keeps its own, above it");
+    assert_eq!(plan.name_row, 9);
+    let implement = centre_of(segment(&plan, "implement"));
+    let review = centre_of(segment(&plan, "review"));
+    assert_eq!(
+        plan.arcs,
+        vec![Arc {
+            to: implement,
+            from: review,
+        }],
+        "one road, landing where the ruling sent the run"
+    );
+
+    // Two reforgings were taken; ONE arc is drawn, because the repeats
+    // ride the `×N` marker that was already the rail's answer to a
+    // revisit.
+    assert_eq!(
+        view.phases
+            .iter()
+            .find(|phase| phase.name == "implement")
+            .unwrap()
+            .visits,
+        3
+    );
+    let grid = grid_of(&plan);
+    let names: String = grid[plan.name_row].iter().collect();
+    assert!(
+        names.contains("×3"),
+        "the repeat count is the marker's: {names}"
+    );
+
+    // And the drawn row is the road: a corner rising to the landing
+    // phase, the mirror head pointing into it, one unbroken run of
+    // dashes, and the departing corner over the phase that ruled.
+    let drawn: String = grid[11].iter().collect();
+    let road = format!(
+        "{}╰ᐸ{}╯",
+        " ".repeat(implement),
+        "─".repeat(review - implement - 2)
+    );
+    assert!(
+        drawn.starts_with(&road),
+        "the arc reads as one road: {drawn:?} wanted {road:?}"
+    );
+    assert!(
+        drawn.chars().skip(road.chars().count()).all(|c| c == ' '),
+        "and nothing past its end: {drawn:?}"
+    );
+    // The arc's row is the arc's alone: no box wall, no elision mark,
+    // no name shares it.
+    for glyph in ['│', '┼', '‹', '›', '╭', '╮'] {
+        assert!(!drawn.contains(glyph), "{glyph} on the arc row: {drawn:?}");
+    }
+}
+
+#[test]
+fn a_run_that_never_reforged_draws_no_arc_at_all() {
+    // The easiest regression to introduce is an arc drawn from an
+    // inference — `visits > 1`, a shared prefix, an ordering — so this
+    // is pinned on a real linear journal rather than on a synthetic.
+    let view = folded(LINEAR);
+    assert!(
+        view.phases.iter().all(|phase| phase.returns.is_empty()),
+        "the linear fixture recorded no backward transition"
+    );
+    let plan = plan(&view.phases, None, "running", None, None, 100, 12);
+    assert_eq!(plan.arc_row, None, "no road, no row reserved for one");
+    assert!(plan.arcs.is_empty());
+    // And the rows below are exactly what they were before arcs existed.
+    assert_eq!(plan.box_row, Some(11));
+    assert_eq!(plan.name_row, 10);
+    let frame = text_of(&paint(&plan, 0, false));
+    assert!(!frame.contains('ᐸ'), "and no mirror head anywhere: {frame}");
+}
+
+#[test]
+fn a_pane_too_short_for_the_arc_row_draws_no_half_arc() {
+    // Half an arc is the box's own lesson: a pane that cannot hold the
+    // row omits the road WHOLE, and the rest of the frame is exactly
+    // the layout a run with no road would have had.
+    let view = folded(REFORGED);
+    let short = plan(&view.phases, None, "completed", None, None, 100, 4);
+    assert_eq!(short.arc_row, None);
+    assert!(short.arcs.is_empty());
+    assert_eq!(short.box_row, Some(3), "the box keeps its row");
+    assert_eq!(short.name_row, 2);
+    let frame = text_of(&paint(&short, 0, false));
+    assert!(!frame.contains('ᐸ'), "no head: {frame}");
+    assert!(!frame.contains('╰'), "and no landing corner: {frame}");
+
+    // One row more and the road fits, whole.
+    let tall = plan(&view.phases, None, "completed", None, None, 100, 5);
+    assert_eq!(tall.arc_row, Some(4));
+    assert_eq!(tall.box_row, Some(3), "the box moved up, it did not go");
+    assert_eq!(tall.name_row, 2);
+    assert_eq!(tall.arcs.len(), 1);
+}
+
+#[test]
+fn an_arc_with_an_end_outside_the_window_is_not_drawn() {
+    // A road reaching a phase the window scrolled away would have to
+    // land on the elision mark's own column. The ROW stays reserved, so
+    // walking the rail never lifts the baseline under the operator.
+    let view = folded(REFORGED);
+    let narrow = plan(&view.phases, None, "completed", Some("done"), None, 30, 12);
+    assert!(narrow.left_elided, "the rail is scrolled");
+    assert!(
+        narrow.segments.iter().all(|seg| seg.key != "review"),
+        "and the departure is off the frame"
+    );
+    assert_eq!(narrow.arc_row, Some(11), "the row is still the arc's");
+    assert!(narrow.arcs.is_empty(), "but there is no road to draw");
+    let frame = text_of(&paint(&narrow, 0, false));
+    assert!(!frame.contains('ᐸ'), "no head: {frame}");
+}
+
+#[test]
+fn a_road_needs_two_ends_on_the_rail_and_a_landing_that_lies_left() {
+    // Both arms of the geometry filter, on models the derivation can
+    // honestly produce: a departure the rail never drew (a `from` no
+    // `phase/entered` ever named), and a landing sitting LATER on the
+    // rail than its departure — the shape `A → B → A`, then `A → B`
+    // records, which is a real backward transition with no leftward
+    // road to draw for it.
+    let plan_of = |phases: &[Phase]| plan(phases, None, "running", None, None, 100, 12);
+    let dangling = vec![
+        gphase("intake", 1, false, Vec::new()),
+        returned(gphase("implement", 2, true, Vec::new()), &["nowhere"]),
+    ];
+    assert!(returns_of(&dangling).is_empty(), "no column to leave from");
+    assert_eq!(plan_of(&dangling).arc_row, None);
+
+    let forward = vec![
+        gphase("intake", 2, false, Vec::new()),
+        returned(gphase("implement", 2, true, Vec::new()), &["intake"]),
+    ];
+    assert!(
+        returns_of(&forward).is_empty(),
+        "a landing right of its departure is no return arc"
+    );
+    assert_eq!(plan_of(&forward).arc_row, None);
+    assert!(!text_of(&paint(&plan_of(&forward), 0, false)).contains('ᐸ'));
+
+    // The same pair the other way round IS a road.
+    let back = vec![
+        returned(gphase("implement", 2, false, Vec::new()), &["review"]),
+        gphase("review", 1, true, Vec::new()),
+    ];
+    assert_eq!(returns_of(&back), vec![(0, 1)]);
+    assert_eq!(plan_of(&back).arcs.len(), 1);
+}
+
+#[test]
+fn the_return_arc_names_only_the_solid_vocabulary() {
+    // The dashed lesson, applied before it could be re-learned: `╌` and
+    // `┆` carry a gap at every cell boundary by design and can never
+    // touch a corner, so the arc is solid from the start. The evidence
+    // is the drawing code itself, not a memory of the ruling.
+    let body = SOURCE
+        .split("fn arc(cells: &mut Cells")
+        .nth(1)
+        .expect("the arc has a painter")
+        .split("\n}\n")
+        .next()
+        .expect("bounded by its own closing brace");
+    let drawn: Vec<char> = body
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .flat_map(str::chars)
+        .collect();
+    assert!(!drawn.is_empty(), "the painter names glyphs");
+    for glyph in &drawn {
+        assert!(
+            "─│╭╮╰╯┼ᐸ".contains(*glyph),
+            "the arc drew {glyph}, outside the solid vocabulary"
+        );
+    }
+    for forbidden in ['╌', '┆'] {
+        assert!(
+            !body.contains(forbidden),
+            "the dashed set is not the arc's: {forbidden}"
+        );
+    }
 }

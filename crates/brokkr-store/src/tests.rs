@@ -181,6 +181,38 @@ fn the_operator_stop_that_came_mid_flight_folds_end_to_end() {
     assert_eq!(state.pending_command, None, "the stop was disposed of");
 }
 
+/// The reforging fixture is a real journal, not a picture of one: it
+/// chains, verifies and folds like any export the engine wrote. It is
+/// HAND-BUILT — its name says so — because when the return arc needed a
+/// backward transition to draw, no run in this repository had taken one
+/// (decision 0022 landed the same day). It is built to the documented
+/// shape: `REVIEW-REFORGE` twice, then `REVIEW-REFORGE-EXHAUSTED-DEBT`
+/// to `ship`, ending `done`. Trim a real reforged export over it the
+/// day one exists.
+#[test]
+fn the_reforging_fixture_chains_verifies_and_folds_to_a_completed_run() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("fixtures/journals/reforging-the-road-back-hand-built.ndjson");
+    let ndjson = std::fs::read_to_string(&fixture).unwrap();
+    let state = verify_export(&ndjson).unwrap();
+
+    assert_eq!(state.run_id, "reforging-the-road-back-hand-built");
+    assert_eq!(state.seq, 80, "the export's last event");
+    assert_eq!(state.status, brokkr_core::fold::Status::Completed);
+    // Three entries into implement: the first visit and the two the
+    // reforgings sent back, which is decision 0022's own bound.
+    assert_eq!(state.visits.get("implement"), Some(&3));
+    assert_eq!(state.visits.get("review"), Some(&3));
+    assert!(
+        !ndjson.contains("/home/"),
+        "a hand-built fixture carries no operator's path"
+    );
+}
+
 /// The placeholder contract: the same original path always becomes the
 /// same placeholder, distinct paths stay distinct, numbering follows
 /// first appearance journal-wide. Only absolute paths are rewritten —

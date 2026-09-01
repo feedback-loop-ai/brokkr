@@ -34,8 +34,11 @@ use serde_json::Value;
 
 /// Wire version of every model in this crate. `--json` consumers pin it.
 /// Bumped to 2 by decision 0016: participants gained `provenance` and
-/// the run view gained `notices`.
-pub const VIEW_VERSION: u32 = 2;
+/// the run view gained `notices`. Bumped to 3 when the phase rail gained
+/// `returns` — the roads back decision 0022 made real. The precedent is
+/// 0016's: an additive model field moves the wire version, because a
+/// consumer pinning the old one is entitled to know the shape grew.
+pub const VIEW_VERSION: u32 = 3;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -231,6 +234,17 @@ pub struct Phase {
     /// No inner structure was observed: the rail draws a single node.
     pub plain: bool,
     pub columns: Vec<Column>,
+    /// The phases whose ruling sent the run BACK here — the road in,
+    /// not the count of arrivals. One name per distinct backward
+    /// transition the journal recorded, in the order it recorded them,
+    /// so a surface that draws the return draws it once however many
+    /// times it was taken (decision 0022's reforging is the machine's
+    /// only backward edge today; nothing here names it).
+    ///
+    /// Derived from the `transition/decided` that CAUSED the revisit,
+    /// never inferred from `visits > 1`: the count says a phase was
+    /// entered twice, and only the transition says where from.
+    pub returns: Vec<String>,
 }
 
 /// The human answer to "what happened here", as parts a surface may
@@ -1542,16 +1556,41 @@ fn phase_rail(
     state: Option<&RunState>,
 ) -> Vec<Phase> {
     let mut visits: Vec<(String, u64)> = Vec::new();
+    // The roads back, as `(landing, departure)` pairs deduped in the
+    // order the journal recorded them. A transition is BACKWARD when
+    // the phase it names as `next` has already been entered in this
+    // run — the same fact `visits` counts, read here from the ruling
+    // that caused the revisit rather than from the count it produced.
+    let mut returns: Vec<(String, String)> = Vec::new();
     for event in events {
-        if event.event_type != EventType::PhaseEntered {
-            continue;
-        }
-        let Some(name) = field(&event.payload, "phase") else {
-            continue;
-        };
-        match visits.iter_mut().find(|(known, _)| known == name) {
-            Some((_, count)) => *count += 1,
-            None => visits.push((name.to_string(), 1)),
+        match event.event_type {
+            EventType::PhaseEntered => {
+                let Some(name) = field(&event.payload, "phase") else {
+                    continue;
+                };
+                match visits.iter_mut().find(|(known, _)| known == name) {
+                    Some((_, count)) => *count += 1,
+                    None => visits.push((name.to_string(), 1)),
+                }
+            }
+            EventType::TransitionDecided => {
+                // A ruling that parks carries no `next` at all, and a
+                // ruling this crate cannot read is never repaired into
+                // one (README law 2).
+                let (Some(from), Some(next)) =
+                    (field(&event.payload, "from"), field(&event.payload, "next"))
+                else {
+                    continue;
+                };
+                let backward = visits.iter().any(|(known, _)| known == next);
+                let known = returns
+                    .iter()
+                    .any(|(to, source)| to == next && source == from);
+                if backward && !known {
+                    returns.push((next.to_string(), from.to_string()));
+                }
+            }
+            _ => continue,
         }
     }
     let current = match state.and_then(|state| state.phase.as_deref()) {
@@ -1572,6 +1611,11 @@ fn phase_rail(
                 current: current.as_deref() == Some(name.as_str()),
                 plain,
                 columns,
+                returns: returns
+                    .iter()
+                    .filter(|(to, _)| to == name)
+                    .map(|(_, from)| from.clone())
+                    .collect(),
             }
         })
         .collect()

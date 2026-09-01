@@ -1603,6 +1603,20 @@ struct Join {
     label: Option<String>,
 }
 
+/// A return arc: the road back, under the name baseline, from beneath
+/// the phase whose ruling sent the run back to beneath the phase it
+/// landed in. Absolute plan-level columns, like `Plan.rail` and
+/// `Plan.edges` and unlike a `Join` — an arc spans from one segment's
+/// rail to another's, with whole phases possibly between them.
+#[derive(Clone, PartialEq, Debug)]
+struct Arc {
+    /// The landing column, where the mirror head points: beneath the
+    /// target phase's own rail content.
+    to: usize,
+    /// The departing column, beneath the source phase's.
+    from: usize,
+}
+
 /// One phase: a span of the rail, the marks and forks on it, and the
 /// name it wears on the shared baseline.
 #[derive(Clone, PartialEq, Debug)]
@@ -1646,6 +1660,13 @@ struct Plan {
     rail: Option<(usize, usize)>,
     /// The reserved row for the selection box's lower edge.
     box_row: Option<usize>,
+    /// The reserved row the return arcs run on, under everything else.
+    /// Absent when the journal recorded no return, and absent when the
+    /// pane cannot hold the row — half an arc is the box's own lesson.
+    arc_row: Option<usize>,
+    /// The roads back, at most one per `(from, to)` pair however many
+    /// times it was taken: repeats ride the `×N` marker.
+    arcs: Vec<Arc>,
     /// Where the `→` heads sit.
     edges: Vec<usize>,
     segments: Vec<Seg>,
@@ -1934,6 +1955,40 @@ fn span_of(built: &[Built], start: usize, end: usize, connector: usize) -> usize
         + built[end].trail
 }
 
+/// Every return the rail could draw, as `(landing, departure)` pairs of
+/// PHASE INDICES. The pairs themselves are `Phase.returns` — derived
+/// once in `brokkr-view` from the transition that caused the revisit —
+/// so nothing here reads a journal, infers backwardness from `visits`,
+/// or names a phase.
+///
+/// Two pairs are dropped, both for want of geometry and neither as a
+/// judgement about the journal: a departure naming no phase on this
+/// rail has no column to leave from, and a landing sitting LATER on the
+/// rail than its departure is not a road drawn leftward — the arc's
+/// head has one direction, and the rail's own `ᐳ` is not the arc's to
+/// borrow.
+fn returns_of(phases: &[Phase]) -> Vec<(usize, usize)> {
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (to, phase) in phases.iter().enumerate() {
+        for source in &phase.returns {
+            match phases.iter().position(|other| other.name == *source) {
+                Some(from) if from > to => pairs.push((to, from)),
+                _ => {}
+            }
+        }
+    }
+    pairs
+}
+
+/// Where a phase's road meets the arc row: the centre of its rail
+/// content, so an arc's end sits under the phase's own node rather than
+/// under the gap beside it. Two segments' rails are disjoint and a
+/// connector apart, so two ends are never the same column and never
+/// closer than the head plus its corner.
+fn centre_of(seg: &Seg) -> usize {
+    (seg.rail.0 + seg.rail.1) / 2
+}
+
 /// The visible run of segments: the anchor, then grow right, then left,
 /// while the budget holds. The console's answer to width was horizontal
 /// scrolling; ours is this window, walked by the arrow keys.
@@ -1985,8 +2040,20 @@ fn plan(
     // lower edge, so the box the operator draws around a phase can be
     // symmetric: an upper edge with no lower edge is two floating
     // lines, not a boundary. Reserved only when there is room.
-    let box_row = (height >= 4).then(|| height - 1);
-    let name_row = height.saturating_sub(1 + usize::from(box_row.is_some()));
+    //
+    // Under THAT, one row for the roads back — the last row of the
+    // pane, so an arc passes beneath the box rather than through it and
+    // the two can never meet by arithmetic. The row exists only for a
+    // run whose journal recorded a return (`returns_of` is a fact about
+    // the model, not about the layout, so it is safe to ask before the
+    // rows are dealt) and only where the pane can hold it: a pane too
+    // short omits the arc WHOLE, which is the box's own ruling — half
+    // an arc is worse than none.
+    let pairs = returns_of(phases);
+    let arc_row = (!pairs.is_empty() && height >= 5).then(|| height - 1);
+    let box_row = (height >= 4).then(|| height - 1 - usize::from(arc_row.is_some()));
+    let name_row =
+        height.saturating_sub(1 + usize::from(box_row.is_some()) + usize::from(arc_row.is_some()));
     let lane_span = match mode {
         Mode::Full => needed.min(name_row.saturating_sub(1) / 2),
         _ => 0,
@@ -2077,6 +2144,22 @@ fn plan(
                 .collect(),
         });
     }
+    // Both ends or neither. A pair reaching a phase the window scrolled
+    // away would have to land on the elision mark's own column, so it is
+    // not drawn at all — the arithmetic is the window's own bounds, and
+    // the painter is told nothing. The ROW stays reserved either way, so
+    // walking the rail never lifts the baseline under the operator's eye.
+    let arcs: Vec<Arc> = match arc_row {
+        None => Vec::new(),
+        Some(_) => pairs
+            .iter()
+            .filter(|(to, from)| *to >= start && *from < end)
+            .map(|(to, from)| Arc {
+                to: centre_of(&segments[to - start]),
+                from: centre_of(&segments[from - start]),
+            })
+            .collect(),
+    };
     Plan {
         mode,
         width,
@@ -2085,6 +2168,8 @@ fn plan(
         name_row,
         rail,
         box_row,
+        arc_row,
+        arcs,
         edges,
         segments,
         left_elided: start > 0,
@@ -2235,6 +2320,33 @@ fn selection_box(cells: &mut Cells, seg: &Seg, plan: &Plan) {
     put(cells, right, bottom, "╯", plain());
 }
 
+/// The road back. A reforging is a road, and a road is drawn: without
+/// this the rail says `review` finished and `implement` lit up again,
+/// and an operator watching a live run reads teleportation instead of a
+/// loop.
+///
+/// The vocabulary is the SOLID set — `╰ ─ ╯` from the same rounded
+/// corners the selection box uses, plus the mirror head `ᐸ` (U+1438),
+/// the sibling of the rail's own operator-calibrated `ᐳ`. Never the
+/// dashed set `╌ ┆`: those glyphs are drawn with a gap at every cell
+/// boundary BY DESIGN, so no amount of correct geometry makes them
+/// touch a corner — the operator's ruling of 2026-08-31, learned once
+/// on the box and applied here from the start rather than after.
+///
+/// The corners rise toward the phases they belong to, so the arc reads
+/// as one road leaving the rail and returning to it. Only the LANDING
+/// wears a head, matching the rail's own asymmetry: `ᐳ` marks arrival,
+/// never departure. The head sits inside the landing corner, pointing
+/// into it.
+fn arc(cells: &mut Cells, arc: &Arc, row: usize) {
+    for x in arc.to..=arc.from {
+        put(cells, x, row, "─", plain());
+    }
+    put(cells, arc.to, row, "╰", plain());
+    put(cells, arc.from, row, "╯", plain());
+    put(cells, arc.to + 1, row, "ᐸ", plain());
+}
+
 /// A fork and its rejoin. **The rejoin is drawn always** — it is the
 /// join dependency, and the whole reason a fork is not two steps.
 fn fork(cells: &mut Cells, join: &Join, rail_row: usize) {
@@ -2350,6 +2462,14 @@ fn paint(plan: &Plan, tick: usize, animate: bool) -> Vec<Line<'static>> {
             &seg.name,
             current.patch(selected_style(seg.selected)),
         );
+    }
+    // The roads back run on their own reserved row, under the names and
+    // under the box's lower edge: nothing else is drawn there, so the
+    // arcs overwrite nothing and are overwritten by nothing.
+    if let Some(row) = plan.arc_row {
+        for road in &plan.arcs {
+            arc(&mut cells, road, row);
+        }
     }
     if plan.left_elided {
         put(&mut cells, 0, plan.rail_row, "‹", plain());

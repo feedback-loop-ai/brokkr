@@ -1295,6 +1295,113 @@ fn phase_names_are_unique_within_a_run_view() {
 }
 
 #[test]
+fn the_rail_records_the_road_back_once_per_pair_and_only_where_it_was_taken() {
+    // Decision 0022's reforging, as the journal writes it: review rules
+    // a security residual and the run goes BACK to implement, twice.
+    // The revisit count is not the fact — `visits > 1` is necessary and
+    // not sufficient — so the pair comes from the ruling that caused it.
+    let back = json!({"from": "review", "next": "implement",
+                      "result": "residual", "rule_id": "REVIEW-REFORGE"});
+    let events = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(
+            2,
+            EventType::TransitionDecided,
+            json!({"from": "intake", "next": "implement", "result": "resolved"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(4, EventType::PhaseEntered, json!({"phase": "review"}), T0),
+        ev(5, EventType::TransitionDecided, back.clone(), T1),
+        ev(
+            6,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T1,
+        ),
+        ev(7, EventType::PhaseEntered, json!({"phase": "review"}), T2),
+        ev(8, EventType::TransitionDecided, back, T2),
+        ev(
+            9,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T2,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let named: Vec<(&str, u64, Vec<&str>)> = view
+        .phases
+        .iter()
+        .map(|phase| {
+            (
+                phase.name.as_str(),
+                phase.visits,
+                phase.returns.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("intake", 1, vec![]),
+            // Two reforgings, ONE road: the count is the `×N` marker's
+            // to carry, never a second entry here.
+            ("implement", 3, vec!["review"]),
+            ("review", 2, vec![]),
+        ]
+    );
+
+    // The forward transition that opened the run recorded nothing: at
+    // the moment it was ruled, `implement` had not been entered.
+    let forward = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(
+            2,
+            EventType::TransitionDecided,
+            json!({"from": "intake", "next": "implement", "result": "resolved"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+    ];
+    assert!(run_view(&forward, None)
+        .phases
+        .iter()
+        .all(|phase| phase.returns.is_empty()));
+
+    // A ruling that parks carries no `next`, and one whose `from` the
+    // journal lost carries no departure: neither is repaired into a
+    // road, and neither loses the events around it.
+    let ruined = vec![
+        ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
+        ev(
+            2,
+            EventType::TransitionDecided,
+            json!({"from": "review", "next": null, "result": "residual"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::TransitionDecided,
+            json!({"next": "intake", "result": "residual"}),
+            T0,
+        ),
+    ];
+    let view = run_view(&ruined, None);
+    assert_eq!(view.phases.len(), 1);
+    assert!(view.phases[0].returns.is_empty());
+}
+
+#[test]
 fn a_phase_with_no_observed_effect_draws_one_plain_node() {
     let events = vec![
         ev(1, EventType::PhaseEntered, json!({"phase": "intake"}), T0),
