@@ -31,6 +31,7 @@ operator accepts a decision; an implementer may only propose one.
 | [0022](0022-reforging.md) | Reforging: the graph gets its way back into the fire | A security residual returns the run to implement with the finding as declared input, bounded at two reforgings; the exhaustion ladder stops, parks, or ships-as-debt by severity. | accepted |
 | [0023](0023-realms.md) | Realms: the map is the world, chosen at invocation | realms.json (minimal v1 schema, this repo its own bootstrap) picked by --realms on run and every read surface, pinned and embedded per run; per-realm facts on decisions; Bifröst and multi-realm runs are later phases. | accepted |
 | [0025](0025-skirnir.md) | Skírnir and the grant: the sword is a signed loan | The standing executor acts only within an operator-GPG-signed, expiring, runtime-configurable grant, under a compiled never-list ceiling; every exercise journaled as the grant's, escalation the default. | accepted |
+| [0026](0026-many-hearths.md) | Many hearths: per-realm journals and the tabbed fleet | realms/v2 journals per realm (products, not worktrees) with per-realm tabs; same-realm parallelism instead hardens concurrent writers into ONE journal; muninn flies the whole world; journals never merge. | accepted |
 
 ## How a decision is made
 
