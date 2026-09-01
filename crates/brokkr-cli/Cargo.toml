@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true
@@ -18,6 +19,36 @@ path = "src/lib.rs"
 [[bin]]
 name = "brokkr"
 path = "src/bin/brokkr.rs"
+
+# cargo-binstall downloads the release artifact instead of compiling.
+# Our artifact names (`brokkr-<os>-<arch>`) are not derivable from a
+# target triple, so every target binstall can serve names its own URL and
+# the fallback below is deliberately a name no release publishes: an
+# unlisted target gets a clean 404 and falls back to building from
+# source, never a silently wrong download. The archives hold the bare
+# binary at their root, hence `bin-dir` without a directory component.
+# `crates/brokkr-cli/tests/packaging.rs` checks these against the release
+# matrix so the two cannot drift apart.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides."x86_64-unknown-linux-gnu"]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-linux-x86_64.tar.gz"
+
+[package.metadata.binstall.overrides."aarch64-unknown-linux-gnu"]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-linux-aarch64.tar.gz"
+
+[package.metadata.binstall.overrides."aarch64-apple-darwin"]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-macos-arm64.tar.gz"
+
+[package.metadata.binstall.overrides."x86_64-apple-darwin"]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-macos-x86_64.tar.gz"
+
+[package.metadata.binstall.overrides."x86_64-pc-windows-msvc"]
+pkg-url = "{ repo }/releases/download/v{ version }/brokkr-windows-x86_64.zip"
+pkg-fmt = "zip"
 
 [dependencies]
 brokkr-core = { workspace = true }
@@ -35,3 +66,7 @@ ratatui = { workspace = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }
+# The packaging test verifies an APT `Release` file's own digests
+# against the files it indexes — the same hash the engine already
+# depends on, no new crate in the graph.
+sha2 = { workspace = true }

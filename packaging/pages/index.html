@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brokkr package repositories</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1.25rem; color: #1b1b1b; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  p.lede { color: #555; margin-top: 0; }
+  pre { background: #f4f4f4; padding: 0.9rem 1rem; overflow-x: auto; border-radius: 6px; }
+  code { font-size: 0.92em; }
+  a { color: #0b5cad; }
+  footer { margin-top: 3rem; color: #666; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>Brokkr package repositories</h1>
+<p class="lede">
+  The <code>.deb</code> and <code>.rpm</code> served here are the same files the
+  <a href="https://github.com/feedback-loop-ai/brokkr/releases">GitHub release</a>
+  carries, listed in the release's <code>SHA256SUMS</code> and covered by its
+  build-provenance attestation. Nothing is built twice.
+</p>
+
+<h2>Debian and Ubuntu (apt)</h2>
+<pre><code>curl -fsSL https://feedback-loop-ai.github.io/brokkr/brokkr-archive-keyring.asc \
+  | sudo tee /usr/share/keyrings/brokkr-archive-keyring.asc &gt;/dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/brokkr-archive-keyring.asc] https://feedback-loop-ai.github.io/brokkr/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/brokkr.list
+sudo apt-get update &amp;&amp; sudo apt-get install brokkr</code></pre>
+
+<h2>Fedora, RHEL and openSUSE (dnf)</h2>
+<pre><code>sudo curl -fsSL -o /etc/yum.repos.d/brokkr.repo \
+  https://feedback-loop-ai.github.io/brokkr/rpm/brokkr.repo
+sudo dnf install brokkr</code></pre>
+
+<h2>Verifying what you got</h2>
+<pre><code>gh attestation verify $(command -v brokkr) -R feedback-loop-ai/brokkr</code></pre>
+
+<footer>
+  The repository metadata is signed with the Brokkr archive key served above.
+  Packages themselves are not individually signed yet — see
+  <a href="https://github.com/feedback-loop-ai/brokkr/blob/main/packaging/README.md">packaging/README.md</a>
+  for what is wired and what is still a named follow-up.
+</footer>
+</body>
+</html>

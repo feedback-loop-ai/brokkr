@@ -1,0 +1,33 @@
+{
+    "##": [
+        "TEMPLATE — not a published manifest. The hash below is a placeholder",
+        "(sixty-four zeros); the release workflow renders it from the release's",
+        "own attested SHA256SUMS via packaging/bump-from-sums.sh and opens a pull",
+        "request against the bucket repository feedback-loop-ai/scoop-brokkr,",
+        "file bucket/brokkr.json."
+    ],
+    "version": "0.6.0",
+    "description": "Delivery engine that drives agent seats through a reviewable phase machine",
+    "homepage": "https://github.com/feedback-loop-ai/brokkr",
+    "license": "MIT OR Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/feedback-loop-ai/brokkr/releases/download/v0.6.0/brokkr-windows-x86_64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+    },
+    "bin": "brokkr.exe",
+    "checkver": {
+        "github": "https://github.com/feedback-loop-ai/brokkr"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/feedback-loop-ai/brokkr/releases/download/v$version/brokkr-windows-x86_64.zip"
+            }
+        },
+        "hash": {
+            "url": "https://github.com/feedback-loop-ai/brokkr/releases/download/v$version/SHA256SUMS"
+        }
+    }
+}

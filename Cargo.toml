@@ -17,6 +17,9 @@ rust-version = "1.88"
 # Decision 0018: permissive, never copyleft; the Rust ecosystem's dual
 # convention, so a user picks either license.
 license = "MIT OR Apache-2.0"
+# cargo-binstall builds its download URL from `{ repo }`; without this
+# field the manifest's binstall metadata cannot resolve at all.
+repository = "https://github.com/feedback-loop-ai/brokkr"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }

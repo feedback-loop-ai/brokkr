@@ -36,6 +36,32 @@ it here.
 
 ### Step 1 — install
 
+Pick the row for your machine. Every one of them installs the *same*
+binary: the package managers below serve the release's own attested
+artifacts, never a second build of their own — see
+[packaging/README.md](../../packaging/README.md) for how that is held
+together.
+
+| Channel | One line | State |
+|---|---|---|
+| tarball | `tar xzf brokkr-linux-x86_64.tar.gz` (full recipe below) | works today, and it is the path the 60-second budget measures |
+| cargo | `cargo binstall brokkr-cli` | works from the first release after this slice |
+| nix | `nix profile install github:feedback-loop-ai/brokkr` | works from the first release after this slice |
+| apt | `sudo apt-get install brokkr` | **wired at the bench** — needs the signing secret and the Pages site |
+| dnf | `sudo dnf install brokkr` | **wired at the bench** — same |
+| brew | `brew install feedback-loop-ai/brokkr/brokkr` | **wired at the bench** — needs the tap repository |
+| scoop | `scoop install brokkr` | **wired at the bench** — needs the bucket repository |
+
+"Wired at the bench" means exactly what it says: the tooling is in this
+repository and tested in CI, and the last step — a repository secret, a
+Pages site, a sibling repository — belongs to the operator. Nothing
+above is written as if it had been run against a live channel when it
+had not. The apt and dnf rows also need their one-time setup line (the
+keyring and the sources entry); both are in
+[packaging/README.md](../../packaging/README.md).
+
+The rest of this step is the tarball path, which needs none of that.
+
 Grab the archive for your platform from the
 [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
 (linux x86_64/aarch64, macOS arm64/x86_64, windows x86_64), verify it

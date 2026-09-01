@@ -1,0 +1,49 @@
+# nfpm (https://nfpm.goreleaser.com) turns the release binary that the
+# tarball leg already built into a .deb and a .rpm. It never compiles
+# anything: `BROKKR_PKG_BINARY` points at the same file that goes into
+# `brokkr-<os>-<arch>.tar.gz`, so every channel carries one build.
+#
+# Three variables come from the release workflow, nowhere else:
+#   BROKKR_PKG_VERSION  the tag without its `v` (e.g. 0.6.0)
+#   BROKKR_PKG_ARCH     nfpm's arch name: amd64 or arm64
+#   BROKKR_PKG_BINARY   path to the built `brokkr` binary
+name: brokkr
+arch: ${BROKKR_PKG_ARCH}
+platform: linux
+version: ${BROKKR_PKG_VERSION}
+version_schema: semver
+section: devel
+priority: optional
+maintainer: "feedback-loop-ai <valentin@cmd.bg>"
+vendor: feedback-loop-ai
+homepage: https://github.com/feedback-loop-ai/brokkr
+license: MIT OR Apache-2.0
+description: |
+  Delivery engine that drives agent seats through a reviewable phase machine.
+  One native binary — no Python, no Node, no services. The run's journal is
+  a hash-chained record you can replay, verify and export.
+
+# Decision 0019 ruling 9: one binary, `brokkr`, and nothing else — the
+# `forge` shim is gone and no packaging artifact resurrects it. The two
+# licence files ride along because distribution policy asks for them,
+# not because they are program content (decision 0018).
+contents:
+  - src: ${BROKKR_PKG_BINARY}
+    dst: /usr/bin/brokkr
+    file_info:
+      mode: 0755
+  - src: ./LICENSE-MIT
+    dst: /usr/share/doc/brokkr/LICENSE-MIT
+    file_info:
+      mode: 0644
+  - src: ./LICENSE-APACHE
+    dst: /usr/share/doc/brokkr/LICENSE-APACHE
+    file_info:
+      mode: 0644
+
+deb:
+  fields:
+    Bugs: https://github.com/feedback-loop-ai/brokkr/issues
+
+rpm:
+  summary: Delivery engine that drives agent seats through a reviewable phase machine
