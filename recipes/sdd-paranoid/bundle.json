@@ -28,7 +28,7 @@
           "role": "roles/review-adversarial.md",
           "driver": {
             "command": [
-              "{forge}",
+              "{brokkr}",
               "driver",
               "claude",
               "--",
@@ -43,7 +43,7 @@
           "role": "roles/review-security.md",
           "driver": {
             "command": [
-              "{forge}",
+              "{brokkr}",
               "driver",
               "claude",
               "--",

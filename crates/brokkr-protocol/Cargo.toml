@@ -1,0 +1,17 @@
+[package]
+name = "brokkr-protocol"
+description = "forge-driver/v1: NDJSON stdio driver protocol, subprocess transport, fake driver."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tempfile = { workspace = true }

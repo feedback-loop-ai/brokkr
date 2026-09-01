@@ -8,7 +8,7 @@ Run, in order, from the repository root:
 
 1. `cargo test --workspace` — the full Rust suite, including the
    machine proof and the differential corpus parity tests.
-2. `cargo run -p forge-cli -- compile --bundle bundles/self` — the self
+2. `cargo run -p brokkr-cli -- compile --bundle bundles/self` — the self
    bundle must still compile under the constitutional lint.
 
 Result:

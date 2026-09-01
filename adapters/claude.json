@@ -2,7 +2,7 @@
   "provider": "claude",
   "binary": "claude",
   "driver": [
-    "{forge}",
+    "{brokkr}",
     "driver",
     "claude",
     "--",

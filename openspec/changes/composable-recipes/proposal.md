@@ -23,13 +23,13 @@ ruling in full. It writes no new decision doc.
 ## What Changes
 
 - **Composition is a pure pre-pass, in one new module.**
-  `crates/forge-runtime/src/bundle/compose.rs` takes a leaf bundle
+  `crates/brokkr-runtime/src/bundle/compose.rs` takes a leaf bundle
   directory and returns the flat `bundle.json` document, the flat policy
   table, a name-level origin map, the ordered ancestor chain with
   digests, and the layer directories. `Bundle::compile` consumes that
   and parses **exactly as it does today**; no existing lint, parse
   function, or error message moves. Resolution stays *above* parsing for
-  two hard reasons: `parse_command` expands `{forge}` to
+  two hard reasons: `parse_command` expands `{brokkr}` to
   `std::env::current_exe()`, so a resolver returning parsed seats could
   never be byte-stable across machines; and the required 0016-layering
   test — an opaque seat surviving inheritance unchanged — is vacuous
@@ -100,7 +100,7 @@ ruling in full. It writes no new decision doc.
 
 - **Both operator surfaces show the resolved result and its
   provenance**, from one renderer: the `Compile` arm's printer is
-  extracted, `forge recipes show <name>` is added, and both emit a
+  extracted, `brokkr recipes show <name>` is added, and both emit a
   `composed_from` chain that is **omitted entirely when empty** — an
   empty array would be different bytes and would break the hard
   regression on all five existing bundles.
@@ -118,8 +118,8 @@ is true by construction — pinned as goldens for `recipes/fast`,
 `recipes/panel-review`, `recipes/sdd`, `bundles/self` and
 `bundles/verify`.
 
-**Surfaces added**: `forge recipes show <name>`; a `composed_from`
-member on `forge compile` and `forge recipes show`, present only for
+**Surfaces added**: `brokkr recipes show <name>`; a `composed_from`
+member on `brokkr compile` and `brokkr recipes show`, present only for
 composed bundles.
 
 **Contracts**: unchanged. No new schema file, no edit to a frozen one.

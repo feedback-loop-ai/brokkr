@@ -33,7 +33,7 @@ rules and buys nothing that is merely convenient.
   of them over 14 charter files `git mv`'d out of `bundles/self`,
   `recipes/panel-review` and `recipes/sdd` with zero content change.
   Repo root because `manifest_for` walks the *bundle* dir; one file per
-  agent because `forge agents list` mirrors `forge recipes list`, whose
+  agent because `brokkr agents list` mirrors `brokkr recipes list`, whose
   contract is *warn on a broken entry, never abort*.
 - **A repo-root `adapters/` directory** — one file per provider
   (`claude`, `lanetally`, `codex`, `dsh`, `exec`) declaring the driver
@@ -42,17 +42,17 @@ rules and buys nothing that is merely convenient.
   those the provider **cannot express**, declared explicitly as
   `"unsupported"` rather than inferred from an empty map. Composition is
   a lookup and a join: no template language, and no Rust match arm over
-  provider names is ever written. `forge-protocol/src/adapters.rs` is
+  provider names is ever written. `brokkr-protocol/src/adapters.rs` is
   not touched — its match arms are stream-format parsers, and everything
   after `--` is already passed through verbatim.
 - **Seats reference agents.** `"agent": "<name>"` at seat, panel member
   and sequence step, as a fourth alternative in the existing
   exactly-one-of check. The reference is **total**: no seat may override
   the charter, driver, limits or inputs it names, because a seat that
-  could amend its agent makes `forge agents show` a lie for that seat.
+  could amend its agent makes `brokkr agents show` a lie for that seat.
   Inline seats stay first-class — `recipes/sdd`'s `speckit-check` step
   stays inline and is the case that proves the library is an option.
-- **One pure resolver** in `crates/forge-runtime/src/agents.rs` over
+- **One pure resolver** in `crates/brokkr-runtime/src/agents.rs` over
   *(library, adapters, availability)*, unit-tested with nothing spawned
   — guaranteed by the signature, since availability is an argument and
   the module touches no PATH, filesystem or clock. `Bundle::compile`
@@ -67,7 +67,7 @@ rules and buys nothing that is merely convenient.
   reason vocabulary, and any notices. `chosen_index` is what gives
   honesty rule 2 something to hang on: a `model` field alone never says
   the operator did not get their first choice. Names and digests only —
-  never resolved argv, which would embed `{forge}`'s machine-local
+  never resolved argv, which would embed `{brokkr}`'s machine-local
   expansion into a digest. Published as a new
   `contracts/run-manifest.v3.schema.json` beside the frozen v1.
 - **The honesty rules, enforced.** Capabilities split into **grants**
@@ -95,11 +95,11 @@ rules and buys nothing that is merely convenient.
   keyed by invocation site**, because a panel runs N models inside one
   attempt and `recipes/sdd`'s design seat spans `claude` and `exec`;
   "per-attempt" taken literally would print a false model in every
-  readout. `forge-view` derives it once, four surfaces render it, and
-  `forge compare` gains a first-class `resolution_divergence` reported
+  readout. `brokkr-view` derives it once, four surfaces render it, and
+  `brokkr compare` gains a first-class `resolution_divergence` reported
   unconditionally — including when `same_recipe` is `true`.
-- **CLI.** `forge agents list` and `forge agents show <name>` mirroring
-  `forge recipes`; `forge doctor` reports providers, binaries, probe
+- **CLI.** `brokkr agents list` and `brokkr agents show <name>` mirroring
+  `brokkr recipes`; `brokkr doctor` reports providers, binaries, probe
   results and declared models **read from the adapter files**, and per
   agent which model would be chosen on this machine — computed by the
   same resolver, which is what gives its availability tri-state a real
@@ -153,12 +153,12 @@ because the charters and argv they replace are genuinely different
 today. This slice reduces *definition* duplication, not file count;
 collapsing the near-duplicates is decision 0017's job. The `-speckit`
 suffix is ugly on purpose — it puts the drift on the surface where
-`forge agents list` shows it every time, instead of laundering it
+`brokkr agents list` shows it every time, instead of laundering it
 through a merge system that could rewrite an adopting recipe's prompt
 bytes silently.
 
 **Untouched**: the frozen v1 contracts' bytes, `run-manifest.v1` and
 `v2`, `fixtures/evaluator/corpus.ndjson`, `policy/phase-machine.json`,
-`reference/`, the secrets machinery, `forge-protocol/src/adapters.rs`,
-and `forge-store`. No new dependency. The workspace suites and the exact
+`reference/`, the secrets machinery, `brokkr-protocol/src/adapters.rs`,
+and `brokkr-store`. No new dependency. The workspace suites and the exact
 100% line/branch/function coverage gate stay green.

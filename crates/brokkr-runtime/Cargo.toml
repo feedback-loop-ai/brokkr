@@ -1,0 +1,23 @@
+[package]
+name = "brokkr-runtime"
+description = "Durable engine loop: bundles, effects, recovery, operator commands."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+brokkr-core = { workspace = true }
+brokkr-store = { workspace = true }
+brokkr-protocol = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+rusqlite = { workspace = true }

@@ -6,7 +6,7 @@
 Ordered; each task names the test that proves it. Acceptance-criteria
 numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
 
-- [x] **T1 — `Secret` type in `crates/forge-protocol/src/secret.rs`.**
+- [x] **T1 — `Secret` type in `crates/brokkr-protocol/src/secret.rs`.**
   `Vec<u8>` newtype: no `Display`/`Clone`/`Serialize`; `Debug` →
   `Secret(REDACTED)`; drop zeroization via `write_volatile` +
   `compiler_fence`; `expose_for_spawn` as sole public egress.
@@ -32,7 +32,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   every encoding, multiple overlapping secrets, pass-through text,
   invalid-UTF-8 surroundings.
 - [x] **T4 — Charter declaration + compile lint in
-  `crates/forge-runtime/src/bundle.rs`.** Parse `"secrets"` beside the
+  `crates/brokkr-runtime/src/bundle.rs`.** Parse `"secrets"` beside the
   0007 `inputs` handling; refuse undeclared references, malformed
   `{{secret:` occurrences, ill-formed or denylisted names, and a
   `secrets.env` file inside the bundle dir — all in the
@@ -44,14 +44,14 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-4 — set → compile → rotate value → compile →
   `manifest_digest` byte-equal, end to end.
 - [x] **T6 — Engine threading in
-  `crates/forge-runtime/src/engine.rs`.** Declared names + store path
+  `crates/brokkr-runtime/src/engine.rs`.** Declared names + store path
   ride the exec driver `start` input; no store read in
-  `forge-runtime`.
+  `brokkr-runtime`.
   *Proven by*: a unit test on the driver-input shape and a grep-style
-  test asserting no secret-store call sites in `forge-runtime`; AC-8
+  test asserting no secret-store call sites in `brokkr-runtime`; AC-8
   exercises the wiring end to end.
 - [x] **T7 — Spawn-time resolution + injection in
-  `crates/forge-protocol/src/adapters.rs`.** Exec arm resolves
+  `crates/brokkr-protocol/src/adapters.rs`.** Exec arm resolves
   `{{secret:NAME}}` → `$NAME` in template text; opens the store,
   resolves every declared name, refuses determinately (naming the
   name) on a missing one; `run_cli` grows an `envs` parameter carrying
@@ -72,14 +72,14 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-9 — unresolved-template target within clamp,
   resolved-line-never-journaled, claude-fold file-path-only, model
   Bash target-less (one test per clause).
-- [x] **T10 — `forge secrets` CLI in
-  `crates/forge-cli/src/main.rs`.** `set` (value via stdin) / `list`
+- [x] **T10 — `brokkr secrets` CLI in
+  `crates/brokkr-cli/src/main.rs`.** `set` (value via stdin) / `list`
   (names only) / `remove`; `--secrets-file` on secrets subcommands and
   run entry points; no `get`.
   *Proven by*: AC-3 CLI-level tests — round-trip through the binary,
   `list` output contains no value bytes, override flag honored.
 - [x] **T11 — Layer-6 machine proof in
-  `crates/forge-cli/tests/machine_proof.rs`.** Scripted child leaks
+  `crates/brokkr-cli/tests/machine_proof.rs`.** Scripted child leaks
   the bound value in every listed encoding via stdout, stderr, and
   result notes; byte-scan of every journal envelope iterating the
   shared needle constant; zero hits or fail — for a succeeding and a
@@ -89,4 +89,4 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   crates; frozen surfaces byte-untouched.
   *Proven by*: AC-10 — full suite green plus empty
   `git diff --stat` for `reference/`, `fixtures/`, `contracts/`,
-  `policy/`, `crates/forge-core`.
+  `policy/`, `crates/brokkr-core`.

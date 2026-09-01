@@ -22,8 +22,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: frozen and additive contracts compile
         run: |
-          cargo run --locked -p forge-cli -- compile --bundle bundles/self
-          cargo run --locked -p forge-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
 
   engine:
     name: test (${{ matrix.os }})
@@ -40,8 +40,8 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - name: self and verify bundles compile under the constitutional lint
         run: |
-          cargo run --locked -p forge-cli -- compile --bundle bundles/self
-          cargo run --locked -p forge-cli -- compile --bundle bundles/verify
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
 
   coverage:
     name: exact coverage gate
@@ -96,12 +96,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p forge-cli
-      # The shipped binary is brokkr; the `forge` shim rides along for one
-      # release (decision 0019 ruling 9).
+      - run: cargo build --release --locked -p brokkr-cli
+      # One binary: the `forge` shim is gone (decision 0019 ruling 9).
       - uses: actions/upload-artifact@v4
         with:
           name: brokkr-linux-x86_64
-          path: |
-            target/release/brokkr
-            target/release/forge
+          path: target/release/brokkr

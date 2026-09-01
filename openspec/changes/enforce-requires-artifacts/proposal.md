@@ -5,7 +5,7 @@
 Policy rules may declare `requires_artifacts` — the heritage table's
 ARCH-OK names `spec.md`, `plan.md`, `repos.yaml` — and the evaluator
 returns the field on every ruling, but the engine's decide step
-discards it (`crates/forge-runtime/src/engine.rs:1079` binds three
+discards it (`crates/brokkr-runtime/src/engine.rs:1079` binds three
 fields and drops the rest with `..`). A declared artifact gate that is
 not load-bearing reads as enforced and is not: an advancing ruling
 whose named artifacts are missing or empty advances anyway, and the
@@ -44,13 +44,13 @@ Design artifacts:
 
 ## Impact
 
-- `crates/forge-runtime/src/engine.rs` — two private pure helpers plus
+- `crates/brokkr-runtime/src/engine.rs` — two private pure helpers plus
   the `Outcome::Ruling` match-arm change; the sole production edit.
-- `crates/forge-cli/tests/machine_proof.rs` — new proofs for the
+- `crates/brokkr-cli/tests/machine_proof.rs` — new proofs for the
   fail-closed park (missing / empty / not-a-file / invalid /
   multi-failure), the artifacts-present advance, the retry recovery
   loop, workdir-deleted replay, and the `consecutive_failures` reset.
-- No changes to: `crates/forge-core` (empty diff — `Machine::evaluate`
+- No changes to: `crates/brokkr-core` (empty diff — `Machine::evaluate`
   byte-identical), `fold.rs`, `policy/phase-machine.json`,
   `reference/`, `fixtures/evaluator/corpus.ndjson`, `contracts/`, the
   condition vocabulary, or the sdd recipe / `speckit_check.sh`.

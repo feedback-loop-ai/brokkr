@@ -1,0 +1,23 @@
+[package]
+name = "brokkr-bridge"
+description = "Authenticated Looper producer bridge over verified Forge journals."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+brokkr-core = { workspace = true }
+brokkr-store = { workspace = true }
+brokkr-runtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+ureq = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -26,7 +26,7 @@ Six layers, each independently testable, plus one amendment:
    load-time-refusal shape. Injection is declaration-driven —
    declared-but-unreferenced names still inject, so env-reading tools
    like `gh` work.
-2. **Operator store**: `forge secrets set|list|remove` over an
+2. **Operator store**: `brokkr secrets set|list|remove` over an
    env-format file outside VCS (default `.forge/secrets.env`, 0600 on
    create, refuse broader on read, atomic writes, `--secrets-file`
    override, value via stdin, no `get`); digests carry names only, so
@@ -72,28 +72,28 @@ Design artifacts:
 
 ## Impact
 
-- **New**: `crates/forge-protocol/src/secret.rs` — the plaintext trust
+- **New**: `crates/brokkr-protocol/src/secret.rs` — the plaintext trust
   boundary (type, store, scanner, masker, needle + denylist
   constants).
-- **Edited**: `crates/forge-runtime/src/bundle.rs` (charter `secrets`
+- **Edited**: `crates/brokkr-runtime/src/bundle.rs` (charter `secrets`
   key, compile lints, store-in-bundle refusal),
-  `crates/forge-runtime/src/engine.rs` (names + store path threaded
-  into the exec driver input; no store read in forge-runtime),
-  `crates/forge-protocol/src/adapters.rs` (spawn-time resolution, env
+  `crates/brokkr-runtime/src/engine.rs` (names + store path threaded
+  into the exec driver input; no store read in brokkr-runtime),
+  `crates/brokkr-protocol/src/adapters.rs` (spawn-time resolution, env
   injection, the masking choke point, the amendment's template
-  target), `crates/forge-cli/src/main.rs` (`secrets` subcommand,
-  `--secrets-file`), plus `forge-protocol/src/lib.rs` module
+  target), `crates/brokkr-cli/src/main.rs` (`secrets` subcommand,
+  `--secrets-file`), plus `brokkr-protocol/src/lib.rs` module
   registration.
 - **Tests**: unit tests beside every layer; machine proofs in
-  `crates/forge-cli/tests/machine_proof.rs` (journal invariant for
+  `crates/brokkr-cli/tests/machine_proof.rs` (journal invariant for
   succeeding and failing children, digest stability across rotation,
   amendment clauses); a CI grep test pinning the single plaintext
   call site.
-- **Untouched**: `crates/forge-core`, `ui.rs`/`ui.html` (the UI reads
+- **Untouched**: `crates/brokkr-core`, `ui.rs`/`ui.html` (the UI reads
   only journal envelopes, which are masked upstream),
   `policy/phase-machine.json`, `reference/`, `fixtures/` (frozen
   corpus), `contracts/` v1 files, all recipes. No new dependencies.
 - **Operational**: operators seed values once via
-  `forge secrets set NAME` (stdin); charters declare names; rotation
+  `brokkr secrets set NAME` (stdin); charters declare names; rotation
   is a `set` that changes no digest; a leak-shaped bug surfaces as a
   CI proof failure, never as a journaled secret.

@@ -10,14 +10,14 @@ of this feature, not an afterthought at the end.
 
 ## Movement 1 — the crate
 
-- [x] **T1 — `crates/forge-view` joins the workspace.** `Cargo.toml`
-  with `[dependencies]` exactly `forge-core`, `serde`, `serde_json`; no
-  `time`, no `forge-store`. `[workspace] members` and
+- [x] **T1 — `crates/brokkr-view` joins the workspace.** `Cargo.toml`
+  with `[dependencies]` exactly `brokkr-core`, `serde`, `serde_json`; no
+  `time`, no `brokkr-store`. `[workspace] members` and
   `[workspace.dependencies]` gain the path entry (no third-party
   dependency is added anywhere).
   *Proven by*: AC-1 — the anti-drift test asserting `std::fs`,
   `std::env`, `IsTerminal`, `print!`/`println!` are absent from
-  `crates/forge-view/src/*.rs`, and `cargo test --workspace` compiling
+  `crates/brokkr-view/src/*.rs`, and `cargo test --workspace` compiling
   with the manifest as written.
 
 - [x] **T2 — `js.rs`: the five compatibility primitives.**
@@ -154,7 +154,7 @@ of this feature, not an afterthought at the end.
   *Proven by*: AC-20 — goldens for the full readout, each scope flag,
   the tree with a fork, with a sequence and with both; the mutual-
   exclusion rejection; the no-match nonzero; and the equality
-  `forge inspect --json | jq .summary` == today's `forge inspect`.
+  `brokkr inspect --json | jq .summary` == today's `brokkr inspect`.
 
 - [x] **T19 — Migrate the `machine_proof.rs` pins** at ~:537-557,
   ~:570-585 and ~:1208-1215 from the five-column tab shape and the
@@ -180,7 +180,7 @@ of this feature, not an afterthought at the end.
 
 - [x] **T21 — Docs.** `README.md` (the `crates/` row at :106 and the
   command listing), `ARCHITECTURE.md` crate listing,
-  `docs/target-architecture.md` :361 — `forge-view`, `forge watch`, and
+  `docs/target-architecture.md` :361 — `brokkr-view`, `brokkr watch`, and
   the changed `runs`/`inspect` shapes, including the honest note that
   CJK and emoji columns misalign without a width dependency.
   *Proven by*: inspection, plus AC-24.
@@ -190,6 +190,6 @@ of this feature, not an afterthought at the end.
   --workspace --all-features`; `bash scripts/coverage-exact.sh`.
   *Proven by*: AC-24 — literal 100% line/branch/function equality with
   no `coverage(off)` attribute anywhere, no entry added to
-  `[workspace.dependencies]` beyond the `forge-view` path, and
+  `[workspace.dependencies]` beyond the `brokkr-view` path, and
   `contracts/`, `policy/phase-machine.json`, `reference/` and
   `fixtures/` unmodified in the diff.

@@ -28,10 +28,10 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - name: producer and frozen-contract release verification
         run: |
-          cargo run --locked -p forge-cli -- compile --bundle bundles/self
-          cargo run --locked -p forge-cli -- compile --bundle bundles/verify
-          cargo test --locked -p forge-bridge
-          cargo test --locked -p forge-cli --test driver_conformance
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+          cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+          cargo test --locked -p brokkr-bridge
+          cargo test --locked -p brokkr-cli --test driver_conformance
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -72,14 +72,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p forge-cli --target ${{ matrix.target }}
-      # brokkr is the binary; the `forge` shim is packaged beside it for
-      # one release (decision 0019 ruling 9) and then dropped.
+      - run: cargo build --release --locked -p brokkr-cli --target ${{ matrix.target }}
+      # brokkr is the binary, and now the only one: the `forge` shim rode
+      # along for one release (decision 0019 ruling 9) and is dropped.
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" brokkr forge
+          tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" brokkr
           cd dist
           shasum -a 256 "${{ matrix.name }}.tar.gz" > "${{ matrix.name }}.tar.gz.sha256"
       - name: package (windows)
@@ -87,7 +87,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/brokkr.exe", "target/${{ matrix.target }}/release/forge.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/brokkr.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
           (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
       - name: attest packaged binary and checksum
         uses: actions/attest@v4
@@ -128,8 +128,8 @@ jobs:
           generate_release_notes: true
           body: |
             One native binary per platform — no Python, no Node, no services.
-            The binary is `brokkr`. Each archive also carries a `forge` shim
-            for this release only: identical behavior, one notice on stderr.
+            The binary is `brokkr`, and now the only one: the `forge` shim
+            that rode along for one release is gone.
             Verify downloads against SHA256SUMS, then verify signed GitHub
             build provenance with `gh attestation verify <asset> -R ${{ github.repository }}`.
             See ARCHITECTURE.md and docs/decisions/ for what this engine is and why.

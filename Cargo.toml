@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/forge-core",
-    "crates/forge-store",
-    "crates/forge-protocol",
-    "crates/forge-runtime",
-    "crates/forge-view",
-    "crates/forge-bridge",
-    "crates/forge-cli",
+    "crates/brokkr-core",
+    "crates/brokkr-store",
+    "crates/brokkr-protocol",
+    "crates/brokkr-runtime",
+    "crates/brokkr-view",
+    "crates/brokkr-bridge",
+    "crates/brokkr-cli",
 ]
 
 [workspace.package]
@@ -22,12 +22,12 @@ license = "MIT OR Apache-2.0"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
 
 [workspace.dependencies]
-forge-core = { path = "crates/forge-core" }
-forge-store = { path = "crates/forge-store" }
-forge-protocol = { path = "crates/forge-protocol" }
-forge-runtime = { path = "crates/forge-runtime" }
-forge-bridge = { path = "crates/forge-bridge" }
-forge-view = { path = "crates/forge-view" }
+brokkr-core = { path = "crates/brokkr-core" }
+brokkr-store = { path = "crates/brokkr-store" }
+brokkr-protocol = { path = "crates/brokkr-protocol" }
+brokkr-runtime = { path = "crates/brokkr-runtime" }
+brokkr-bridge = { path = "crates/brokkr-bridge" }
+brokkr-view = { path = "crates/brokkr-view" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

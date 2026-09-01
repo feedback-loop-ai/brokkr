@@ -8,7 +8,7 @@ and proper graphical visualization of the graph, with pulsating circles
 etc."*
 
 The web console draws a run as **one rail**
-(`crates/forge-cli/src/ui.html::renderLoops`): phases are segments joined
+(`crates/brokkr-cli/src/ui.html::renderLoops`): phases are segments joined
 by arrowed edges that read as *then*, a panel **forks** into vertically
 symmetric lanes that **rejoin the rail** before the next step, phase
 names share one baseline with `×N` revisit markers, node colour is an
@@ -17,7 +17,7 @@ allowlist lookup on a closed-set key, and the active node on a live run
 dependency, and the pulse *is* "this is happening now, and the frame you
 are looking at is not stale."
 
-`forge tui`'s graph pane today (`tui.rs::draw_graph`) is the 0013 tree —
+`brokkr tui`'s graph pane today (`tui.rs::draw_graph`) is the 0013 tree —
 one indented line per phase, `→` for a step, `⑂` for a fork, the state
 printed as a word, no colour, **no join**, no animation. It lists the
 topology; it does not show it, and an operator moving between the two
@@ -28,11 +28,11 @@ This is **display refinement within decision 0014**
 spends 0014's promise that the TUI is a *renderer* and spends nothing
 else. The invariant that governs every choice below, restated from 0013:
 
-> **`forge tui` is a third renderer, never a fourth derivation.**
+> **`brokkr tui` is a third renderer, never a fourth derivation.**
 > A renderer may branch on a model field; it may not compute one.
 
 Geometry and layout are rendering. This change adds **no derivation, no
-dependency, no decision, no contract change and no `forge-view` model
+dependency, no decision, no contract change and no `brokkr-view` model
 change**.
 
 ## What Changes
@@ -91,7 +91,7 @@ change**.
   pass while the requirement was violated in the only place it matters.
   `render::tone` is deliberately **not** reused: it maps
   `awaiting_operator` to `Quiet`, while the graph needs **park** as a
-  distinct yellow class, and widening `tone` would move `forge runs`'
+  distinct yellow class, and widening `tone` would move `brokkr runs`'
   goldens. One classification per question.
 
 - **An unrecognised `summary.status` renders quiet, never live.** This is
@@ -165,7 +165,7 @@ change**.
   re-pointed at `j`/`k`, which assert the same movement — no case
   asserting a **scope** is touched.
 
-- **`forge-view` gains one test and nothing else.** No field, no
+- **`brokkr-view` gains one test and nothing else.** No field, no
   rendering concern, no `VIEW_VERSION` move, no `/api` shape change. The
   test pins that phase names are unique within a `RunView` — the
   invariant the `visits` fold already holds, and which the graph now
@@ -201,8 +201,8 @@ Design artifacts:
 
 - **Surfaces**: still three renderers over one derivation. 0013's
   invariant holds by construction — this change adds no derivation and
-  modifies `forge-view`'s models not at all.
-- **Existing behaviour**: `forge runs`, `inspect`, `watch` and `ui` are
+  modifies `brokkr-view`'s models not at all.
+- **Existing behaviour**: `brokkr runs`, `inspect`, `watch` and `ui` are
   unchanged. `render::graph_block` and every golden stay byte-identical;
   the `/api` response shape is unchanged; `ui.html` is the reference
   being matched, not a file being edited.

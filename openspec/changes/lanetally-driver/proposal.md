@@ -8,10 +8,10 @@ cost. LaneTally's session-capture wrapper (`claude-lanetally`, argv-
 compatible with `claude` including `--output-format stream-json`)
 records every session in LaneTally's cost ledger, where
 subscription-vs-API accounting makes it priceable. A fifth built-in
-forge-driver/v1 adapter, `forge driver lanetally`, runs the SAME Claude
+forge-driver/v1 adapter, `brokkr driver lanetally`, runs the SAME Claude
 Code harness through that wrapper — a decision-0008 fleet extension
 inside delivered scope (no new decision doc) — so seat sessions become
-ledger-priceable, and one constant checkpoint field lets `forge costs`
+ledger-priceable, and one constant checkpoint field lets `brokkr costs`
 and the UI tell captured sessions apart.
 
 ## What Changes
@@ -47,7 +47,7 @@ and the UI tell captured sessions apart.
   flow-through; claude's finished checkpoint asserts no `capture`; a
   masking leg bakes store plaintext into result notes and asserts
   masked-token-present AND plaintext-absent (assertion only — zero new
-  masking code); a `seat_costs` regression pins that `forge costs`
+  masking code); a `seat_costs` regression pins that `brokkr costs`
   needs zero changes.
 - **Docs**: driver lists in `ARCHITECTURE.md` and
   `docs/extension-model.md` gain lanetally with one honest sentence:
@@ -69,24 +69,24 @@ Design artifacts:
 
 ## Impact
 
-- **Edited**: `crates/forge-protocol/src/adapters.rs` (variant, helper
+- **Edited**: `crates/brokkr-protocol/src/adapters.rs` (variant, helper
   factoring, capture insert, doc comment; + its tests),
-  `crates/forge-cli/src/main.rs` (two strings),
-  `crates/forge-cli/src/doctor.rs` + `doctor/tests.rs` (probe row with
-  hint), `crates/forge-cli/tests/driver_conformance.rs` (battery
-  membership, adversarial + masking legs), `crates/forge-cli/src/compare.rs`
+  `crates/brokkr-cli/src/main.rs` (two strings),
+  `crates/brokkr-cli/src/doctor.rs` + `doctor/tests.rs` (probe row with
+  hint), `crates/brokkr-cli/tests/driver_conformance.rs` (battery
+  membership, adversarial + masking legs), `crates/brokkr-cli/src/compare.rs`
   tests only (seat_costs regression), `ARCHITECTURE.md`,
   `docs/extension-model.md`.
 - **New**: no production files; one conformance shim constant; the spec
   artifacts above.
 - **Untouched**: `fold_stream_event`, the codex/dsh/exec arms and all
   drivers' observable behavior, secrets machinery (decision 0012 —
-  demonstrated by assertion, not changed), `forge costs` aggregation,
-  `ui.rs`/`ui.html`, `crates/forge-core`, frozen contracts v1,
+  demonstrated by assertion, not changed), `brokkr costs` aggregation,
+  `ui.rs`/`ui.html`, `crates/brokkr-core`, frozen contracts v1,
   `policy/phase-machine.json`, `reference/`, the differential corpus,
   all recipes. No new dependencies, no HTTP client.
 - **Operational**: on machines with LaneTally installed,
-  `forge driver lanetally` seats land in the cost ledger automatically;
+  `brokkr driver lanetally` seats land in the cost ledger automatically;
   on machines without it, doctor advises and the fleet works unchanged.
-  `forge costs` output is unchanged except that captured sessions are
+  `brokkr costs` output is unchanged except that captured sessions are
   distinguishable by `capture:"lanetally"`.

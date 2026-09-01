@@ -5,7 +5,7 @@
 
 ## Position reconciliation (how this plan was synthesized)
 
-The panel agreed on more than it contested: `forge-view` is one
+The panel agreed on more than it contested: `brokkr-view` is one
 implementation with `Serialize`-only plain structs and public fields, no
 surface trait, no caching layer, no error taxonomy (derivations are total
 functions, not `Result`s); one new route `/api/view/<run>` carrying the
@@ -19,16 +19,16 @@ existing `summarize()` keys preserved; the `machine_proof.rs` pins
 migrating to `--json` rather than to human-formatted output; and no new
 dependency, subcommand, or geometry. Where they disagreed:
 
-1. **Crate vs. module — robustness adopted.** `forge-view` is a crate.
+1. **Crate vs. module — robustness adopted.** `brokkr-view` is a crate.
    Simplicity's case is real (one consumer, the repo's own
    `ui.rs`/`ui/tests.rs` idiom, six config edits) but it argues cost,
    not correctness, and the cost it names is mostly one-time. The
    deciding argument is the one only a crate answers: a module inside
-   `forge-cli` can call `Store::open`, `std::fs`, `std::env::var`, and
+   `brokkr-cli` can call `Store::open`, `std::fs`, `std::env::var`, and
    `IsTerminal` **by accident, and nothing fails** — so the ruling's
    load-bearing property, "no I/O, no rendering, no terminal or DOM
    concepts", stays a review convention that decays. A `Cargo.toml`
-   depending on exactly `forge-core`/`serde`/`serde_json` makes it a
+   depending on exactly `brokkr-core`/`serde`/`serde_json` makes it a
    compile error, and the absence of `time` is what forces `now` to be a
    parameter, which is what makes the golden tests deterministic.
    Simplicity's gate argument does not survive inspection: the exact
@@ -37,7 +37,7 @@ dependency, subcommand, or geometry. Where they disagreed:
    *Simplicity's floor is adopted inside the crate*: `lib.rs` + `js.rs`
    and their `tests.rs`, and no `view/participants.rs`,
    `view/trail.rs`, `view/topology.rs` module tree.
-   *Simplicity's exclusion is adopted*: not `forge-core`. The core is
+   *Simplicity's exclusion is adopted*: not `brokkr-core`. The core is
    the parity oracle against the Python core; display truth has no
    business acquiring a parity obligation.
 
@@ -82,7 +82,7 @@ dependency, subcommand, or geometry. Where they disagreed:
 
 5. **Insertion order and effect-as-occurrence — robustness adopted**
    (uncontested). `Vec<Participant>` + `HashMap<String, usize>`.
-   `HashMap` iteration would make the `forge inspect` golden flaky in CI
+   `HashMap` iteration would make the `brokkr inspect` golden flaky in CI
    only; `BTreeMap` would silently reorder the seats table; and Σ sums
    `f64` in members order, which is not associative.
 
@@ -129,12 +129,12 @@ dependency, subcommand, or geometry. Where they disagreed:
     superset so existing scripts keep working; robustness wanted the
     keys nested under `summary` with a `view_version`. Nesting wins,
     because the migration cost simplicity is protecting against does not
-    exist: `forge inspect` has no `--json` today, so **every** script
+    exist: `brokkr inspect` has no `--json` today, so **every** script
     must change its invocation anyway, and requiring `.summary.status`
     at the same time costs nothing extra while keeping the model shape
     honest. Robustness's `view_version: 1` and "absent serializes as
     `null`, never skipped" are adopted. The migration is stated as a
-    checkable equality: `forge inspect --json | jq .summary` is today's
+    checkable equality: `brokkr inspect --json | jq .summary` is today's
     output verbatim, all nine keys including `cursor`.
 
 11. **`watch` redraw height gate — robustness REJECTED.** Robustness
@@ -173,7 +173,7 @@ dependency, subcommand, or geometry. Where they disagreed:
 14. **The anti-drift tests — robustness adopted.** "The JS derivation is
     deleted, not duplicated" is the load-bearing clause and nothing
     currently enforces it. A banned-token assertion over the
-    `include_str!`'d page (and a twin over `forge-view`'s sources for
+    `include_str!`'d page (and a twin over `brokkr-view`'s sources for
     I/O tokens) is three lines and fails the day someone adds "just one
     small helper" back. The companion rule this plan states so the test
     is honest rather than superstitious: **the page may branch on a
@@ -192,7 +192,7 @@ event or checkpoint change.
 
 Four movements, in order, each landing green:
 
-1. **The crate.** `crates/forge-view` joins the workspace with
+1. **The crate.** `crates/brokkr-view` joins the workspace with
    `js.rs` first (the primitives everything else formats through), then
    the models, then the derivations in dependency order: participants →
    activity → Σ → live lines → topology → phase rail → trail/journal →
@@ -213,33 +213,33 @@ Four movements, in order, each landing green:
 
 **New**
 
-- `crates/forge-view/Cargo.toml`, `src/lib.rs`, `src/js.rs`,
+- `crates/brokkr-view/Cargo.toml`, `src/lib.rs`, `src/js.rs`,
   `src/tests.rs`, `src/js/tests.rs`
-- `crates/forge-cli/src/render.rs`, `src/render/tests.rs`
+- `crates/brokkr-cli/src/render.rs`, `src/render/tests.rs`
 
 **Modified**
 
 - `Cargo.toml` — `[workspace] members` and `[workspace.dependencies]`
-  gain `forge-view` (a path entry, not a third-party dependency)
-- `crates/forge-cli/Cargo.toml` — depends on `forge-view`
-- `crates/forge-cli/src/ui.rs` — the `/api/view/<run>` arm, `/api/runs`
+  gain `brokkr-view` (a path entry, not a third-party dependency)
+- `crates/brokkr-cli/Cargo.toml` — depends on `brokkr-view`
+- `crates/brokkr-cli/src/ui.rs` — the `/api/view/<run>` arm, `/api/runs`
   reserialized, the module doc's route list
-- `crates/forge-cli/src/ui.html` — derivation deleted, consumption added
+- `crates/brokkr-cli/src/ui.html` — derivation deleted, consumption added
   (a net deletion of roughly 350 lines)
-- `crates/forge-cli/src/ui/tests.rs` — the new endpoint, the banned-token
+- `crates/brokkr-cli/src/ui/tests.rs` — the new endpoint, the banned-token
   test; existing assertions unedited
-- `crates/forge-cli/src/main.rs` — `Cmd::Runs`/`Cmd::Inspect` rewritten,
+- `crates/brokkr-cli/src/main.rs` — `Cmd::Runs`/`Cmd::Inspect` rewritten,
   `--json`/`--phase`/`--seat`, `Cmd::Watch`, `Style::detect` and the one
   clock read that keeps the derivation pure
-- `crates/forge-cli/src/tests.rs` — `summaries_costs_inspect_export_…`
-- `crates/forge-cli/tests/machine_proof.rs` — the `forge runs` pins at
+- `crates/brokkr-cli/src/tests.rs` — `summaries_costs_inspect_export_…`
+- `crates/brokkr-cli/tests/machine_proof.rs` — the `brokkr runs` pins at
   ~:537-557, ~:570-585 and ~:1208-1215 migrate to `--json`
 - `README.md` (the `crates/` row at :106 and the command listing),
   `ARCHITECTURE.md` (crate listing), `docs/target-architecture.md` :361
 
 **Untouched, deliberately**: `contracts/`, `policy/phase-machine.json`,
-`reference/`, `fixtures/`, `forge-core`, `forge-store`,
-`forge-protocol`, `forge-runtime`, `forge-bridge`, and the
+`reference/`, `fixtures/`, `brokkr-core`, `brokkr-store`,
+`brokkr-protocol`, `brokkr-runtime`, `brokkr-bridge`, and the
 `/api/run/<id>` · `/api/session/<id>` · `/sse/<id>` responses.
 
 ## Console parity table
@@ -271,7 +271,7 @@ extraction. This table is the argument AC-18 asks for.
 | A JS→Rust divergence ships silently (cost rounding, UTF-16 truncation, map order, `f64` sum order) | The spec's divergence table is the test list; each row is a named test written with the divergence as the assertion, not incidental to it |
 | Non-ASCII goldens are blind to the length rules | At least one golden and one unit test carry an emoji astride a slice boundary and a `é`-bearing target |
 | A hostile journal string forges terminal output | `Safe` newtype, private field, sanitizing constructor, applied before width math; ESC and `\r` goldens |
-| Byte-slicing a UTF-8 feature panics `forge runs` | All truncation on `char` boundaries; `COLUMNS` parsed to `Option` and clamped `[20,1000]`; saturating column arithmetic |
+| Byte-slicing a UTF-8 feature panics `brokkr runs` | All truncation on `char` boundaries; `COLUMNS` parsed to `Option` and clamped `[20,1000]`; saturating column arithmetic |
 | CJK/emoji columns misalign without a width crate | Admitted in the module doc and in spec.md; goldens do not claim to prove alignment for non-ASCII |
 | The derivation returns to `ui.html` later | Banned-token test over the `include_str!`'d page, plus the stated branch-not-compute rule |
 | A crate widens the covered surface | Every `pub` item is called by the two surfaces or by its own unit test; view-model tests assert on serialized JSON so no derived `Debug` sits at zero |

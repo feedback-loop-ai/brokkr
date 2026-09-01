@@ -10,10 +10,10 @@
 A policy rule may declare `requires_artifacts` (the heritage table's
 ARCH-OK names `spec.md`, `plan.md`, `repos.yaml` —
 `policy/phase-machine.json:70`). The loader validates its shape
-(`crates/forge-core/src/policy.rs:232`), the evaluator returns it on
+(`crates/brokkr-core/src/policy.rs:232`), the evaluator returns it on
 every ruling (`policy.rs:169`), and the engine's decide step then drops
 it on the floor: the `Outcome::Ruling` arm at
-`crates/forge-runtime/src/engine.rs:1079` binds `rule_id`, `next_phase`,
+`crates/brokkr-runtime/src/engine.rs:1079` binds `rule_id`, `next_phase`,
 `severity` and discards the rest with `..`. A declared artifact gate
 that never gates is worse than no gate — it reads as enforced and is
 not.
@@ -173,7 +173,7 @@ Justification against the laws:
 ## Constraints honored (unchanged surfaces)
 
 - `Machine::evaluate` — signature and behavior byte-identical;
-  forge-core's diff for this feature is empty (see plan.md for the
+  brokkr-core's diff for this feature is empty (see plan.md for the
   position reconciliation behind this).
 - `transition-decided` field set, event types, condition vocabulary
   (`BOOLEAN_INPUTS` — this is not a `when {artifacts_present}` input),
@@ -189,7 +189,7 @@ Justification against the laws:
 
 ## Acceptance Criteria
 
-Each criterion is testable in `crates/forge-cli/tests/machine_proof.rs`
+Each criterion is testable in `crates/brokkr-cli/tests/machine_proof.rs`
 (real binary; the `Workspace` scaffolding authors its own bundle
 tables, so no production table changes).
 

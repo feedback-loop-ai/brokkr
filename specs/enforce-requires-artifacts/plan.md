@@ -13,8 +13,8 @@ on the four genuine divergences:
 
 1. **Where the gate lives** — *reconciled*. Simplicity wanted ~20
    inline lines in the `Outcome::Ruling` match arm; robustness wanted a
-   pure verdict function plus problem-string renderer as forge-core
-   public API, for parity mirroring. Adopted: **forge-core's diff is
+   pure verdict function plus problem-string renderer as brokkr-core
+   public API, for parity mirroring. Adopted: **brokkr-core's diff is
    empty** (simplicity's strongest form of evaluator purity — there is
    no second caller, and a new public API is a new parity surface that
    nothing currently mirrors), **but** the check and the evidence
@@ -35,9 +35,9 @@ on the four genuine divergences:
 3. **Load-time lint** — *simplicity adopted, robustness's mechanism
    rejected, its goal kept*. Robustness wanted lexical validation "at
    lint and check time", but `policy_lint.rs` is a test of the loader
-   (`crates/forge-core/tests/policy_lint.rs`) — rejecting entries at
-   load means changing forge-core's parser, contradicting the empty
-   forge-core diff both positions valued. Adopted: **one enforcement
+   (`crates/brokkr-core/tests/policy_lint.rs`) — rejecting entries at
+   load means changing brokkr-core's parser, contradicting the empty
+   brokkr-core diff both positions valued. Adopted: **one enforcement
    point, decide time**, failing closed as class `invalid`. The
    reserved-character fence (robustness's goal) survives intact at
    that single point: an entry containing `{ } $ < >` can never
@@ -54,7 +54,7 @@ on the four genuine divergences:
 
 ## Approach
 
-All behavior lands in `crates/forge-runtime/src/engine.rs`, in the
+All behavior lands in `crates/brokkr-runtime/src/engine.rs`, in the
 decide step:
 
 1. Two private pure free functions (no `std::fs` in the second):
@@ -83,17 +83,17 @@ decide step:
 
 ## Files touched
 
-- `crates/forge-runtime/src/engine.rs` — the gate (two pure helpers +
+- `crates/brokkr-runtime/src/engine.rs` — the gate (two pure helpers +
   the match-arm change). The only production code change.
-- `crates/forge-cli/tests/machine_proof.rs` — the nine acceptance
+- `crates/brokkr-cli/tests/machine_proof.rs` — the nine acceptance
   criteria from spec.md, using the existing `Workspace`
   self-authored-table scaffolding.
 - `specs/enforce-requires-artifacts/*`,
   `openspec/changes/enforce-requires-artifacts/proposal.md` — this
   design.
 
-Explicitly untouched: `crates/forge-core/*` (empty diff),
-`crates/forge-core/src/fold.rs`, `policy/phase-machine.json`,
+Explicitly untouched: `crates/brokkr-core/*` (empty diff),
+`crates/brokkr-core/src/fold.rs`, `policy/phase-machine.json`,
 `reference/`, `fixtures/`, `contracts/`, `recipes/sdd/*`.
 
 ## Risks and mitigations
@@ -115,7 +115,7 @@ Explicitly untouched: `crates/forge-core/*` (empty diff),
   decide time instead of failing at load.** Accepted: tables are
   reviewed text, the park names the offending entry verbatim with
   class `invalid`, and a load-time lint is an additive follow-up that
-  would otherwise cost the empty forge-core diff.
+  would otherwise cost the empty brokkr-core diff.
 - **Symlinks to non-empty regular files pass.** Accepted: the workdir
   is operator-controlled; the gate defends against absent work, not
   adversarial layout beyond the lexical predicate.

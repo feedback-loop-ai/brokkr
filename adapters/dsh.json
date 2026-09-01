@@ -2,7 +2,7 @@
   "provider": "dsh",
   "binary": "dsh",
   "driver": [
-    "{forge}",
+    "{brokkr}",
     "driver",
     "dsh",
     "--"

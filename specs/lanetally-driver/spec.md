@@ -15,10 +15,10 @@ list-price `total_cost_usd`. LaneTally's session-capture wrapper
 (`claude-lanetally`, which execs `rollout/session-wrapper.sh -- claude
 "$@"`) records every session in LaneTally's cost ledger, where it is
 priceable at real marginal cost (subscription-vs-API accounting).
-`forge driver lanetally` runs the SAME Claude Code harness through that
+`brokkr driver lanetally` runs the SAME Claude Code harness through that
 wrapper, so seat sessions become ledger-priceable with zero change to
 what the harness streams or what forge journals — plus one constant
-field that lets `forge costs` and the UI tell captured sessions apart.
+field that lets `brokkr costs` and the UI tell captured sessions apart.
 
 Operator-established facts this design relies on and does not
 re-derive: `claude-lanetally` is on PATH (`~/.local/bin/claude-lanetally`)
@@ -45,7 +45,7 @@ inherited by construction because the code does not fork.
 
 ## Naming
 
-- **Parse token**: `"lanetally"` (`forge driver lanetally`, the
+- **Parse token**: `"lanetally"` (`brokkr driver lanetally`, the
   bundle's `driver` field).
 - **`driver_name()`**: `"claude-lanetally"` — following the existing
   precedent that the parse token and driver name diverge
@@ -171,7 +171,7 @@ code). Two honest boundary lines:
 - No per-session actual-cost join, no readplane/HTTP query, no reading
   LaneTally's ledger from the forge. No new dependencies, no HTTP
   client.
-- No changes to `forge costs` aggregation or the UI: checkpoint `data`
+- No changes to `brokkr costs` aggregation or the UI: checkpoint `data`
   is open, the extra field rides free — verified by test, then zero
   changes made.
 - No wrapper metadata in the checkpoint (session id, ledger row,
@@ -224,7 +224,7 @@ code). Two honest boundary lines:
    masking code.
 8. **Cost flow regression**: `seat_costs` sums `total_cost_usd` from a
    session-finished checkpoint that carries `capture`, with zero
-   production changes to `compare.rs`, `forge costs`, or the UI.
+   production changes to `compare.rs`, `brokkr costs`, or the UI.
 9. **CLI surface**: the unknown-driver error and the `Driver` help
    text both list `lanetally`.
 10. **Doctor**: missing `claude-lanetally` → warning naming

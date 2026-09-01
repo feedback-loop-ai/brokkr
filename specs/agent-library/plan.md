@@ -18,16 +18,16 @@ contracts/
   run-manifest.v3.schema.json        NEW  v1 + optional `agents`
   effect-provenance.v1.schema.json   NEW  the additive payload fields
   README.md                          EDIT the amended prose rule + reason
-crates/forge-runtime/src/
+crates/brokkr-runtime/src/
   agents.rs                          NEW  the pure resolver
   agents/tests.rs                    NEW
   bundle.rs                          EDIT parse `agent:`, call resolve, manifest key
   engine.rs                          EDIT provenance, candidate selection
-crates/forge-core/src/dispatch.rs    EDIT refuse `agents` on the v2 lineage
-crates/forge-protocol/src/lib.rs     EDIT AttemptReport gains `accepted: bool`
-crates/forge-protocol/src/process.rs EDIT set it (already tracked in a local)
-crates/forge-view/src/lib.rs         EDIT Provenance on Participant, VIEW_VERSION 2
-crates/forge-cli/src/
+crates/brokkr-core/src/dispatch.rs    EDIT refuse `agents` on the v2 lineage
+crates/brokkr-protocol/src/lib.rs     EDIT AttemptReport gains `accepted: bool`
+crates/brokkr-protocol/src/process.rs EDIT set it (already tracked in a local)
+crates/brokkr-view/src/lib.rs         EDIT Provenance on Participant, VIEW_VERSION 2
+crates/brokkr-cli/src/
   agents.rs, agents/tests.rs         NEW  list / show
   main.rs, doctor.rs, render.rs,
   tui.rs, ui.rs + ui.html, compare.rs EDIT
@@ -36,18 +36,18 @@ recipes/sdd                          EDIT seats reference agents
 README.md, ARCHITECTURE.md           EDIT
 ```
 
-**Untouched**: `crates/forge-protocol/src/adapters.rs`. Its
+**Untouched**: `crates/brokkr-protocol/src/adapters.rs`. Its
 `AdapterKind` match arms are stream-format parsers — they fold
 `claude`'s stream-json, `codex`'s `--json`, `dsh`'s profile output —
 not the model/flag arms decision 0016 forbids, and everything after
 `--` is already passed through verbatim (`command.extend(extra…)`). So
 compile-time argv composition is sufficient and the forbidden match arm
-is one we simply never write. Also untouched: `forge-store`,
+is one we simply never write. Also untouched: `brokkr-store`,
 `fixtures/`, `policy/`, `reference/`, every frozen contract's bytes.
 
 ## The resolver
 
-`crates/forge-runtime/src/agents.rs`, one pure function and its data:
+`crates/brokkr-runtime/src/agents.rs`, one pure function and its data:
 
 ```rust
 pub enum Presence { Available, Unavailable, Unknown }
@@ -59,7 +59,7 @@ pub struct Availability(BTreeMap<String, Presence>);
 pub struct Candidate {
     pub model: String,        // abstract name
     pub provider: String,
-    pub argv: Vec<String>,    // composed, unexpanded ({forge} intact)
+    pub argv: Vec<String>,    // composed, unexpanded ({brokkr} intact)
 }
 
 pub struct Resolution {
@@ -86,7 +86,7 @@ parse error naming the file and key. `resolve` itself takes no paths and
 performs no I/O — that is what makes AC-1's "nothing spawned" a property
 of the type rather than of review discipline.
 
-`argv` is composed **unexpanded**: `{forge}` stays a literal token, so
+`argv` is composed **unexpanded**: `{brokkr}` stays a literal token, so
 `parse_command`'s existing expansion, its `./`-relative handling and its
 `scan_secret_refs` lint all run over the composed argv exactly as over
 inline argv. That reuse is AC-11 for free and keeps machine-local
@@ -140,7 +140,7 @@ the agent and the seat is a compile error.
 {
   "provider": "claude",
   "binary": "claude",
-  "driver": ["{forge}", "driver", "claude", "--",
+  "driver": ["{brokkr}", "driver", "claude", "--",
              "--permission-mode", "acceptEdits"],
   "models": { "fable": "claude-fable-5", "opus": "claude-opus-5" },
   "model_flag": "--model",
@@ -161,7 +161,7 @@ degenerate case: `"model_flag": "unsupported"`, `"tool_permissions":
 "unsupported"`, `"mcp": "unsupported"`, `"models": {}`.
 
 **The implementer fills each provider's driver prefix and flags from
-`crates/forge-protocol/src/adapters.rs` and the provider CLI's
+`crates/brokkr-protocol/src/adapters.rs` and the provider CLI's
 documented flags, and writes `"unsupported"` wherever the truth is not
 established.** Guessing a flag here is the quiet substitution this
 decision exists to refuse; `"unsupported"` is always the safe answer,
@@ -236,7 +236,7 @@ and `bundles/verify` adopt nothing.
 
 ## Surfaces (decision 0013)
 
-`forge-view` gains `Provenance { agent, model, provider, chain_index,
+`brokkr-view` gains `Provenance { agent, model, provider, chain_index,
 fallback: bool }` on `Participant` — whose existing
 `member: Option<String>` is already the per-invocation key — derived
 once at the `EventType::EffectStarted` arm. Run-level notices are read
@@ -246,8 +246,8 @@ every surface with no new event field at all. `VIEW_VERSION` → 2.
 
 `render.rs`, `tui.rs`, `ui.html` and `compare.rs` render that one model;
 none of them formats provenance itself. `compare.rs` today has its own
-aggregation and does not go through `forge-view`; it gains
-`resolution_divergence` by **calling** the `forge-view` derivation for
+aggregation and does not go through `brokkr-view`; it gains
+`resolution_divergence` by **calling** the `brokkr-view` derivation for
 each run rather than by re-deriving — the single derivation without a
 refactor of `seat_costs`.
 
@@ -258,10 +258,10 @@ refactor of `seat_costs`.
 | 1 | Adopting recipes' digests move when charters leave their dirs, and a charter edit stops being pinned | The `agents` manifest key carries `charter_digest` — the pin that replaces the lost `manifest.files` entry. AC-4 pins the *non*-adopters; a second golden asserts an adopting bundle's digest moves when its charter's bytes change |
 | 2 | The v2 (Looper) lineage silently drops `agents` and breaks resume | `build_run_manifest_v2` refuses adopting bundles with a named error (AC-19). Found by reading `dispatch.rs:422`, not by testing it in anger |
 | 3 | The amended `contracts/README.md` rule becomes a licence to add fields freely | The amendment is narrow and testable — optional, absent by default, published as a numbered extension schema, and never read by `fold` — and AC-13 machine-checks the last clause |
-| 4 | New payload fields are silently dropped by `forge-bridge`'s allowlist | Ruled deliberately: they are dropped, asserted by a test naming the ruling (AC-19) |
+| 4 | New payload fields are silently dropped by `brokkr-bridge`'s allowlist | Ruled deliberately: they are dropped, asserted by a test naming the ruling (AC-19) |
 | 5 | A packed provenance string forces six consumers to parse a grammar and gets truncated at the bridge's 256 chars | Structured fields; nothing parses a label |
 | 6 | Compile-time probing makes digests machine-dependent | `Bundle::compile` passes `Availability::unspecified()`; purity is a property of `resolve`'s signature |
-| 7 | Resolved argv containing an expanded `{forge}` reaches a digest | The manifest record carries names and digests only; argv is composed unexpanded |
+| 7 | Resolved argv containing an expanded `{brokkr}` reaches a digest | The manifest record carries names and digests only; argv is composed unexpanded |
 | 8 | An agent falls back onto a provider that cannot express its tool restrictions, silently widening its power | Capability checks run over **every** chain entry; `optional` is unrepresentable on a restriction |
 | 9 | A capability matched per class lets an agent run without its named MCP server and report a content failure | Matching is per named item |
 | 10 | `agent: "../../etc/passwd"`, or two agents differing only by case | Canonicalised, containment-checked paths; `^[a-z][a-z0-9-]*$`; case-insensitive uniqueness (AC-20) |

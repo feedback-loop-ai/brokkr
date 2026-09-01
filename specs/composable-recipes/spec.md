@@ -30,7 +30,7 @@ reason about at 3am.
 ## The design in one paragraph
 
 Composition is a **pure pre-pass over recipe source documents**, living
-in one new module, `crates/forge-runtime/src/bundle/compose.rs`. Its
+in one new module, `crates/brokkr-runtime/src/bundle/compose.rs`. Its
 input is a leaf bundle directory; its output is a `Resolved` value
 carrying the flat `bundle.json` document, the flat policy table, a
 **name-level origin map**, the ordered ancestor chain with digests, and
@@ -55,7 +55,7 @@ The panel agreed on more than the framing anticipated, and the
 agreements are load-bearing:
 
 - Resolution yields a **document**, not parsed seats. Purity is only
-  testable above `parse_command`, which expands `{forge}` to
+  testable above `parse_command`, which expands `{brokkr}` to
   `std::env::current_exe()` (`bundle.rs:633`) and would otherwise differ
   by machine; and opacity is only assertable against a document, because
   parsing discards unknown keys.
@@ -196,7 +196,7 @@ no field-level merge inside a named thing.
 - **`name`** is required in every layer and **must differ from every
   ancestor's name**. Inheriting it is a compile error. A derived bundle
   that reported its base's name would write that name into
-  `runs.bundle_name`, `manifest.bundle_name`, `forge runs` output and
+  `runs.bundle_name`, `manifest.bundle_name`, `brokkr runs` output and
   the dispatch `recipe` pin, under a different digest.
 - **`policy`** is per-layer, not overridden: each layer that declares it
   contributes a table document, read relative to **that layer's**
@@ -277,7 +277,7 @@ surfaces as `changed: @compose/0000/sdd`, by name.
 
 ### Operator surfaces
 
-`forge compile` and a new `forge recipes show <name>` print the
+`brokkr compile` and a new `brokkr recipes show <name>` print the
 **resolved** result and its provenance, from **one renderer** — the
 `Compile` arm's printer (`main.rs:658`) is extracted and both surfaces
 call it. Both gain a `composed_from` member (an array of
@@ -382,15 +382,15 @@ Each criterion is testable and is referenced by `tasks.md` as AC-n.
 
 **Operator surfaces**
 
-- **AC-28** — `forge compile` on a composed recipe prints the resolved
+- **AC-28** — `brokkr compile` on a composed recipe prints the resolved
   result and a `composed_from` provenance chain; on a non-composed
   bundle the output is byte-identical to today's (no `composed_from`
   member).
-- **AC-29** — `forge recipes show <name>` prints the resolved result and
+- **AC-29** — `brokkr recipes show <name>` prints the resolved result and
   provenance, proven for both a composed and a non-composed recipe.
 - **AC-30** — At least one merge failure is asserted at the CLI level,
   showing the file and the conflicting key.
-- **AC-31** — `forge recipes list` prints a warning line for a recipe
+- **AC-31** — `brokkr recipes list` prints a warning line for a recipe
   whose base is missing and still lists everything else.
 
 **Proof and suites**
@@ -399,7 +399,7 @@ Each criterion is testable and is referenced by `tasks.md` as AC-n.
   overrides only the review seat, compiles, and its README states its
   `bundle.json` line count against `recipes/sdd/bundle.json`'s 227.
 - **AC-33** — The 97-case differential evaluator corpus, the
-  machine-proof suite, `forge-view`/render goldens, workspace `cargo
+  machine-proof suite, `brokkr-view`/render goldens, workspace `cargo
   test`, `cargo clippy --all-targets --all-features -D warnings`,
   `cargo fmt --check` and `scripts/coverage-exact.sh` are green;
   `fixtures/evaluator/corpus.ndjson`, `policy/phase-machine.json`,
@@ -408,7 +408,7 @@ Each criterion is testable and is referenced by `tasks.md` as AC-n.
 ## Out of scope
 
 Everything from decision 0016 (agents, `agent:` keys, adapter mappings,
-`forge agents *`); multiple inheritance; field-level merge inside a
+`brokkr agents *`); multiple inheritance; field-level merge inside a
 named thing; run-time inheritance or dynamic lookup; run linkage, new
 event vocabulary or schema change; new dependencies; a new UI surface
 beyond displaying resolved provenance.

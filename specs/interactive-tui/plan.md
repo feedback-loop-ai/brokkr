@@ -1,4 +1,4 @@
-# Implementation Plan: `forge tui`
+# Implementation Plan: `brokkr tui`
 
 **Feature slug**: `interactive-tui`
 **Spec**: [spec.md](spec.md) · **Tasks**: [tasks.md](tasks.md)
@@ -13,18 +13,18 @@ One new file and its conventional test file, plus targeted edits to
 three existing ones.
 
 ```
-crates/forge-cli/src/tui.rs         new   the state machine, the draw path, the shell
-crates/forge-cli/src/tui/tests.rs   new   pure-core unit tests, TestBackend render tests,
+crates/brokkr-cli/src/tui.rs         new   the state machine, the draw path, the shell
+crates/brokkr-cli/src/tui/tests.rs   new   pure-core unit tests, TestBackend render tests,
                                           the headless read-only proof
-crates/forge-cli/src/render.rs      edit  Safe hardened; tone() split out; keeps_phase
+crates/brokkr-cli/src/render.rs      edit  Safe hardened; tone() split out; keeps_phase
                                           extracted; keeps_participant/keeps_row pub(crate)
-crates/forge-cli/src/render/tests.rs edit hostile-bidi case
-crates/forge-cli/src/ui.rs          edit  session_turns() factored out of session_transcript
-crates/forge-cli/src/ui/tests.rs    edit  /api/session body still byte-identical
-crates/forge-cli/src/main.rs        edit  mod tui; Cmd::Tui; dispatch arm;
+crates/brokkr-cli/src/render/tests.rs edit hostile-bidi case
+crates/brokkr-cli/src/ui.rs          edit  session_turns() factored out of session_transcript
+crates/brokkr-cli/src/ui/tests.rs    edit  /api/session body still byte-identical
+crates/brokkr-cli/src/main.rs        edit  mod tui; Cmd::Tui; dispatch arm;
                                           WATCH_TRANSIENT_FRAMES -> pub(crate)
-crates/forge-cli/tests/machine_proof.rs edit subprocess refusal + read-only proof
-crates/forge-cli/Cargo.toml, Cargo.toml, Cargo.lock  edit  ratatui
+crates/brokkr-cli/tests/machine_proof.rs edit subprocess refusal + read-only proof
+crates/brokkr-cli/Cargo.toml, Cargo.toml, Cargo.lock  edit  ratatui
 ARCHITECTURE.md, README.md          edit  forge tui in the surfaces list
 ```
 
@@ -67,11 +67,11 @@ pub(crate) struct Tui {
 }
 ```
 
-Owned scalars only. **No `forge-view` model is retained.** `Views` (a
+Owned scalars only. **No `brokkr-view` model is retained.** `Views` (a
 `Snapshot` holding a `RunsView` and an `Option<RunView>`) is produced by
 the refresh source, borrowed for the frame, and dropped. That single
 decision deletes `Clone`/`PartialEq`/`Deserialize` derives, a snapshot, a
-diff routine and any `forge-view` change from the design.
+diff routine and any `brokkr-view` change from the design.
 
 `fn assign_run(&mut self, id: String)` is the only writer of `run` and
 clears `scope`, `seat`, `filter`, `typing` and every cursor — the
@@ -143,7 +143,7 @@ execution of the binary (`env!("CARGO_BIN_EXE_forge")`, which is how
 
 | Impure item | How it is covered |
 |---|---|
-| `run()`'s environment reads (`is_terminal`, `size`, `db.is_file()`) and its refusal `bail!` | **Subprocess** `forge tui` in `tests/machine_proof.rs`. A subprocess's stdout is a pipe, so the refusal fires deterministically in CI *and* on a developer's terminal — an in-process assertion on `is_terminal()` is true locally and false in CI, which is exactly the flake to avoid. |
+| `run()`'s environment reads (`is_terminal`, `size`, `db.is_file()`) and its refusal `bail!` | **Subprocess** `brokkr tui` in `tests/machine_proof.rs`. A subprocess's stdout is a pipe, so the refusal fires deterministically in CI *and* on a developer's terminal — an in-process assertion on `is_terminal()` is true locally and false in CI, which is exactly the flake to avoid. |
 | `refuse(is_tty, size, db_is_file)` | Pure; all branches unit-tested with literal values. |
 | `production_ops()` | A test **constructs** it — `let _ = production_ops();` — covering its line and its function record while invoking no pointer. |
 | `enable_raw_mode` / `disable_raw_mode` / `poll` / `read` / `size` | Held as `fn`-pointer fields whose production values are **crossterm's own function items**, never our wrappers and never closures (either would be a counted function only production can execute). Their bodies live in crossterm's files, which `cargo llvm-cov` excludes from the workspace report. |
@@ -160,7 +160,7 @@ Two structural notes that shape the code:
   records or inspects actions, and an enum would mean two match arms per
   key instead of one — roughly thirty extra branches under a 100% branch
   gate for zero additional truth.
-- **`forge-cli` has no `[lib]` target** (verified: `Cargo.toml` declares
+- **`brokkr-cli` has no `[lib]` target** (verified: `Cargo.toml` declares
   only `[[bin]] forge`). This corrects the framing's file list: an
   integration test in `tests/` **cannot** call the state machine, only
   spawn the binary. The headless read-only proof therefore lives in
@@ -171,15 +171,15 @@ Two structural notes that shape the code:
 
 Three independent layers, cheapest first:
 
-1. **Structural.** `tui.rs` imports nothing from `forge_runtime` and
+1. **Structural.** `tui.rs` imports nothing from `brokkr_runtime` and
    never names `Store`: the pure core and the draw path take view models,
    and the shell takes `&mut dyn FnMut() -> Result<Snapshot>`. A source
-   test asserts the absence of the `Store`, `forge_runtime`,
+   test asserts the absence of the `Store`, `brokkr_runtime`,
    `append_next` and `create_run` tokens in `tui.rs`, the idiom the
    `ui.html` anti-drift test already established.
 2. **Gated.** `run()` refuses when `!db.is_file()`, *before* `Store::open`
    is reachable — closing the write hole the panel found:
-   `forge-store/src/lib.rs:76` creates the parent directory, creates the
+   `brokkr-store/src/lib.rs:76` creates the parent directory, creates the
    file, switches it to WAL (creating `-wal`/`-shm`), runs the migration
    DDL and INSERTs a meta row.
 3. **Proven.** A directory-tree hash (relative path, length, bytes) of
@@ -215,7 +215,7 @@ sentence are reused verbatim, the constant promoted to `pub(crate)`.
 ```toml
 # Cargo.toml [workspace.dependencies]
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
-# crates/forge-cli/Cargo.toml [dependencies]
+# crates/brokkr-cli/Cargo.toml [dependencies]
 ratatui = { workspace = true }
 ```
 
@@ -226,7 +226,7 @@ implementation that nothing used needs `layout-cache` or
 `underline-color` and add the feature explicitly if so, rather than
 reverting to defaults. crossterm is reached through ratatui's own
 re-export; confirm the exact path (`ratatui::crossterm` in 0.30) at
-implementation. **Do not declare any cargo feature on `forge-cli`** — the
+implementation. **Do not declare any cargo feature on `brokkr-cli`** — the
 coverage gate runs `--all-features` and would flip it on.
 
 ## Risks and mitigations

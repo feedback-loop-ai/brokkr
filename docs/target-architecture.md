@@ -9,7 +9,7 @@ Forge is an event-sourced, deterministic process manager around stochastic and
 fallible effects. It coordinates autonomous software delivery while keeping
 transition authority outside every agent harness.
 
-The default installation is one native `forge` executable and one workspace
+The default installation is one native `brokkr` executable and one workspace
 database. It must support unattended runs that last days, survive coordinator
 and host restarts, resume without repeating a completed model call, and expose
 enough evidence to compare models and inner orchestration topologies.
@@ -27,11 +27,11 @@ The guarantees are deliberately precise:
 ## System shape
 
 ```text
-                 forge CLI        system browser
+                 brokkr CLI        system browser
                      │        localhost HTTP + SSE
                      └──────────────┬──────────────┘
                                     ▼
-┌──────────────────────── one forge process ────────────────────────┐
+┌──────────────────────── one brokkr process ────────────────────────┐
 │ command API · config compiler · embedded UI                       │
 │                                                                  │
 │ pure core                                                        │
@@ -62,12 +62,12 @@ unit:
 
 | Crate | Responsibility |
 |---|---|
-| `forge-core` | Event types, immutable state, fold, policy evaluation, topology semantics, invariants. No I/O dependencies. |
-| `forge-store` | SQLite journal, migrations, append transactions, projections, artifact metadata, verification and export. |
-| `forge-runtime` | Commands, effect outbox, scheduler, leases, recovery, budgets, cancellation, subprocess and container supervision. |
-| `forge-protocol` | Versioned driver envelopes, capability negotiation, typed results, conformance fixtures. |
-| `forge-api` | Local command/query API and server-sent event stream. No decision logic. |
-| `forge-cli` | `forge` commands, embedded static UI, installation-facing behavior. |
+| `brokkr-core` | Event types, immutable state, fold, policy evaluation, topology semantics, invariants. No I/O dependencies. |
+| `brokkr-store` | SQLite journal, migrations, append transactions, projections, artifact metadata, verification and export. |
+| `brokkr-runtime` | Commands, effect outbox, scheduler, leases, recovery, budgets, cancellation, subprocess and container supervision. |
+| `brokkr-protocol` | Versioned driver envelopes, capability negotiation, typed results, conformance fixtures. |
+| `brokkr-api` | Local command/query API and server-sent event stream. No decision logic. |
+| `brokkr-cli` | `brokkr` commands, embedded static UI, installation-facing behavior. |
 
 All crates link into one executable. SQLite is bundled into the release. The
 database has one dedicated writer thread; external concurrency is asynchronous,
@@ -163,8 +163,8 @@ content-addressed artifact directory rather than the outer event table. Small
 typed results may remain inline. An artifact reference includes a digest, media
 type, size, producer, and retention class.
 
-The database is runtime truth. `forge export <run>` produces canonical NDJSON,
-the pinned run manifest, and an artifact manifest. `forge verify-run` verifies
+The database is runtime truth. `brokkr export <run>` produces canonical NDJSON,
+the pinned run manifest, and an artifact manifest. `brokkr verify-run` verifies
 sequence continuity, event hashes, artifact hashes, signatures, and anchors
 without executing an agent.
 
@@ -204,7 +204,7 @@ execute arbitrary code. Parallel results are reduced using stable node/seat
 identities or an explicitly order-independent aggregation rule, never wall-clock
 completion order.
 
-`forge compile` must reject:
+`brokkr compile` must reject:
 
 - schema-invalid configuration;
 - unreachable nodes or phases;
@@ -306,7 +306,7 @@ actually ran.
 ## Local API and embedded UI
 
 The UI is a static browser application compiled at release time and embedded in
-`forge`. `forge ui` binds to loopback, opens the system browser on request, and
+`brokkr`. `brokkr ui` binds to loopback, opens the system browser on request, and
 streams new events with server-sent events. There is no desktop shell and no
 Node runtime at installation time.
 
@@ -354,19 +354,19 @@ recipes and `cargo install` are secondary channels. The core has no required
 runtime service.
 
 ```text
-forge init                 create a minimal reviewable bundle
-forge doctor               verify tools, drivers, credentials, and sandboxes
-forge compile              validate and hash a bundle
-forge run <feature>        start or resume a run
-forge runs                 one clamped line per run, newest first
-forge inspect <run>        explain state, the last ruling, seats, and the
-                           phase graph as a terminal tree (--phase/--seat
-                           scope it; --json emits the view model)
-forge watch <run>          the same readout, live, until the run concludes
-forge replay <run>         rebuild and verify state without effects
-forge ui                   launch the local visual surface
-forge export <run>         write the canonical audit bundle
-forge verify-run <bundle>  verify an audit bundle offline
+brokkr init                 create a minimal reviewable bundle
+brokkr doctor               verify tools, drivers, credentials, and sandboxes
+brokkr compile              validate and hash a bundle
+brokkr run <feature>        start or resume a run
+brokkr runs                 one clamped line per run, newest first
+brokkr inspect <run>        explain state, the last ruling, seats, and the
+                            phase graph as a terminal tree (--phase/--seat
+                            scope it; --json emits the view model)
+brokkr watch <run>          the same readout, live, until the run concludes
+brokkr replay <run>         rebuild and verify state without effects
+brokkr ui                   launch the local visual surface
+brokkr export <run>         write the canonical audit bundle
+brokkr verify-run <bundle>  verify an audit bundle offline
 ```
 
 An OCI image is published for CI and server use, but local users do not need a
@@ -410,7 +410,7 @@ change journal semantics.
   blocker, drift, or dirty worktree fails closed.
 - No agent process can append an authoritative transition.
 - A policy/topology edit has a visible source diff and a new bundle digest.
-- `forge verify-run` can validate a run without network access or model keys.
+- `brokkr verify-run` can validate a run without network access or model keys.
 - The UI can be removed entirely without changing execution semantics.
 - The same recorded normalized phase results produce the same outer rulings
   regardless of which driver originally produced them.

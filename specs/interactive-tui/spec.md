@@ -1,4 +1,4 @@
-# Feature Specification: `forge tui` — an interactive, read-only console
+# Feature Specification: `brokkr tui` — an interactive, read-only console
 
 **Feature slug**: `interactive-tui`
 **Run**: `implement-decision-0014-forge-tu-b5045614`
@@ -11,10 +11,10 @@ decision doc.
 
 ## Why
 
-Decision 0013 gave the terminal two static readouts (`forge runs`,
-`forge inspect`) and one live one (`forge watch`), and put panes and
+Decision 0013 gave the terminal two static readouts (`brokkr runs`,
+`brokkr inspect`) and one live one (`brokkr watch`), and put panes and
 keyboard navigation explicitly out of scope pending their own decision.
-Using them proved the gap. `forge watch` answers "what is happening
+Using them proved the gap. `brokkr watch` answers "what is happening
 now"; it cannot be *explored*. The operator cannot move a cursor over
 the fleet, descend into one seat, watch it, and come back — which is
 exactly what they asked for, in their words: *"a proper ASCII table with
@@ -27,16 +27,16 @@ exception to the no-new-dependencies default, on the TUI path only.
 
 ## The design in one paragraph
 
-`forge tui` is one new file, `crates/forge-cli/src/tui.rs`, plus its
+`brokkr tui` is one new file, `crates/brokkr-cli/src/tui.rs`, plus its
 conventional `tui/tests.rs` — in family with `render.rs` (534 lines,
 two terminal surfaces) and `ui.rs` (396 lines, an HTTP server, an SSE
 loop and a transcript parser). It holds a state struct of owned scalars
-that **retains no `forge-view` model**: `RunsView` and `RunView` are
+that **retains no `brokkr-view` model**: `RunsView` and `RunView` are
 derived fresh per refresh and dropped, so selection is by stable key
 (`RunRow.run_id`, `Phase.name`, `Participant.key`) resolved against the
 fresh models every frame. "Selection survives a refresh" and "clears
 itself when its subject vanishes" are therefore the *absence* of code,
-not a diffing routine, and `forge-view` gains no `Clone`/`PartialEq`
+not a diffing routine, and `brokkr-view` gains no `Clone`/`PartialEq`
 derives and no change at all. The pure core is
 `apply(&mut Tui, &Views, Key) -> Flow` over **our own** `Key` enum; the
 draw path is generic over `ratatui::backend::Backend`, so `TestBackend`
@@ -51,13 +51,13 @@ scope predicate than it has today.
 
 ## The rule that governs every other choice
 
-> **`forge tui` is a THIRD RENDERER, never a fourth derivation.**
+> **`brokkr tui` is a THIRD RENDERER, never a fourth derivation.**
 > A renderer may branch on a model field; it may not compute one.
 
 Selecting, filtering, ordering for display, and laying out are
 rendering. Deriving status, cost, duration, activity text, scope
 membership, or topology is not. If the TUI needs a value no model
-carries, the answer is to extend `forge-view` **with its tests** — and
+carries, the answer is to extend `brokkr-view` **with its tests** — and
 this design deliberately needs none, which is the strongest form of
 compliance available.
 
@@ -73,11 +73,11 @@ below. Six disputes are ruled here.
 ### Ruled for robustness
 
 1. **`Store::open` is a write, and the framed proof does not prove
-   read-only.** `crates/forge-store/src/lib.rs:76` creates the parent
+   read-only.** `crates/brokkr-store/src/lib.rs:76` creates the parent
    directory, creates the database file, switches it to WAL (creating
    `-wal`/`-shm`), runs the migration DDL and INSERTs a meta row. An
    NDJSON byte-compare passes cleanly through every one of those.
-   `forge tui --db /tmp/nope.db` would create `/tmp/nope.db`. **Ruling:**
+   `brokkr tui --db /tmp/nope.db` would create `/tmp/nope.db`. **Ruling:**
    the db path is `is_file()`-gated *before* `Store::open` is ever
    called, a missing db is a refusal, and the machine proof is a
    **directory tree hash** (relative path, length, bytes) of the `--db`
@@ -104,8 +104,8 @@ below. Six disputes are ruled here.
 4. **"Too small" is two branches, not one.** Terminals are resized while
    a program runs. Startup too-small (or not-a-tty, or missing db) exits
    with the message before raw mode is entered; a *runtime* resize below
-   the minimum draws a single centred in-TUI frame naming `forge inspect`
-   and `forge watch`, with `q` and `Ctrl+C` still live. An operator
+   the minimum draws a single centred in-TUI frame naming `brokkr inspect`
+   and `brokkr watch`, with `q` and `Ctrl+C` still live. An operator
    dragging a window edge does not lose their session, and no frame is
    ever corrupted.
 5. **A filter must never clear a scope.** Absence from the *filtered*
@@ -144,8 +144,8 @@ below. Six disputes are ruled here.
    reachable by bracketed paste — sanitized like everything else.
    **Honest deviation, flagged not smuggled:** ratatui depends on
    `unicode-width` internally, so CJK and emoji align *better* inside the
-   TUI than in `forge runs`/`inspect`. The non-goal "no Unicode-width
-   dependency" constrains forge-authored arithmetic and `forge-view`'s
+   TUI than in `brokkr runs`/`inspect`. The non-goal "no Unicode-width
+   dependency" constrains forge-authored arithmetic and `brokkr-view`'s
    manifest; the ruling adopted ratatui with its tree. No existing
    surface changes behaviour.
 8. **No `Journal` trait, and no `Store` in the TUI at all.** The
@@ -155,17 +155,17 @@ below. Six disputes are ruled here.
    shell receives a `&mut dyn FnMut() -> Result<Snapshot>` refresh source
    — so no function in `tui.rs` ever holds a `Store`, tests supply a
    scripted refresher, and a source-level test asserts `tui.rs` contains
-   no `forge_runtime`, `append_next` or `create_run` token (the idiom the
+   no `brokkr_runtime`, `append_next` or `create_run` token (the idiom the
    `ui.html` anti-drift test already established). A trait plus a test
    double is three more functions and three more impls under a
    100%-*function* gate to buy what one `FnMut` parameter and one grep
    already give. The actual write hole — `Store::open` — is closed by
    ruling 1, not by a trait.
-9. **No new `forge-store` query for RUNS liveness.** Robustness is right
+9. **No new `brokkr-store` query for RUNS liveness.** Robustness is right
    that cloning `Cmd::Runs` into a 250 ms poll re-folds every event of
-   every run four times a second against a `forge run` holding the write
+   every run four times a second against a `brokkr run` holding the write
    lock. Its own stated fallback is adopted, because it costs no
-   forge-store change and answers the complaint: **the RUNS list refolds
+   brokkr-store change and answers the complaint: **the RUNS list refolds
    on a slower, named cadence** (`RUNS_REFRESH_TICKS`, ≈2 s) than the RUN
    level's head poll, and on `r`. Stated as a decision in the spec so it
    is not an accident.
@@ -190,7 +190,7 @@ below. Six disputes are ruled here.
 
 ### 1. The command
 
-`forge tui [--run <id>] [--db <path>]`. `--db` defaults to
+`brokkr tui [--run <id>] [--db <path>]`. `--db` defaults to
 `.forge/forge.db` exactly as every other read verb. `--run` opens
 directly at the RUN level for that run. Clean quit exits `SUCCESS`;
 refusal or error exits `1` through `main`'s existing `Err` arm. `forge
@@ -202,8 +202,8 @@ never in a pipeline.
 
 | Level | Panes | Source model |
 |---|---|---|
-| **RUNS** | one bordered, navigable table: id · status · phase · seq · age · clamped feature | `forge_view::run_rows` → `RunsView`/`RunRow` |
-| **RUN** | graph (the 0013 tree with `⑂` and `→`), seats table (participant · status · attempts · turns · cost · activity), decision trail | `forge_view::run_view` → `RunView.phases`, `.participants`, `.journal` (`in_trail`) |
+| **RUNS** | one bordered, navigable table: id · status · phase · seq · age · clamped feature | `brokkr_view::run_rows` → `RunsView`/`RunRow` |
+| **RUN** | graph (the 0013 tree with `⑂` and `→`), seats table (participant · status · attempts · turns · cost · activity), decision trail | `brokkr_view::run_view` → `RunView.phases`, `.participants`, `.journal` (`in_trail`) |
 | **PARTICIPANT** | checkpoint stream; local session transcript when one exists; the `claude --resume <id>` line, always | `Participant.checkpoints`, `.terminal_line`, `.session_id` |
 
 Every displayed value is a model field. The seats table shows
@@ -346,9 +346,9 @@ construction lifts into a short converter in `handle` and the
 `/api/session` response body stays **byte-identical** (its existing tests
 are the proof).
 
-This stays in `forge-cli`. The transcript is journal-independent and
-reads `HOME`; putting it in `forge-view`, whose manifest is exactly
-`forge-core`/`serde`/`serde_json`, would destroy the purity that manifest
+This stays in `brokkr-cli`. The transcript is journal-independent and
+reads `HOME`; putting it in `brokkr-view`, whose manifest is exactly
+`brokkr-core`/`serde`/`serde_json`, would destroy the purity that manifest
 makes a compile error. The 0013 invariant governs derivations *over the
 journal*; it does not reach a file on the operator's disk.
 
@@ -370,16 +370,16 @@ paragraph.
 ### 10. Read-only, absolutely
 
 No operator command, no run start, no journal write — not behind a
-confirmation, not behind a flag. `forge operator retry|stop` stay CLI
+confirmation, not behind a flag. `brokkr operator retry|stop` stay CLI
 verbs precisely because they are consequential (0003, restated by 0014).
 The property is structural (`tui.rs` names no `Store`, no
-`forge_runtime`), gated (missing db refuses before `Store::open`), and
+`brokkr_runtime`), gated (missing db refuses before `Store::open`), and
 proven twice (tree hash + NDJSON byte-compare, headless and by
 subprocess).
 
 ## Acceptance Criteria
 
-- **AC-1 — The command.** `forge tui [--run <id>] [--db <path>]` exists,
+- **AC-1 — The command.** `brokkr tui [--run <id>] [--db <path>]` exists,
   `--db` defaults to `.forge/forge.db`, `--help` lists it among the read
   verbs. *(Subprocess test; `--run` resolved through whatever shared
   prefix/`latest` helper exists on `main` at implementation time — see
@@ -387,7 +387,7 @@ subprocess).
 - **AC-2 — Startup refusals precede every side effect.** Not a tty
   (`std::io::stdout().is_terminal()`, the same `IsTerminal` `render.rs`
   uses), terminal smaller than the minimum, or `--db` not an existing
-  file → a message on stderr naming **both** `forge inspect` and `forge
+  file → a message on stderr naming **both** `brokkr inspect` and `forge
   watch`, exit 1, printed outside any alternate screen, with
   `Store::open` never called and no file, directory, `-wal` or `-shm`
   created.
@@ -442,17 +442,17 @@ subprocess).
   hook is put back — under a serializing lock, since hooks are
   process-global.
 - **AC-13 — Runtime degradation.** A resize below the minimum draws a
-  single centred in-TUI frame naming `forge inspect` and `forge watch`
+  single centred in-TUI frame naming `brokkr inspect` and `brokkr watch`
   with `q`/`Ctrl+C` live, and never tears down the session.
 - **AC-14 — The Windows leg.** Key translation filters
   `KeyEventKind::Press`, so a keystroke is handled exactly once; `Ctrl+C`
   quits; mouse, paste and focus events are ignored by named arms.
 - **AC-15 — Read-only, proven twice.** A source test asserts `tui.rs`
-  names no `Store`, `forge_runtime`, `append_next` or `create_run`; a
+  names no `Store`, `brokkr_runtime`, `append_next` or `create_run`; a
   headless test in `src/tui/tests.rs` exports the NDJSON, hashes the db
   directory tree, drives the state machine through every navigation path,
   and byte-compares **both**; a subprocess test in
-  `tests/machine_proof.rs` runs the real `forge tui` binary and does the
+  `tests/machine_proof.rs` runs the real `brokkr tui` binary and does the
   same around it.
 - **AC-16 — One session lookup.** `session_turns` carries validation,
   location and parse; the `/api/session` body is byte-identical to
@@ -460,15 +460,15 @@ subprocess).
   displayed.
 - **AC-17 — No fourth derivation.** `tui.rs` contains no status
   classification, cost or duration arithmetic, activity text, topology or
-  scope predicate; `forge-view` is unchanged (its manifest stays exactly
-  `forge-core`, `serde`, `serde_json`, and `VIEW_VERSION` does not move);
+  scope predicate; `brokkr-view` is unchanged (its manifest stays exactly
+  `brokkr-core`, `serde`, `serde_json`, and `VIEW_VERSION` does not move);
   `render.rs` ends the slice with **one fewer** copy of the phase
   predicate.
 - **AC-18 — Dependencies.** Exactly one new `[workspace.dependencies]`
   entry, `ratatui`, `default-features = false, features = ["crossterm"]`,
-  referenced only by `crates/forge-cli/Cargo.toml`; no other crate gains
+  referenced only by `crates/brokkr-cli/Cargo.toml`; no other crate gains
   a terminal dependency; `Cargo.lock` is committed because the gate runs
-  `--locked`; `forge-cli` declares no cargo features (the gate runs
+  `--locked`; `brokkr-cli` declares no cargo features (the gate runs
   `--all-features`).
 - **AC-19 — The exact coverage gate passes.** `scripts/coverage-exact.sh`
   reports literal nonzero 100% line **and** branch **and** function
@@ -479,20 +479,20 @@ subprocess).
 - **AC-20 — Nothing else moves.** `cargo test --workspace` green, `cargo
   clippy --workspace --all-targets --all-features` warning-free, `cargo
   fmt --check` clean, RustSec audit passing over the added tree, and
-  `forge runs`/`inspect`/`watch`/`ui` output unchanged. `ARCHITECTURE.md`
-  and `README.md` list `forge tui` with one sentence each on what it is
+  `brokkr runs`/`inspect`/`watch`/`ui` output unchanged. `ARCHITECTURE.md`
+  and `README.md` list `brokkr tui` with one sentence each on what it is
   for and its read-only boundary.
 
 ## Non-goals
 
 No operator actions of any kind. No fourth derivation. No terminal
-dependency outside `forge-cli`, and none at all in `forge-view`. No
-change to `forge runs`/`inspect`/`watch`/`ui` behaviour or output. No
+dependency outside `brokkr-cli`, and none at all in `brokkr-view`. No
+change to `brokkr runs`/`inspect`/`watch`/`ui` behaviour or output. No
 mouse, no config file, no theming, no persisted UI state, no cross-run
 search, no log tailing beyond the two streams named. No `tokio`, no
 background thread, no `--interval` flag, no `Action` enum, no
 `Backend`/event trait of our own, no `TuiError`, no `Clone`/`PartialEq`
-derives on `forge-view`. No new decision document. No
+derives on `brokkr-view`. No new decision document. No
 Unicode-width dependency of our own — see §7 for the one honest
 consequence of the ruling's own adoption.
 
@@ -511,7 +511,7 @@ consequence of the ruling's own adoption.
    can reach — behind a struct with no logic; their bodies live in
    crossterm's files, which `cargo llvm-cov` excludes from the workspace
    report, and the three-OS matrix runs the real binary.
-3. **CJK/emoji align better inside the TUI than in `forge runs`.** A
+3. **CJK/emoji align better inside the TUI than in `brokkr runs`.** A
    consequence of the ruling's own dependency adoption; it improves the
    newer surface and changes no older one.
 4. **The transcript's 4 MB budget can truncate a long session.**
@@ -519,7 +519,7 @@ consequence of the ruling's own adoption.
    `claude --resume` line is the escape hatch that already exists.
 5. **The RUNS fleet is up to `RUNS_REFRESH_TICKS` stale.** Deliberate:
    the alternative is re-folding every event of every run four times a
-   second against a `forge run` holding the write lock. `r` is always
+   second against a `brokkr run` holding the write lock. `r` is always
    available, and the RUN level — where the operator watches — polls at
    full cadence.
 6. **`tone()` and `Safe` refactors touch `render.rs`.** Preferable to the
