@@ -1,0 +1,34 @@
+{
+  "name": "wager-harness",
+  "extends": "fast",
+  "override": {
+    "seats": [
+      "implement"
+    ]
+  },
+  "seats": {
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "codex",
+          "--",
+          "--sandbox",
+          "danger-full-access"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "name": "ember",
+  "extends": "fast",
+  "policy": "policy.json",
+  "override": {
+    "seats": [
+      "implement",
+      "verify",
+      "review",
+      "ship"
+    ],
+    "table": [
+      "description",
+      "initial"
+    ]
+  },
+  "seats": {
+    "intake": {
+      "role": "roles/intake.md",
+      "results": [
+        "resolved"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+          "--model",
+          "claude-haiku-4-5-20251001"
+        ]
+      }
+    },
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+          "--model",
+          "claude-sonnet-5"
+        ]
+      }
+    },
+    "verify": {
+      "role": "roles/verifier.md",
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+          "--model",
+          "claude-sonnet-5"
+        ]
+      }
+    },
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "class": "gate",
+      "inputs": [
+        "fixes_applied",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+          "--model",
+          "claude-opus-5"
+        ]
+      }
+    },
+    "ship": {
+      "role": "roles/shipper.md",
+      "results": [
+        "ready",
+        "shipped"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "claude",
+          "--",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+          "--model",
+          "claude-haiku-4-5-20251001"
+        ]
+      }
+    }
+  }
+}

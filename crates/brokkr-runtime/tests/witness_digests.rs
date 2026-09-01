@@ -3,8 +3,11 @@
 //! measured across the change rather than asserted after it.
 //!
 //! `recipes/fast`, `recipes/node`, `recipes/preflight` and
-//! `bundles/verify` adopt no agent. Their pinned manifest digest must
-//! not move, and their manifest must carry no `agents` key at all —
+//! `bundles/verify` adopt no agent, and neither do the four roster
+//! recipes that later joined them (`ember`, `crucible`, `night-shift`,
+//! `wager-harness`, all composed from `fast`'s inline seats). Their
+//! pinned manifest digest must not move, and their manifest must carry
+//! no `agents` key at all —
 //! absence, not an empty object, is what keeps a non-adopting bundle's
 //! identity exactly what it was.
 //!
@@ -52,7 +55,14 @@ fn workspace() -> PathBuf {
 /// machine's own bar, and a charter quietly softened — a gate dropped
 /// from the verifier's list, a tool added to a driver — would change
 /// what that promise is worth without changing anything visible.
-const WITNESSES: [(&str, &str); 4] = [
+///
+/// The four roster recipes joined on the same terms, pinned from their
+/// first compile. Each is `fast` plus a stated difference, so each
+/// carries `fast`'s digest transitively under its `@compose/0000/fast`
+/// manifest entry: edit `recipes/fast` and all move together, which
+/// is the honest reading — a derived recipe IS a different strategy when
+/// its base changes.
+const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
         "6324f76f7bfacdba7b6d93c1f07022344cafe5467cfab27a333e52aa9acb3ae7",
@@ -66,6 +76,22 @@ const WITNESSES: [(&str, &str); 4] = [
         "9e78d802db37f4d389beaf09f964fac7124af111eb5ee23d8b05adeac8d41d9c",
     ),
     (
+        "recipes/ember",
+        "3ec48c9f8c538912604d8f07a7809c713b4c292454ec7144e3627f7809a4af62",
+    ),
+    (
+        "recipes/crucible",
+        "96cc63434feb39b755f192a2aafcbffb03e0e318d9c495cc6c5875c8fa8aef8b",
+    ),
+    (
+        "recipes/night-shift",
+        "557cae044d6c2eb877d16b6ceb098bc1d2ffc5498d7969e6baea3128a1540d3d",
+    ),
+    (
+        "recipes/wager-harness",
+        "e6d2a0629ce31edcb6947cee0eaadbd76b7fd180c06dd928037cdf6830192705",
+    ),
+    (
         "bundles/verify",
         "4a94d29f9058cc506535809ec660e2dfc5c34ad3d144c09ad72fba66ac2e479f",
     ),
@@ -76,10 +102,22 @@ const WITNESSES: [(&str, &str); 4] = [
 /// working one. `bundles/verify` and `recipes/preflight` have no ship
 /// phase to gate — and no working seat at all, so in those two every
 /// seat appears here.
-const INLINE_GATES: [(&str, &[&str]); 4] = [
+///
+/// `recipes/crucible` is the one that reads differently, and on purpose:
+/// its review seat is a sequence whose panel of `positions` WORKS and
+/// whose `chief` step JUDGES, so the witness names `review:chief` and
+/// not `review`. If that entry ever reads plain `review`, the chief
+/// stopped being the seat's gate — and the two positions, which are
+/// work-class and admit any driver under decision 0021 ruling 7, would
+/// be ruling the protected phase between them.
+const INLINE_GATES: [(&str, &[&str]); 8] = [
     ("recipes/fast", &["review", "ship", "verify"]),
     ("recipes/node", &["review", "ship", "verify"]),
     ("recipes/preflight", &["review", "verify"]),
+    ("recipes/ember", &["review", "ship", "verify"]),
+    ("recipes/crucible", &["review:chief", "ship", "verify"]),
+    ("recipes/night-shift", &["review", "ship", "verify"]),
+    ("recipes/wager-harness", &["review", "ship", "verify"]),
     ("bundles/verify", &["review", "verify"]),
 ];
 

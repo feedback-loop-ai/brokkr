@@ -2834,3 +2834,178 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
         Err(error) => assert!(error.to_string().contains("not the pinned"), "{error}"),
     }
 }
+
+/// A driver that records the `start` message it was handed before
+/// answering with a fixed result. `driver_command` above is enough when
+/// only the outcome matters; a sequence's later step is judged by what
+/// it was TOLD, so this one keeps the evidence.
+fn capturing_driver_command(
+    effect_id: &str,
+    attempt_id: &str,
+    capture: &Path,
+    result: Value,
+) -> Vec<String> {
+    let capabilities = wire(Body::Capabilities {
+        driver: "test".into(),
+        version: "1".into(),
+        supports: vec![],
+    });
+    let accepted = wire(Body::Accepted {
+        effect_id: effect_id.into(),
+        attempt_id: attempt_id.into(),
+        session_ref: Some("session".into()),
+    });
+    let terminal = wire(Body::Result {
+        effect_id: effect_id.into(),
+        attempt_id: attempt_id.into(),
+        status: ResultStatus::Succeeded,
+        result: Some(result),
+        error: None,
+    });
+    let path = capture.display();
+    vec![
+        "sh".into(),
+        "-c".into(),
+        format!(
+            "read hello; printf '%s\\n' '{capabilities}'; read start; \
+             printf '%s' \"$start\" > '{path}'; printf '%s\\n' '{accepted}'; \
+             printf '%s\\n' '{terminal}'; read line"
+        ),
+    ]
+}
+
+/// `recipes/crucible` reviews with a sequence: a `positions` panel, then
+/// a single `chief` gate step. Because `positions` is NOT the final step
+/// its `review-panel` output never reaches `decide()` — so the shape is
+/// only safe if the panel's verdict arrives at the chief intact and the
+/// chief's own result is what the effect reports.
+///
+/// Both halves are pinned here, including the uncomfortable one: the
+/// chief CAN rule below the panel, and the engine will accept it. That
+/// is why `recipes/crucible/roles/review-chief.md` states the floor as
+/// the seat's first law, and why this test asserts the mechanism rather
+/// than pretending the engine forbids the lowering.
+#[test]
+fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
+    for (chief_rules, expected) in [("security-hold", "security-hold"), ("residual", "residual")] {
+        let capture = tempfile::tempdir().unwrap();
+        let start_line = capture.path().join("chief-start.json");
+        let steps = vec![
+            SequenceStep {
+                name: "positions".into(),
+                body: StepBody::Panel {
+                    members: vec![
+                        member(
+                            "correctness",
+                            driver_command(
+                                "review-effect",
+                                "review-attempt",
+                                AttemptOutcome::Succeeded {
+                                    result: json!({
+                                        "result": "residual",
+                                        "inputs": {"max_residual_severity": "low",
+                                                   "has_security_residual": false},
+                                        "notes": "one untested branch",
+                                    }),
+                                },
+                            ),
+                        ),
+                        member(
+                            "security",
+                            driver_command(
+                                "review-effect",
+                                "review-attempt",
+                                AttemptOutcome::Succeeded {
+                                    result: json!({
+                                        "result": "security-hold",
+                                        "inputs": {"max_residual_severity": "critical",
+                                                   "has_security_residual": true},
+                                        "notes": "unchecked input reaches the journal",
+                                    }),
+                                },
+                            ),
+                        ),
+                    ],
+                    aggregate: Aggregate::ReviewPanel,
+                },
+            },
+            SequenceStep {
+                name: "chief".into(),
+                body: StepBody::Single {
+                    role_path: "chief.md".into(),
+                    command: capturing_driver_command(
+                        "review-effect",
+                        "review-attempt",
+                        &start_line,
+                        json!({"result": chief_rules, "notes": "synthesised"}),
+                    ),
+                    confine: None,
+                    candidates: Vec::new(),
+                },
+            },
+        ];
+        let seq_input = json!({
+            "feature": "feature", "phase": "review", "workdir": ".",
+            "allowed_results": ["clean", "residual", "security-hold"],
+            "context": {},
+            "steps": [
+                {"name": "positions", "members": {
+                    "correctness": {"role_path": "c.md", "result_path": "c.json"},
+                    "security": {"role_path": "s.md", "result_path": "s.json"}}},
+                {"name": "chief", "role_path": "chief.md", "result_path": "chief.json"},
+            ],
+        });
+
+        let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+        engine
+            .execute_sequence(
+                "review-effect",
+                "review-attempt",
+                "review",
+                &steps,
+                &seq_input,
+                std::time::Duration::from_secs(10),
+                &Selection::new(),
+            )
+            .unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+
+        // 1. The panel's worst-member verdict is journaled as the
+        //    non-final step's checkpoint, not as the effect's result.
+        let checkpoint = events
+            .iter()
+            .find(|event| {
+                event.payload["checkpoint"]["step"] == "sequence-step-finished"
+                    && event.payload["checkpoint"]["step_name"] == "positions"
+            })
+            .expect("the positions step checkpoints its joined verdict");
+        assert_eq!(
+            checkpoint.payload["checkpoint"]["result"]["result"], "security-hold",
+            "review-panel takes the worst member; security-hold outranks residual"
+        );
+
+        // 2. It REACHES the chief, in its driver input, whole — verdict,
+        //    maxed severity, OR-ed security flag and both members' notes.
+        let start: Value = serde_json::from_slice(&std::fs::read(&start_line).unwrap()).unwrap();
+        let positions = &start["input"]["context"]["prior_results"]["positions"];
+        assert_eq!(positions["result"], "security-hold");
+        assert_eq!(positions["inputs"]["has_security_residual"], true);
+        assert_eq!(positions["inputs"]["max_residual_severity"], "critical");
+        assert_eq!(positions["notes"]["verdicts"]["security"], "security-hold");
+        assert_eq!(positions["notes"]["verdicts"]["correctness"], "residual");
+
+        // 3. The FINAL step's result is the effect's typed result — the
+        //    one decide() checks and the rule table rules on. Which is
+        //    also the hazard: a chief that rules 'residual' over a panel
+        //    'security-hold' is obeyed by the engine, so the floor lives
+        //    in the chief's charter and nowhere else.
+        let succeeded = events
+            .iter()
+            .find(|event| event.event_type == EventType::EffectSucceeded)
+            .expect("the sequence concludes on its final step");
+        assert_eq!(
+            succeeded.payload["result"]["result"], expected,
+            "the chief's result, never the panel's, is the seat's result"
+        );
+    }
+}
