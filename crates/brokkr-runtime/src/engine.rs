@@ -1801,6 +1801,16 @@ fn operator_command_racing(
 /// operator identity, and a reason — never a cursor or a status. Every
 /// position is re-derived by re-folding the journal after each append,
 /// and an unexpected one is an error rather than a guess.
+///
+/// What this does NOT check is whether another process is driving the
+/// run right now. Against a live driver it closes an attempt that is
+/// genuinely in flight, and the driver's later `effect/succeeded` lands
+/// after a `run/stopped`, where the fold admits no position for it — the
+/// journal stops folding for good. `resume` carries the same hazard on
+/// its fresh-process branch and neither verb fences it today; decision
+/// 0024 (proposed) rules on the fenced append that would. Until it
+/// lands, look before closing: `conclude` is for a run believed dead,
+/// and `brokkr runs` says whether it is.
 pub fn conclude(
     store: &mut Store,
     run_id: &str,

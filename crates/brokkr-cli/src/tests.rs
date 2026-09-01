@@ -2461,10 +2461,15 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     }))
     .is_err());
 /// The conclude fixture pairs, replayed into a store the way
-/// `stopped_mid_flight_run` replays the standing example: `(type,
-/// payload)` pair by pair, so the CLI meets the recorded shape without
-/// fabricating an operator's database. The fixture files are opened
-/// read-only and never edited.
+/// `engine::conclude_tests` replays them: the sealed envelopes inserted
+/// VERBATIM, never re-appended through `append_next`. Re-appending would
+/// re-seal every envelope against a fresh chain — which drops the
+/// envelope-level `attempt_id` the mid-effect fixtures carry, and, worse,
+/// would quietly heal a fixture whose chain was tampered on purpose into
+/// a valid one, so a test meant to prove a refusal would pass because
+/// there was nothing left to refuse. What the fixture says is what the
+/// store holds, for every fixture this helper is ever pointed at. The
+/// fixture files are opened read-only and never edited.
 fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     let ndjson =
         std::fs::read_to_string(workspace().join(format!("fixtures/journals/{name}.ndjson")))
@@ -2480,10 +2485,14 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     store
         .create_run(name, "fixture", "self", &manifest)
         .unwrap();
+    let connection = rusqlite::Connection::open(db).unwrap();
     for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
         let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
-        store
-            .append_next(name, event.event_type, event.payload, None, None)
+        connection
+            .execute(
+                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![name, event.seq as i64, event.event_hash, line],
+            )
             .unwrap();
     }
 }

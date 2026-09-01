@@ -259,7 +259,10 @@ enum Cmd {
     /// ending. This appends the operator stop conclusion and nothing
     /// else, so it needs no pinned recipe to be honest about what it
     /// wrote. It cannot retry: that re-enters the policy loop, and the
-    /// policy loop needs the bundle by construction.
+    /// policy loop needs the bundle by construction. For a run believed
+    /// dead: it does not check for a live driver, and closing a run that
+    /// another process is still driving leaves that journal unfoldable
+    /// (decision 0024, proposed). Check `brokkr runs` first.
     Conclude {
         #[arg(long)]
         run: String,
