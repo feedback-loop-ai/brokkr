@@ -68,7 +68,7 @@ on the rail, so one road is drawn.
 | the SVG's height | `retY + 8` when a road exists, `nameY + 24` when none does |
 | the road | one `path.ret`: down from the departure's centre, rounded corner, across, rounded corner, up to the landing's centre |
 | the head | one `path.ret-tip`, a triangle inside the landing corner pointing into it |
-| paint order | last, so a road passes UNDER the selection tint and the names rather than through them — the console's answer to the TUI's reserved arc row |
+| clearance | GEOMETRY, not paint order: the rows begin at `nameY + 18` and the selection box (and the hit rect) end at `nameY + 16`, so a road never crosses either — the console's answer to the TUI's reserved arc row. The roads are appended last and so paint on top; a road moved upward would cross the box however late it is drawn. |
 
 Both ends use `seg.cx`, the centre of the phase's own rail content, so a
 road's end sits under the phase's node and not beside it.
