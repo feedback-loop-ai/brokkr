@@ -5,6 +5,30 @@ here in full. The engine cites them by number in code, in error text and
 in the README, so a rule can always be read back to its reason. Only the
 operator accepts a decision; an implementer may only propose one.
 
+**Anyone may propose one.** A decision proposal is an ordinary pull
+request adding a numbered document to this directory, and the door is
+open to contributors, not just the machine's own seats. The grammar it
+must carry:
+
+- `Status: proposed` — always. Acceptance is the operator's, recorded
+  in the file by the operator's own ruling, never claimed by the
+  author.
+- A **Context** (the problem and the alternatives weighed), numbered
+  **Rulings** (what is being ruled, one rule per number), and
+  **Consequences**.
+- For every ruling that *can* be enforced deterministically, the
+  **enforcement binding**: the config, loader refusal, CI gate, or
+  schema that will refuse violations. A determinable ruling with no
+  named mechanism is judgment-guidance and must say so.
+- The **next free number** — claim it in the PR itself, since parallel
+  authors have collided on numbers before; the PR's merge is the
+  reservation.
+
+Rulings are never edited into a different meaning: corrections are
+dated, attributed errata inside the document, and a superseding rule
+takes a new number and says so. A proposal the operator declines stays
+in the PR record, not in this directory.
+
 | # | Title | What it rules | Status |
 |---|---|---|---|
 | [0001](0001-no-llm-repair-of-control-plane.md) | Schema mismatches are never repaired by a model | An invalid or unmatched result parks with the raw evidence — never guessed at, coerced, or handed to a model to fix. | accepted |
