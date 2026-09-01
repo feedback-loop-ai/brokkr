@@ -171,7 +171,10 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     let (code, json, stderr) = ws.run(&["realms", "--json"]);
     assert_eq!(code, Some(0), "{stderr}");
     let view: Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(view["journal"], "./state/world.db");
+    assert_eq!(
+        view["journal"].as_str().unwrap().replace('\\', "/"),
+        "./state/world.db"
+    );
     assert!(view["map"].as_str().unwrap().ends_with("realms.json"));
     assert_eq!(
         view["realms"],
