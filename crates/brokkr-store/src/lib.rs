@@ -58,6 +58,15 @@ pub enum ImportError {
     )]
     Collision(String),
     #[error(
+        "refused: '{0}' is not a run id this journal will carry — event hashes are \
+         unkeyed, so a chain proves its bytes were not altered and never that whoever \
+         sealed them was entitled to the name, and the name does not stay in the \
+         database: `brokkr export` composes '<out>/<run_id>.ndjson' from it and every \
+         readout prints it. An adoptable id is 1 to {RUN_ID_MAX} characters of ASCII \
+         letters, digits, '-' and '_'"
+    )]
+    UnadoptableRunId(String),
+    #[error(
         "refused: the export's run/started event carries no {field} — an adoption \
          derives the destination's runs row from the verified chain, never from \
          the sidecar manifest that no hash covers, and a readout that shows this \
@@ -87,6 +96,45 @@ pub struct Adoption {
     /// bytes it was computed over are unchanged.
     pub head_hash: String,
     pub arrival: Arrival,
+}
+
+/// The longest run id an adoption will carry. Native ids are a feature
+/// slug of at most 32 characters and eight hex ones, so this is roomy
+/// three times over; it exists because the id becomes a path component
+/// on the next export, and a bound is cheaper than the error that would
+/// otherwise come back from the filesystem.
+const RUN_ID_MAX: usize = 128;
+
+/// What a run id may contain for this journal to adopt it.
+///
+/// A native id is a lowercased feature slug and eight hex characters
+/// (`Engine::start_in_world`), so this set is generous already. What it
+/// excludes is what a *foreign* id could otherwise do here: `.` (and so
+/// `..`), the path separators, and every control and formatting
+/// character. Import is the first path by which a run id somebody else
+/// authored reaches the `runs` table, and from there `brokkr export`'s
+/// `<out>/<run_id>.ndjson` and the operator's terminal.
+fn adoptable(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '-' || character == '_'
+}
+
+/// A rejected run id as it may be written into a refusal. Every
+/// character the gate does not allow becomes its codepoint, so the one
+/// line naming the refusal is ASCII by construction — an id that reached
+/// here precisely by being unprintable does not get to reorder the
+/// sentence that turns it away. The predicate is the gate's own, so the
+/// two can never drift apart.
+fn escaped(run_id: &str) -> String {
+    run_id
+        .chars()
+        .map(|character| {
+            if adoptable(character) {
+                character.to_string()
+            } else {
+                format!("\\u{{{:04x}}}", character as u32)
+            }
+        })
+        .collect()
 }
 
 pub struct Store {
@@ -380,7 +428,11 @@ impl Store {
     ///    import — never a good prefix of it.
     /// 3. The events must **fold**, and a `FoldError` refuses with the
     ///    same citation a quarantined run shows anywhere else.
-    /// 4. The destination must not already carry this **run_id**. The
+    /// 4. The **run_id must be one this journal would carry**. A
+    ///    verified chain proves its bytes were not altered; the hashes
+    ///    are unkeyed, so it never proves the sealer was entitled to the
+    ///    name. See [`adoptable`].
+    /// 5. The destination must not already carry this **run_id**. The
     ///    run_id is hashed into every envelope, so a collision is
     ///    structurally not a rename-and-retry: it is the operator's to
     ///    rule on. A second import of the same export refuses here for
@@ -435,6 +487,17 @@ impl Store {
         // exists; what it does not prove is that the payload carries
         // everything a `runs` row needs.
         let started = &events[0];
+        // Gate 4, before the name is derived from, stored under, or
+        // printed with. `verify_chain` proved every envelope carries
+        // this one run_id (`ChainError::ForeignRun`) and that no byte of
+        // any of them was altered — so checking the first is checking
+        // them all, and what is left to check is the name itself.
+        if started.run_id.is_empty()
+            || started.run_id.chars().count() > RUN_ID_MAX
+            || !started.run_id.chars().all(adoptable)
+        {
+            return Err(ImportError::UnadoptableRunId(escaped(&started.run_id)));
+        }
         let feature = state
             .feature
             .ok_or(ImportError::Unattested { field: "feature" })?;
@@ -467,7 +530,7 @@ impl Store {
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(StoreError::from)?;
-        // Gate 4 inside the transaction that would write, so a
+        // Gate 5 inside the transaction that would write, so a
         // concurrent adoption of the same run loses here rather than
         // forking the destination.
         let existing: Option<String> = tx

@@ -125,6 +125,25 @@ native one.
    A dedicated provenance readout is deferred until an operator wants
    one; the columns being queryable is what this decision rules.
 
+9. **A verified chain does not vouch for the name it was sealed under.**
+   Event hashes are unkeyed sha256 over the envelope's own content, so
+   `verify_chain` proves that no byte of an export was altered since it
+   was sealed — never that whoever sealed it was entitled to the run_id
+   it carries. Anyone can seal a self-consistent chain under any name at
+   all. Import is the first path by which an externally authored run_id
+   reaches the `runs` table: engine ids are a feature slug and eight hex
+   characters, and dispatch ids ride an envelope this journal already
+   verified. And the name does not stay in the database — `brokkr
+   export` composes `<out>/<run_id>.ndjson` from it, and every readout
+   prints it. So adoption gates the id to what this journal would itself
+   have minted: 1 to 128 characters of ASCII letters, digits, `-` and
+   `_`. That excludes `.` and so `..`, the path separators, and every
+   control and bidi character. The gate sits after verification (so it
+   judges an id the chain agrees on) and before anything is derived
+   from, stored under, or printed with the name — which is also what
+   makes `Collision`'s message and the CLI's success line safe to print:
+   by the time either can name a run_id, the gate has passed it.
+
 ## Consequences
 
 The five wave-1 fire journals can relocate, each run verified twice on

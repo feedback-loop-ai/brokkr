@@ -562,6 +562,33 @@ fn origin(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from("/exports/wave-1").join(name)
 }
 
+/// A one-event export sealed by hand under any run id and any payload —
+/// how a stranger's export reaches this journal. `sealed()` recomputes
+/// the hash over whatever it is given, so every chain built here
+/// verifies; what a chain cannot vouch for is the *name* it was sealed
+/// under, which is exactly what the gates past verification are for.
+fn sealed_export(run_id: &str, payload: Value) -> String {
+    let envelope = EventEnvelope {
+        run_id: run_id.into(),
+        seq: 1,
+        event_id: "e1".into(),
+        event_schema_version: 1,
+        event_type: EventType::RunStarted,
+        payload,
+        causation_id: None,
+        correlation_id: run_id.into(),
+        attempt_id: None,
+        recorded_at: "2026-01-01T00:00:00Z".into(),
+        previous_hash: ZERO_HASH.into(),
+        event_hash: String::new(),
+    }
+    .sealed();
+    format!(
+        "{}\n",
+        serde_json::to_string(&serde_json::to_value(&envelope).unwrap()).unwrap()
+    )
+}
+
 /// A journal that arrives is the journal that left: the destination
 /// re-exports the very bytes it was handed, and folds to the same state.
 #[test]
@@ -833,27 +860,7 @@ fn import_refuses_a_redacted_derivative_by_either_mark() {
 /// filled in from the sidecar manifest no hash covers.
 #[test]
 fn import_refuses_an_export_whose_chain_cannot_answer_for_the_runs_row() {
-    let sealed = |payload: Value| {
-        let envelope = EventEnvelope {
-            run_id: "r1".into(),
-            seq: 1,
-            event_id: "e1".into(),
-            event_schema_version: 1,
-            event_type: EventType::RunStarted,
-            payload,
-            causation_id: None,
-            correlation_id: "r1".into(),
-            attempt_id: None,
-            recorded_at: "2026-01-01T00:00:00Z".into(),
-            previous_hash: ZERO_HASH.into(),
-            event_hash: String::new(),
-        }
-        .sealed();
-        format!(
-            "{}\n",
-            serde_json::to_string(&serde_json::to_value(&envelope).unwrap()).unwrap()
-        )
-    };
+    let sealed = |payload: Value| sealed_export("r1", payload);
     let (_dest_dir, mut dest) = destination();
     // A sidecar that says everything — and is believed for nothing.
     let sidecar = json!({"bundle_name": "self", "feature": "invented"});
@@ -887,6 +894,76 @@ fn import_refuses_an_export_whose_chain_cannot_answer_for_the_runs_row() {
             "2026-01-01T00:00:00Z".to_string()
         )]
     );
+}
+
+/// A verified chain proves its bytes were not altered. It does not
+/// prove whoever sealed them was entitled to the name they sealed them
+/// under — the hashes are unkeyed, so a stranger's export can carry any
+/// run id at all. The id does not stay in the database: `brokkr export`
+/// composes `<out>/<run_id>.ndjson` from it and every readout prints it,
+/// so an adoption refuses a name it would never have minted itself.
+#[test]
+fn import_refuses_a_run_id_this_journal_would_not_have_minted() {
+    let attested =
+        |id: &str| json!({"feature": "the missing verb", "manifest": {"files": {}}, "id": id});
+    let (_dest_dir, mut dest) = destination();
+
+    // Each of these verifies as a chain and folds; only the name is
+    // wrong. The traversal one is the reason the gate exists: adopted,
+    // it would make the next `export --out ./out` write outside `./out`.
+    for name in [
+        "../../../tmp/x",
+        "run/../../etc",
+        "wave-1/r1",
+        "r1\\r2",
+        "a.b",
+        "",
+        &"r".repeat(RUN_ID_MAX + 1),
+    ] {
+        let refusal = dest
+            .import_run(
+                &sealed_export(name, attested(name)),
+                &json!({}),
+                &origin("r1.ndjson"),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(refusal, ImportError::UnadoptableRunId(_)),
+            "{name:?} was not refused: {refusal}"
+        );
+    }
+
+    // A name that reached here by being unprintable does not get to
+    // reorder the sentence turning it away: the refusal is ASCII, and
+    // the bidi override appears as its codepoint, not as itself.
+    let hostile = "run\u{202e}drowssap\u{0007}";
+    let refusal = dest
+        .import_run(
+            &sealed_export(hostile, attested(hostile)),
+            &json!({}),
+            &origin("r1.ndjson"),
+        )
+        .unwrap_err();
+    let said = refusal.to_string();
+    assert!(said.contains("run\\u{202e}drowssap\\u{0007}"), "{said}");
+    assert!(
+        !said.contains('\u{202e}') && !said.contains('\u{0007}'),
+        "{said}"
+    );
+
+    // Nothing landed from any of them, and the gate is not so tight that
+    // it refuses what this journal does mint: a feature slug and eight
+    // hex characters, or an id merely carrying an underscore.
+    assert!(dest.list_runs().unwrap().is_empty());
+    for name in ["the-missing-verb-1608dfe7", "r_1", &"r".repeat(RUN_ID_MAX)] {
+        dest.import_run(
+            &sealed_export(name, attested(name)),
+            &json!({}),
+            &origin("r1.ndjson"),
+        )
+        .unwrap();
+    }
+    assert_eq!(dest.list_runs().unwrap().len(), 3);
 }
 
 /// The arrival columns are additive, and adding them is idempotent: a

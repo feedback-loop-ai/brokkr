@@ -716,7 +716,12 @@ not a rename-and-retry, and it is the operator's to rule on. A second
 import of the same export refuses the same way, because adoption is once
 and not idempotent. A `--redact`ed derivative is refused by name, under
 no flag: redaction rewrites payload bytes and leaves the recorded hashes
-behind, so importing one could only ever adopt unverifiable content.
+behind, so importing one could only ever adopt unverifiable content. And
+the run_id itself must be one this journal would have minted — ASCII
+letters, digits, `-` and `_`: event hashes are unkeyed, so a verified
+chain proves its bytes were not altered and never that whoever sealed
+them was entitled to the name, and the name goes on to be a path
+component the next `export` writes.
 
 The adopted events keep their exact bytes, hashes, seqs and `recorded_at`,
 so `brokkr runs`, `brokkr tui` and `brokkr inspect` render the run

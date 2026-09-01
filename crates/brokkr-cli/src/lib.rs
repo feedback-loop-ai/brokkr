@@ -1389,9 +1389,15 @@ fn run_with(
                     "imported_from": adoption.arrival.imported_from,
                 }))?
             );
+            // `import_run`'s run_id gate already refuses anything a
+            // terminal could not print plainly, so this is belt over
+            // braces — but the house rule is that a journal string
+            // reaching a tty goes through `Safe`, and the one line
+            // telling an operator the adoption happened is a poor place
+            // to start making exceptions.
             eprintln!(
                 "imported {} into {} ({} events)",
-                adoption.run_id,
+                render::Safe::new(&adoption.run_id).as_str(),
                 db.display(),
                 adoption.events
             );
