@@ -9,3 +9,4 @@ and the journals they cite are the footnotes.
 |---|---|
 | [The Model Is a Detail](the-model-is-a-detail.md) | Determinism belongs in control flow; stochastic execution belongs in leaf effects — and any feedback loop that can be specified deterministically must be. |
 | [Decisions as Code](decisions-as-code.md) | ADRs with teeth, policy with a memory: deliberate → rule → encode → enforce → evidence → amend. |
+| [The Lore](the-lore.md) | Why a mythology layer is an engineering decision: a name that carries its lesson is documentation with a recall rate — if, and only if, the fun is under law. |

@@ -159,7 +159,9 @@ The paradigm behind these laws is argued in long form in
 history as the receipts) and
 *[Decisions as Code](docs/essays/decisions-as-code.md)* (the
 deliberate → rule → encode → enforce → evidence → amend lifecycle the
-[decision record](docs/decisions/) lives by).
+[decision record](docs/decisions/) lives by), and
+*[The Lore](docs/essays/the-lore.md)* (why the
+[Edda](docs/lore/edda.md) is an engineering decision, not decoration).
 
 ## 60-second quickstart
 
