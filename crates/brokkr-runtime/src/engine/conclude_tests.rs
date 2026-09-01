@@ -186,6 +186,89 @@ fn a_parked_run_is_stopped_under_the_name_of_the_operator_who_concluded_it() {
     );
 }
 
+/// A command that never got its disposition — the crash between
+/// `operator_command`'s two appends, or an incomplete replay — leaves
+/// `pending_command` occupied, and step 4's guard reads the CURSOR, not
+/// that field, so `conclude` commands its stop anyway and `fold` drops
+/// the older command when it records the newer one.
+///
+/// That is the specified behaviour, and this pins what it actually costs
+/// rather than reasoning about it: the orphan stays in the journal,
+/// undisposed and readable, the conclusion is attributed to the operator
+/// who typed `conclude` and not to a command nobody accepted, and the
+/// finished journal folds clean. Noise in the trail, not a wrong state —
+/// and a fact a later reader can check instead of infer.
+#[test]
+fn a_command_left_without_a_disposition_is_outlived_by_the_conclusion() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-parked-hand-built";
+    let mut store = store_for(&dir, name);
+
+    // The half-written command: `operator/commanded` with no
+    // `operator/accepted` behind it, exactly as a crash between the two
+    // appends would leave it.
+    let head = events(&store, name).last().map(|e| e.event_id.clone());
+    store
+        .append_next(
+            name,
+            EventType::OperatorCommanded,
+            json!({"command_id": "orphaned", "command": "retry", "args": {},
+                   "operator": "someone-else"}),
+            head,
+            None,
+        )
+        .unwrap();
+    let before = fold(&events(&store, name)).unwrap();
+    assert_eq!(
+        before.pending_command,
+        Some(("orphaned".to_string(), "retry".to_string())),
+    );
+
+    let state = conclude(&mut store, name, "vyanakiev", "closing the books").unwrap();
+    assert_eq!(state.status, Status::Stopped);
+
+    let after = events(&store, name);
+    let appended: Vec<EventType> = after[before.seq as usize..]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    assert_eq!(
+        appended,
+        vec![
+            EventType::OperatorCommanded,
+            EventType::OperatorAccepted,
+            EventType::RunStopped,
+        ],
+    );
+
+    // The orphan is still there and still undisposed: nothing accepted
+    // or rejected it, and `conclude` neither pretended to nor erased it.
+    assert!(
+        after.iter().any(|event| {
+            event.event_type == EventType::OperatorCommanded
+                && event.payload["command_id"].as_str() == Some("orphaned")
+        }),
+        "the orphaned command was not erased",
+    );
+    assert!(
+        !after.iter().any(|event| {
+            matches!(
+                event.event_type,
+                EventType::OperatorAccepted | EventType::OperatorRejected
+            ) && event.payload["command_id"].as_str() == Some("orphaned")
+        }),
+        "the orphaned command gained a disposition it was never given",
+    );
+
+    // Attributed to the operator who concluded, never to the command
+    // nobody accepted — and the whole journal still folds.
+    let cited = after.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.contains("vyanakiev"), "{cited}");
+    assert!(cited.contains("commanded stop"), "{cited}");
+    assert!(!cited.contains("someone-else"), "{cited}");
+    assert_eq!(fold(&after).unwrap().status, Status::Stopped);
+}
+
 /// A run that already has its conclusion gets no second one. The refusal
 /// comes before the first append: a concluded run's journal is exactly as
 /// long afterwards as it was before.

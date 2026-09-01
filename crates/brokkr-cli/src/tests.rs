@@ -2555,3 +2555,90 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     .to_string();
     assert!(missing.contains("no-such-run"), "{missing}");
 }
+
+/// `run/stopped`'s cause is composed from two strings an operator hands
+/// in — the `--reason` they type and the `USER` their shell reports —
+/// so where that text stops being dangerous is a question worth a test
+/// rather than a grep. The answer is: at the surface, not at the write.
+///
+/// The journal keeps what was actually typed, escapes and all. An audit
+/// record that quietly edits its own evidence is worth less than one
+/// that does not, and the contract's `{reason}` is a string, not a
+/// terminal instruction. Neutralizing happens where the string becomes
+/// pixels, at the one `Safe` every rendering already crosses — the
+/// console's trail here, and `tui.rs`'s three surfaces through the same
+/// sanitizer. `brokkr-view` draws nothing itself and has no consumer
+/// outside those two, so this is the whole boundary, not a sample of it.
+#[test]
+fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let run_id = "conclude-parked-hand-built";
+    conclude_fixture_store(&db, run_id);
+
+    // Everything a hostile string has to work with: an ANSI sequence to
+    // recolour or reposition the line, a right-to-left override to
+    // reverse what follows it, a zero-width space to split a word past
+    // a filter, and a newline forging a second citation of its own.
+    let operator = "root\u{1b}[31m";
+    let reason = "closed\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
+    let mut store = Store::open(&db).unwrap();
+    let state = conclude(&mut store, run_id, operator, reason).unwrap();
+    assert_eq!(state.status, Status::Stopped);
+
+    // Verbatim in the journal: the citation names the operator as given,
+    // and the operator's own words are quoted, not laundered.
+    let events = store.load(run_id).unwrap();
+    let cited = events.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.contains(operator), "{cited:?}");
+    assert!(cited.contains(reason), "{cited:?}");
+
+    // Harmless where it is drawn. Not "no ESC" — every control character
+    // and every reordering character, because the danger is the class,
+    // and `\n` only because the renderer's own line breaks are made of it.
+    let drawn = crate::render::inspect(
+        &brokkr_view::run_view(&events, Some(&state)),
+        None,
+        true,
+        &crate::render::Style::plain(400),
+    );
+    let dropped: String = drawn
+        .chars()
+        .filter(|c| {
+            (c.is_control() && *c != '\n')
+                || matches!(c,
+                    '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'..='\u{2064}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{FEFF}')
+        })
+        .collect();
+    assert_eq!(
+        dropped, "",
+        "the trail drew {dropped:?} from a hostile reason"
+    );
+
+    // Stripped, not swallowed. The conclusion stays legible — the
+    // operator is named, their words are quoted — and what is left of
+    // the ANSI sequence is the inert `[31m` that colours nothing.
+    let stopped = drawn
+        .lines()
+        .find(|line| line.contains("run/stopped"))
+        .unwrap_or_default();
+    assert!(stopped.contains("operator 'root[31m'"), "{stopped:?}");
+    assert!(stopped.contains("closeddrawrof"), "{stopped:?}");
+
+    // The forged citation is left as the plain text it always was, and
+    // the newline meant to give it a line of its own is gone with the
+    // rest of the control characters. Every trail line still opens with
+    // the seq and type the renderer put there, so hostile text can only
+    // ever appear INSIDE a row a reader can attribute — which is the
+    // most a free-text field can promise, and it promises it here.
+    assert!(
+        !drawn
+            .lines()
+            .any(|line| line.trim_start().starts_with("OPERATOR-STOP")),
+        "a quoted reason opened a line of its own: {drawn}",
+    );
+}
