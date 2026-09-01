@@ -132,6 +132,19 @@ fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
+/// A workspace holding no `realms.json`. Named explicitly by the tests
+/// that turn on map DISCOVERY, so what they assert is a function of the
+/// arguments and not of the directory the harness happens to stand in.
+fn unmapped() -> &'static std::path::Path {
+    std::path::Path::new("target/no-such-workspace")
+}
+
+/// Drive one command from a named workspace — `run`, with the
+/// discovery directory chosen rather than inherited.
+fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
+    run_with(cli, workspace, ui::serve, None, None, run_tui)
+}
+
 #[test]
 fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let dir = tempfile::tempdir().unwrap();
@@ -173,7 +186,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "r1".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
@@ -186,7 +200,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         run(cli(Cmd::Export {
             run: "r1".into(),
             out: out.clone(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             redact: false,
         }))
         .unwrap(),
@@ -199,7 +214,8 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert!(run(cli(Cmd::Export {
         run: "r1".into(),
         out: blocked,
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: false,
     }))
     .is_err());
@@ -262,14 +278,23 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let mut store = Store::open(&db).unwrap();
+    // A mapped run's manifest names the map file and the realm paths —
+    // operator-machine detail that the journal beside it is published
+    // to withhold, so the pair must agree about it. The manifest rides
+    // inside run/started too, exactly as a real run writes it.
+    let manifest = json!({"files": {}, "realms": {
+        "source": "/home/carol/clients/acme/realms.json",
+        "sha256": "a".repeat(64),
+        "map": {"realms": [{"name": "acme", "path": "/home/carol/source/forge"}]},
+    }});
     store
-        .create_run("r1", "feature", "test", &json!({"files": {}}))
+        .create_run("r1", "feature", "test", &manifest)
         .unwrap();
     store
         .append_next(
             "r1",
             EventType::RunStarted,
-            json!({"feature": "feature", "manifest": {}}),
+            json!({"feature": "feature", "manifest": manifest}),
             None,
             None,
         )
@@ -290,7 +315,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     run(cli(Cmd::Export {
         run: "r1".into(),
         out: plain.clone(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: false,
     }))
     .unwrap();
@@ -301,7 +327,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     run(cli(Cmd::Export {
         run: "r1".into(),
         out: marked.clone(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         redact: true,
     }))
     .unwrap();
@@ -336,6 +363,42 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
             .unwrap();
     assert!(verbatim.get("redacted").is_none());
 
+    // The published pair agrees. The manifest is scrubbed through the
+    // SAME redaction as the journal, so it states no path or username
+    // the journal hides, and `[path-1]` names one path across both.
+    let raw = std::fs::read_to_string(marked.join("r1.redacted.manifest.json")).unwrap();
+    assert!(!raw.contains("/home"), "{raw}");
+    assert!(!raw.contains("carol"), "{raw}");
+    let embedded: Value = serde_json::from_str(redacted.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        manifest["realms"],
+        embedded["payload"]["manifest"]["realms"]
+    );
+    assert!(manifest["realms"]["source"]
+        .as_str()
+        .unwrap()
+        .starts_with("[path-"));
+    // Redaction is scrubbing, not editing: everything that was not
+    // machine detail survives, including the pin's own digest.
+    assert_eq!(manifest["realms"]["sha256"], verbatim["realms"]["sha256"]);
+    // Which means the pin no longer re-derives from the map printed
+    // beside it — the digest answers for the map that was in effect, not
+    // for the scrubbed copy. A reader must be told that in the artifact
+    // itself, or the mismatch reads as tamper evidence rather than as
+    // the redaction it is.
+    assert_ne!(
+        forge_core::canonical::sha256_hex(&manifest["realms"]["map"]),
+        manifest["realms"]["sha256"].as_str().unwrap(),
+        "this workspace's map carries machine detail, so scrubbing moves it"
+    );
+    assert!(
+        manifest["redaction"]["hashes"]
+            .as_str()
+            .unwrap()
+            .contains("realms map"),
+        "the redacted manifest must declare its own unverifiable pin"
+    );
+
     // The redacted manifest write can refuse like the verbatim one.
     let blocked = dir.path().join("blocked-redacted");
     std::fs::create_dir(&blocked).unwrap();
@@ -343,7 +406,8 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     assert!(run(cli(Cmd::Export {
         run: "r1".into(),
         out: blocked,
-        db,
+        realms: None,
+        db: Some(db),
         redact: true,
     }))
     .is_err());
@@ -390,6 +454,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
             port: 4321,
             open: true,
         }),
+        unmapped(),
         |actual_db, port, open| {
             seen = Some((actual_db, port, open));
             Ok(())
@@ -446,13 +511,34 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         recipe: None,
         recipes_dir: recipes_dir.clone(),
         feature: "feature".into(),
-        db: dir.path().join("dispatch.db"),
+        realms: None,
+        db: Some(dir.path().join("dispatch.db")),
         repo: None,
         dispatch,
         secrets_file: None,
     };
 
+    // A map the operator NAMED and a Looper-bound dispatch cannot both
+    // be honoured: the v2 lineage carries no world, and dropping the map
+    // silently would leave the run unable to say which one it believed
+    // in (decision 0023 ruling 4). Refused with the map's own refusals —
+    // before a bundle is compiled, a journal created or an envelope read,
+    // which is why a nonexistent envelope still lands here.
     let missing = dir.path().join("missing.json");
+    let map = realms_map(dir.path());
+    let mut mapped = base(Some(missing.clone()));
+    if let Cmd::Run { realms, .. } = &mut mapped {
+        *realms = Some(map);
+    }
+    assert!(run(cli(mapped))
+        .unwrap_err()
+        .to_string()
+        .contains("cannot pin the map named by --realms"));
+    assert!(
+        !dir.path().join("dispatch.db").exists(),
+        "and no journal was created to refuse into"
+    );
+
     assert!(run(cli(base(Some(missing))))
         .unwrap_err()
         .to_string()
@@ -468,7 +554,17 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
-    let code = run(cli(base(Some(path)))).unwrap();
+    let code = run(cli(base(Some(path.clone())))).unwrap();
+    assert_eq!(code, ExitCode::from(2));
+
+    // A map merely LYING in the workspace is not an instruction, and a
+    // dispatched run is not refused for standing next to one — this
+    // repository carries its own map at its root, and `--dispatch` is a
+    // documented entry point into it. The pin is dropped, out loud.
+    let second = dispatch_for(&bundle, "bound-run-2", "https://dogfood.example");
+    let second_path = dir.path().join("dispatch-2.json");
+    std::fs::write(&second_path, serde_json::to_string(&second).unwrap()).unwrap();
+    let code = run_in(dir.path(), cli(base(Some(second_path)))).unwrap();
     assert_eq!(code, ExitCode::from(2));
 }
 
@@ -578,6 +674,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
             follow: false,
             interval_ms: 0,
         }),
+        unmapped(),
         ui::serve,
         Some(1),
         None,
@@ -585,11 +682,27 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     )
     .is_err());
     assert_eq!(
-        run_with(cli(command(false)), ui::serve, None, None, run_tui).unwrap(),
+        run_with(
+            cli(command(false)),
+            unmapped(),
+            ui::serve,
+            None,
+            None,
+            run_tui
+        )
+        .unwrap(),
         ExitCode::SUCCESS
     );
     assert_eq!(
-        run_with(cli(command(true)), ui::serve, Some(2), None, run_tui).unwrap(),
+        run_with(
+            cli(command(true)),
+            unmapped(),
+            ui::serve,
+            Some(2),
+            None,
+            run_tui
+        )
+        .unwrap(),
         ExitCode::SUCCESS
     );
     std::env::remove_var(&token_name);
@@ -911,8 +1024,10 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     let code = run_with(
         cli(Cmd::Tui {
             run: Some("run-al".into()),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
         }),
+        unmapped(),
         ui::serve,
         None,
         None,
@@ -936,8 +1051,10 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     run_with(
         cli(Cmd::Tui {
             run: Some("latest".into()),
-            db: missing.clone(),
+            realms: None,
+            db: Some(missing.clone()),
         }),
+        unmapped(),
         ui::serve,
         None,
         None,
@@ -956,8 +1073,10 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     run_with(
         cli(Cmd::Tui {
             run: None,
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
         }),
+        unmapped(),
         ui::serve,
         None,
         None,
@@ -1356,7 +1475,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     for json in [false, true] {
         assert_eq!(
             run(cli(Cmd::Runs {
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
             }))
             .unwrap(),
@@ -1365,7 +1485,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         assert_eq!(
             run(cli(Cmd::Inspect {
                 run: "r1".into(),
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
                 phase: None,
                 seat: None,
@@ -1378,7 +1499,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "r1".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: Some("work".into()),
             seat: None,
@@ -1388,7 +1510,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     );
     let unknown = run(cli(Cmd::Inspect {
         run: "r1".into(),
-        db: db.clone(),
+        realms: None,
+        db: Some(db.clone()),
         json: false,
         phase: None,
         seat: Some("nobody".into()),
@@ -1403,10 +1526,12 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         run_with(
             cli(Cmd::Watch {
                 run: "r1".into(),
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 once: true,
                 interval_ms: 100,
             }),
+            unmapped(),
             ui::serve,
             None,
             None,
@@ -1420,10 +1545,12 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         run_with(
             cli(Cmd::Watch {
                 run: "r1".into(),
-                db,
+                realms: None,
+                db: Some(db),
                 once: false,
                 interval_ms: 100,
             }),
+            unmapped(),
             ui::serve,
             None,
             Some(2),
@@ -1502,7 +1629,8 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
     assert_eq!(
         run(cli(Cmd::Inspect {
             run: "stopped-mid-flight".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: true,
             phase: None,
             seat: None,
@@ -1584,7 +1712,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     for json in [false, true] {
         assert_eq!(
             run(cli(Cmd::Runs {
-                db: db.clone(),
+                realms: None,
+                db: Some(db.clone()),
                 json,
             }))
             .unwrap(),
@@ -1653,7 +1782,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     for command in [
         Cmd::Inspect {
             run: "poisoned".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
@@ -1674,11 +1804,218 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     assert_eq!(
         run(cli(Cmd::Watch {
             run: "poisoned".into(),
-            db: db.clone(),
+            realms: None,
+            db: Some(db.clone()),
             once: true,
             interval_ms: 100,
         }))
         .unwrap(),
         ExitCode::from(1)
     );
+}
+
+/// A map beside a workspace, naming that workspace as its one realm and
+/// a journal under it. Returns the map's path.
+fn realms_map(dir: &std::path::Path) -> PathBuf {
+    let path = dir.join("realms.json");
+    std::fs::write(
+        &path,
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "journal": "mapped.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    path
+}
+
+/// The three rules of resolution every surface shares (decision 0023
+/// ruling 3): the map's journal when nothing else says otherwise, `--db`
+/// outranking it, and the default journal when there is no map at all.
+#[test]
+fn the_map_names_the_journal_and_db_outranks_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = realms_map(dir.path());
+
+    let named = Invocation::resolve(unmapped(), Some(map.clone()), None).unwrap();
+    assert_eq!(named.world.unwrap().map.realms[0].name, "the-forge");
+    assert!(named.named, "the operator typed this one");
+    assert_eq!(named.journal, dir.path().join("mapped.db"));
+    assert_eq!(named.notice, None, "a map typed needs no announcement");
+
+    let elsewhere = dir.path().join("elsewhere.db");
+    let overridden = Invocation::resolve(unmapped(), Some(map), Some(elsewhere.clone())).unwrap();
+    assert!(
+        overridden.world.is_some(),
+        "the map is still the world it pins"
+    );
+    assert_eq!(overridden.journal, elsewhere);
+
+    // The same map, not named but merely lying in the workspace: the
+    // world and its journal are the same, and only `named` differs.
+    let found = Invocation::resolve(dir.path(), None, None).unwrap();
+    assert!(found.world.is_some());
+    assert!(!found.named, "a map found is not a map named");
+    assert_eq!(found.journal, dir.path().join("mapped.db"));
+
+    // No map named, and none in the workspace: the journal is the
+    // default it has always been.
+    let bare = Invocation::resolve(unmapped(), None, None).unwrap();
+    assert!(bare.world.is_none());
+    assert_eq!(bare.journal, PathBuf::from(DEFAULT_DB));
+    assert_eq!(bare.notice, None, "and nothing to announce");
+    assert_eq!(
+        journal_of(unmapped(), None, Some(elsewhere.clone())).unwrap(),
+        elsewhere
+    );
+}
+
+/// A map nobody typed still moves where the journal is created — and one
+/// that leaves the journal alone still decides the realm paths and the
+/// fact keys. Ruling 3 wants that adoption; it does not want it silent,
+/// so the surfaces say once, on stderr, that an ambient map was adopted,
+/// naming the journal when the map is what moved it. Only a map the
+/// operator typed is quiet.
+#[test]
+fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
+    let dir = tempfile::tempdir().unwrap();
+    realms_map(dir.path());
+
+    let found = Invocation::resolve(dir.path(), None, None).unwrap();
+    let notice = found.notice.clone().expect("an ambient map announces");
+    assert!(notice.starts_with("note: the journal is "), "{notice}");
+    assert!(
+        notice.contains(&dir.path().join("mapped.db").display().to_string()),
+        "{notice}"
+    );
+    assert!(
+        notice.contains(&dir.path().join("realms.json").display().to_string()),
+        "{notice}"
+    );
+    assert!(notice.contains("--db outranks it"), "{notice}");
+    // Announcing is what a surface does with it, and it hands the
+    // invocation back unchanged.
+    assert_eq!(found.announce().notice, Some(notice));
+
+    // The operator's own `--db` outranks the journal, but the map is
+    // still adopted for realms and fact keys — so it is still said.
+    let chosen = dir.path().join("chosen.db");
+    let overridden = Invocation::resolve(dir.path(), None, Some(chosen)).unwrap();
+    let notice = overridden.notice.expect("an adopted map is never silent");
+    assert!(notice.contains("(journal unchanged)"), "{notice}");
+    assert!(notice.contains("--realms names it explicitly"), "{notice}");
+
+    // And a map that names the journal which was going to be opened
+    // anyway has redirected nothing — but it is adopted all the same, so
+    // it is said all the same. This is the case this repository's own
+    // root map is in.
+    let plain = tempfile::tempdir().unwrap();
+    let default_journal = std::path::absolute(DEFAULT_DB).unwrap();
+    std::fs::write(
+        plain.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "journal": default_journal.display().to_string(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let ambient = Invocation::resolve(plain.path(), None, None).unwrap();
+    assert_eq!(ambient.journal, default_journal);
+    let notice = ambient
+        .notice
+        .expect("a map that moved nothing is still an adoption, and adoption is said");
+    assert!(notice.contains("(journal unchanged)"), "{notice}");
+    // A map the operator NAMED is the one silent case: typed is known.
+    assert_eq!(
+        Invocation::resolve(plain.path(), Some(plain.path().join("realms.json")), None)
+            .unwrap()
+            .notice,
+        None,
+        "a typed map owes no note"
+    );
+
+    // One journal, however it is written — and a path that cannot be
+    // located at all compares as written.
+    let written = std::path::Path::new("./.forge/forge.db");
+    assert!(same_journal(written, std::path::Path::new(DEFAULT_DB)));
+    assert!(same_journal(
+        std::path::Path::new(""),
+        std::path::Path::new("")
+    ));
+    assert!(!same_journal(written, std::path::Path::new("other.db")));
+}
+
+/// A map named at invocation and missing refuses, on every surface,
+/// before a journal is opened or a seat is spawned.
+#[test]
+fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let nowhere = dir.path().join("nowhere.json");
+    let refusal = run_in(
+        unmapped(),
+        cli(Cmd::Runs {
+            realms: Some(nowhere.clone()),
+            db: None,
+            json: true,
+        }),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("no realms map at"), "{refusal}");
+    assert!(refusal.contains("nowhere.json"), "{refusal}");
+    assert!(!dir.path().join("mapped.db").exists());
+}
+
+/// The world reads out, and a workspace with no map says so plainly
+/// instead of inventing a degenerate world.
+#[test]
+fn the_realms_verb_reads_the_world_or_says_there_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = realms_map(dir.path());
+    for json in [false, true] {
+        assert_eq!(
+            run_in(
+                unmapped(),
+                cli(Cmd::Realms {
+                    realms: Some(map.clone()),
+                    db: None,
+                    json,
+                })
+            )
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+
+    // The map the workspace merely holds is the one it reads, with no
+    // flag at all — and a workspace with no map says so plainly instead
+    // of inventing a degenerate world.
+    assert_eq!(
+        run_in(
+            dir.path(),
+            cli(Cmd::Realms {
+                realms: None,
+                db: None,
+                json: false,
+            })
+        )
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    let refusal = run_in(
+        unmapped(),
+        cli(Cmd::Realms {
+            realms: None,
+            db: None,
+            json: false,
+        }),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("no map"), "{refusal}");
+    assert!(refusal.contains("realms.json"), "{refusal}");
 }

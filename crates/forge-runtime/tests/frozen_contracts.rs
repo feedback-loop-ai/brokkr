@@ -83,6 +83,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/phase-machine.v2.schema.json",
             "Forge phase-machine table v2",
         ),
+        // Decision 0023's world: the map's own schema, and the manifest
+        // version that pins one. Both land beside the frozen files —
+        // v1's and v3's bytes are asserted above and did not move.
+        ("contracts/realms.v1.schema.json", "Forge realms map v1"),
+        (
+            "contracts/run-manifest.v4.schema.json",
+            "Forge run manifest v4",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

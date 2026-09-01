@@ -444,6 +444,17 @@ pub fn build_run_manifest_v2(
 
 pub fn bundle_manifest_from_run(manifest: &Value) -> Result<Value, DispatchError> {
     if manifest.get("schema").and_then(Value::as_str) != Some(RUN_MANIFEST_SCHEMA_V2) {
+        // The local lineage IS the bundle manifest, minus the one thing
+        // that was never part of it: the world the run was invoked into
+        // (run-manifest/v4). The map is workspace data — a run started
+        // with one must still resume against the same bundle, so the pin
+        // is dropped here rather than compared against a bundle that
+        // never carried it.
+        if manifest.get("realms").is_some() {
+            let mut fields = manifest.as_object().cloned().unwrap_or_default();
+            fields.remove("realms");
+            return Ok(Value::Object(fields));
+        }
         return Ok(manifest.clone());
     }
     let parsed: RunManifestV2 =

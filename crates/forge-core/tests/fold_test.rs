@@ -4,6 +4,7 @@
 use forge_core::canonical::ZERO_HASH;
 use forge_core::envelope::{verify_chain, EventEnvelope, EventType};
 use forge_core::fold::{computed_inputs, fold, Cursor, FoldError, Status};
+use forge_core::realms::recorded_head;
 use serde_json::{json, Value};
 
 struct Journal {
@@ -209,4 +210,57 @@ fn replay_is_deterministic() {
     let a = format!("{:?}", fold(&journal.events).unwrap());
     let b = format!("{:?}", fold(&journal.events).unwrap());
     assert_eq!(a, b);
+}
+
+/// Decision 0023's compatibility law, measured against the one journal
+/// this repository has committed as evidence: a run recorded before any
+/// map existed folds to exactly the state it always folded to, its
+/// unkeyed facts still read, and it gained no realm key anywhere.
+#[test]
+fn the_committed_fixture_journal_folds_exactly_as_it_did() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+    let ndjson = std::fs::read_to_string(&fixture).expect("the committed fixture journal");
+    let events: Vec<EventEnvelope> = ndjson
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
+        .collect();
+    verify_chain(&events).expect("the fixture's chain still verifies");
+
+    let state = fold(&events).expect("and it still folds");
+    assert_eq!(state.run_id, "tui-graph-the-selection-box-gets-80f98deb");
+    assert_eq!(state.seq, 105);
+    assert_eq!(state.status, Status::Running);
+    assert_eq!(state.phase.as_deref(), Some("verify"));
+    assert_eq!(state.cursor, Cursor::Stop);
+
+    // A journal written before the map gains nothing from it.
+    for event in &events {
+        let printed = event.payload.to_string();
+        for key in ["\"realms\"", "\"realm_facts\""] {
+            assert!(!printed.contains(key), "seq {} carries {key}", event.seq);
+        }
+    }
+
+    // And whatever a decision of that vintage recorded about the
+    // repository still reads: the per-realm reader answers with the
+    // unkeyed head, whether or not it is given a realm to ask by.
+    for event in &events {
+        if let Some(recorded) = event.payload.pointer("/inputs/reviewed_heads") {
+            let unkeyed = recorded.get("repo").and_then(Value::as_str);
+            assert_eq!(recorded_head(recorded, None), unkeyed);
+            assert_eq!(recorded_head(recorded, Some("the-forge")), unkeyed);
+        }
+    }
+    let era = json!({"repo": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"});
+    assert_eq!(
+        recorded_head(&era, Some("the-forge")),
+        era["repo"].as_str(),
+        "an unkeyed head still answers for the realm the run works in"
+    );
 }

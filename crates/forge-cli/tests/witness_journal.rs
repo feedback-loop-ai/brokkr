@@ -78,8 +78,16 @@ const GOLDEN: [(&str, &[&str]); 11] = [
 ];
 
 /// Fields this slice may add to an effect event. A non-adopting run must
-/// carry none of them, anywhere, at any depth of the payload.
-const ADDED_FIELDS: [&str; 3] = ["provenance", "start_failure", "agents"];
+/// carry none of them, anywhere, at any depth of the payload. Decision
+/// 0023's `realms` and `realm_facts` join the list on the same terms: a
+/// run in a workspace with no map gains neither.
+const ADDED_FIELDS: [&str; 5] = [
+    "provenance",
+    "start_failure",
+    "agents",
+    "realms",
+    "realm_facts",
+];
 
 struct Workspace {
     dir: tempfile::TempDir,

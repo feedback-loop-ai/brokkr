@@ -14,6 +14,7 @@ use forge_core::dispatch::{
 use forge_core::envelope::EventType;
 use forge_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
 use forge_core::policy::Outcome;
+use forge_core::realms::{recorded_head, LEGACY_REALM_KEY};
 use forge_core::EventEnvelope;
 use forge_protocol::process::DriverProcess;
 use forge_protocol::AttemptOutcome;
@@ -25,6 +26,7 @@ use uuid::Uuid;
 use crate::agents::Candidate;
 use crate::bundle::{
     Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_VERSION,
+    REALM_FACTS,
 };
 use forge_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use forge_protocol::AttemptReport;
@@ -41,6 +43,8 @@ pub enum EngineError {
     Other(String),
     #[error("dispatch: {0}")]
     Dispatch(#[from] forge_core::dispatch::DispatchError),
+    #[error("realms: {0}")]
+    World(#[from] crate::realms::WorldError),
 }
 
 pub struct Engine {
@@ -49,6 +53,12 @@ pub struct Engine {
     pub run_id: String,
     pub feature: String,
     pub repo: Option<PathBuf>,
+    /// The world this run was invoked into (decision 0023), when a map
+    /// was in effect. It is pinned into the run manifest at start, so
+    /// this field is the run's *live* copy of a fact the journal already
+    /// answers for; the facts a decision records are keyed by the realm
+    /// the repository is, when the map names one.
+    pub world: Option<crate::realms::World>,
     /// The event_id every append chains to as `causation_id` — refreshed
     /// to the journal head each drive iteration, then to each event this
     /// iteration appends, so causal links mirror the engine's actual
@@ -104,10 +114,26 @@ pub struct DriveEnd {
 
 impl Engine {
     pub fn start(
+        store: Store,
+        bundle: Bundle,
+        feature: &str,
+        repo: Option<PathBuf>,
+    ) -> Result<Engine, EngineError> {
+        Engine::start_in_world(store, bundle, feature, repo, None)
+    }
+
+    /// Start a run inside a world (decision 0023). The map is pinned by
+    /// content hash AND embedded verbatim into the run manifest — which
+    /// rides inside `run/started` — so "what world did this run believe
+    /// in?" is answerable from the journal alone, forever, whatever
+    /// later became of the file. With no map the manifest is byte-for-
+    /// byte the one this engine has always written.
+    pub fn start_in_world(
         mut store: Store,
         bundle: Bundle,
         feature: &str,
         repo: Option<PathBuf>,
+        world: Option<crate::realms::World>,
     ) -> Result<Engine, EngineError> {
         let slug: String = feature
             .to_lowercase()
@@ -120,11 +146,15 @@ impl Engine {
             .join("-");
         let slug = slug.chars().take(32).collect::<String>();
         let run_id = format!("{slug}-{}", &Uuid::new_v4().to_string()[..8]);
-        store.create_run(&run_id, feature, &bundle.name, &bundle.manifest)?;
+        let manifest = match &world {
+            Some(world) => world.pinned(&bundle.manifest),
+            None => bundle.manifest.clone(),
+        };
+        store.create_run(&run_id, feature, &bundle.name, &manifest)?;
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": bundle.manifest}),
+            json!({"feature": feature, "manifest": manifest}),
             None,
             None,
         )?;
@@ -134,6 +164,7 @@ impl Engine {
             run_id,
             feature: feature.to_string(),
             repo,
+            world,
             current_cause: None,
             secrets_file: None,
         })
@@ -167,6 +198,11 @@ impl Engine {
             run_id,
             feature: feature.to_string(),
             repo,
+            // A Looper-bound run pins a run-manifest/v2, whose bytes a
+            // counterpart system reads; the map's pin belongs to the
+            // v1→v4 local lineage. The CLI refuses the combination
+            // rather than dropping a world silently.
+            world: None,
             current_cause: None,
             secrets_file: None,
         })
@@ -200,6 +236,13 @@ impl Engine {
             run_id: run_id.to_string(),
             feature,
             repo,
+            // Resume takes no map — and needs none. The world this run
+            // believed in is pinned in the manifest just read, content
+            // and all, so it is rehydrated from evidence rather than off
+            // a disk that may have moved on. Without this a resumed run
+            // would silently stop keying its facts by realm, changing
+            // fact-shape mid-run depending on which verb was typed.
+            world: crate::realms::World::from_manifest(&pinned)?,
             current_cause: None,
             secrets_file: None,
         })
@@ -1282,21 +1325,60 @@ impl Engine {
             inputs.insert(format!("{VISIT_PREFIX}{visited}"), Value::from(count));
         }
         if let Some(repo) = &self.repo {
+            // The realm this repository IS, when a map named it
+            // (decision 0023): repository facts are recorded under the
+            // realm's name — the shape the heritage protocol recorded and
+            // the shape multi-realm runs will need. Unmapped, they are
+            // recorded exactly as they always were.
+            let realm = self
+                .world
+                .as_ref()
+                .and_then(|world| world.realm_for(repo))
+                .map(|realm| realm.name.clone());
+            let key = realm
+                .clone()
+                .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
             if phase == self.bundle.protected_phase {
                 if let Some(head) = git_head(repo) {
-                    inputs.insert("reviewed_heads".into(), json!({ "repo": head }));
+                    inputs.insert("reviewed_heads".into(), json!({ key: head }));
                 }
             }
             if phase == "ship" {
-                inputs.insert("dirty_worktrees".into(), Value::Bool(git_dirty(repo)));
-                if let Some(reviewed) = state
-                    .reviewed_heads
-                    .as_ref()
-                    .and_then(|h| h.get("repo"))
-                    .and_then(Value::as_str)
-                {
-                    let drifted = git_head(repo).as_deref() != Some(reviewed);
+                let dirty = git_dirty(repo);
+                let head = git_head(repo);
+                inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
+                // Fail-closed: when the protected phase RECORDED heads,
+                // ship always answers the drift question. A repo that
+                // no longer resolves to a recorded realm, or a realm
+                // whose head was never recorded, is indistinct from
+                // drift — silence here shipped where the old code
+                // re-armed review (this run's own review caught it).
+                let drifted = state.reviewed_heads.as_ref().map(|recorded| {
+                    match recorded_head(recorded, realm.as_deref()) {
+                        Some(reviewed) => head.as_deref() != Some(reviewed),
+                        None => true,
+                    }
+                });
+                if let Some(drifted) = drifted {
                     inputs.insert("drift_detected".into(), Value::Bool(drifted));
+                }
+                // The same facts, keyed by realm — one realm today,
+                // several when multi-realm runs arrive. Recorded only in
+                // a mapped world, so an unmapped run's decision payload
+                // is byte-for-byte the one it always wrote.
+                if let Some(realm) = &realm {
+                    let mut facts = Map::new();
+                    if let Some(head) = &head {
+                        facts.insert("head".into(), Value::from(head.clone()));
+                    }
+                    facts.insert("dirty_worktrees".into(), Value::Bool(dirty));
+                    if let Some(drifted) = drifted {
+                        facts.insert("drift_detected".into(), Value::Bool(drifted));
+                    }
+                    inputs.insert(
+                        REALM_FACTS.into(),
+                        json!({ realm.clone(): Value::Object(facts) }),
+                    );
                 }
             }
         }
@@ -2036,7 +2118,10 @@ fn artifact_problem(rule_id: &str, failures: &[(String, &'static str)]) -> Strin
     format!("requires_artifacts unmet for rule {rule_id}: {list}")
 }
 
-fn git_head(repo: &std::path::Path) -> Option<String> {
+/// The repository's observed HEAD, or nothing when there is no readable
+/// git tree there. Public because `brokkr realms` reads out the same
+/// fact the ship gate compares against — one reader, not two.
+pub fn git_head(repo: &std::path::Path) -> Option<String> {
     let out = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo)

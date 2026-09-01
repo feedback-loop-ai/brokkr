@@ -1,0 +1,11 @@
+{
+  "schema": "forge.realms/v1",
+  "realms": [
+    {
+      "name": "the-forge",
+      "path": ".",
+      "default_branch": "main"
+    }
+  ],
+  "journal": ".forge/forge.db"
+}

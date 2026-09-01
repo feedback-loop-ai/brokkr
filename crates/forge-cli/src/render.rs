@@ -80,7 +80,7 @@ impl Safe {
         self.0.chars().count()
     }
 
-    fn padded(&self, width: usize) -> String {
+    pub fn padded(&self, width: usize) -> String {
         let mut out = self.0.clone();
         for _ in self.width()..width {
             out.push(' ');
