@@ -27,10 +27,15 @@ Result:
 - `broken` — you could not get it working; `notes` must name the
   specific gap so a re-run can address it.
 - `blocked` — something outside your control prevents the work (missing
-  tool, contradictory framing); `notes` names the blocker precisely.
+  tool, contradictory framing, a framing that turned out to describe a
+  much larger change than this recipe is budgeted for); `notes` names
+  the blocker precisely.
 
 If the task turns out to be larger than the framing said, report
-`broken` and say so plainly rather than spending the whole budget on
-half of it: the operator can re-run the feature under `crucible`. Never
-report `complete` with failing tests or uncommitted changes — the
+`blocked` and name what makes it large, rather than spending the whole
+budget on half of it. `blocked` is the right result and `broken` is not:
+`IMPL-BLOCKED` stops the run at once so the operator can re-run the
+feature under `crucible`, where `IMPL-BROKEN-RETRY` would spend a second
+full implement attempt on the same over-large task before stopping.
+Never report `complete` with failing tests or uncommitted changes — the
 verifier and the ship gate will catch both, and the journal remembers.
