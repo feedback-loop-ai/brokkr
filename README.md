@@ -33,6 +33,7 @@ stopped, paid — is a journaled, replayable, anchored fact.
 - [The name](#the-name)
 - [What it does](#what-it-does)
 - [Determinism laws](#determinism-laws)
+- [Essays](docs/essays/)
 - [60-second quickstart](#60-second-quickstart)
 - [Guides](#guides)
 - [The read surfaces](#the-read-surfaces)
@@ -151,6 +152,16 @@ effect discipline, verification layers. This README stays the tour.
    guessed at, coerced, or handed to a model to fix.
 4. **Human gates are control states.** Parks exit only through operator
    events; approval is a journal entry, not a prose convention.
+
+The paradigm behind these laws is argued in long form in
+[the essays](docs/essays/): *[The Model Is a Detail](docs/essays/the-model-is-a-detail.md)*
+(why the model belongs in leaf position, with this repository's own
+history as the receipts) and
+*[Decisions as Code](docs/essays/decisions-as-code.md)* (the
+deliberate → rule → encode → enforce → evidence → amend lifecycle the
+[decision record](docs/decisions/) lives by), and
+*[The Lore](docs/essays/the-lore.md)* (why the
+[Edda](docs/lore/edda.md) is an engineering decision, not decoration).
 
 ## 60-second quickstart
 
