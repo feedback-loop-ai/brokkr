@@ -183,6 +183,59 @@ fn compiled_recipe(relative: &str) -> Bundle {
     .unwrap()
 }
 
+/// The selector's two quiet arms, driven rather than presumed. A world
+/// whose only journal on disk refuses to open answers `latest` with the
+/// refusal — never by inventing an empty fleet over a broken store. And
+/// a NAMED run in a world whose journals are not on disk resolves to the
+/// first hearth carrying the name along, so the verb behind it does the
+/// refusing without a database ever being created by a read.
+#[test]
+fn a_broken_hearth_refuses_latest_and_a_ghost_world_carries_a_name_along() {
+    let dir = tempfile::tempdir().unwrap();
+    let broken = dir.path().join("broken.db");
+    std::fs::write(&broken, "this is prose, not pages").unwrap();
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let refusal = resolve_in_hearths(&[hearth("broken", &broken)], "latest".to_string())
+        .unwrap_err()
+        .to_string();
+    assert!(!refusal.is_empty());
+
+    let ghosts = [
+        hearth("ghost-a", &dir.path().join("a.db")),
+        hearth("ghost-b", &dir.path().join("b.db")),
+    ];
+    assert_eq!(
+        resolve_in_hearths(&ghosts, "named-run".to_string()).unwrap(),
+        (0, "named-run".to_string())
+    );
+    assert!(!dir.path().join("a.db").exists(), "a read created nothing");
+}
+
+/// The production `run_tui` entry in a many-hearth world builds the tab
+/// bar from the realm labels before the console's own gate refuses the
+/// missing journals — the one-hearth world keeps building none.
+#[test]
+fn run_tui_names_a_tab_per_hearth_in_a_many_hearth_world() {
+    let dir = tempfile::tempdir().unwrap();
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = vec![
+        hearth("alpha", &dir.path().join("alpha.db")),
+        hearth("beta", &dir.path().join("beta.db")),
+    ];
+    // Journals absent: the console's gate refuses after the tabs are
+    // named, and no database is created by the attempt.
+    let _ = run_tui(world, None, 0);
+    assert!(!dir.path().join("alpha.db").exists());
+    let _ = run_tui(vec![hearth("solo", &dir.path().join("solo.db"))], None, 0);
+    assert!(!dir.path().join("solo.db").exists());
+}
+
 /// A workspace holding no `realms.json`. Named explicitly by the tests
 /// that turn on map DISCOVERY, so what they assert is a function of the
 /// arguments and not of the directory the harness happens to stand in.
@@ -2261,6 +2314,44 @@ fn realms_map(dir: &std::path::Path) -> PathBuf {
     )
     .unwrap();
     path
+}
+
+/// Two hearths on disk and `brokkr runs` lists each under its own
+/// realm, read through the same fold the one-hearth listing uses — and
+/// a hearth whose journal refuses to open lists as empty rather than
+/// taking the world down with it (decision 0026 rulings 3 and 5).
+#[test]
+fn runs_lists_a_many_hearth_world_grouped_by_realm() {
+    let dir = tempfile::tempdir().unwrap();
+    running_store(&dir.path().join("alpha.db"), "run-alpha");
+    running_store(&dir.path().join("beta.db"), "run-beta");
+    // The third hearth's journal is prose: its listing is empty, its
+    // refusal is its own, and the readable hearths list regardless.
+    std::fs::write(dir.path().join("gamma.db"), "prose, not pages").unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
+                {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
+                {"name": "gamma", "path": ".", "default_branch": "main", "journal": "gamma.db"},
+            ],
+            "journal": "alpha.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let code = run_in(
+        dir.path(),
+        cli(Cmd::Runs {
+            realms: None,
+            db: None,
+            json: false,
+        }),
+    )
+    .unwrap();
+    assert_eq!(code, ExitCode::SUCCESS);
 }
 
 /// The three rules of resolution every surface shares (decision 0023

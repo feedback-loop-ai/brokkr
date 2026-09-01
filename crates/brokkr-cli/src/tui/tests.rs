@@ -4518,6 +4518,23 @@ fn tabbed_tui(tabs: &[&str]) -> Tui {
     Tui::over(None, tabs.iter().map(|t| t.to_string()).collect(), 0)
 }
 
+/// The guard on `switch` holds at every leg: an untabbed console
+/// switches nowhere, and a tabbed one refuses an index past the bar and
+/// a switch to the tab already open — nothing parked, nothing restored.
+#[test]
+fn a_switch_out_of_range_or_to_the_open_tab_moves_nothing() {
+    let mut plain = Tui::new(None);
+    switch(&mut plain, 1);
+    assert_eq!(plain.tab, 0);
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    switch(&mut tui, 5);
+    assert_eq!(tui.tab, 0, "past the bar is a no-op");
+    switch(&mut tui, 0);
+    assert_eq!(tui.tab, 0, "the open tab is a no-op");
+    switch(&mut tui, 1);
+    assert_eq!(tui.tab, 1, "and a real switch still switches");
+}
+
 /// The regression bar: a world with one journal draws no tab bar, binds
 /// no tab key, and says nothing about a realm — the same frame, byte for
 /// byte, as the console that never knew hearths existed.

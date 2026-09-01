@@ -1324,10 +1324,15 @@ fn hearths_of(
 type FoldedRun = (String, String, String, Result<RunState, String>);
 
 fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
-    let store = Store::open_read_only(journal).map_err(|error| error.to_string())?;
+    // One error voice for the three doors: what a hearth refuses with is
+    // the store's own words, wherever in the read it refused.
+    fn hearth_error(error: brokkr_store::StoreError) -> String {
+        error.to_string()
+    }
+    let store = Store::open_read_only(journal).map_err(hearth_error)?;
     let mut folded = Vec::new();
-    for (run_id, feature, created_at) in store.list_runs().map_err(|error| error.to_string())? {
-        let events = store.load(&run_id).map_err(|error| error.to_string())?;
+    for (run_id, feature, created_at) in store.list_runs().map_err(hearth_error)? {
+        let events = store.load(&run_id).map_err(hearth_error)?;
         folded.push((run_id, feature, created_at, fold_or_quarantine(&events)));
     }
     Ok(folded)

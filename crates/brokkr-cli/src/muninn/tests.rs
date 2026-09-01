@@ -401,6 +401,25 @@ fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
         refused.contains("not an operator command the dossier states"),
         "{refused}"
     );
+
+    // And the seat may not dress the unfoldable run in a realm: the
+    // dossier states that fact keyed by NO realm, so a citation that
+    // claims one disagrees with the record and is refused saying so.
+    let dressed = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one journal does not fold",
+            "parked_runs": [],
+            "work_queue": [{
+                "run_id": "poisoned-run", "seq": 6, "realm": "alpha",
+                "finding": "the journal does not fold",
+                "reasoning": "an unreadable run is the first thing to look at",
+            }],
+        })),
+    )
+    .err()
+    .expect("a realm the dossier does not state is refused");
+    assert!(dressed.contains("no realm"), "{dressed}");
 }
 
 #[test]
