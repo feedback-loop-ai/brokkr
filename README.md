@@ -162,9 +162,11 @@ deliberate → rule → encode → enforce → evidence → amend lifecycle the
 [decision record](docs/decisions/) lives by), and
 *[The Lore](docs/essays/the-lore.md)* (why the
 [Edda](docs/lore/edda.md) is an engineering decision, not decoration),
-and *[The Machine That Argued With Itself](docs/essays/the-machine-that-argued-with-itself.md)*
+*[The Machine That Argued With Itself](docs/essays/the-machine-that-argued-with-itself.md)*
 (five arguments from the journals, and what makes them argument
-instead of theater).
+instead of theater), and *[The Wager](docs/essays/the-wager.md)* (two
+crews, one commission, and why fair model comparison is an
+architecture property).
 
 ## 60-second quickstart
 
