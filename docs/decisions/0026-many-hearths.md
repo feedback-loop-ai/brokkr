@@ -1,6 +1,6 @@
 # 0026 — Many hearths: per-realm journals and the tabbed fleet
 
-Status: proposed
+Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
 ## Context
