@@ -2,7 +2,8 @@
 # Open a pull request in a sibling channel repository (the homebrew tap,
 # the scoop bucket) carrying one rendered file.
 #
-#   bash packaging/open-channel-pr.sh --token <token> --repo <owner/name> \
+#   BROKKR_TAP_TOKEN=… bash packaging/open-channel-pr.sh \
+#        --token-env BROKKR_TAP_TOKEN --repo <owner/name> \
 #        --source packaging/homebrew/brokkr.rb --destination Formula/brokkr.rb \
 #        --version 0.6.0
 #
@@ -10,8 +11,13 @@
 # thing this script does with it is hand it to git and gh for that one
 # repository (decision 0012). It is never printed, never written to a
 # file that survives the run, and never used against this repository.
+#
+# It arrives by the *name* of an environment variable, never as an
+# argument: an argument is readable from the process table by anything
+# else on the machine for as long as the command runs.
 set -euo pipefail
 
+token_env=""
 token=""
 repo=""
 source_file=""
@@ -25,7 +31,7 @@ die() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --token) token="${2:-}"; shift 2 ;;
+    --token-env) token_env="${2:-}"; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --source) source_file="${2:-}"; shift 2 ;;
     --destination) destination="${2:-}"; shift 2 ;;
@@ -34,7 +40,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$token" ] || die "--token is required"
+[ -n "$token_env" ] || die "--token-env <VARIABLE> is required"
+case "$token_env" in
+  *[!A-Za-z0-9_]* | [0-9]*) die "--token-env takes a variable name, not a value" ;;
+esac
+token="${!token_env-}"
+[ -n "$token" ] || die "\$${token_env} is unset or empty — the caller holds the token, this script only reads it"
 [ -n "$repo" ] || die "--repo <owner/name> is required"
 [ -n "$source_file" ] || die "--source <path> is required"
 [ -n "$destination" ] || die "--destination <path> is required"

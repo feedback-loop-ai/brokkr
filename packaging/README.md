@@ -67,6 +67,18 @@ If `BROKKR_APT_SIGNING_KEY` is unset the `pages` job **fails**. It does
 not publish an unsigned repository, because the install instructions
 tell users the metadata is signed.
 
+Expect that failure until this step is done, and read it for what it is:
+`pages` runs *after* `publish`, so the release itself — tarballs,
+packages, `SHA256SUMS`, attestation — is already complete and correct
+when the run goes red. What is missing is the apt and dnf site, not the
+artifacts every other channel serves.
+
+The key's passphrase reaches gpg on stdin (`--passphrase-fd 0`) and the
+key block the same way, and the tap and bucket tokens are passed to
+`packaging/open-channel-pr.sh` by the *name* of their variable
+(`--token-env`). None of the three is ever an argument: arguments are
+readable from the runner's process table while the command runs.
+
 ### 2. GitHub Pages
 
 Repository → Settings → Pages → Source: **GitHub Actions**. The `pages`
@@ -175,6 +187,7 @@ there in this repository.
 
 ```
 packaging/nfpm.yaml           .deb and .rpm metadata; the binary only
+packaging/nfpm-version.txt    the pinned nfpm both workflows install
 packaging/apt/build-repo.sh   pool + dists + Packages(.gz) + Release
 packaging/rpm/build-repo.sh   per-$basearch tree + repodata + brokkr.repo
 packaging/bump-from-sums.sh   renders the channel templates from SHA256SUMS
@@ -209,9 +222,16 @@ None of the scripts carries an executable bit; each is invoked as
 2. **A cumulative apt pool.** Today's site carries the current release
    only; keeping older versions means fetching the previous site before
    rebuilding it.
-3. **Pinning nfpm.** The release installs it with `go install …@latest`,
-   which is the only form that works unchanged on both runner
-   architectures. A pin — a version or a digest — is a bench call.
+3. **Verifying the nfpm pin, and keeping it current.**
+   `packaging/nfpm-version.txt` pins the version both workflows install,
+   and Go's checksum database makes that version's content immutable —
+   so a publication made after this commit cannot change what fills an
+   attested `.deb`. What this run could not do is reach the network to
+   confirm the pinned tag is the *current* release: the first CI run
+   proves it is installable, and bumping it to the newest v2 is a
+   one-line change the bench makes with a network it can see.
+   Pinning the module *digest* (a `tools/go.mod` and its `go.sum`) is
+   the stricter form, and needs the same network to generate.
 4. **Publishing `brokkr-cli` to crates.io.** `cargo binstall brokkr-cli`
    cannot resolve a crate the registry has never seen, so the binstall
    metadata is correct and inert until a release publishes the crate.

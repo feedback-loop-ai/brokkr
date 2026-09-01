@@ -100,11 +100,16 @@ jobs:
           go-version: stable
       - name: install nfpm
         if: matrix.nfpm_arch
-        # Deliberately not version-pinned: `go install` resolves the
-        # latest v2, which is the only form that works unchanged on both
-        # the x86_64 and the aarch64 runner. Pinning is a bench decision
-        # recorded as a follow-up in packaging/README.md.
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+        # Pinned, and pinned in one file both workflows read. `@latest`
+        # would let a publication made after this commit decide what goes
+        # into packages the attestation below then vouches for; a version
+        # is immutable through Go's checksum database, so what builds the
+        # .deb and the .rpm is fixed here and changes only by a commit.
+        # `go install` compiles for the host, so one pin serves both the
+        # x86_64 and the aarch64 runner.
+        run: |
+          nfpm_version="$(tr -d '[:space:]' < packaging/nfpm-version.txt)"
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${nfpm_version}"
       - name: package (linux .deb and .rpm)
         if: matrix.nfpm_arch
         env:
@@ -210,10 +215,13 @@ jobs:
           export GNUPGHOME
           printf '%s\n' "${BROKKR_APT_SIGNING_KEY}" | gpg --batch --quiet --import
           key="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')"
+          # The passphrase goes in on stdin, not on argv: an argument is
+          # readable from the runner's process table for as long as the
+          # command runs. The key block above arrives the same way.
           sign() {
-            gpg --batch --yes --quiet --pinentry-mode loopback \
-              --passphrase "${BROKKR_APT_SIGNING_KEY_PASSPHRASE}" \
-              --local-user "$key" "$@"
+            printf '%s' "${BROKKR_APT_SIGNING_KEY_PASSPHRASE}" |
+              gpg --batch --yes --quiet --pinentry-mode loopback \
+                --passphrase-fd 0 --local-user "$key" "$@"
           }
           release=site/apt/dists/stable/Release
           sign --armor --detach-sign --output "${release}.gpg" "$release"
@@ -279,7 +287,7 @@ jobs:
             exit 0
           fi
           bash packaging/open-channel-pr.sh \
-            --token "${BROKKR_TAP_TOKEN}" \
+            --token-env BROKKR_TAP_TOKEN \
             --repo "${GITHUB_REPOSITORY_OWNER}/homebrew-brokkr" \
             --source packaging/homebrew/brokkr.rb \
             --destination Formula/brokkr.rb \
@@ -293,7 +301,7 @@ jobs:
             exit 0
           fi
           bash packaging/open-channel-pr.sh \
-            --token "${BROKKR_BUCKET_TOKEN}" \
+            --token-env BROKKR_BUCKET_TOKEN \
             --repo "${GITHUB_REPOSITORY_OWNER}/scoop-brokkr" \
             --source packaging/scoop/brokkr.json \
             --destination bucket/brokkr.json \

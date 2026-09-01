@@ -262,6 +262,135 @@ fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
     assert!(rest.contains("cat *.sha256 > SHA256SUMS"), "{rest}");
 }
 
+/// The tool that fills the attested packages is pinned, and pinned once.
+/// `@latest` would let a publication made after this commit decide what
+/// goes into a `.deb` the attestation then vouches for; a version is
+/// immutable through Go's checksum database. Both workflows read the
+/// same file, so the release path can never drift from what CI proved.
+#[test]
+fn the_packaging_tool_is_pinned_and_both_workflows_read_one_pin() {
+    let pin = read("packaging/nfpm-version.txt");
+    let pin = pin.trim();
+    let digits = pin.strip_prefix("v2.").expect("a pinned nfpm v2 release");
+    let parts: Vec<&str> = digits.split('.').collect();
+    assert_eq!(parts.len(), 2, "{pin} is not vMAJOR.MINOR.PATCH");
+    for part in parts {
+        assert!(
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
+            "{pin} is not vMAJOR.MINOR.PATCH"
+        );
+    }
+
+    for workflow in [".github/workflows/release.yml", ".github/workflows/ci.yml"] {
+        let text = read(workflow);
+        assert!(
+            !text.contains("cmd/nfpm@latest"),
+            "{workflow} installs nfpm unpinned"
+        );
+        assert!(
+            text.contains(r#"nfpm_version="$(tr -d '[:space:]' < packaging/nfpm-version.txt)""#),
+            "{workflow} does not read the pin"
+        );
+        assert!(
+            text.contains(r#"go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${nfpm_version}""#),
+            "{workflow} does not install the pinned version"
+        );
+    }
+}
+
+/// Secrets reach their tools by stdin or by the name of an environment
+/// variable — never as an argument, which anything else on the runner
+/// can read out of the process table while the command runs.
+#[test]
+fn the_release_workflow_keeps_secret_values_off_the_process_table() {
+    let workflow = read(".github/workflows/release.yml");
+
+    assert!(workflow.contains("--passphrase-fd 0"), "{workflow}");
+    assert!(
+        !workflow.contains("--passphrase \"${BROKKR_APT_SIGNING_KEY_PASSPHRASE}\""),
+        "the passphrase is still an argument"
+    );
+    // The key block already arrives on stdin; keep it that way.
+    assert!(
+        workflow.contains(r#"printf '%s\n' "${BROKKR_APT_SIGNING_KEY}" | gpg"#),
+        "{workflow}"
+    );
+
+    for secret in ["BROKKR_TAP_TOKEN", "BROKKR_BUCKET_TOKEN"] {
+        assert!(
+            workflow.contains(&format!("--token-env {secret}")),
+            "{secret} is not passed by name"
+        );
+        assert!(
+            !workflow.contains(&format!("--token \"${{{secret}}}\"")),
+            "{secret}'s value is still an argument"
+        );
+    }
+}
+
+/// The script's half of the same rule: it takes the name of a variable,
+/// refuses a value handed to it by mistake, and refuses an empty one
+/// rather than reaching for a token it was not given.
+#[test]
+fn the_channel_pull_request_script_reads_its_token_from_the_environment() {
+    if !usable(&["bash"]) {
+        return;
+    }
+    let script = workspace().join("packaging/open-channel-pr.sh");
+
+    let looks_like_a_value = Command::new("bash")
+        .arg(&script)
+        .args(["--token-env", "ghp_a-real-looking-token"])
+        .args(["--repo", "owner/name"])
+        .args(["--source", "packaging/homebrew/brokkr.rb"])
+        .args(["--destination", "Formula/brokkr.rb"])
+        .args(["--version", "0.6.0"])
+        .output()
+        .expect("the script runs");
+    assert!(!looks_like_a_value.status.success());
+    assert!(
+        String::from_utf8_lossy(&looks_like_a_value.stderr)
+            .contains("takes a variable name, not a value"),
+        "{looks_like_a_value:?}"
+    );
+
+    let unset = Command::new("bash")
+        .arg(&script)
+        .args(["--token-env", "BROKKR_TOKEN_THAT_IS_NOT_SET"])
+        .args(["--repo", "owner/name"])
+        .args(["--source", "packaging/homebrew/brokkr.rb"])
+        .args(["--destination", "Formula/brokkr.rb"])
+        .args(["--version", "0.6.0"])
+        .env_remove("BROKKR_TOKEN_THAT_IS_NOT_SET")
+        .output()
+        .expect("the script runs");
+    assert!(!unset.status.success());
+    assert!(
+        String::from_utf8_lossy(&unset.stderr).contains("is unset or empty"),
+        "{unset:?}"
+    );
+
+    // And a token that *is* in the environment is read: the run gets all
+    // the way to the placeholder guard, which is the next refusal and the
+    // furthest this can go without a network.
+    let provided = Command::new("bash")
+        .arg(&script)
+        .args(["--token-env", "BROKKR_TOKEN_FOR_THIS_TEST"])
+        .args(["--repo", "owner/name"])
+        .args(["--source", "packaging/homebrew/brokkr.rb"])
+        .args(["--destination", "Formula/brokkr.rb"])
+        .args(["--version", "0.6.0"])
+        .env("BROKKR_TOKEN_FOR_THIS_TEST", "not-a-real-token")
+        .current_dir(workspace())
+        .output()
+        .expect("the script runs");
+    assert!(!provided.status.success());
+    assert!(
+        String::from_utf8_lossy(&provided.stderr).contains("still carries a placeholder digest"),
+        "{provided:?}"
+    );
+}
+
 /// Part 2's constitutional half (decision 0012): the signing key is a
 /// named repository secret consumed by a workflow step, and no key
 /// material is anywhere in the tree.
@@ -518,6 +647,37 @@ fn the_rpm_builder_refuses_a_package_it_cannot_place() {
         String::from_utf8_lossy(&output.stderr).contains("no architecture in its name"),
         "{output:?}"
     );
+}
+
+/// Two packages that share a `$basearch` both survive: the stale-package
+/// clean runs once per architecture, not once per package, or the second
+/// copy would delete the first and the repository would be short one rpm.
+#[test]
+fn the_rpm_builder_keeps_every_package_sharing_an_architecture() {
+    if !usable(&["bash"]) {
+        return;
+    }
+    let work = tempfile::tempdir().expect("a temporary directory");
+    let rpms = work.path().join("rpms");
+    std::fs::create_dir_all(&rpms).expect("a directory");
+    for name in ["brokkr-linux-x86_64.rpm", "brokkr-doc-linux-x86_64.rpm"] {
+        std::fs::write(rpms.join(name), b"not an rpm").expect("a file");
+    }
+
+    let site = work.path().join("site/rpm");
+    run(Command::new("bash")
+        .arg(workspace().join("packaging/rpm/build-repo.sh"))
+        .arg("--rpms")
+        .arg(&rpms)
+        .arg("--out")
+        .arg(&site)
+        .arg("--base-url")
+        .arg("https://example.invalid/rpm")
+        .arg("--layout-only"));
+
+    for name in ["brokkr-linux-x86_64.rpm", "brokkr-doc-linux-x86_64.rpm"] {
+        assert!(site.join("x86_64").join(name).is_file(), "{name} was lost");
+    }
 }
 
 /// Parts 5 and 6. The bump script renders every channel from one

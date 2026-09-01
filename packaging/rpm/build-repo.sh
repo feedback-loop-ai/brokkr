@@ -68,13 +68,19 @@ for rpm in "$rpms"/*.rpm; do
   # rpm filed under the wrong $basearch is a repository that lies.
   [ -n "$arch" ] || die "cannot place $(basename "$rpm"): no architecture in its name"
   found=$((found + 1))
-  mkdir -p "$out/$arch"
-  rm -f "$out/$arch"/*.rpm
-  cp "$rpm" "$out/$arch/"
+  # The stale-package clean happens once per architecture, the first
+  # time one is seen. Inside the copy it would delete a package this
+  # same run had already placed, the moment two .rpm files share a
+  # $basearch — the apt builder cleans once for the same reason.
   case " $architectures " in
     *" $arch "*) ;;
-    *) architectures="${architectures:+$architectures }$arch" ;;
+    *)
+      architectures="${architectures:+$architectures }$arch"
+      mkdir -p "$out/$arch"
+      rm -f "$out/$arch"/*.rpm
+      ;;
   esac
+  cp "$rpm" "$out/$arch/"
 done
 [ "$found" -gt 0 ] || die "no .rpm files in $rpms"
 
