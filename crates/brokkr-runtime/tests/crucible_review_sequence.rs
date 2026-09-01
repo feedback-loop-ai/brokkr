@@ -17,7 +17,10 @@
 //!    the seat still speaking `fast`'s review vocabulary so the
 //!    inherited reforging ladder rules on it unmodified;
 //! 2. the charter — `roles/review-chief.md` states the floor the chief
-//!    may not rule below, naming `security-hold` explicitly.
+//!    may not rule below, naming `security-hold` explicitly, and covers
+//!    the branch the same non-final rule creates: a panel result
+//!    OUTSIDE the vocabulary, which the aggregate emits to fail closed
+//!    and which nothing downstream of a non-final step will check.
 //!
 //! The third leg, that the panel's result actually ARRIVES at the
 //! chief's driver input and that the chief's result is what the effect
@@ -148,6 +151,46 @@ fn the_chief_charter_states_the_floor_it_may_not_rule_below() {
         "== \"security-hold\"` → your result is `security-hold`. Full stop.",
         "You may raise a severity; you may not lower one",
         "**Your result is the seat's result**",
+    ] {
+        assert!(
+            prose.contains(required),
+            "the chief charter no longer states: {required}"
+        );
+    }
+}
+
+/// The floor's fourth branch, which is the one the sequence shape makes
+/// necessary. `aggregate_results` fails closed on a member that returned
+/// no usable result by emitting `__member-schema-invalid__` and letting
+/// the seat's declared-results check reject it — but here `positions` is
+/// a NON-FINAL step, so its result is only stored into `prior_results`
+/// and never checked against a vocabulary. Under `recipes/panel-review`
+/// that same malformed member parks the run; under `crucible` it arrives
+/// at the chief as an ordinary string. The chief is therefore the only
+/// remaining floor, and the charter has to say so.
+///
+/// The sentinel is asserted as a literal on both sides on purpose: if
+/// `engine.rs` ever renames it, this test fails and points at the
+/// charter that still names the old spelling.
+#[test]
+fn the_chief_charter_covers_a_panel_result_outside_the_vocabulary() {
+    let charter =
+        std::fs::read_to_string(workspace().join("recipes/crucible/roles/review-chief.md"))
+            .expect("the chief charter ships with the recipe");
+    let prose = charter.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    assert!(
+        prose.contains("__member-schema-invalid__"),
+        "the chief charter must name the sentinel `aggregate_results` \
+         emits for an unreadable member, or the chief has no instruction \
+         for the one panel outcome nothing downstream will catch"
+    );
+    for required in [
+        "is **anything else**",
+        "**the panel did not report.**",
+        "Treat it as a defect, not as a verdict",
+        "rule on your own read of the diff alone",
+        "a silent panel is a missing reviewer, never a clean one",
     ] {
         assert!(
             prose.contains(required),

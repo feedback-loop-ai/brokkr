@@ -77,6 +77,22 @@ README would be lying if it implied otherwise. A charter is an
 instruction to a model; the test is what says the instruction reaches
 the model and can be followed.
 
+**The same rule costs this recipe a fail-closed path, and the floor has
+a fourth branch because of it.** When `review-panel` cannot read a
+member's payload it emits `result: "__member-schema-invalid__"` —
+deliberately outside every vocabulary, so that the seat's
+declared-results check rejects it and the run parks with the member
+evidence attached. That check runs on a seat's *final* step. `positions`
+is not one, so under `recipes/panel-review` a member whose driver died
+mid-stream parks the run, while here the sentinel is handed to the chief
+as an ordinary string. `roles/review-chief.md` therefore instructs the
+chief to treat any result outside the three as *the panel did not
+report*: name it as a defect in `notes` and rule on its own read of the
+diff alone. That degrades this seat to `fast`-equivalent review under
+the same trusted gate — not a bypass of one — and it is pinned by
+`the_chief_charter_covers_a_panel_result_outside_the_vocabulary` in
+`crates/brokkr-runtime/tests/crucible_review_sequence.rs`.
+
 Why a chief at all, rather than `panel-review`'s flat panel: the
 aggregate can join two verdicts but it cannot *reconcile* them. When
 correctness calls a line an untested branch and security calls the same

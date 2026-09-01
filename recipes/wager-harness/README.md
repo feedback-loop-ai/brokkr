@@ -92,13 +92,21 @@ before you trust a comparison, not after.**
    `brokkr rerun --run <id> --recipe <challenger>` rather than launching
    a fresh run by hand: it carries the base forward for you, and the
    journal records that it did.
-2. **Same sandbox.** The challenger's `driver.command` must grant the
-   same access the incumbent's does. `fast`'s implement seat runs
-   `--permission-mode acceptEdits`; this recipe's runs `--sandbox
-   danger-full-access`. Those are two providers' spellings of *the same
-   grant*, and matching them is a judgement call you must make
-   deliberately and record. **A tighter cage on one arm is the exact
-   defect that voided round one.**
+2. **Same sandbox.** The challenger's `driver.command` must not grant
+   *less* access than the incumbent's. Providers spell the grant
+   differently and the mapping is never exact, so this is a judgement
+   call you must make deliberately and record. Read this recipe's own
+   arms as the worked example, and read them honestly: `fast`'s
+   implement seat runs `--permission-mode acceptEdits` with
+   `--allowedTools` naming seven `Bash` prefixes, so it may edit freely
+   but may run nothing outside that list — no network command, for
+   instance. This recipe's runs `--sandbox danger-full-access`, which
+   is **broader**, not equal: unrestricted execution. That asymmetry is
+   in the challenger's favour and it is deliberate, because the defect
+   that voided round one was the other direction — **a tighter cage on
+   the challenger.** It is also unavoidable here for the reason item 3
+   gives, and the comparison must say so rather than claim a parity it
+   does not have.
 3. **Same tools.** Every command one arm may run, the other may run.
    Where a provider's adapter declares `tool_permissions:
    "unsupported"` — as `codex` and `dsh` both do — the arms are not

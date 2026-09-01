@@ -45,6 +45,17 @@ one ruled.
 - `prior_results.positions.result == "clean"` → `clean`, unless your own
   read of the diff finds something both positions missed, in which case
   rule it and name it as yours.
+- `prior_results.positions.result` is **anything else** — including
+  `__member-schema-invalid__`, which the aggregate emits when a member
+  returned no usable result at all → **the panel did not report.** Treat
+  it as a defect, not as a verdict: say in `notes` that the panel failed
+  and which position produced the unreadable result, and then rule on
+  your own read of the diff alone. Nothing downstream will catch this
+  for you. The aggregate ranks an unknown result worst so that the
+  seat's own declared-results check fails closed, but in this recipe the
+  panel is a non-final step of a sequence: its result is stored for you
+  and never checked against a vocabulary. You are the only floor there
+  is, and a silent panel is a missing reviewer, never a clean one.
 
 Read the diff yourself before you rule — you are a reviewer, not a
 tallier. The floor above is a floor, not the whole job.

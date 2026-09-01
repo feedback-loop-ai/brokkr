@@ -567,7 +567,7 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	96cc63434feb	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
+crucible	b21090e29113	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
 ember	3ec48c9f8c53	7 phases	implement, intake, review, ship, verify	recipes/ember
 fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
 night-shift	557cae044d6c	6 phases	implement, review, ship, verify	recipes/night-shift
@@ -575,7 +575,7 @@ node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
 panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
 sdd	ed604f45bfce	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
 sdd-paranoid	6b8ff77d2ed4	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
-wager-harness	e6d2a0629ce3	6 phases	implement, review, ship, verify	recipes/wager-harness
+wager-harness	44da266f8554	6 phases	implement, review, ship, verify	recipes/wager-harness
 self	ada640664125	7 phases	implement, intake, review, ship, verify	./bundles/self
 verify	4a94d29f9058	4 phases	review, verify	./bundles/verify
 ```
@@ -592,9 +592,10 @@ verify	4a94d29f9058	4 phases	review, verify	./bundles/verify
 | [`sdd`](recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
 | [`sdd-paranoid`](recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
 
-Only `fast`, `node` and the four roster recipes carry pinned manifest
-digests in `crates/brokkr-runtime/tests/witness_digests.rs`; the rest are
-covered by the tree-wide compile test but not pinned. Cost figures are
+Seven of the entries above carry pinned manifest digests in
+`crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
+four roster recipes, and `bundles/verify`; the rest are covered by the
+tree-wide compile test but not pinned. Cost figures are
 deliberately absent from every recipe README above unless a run backs
 them — economics is LaneTally's ledger, not this engine's (decision
 0021 ruling 6).

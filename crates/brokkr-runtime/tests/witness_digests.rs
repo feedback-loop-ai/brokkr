@@ -81,7 +81,7 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/crucible",
-        "96cc63434feb39b755f192a2aafcbffb03e0e318d9c495cc6c5875c8fa8aef8b",
+        "b21090e29113024b5c17d5e7035c130decf0b6de62fea48e6e695b042ba94567",
     ),
     (
         "recipes/night-shift",
@@ -89,7 +89,7 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/wager-harness",
-        "e6d2a0629ce31edcb6947cee0eaadbd76b7fd180c06dd928037cdf6830192705",
+        "44da266f85547bd4212085fc965088d0b174c2f1de06eb0a1b45ea771c9805f6",
     ),
     (
         "bundles/verify",

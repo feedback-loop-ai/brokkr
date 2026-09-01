@@ -186,9 +186,20 @@ step that synthesises them. The panel's `review-panel` output is *not*
 the seat's result — it is a checkpoint, handed to the chief as
 `context.prior_results.positions` — so a `security-hold` from the panel
 reaches the rule table only if the chief reproduces it. The engine will
-accept a chief that rules lower. When a sequence's later step judges
-earlier ones, put the floor in that step's charter and test the
-plumbing:
+accept a chief that rules lower.
+
+The same rule disables a fail-closed path you may not know you were
+relying on. A panel aggregate that cannot read a member's payload emits
+`result: "__member-schema-invalid__"` — deliberately not in any
+vocabulary, so that the seat's declared-results check rejects it and the
+run parks with the member evidence attached. On a *non-final* step
+nothing performs that check, so the sentinel is handed to the next step
+as an ordinary string and the malformed-driver signal is lost unless
+that step's charter names it. Give the floor a branch for a result
+outside the vocabulary, not just for the worst result inside it.
+
+When a sequence's later step judges earlier ones, put the floor in that
+step's charter and test the plumbing:
 [`recipes/crucible/README.md`](../../recipes/crucible/README.md#the-review-sequence--the-one-new-shape-here)
 walks the shape, and
 `crates/brokkr-runtime/tests/crucible_review_sequence.rs` pins it.
