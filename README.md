@@ -567,7 +567,7 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	50edb5383dd2	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
+crucible	d33a3e69c105	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
 ember	aa6514b5bc24	7 phases	implement, intake, review, ship, verify	recipes/ember
 fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
 night-shift	a3352f00db74	6 phases	implement, review, ship, verify	recipes/night-shift

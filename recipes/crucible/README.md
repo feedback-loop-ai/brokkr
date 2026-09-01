@@ -124,10 +124,13 @@ figure here is evidence-backed. The structure, which is fact:
 - The bound on that, worst case: three implement visits, three verify
   passes and three reviews at three sessions each. That is arithmetic
   from the inherited table, not an observation.
-- The timeouts (`implement` and `verify` at 7200s, `review` at 7200s for
-  the whole sequence) are seat data chosen for a cold Rust workspace and
-  an exhaustive verifier. They are a ceiling on a runaway seat, not a
-  spend.
+- The timeouts (`implement` and `verify` at 7200s, `review` at 7200s)
+  are seat data chosen for a cold Rust workspace and an exhaustive
+  verifier. `timeout_seconds` is a **per-step** deadline, not one budget
+  for the seat: `execute_sequence` hands the seat's deadline to each
+  step in turn, so the review seat's worst case is 7200s for the
+  positions panel *plus* 7200s for the chief. A timeout is a ceiling on
+  a runaway seat, not a spend.
 
 Use crucible when the cost of a missed defect exceeds the cost of the
 crew. That is a judgement, and it stays the operator's.
@@ -147,7 +150,7 @@ this panel a lawful experiment.
 
 **That freedom costs something the flat panel shape did not cost, and it
 belongs in the open.** Under
-[`panel-review`](../panel-review/README.md) the members' verdict is
+[`panel-review`](../panel-review) the members' verdict is
 joined in *code* — `aggregate_results` ranks worst-of — so a member's
 prose can never argue the seat's result down. Here the join is a model:
 the aggregate copies each position's `notes` verbatim into

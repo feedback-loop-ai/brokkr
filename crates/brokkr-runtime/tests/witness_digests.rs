@@ -81,7 +81,7 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/crucible",
-        "50edb5383dd2291a0f13a57cbee884cd0427043b654c91e899226f0fea571955",
+        "d33a3e69c105a37462e2c9927d70fd819808faf7c1c4e5818c03a54b9d9c2d92",
     ),
     (
         "recipes/night-shift",
