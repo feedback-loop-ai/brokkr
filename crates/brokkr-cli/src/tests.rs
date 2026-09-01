@@ -1403,6 +1403,87 @@ fn a_run_selector_is_resolved_by_the_hearth_that_holds_it() {
     assert!(!dir.path().join("ghost.db").exists());
 }
 
+/// A selector that answers in SEVERAL hearths is refused by name, never
+/// silently opened on the first (decision 0026 ruling 3): a prefix that
+/// one journal would call ambiguous cannot become an answer merely
+/// because the world grew a second journal. `latest` is the exception
+/// the selector itself defines — it means the newest run, so the
+/// recorded stamp decides which hearth holds it rather than the world's
+/// order deciding for it.
+#[test]
+fn a_selector_that_several_hearths_answer_is_refused_and_latest_is_the_newest() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "run-shared-a");
+    running_store(&beta, "run-shared-b");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    let refusal = resolve_in_hearths(&world, "run-shared".to_string()).unwrap_err();
+    let said = refusal.to_string();
+    assert!(said.contains("2 realms"), "{said}");
+    assert!(said.contains("alpha"), "{said}");
+    assert!(said.contains("beta"), "{said}");
+    assert!(said.contains("--db"), "the way out is named: {said}");
+
+    // `latest` still resolves — every hearth holding runs answers it,
+    // and that is an answer about the world, not an ambiguity.
+    let (tab, id) = resolve_in_hearths(&world, "latest".to_string()).unwrap();
+    assert_eq!(id, format!("run-shared-{}", ["a", "b"][tab]));
+
+    // The stamp is what decides between them, and a tie leaves the
+    // earlier hearth in place: map order is the world's own order.
+    assert_eq!(
+        newest_answer(vec![
+            (0, "old".to_string(), "2026-01-01T00:00:00Z".to_string()),
+            (1, "new".to_string(), "2026-01-02T00:00:00Z".to_string()),
+        ]),
+        Some((1, "new".to_string()))
+    );
+    assert_eq!(
+        newest_answer(vec![
+            (0, "first".to_string(), "2026-01-01T00:00:00Z".to_string()),
+            (1, "same".to_string(), "2026-01-01T00:00:00Z".to_string()),
+        ]),
+        Some((0, "first".to_string()))
+    );
+    assert_eq!(newest_answer(Vec::new()), None);
+}
+
+/// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
+/// console asked about ONE run must not migrate the journals of the
+/// realms it merely walked past. An empty file is the proof — a
+/// read-write open would write a schema and a meta row into it, and a
+/// read-only one refuses it and moves on.
+#[test]
+fn resolving_across_hearths_migrates_no_journal_it_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let unborn = dir.path().join("alpha.db");
+    std::fs::write(&unborn, b"").unwrap();
+    let beta = dir.path().join("beta.db");
+    running_store(&beta, "run-beta");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &unborn), hearth("beta", &beta)];
+
+    assert_eq!(
+        resolve_in_hearths(&world, "run-be".to_string()).unwrap(),
+        (1, "run-beta".to_string())
+    );
+    assert_eq!(
+        std::fs::metadata(&unborn).unwrap().len(),
+        0,
+        "a journal the lookup passed was written to"
+    );
+    assert!(!dir.path().join("alpha.db-wal").exists());
+}
+
 /// The console's liveness, at the one place a store is opened on its
 /// path: head-gated on both seq and hash, fleet on the slower cadence,
 /// and one unfoldable run keeping its row.

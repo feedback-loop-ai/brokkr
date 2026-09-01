@@ -501,6 +501,77 @@ fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
     assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
 }
 
+/// A realm the map names before its first run has no journal yet, and
+/// the world's dossier is not withheld for it: the flight reads the
+/// hearths that are there, says out loud which one stated nothing, and
+/// creates no journal on the way past — the same degrading `brokkr runs`
+/// already does per hearth (decision 0026 rulings 3 and 5). A ONE-hearth
+/// world keeps its refusal: the single journal it was pointed at must
+/// open or there is nothing to report on.
+#[test]
+fn a_realm_with_no_journal_yet_does_not_withhold_the_worlds_dossier() {
+    let (ws, alpha_run, seq) = staged();
+    let unborn = ws.path().join(".forge/beta.db");
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main"},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/beta.db"},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    ws.proposes(json!({
+        "fleet_summary": "one hearth answered, one has not run yet",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "alpha",
+            "run_id": alpha_run,
+            "seq": seq,
+            "finding": "max_residual_severity: high",
+            "reasoning": "the only hearth that has run",
+        }],
+    }));
+
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("realm beta states nothing"),
+        "the absence is said, not swallowed: {stderr}"
+    );
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["fleet"]["realms"], json!(["alpha"]));
+    assert_eq!(context["fleet"]["runs"], 1);
+    assert_eq!(context["runs"][0]["realm"], json!("alpha"));
+    assert!(!unborn.exists(), "a read created a journal");
+    assert!(!ws.path().join(".forge/beta.db-wal").exists());
+
+    // The one-hearth world's refusal is unchanged: no dossier, nothing
+    // recorded, nonzero.
+    let output = ws.brokkr(&[
+        "muninn",
+        "run",
+        "--db",
+        ".forge/nowhere.db",
+        "--agents-dir",
+        "agents",
+        "--adapters-dir",
+        "adapters",
+        "--record",
+        ".forge/muninn.ndjson",
+    ]);
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("nowhere.db"),
+        "the refusal names the journal it was pointed at"
+    );
+    assert!(!ws.path().join(".forge/nowhere.db").exists());
+}
+
 #[test]
 fn no_run_journal_gains_an_event_and_the_store_is_opened_read_only() {
     let (ws, _, _) = staged();

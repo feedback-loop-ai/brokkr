@@ -613,19 +613,49 @@ pub fn run(
     // Every hearth the map names is read (decision 0026 ruling 3), and
     // each of them READ-ONLY: this path cannot append to any journal it
     // reads, however many it reads.
-    let stores = hearths
-        .iter()
-        .map(|hearth| {
-            Store::open_read_only(&hearth.journal)
-                .with_context(|| format!("opening {} for reading", hearth.journal.display()))
-        })
-        .collect::<Result<Vec<Store>>>()?;
+    //
     // A one-hearth world names no realm, and its dossier, its report and
-    // its record are exactly what they were before many hearths existed.
-    let labels: Vec<Option<String>> = match hearths.len() {
-        0 | 1 => vec![None; hearths.len()],
-        _ => hearths.iter().map(|h| Some(h.label())).collect(),
-    };
+    // its record are exactly what they were before many hearths existed
+    // — including its refusal: the one journal it was pointed at must
+    // open, or there is no dossier to write about. A MANY-hearth world
+    // survives a realm whose journal is not there yet, the way `brokkr
+    // runs` already does: that hearth states nothing, its absence is
+    // said out loud rather than silently, and the rest of the world is
+    // still read. A realm mapped before its first run must not withhold
+    // the whole world's dossier.
+    let sole = hearths.len() < 2;
+    let mut stores: Vec<Store> = Vec::new();
+    let mut labels: Vec<Option<String>> = Vec::new();
+    for hearth in hearths {
+        let opened = Store::open_read_only(&hearth.journal)
+            .with_context(|| format!("opening {} for reading", hearth.journal.display()));
+        match opened {
+            Ok(store) => {
+                stores.push(store);
+                labels.push(match sole {
+                    true => None,
+                    false => Some(hearth.label()),
+                });
+            }
+            Err(error) => {
+                if sole {
+                    return Err(error);
+                }
+                eprintln!(
+                    "realm {} states nothing: {}",
+                    Safe::new(&hearth.label()).as_str(),
+                    Safe::new(&error.to_string()).as_str()
+                );
+            }
+        }
+    }
+    // Degrading per hearth is not the same as reporting on nothing: a
+    // world where NOT ONE journal opened has no dossier to write about,
+    // and saying so beats sending an aide to read an empty world.
+    anyhow::ensure!(
+        !stores.is_empty(),
+        "no journal in this world could be read; there is nothing to report on"
+    );
     let sources: Vec<Source> = stores
         .iter()
         .zip(&labels)

@@ -897,6 +897,31 @@ fn tui_views(
     seen: &mut Option<(String, u64)>,
     clock: fn() -> String,
 ) -> Result<tui::Refreshed> {
+    // A realm the map names before its first run has no journal yet, and
+    // that is an ordinary state of the world, not a fault: the hearth is
+    // EMPTY, and an empty hearth is a frame that says so with the keys
+    // still live (decision 0026 ruling 2) — exactly what `brokkr runs`
+    // already prints for the same realm. Refusing here would count
+    // against the console's give-up bound and end the session over a
+    // realm the operator merely tabbed to. Only in a many-hearth world:
+    // a sole journal that is not on disk is refused by `tui::start`
+    // before the loop begins, and that refusal is unchanged.
+    if !sole && !db.is_file() {
+        if !(ask.force || ask.fleet) {
+            return Ok(None);
+        }
+        // Nothing was read, so nothing is remembered as read: the tick
+        // that finds the journal finally there rebuilds from scratch.
+        *head = None;
+        return Ok(Some(tui::Views {
+            now: clock(),
+            note: Some(format!(
+                "this realm has no journal yet, and a read never creates one: {}",
+                db.display()
+            )),
+            ..tui::Views::empty()
+        }));
+    }
     let store = match sole {
         true => Store::open(db)?,
         false => Store::open_read_only(db)?,
@@ -954,6 +979,8 @@ fn tui_views(
         // The seat's own session, located by the SAME lookup the
         // console's /api/session endpoint uses.
         transcript: ask.session.and_then(ui::session_turns),
+        // A journal that was read has nothing to say about itself.
+        note: None,
     }))
 }
 
@@ -985,36 +1012,128 @@ fn tui_source<'a>(
     }
 }
 
+/// Which of the hearths that answered `latest` actually holds it: the
+/// newest run in the WORLD, by the recorded stamp — the same rule
+/// `selector::resolve` applies inside one journal, applied across them.
+/// A tie leaves the earlier hearth in place, because map order is the
+/// world's own order and a tie broken by iteration order would answer
+/// differently on maps that say the same thing.
+///
+/// Pure, over `(hearth, run id, created_at)`, so the rule is testable
+/// without three journals whose stamps happen to differ.
+fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, String)> {
+    answered
+        .into_iter()
+        .reduce(|best, next| match next.2 > best.2 {
+            true => next,
+            false => best,
+        })
+        .map(|(index, id, _)| (index, id))
+}
+
 /// Where a `--run` selector resolves in a world of many hearths: the
 /// hearth that holds it, and the id it resolved to. A run id lives in
 /// exactly ONE journal (decision 0026 ruling 3), so this is a lookup
-/// across hearths and never a merge — the first hearth that answers is
-/// the answer, and when none does the refusal is the first hearth's own.
+/// across hearths and never a merge.
+///
+/// Every hearth is asked, and a selector that answers in SEVERAL of them
+/// is refused by name rather than silently opening the first — the same
+/// rule `selector::resolve` applies inside one journal, applied across
+/// them: picking one for the operator would be a guess about which run
+/// they meant, and a selector that is strict in a one-hearth world and
+/// loose in a many-hearth one is a trap. `latest` is the exception the
+/// selector already defines: it means the NEWEST run, so where several
+/// hearths hold runs the recorded stamp decides between them, and the
+/// earliest hearth in map order wins a tie.
 ///
 /// A hearth whose journal is not on disk yet is not consulted, because
 /// resolving would open it and `Store::open` creates a file, a WAL and a
 /// meta row. When NO hearth has one, the selector passes through
 /// unresolved and `tui::start` does the refusing — a read must not create
 /// the database it came to read.
+///
+/// A MANY-hearth world is walked READ-ONLY, the same way [`tui_views`]
+/// reads it and for the same reason: the peer realms are journals the
+/// operator did not name, and a lookup passing through one must not
+/// migrate it (ruling 5). A world of ONE hearth is the journal the
+/// operator DID name, opened exactly as `inspect` and `watch` open it —
+/// the single-run path is untouched, down to the sidecars it leaves
+/// behind.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
+    // The hearths that answered: index, the id it resolved to, and when
+    // that run was created — which is what `latest` compares.
+    let mut answered: Vec<(usize, String, String)> = Vec::new();
     for (index, hearth) in hearths.iter().enumerate() {
         if !hearth.journal.is_file() {
             continue;
         }
-        let resolved = Store::open(&hearth.journal)
+        let opened = match sole {
+            true => Store::open(&hearth.journal),
+            false => Store::open_read_only(&hearth.journal),
+        };
+        let listed = opened
             .map_err(anyhow::Error::from)
-            .and_then(|store| selector::resolve_run(&store, &run));
-        match resolved {
-            Ok(id) => return Ok((index, id)),
+            .and_then(|store| Ok(store.list_runs()?));
+        let runs = match listed {
+            Ok(runs) => runs,
+            Err(error) => {
+                refusal.get_or_insert(error);
+                continue;
+            }
+        };
+        let refs: Vec<selector::RunRef<'_>> = runs
+            .iter()
+            .map(|(run_id, _feature, created_at)| selector::RunRef { run_id, created_at })
+            .collect();
+        match selector::resolve(&refs, &run) {
+            Ok(id) => {
+                let created = refs
+                    .iter()
+                    .find(|candidate| candidate.run_id == id)
+                    .map_or(String::new(), |candidate| candidate.created_at.to_string());
+                answered.push((index, id, created));
+            }
             Err(error) => {
                 refusal.get_or_insert(error);
             }
         }
     }
-    match refusal {
-        Some(error) => Err(error),
-        None => Ok((0, run)),
+    if run == selector::LATEST {
+        return match newest_answer(answered) {
+            Some((index, id)) => Ok((index, id)),
+            None => match refusal {
+                Some(error) => Err(error),
+                None => Ok((0, run)),
+            },
+        };
+    }
+    match answered.len() {
+        1 => {
+            let (index, id, _) = answered.swap_remove(0);
+            Ok((index, id))
+        }
+        0 => match refusal {
+            Some(error) => Err(error),
+            None => Ok((0, run)),
+        },
+        // These strings reach a terminal through anyhow, so the selector
+        // and every realm and id named back are sanitized.
+        _ => Err(anyhow::anyhow!(
+            "'{}' matches a run in {} realms: {}; name one journal with --db",
+            render::Safe::new(&run).as_str(),
+            answered.len(),
+            answered
+                .iter()
+                .map(|(index, id, _)| format!(
+                    "{} ({})",
+                    render::Safe::new(&hearths[*index].label()).as_str(),
+                    render::Safe::new(id).as_str()
+                ))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )),
     }
 }
 
@@ -1774,7 +1893,10 @@ fn run_with(
                     serde_json::to_string_pretty(&realms::view(&source, &journal, &rows))?
                 );
             } else {
-                print!("{}", realms::render(&source, &journal, &rows));
+                print!(
+                    "{}",
+                    realms::render(&source, &journal, &rows, realms::per_realm(&world, &rows))
+                );
             }
             Ok(ExitCode::SUCCESS)
         }

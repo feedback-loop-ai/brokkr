@@ -214,6 +214,7 @@ fn views_with(seat: &str) -> Views {
         runs: fleet(),
         run: Some(run_view_for(seat)),
         transcript: None,
+        note: None,
     }
 }
 
@@ -616,6 +617,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &empty);
     assert!(tui.scope.is_none(), "the phase went away");
@@ -648,6 +650,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         }]),
         run: None,
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &others);
     assert_eq!(tui.run, None);
@@ -1490,6 +1493,7 @@ fn panel_views() -> Views {
         }]),
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
+        note: None,
     }
 }
 
@@ -1685,6 +1689,7 @@ fn graph_views(phases: Vec<Phase>, status: &str) -> Views {
         runs: fleet(),
         run: Some(view),
         transcript: None,
+        note: None,
     }
 }
 
@@ -2414,6 +2419,7 @@ fn a_graph_selection_survives_a_refresh_and_a_vanished_node_highlights_nothing()
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &empty);
     assert!(selected(&tui, &empty).is_none());
@@ -3240,6 +3246,7 @@ fn adopting_views() -> Views {
         runs: fleet(),
         run: Some(brokkr_view::run_view(&events, Some(&state()))),
         transcript: None,
+        note: None,
     }
 }
 
@@ -4076,6 +4083,7 @@ fn the_lane_cursor_scopes_the_member_and_the_seats_and_trail_filter_to_it() {
         runs: fleet(),
         run: Some(brokkr_view::run_view(&[], None)),
         transcript: None,
+        note: None,
     };
     settle(&mut tui, &gone);
     assert!(
@@ -4704,11 +4712,83 @@ fn an_unvisited_hearth_is_never_asked_about_and_no_read_creates_a_journal() {
         script(&[Key::Char(']'), Key::Quit]);
         let mut tui = tabbed_tui(&["alpha", "beta"]);
         drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
-        // The hearth that would not open is a frame that says so, with
-        // the keys still live — the console's existing transient arm.
-        assert!(tui.status.is_some(), "the unreadable hearth said so");
+        // A hearth with no journal yet is a frame that says so, with the
+        // keys still live and nothing counted against the give-up bound.
+        assert!(
+            tui.status
+                .as_deref()
+                .is_some_and(|said| said.contains("no journal yet")),
+            "the empty hearth said so: {:?}",
+            tui.status
+        );
     }
     assert!(asked.contains(&1), "the visited hearth was asked about");
     assert!(!beta.exists(), "a read created a journal");
     assert!(!dir.path().join("beta.db-wal").exists());
+}
+
+/// A realm the map names before its first run has no journal yet, and
+/// that is an ordinary state of the world: the hearth is EMPTY, not
+/// unreadable. Visiting it shows an empty fleet, says why, and the
+/// console keeps running — where an error would have counted toward
+/// `WATCH_TRANSIENT_FRAMES` and ended the session in a second and a
+/// quarter over a realm that has simply not run yet (ruling 2). The
+/// world's other hearth is still there when the operator tabs back.
+#[test]
+fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    crate::tests::running_store(&alpha, "run-a");
+    let beta = dir.path().join("beta.db");
+    let hearths = [
+        Hearth {
+            realms: vec!["alpha".to_string()],
+            journal: alpha.clone(),
+        },
+        Hearth {
+            realms: vec!["beta".to_string()],
+            journal: beta.clone(),
+        },
+    ];
+
+    let mut heads = vec![None, None];
+    let mut seen = None;
+    let mut source = crate::tui_source(&hearths, &mut heads, &mut seen);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    script(&[Key::Char(']')]);
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    // Well past the give-up bound: the old behaviour bailed on the
+    // fifth unreadable poll, so surviving this many is the assertion.
+    let code = drive(
+        &mut terminal,
+        &test_ops(),
+        &mut source,
+        &mut tui,
+        crate::WATCH_TRANSIENT_FRAMES * 4,
+    );
+    assert!(code.is_ok(), "the console gave up: {code:?}");
+    assert_eq!(tui.tab, 1);
+    assert!(
+        tui.status
+            .as_deref()
+            .is_some_and(|said| said.contains("no journal yet")),
+        "{:?}",
+        tui.status
+    );
+    // The sentence is on the frame, sanitized like every other string.
+    let frame = terminal.backend().buffer().clone();
+    let drawn: String = frame
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(drawn.contains("no journal yet"), "{drawn}");
+    assert!(!beta.exists(), "a read created a journal");
+
+    // And the hearth that DOES have a journal is unharmed by the visit.
+    script(&[Key::Char('[')]);
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
+    assert_eq!(tui.tab, 0);
+    assert_eq!(tui.status, None, "the read hearth has nothing to say");
 }

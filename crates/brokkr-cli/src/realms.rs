@@ -34,9 +34,25 @@ pub struct Row {
     pub journal: String,
 }
 
+/// Whether the per-realm journal column is worth printing: some realm's
+/// effective journal is not the journal the WORLD itself names.
+///
+/// Compared against the world's journal rather than against the other
+/// realms, because a map whose realms all name one journal other than
+/// the world's would otherwise print a header naming a journal no realm
+/// reads, and no column to correct it. Compared against the map's own
+/// journal rather than against the header, because `--db` renames the
+/// header for one invocation without changing what the map says — a v1
+/// world read with `--db` grows no column.
+pub fn per_realm(world: &World, rows: &[Row]) -> bool {
+    let world_journal = world.journal().display().to_string();
+    rows.iter().any(|row| row.journal != world_journal)
+}
+
 /// The world as text: two facts about the world, then one line per
-/// realm with its columns aligned.
-pub fn render(source: &str, journal: &str, rows: &[Row]) -> String {
+/// realm with its columns aligned. `hearths` is [`per_realm`]: many
+/// hearths are said only where there are many.
+pub fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -> String {
     let cells: Vec<[Safe; 4]> = rows
         .iter()
         .map(|row| {
@@ -60,10 +76,9 @@ pub fn render(source: &str, journal: &str, rows: &[Row]) -> String {
         Safe::new(journal).as_str()
     );
     // Many hearths, said only where there are many: a world whose realms
-    // all share ONE journal reads exactly as it always did — the journal
-    // is already named above — and a world whose realms do not gets told
-    // which hearth is whose.
-    let hearths = rows.iter().any(|row| row.journal != rows[0].journal);
+    // all read the journal the world itself names reads exactly as it
+    // always did — that journal is named above already — and a world
+    // whose realms do not gets told which hearth is whose.
     for (row, hearth) in cells.iter().zip(rows) {
         out.push_str("realm    ");
         for (index, width) in widths.iter().enumerate() {

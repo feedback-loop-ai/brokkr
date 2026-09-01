@@ -87,6 +87,14 @@ pub(crate) struct Views {
     pub runs: RunsView,
     pub run: Option<RunView>,
     pub transcript: Option<(Vec<Turn>, bool)>,
+    /// What this frame has to SAY about the hearth it was read from, as
+    /// opposed to what it failed to do. A realm whose journal is not
+    /// there yet is empty rather than unreadable (decision 0026 ruling
+    /// 2), so it arrives as an ordinary frame carrying a sentence — the
+    /// status line states it and the keys stay live, where an `Err`
+    /// would have counted toward the give-up bound and ended the
+    /// console over a realm that has simply not run yet.
+    pub note: Option<String>,
 }
 
 impl Views {
@@ -102,6 +110,7 @@ impl Views {
             },
             run: None,
             transcript: None,
+            note: None,
         }
     }
 }
@@ -3019,9 +3028,12 @@ where
         };
         match source(ask) {
             Ok(Some(fresh)) => {
+                // A frame that arrived says whatever it has to say — a
+                // hearth with no journal yet says so — and a frame with
+                // nothing to say clears the last sentence.
+                tui.status = fresh.note.clone();
                 views = fresh;
                 failures = 0;
-                tui.status = None;
             }
             Ok(None) => failures = 0,
             Err(error) => {

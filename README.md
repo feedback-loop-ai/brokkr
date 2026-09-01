@@ -264,10 +264,16 @@ holds more than one journal, the fleet readers show it grouped: `runs`
 prints one section per realm, `tui` grows a tab bar in the runs pane
 (`[`, `]` and the number keys switch; each tab keeps its own selection,
 filter and cursor), and `muninn run` reads every hearth and cites the
-realm behind every fact. Journals never merge: nothing folds across a
-journal boundary, and no fleet read creates or writes one. Single-run
-verbs are unchanged — a run id lives in exactly one journal, so naming it
-is a lookup, never a merge.
+realm behind every fact. A realm the map names before its first run has
+no journal yet, and that is an empty hearth rather than a fault: `runs`
+lists it with no runs and says why, the console's tab shows an empty
+fleet and says the same, and `muninn run` states the realm and reads the
+rest of the world. Journals never merge: nothing folds across a journal
+boundary, and no fleet read creates or writes one. Single-run verbs are
+unchanged — a run id lives in exactly one journal, so naming it is a
+lookup, never a merge, and a selector that matches a run in several
+realms is refused by name rather than answered with the first (`latest`
+means the newest run in the world, and the recorded stamp decides it).
 
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
