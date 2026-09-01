@@ -1494,7 +1494,7 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
 }
 
 #[test]
-fn terminal_drive_attempts_anchor_and_reports_anchor_gaps() {
+fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     let (missing_dir, mut missing) = engine(single_body(vec!["driver".into()]));
     missing.repo = Some(missing_dir.path().join("not-a-repository"));
     missing
@@ -1505,22 +1505,48 @@ fn terminal_drive_attempts_anchor_and_reports_anchor_gaps() {
     let (dir, mut anchored) = engine(single_body(vec!["driver".into()]));
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    git_commit(&repo, "base");
+    let head = git_commit(&repo, "base");
     anchored.repo = Some(repo.clone());
-    anchored
-        .append(EventType::RunCompleted, json!({}), None)
-        .unwrap();
+    // A run that reached a decision citing this repository's head: the
+    // exhibit its own conclusion must keep, with no operator verb (0026).
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "effect", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "effect", "attempt_id": "attempt"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "effect", "result": {"result": "complete"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({
+                "from": "work", "result": "complete", "next": "done",
+                "inputs": {"reviewed_heads": {"repo": head}},
+            }),
+        ),
+    ] {
+        anchored.append(event_type, payload, None).unwrap();
+    }
     assert_eq!(anchored.drive().unwrap().state.status, Status::Completed);
-    assert!(Command::new("git")
-        .args([
-            "show-ref",
-            "--verify",
-            &format!("refs/forge/{}", anchored.run_id)
-        ])
-        .current_dir(repo)
-        .status()
-        .unwrap()
-        .success());
+    let verify = |name: String| {
+        Command::new("git")
+            .args(["show-ref", "--verify", &name])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(verify(format!("refs/forge/{}", anchored.run_id)));
+    assert!(
+        verify(format!("refs/forge/keep/{}/{head}", anchored.run_id)),
+        "the conclusion plants the keep-ref itself"
+    );
 }
 
 fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {

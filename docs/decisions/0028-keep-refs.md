@@ -97,6 +97,13 @@ operator's own routine, done long after the run concluded.
   head, or an object already collected before anything was planted — are
   reported as a gap rather than silently dropped. Silence there is the
   failure mode this decision exists to end.
+- A cited commit stays reachable, so "delete the branch and let gc run"
+  stops being a way to make one disappear. If a reviewed head has to go
+  — a secret committed and rewritten away, say — releasing the run's
+  keep-refs (`brokkr keep-refs delete --run <id>`) is now part of that
+  removal, alongside every other reference the repository holds. The set
+  is bounded and listable, which is the point: an exhibit the operator
+  cannot see is one they cannot release.
 - Pushing keep-refs to a remote is deliberately out of scope: a remote's
   own gc policy is a separate, undesigned question.
 - Signing keep-refs stays deferred with the signing service (0008), as
