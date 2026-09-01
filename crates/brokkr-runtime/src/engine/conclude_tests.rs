@@ -24,11 +24,24 @@ fn fixtures() -> PathBuf {
 /// manifest — the pin `resume` would read and `conclude` never does. The
 /// fixture files are opened read-only and never edited.
 fn replay(db: &Path, name: &str, manifest: &Value) -> Store {
+    replay_upto(db, name, manifest, usize::MAX)
+}
+
+/// The same replay stopped after `keep` events — a prefix of a sealed
+/// chain is still a sealed chain, so a fixture can be met at any point
+/// it passed through without a second fixture file to keep in step. The
+/// store's own append-only trigger forbids trimming afterwards, which is
+/// why the prefix is chosen here rather than deleted there.
+fn replay_upto(db: &Path, name: &str, manifest: &Value, keep: usize) -> Store {
     let ndjson = std::fs::read_to_string(fixtures().join(format!("{name}.ndjson"))).unwrap();
     let mut store = Store::open(db).unwrap();
     store.create_run(name, "fixture", "self", manifest).unwrap();
     let connection = rusqlite::Connection::open(db).unwrap();
-    for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
+    for line in ndjson
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(keep)
+    {
         let envelope: EventEnvelope = serde_json::from_str(line).unwrap();
         connection
             .execute(
@@ -130,6 +143,66 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
             .count(),
         1,
         "a stop in force is never re-commanded",
+    );
+}
+
+/// The same journal one event earlier: an attempt in flight and nobody
+/// having commanded anything — the run whose driver died before its
+/// operator could type `brokkr operator stop`. Every other case reaches
+/// its conclusion in at most three appends; this is the only one that
+/// takes all four, and it is the composition the fixtures otherwise
+/// prove only piecewise. `conclude` commands the stop in its own name,
+/// the acceptance starts the ride rather than concluding on the spot,
+/// the boundary is closed indeterminate, and the run stops — one call,
+/// and no position guessed at along the way.
+#[test]
+fn an_attempt_in_flight_under_no_stop_is_commanded_ridden_and_closed_in_one_conclusion() {
+    let dir = tempfile::tempdir().unwrap();
+    let name = "conclude-stopped-mid-effect-hand-built";
+    // The fixture stopped one event short of its operator pair: what is
+    // left verifies and folds as the run stood at `effect/started`.
+    let mut store = replay_upto(&dir.path().join("in-flight.db"), name, &pinned(name), 9);
+
+    let before = fold(&events(&store, name)).unwrap();
+    assert_eq!(before.status, Status::Running);
+    assert_eq!(before.pending_command, None);
+    assert!(!before.riding_stop, "nobody has commanded anything");
+    assert!(matches!(before.cursor, Cursor::EffectInFlight { .. }));
+
+    let state = conclude(&mut store, name, "someone-else", "the driver is gone").unwrap();
+    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.cursor, Cursor::Idle);
+
+    let after = events(&store, name);
+    let appended: Vec<EventType> = after[before.seq as usize..]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    assert_eq!(
+        appended,
+        vec![
+            EventType::OperatorCommanded,
+            EventType::OperatorAccepted,
+            EventType::EffectIndeterminate,
+            EventType::RunStopped,
+        ],
+        "commanded, accepted, ridden to the boundary, and stopped there",
+    );
+    let indeterminate = &after[before.seq as usize + 2];
+    assert_eq!(
+        indeterminate.payload["attempt_id"].as_str(),
+        Some("attempt-verify"),
+        "the attempt that was actually open is the one closed",
+    );
+
+    // The conclusion is this operator's, because no earlier one owns it.
+    let cited = after.last().unwrap().payload["reason"].as_str().unwrap();
+    assert!(cited.starts_with("OPERATOR-STOP: "), "{cited}");
+    assert!(cited.contains("someone-else"), "{cited}");
+    assert!(cited.contains("the driver is gone"), "{cited}");
+    assert!(
+        !cited.contains("vyanakiev"),
+        "the fixture's dropped commander is not the cause: {cited}",
     );
 }
 
