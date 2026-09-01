@@ -1,0 +1,5 @@
+{
+  "name": "recognizable-turbo-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

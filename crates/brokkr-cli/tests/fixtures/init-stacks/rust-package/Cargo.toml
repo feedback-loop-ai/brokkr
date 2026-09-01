@@ -1,0 +1,8 @@
+# A plain Cargo PACKAGE, deliberately without a `[workspace]` table: the
+# negative half of the workspace-note proof. `cargo build --workspace`
+# is still the right command here — it just spans one crate — so the
+# charter must not tell this repository it is a workspace.
+[package]
+name = "stack-fixture-package"
+version = "0.0.0"
+edition = "2021"

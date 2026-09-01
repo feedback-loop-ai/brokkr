@@ -1,24 +1,40 @@
-# Quickstart — your first slice in twenty minutes
+# Quickstart — one spine, and everything else is a diff over it
 
 You need a git repository you are willing to let an agent edit, and one
 agent CLI on your `PATH` (`claude` or `codex`). Everything else is one
 native binary — no Python, no Node, no services.
 
-This walkthrough installs Brokkr, checks the machine, scaffolds a
-starter recipe, runs one slice, reads what the run decided, and shows
-the two ways out when a run stops short of `done`.
+Everything in this guide is **four steps**. They are stated once, below,
+and nothing on this page repeats them:
 
-- [1. Install](#1-install)
-- [2. Check the machine](#2-check-the-machine)
-- [3. Scaffold a recipe you can read](#3-scaffold-a-recipe-you-can-read)
-- [4. Run a slice](#4-run-a-slice)
-- [5. Where the run wrote things](#5-where-the-run-wrote-things)
-- [6. Read the ending](#6-read-the-ending)
-- [7. The escape hatches](#7-the-escape-hatches)
-- [8. What it cost](#8-what-it-cost)
-- [Limits worth knowing before you start](#limits-worth-knowing-before-you-start)
+| | Step | Budget |
+|---|---|---|
+| 1 | [Install](#step-1--install) — verified release tarball | 60s |
+| 2 | [`brokkr init .`](#step-2--brokkr-init-) — scaffold a recipe you can read | — |
+| 3 | [`brokkr run`](#step-3--brokkr-run) — one slice | 5min to a first effect |
+| 4 | [Read the journal](#step-4--read-the-journal) — `brokkr inspect` | — |
 
-## 1. Install
+Then three things extend the spine rather than restating it:
+
+- **[Per-stack cards](#per-stack-cards)** — what changes in steps 2 and
+  3 for your language. A card is a handful of lines, never a second
+  walkthrough.
+- **[Flow 2 — deliver](#flow-2--deliver)** — the spine plus one step.
+- **[Flow 3 — adopt](#flow-3--adopt)** — the spine plus one step.
+
+**About the two budgets.** They are measured, not claimed.
+[`scripts/bootstrap-bench.sh`](../../scripts/bootstrap-bench.sh) times
+both paths on a clean tempdir and exits non-zero when either blows, and
+it runs as the `bootstrap-budgets` job in CI. Read what it does *not*
+measure before you trust a number: it prints that itself, and
+[§ what the budgets do not cover](#what-the-budgets-do-not-cover) says
+it here.
+
+---
+
+## The spine
+
+### Step 1 — install
 
 Grab the archive for your platform from the
 [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
@@ -40,27 +56,32 @@ checked against the workflow that produced it:
 gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 ```
 
-**Or build from a checkout.** Rust 1.88 or newer:
-
-```
-cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
-```
-
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
-## 2. Check the machine
+```
+$ brokkr --version
+brokkr 0.6.0
+```
 
-`brokkr doctor` verifies tools, provider adapters, the agent library and
-the workspace database, and executes no agent. Run it first — it is the
-cheapest way to find out that `claude` is missing or that your database
-path is wrong.
+> **Building from a checkout** is a fallback, not a co-equal option: it
+> needs Rust 1.88 or newer and a compile, and it produces a binary no
+> attestation covers. If you want it:
+>
+> ```
+> cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+> ```
+>
+> This is the path for people changing Brokkr, not for people using it.
+
+**Before you go on**, spend the cheapest thirty seconds available:
 
 ```
 $ brokkr doctor
-ok       contracts: engine 0.5.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.6.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
-ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
+ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
+warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
 …
 ```
@@ -68,50 +89,40 @@ ok       agent implementer: would run opus via claude here (chain opus → sonne
 Lines are prefixed `ok`, `warn`, or `MISSING`. A `MISSING` line is a
 refusal to guess: an absent driver binary means seats resolving to that
 provider will fail to spawn, and doctor says so rather than letting you
-find out mid-run. Warnings are optional capabilities.
+find out mid-run. Warnings are optional capabilities. `doctor` executes
+no agent. Two flags: `--bundle <dir>` also compiles a bundle and reports
+the result, and `--db <path>` chooses the workspace journal (default
+`.forge/forge.db`). It takes no `--realms`.
 
-Two flags: `--bundle <dir>` also compiles a bundle and reports the
-result, and `--db <path>` chooses the workspace journal (default
-`.forge/forge.db`). `brokkr doctor` takes no `--realms`.
-
-## 3. Scaffold a recipe you can read
+### Step 2 — `brokkr init .`
 
 A **recipe** is a delivery strategy as reviewable data: a phase table, a
 seat per phase, a role charter per seat, and per-seat limits. `brokkr
 init` writes one you are meant to open and edit.
 
 ```
-$ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest …)
+$ brokkr init .
+initialized reviewable bundle at . (digest 6b8b876054b44e3f771e89475ad364167fdec25c59f42fd77266c8a8b7b312c7)
+run brokkr from inside . — its adapters/ declares the trust tier the verify, review and ship seats judge on
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
 refuses rather than overwriting a directory that already has a
-`bundle.json`, and it compiles the bundle before printing the digest, so
-what you were handed is a thing that runs.
-
-`init` looks before it scaffolds: the repository you ran it from is read
-for the manifests and lockfiles at its root — `Cargo.toml`,
-`package.json` with pnpm's or yarn's lockfile or neither,
-`pyproject.toml`, `go.mod`, `Makefile` — and the implementer's and
-verifier's charters name that stack's own build, test and lint commands,
-quoting back which files the guess came from. Nothing is executed to find
-out, and where no marker is recognized the charters say so in those words
-and call their commands generic placeholders. The digest above is elided
-because it is a function of what was scaffolded: two repositories with
-different stacks get different charters and so different digests.
+`bundle.json` — or an `adapters/claude.json`, because a trust tier is an
+operator's ruling and not a scaffold's — and it compiles the bundle
+before printing the digest, so what you were handed is a thing that runs.
 
 What it wrote:
 
 ```
-my-bundle/
-  bundle.json          # name, policy path, protected_phase, five seats
-  policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-  roles/intake.md
-  roles/implementer.md
-  roles/verifier.md
-  roles/reviewer.md
-  roles/shipper.md
+./bundle.json          # name, policy path, protected_phase, five seats
+./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
+./adapters/claude.json # the trust tier your gates judge on — yours to edit
+./roles/intake.md
+./roles/implementer.md
+./roles/verifier.md
+./roles/reviewer.md
+./roles/shipper.md
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
@@ -119,17 +130,29 @@ The table has five working phases — `intake`, `implement`, `verify`,
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its own result
 vocabulary and its own `limits` (attempts and a deadline in seconds).
-Read [recipe-authoring.md](recipe-authoring.md) when you want to change
-any of that.
+
+**`init` looks before it scaffolds.** The repository you ran it from is
+read for the manifests and lockfiles at its root, and the implementer's
+and verifier's charters name *that stack's* build, test and lint
+commands, quoting back which files the guess came from. Nothing is
+executed to find out. Which files it reads, and what it concludes, is
+your [card](#per-stack-cards) — and
+[`docs/guides/starters/`](starters/) shows the actual output for each,
+transcribed from real runs.
+
+The digest above is printed in full and will not be yours: it is a
+function of what was scaffolded, and two repositories with different
+stacks get different charters and so different digests.
 
 If you would rather start from a maintained strategy than a scaffold,
 the library ships several:
 
 ```
 $ brokkr recipes list
-fast	5779cd13be64	6 phases	implement, review, ship, verify	recipes/fast
-panel-review	b44de756c398	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-sdd	3743484daa2b	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
+node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
+panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+sdd	ed604f45bfce	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
 …
 ```
 
@@ -138,10 +161,10 @@ recipe's content digest. Use `--recipe <name>` instead of `--bundle
 <dir>` to run one of these; `--recipes-dir` (default `recipes`) says
 where the library lives.
 
-## 4. Run a slice
+### Step 3 — `brokkr run`
 
 ```
-$ brokkr run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
+$ brokkr run --bundle . --repo . --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
 …
 ```
@@ -174,20 +197,7 @@ brokkr ui --port 8383 --open  # loopback-only browser console
 All three are read-only. None of them can issue an operator command or
 start a run.
 
-## 5. Where the run wrote things
-
-Relative to the working directory (`--repo`, or the cwd):
-
-- `.forge/forge.db` — the journal, unless `--db` or a map says otherwise.
-- `.forge/tasks/<slug>.md` — the intake seat's framing, run-local.
-- `.forge/results/<effect_id>.json` — one typed result file per seat
-  attempt. This file is the only channel the engine reads from a seat;
-  anything a seat prints to stdout is not a result.
-- `.forge/ledger/<run-id>.md` — the shipper's close-out, if the run got
-  that far.
-- `.forge/secrets.env` — only if you used `brokkr secrets`.
-
-## 6. Read the ending
+### Step 4 — read the journal
 
 `brokkr run` exits **0** when the run reaches `done`, **2** when it
 parks for the operator, **3** when it stops, and **1** on an error — so
@@ -252,9 +262,128 @@ table stops runs on purpose: two consecutive broken implement attempts,
 a failing verify, a security hold at review, a dirty worktree at ship.
 The `ruling` line names the rule that did it and its reason.
 
-## 7. The escape hatches
+That is the spine. Everything below is a diff over it.
 
-### Operator commands — `retry` and `stop`
+---
+
+## Per-stack cards
+
+Step 2 writes different charters for different repositories, and step 3
+has a different natural recipe. Nothing else about the four steps
+changes. Each card is that difference and nothing more:
+
+| Card | Reads | Then |
+|---|---|---|
+| [node](cards/node.md) | `package.json` | the base card the others extend |
+| [bun](cards/bun.md) | `package.json` + `bun.lock` | extends node; overrides the package-manager lines |
+| [rust](cards/rust.md) | `Cargo.toml` | + the workspace line |
+| [go](cards/go.md) | `go.mod` | + the `go.work` line |
+| [python](cards/python.md) | `pyproject.toml` (+ `uv.lock`) | uv-first, pip as fallback |
+
+A monorepo is a card-level difference too: `turbo.json` or `nx.json` at
+the root makes step 2 name the orchestrator's own commands, run through
+whichever package manager your lockfile says. See
+[cards/node.md § monorepos](cards/node.md#monorepos).
+
+If you want the actual scaffold output rather than the delta,
+[`starters/`](starters/) has one page per stack, each transcribed from a
+real `brokkr init` run.
+
+## Flow 2 — deliver
+
+The spine, plus one step. Steps 1, 2 and 4 are unchanged; step 3
+becomes:
+
+> **3′.** Point `--feature` at a real task in your repository and let
+> the run go to `done` or `stop`.
+>
+> ```
+> brokkr run --bundle . --repo . \
+>   --feature "cache the /health probe for 5s; add a test proving the second call does not hit the DB"
+> ```
+>
+> Pick something small and real — a bug with a reproducible failure, one
+> endpoint, one component. The feature text IS the framing the intake
+> seat starts from; two or three sentences that would let a new
+> colleague start are the right size. Then read step 4's `ruling` line:
+> a `stop` names the rule that did it, and the rules that stop runs are
+> the ones you would want to stop them.
+
+That is the entire delta. The escape hatches below are what you reach
+for when 3′ ends somewhere other than `done`.
+
+## Flow 3 — adopt
+
+The spine, plus one step, for an existing repository whose recipe you
+did not write. Steps 1, 3 and 4 are unchanged; between 1 and 2:
+
+> **1′.** Write the `realms.json` that says which repositories this
+> world contains and which journal they share.
+>
+> ```json
+> {
+>   "schema": "forge.realms/v1",
+>   "realms": [
+>     { "name": "my-app", "path": ".", "default_branch": "main" }
+>   ],
+>   "journal": ".forge/forge.db"
+> }
+> ```
+>
+> Three fields per realm, all required, and paths are relative to the
+> map file's own directory so the map travels with the workspace. A
+> single project is the degenerate one-entry map and pays nothing for
+> the shape. Check what yours says with `brokkr realms`.
+
+Two things that are **not** deltas and must not be skipped when you
+adopt a repository you did not write:
+
+- **The adapters are yours, not the scaffold's.** If you take a
+  maintained recipe (`brokkr recipes add …`) rather than `brokkr init`,
+  no `adapters/` tree arrives with it, and `verify`, `review` and `ship`
+  are `class: "gate"` — a gate requires a driver holding the trusted
+  tier, checked when the bundle compiles, before any prompt exists. Copy
+  `adapters/claude.json` out of this repository into yours first, or
+  `recipes add` refuses and leaves you no recipe.
+- **Know what you are granting.** Every seat's driver may run your
+  project's toolchain, so every seat — the gates included — executes
+  third-party code by design. In a Node repo `npm ci` runs the
+  `preinstall`/`install`/`postinstall` scripts of your whole dependency
+  tree and `npx` resolves a package from the registry and runs it. Two
+  consequences worth holding: `verify` installs *before* `review` has
+  read the diff, so a dependency the implement seat added has already
+  run its install scripts by the time anyone reviews its provenance —
+  which is why the reviewer charter names lockfile provenance and
+  install scripts as a review dimension — and a run wants the network
+  the same way your CI does. Run it against a dependency tree you would
+  install by hand.
+
+The long form, with the four files a Node repository needs and the three
+edits that actually come up, is
+[adopting-a-node-repo.md](adopting-a-node-repo.md).
+
+---
+
+## After the spine
+
+### Where the run wrote things
+
+Relative to the working directory (`--repo`, or the cwd):
+
+- `.forge/forge.db` — the journal, unless `--db` or a map says otherwise.
+- `.forge/tasks/<slug>.md` — the intake seat's framing, run-local.
+- `.forge/results/<effect_id>.json` — one typed result file per seat
+  attempt. This file is the only channel the engine reads from a seat;
+  anything a seat prints to stdout is not a result.
+- `.forge/ledger/<run-id>.md` — the shipper's close-out, if the run got
+  that far.
+- `.forge/secrets.env` — only if you used `brokkr secrets`.
+
+Add `.forge/` to your `.gitignore`. It is evidence, not source.
+
+### The escape hatches
+
+#### Operator commands — `retry` and `stop`
 
 ```
 brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
@@ -293,10 +422,10 @@ never an operator verb. A run parks when the machine cannot rule:
 A parked run sits in `awaiting_operator` with the raw evidence attached
 and leaves only through one of the two commands above.
 
-### Resume
+#### Resume
 
 ```
-brokkr resume --run <id> --bundle my-bundle
+brokkr resume --run <id> --bundle .
 brokkr resume --run <id> --recipe sdd
 ```
 
@@ -311,7 +440,7 @@ resumed one.
 takes **no `--realms`**: a run started in a mapped world whose journal
 is not `.forge/forge.db` is resumed by naming that journal with `--db`.
 
-### Conclude — closing a run whose bundle no longer compiles
+#### Conclude — closing a run whose bundle no longer compiles
 
 ```
 brokkr conclude --run <id> --reason "the engine moved on without it"
@@ -344,7 +473,7 @@ unfenced hazard on its fresh-process branch; decision 0029 (proposed)
 rules on fencing that tail. Either way, `brokkr runs` is how you look
 before closing.
 
-### Re-run under another strategy
+#### Re-run under another strategy
 
 Not an escape hatch so much as the next experiment:
 
@@ -353,7 +482,7 @@ brokkr rerun --run <id> --recipe panel-review   # same feature, other strategy, 
 brokkr compare <a> <b>                          # trails, first divergence, per-seat costs
 ```
 
-## 8. What it cost
+### What it cost
 
 ```
 $ brokkr costs --run latest
@@ -387,7 +516,32 @@ Be clear-eyed about this:
   test shims. Run one slice, read `brokkr costs`, and use your own
   number.
 
-## Limits worth knowing before you start
+### What the budgets do not cover
+
+The 60s and 5min figures at the top of this page are what
+[`scripts/bootstrap-bench.sh`](../../scripts/bootstrap-bench.sh)
+measures on a clean tempdir, and they are honest about being partial.
+The script prints this every run, and so does this page:
+
+- **The install budget excludes the network.** The bench fetches the
+  tarball and `SHA256SUMS` over a local `file://` URL, using the same
+  `curl -LO`, `sha256sum -c` and `tar xzf` commands step 1 names. So 60s
+  covers unpack, checksum verification and a `brokkr --version` smoke
+  test — everything around the transfer, which is the part this
+  repository controls. A pass is not evidence that GitHub is fast for
+  you.
+- **The first-run budget excludes the agent.** A real `brokkr run`
+  spawns billed sessions, which cannot live inside a timing gate, so the
+  bench stubs the `claude` binary through the adapter's own
+  `FORGE_CLAUDE_BIN` override. The bundle, the compile with its
+  gate-class trust check, the driver transport and the journal are all
+  real; only the session at the far end is not. So 5min is the
+  *machinery's* cost to reach a first completed effect, and your slice's
+  wall clock is your agent's, not ours.
+
+Neither number is a claim about your machine. Run the script.
+
+### Limits worth knowing
 
 - **One journal per world.** A realms map names a set of repositories
   and exactly one `journal` they share (`forge.realms/v1`). There is no
@@ -410,6 +564,9 @@ Be clear-eyed about this:
 
 ## Next
 
+- [starters/](starters/) — what `brokkr init` actually wrote, per
+  stack, transcribed from real runs.
+- [cards/](cards/) — the per-stack deltas over this spine.
 - [recipe-authoring.md](recipe-authoring.md) — write or extend a
   delivery strategy.
 - [driver-authoring.md](driver-authoring.md) — put a harness that is not

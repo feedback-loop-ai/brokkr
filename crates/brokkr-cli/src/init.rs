@@ -26,6 +26,26 @@
 //! a guess that says which files it was read from is one an operator can
 //! correct. Where no marker is recognized, the charters say so in those
 //! words rather than dressing a placeholder as a choice.
+//!
+//! Detection reads two tables, both data, in this order:
+//!
+//! 1. `ORCHESTRATORS` — a monorepo's build tool (`turbo.json`, `nx.json`)
+//!    outranks any single package's manifest, because in a monorepo the
+//!    package's own script is the wrong command: it proves one workspace
+//!    member and calls the repository green. The orchestrator's command
+//!    runs through the repository's OWN package manager, which is a
+//!    second axis: whichever lockfile is at the root picks the runner
+//!    prefix (`RUNNERS`), and `npx` is what is left.
+//! 2. `STACKS` — the per-manifest table. A language manifest outranks the
+//!    `Makefile` catch-all; within one manifest the narrower marker set
+//!    comes first, so `bun.lock` beside `package.json` out-votes the npm
+//!    fallback and `uv.lock` beside `pyproject.toml` out-votes pip.
+//!
+//! A third table, `WORKSPACES`, adds no commands. `cargo build
+//! --workspace` from a Cargo workspace root and `go build ./...` beside a
+//! `go.work` already span every member; what was missing was the charter
+//! SAYING it is a workspace, so a seat does not go hunting for a
+//! per-crate or per-module command that nobody needed.
 
 use std::path::Path;
 
@@ -194,6 +214,28 @@ const STACKS: &[Stack] = &[
         test: "cargo test --workspace",
         lint: "cargo clippy --workspace --all-targets -- -D warnings",
     },
+    // Bun ahead of the three older node arms, and ahead of them all
+    // because `bun.lock` is the narrower evidence: a bun-managed
+    // repository carries only `package.json` as far as the npm fallback
+    // can see, and the fallback then writes `npm test` into the charter
+    // of a repository that has no npm lockfile to install from.
+    //
+    // This arm names an INSTALL step where no other node arm does, and
+    // that is deliberate: `bun install --frozen-lockfile` is the
+    // command that makes `bun run test` mean anything, and bun's install
+    // is fast enough that a charter can honestly ask for it. The three
+    // commands are the request's own — "bun install --frozen-lockfile,
+    // bun run test / typecheck" — mapped onto the seats that get them:
+    // build+test to the implementer, test+lint to the verifier, so the
+    // verifier is handed `bun run test` and `bun run typecheck` and the
+    // implementer is handed the install and the test.
+    Stack {
+        name: "node/bun",
+        markers: &["package.json", "bun.lock"],
+        build: "bun install --frozen-lockfile",
+        test: "bun run test",
+        lint: "bun run typecheck",
+    },
     Stack {
         name: "node/pnpm",
         markers: &["package.json", "pnpm-lock.yaml"],
@@ -214,6 +256,18 @@ const STACKS: &[Stack] = &[
         build: "npm run build",
         test: "npm test",
         lint: "npm run lint",
+    },
+    // Same rule again, one language over: `uv.lock` is the narrower
+    // evidence and uv is the environment the repository actually
+    // resolves in, so `uv run pytest` is the honest spelling of "run the
+    // suite" there and a bare `python -m pytest` would run against
+    // whatever interpreter the seat happened to inherit.
+    Stack {
+        name: "python/uv",
+        markers: &["pyproject.toml", "uv.lock"],
+        build: "uv sync",
+        test: "uv run pytest",
+        lint: "uv run ruff check .",
     },
     Stack {
         name: "python",
@@ -238,40 +292,194 @@ const STACKS: &[Stack] = &[
     },
 ];
 
-/// Read the repository, decide nothing else. First entry whose every
-/// marker is a file at the root wins; `None` is the honest answer when
-/// none is, and the charters say so.
-fn detect(repo: &Path) -> Option<&'static Stack> {
-    STACKS
-        .iter()
-        .find(|stack| stack.markers.iter().all(|m| repo.join(m).is_file()))
+/// How a repository runs a locally-installed JavaScript binary, keyed by
+/// the lockfile that says which package manager put it there. Walked in
+/// order; the first lockfile present wins, and when none is `npx` is
+/// what is left — npm ships with node, and `npx` resolves a local
+/// install before it reaches for the registry.
+const RUNNERS: &[(&str, &str)] = &[
+    ("bun.lock", "bunx"),
+    ("pnpm-lock.yaml", "pnpm exec"),
+    ("yarn.lock", "yarn exec"),
+];
+
+/// One monorepo build orchestrator. Same shape as `Stack`, except the
+/// commands carry a `{runner}` placeholder: WHICH package manager runs
+/// turbo or nx is the repository's business, read from `RUNNERS`, and a
+/// table that hard-coded `npx` would be the same guess this arm exists
+/// to stop making.
+struct Orchestrator {
+    name: &'static str,
+    markers: &'static [&'static str],
+    build: &'static str,
+    test: &'static str,
+    lint: &'static str,
+    note: &'static str,
+}
+
+/// The orchestrator table, matched BEFORE `STACKS`. A repository with a
+/// `turbo.json` at its root is a monorepo whose `package.json` scripts
+/// belong to one member; naming a member's script there would prove one
+/// package and call the whole repository green.
+const ORCHESTRATORS: &[Orchestrator] = &[
+    Orchestrator {
+        name: "node/turbo",
+        markers: &["package.json", "turbo.json"],
+        build: "{runner} turbo run build",
+        test: "{runner} turbo run test",
+        lint: "{runner} turbo run lint",
+        note: "This is a MONOREPO: `turbo.json` names an orchestrator, and the\n\
+               commands above are the orchestrator's own — they span every\n\
+               workspace package. Do not substitute a single package's script.",
+    },
+    Orchestrator {
+        name: "node/nx",
+        markers: &["package.json", "nx.json"],
+        build: "{runner} nx run-many -t build",
+        test: "{runner} nx run-many -t test",
+        lint: "{runner} nx run-many -t lint",
+        note: "This is a MONOREPO: `nx.json` names an orchestrator, and the\n\
+               commands above are the orchestrator's own — they span every\n\
+               workspace project. Do not substitute a single project's target.",
+    },
+];
+
+/// A workspace is a fact ABOUT a stack, not another stack. `cargo build
+/// --workspace` from a workspace root already builds every member crate
+/// and `go build ./...` beside a `go.work` already builds every module
+/// it lists — the commands were right, the charter was silent. So this
+/// table adds a sentence and no syntax.
+///
+/// `needle` is matched against whole trimmed LINES, not as a substring:
+/// a `Cargo.toml` whose comments discuss `[workspace]` is not one, and a
+/// charter that told a lone crate it was a workspace would be the same
+/// dishonesty this file exists to stop. The empty needle is the honest
+/// spelling of "the file's presence is the whole of the evidence": a
+/// `go.work` is a workspace by existing.
+struct Workspace {
+    stack: &'static str,
+    file: &'static str,
+    needle: &'static str,
+    note: &'static str,
+}
+
+const WORKSPACES: &[Workspace] = &[
+    Workspace {
+        stack: "rust",
+        file: "Cargo.toml",
+        needle: "[workspace]",
+        note: "This is a CARGO WORKSPACE (`[workspace]` in `Cargo.toml`). The\n\
+               `--workspace` flag above already spans every member crate — there\n\
+               is no per-crate command to go looking for.",
+    },
+    Workspace {
+        stack: "go",
+        file: "go.work",
+        needle: "",
+        note: "This is a GO WORKSPACE (`go.work` at the root). The `./...` above\n\
+               already spans every module the workspace lists — there is no\n\
+               per-module command to go looking for.",
+    },
+];
+
+/// What detection concluded: the name the charters call the stack, the
+/// evidence quoted back so the guess can be checked, the three commands,
+/// and — where the root said so — the sentence that names this a
+/// monorepo or a workspace.
+struct Detected {
+    name: String,
+    evidence: String,
+    build: String,
+    test: String,
+    lint: String,
+    note: Option<&'static str>,
 }
 
 /// `` `Cargo.toml` `` — or `` `package.json` + `pnpm-lock.yaml` ``: the
 /// evidence, quoted back so the operator can check the guess.
-fn evidence(stack: &Stack) -> String {
-    stack
-        .markers
+fn evidence(markers: &[&str]) -> String {
+    markers
         .iter()
         .map(|m| format!("`{m}`"))
         .collect::<Vec<_>>()
         .join(" + ")
 }
 
+/// Every named marker is a file at the repository root.
+fn present(repo: &Path, markers: &[&str]) -> bool {
+    markers.iter().all(|m| repo.join(m).is_file())
+}
+
+/// Read the repository, decide nothing else. The orchestrator table has
+/// the first say — a monorepo's build tool outranks any one package's
+/// manifest — then the per-manifest table. `None` is the honest answer
+/// when neither matched, and the charters say so.
+fn detect(repo: &Path) -> Option<Detected> {
+    orchestrator(repo).or_else(|| stack(repo))
+}
+
+/// The monorepo arm. Two axes crossed: the orchestrator says WHAT to run,
+/// whichever lockfile is at the root says what runs it.
+fn orchestrator(repo: &Path) -> Option<Detected> {
+    let found = ORCHESTRATORS.iter().find(|o| present(repo, o.markers))?;
+    let runner = RUNNERS
+        .iter()
+        .find(|(lockfile, _)| repo.join(lockfile).is_file());
+    let prefix = runner.map_or("npx", |(_, runner)| *runner);
+    let mut markers: Vec<&str> = found.markers.to_vec();
+    markers.extend(runner.map(|(lockfile, _)| *lockfile));
+    Some(Detected {
+        name: found.name.to_string(),
+        evidence: evidence(&markers),
+        build: found.build.replace("{runner}", prefix),
+        test: found.test.replace("{runner}", prefix),
+        lint: found.lint.replace("{runner}", prefix),
+        note: Some(found.note),
+    })
+}
+
+/// The per-manifest arm. First entry whose every marker is a file at the
+/// root wins, and the workspace table then says whether the wildcards it
+/// named were spanning a whole workspace all along.
+fn stack(repo: &Path) -> Option<Detected> {
+    let found = STACKS.iter().find(|s| present(repo, s.markers))?;
+    let note = WORKSPACES
+        .iter()
+        .filter(|w| w.stack == found.name)
+        .find(|w| {
+            std::fs::read_to_string(repo.join(w.file)).is_ok_and(|contents| {
+                w.needle.is_empty() || contents.lines().any(|line| line.trim() == w.needle)
+            })
+        })
+        .map(|w| w.note);
+    Some(Detected {
+        name: found.name.to_string(),
+        evidence: evidence(found.markers),
+        build: found.build.to_string(),
+        test: found.test.to_string(),
+        lint: found.lint.to_string(),
+        note,
+    })
+}
+
 /// The two commands a seat is asked to run, and the sentence that says
 /// where they came from. Introspection guesses; a guess that names its
 /// source is one an operator can correct, so both branches end by saying
 /// the charter is ordinary text.
-fn commands(chosen: Option<(&Stack, &str, &str)>, placeholders: [&str; 2]) -> String {
+fn commands(chosen: Option<(&Detected, &str, &str)>, placeholders: [&str; 2]) -> String {
     match chosen {
-        Some((stack, first, second)) => format!(
+        Some((detected, first, second)) => format!(
             "This repository reads as a {} project ({}), so use its own\n\
              tooling:\n\
              \n    {first}\n    {second}\n\n\
+             {}\
              `brokkr init` chose those from the files at the repository root —\n\
              it ran nothing to find out. Correct them here if they are wrong.\n",
-            stack.name,
-            evidence(stack)
+            detected.name,
+            detected.evidence,
+            detected
+                .note
+                .map_or(String::new(), |note| format!("{note}\n\n")),
         ),
         None => format!(
             "NO STACK WAS RECOGNIZED at the repository root: none of the\n\
@@ -286,7 +494,7 @@ fn commands(chosen: Option<(&Stack, &str, &str)>, placeholders: [&str; 2]) -> St
     }
 }
 
-fn implementer(stack: Option<&Stack>) -> String {
+fn implementer(stack: Option<&Detected>) -> String {
     format!(
         "# Implementer seat — build it\n\n\
          Implement the framed task (see `.forge/tasks/`). Match the project's\n\
@@ -298,7 +506,7 @@ fn implementer(stack: Option<&Stack>) -> String {
          `blocked` (something outside your control — name it precisely). Never\n\
          report `complete` with failing tests or uncommitted changes.\n",
         commands(
-            stack.map(|s| (s, s.build, s.test)),
+            stack.map(|s| (s, s.build.as_str(), s.test.as_str())),
             [
                 "<this project's build command>",
                 "<this project's test command>"
@@ -307,7 +515,7 @@ fn implementer(stack: Option<&Stack>) -> String {
     )
 }
 
-fn verifier(stack: Option<&Stack>) -> String {
+fn verifier(stack: Option<&Detected>) -> String {
     format!(
         "# Verifier seat — prove it, fix nothing\n\n\
          Run the project's full test and lint suites from the repository root.\n\n\
@@ -317,7 +525,7 @@ fn verifier(stack: Option<&Stack>) -> String {
          counts) or `fail` (`notes` quotes the failing output's decisive lines\n\
          exactly — never soften a failure).\n",
         commands(
-            stack.map(|s| (s, s.test, s.lint)),
+            stack.map(|s| (s, s.test.as_str(), s.lint.as_str())),
             [
                 "<this project's test command>",
                 "<this project's lint command>"
@@ -330,7 +538,7 @@ fn verifier(stack: Option<&Stack>) -> String {
 /// stack that was found. Intake, review and ship name no build tooling:
 /// framing a task, reading a diff and closing out read the same in every
 /// repository, and a charter that pretended otherwise would be padding.
-fn roles(stack: Option<&Stack>) -> [(&'static str, String); 5] {
+fn roles(stack: Option<&Detected>) -> [(&'static str, String); 5] {
     [
         ("implementer.md", implementer(stack)),
         ("verifier.md", verifier(stack)),
@@ -382,7 +590,7 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
     std::fs::write(dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json"), ADAPTER)?;
-    for (name, content) in roles(detect(repo)) {
+    for (name, content) in roles(detect(repo).as_ref()) {
         std::fs::write(dir.join("roles").join(name), content)?;
     }
     // init proves its own output: the scaffold must compile under the

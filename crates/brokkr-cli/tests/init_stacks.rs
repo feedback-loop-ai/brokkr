@@ -26,6 +26,13 @@ const RECOGNIZED: &[(&str, &str, &str, &str, &str)] = &[
         "cargo clippy --workspace --all-targets -- -D warnings",
     ),
     (
+        "node-bun",
+        "node/bun",
+        "bun install --frozen-lockfile",
+        "bun run test",
+        "bun run typecheck",
+    ),
+    (
         "node-pnpm",
         "node/pnpm",
         "pnpm build",
@@ -47,6 +54,13 @@ const RECOGNIZED: &[(&str, &str, &str, &str, &str)] = &[
         "npm run lint",
     ),
     (
+        "python-uv",
+        "python/uv",
+        "uv sync",
+        "uv run pytest",
+        "uv run ruff check .",
+    ),
+    (
         "python",
         "python",
         "python -m build",
@@ -61,6 +75,44 @@ const RECOGNIZED: &[(&str, &str, &str, &str, &str)] = &[
         "go vet ./...",
     ),
     ("make", "make", "make build", "make test", "make lint"),
+];
+
+/// The orchestrator half of the same table: fixture, the name the
+/// charters call it, then build, test, lint — with the package-manager
+/// prefix already resolved from whichever lockfile the fixture carries.
+/// Same shape, same reason for being written out again rather than
+/// imported: a run-template quietly changed in `init.rs` fails here.
+const MONOREPOS: &[(&str, &str, &str, &str, &str)] = &[
+    (
+        "turbo-pnpm",
+        "node/turbo",
+        "pnpm exec turbo run build",
+        "pnpm exec turbo run test",
+        "pnpm exec turbo run lint",
+    ),
+    (
+        "turbo-bun",
+        "node/turbo",
+        "bunx turbo run build",
+        "bunx turbo run test",
+        "bunx turbo run lint",
+    ),
+    // No lockfile at all: `npx` is what is left, and it resolves the
+    // repository's own local install before it reaches for the registry.
+    (
+        "turbo-plain",
+        "node/turbo",
+        "npx turbo run build",
+        "npx turbo run test",
+        "npx turbo run lint",
+    ),
+    (
+        "nx-yarn",
+        "node/nx",
+        "yarn exec nx run-many -t build",
+        "yarn exec nx run-many -t test",
+        "yarn exec nx run-many -t lint",
+    ),
 ];
 
 fn fixtures() -> PathBuf {
@@ -136,7 +188,7 @@ fn each_recognized_stack_gets_its_own_commands_and_no_others() {
             .into_iter()
             .chain(commands(&verifier))
             .collect();
-        for (other, _, other_build, other_test, other_lint) in RECOGNIZED {
+        for (other, _, other_build, other_test, other_lint) in RECOGNIZED.iter().chain(MONOREPOS) {
             if other == fixture {
                 continue;
             }
@@ -176,7 +228,7 @@ fn an_unrecognized_repository_gets_a_charter_that_says_so() {
     for text in [&implementer, &verifier] {
         assert!(text.contains("NO STACK WAS RECOGNIZED"), "{text}");
         assert!(text.contains("GENERIC placeholders"), "{text}");
-        for (_, _, build, test, lint) in RECOGNIZED {
+        for (_, _, build, test, lint) in RECOGNIZED.iter().chain(MONOREPOS) {
             for command in [build, test, lint] {
                 assert!(!text.contains(command), "unrecognized, yet names {command}");
             }
@@ -212,6 +264,141 @@ fn a_manifest_outranks_the_makefile_that_wraps_it() {
     }
 }
 
+/// The recorded regression, in one test. A bun-managed repository has
+/// only `package.json` as far as the npm fallback can see, and the
+/// fallback wrote `npm run build` / `npm test` into the charters of a
+/// repository with no npm lockfile to install from. `bun.lock` is the
+/// narrower evidence and out-votes it — and not one word of npm's
+/// tooling arrives with the answer.
+#[test]
+fn bun_out_votes_the_npm_fallback() {
+    let (_repo, bundle) = scaffold_from("node-bun");
+    let implementer = charter(&bundle, "implementer.md");
+    let verifier = charter(&bundle, "verifier.md");
+
+    assert_eq!(
+        commands(&implementer),
+        vec!["bun install --frozen-lockfile", "bun run test"]
+    );
+    assert_eq!(
+        commands(&verifier),
+        vec!["bun run test", "bun run typecheck"]
+    );
+    for text in [&implementer, &verifier] {
+        assert!(text.contains("a node/bun project"), "{text}");
+        // The evidence quoted back names the lockfile that decided it.
+        assert!(text.contains("`package.json` + `bun.lock`"), "{text}");
+        // Not "no npm COMMAND" — no npm anywhere. A charter that so much
+        // as mentions npm here is one a seat can misread at 3am.
+        assert!(!text.contains("npm"), "bun charter still says npm: {text}");
+    }
+}
+
+/// The same rule one language over: `uv.lock` beside `pyproject.toml`
+/// out-votes the pip fallback, and the commands run inside the
+/// environment uv resolved rather than whatever interpreter the seat
+/// inherited.
+#[test]
+fn uv_out_votes_the_pip_fallback() {
+    let (_repo, bundle) = scaffold_from("python-uv");
+    let implementer = charter(&bundle, "implementer.md");
+    let verifier = charter(&bundle, "verifier.md");
+
+    assert_eq!(commands(&implementer), vec!["uv sync", "uv run pytest"]);
+    assert_eq!(
+        commands(&verifier),
+        vec!["uv run pytest", "uv run ruff check ."]
+    );
+    for text in [&implementer, &verifier] {
+        assert!(text.contains("a python/uv project"), "{text}");
+        assert!(text.contains("`pyproject.toml` + `uv.lock`"), "{text}");
+        for fallback in ["python -m build", "python -m pytest", "python -m ruff"] {
+            assert!(!text.contains(fallback), "uv charter still says {fallback}");
+        }
+    }
+}
+
+/// A monorepo's orchestrator outranks any one package's manifest, and
+/// which package manager runs it is read from the lockfile rather than
+/// guessed. Four fixtures: pnpm, bun, no lockfile at all, and nx.
+#[test]
+fn a_monorepo_scaffold_names_the_orchestrators_own_commands() {
+    for (fixture, name, build, test, lint) in MONOREPOS {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let implementer = charter(&bundle, "implementer.md");
+        let verifier = charter(&bundle, "verifier.md");
+
+        assert_eq!(commands(&implementer), vec![*build, *test], "{fixture}");
+        assert_eq!(commands(&verifier), vec![*test, *lint], "{fixture}");
+
+        for text in [&implementer, &verifier] {
+            assert!(text.contains(&format!("a {name} project")), "{fixture}");
+            // Saying so is half the deliverable: a charter that ran the
+            // right command and never told the seat it was in a monorepo
+            // would invite a seat to "helpfully" narrow it to one package.
+            assert!(text.contains("This is a MONOREPO"), "{fixture}: {text}");
+            assert!(
+                text.contains("Do not substitute a single"),
+                "{fixture}: {text}"
+            );
+            // And the single package's own scripts never appear.
+            for guessed in ["npm run build", "npm test", "pnpm build", "yarn test"] {
+                assert!(!commands(text).contains(&guessed), "{fixture}: {text}");
+            }
+        }
+    }
+}
+
+/// Two of the four monorepo cases needed no new command text: `cargo
+/// build --workspace` from a workspace root and `go build ./...` beside
+/// a `go.work` already span every member. What was missing was the
+/// charter saying so — asserted here in both directions, because a note
+/// that appeared on every rust and go repository would be the same
+/// dishonesty in the other direction.
+#[test]
+fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
+    let workspaces = [
+        ("cargo-workspace", "This is a CARGO WORKSPACE"),
+        ("go-workspace", "This is a GO WORKSPACE"),
+    ];
+    for (fixture, claim) in workspaces {
+        let (_repo, bundle) = scaffold_from(fixture);
+        for role in ["implementer.md", "verifier.md"] {
+            let text = charter(&bundle, role);
+            assert!(text.contains(claim), "{fixture}/{role}: {text}");
+        }
+    }
+
+    // The commands did not change, because they were already right.
+    let (_repo, bundle) = scaffold_from("cargo-workspace");
+    assert_eq!(
+        commands(&charter(&bundle, "implementer.md")),
+        vec!["cargo build --workspace", "cargo test --workspace"]
+    );
+    let (_repo, bundle) = scaffold_from("go-workspace");
+    assert_eq!(
+        commands(&charter(&bundle, "implementer.md")),
+        vec!["go build ./...", "go test ./..."]
+    );
+
+    // And a lone package, or a lone module, is told no such thing.
+    // `rust-package`'s manifest carries the word `[workspace]` inside a
+    // COMMENT: the declaration is a whole line, not a substring, and a
+    // charter that read prose as a table would say this crate spans
+    // members it does not have.
+    for (fixture, claim) in [
+        ("rust-package", "WORKSPACE"),
+        ("go", "WORKSPACE"),
+        ("node-npm", "MONOREPO"),
+    ] {
+        let (_repo, bundle) = scaffold_from(fixture);
+        for role in ["implementer.md", "verifier.md"] {
+            let text = charter(&bundle, role);
+            assert!(!text.contains(claim), "{fixture}/{role} claims {claim}");
+        }
+    }
+}
+
 /// Introspection rewrote prose, not the roster. Every scaffold — each
 /// recognized stack and the fallback alike — still compiles, and what it
 /// compiles to still carries decision 0021 ruling 1's division: the
@@ -224,8 +411,15 @@ fn a_manifest_outranks_the_makefile_that_wraps_it() {
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
         .iter()
+        .chain(MONOREPOS)
         .map(|(fixture, ..)| *fixture)
-        .chain(["generic", "rust-and-make"]);
+        .chain([
+            "generic",
+            "rust-and-make",
+            "rust-package",
+            "cargo-workspace",
+            "go-workspace",
+        ]);
     for fixture in fixtures {
         let (_repo, bundle) = scaffold_from(fixture);
         let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
