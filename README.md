@@ -731,6 +731,24 @@ and when is store bookkeeping *beside* the chain — two columns on the
 identically for a native run and an adopted one
 ([decision 0027](docs/decisions/0027-import.md)).
 
+A journal cites git SHAs — the head it reviewed, the head it shipped —
+and squash-merge, branch delete and `git gc` would collect them. Every
+run plants **keep-refs** at conclusion: `refs/forge/keep/<run>/<sha>`,
+one per cited object, so the exhibits outlive the branch that carried
+them ([decision 0028](docs/decisions/0028-keep-refs.md)).
+
+```
+$ brokkr keep-refs list                          # which runs hold which exhibits
+{
+  "keep": {
+    "keep-refs-the-journal-s-exhibits-c78fb73e": ["c9f1…", "3ad0…"]
+  }
+}
+
+$ brokkr keep-refs plant --run latest            # idempotent; for runs that predate the mechanism
+$ brokkr keep-refs delete --run <id>             # the exhibits may go — the operator's call alone
+```
+
 `brokkr costs --run <id>` reports per-seat attempts, turns and USD — the
 LaneTally join surface, computed from journal checkpoints with stable
 seat ids.

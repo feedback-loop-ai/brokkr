@@ -75,6 +75,16 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Keep-refs (decision 0028): the git objects a run's journal cites,
+    /// held by refs/forge/keep/<run>/<sha> so a squash-merge, a branch
+    /// delete and a gc cannot collect the evidence the journal names.
+    /// Runs plant these themselves at conclusion; these verbs cover the
+    /// runs that concluded before the mechanism existed, and the
+    /// deliberate letting-go that is the operator's alone.
+    KeepRefs {
+        #[command(subcommand)]
+        command: KeepRefsCmd,
+    },
     /// Serve the embedded read-only surface on loopback.
     Ui {
         #[arg(long, default_value = DEFAULT_DB)]
@@ -491,6 +501,44 @@ enum MuninnCmd {
 }
 
 #[derive(Subcommand)]
+enum KeepRefsCmd {
+    /// Plant a keep-ref for every object the run's journal cites.
+    /// Idempotent: replanting moves nothing.
+    Plant {
+        /// Full run id, a unique run-id prefix, or `latest`.
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+    /// Which runs hold which exhibits — one `for-each-ref`, no journal
+    /// needed. `--run` narrows the listing to one run.
+    List {
+        /// Full run id, a unique run-id prefix, or `latest`; without it,
+        /// every run holding keep-refs in this repository.
+        #[arg(long)]
+        run: Option<String>,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+    /// Let one run's exhibits go: remove refs/forge/keep/<run>/*. The
+    /// operator's decision alone — nothing in the engine ever deletes a
+    /// keep-ref, and the objects are then as mortal as gc leaves them.
+    Delete {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
 enum RecipesCmd {
     /// List recipes under --dir plus the built-in bundles; broken ones
     /// print a warning line, never abort the listing.
@@ -677,6 +725,61 @@ fn watch_loop(
         }
     }
     Ok(ExitCode::from(1))
+}
+
+/// `--run` for the reading and releasing verbs. Keep-refs outlive
+/// journals by design — the exhibits of a run whose database has moved
+/// on are still listable, and still the operator's to release — so the
+/// selector goes through decision 0015's one resolver when there IS a
+/// workspace database and is taken literally when there is not, rather
+/// than refusing a run the refs themselves can name.
+fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
+    match db.is_file() {
+        true => selector::resolve_run(&Store::open(db)?, run),
+        false => Ok(run.to_string()),
+    }
+}
+
+/// The keep-ref verbs. Planting reads the journal (so it resolves
+/// strictly, through the store it must open anyway); listing and
+/// deleting read only the repository.
+fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
+    match command {
+        KeepRefsCmd::Plant { run, db, repo } => {
+            let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
+            let planted = brokkr_runtime::plant_keep_refs(&store, &repo, &run)?;
+            eprintln!(
+                "kept {} exhibit(s) for {run} in {}/{run}/",
+                planted.kept.len(),
+                brokkr_runtime::keep_refs::KEEP_PREFIX,
+            );
+            if !planted.absent.is_empty() {
+                eprintln!(
+                    "keep-ref gap: {} cited object(s) are not in this repository: {}",
+                    planted.absent.len(),
+                    planted.absent.join(", "),
+                );
+            }
+        }
+        KeepRefsCmd::List { run, db, repo } => {
+            let mut held = brokkr_runtime::list_keep_refs(&repo)?;
+            if let Some(run) = run {
+                let run = keep_ref_run(&db, &run)?;
+                held.retain(|holder, _| *holder == run);
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({ "keep": held }))?
+            );
+        }
+        KeepRefsCmd::Delete { run, db, repo } => {
+            let run = keep_ref_run(&db, &run)?;
+            let removed = brokkr_runtime::delete_keep_refs(&repo, &run)?;
+            eprintln!("released {removed} exhibit(s) for {run}");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
@@ -1052,6 +1155,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::KeepRefs { command } => keep_refs(command),
         Cmd::Ui { db, port, open } => {
             serve_ui(db, port, open)?;
             Ok(ExitCode::SUCCESS)
