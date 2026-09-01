@@ -279,30 +279,49 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
 /// take down. The child's stdio is pointed away from the harness's
 /// pipes so that a kill which misses it still lets the harness see EOF:
 /// this test must fail with an assertion when the tree survives, never
-/// hang waiting on the CI job timeout to notice. The child announces
-/// its survival by writing `marker` a beat after the deadline.
+/// hang waiting on the CI job timeout to notice.
+///
+/// The child writes `born` the moment it starts and `survived` only
+/// well after the deadline. `born` is the positive control: without it
+/// an absent `survived` would prove nothing, because a tree that never
+/// formed also never announces itself.
 #[cfg(unix)]
-fn stalling_tree(_dir: &std::path::Path, marker: &std::path::Path) -> Vec<String> {
+fn stalling_tree(
+    _dir: &std::path::Path,
+    born: &std::path::Path,
+    survived: &std::path::Path,
+) -> Vec<String> {
     command(&format!(
         "read -r hello\n\
-         (sleep 2; : > '{}') </dev/null >/dev/null 2>&1 &\n\
+         (: > '{}'; sleep 4; : > '{}') </dev/null >/dev/null 2>&1 &\n\
          read -r stall\n",
-        marker.display()
+        born.display(),
+        survived.display()
     ))
 }
 
 /// The Windows twin: `cmd` blocking on `set /p` with a detached-console
 /// `cmd` child of its own. Written as batch files rather than nested
 /// `cmd /C` quoting because the quoting is the part most likely to be
-/// wrong from a machine that cannot run it.
+/// wrong from a machine that cannot run it — and a quoting mistake that
+/// leaves the child unspawned is exactly what the `born` control is
+/// there to turn into a red test rather than a silent green one.
 #[cfg(windows)]
-fn stalling_tree(dir: &std::path::Path, marker: &std::path::Path) -> Vec<String> {
+fn stalling_tree(
+    dir: &std::path::Path,
+    born: &std::path::Path,
+    survived: &std::path::Path,
+) -> Vec<String> {
     let child = dir.join("stall-child.bat");
     std::fs::write(
         &child,
         format!(
-            "@echo off\r\nping -n 3 127.0.0.1 >NUL\r\necho alive >\"{}\"\r\n",
-            marker.display()
+            "@echo off\r\n\
+             echo born>\"{}\"\r\n\
+             ping -n 5 127.0.0.1 >NUL\r\n\
+             echo alive>\"{}\"\r\n",
+            born.display(),
+            survived.display()
         ),
     )
     .unwrap();
@@ -328,7 +347,8 @@ fn stalling_tree(dir: &std::path::Path, marker: &std::path::Path) -> Vec<String>
 /// The deadline kill must unblock the harness, not merely signal the
 /// one process the harness holds a handle to. Both platforms have to
 /// come back with a determinate `Failed(deadline)` inside the deadline
-/// plus a bounded margin; the twenty-minute CI job timeout is the hang
+/// plus a bounded margin, and on both the driver really did have a
+/// child of its own — the twenty-minute CI job timeout is the hang
 /// backstop, never the assertion.
 ///
 /// Windows carries the extra claim, because it is the platform where a
@@ -339,9 +359,14 @@ fn stalling_tree(dir: &std::path::Path, marker: &std::path::Path) -> Vec<String>
 #[test]
 fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
     let dir = tempfile::tempdir().unwrap();
-    let marker = dir.path().join("the-child-outlived-the-kill");
-    let driver = stalling_tree(dir.path(), &marker);
-    let deadline = Duration::from_millis(300);
+    let born = dir.path().join("the-child-was-born");
+    let survived = dir.path().join("the-child-outlived-the-kill");
+    let driver = stalling_tree(dir.path(), &born, &survived);
+    // Long enough that the driver has unmistakably reached its own
+    // spawn before the watchdog fires: a deadline that raced the tree
+    // into existence would let the Windows half pass without ever
+    // having a tree to kill.
+    let deadline = Duration::from_secs(2);
 
     let started = std::time::Instant::now();
     let report = DriverProcess::spawn(&driver, dir.path(), Some(deadline))
@@ -359,14 +384,19 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
         "the kill must unblock the harness inside the deadline plus a \
          bounded margin, took {elapsed:?}"
     );
+    assert!(
+        born.exists(),
+        "the stalled driver must really have had a child of its own, \
+         or the kill had no tree to prove anything about"
+    );
 
-    // The child was scheduled to announce itself a beat after the
+    // The child was scheduled to announce its survival well after the
     // deadline. Nothing may announce itself.
     #[cfg(windows)]
     {
-        std::thread::sleep(Duration::from_secs(5));
+        std::thread::sleep(Duration::from_secs(6));
         assert!(
-            !marker.exists(),
+            !survived.exists(),
             "the deadline kill took the driver's whole tree, not only \
              the process the harness held a handle to"
         );

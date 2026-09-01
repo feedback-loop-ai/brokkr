@@ -58,10 +58,22 @@ pub struct DriverProcess {
 /// the deadline and the lock), so its status and its output are both
 /// discarded; the direct kill below is the backstop that still holds if
 /// `taskkill` could not be run at all.
+///
+/// `taskkill` is named by absolute path, not by bare name: Windows
+/// resolves a bare program name against the calling process's current
+/// directory as well as `PATH`, and the harness's current directory is
+/// a repository that seats write into. Resolving from `%SystemRoot%`
+/// keeps a file a seat dropped in the working tree out of the kill
+/// path.
 fn kill_driver(child: &mut Child) {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        let system_root =
+            std::env::var("SystemRoot").unwrap_or_else(|_| String::from(r"C:\Windows"));
+        let taskkill = std::path::Path::new(&system_root)
+            .join("System32")
+            .join("taskkill.exe");
+        let _ = Command::new(taskkill)
             .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
