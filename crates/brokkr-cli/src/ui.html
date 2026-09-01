@@ -507,7 +507,7 @@ function renderLoops(detail, view, id) {
   // Native tooltip: phase, visit count, and — on the current phase —
   // the last ruling, so the graph explains itself on hover.
   const phaseTip = (seg) => {
-    const tip = [seg.name + (seg.visits > 1 ? ' · visited x' + seg.visits : '')];
+    const tip = [seg.name + (seg.visits > 1 ? ' · visited ×' + seg.visits : '')];
     if (seg.current && view.ruling) {
       tip.push('last ruling: ' + view.ruling.rule_id + ' → ' + view.ruling.next);
     }
@@ -647,7 +647,7 @@ function renderLoops(detail, view, id) {
     label.setAttribute('text-anchor', 'middle');
     nameG.appendChild(label);
     if (seg.visits > 1) {
-      const rev = svgEl('text', 'revisit', 'x' + seg.visits);
+      const rev = svgEl('text', 'revisit', '×' + seg.visits);
       rev.setAttribute('x', seg.cx);
       rev.setAttribute('y', nameY + 12);
       rev.setAttribute('text-anchor', 'middle');
@@ -659,9 +659,11 @@ function renderLoops(detail, view, id) {
 
   // The road back. A reforging is a road, and a road is drawn: without
   // this the rail says `review` finished and `implement` lit up again,
-  // which reads as teleportation rather than a loop. Drawn last, on its
-  // own rows beneath the names, so it passes UNDER the selection box
-  // instead of through it — the paint-order answer to the TUI's arc row.
+  // which reads as teleportation rather than a loop. It rides two rows
+  // of its own BELOW the selection box, which ends at nameY + 16 — the
+  // clearance is that geometry and not the paint order, so a road moved
+  // upward would cross the box however late it is drawn. Same answer
+  // the TUI gives: a row reserved under the names.
   //
   // One road per distinct pair, however many times the journal took it:
   // the repeats ride the ×N marker, which was already the rail's answer

@@ -415,11 +415,26 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
             .clone()
     };
 
-    // The counts the ×N marker already paints, unchanged by this work.
+    // The counts the ×N marker paints — three arrivals each on the
+    // phases the loop crossed, one on the phase it never re-entered.
     assert_eq!(named("implement")["visits"], 3);
     assert_eq!(named("verify")["visits"], 3);
     assert_eq!(named("review")["visits"], 3);
     assert_eq!(named("intake")["visits"], 1);
+
+    // And spelled the way every other surface spells it: `×N`, the
+    // terminal's and `inspect`'s glyph, only past the first visit. The
+    // operator's finding asked for the counts as the other surfaces
+    // show them, so the spelling is part of the parity, not decoration.
+    let page = handle(&db, "/").body;
+    assert!(
+        page.contains("svgEl('text', 'revisit', '×' + seg.visits)"),
+        "the revisit marker wears the same × the TUI and inspect wear"
+    );
+    assert!(
+        !page.contains("'x' + seg.visits"),
+        "and never the ASCII x the console used to draw"
+    );
 
     // And the road itself, already on the wire: the phase whose ruling
     // sent the run back, named on the phase it landed in. Two reforgings
@@ -461,7 +476,6 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
         vec![(index("implement"), index("review"))],
         "one road: from beneath the phase that ruled to beneath the phase it landed in"
     );
-    let page = handle(&db, "/").body;
     assert!(page.contains("function returnPairs(rail)"));
     assert!(page.contains("for (const source of phase.returns)"));
     assert!(page.contains("if (from > to) roads.push([to, from]);"));

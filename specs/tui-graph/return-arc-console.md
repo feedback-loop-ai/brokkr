@@ -27,8 +27,12 @@ ruling on a second surface:
 
 1. **Journal-true.** One road per distinct `(from, to)` pair the model
    carries. Repeats ride the revisit marker the console already painted
-   (spelled `xN` here, `×N` in the terminal — an unruled cosmetic
-   difference this change does not touch) — never a stacked arc.
+   — never a stacked arc. The console spelled it `xN` where the terminal
+   and `inspect` both spell it `×N`; review closed that gap, since the
+   operator's finding asked for the counts *as the other surfaces show
+   them*. The terminal's extra clamp at `VISITS_MAX` stays a terminal
+   concern: it exists because a cell budget is finite, and an SVG text
+   node's is not.
 2. **Solid only.** In SVG the dashed-glyph lesson does not bite the same
    way, but its meaning does: a dashed road reads as one not taken, and
    this one was. `.loops .ret` strokes `var(--line)` at the rail's own
