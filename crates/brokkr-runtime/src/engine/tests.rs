@@ -1072,6 +1072,130 @@ fn parked_store(path: &Path, run_id: &str) -> Store {
     store
 }
 
+/// The between-effects write race, closed. An operator at a terminal
+/// supplies no cursor, so nothing but the engine's own re-read stands
+/// between their decision and the write — and a run being driven
+/// concurrently can un-park or conclude in exactly that gap.
+///
+/// Each command below is prepared against a snapshot that was true when
+/// the operator read it and false by the time it lands. Every one must
+/// come back refused, naming the fence it lost, and — the whole point —
+/// must leave a journal that still folds.
+#[test]
+fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = parked_store(&dir.path().join("raced.db"), "raced");
+
+    // Single-writer behaviour first, unchanged: the run is parked, the
+    // stop is legal, it is accepted.
+    assert!(
+        matches!(
+            operator_command(&mut store, "raced", "stop", "operator", "enough").unwrap(),
+            FencedCommandOutcome::Accepted { .. }
+        ),
+        "a stop on a parked run is still accepted",
+    );
+
+    // Un-parked underneath the operator: the retry they were holding was
+    // prepared against a parked run, and the accepted stop above already
+    // moved it back to running. `retry` is legal only on a parked run.
+    let refused = operator_command(&mut store, "raced", "retry", "operator", "once more").unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        "{refused:?}",
+    );
+
+    // Concluded underneath the operator. This is the irreversible case:
+    // fold exempts only `operator/commanded` and `operator/rejected`
+    // after a terminal, so an acceptance here is `AfterTerminal` for
+    // every reader from now on. Both commands must refuse — including
+    // `stop`, which anywhere non-terminal is a live kill switch.
+    store
+        .append_next(
+            "raced",
+            EventType::RunStopped,
+            json!({"reason": "OPERATOR-STOP: enough"}),
+            None,
+            None,
+        )
+        .unwrap();
+    for command in ["retry", "stop"] {
+        let refused = operator_command(&mut store, "raced", command, "operator", "too late")
+            .unwrap_or_else(|error| panic!("{command} errored instead of refusing: {error}"));
+        assert!(
+            matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+                if reason == LOST_FENCE),
+            "{command}: {refused:?}",
+        );
+    }
+
+    let events = store.load("raced").unwrap();
+    // The journal still folds — three refusals later.
+    assert_eq!(fold(&events).unwrap().status, Status::Stopped);
+    let counted = |event_type| {
+        events
+            .iter()
+            .filter(|event| event.event_type == event_type)
+            .count()
+    };
+    assert_eq!(
+        counted(EventType::OperatorAccepted),
+        1,
+        "only the one command that was still legal was ever accepted",
+    );
+    assert_eq!(counted(EventType::OperatorRejected), 3);
+    // Every refusal names the fence it lost and disposes of exactly the
+    // command it refused, so the journal reads back as three answered
+    // commands rather than three loose ones.
+    for rejected in events
+        .iter()
+        .filter(|event| event.event_type == EventType::OperatorRejected)
+    {
+        assert_eq!(rejected.payload["reason"], json!(LOST_FENCE));
+        let command_id = &rejected.payload["command_id"];
+        assert!(events.iter().any(|event| {
+            event.event_type == EventType::OperatorCommanded
+                && &event.payload["command_id"] == command_id
+        }));
+    }
+
+    // The hazard is not hypothetical. Written by hand — exactly the pair
+    // the unfenced path used to write into this position — the journal
+    // stops folding, permanently, because events are immutable.
+    let mut poisoned = parked_store(&dir.path().join("poisoned.db"), "poisoned");
+    operator_command(&mut poisoned, "poisoned", "stop", "operator", "enough").unwrap();
+    poisoned
+        .append_next(
+            "poisoned",
+            EventType::RunStopped,
+            json!({"reason": "stopped"}),
+            None,
+            None,
+        )
+        .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id":"late","command":"stop","args":{},"operator":"operator"}),
+        ),
+        (
+            EventType::OperatorAccepted,
+            json!({"command_id":"late","operator":"operator","reason":"too late"}),
+        ),
+    ] {
+        poisoned
+            .append_next("poisoned", event_type, payload, None, None)
+            .unwrap();
+    }
+    assert!(
+        fold(&poisoned.load("poisoned").unwrap()).is_err(),
+        "the acceptance the fence now refuses is exactly what breaks the fold",
+    );
+    // And a fenced command arriving at that already-broken journal
+    // refuses to add to it rather than folding it again.
+    assert!(operator_command(&mut poisoned, "poisoned", "stop", "operator", "later").is_err());
+}
+
 #[test]
 fn operator_and_fenced_replay_cover_every_disposition() {
     let dir = tempfile::tempdir().unwrap();

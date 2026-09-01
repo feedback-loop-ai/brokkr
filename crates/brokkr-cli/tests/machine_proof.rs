@@ -908,13 +908,20 @@ fn runs_lists_completed_run_with_status_and_phase() {
     assert!(!human.contains("1 runs"), "the trailer moved to --json");
 }
 
-/// The fleet-blinding fault, end to end and through shipped commands
-/// only. `brokkr operator` journals a command and its acceptance
-/// WITHOUT reading the run's state first — the deliberate live kill
-/// switch — so an operator can leave behind a journal the fold refuses.
-/// That must cost the operator that one run, never the whole fleet:
+/// The fleet-blinding fault, end to end. An `operator/accepted` on a run
+/// that has already finished is `FoldError::AfterTerminal` forever, and
+/// one such journal must cost that one run and never the whole fleet:
 /// `runs` lists everything and quarantines the poisoned row with the
 /// fold's own words, while the verbs aimed at that run still fail.
+///
+/// `brokkr operator` used to be a way to CREATE this fault — it wrote
+/// the acceptance without re-reading the run — and this test used to
+/// reach for it. It no longer can, which the first half now proves: the
+/// command is fenced, it refuses, and it says why. The poisoned fixture
+/// is therefore built directly through the store, because a journal in
+/// this state can now only come from a hand-edited file or from one
+/// written before the fence existed. Both still have to be readable
+/// without blinding the fleet, so the quarantine is still on trial here.
 #[test]
 fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs() {
     let ws = Workspace::new(happy_script());
@@ -941,8 +948,10 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
         .map(|line| line[prefix.len()..].split(' ').next().unwrap().to_string())
         .unwrap_or_else(|| panic!("rerun announcement on stderr: {stderr}"));
 
-    // The operator's command lands on a run that has already finished:
-    // accepted unconditionally, journaled, and refused by the fold.
+    // The operator's command lands on a run that has already finished.
+    // The fence catches it: refused, not accepted, and journaled as a
+    // refusal — a real process against a real journal, which is the
+    // between-effects write race proved where it is actually spent.
     let (code, _, stderr) = ws.brokkr_raw(&[
         "operator",
         "--run",
@@ -953,7 +962,39 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
         db.to_str().unwrap(),
         "stop",
     ]);
-    assert_eq!(code, Some(0), "the engine accepts it: {stderr}");
+    assert_eq!(code, Some(1), "the fence refuses it: {stderr}");
+    assert!(
+        stderr.contains("lost_fence"),
+        "and names the fence: {stderr}"
+    );
+    // Refused, so the run is still perfectly readable.
+    let (code, _, stderr) =
+        ws.brokkr_raw(&["inspect", "--run", &poisoned, "--db", db.to_str().unwrap()]);
+    assert_eq!(
+        code,
+        Some(0),
+        "the refusal left the journal foldable: {stderr}"
+    );
+
+    // Now poison it deliberately, the only way that is still open: write
+    // the acceptance straight into the journal, behind the engine's back.
+    {
+        let mut store = brokkr_store::Store::open(&db).unwrap();
+        for (event_type, payload) in [
+            (
+                brokkr_core::envelope::EventType::OperatorCommanded,
+                json!({"command_id":"hand-edited","command":"stop","args":{},"operator":"operator"}),
+            ),
+            (
+                brokkr_core::envelope::EventType::OperatorAccepted,
+                json!({"command_id":"hand-edited","operator":"operator","reason":"stop it now"}),
+            ),
+        ] {
+            store
+                .append_next(&poisoned, event_type, payload, None, None)
+                .unwrap();
+        }
+    }
 
     let (code, stdout, stderr) = ws.brokkr_raw(&["runs", "--json", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "the fleet still lists: {stderr}");
