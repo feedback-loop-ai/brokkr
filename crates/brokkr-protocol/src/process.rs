@@ -40,6 +40,49 @@ pub struct DriverProcess {
     deadline: Option<Duration>,
 }
 
+/// The deadline kill. Its job is to make non-completion determinate
+/// (decision 0006), and a kill the harness cannot observe the end of is
+/// not determinate: the driver's stdout/stderr are pipes, and EOF only
+/// arrives when the last copy of the write end is gone.
+///
+/// On unix `Child::kill()` is that kill, unchanged — SIGKILL on the
+/// process the harness holds. On Windows it is not enough. A driver
+/// that spawned anything of its own leaves those grandchildren holding
+/// the inherited handles, so the reader waits on an EOF that cannot
+/// come and `wait()` never returns: the observed failure was a runner
+/// hung for forty minutes on a driver blocked reading stdin, not a
+/// deadline. So the tree goes first, by PID, while the driver is still
+/// alive to be the root of it — after the direct kill the PID is dead
+/// and `/T` has no tree to walk. `taskkill` finding nothing to kill is
+/// not a failure here (the driver may have exited on its own between
+/// the deadline and the lock), so its status and its output are both
+/// discarded; the direct kill below is the backstop that still holds if
+/// `taskkill` could not be run at all.
+///
+/// `taskkill` is named by absolute path, not by bare name: Windows
+/// resolves a bare program name against the calling process's current
+/// directory as well as `PATH`, and the harness's current directory is
+/// a repository that seats write into. Resolving from `%SystemRoot%`
+/// keeps a file a seat dropped in the working tree out of the kill
+/// path.
+fn kill_driver(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let system_root =
+            std::env::var("SystemRoot").unwrap_or_else(|_| String::from(r"C:\Windows"));
+        let taskkill = std::path::Path::new(&system_root)
+            .join("System32")
+            .join("taskkill.exe");
+        let _ = Command::new(taskkill)
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+}
+
 impl DriverProcess {
     /// Spawn the driver. With a deadline, a watchdog kills the child when
     /// it expires; the attempt then reports Failed(timeout) rather than
@@ -79,7 +122,7 @@ impl DriverProcess {
                 if let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
                     timed_out.store(true, Ordering::SeqCst);
                     if let Ok(mut child) = child.lock() {
-                        let _ = child.kill();
+                        kill_driver(&mut child);
                     }
                 }
             });

@@ -531,37 +531,35 @@ fn a_refused_invocation_records_nothing_and_exits_nonzero() {
     assert!(ws.records().is_empty());
 
     // A driver that runs past its deadline: it stalls on a message
-    // that never comes, and the deadline kill takes it down. Unix
-    // only, honestly: Windows never actually exercised this path (the
-    // old sleep-based stall returned instantly there and the run
-    // concluded in time), and its kill-a-blocked-driver semantics are
-    // an untested territory of their own — a recorded gap for a
-    // Windows-runner slice, not a silent one.
-    #[cfg(unix)]
-    {
-        ws.muninn_agent(1, 1);
-        ws.script_driver(
-            json!({
-                "proto": "forge-driver/v1", "msg_id": "m3", "type": "result",
-                "effect_id": "__EID__", "attempt_id": "a", "status": "succeeded",
-                "result": {"result": "proposed", "inputs": {
-                    "fleet_summary": "too late", "parked_runs": [], "work_queue": []}},
-            }),
-            "read -r stall",
-        );
-        let output = ws.muninn();
-        assert_eq!(output.status.code(), Some(1));
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("deadline"), "{stderr}");
-        assert!(
-            ws.records().is_empty(),
-            "an out-of-deadline invocation records nothing"
-        );
-        assert!(
-            !std::fs::exists(ws.record()).unwrap(),
-            "the record file is not even created"
-        );
-    }
+    // that never comes, and the deadline kill takes it down. Every
+    // platform now, the recorded gap closed: PR #81 left this unix-only
+    // because Windows had never exercised a kill against a genuinely
+    // blocked driver, and `Child::kill()` reaches only the process the
+    // harness holds a handle to. The deadline kill takes the driver's
+    // whole process tree on Windows, so the pipes close and the harness
+    // sees the EOF it was waiting on.
+    ws.muninn_agent(1, 1);
+    ws.script_driver(
+        json!({
+            "proto": "forge-driver/v1", "msg_id": "m3", "type": "result",
+            "effect_id": "__EID__", "attempt_id": "a", "status": "succeeded",
+            "result": {"result": "proposed", "inputs": {
+                "fleet_summary": "too late", "parked_runs": [], "work_queue": []}},
+        }),
+        "read -r stall",
+    );
+    let output = ws.muninn();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("deadline"), "{stderr}");
+    assert!(
+        ws.records().is_empty(),
+        "an out-of-deadline invocation records nothing"
+    );
+    assert!(
+        !std::fs::exists(ws.record()).unwrap(),
+        "the record file is not even created"
+    );
 }
 
 #[test]
