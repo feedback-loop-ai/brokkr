@@ -1,0 +1,83 @@
+{
+  "schema": "forge.phase-machine/v1",
+  "description": "Preflight: the forge's verify and review seats pointed at an UNMERGED branch, before a pull request exists. The table has no intake, no implement and no ship phase and it ends after review — so a preflight run can only produce a ruling, never a change and never a merge. The constitutional review invariants hold unchanged: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass, and a reviewer that claims it edited the branch is itself the defect.",
+  "phases": ["verify", "review", "done", "stop"],
+  "initial": "verify",
+  "terminal": ["done", "stop"],
+  "rules": [
+    {
+      "id": "VERIFY-FAIL",
+      "from": "verify",
+      "result": "fail",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "The branch does not pass the gates it will face; the report is the ruling. Fix what it names and run preflight again."
+    },
+    {
+      "id": "VERIFY-PASS",
+      "from": "verify",
+      "result": "pass",
+      "next": "review",
+      "reason": "The local gates are green; the review seat reads verified evidence rather than a claim."
+    },
+    {
+      "id": "REVIEW-SECURITY-HOLD",
+      "from": "review",
+      "result": "security-hold",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "High or critical security findings on the branch. Risk acceptance is the operator's, never an agent's — and never a preflight's."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
+      "from": "review",
+      "result": "residual",
+      "when": { "max_residual_severity_above": "medium" },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Residual severity above medium; the branch is not ready to be proposed."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-SECURITY",
+      "from": "review",
+      "result": "residual",
+      "when": { "has_security_residual": true },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Security residuals never qualify as a clean preflight, at any severity."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-FIXED",
+      "from": "review",
+      "result": "residual",
+      "when": { "fixes_applied": true },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "The read-only reviewer claims it changed the contributor's branch: charter violation, park-grade defect in the preflight itself."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-OK",
+      "from": "review",
+      "result": "residual",
+      "next": "done",
+      "severity": "flagged",
+      "reason": "Non-security residuals at or below medium: the branch may be proposed with the findings named in the pull request. Omitted severity inputs fall here flagged — the contributor reads the notes."
+    },
+    {
+      "id": "REVIEW-CLEAN",
+      "from": "review",
+      "result": "clean",
+      "when": { "fixes_applied": false },
+      "next": "done",
+      "reason": "Nothing remains. Open the pull request; the human review starts from here rather than from the obvious."
+    },
+    {
+      "id": "REVIEW-CLEAN-FIXED",
+      "from": "review",
+      "result": "clean",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "The read-only reviewer claims it changed the contributor's branch: charter violation, park-grade defect in the preflight itself."
+    }
+  ]
+}

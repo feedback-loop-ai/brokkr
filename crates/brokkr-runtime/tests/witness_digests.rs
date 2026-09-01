@@ -2,10 +2,11 @@
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
 //!
-//! `recipes/fast`, `recipes/node` and `bundles/verify` adopt no agent.
-//! Their pinned manifest digest must not move, and their manifest must
-//! carry no `agents` key at all — absence, not an empty object, is what
-//! keeps a non-adopting bundle's identity exactly what it was.
+//! `recipes/fast`, `recipes/node`, `recipes/preflight` and
+//! `bundles/verify` adopt no agent. Their pinned manifest digest must
+//! not move, and their manifest must carry no `agents` key at all —
+//! absence, not an empty object, is what keeps a non-adopting bundle's
+//! identity exactly what it was.
 //!
 //! Adopting no agent is not the same as answering to nobody. Both seat
 //! INLINE gates, and since decision 0021 a gate stands on an adapter's
@@ -45,7 +46,13 @@ fn workspace() -> PathBuf {
 /// pinned from its first compile: it ships as reference material a
 /// stranger copies, so an unreviewed edit to a charter or a driver's
 /// tool list must fail a test here exactly as it would for `fast`.
-const WITNESSES: [(&str, &str); 3] = [
+///
+/// `recipes/preflight` joined for the sharper version of the same
+/// reason: a contributor runs it on their own branch expecting the
+/// machine's own bar, and a charter quietly softened — a gate dropped
+/// from the verifier's list, a tool added to a driver — would change
+/// what that promise is worth without changing anything visible.
+const WITNESSES: [(&str, &str); 4] = [
     (
         "recipes/fast",
         "6324f76f7bfacdba7b6d93c1f07022344cafe5467cfab27a333e52aa9acb3ae7",
@@ -55,6 +62,10 @@ const WITNESSES: [(&str, &str); 3] = [
         "ed3c623bceaa7ae83d849cad38451f4b99500752c4369a92b448b0d849dc7b3b",
     ),
     (
+        "recipes/preflight",
+        "9e78d802db37f4d389beaf09f964fac7124af111eb5ee23d8b05adeac8d41d9c",
+    ),
+    (
         "bundles/verify",
         "4a94d29f9058cc506535809ec660e2dfc5c34ad3d144c09ad72fba66ac2e479f",
     ),
@@ -62,10 +73,13 @@ const WITNESSES: [(&str, &str); 3] = [
 
 /// The INLINE gate seats of each, by name: exactly what a `drivers`
 /// witness must account for, one entry per judging seat and none for a
-/// working one. `bundles/verify` has no ship phase to gate.
-const INLINE_GATES: [(&str, &[&str]); 3] = [
+/// working one. `bundles/verify` and `recipes/preflight` have no ship
+/// phase to gate — and no working seat at all, so in those two every
+/// seat appears here.
+const INLINE_GATES: [(&str, &[&str]); 4] = [
     ("recipes/fast", &["review", "ship", "verify"]),
     ("recipes/node", &["review", "ship", "verify"]),
+    ("recipes/preflight", &["review", "verify"]),
     ("bundles/verify", &["review", "verify"]),
 ];
 

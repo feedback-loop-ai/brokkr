@@ -849,11 +849,12 @@ attestations; verify an asset with
 | Path | What it is |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | The walk from clone to a green pull request: the nine checks with their exact local commands, the coverage gate's refusal shapes, the signing story, the decision culture. |
 | `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), `forge.realms/v1` (the world's map, decision 0023) and `forge.realms/v2` (a realm may name its own journal — many hearths, decision 0026). |
 | `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
-| `recipes/` | The user recipe library (`fast`, `node` — the Node/TypeScript reference — `panel-review`, `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
+| `recipes/` | The user recipe library (`fast`, `node` — the Node/TypeScript reference — `panel-review`, `preflight` — the contributor's pre-flight review — `sdd`, `sdd-paranoid` — which `extends` `sdd` — yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
 | `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
@@ -881,44 +882,25 @@ can all cite "decision 0007" and mean the same paragraph.
 
 The engine forges its own changes and reviews them adversarially, so
 the bar for a human contribution is the bar the machine is already held
-to.
+to. **[CONTRIBUTING.md](CONTRIBUTING.md) is the walk** — the whole road
+from `git clone` to a green pull request, with every gate's exact local
+command, every refusal shape and its fix, and the parts of the story
+that are easy to get wrong.
 
-### Quality gates
+The shape of it, so you know what you are agreeing to:
 
-All of these are required jobs in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Run them before
-you open anything.
-
-| Gate | Command | Where it lives |
-|---|---|---|
-| MSRV honesty | `cargo +1.88.0 check --workspace --locked` | `ci.yml` → job `msrv` |
-| Canonical formatting | `cargo fmt --all -- --check` | `ci.yml` → job `quality` |
-| Clippy, warnings as errors | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | `ci.yml` → job `quality` |
-| Contracts compile | `brokkr compile --bundle bundles/self` and `bundles/verify` | `ci.yml` → jobs `quality`, `engine` |
-| Full suite, three OSes | `cargo test --workspace --all-features --locked` | `ci.yml` → job `engine` (ubuntu · macos · windows) |
-| Exact coverage | `bash scripts/coverage-exact.sh` | `ci.yml` → job `coverage` |
-| RustSec dependency audit | `rustsec/audit-check` | `ci.yml` → job `dependency-audit` |
-
-The coverage gate is not a percentage to trend upwards. It re-folds a
-candidate-bound LCOV report and demands literal integer equality on
-lines, branches and functions; it also refuses attribute-based source
-exclusions outright, so production code cannot shrink its own
-denominator. There is no threshold to lower.
-
-Lint configuration lives once, in `[workspace.lints]` in the root
-`Cargo.toml`, and every crate inherits it through `[lints] workspace =
-true` — so no crate can quietly hold a different opinion. The
-warnings-as-errors escalation is the `-D warnings` flag on the command
-above; run that exact line and your Clippy is CI's Clippy.
-
-### The flow
-
-- **A worktree per slice.** Work on one slice happens in its own git
-  worktree off this repository, so the main checkout stays clean and
-  parallel slices never share a dirty tree. Branch, deliver, verify,
-  then hand the branch back.
-- **Tests are part of the change, not an afterthought.** Extend the
-  suite that proves the code you touched.
+- **Nine required checks** in
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — MSRV, format,
+  clippy with `-D warnings`, the bundle compiles, the full suite on
+  three operating systems, exact coverage, dependency licences, the
+  RustSec audit, and the release build. Every one of them reproduces
+  locally except the RustSec audit — and the matrix, on your own
+  operating system only. CONTRIBUTING.md lists the commands.
+- **The coverage gate is not a percentage to trend upwards.** It
+  re-folds a candidate-bound LCOV report and demands literal integer
+  equality on lines, branches and functions; it also refuses
+  attribute-based source exclusions outright, so production code cannot
+  shrink its own denominator. There is no threshold to lower.
 - **Frozen means frozen.** The v1 `contracts/`, the `fixtures/`
   evaluator corpus, `policy/phase-machine.json` and `reference/` are
   read-only. A contract change is a new version file, never an edit.
@@ -926,6 +908,18 @@ above; run that exact line and your Clippy is CI's Clippy.
   `docs/decisions/` and let the operator rule.
 - **The operator keeps push and merge.** Nothing here pushes on your
   behalf.
+
+And one offer the machine makes to you before any human does:
+
+```
+brokkr run --recipe preflight --repo . --feature "<what your branch does>"
+```
+
+[`recipes/preflight`](recipes/preflight/) seats the forge's own `verify`
+and `review` agents against your unmerged branch — no intake, no
+implement, no ship, the table ends after review with a ruling. The same
+adversarial, typed, journalled findings the machine's own work faces,
+before you open anything.
 
 ### Contribution licensing
 
