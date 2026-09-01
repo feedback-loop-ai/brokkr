@@ -1348,10 +1348,13 @@ fn run_with(
                     Ok(ExitCode::SUCCESS)
                 }
                 FencedCommandOutcome::Rejected { reason, .. } => {
-                    // Why the run cannot take it is the journal's to say,
-                    // not this line's: the same refusal covers a run that
-                    // moved on under the operator and one that was never
-                    // in a state to take the command at all.
+                    // The reason word carries which condition it was —
+                    // `lost_fence` for a run that moved under the
+                    // operator, `after_terminal` or
+                    // `run_not_awaiting_operator` for a command the run
+                    // was never in a state to take — so this line states
+                    // the condition and passes the word through rather
+                    // than paraphrasing it into one story.
                     eprintln!(
                         "refused operator {command} ({reason}): the run is not in a state \
                          this command can apply to; the refusal is journaled. Read it with: \

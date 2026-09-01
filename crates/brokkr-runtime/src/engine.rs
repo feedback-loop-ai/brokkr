@@ -1514,16 +1514,55 @@ fn operator_stop_reason(events: &[EventEnvelope]) -> String {
     )
 }
 
-/// The reason an unfenced operator command is refused when the run moved
-/// out from under it between the operator's read and the engine's write.
+/// The reason a command is refused because the run MOVED out from under
+/// it — it was legal when the operator asked and illegal by the time the
+/// disposition was written. A race, and the journal says so in one word.
+///
+/// The reasons below name the other thing a refusal can mean: a command
+/// the run could never have taken, no race involved. `lost_fence` used to
+/// carry both, which told an operator reading a refused `retry` that they
+/// had been unlucky when in fact they had asked for something the run was
+/// never in a state to give.
 pub const LOST_FENCE: &str = "lost_fence";
 
+/// Not `retry` or `stop`. The same word the fenced path uses.
+const COMMAND_NOT_ALLOWED: &str = "command_not_allowed";
+
+/// The run had already reached `Completed`/`Stopped`. Named for the
+/// `FoldError` an acceptance there would mint, since that error is what
+/// the refusal exists to prevent.
+const AFTER_TERMINAL: &str = "after_terminal";
+
+/// `retry` asked of a run that is not parked. The same word the fenced
+/// path uses for the same condition.
+const RUN_NOT_AWAITING_OPERATOR: &str = "run_not_awaiting_operator";
+
+/// The caller's cursor no longer describes the run's head. The fenced
+/// path's word for a race, which is `lost_fence`'s counterpart on the
+/// side that HAS a cursor to be stale.
+const STALE_CURSOR: &str = "stale_cursor";
+
+/// How many times [`operator_command`] re-decides against a moving head
+/// before it refuses. Each turn is spent only when a peer appended in the
+/// microseconds between the deciding fold and the fenced write, and costs
+/// one load and one fold. A command that loses four in a row is not
+/// racing a burn, and a refusal is always the safe answer — `fold` reads
+/// `operator/rejected` back in every state there is.
+const FENCE_ATTEMPTS: usize = 4;
+
 /// Would an `operator/accepted` for `command` still fold against this
-/// state? Asked BEFORE the acceptance is written, because `fold` will
-/// ask it of every reader forever afterward and events are immutable —
-/// an acceptance that lands where fold refuses it is not a mistake that
-/// can be taken back, it is a journal that stops folding from that seq
-/// on.
+/// state — and if not, WHICH condition stops it? Asked BEFORE the
+/// acceptance is written, because `fold` will ask it of every reader
+/// forever afterward and events are immutable — an acceptance that lands
+/// where fold refuses it is not a mistake that can be taken back, it is a
+/// journal that stops folding from that seq on.
+///
+/// The condition is returned rather than a verdict because the same
+/// condition means two different things depending on WHEN it first held:
+/// true already when the operator asked, it is an illegal request; true
+/// only once the command had landed, it is [`LOST_FENCE`], a run that
+/// moved. [`operator_command`] asks twice and names the refusal
+/// accordingly.
 ///
 /// The rule is exactly `fold`'s (`brokkr-core::fold`), read from the
 /// other side:
@@ -1543,15 +1582,42 @@ pub const LOST_FENCE: &str = "lost_fence";
 /// fence it needs is the narrower one this predicate states.
 fn refusal_for(state: &RunState, command: &str) -> Option<&'static str> {
     if command != "retry" && command != "stop" {
-        return Some("command_not_allowed");
+        return Some(COMMAND_NOT_ALLOWED);
     }
     if matches!(state.status, Status::Completed | Status::Stopped) {
-        return Some(LOST_FENCE);
+        return Some(AFTER_TERMINAL);
     }
     if command == "retry" && (state.status != Status::AwaitingOperator || state.phase.is_none()) {
-        return Some(LOST_FENCE);
+        return Some(RUN_NOT_AWAITING_OPERATOR);
     }
     None
+}
+
+/// Journal a refusal and report it. A rejection needs no fence of its
+/// own: `fold` reads `operator/rejected` back in every state there is,
+/// terminal included, which is exactly why refusing is always the safe
+/// answer to a race.
+fn refuse(
+    store: &mut Store,
+    run_id: &str,
+    command_id: &str,
+    operator: &str,
+    reason: &str,
+    cause: &str,
+) -> Result<FencedCommandOutcome, EngineError> {
+    store.append_next(
+        run_id,
+        EventType::OperatorRejected,
+        json!({"command_id": command_id, "operator": operator, "reason": reason}),
+        Some(cause.to_string()),
+        None,
+    )?;
+    let (head_seq, head_hash) = store.head_hash(run_id)?;
+    Ok(FencedCommandOutcome::Rejected {
+        reason: reason.into(),
+        head_seq,
+        head_hash,
+    })
 }
 
 /// Append an operator command and its disposition (the CLI is the
@@ -1568,15 +1634,20 @@ fn refusal_for(state: &RunState, command: &str) -> Option<&'static str> {
 /// time anyone read the run.
 ///
 /// So the state is re-established here, as close to the write as the
-/// store API allows: `operator/commanded` is appended first (fold exempts
-/// it even after a terminal, so it is safe anywhere and it records that
-/// the operator asked), and the run is folded again *after* it lands.
-/// What that fold says — not what the operator saw — decides whether the
-/// disposition is an acceptance or a [`LOST_FENCE`] refusal. The window
-/// that remains is the one no CAS-less append can close, and the closing
-/// `fold` covers it the way the fenced path does: a race that still slips
-/// through fails loudly here rather than quietly in a reader a week
-/// later.
+/// store API allows — which, with [`Store::append_next_if_head`], is all
+/// the way. `operator/commanded` is appended first (fold exempts it even
+/// after a terminal, so it is safe anywhere and it records that the
+/// operator asked). Then the run is folded again, and what THAT fold says
+/// — not what the operator saw — decides the disposition. An acceptance
+/// is written with the head that fold read as its fence, so it can only
+/// land on the state it was decided against: a peer that appended in
+/// between takes the head away, nothing is written, and the decision is
+/// made again against what the journal now says. Decide-and-append is
+/// atomic, not merely narrow, and no acceptance this function writes can
+/// be one `fold` later refuses.
+///
+/// A refusal is written unfenced, because `fold` reads
+/// `operator/rejected` back in every state there is.
 pub fn operator_command(
     store: &mut Store,
     run_id: &str,
@@ -1584,11 +1655,33 @@ pub fn operator_command(
     operator: &str,
     reason: &str,
 ) -> Result<FencedCommandOutcome, EngineError> {
+    operator_command_racing(store, run_id, command, operator, reason, |_| {})
+}
+
+/// [`operator_command`], with the window it fences made reachable.
+///
+/// `between` is called at the one instant the fence exists for: after the
+/// deciding fold has read the journal, before the disposition is written.
+/// Production passes a no-op. The tests pass an engine's append, because
+/// a race proved by two real threads could only be asserted on when it
+/// happened to interleave, and a fence is either always there or it is
+/// not a fence.
+fn operator_command_racing(
+    store: &mut Store,
+    run_id: &str,
+    command: &str,
+    operator: &str,
+    reason: &str,
+    mut between: impl FnMut(&mut Store),
+) -> Result<FencedCommandOutcome, EngineError> {
     let command_id = Uuid::new_v4().to_string();
     let events = store.load(run_id)?;
     // A journal that does not fold cannot host a legal acceptance at
     // all, so refuse before writing anything rather than adding to it.
-    fold(&events)?;
+    let asked = fold(&events)?;
+    // What the run already refused before the command was even journaled
+    // is not a race, and is not reported as one.
+    let illegal_when_asked = refusal_for(&asked, command);
     let head_event = events.last().map(|e| e.event_id.clone());
     let commanded = store.append_next(
         run_id,
@@ -1597,36 +1690,81 @@ pub fn operator_command(
         head_event,
         None,
     )?;
-    let state = fold(&store.load(run_id)?)?;
-    let disposition = match refusal_for(&state, command) {
-        Some(refusal) => {
-            store.append_next(
+
+    let mut lost = 0;
+    let disposition = loop {
+        let events = store.load(run_id)?;
+        let state = fold(&events)?;
+        let (head_seq, head_hash) = events
+            .last()
+            .map(|event| (event.seq, event.event_hash.clone()))
+            .expect("the command just appended is in the journal");
+        between(store);
+        if let Some(condition) = refusal_for(&state, command) {
+            let refusal = if illegal_when_asked.is_some() {
+                condition
+            } else {
+                LOST_FENCE
+            };
+            break refuse(
+                store,
                 run_id,
-                EventType::OperatorRejected,
-                json!({"command_id": command_id, "operator": operator, "reason": refusal}),
-                Some(commanded.event_id),
-                None,
+                &command_id,
+                operator,
+                refusal,
+                &commanded.event_id,
             )?;
-            let (head_seq, head_hash) = store.head_hash(run_id)?;
-            FencedCommandOutcome::Rejected {
-                reason: refusal.into(),
-                head_seq,
-                head_hash,
-            }
         }
-        None => {
-            store.append_next(
+        // An acceptance disposes of the command still pending, and `fold`
+        // reads it back only as disposing of THAT one. A second operator
+        // commanding in this window takes the pending place, and an
+        // acceptance written into it is `NoMatchingCommand` for every
+        // reader afterwards — the same irreversible shape as an
+        // acceptance after a terminal, arriving from a peer at another
+        // terminal rather than from an engine.
+        if !matches!(&state.pending_command, Some((pending, _)) if *pending == command_id) {
+            break refuse(
+                store,
                 run_id,
-                EventType::OperatorAccepted,
-                json!({"command_id": command_id, "operator": operator, "reason": reason}),
-                Some(commanded.event_id),
-                None,
+                &command_id,
+                operator,
+                LOST_FENCE,
+                &commanded.event_id,
             )?;
-            let (head_seq, head_hash) = store.head_hash(run_id)?;
-            FencedCommandOutcome::Accepted {
-                head_seq,
-                head_hash,
+        }
+        match store.append_next_if_head(
+            run_id,
+            head_seq,
+            &head_hash,
+            EventType::OperatorAccepted,
+            json!({"command_id": command_id, "operator": operator, "reason": reason}),
+            Some(commanded.event_id.clone()),
+            None,
+        ) {
+            Ok(_) => {
+                let (head_seq, head_hash) = store.head_hash(run_id)?;
+                break FencedCommandOutcome::Accepted {
+                    head_seq,
+                    head_hash,
+                };
             }
+            // A peer appended between the fold and the write. The
+            // acceptance was never written; decide again against what it
+            // wrote, and refuse rather than spin forever.
+            Err(brokkr_store::StoreError::HeadMoved { .. }) if lost < FENCE_ATTEMPTS => {
+                lost += 1;
+            }
+            Err(brokkr_store::StoreError::HeadMoved { .. }) => {
+                break refuse(
+                    store,
+                    run_id,
+                    &command_id,
+                    operator,
+                    LOST_FENCE,
+                    &commanded.event_id,
+                )?;
+            }
+            Err(error) => return Err(error.into()),
         }
     };
     // The pair that just landed must read back. Same proof the fenced
@@ -1651,7 +1789,10 @@ pub enum FencedCommandOutcome {
 /// Apply a command received through the Looper producer bridge. The command id
 /// is supplied by Looper, the expected cursor/hash fences concurrent operator
 /// activity, and both acceptance and rejection become Forge journal evidence
-/// before any control-state effect is possible.
+/// before any control-state effect is possible. The acceptance is written
+/// against the head the cursor check covered ([`Store::append_next_if_head`]),
+/// so an engine append between that check and the write loses the fence
+/// instead of slipping under it.
 // The arguments intentionally keep each security-relevant wire field explicit
 // at this narrow trust boundary rather than hiding them in an unvalidated bag.
 #[allow(clippy::too_many_arguments)]
@@ -1717,11 +1858,11 @@ pub fn apply_fenced_operator_command(
     let state = fold(&events)?;
     let (head_seq, head_hash) = store.head_hash(run_id)?;
     let rejection = if command != "retry" && command != "stop" {
-        Some("command_not_allowed")
+        Some(COMMAND_NOT_ALLOWED)
     } else if head_seq != expected_seq || head_hash != expected_hash {
-        Some("stale_cursor")
+        Some(STALE_CURSOR)
     } else if state.status != Status::AwaitingOperator {
-        Some("run_not_awaiting_operator")
+        Some(RUN_NOT_AWAITING_OPERATOR)
     } else {
         None
     };
@@ -1739,31 +1880,47 @@ pub fn apply_fenced_operator_command(
         None,
     )?;
     let disposition = if let Some(rejection) = rejection {
-        store.append_next(
+        refuse(
+            store,
             run_id,
-            EventType::OperatorRejected,
-            json!({"command_id": command_id, "operator": operator, "reason": rejection}),
-            Some(commanded.event_id),
-            None,
-        )?;
-        let (head_seq, head_hash) = store.head_hash(run_id)?;
-        FencedCommandOutcome::Rejected {
-            reason: rejection.into(),
-            head_seq,
-            head_hash,
-        }
+            command_id,
+            operator,
+            rejection,
+            &commanded.event_id,
+        )?
     } else {
-        store.append_next(
+        // The cursor was checked above, before `operator/commanded` was
+        // written; the acceptance is written against the head that check
+        // covers — the command itself — so a peer's append in between
+        // cannot slip underneath it. It cannot be re-decided here the way
+        // the unfenced path re-decides: this caller HOLDS a cursor, and
+        // deciding against a head they never saw is what the fence exists
+        // to prevent. They re-read and re-issue; the journal says why.
+        match store.append_next_if_head(
             run_id,
+            commanded.seq,
+            &commanded.event_hash,
             EventType::OperatorAccepted,
             json!({"command_id": command_id, "operator": operator, "reason": reason}),
-            Some(commanded.event_id),
+            Some(commanded.event_id.clone()),
             None,
-        )?;
-        let (head_seq, head_hash) = store.head_hash(run_id)?;
-        FencedCommandOutcome::Accepted {
-            head_seq,
-            head_hash,
+        ) {
+            Ok(_) => {
+                let (head_seq, head_hash) = store.head_hash(run_id)?;
+                FencedCommandOutcome::Accepted {
+                    head_seq,
+                    head_hash,
+                }
+            }
+            Err(brokkr_store::StoreError::HeadMoved { .. }) => refuse(
+                store,
+                run_id,
+                command_id,
+                operator,
+                STALE_CURSOR,
+                &commanded.event_id,
+            )?,
+            Err(error) => return Err(error.into()),
         }
     };
     // Prove the newly appended pair does not corrupt fold semantics before the

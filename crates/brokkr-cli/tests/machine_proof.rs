@@ -964,8 +964,9 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
     ]);
     assert_eq!(code, Some(1), "the fence refuses it: {stderr}");
     assert!(
-        stderr.contains("lost_fence"),
-        "and names the fence: {stderr}"
+        stderr.contains("after_terminal"),
+        "and names the condition — the run had finished before the command was \
+         given, which is a refusal, not a lost race: {stderr}"
     );
     // Refused, so the run is still perfectly readable.
     let (code, _, stderr) =

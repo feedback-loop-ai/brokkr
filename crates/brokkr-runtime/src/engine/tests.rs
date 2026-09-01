@@ -1036,7 +1036,11 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     }));
 }
 
-fn parked_store(path: &Path, run_id: &str) -> Store {
+/// A run stopped mid-attempt: the effect is in flight, so the run is
+/// running and the seat is still journaling under it. The state a burn
+/// spends most of its life in, and the one where an operator's command
+/// meets a concurrently-appending engine.
+fn in_flight_store(path: &Path, run_id: &str) -> Store {
     let mut store = Store::open(path).unwrap();
     store
         .create_run(run_id, "feature", "test", &json!({"files":{}}))
@@ -1058,6 +1062,17 @@ fn parked_store(path: &Path, run_id: &str) -> Store {
             json!({"effect_id":"effect","attempt_id":"attempt"}),
             Some("attempt".into()),
         ),
+    ] {
+        store
+            .append_next(run_id, event_type, payload, None, attempt_id)
+            .unwrap();
+    }
+    store
+}
+
+fn parked_store(path: &Path, run_id: &str) -> Store {
+    let mut store = in_flight_store(path, run_id);
+    for (event_type, payload, attempt_id) in [
         (
             EventType::EffectIndeterminate,
             json!({"effect_id":"effect","attempt_id":"attempt"}),
@@ -1072,17 +1087,17 @@ fn parked_store(path: &Path, run_id: &str) -> Store {
     store
 }
 
-/// The between-effects write race, closed. An operator at a terminal
-/// supplies no cursor, so nothing but the engine's own re-read stands
-/// between their decision and the write — and a run being driven
-/// concurrently can un-park or conclude in exactly that gap.
+/// A command the run cannot take is refused, and the refusal names the
+/// condition rather than crying race. Nothing here is a race: every
+/// command below was already illegal when the operator asked for it, and
+/// the journal says so in the word it records — `lost_fence` is reserved
+/// for a run that MOVED, and an operator reading a refused `retry` must
+/// be able to tell "you were unlucky" from "that run was never parked".
 ///
-/// Each command below is prepared against a snapshot that was true when
-/// the operator read it and false by the time it lands. Every one must
-/// come back refused, naming the fence it lost, and — the whole point —
-/// must leave a journal that still folds.
+/// Every one must come back refused and — the whole point — must leave a
+/// journal that still folds.
 #[test]
-fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
+fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("raced.db"), "raced");
 
@@ -1096,20 +1111,22 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
         "a stop on a parked run is still accepted",
     );
 
-    // Un-parked underneath the operator: the retry they were holding was
-    // prepared against a parked run, and the accepted stop above already
-    // moved it back to running. `retry` is legal only on a parked run.
+    // Un-parked: the accepted stop above already moved the run back to
+    // running, and `retry` is legal only on a parked run. The run did not
+    // move under this command — it was in the wrong state before the
+    // command was even journaled — so the refusal says which state.
     let refused = operator_command(&mut store, "raced", "retry", "operator", "once more").unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == RUN_NOT_AWAITING_OPERATOR),
         "{refused:?}",
     );
 
-    // Concluded underneath the operator. This is the irreversible case:
-    // fold exempts only `operator/commanded` and `operator/rejected`
-    // after a terminal, so an acceptance here is `AfterTerminal` for
-    // every reader from now on. Both commands must refuse — including
-    // `stop`, which anywhere non-terminal is a live kill switch.
+    // Already concluded. This is the irreversible case: fold exempts only
+    // `operator/commanded` and `operator/rejected` after a terminal, so an
+    // acceptance here is `AfterTerminal` for every reader from now on.
+    // Both commands must refuse — including `stop`, which anywhere
+    // non-terminal is a live kill switch.
     store
         .append_next(
             "raced",
@@ -1124,7 +1141,7 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
             .unwrap_or_else(|error| panic!("{command} errored instead of refusing: {error}"));
         assert!(
             matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-                if reason == LOST_FENCE),
+                if reason == AFTER_TERMINAL),
             "{command}: {refused:?}",
         );
     }
@@ -1144,14 +1161,19 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
         "only the one command that was still legal was ever accepted",
     );
     assert_eq!(counted(EventType::OperatorRejected), 3);
-    // Every refusal names the fence it lost and disposes of exactly the
-    // command it refused, so the journal reads back as three answered
-    // commands rather than three loose ones.
+    // Every refusal names a condition, never a race, and disposes of
+    // exactly the command it refused — so the journal reads back as three
+    // answered commands rather than three loose ones.
     for rejected in events
         .iter()
         .filter(|event| event.event_type == EventType::OperatorRejected)
     {
-        assert_eq!(rejected.payload["reason"], json!(LOST_FENCE));
+        assert!(
+            rejected.payload["reason"] == json!(RUN_NOT_AWAITING_OPERATOR)
+                || rejected.payload["reason"] == json!(AFTER_TERMINAL),
+            "a refusal that was not a race must not claim one: {}",
+            rejected.payload["reason"],
+        );
         let command_id = &rejected.payload["command_id"];
         assert!(events.iter().any(|event| {
             event.event_type == EventType::OperatorCommanded
@@ -1194,6 +1216,198 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     // And a fenced command arriving at that already-broken journal
     // refuses to add to it rather than folding it again.
     assert!(operator_command(&mut poisoned, "poisoned", "stop", "operator", "later").is_err());
+}
+
+/// Where the first event of a type sits in a journal — the order of the
+/// three events a raced command leaves behind is what proves the peer
+/// landed inside the window rather than before or after it.
+fn seq_of(events: &[EventEnvelope], event_type: EventType) -> u64 {
+    events
+        .iter()
+        .find(|event| event.event_type == event_type)
+        .unwrap_or_else(|| panic!("no {event_type:?} in the journal"))
+        .seq
+}
+
+/// The between-effects write race itself, driven rather than hoped for.
+///
+/// An operator at a terminal supplies no cursor, so nothing but the
+/// engine's own re-read stands between their decision and the write — and
+/// a run being driven concurrently can conclude in exactly that gap. The
+/// probe below IS that gap: it appends what the engine would have
+/// appended, at the one instant the acceptance is decided and not yet
+/// written. A race two threads have to be lucky to reproduce is a race
+/// that cannot be asserted on; this one happens every time.
+///
+/// The acceptance must not land. Not narrowly, not usually: the head it
+/// was decided against is gone, so the store refuses it, the run is
+/// folded again, and the command is answered with the refusal that names
+/// the race.
+#[test]
+fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("raced.db"), "raced");
+
+    let mut engine_appends = 1;
+    let refused = operator_command_racing(
+        &mut store,
+        "raced",
+        "stop",
+        "operator",
+        "enough",
+        |store: &mut Store| {
+            // The engine, concluding the run in the window. `stop` was
+            // legal against the fold that just ran and is illegal against
+            // the journal by the time the acceptance would be written.
+            if engine_appends > 0 {
+                engine_appends -= 1;
+                store
+                    .append_next(
+                        "raced",
+                        EventType::EffectSucceeded,
+                        json!({"effect_id":"effect","result":{"result":"complete"}}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                store
+                    .append_next("raced", EventType::RunCompleted, json!({}), None, None)
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        "a command that WAS legal when it was decided reports the race: {refused:?}",
+    );
+
+    let events = store.load("raced").unwrap();
+    assert!(
+        seq_of(&events, EventType::OperatorCommanded) < seq_of(&events, EventType::RunCompleted)
+            && seq_of(&events, EventType::RunCompleted)
+                < seq_of(&events, EventType::OperatorRejected),
+        "the engine's conclusion landed INSIDE the window, which is the race being proved",
+    );
+    assert_eq!(
+        fold(&events).unwrap().status,
+        Status::Completed,
+        "the run reached the conclusion the engine wrote, undisturbed",
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == EventType::OperatorAccepted),
+        "the acceptance the run could no longer take was never written",
+    );
+}
+
+/// The other side of the same fence: a peer that appends in the window
+/// without taking the command's legality away must not turn an acceptance
+/// into a refusal. The head moved, so the store refuses the write — and
+/// the command is then decided again against what the peer wrote, which
+/// still permits it, so it lands. A fence that refused here would be
+/// spite, not safety.
+#[test]
+fn a_command_still_legal_after_the_head_moved_is_decided_again_and_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("checkpointed.db"), "checkpointed");
+
+    let mut checkpoints = 1;
+    let accepted = operator_command_racing(
+        &mut store,
+        "checkpointed",
+        "stop",
+        "operator",
+        "enough",
+        |store: &mut Store| {
+            // A seat's checkpoint: the head moves, the run does not.
+            if checkpoints > 0 {
+                checkpoints -= 1;
+                store
+                    .append_next(
+                        "checkpointed",
+                        EventType::EffectCheckpointed,
+                        json!({"effect_id":"effect","attempt_id":"attempt","note":"still working"}),
+                        None,
+                        Some("attempt".into()),
+                    )
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(accepted, FencedCommandOutcome::Accepted { .. }),
+        "{accepted:?}",
+    );
+    let events = store.load("checkpointed").unwrap();
+    assert!(
+        seq_of(&events, EventType::OperatorCommanded)
+            < seq_of(&events, EventType::EffectCheckpointed)
+            && seq_of(&events, EventType::EffectCheckpointed)
+                < seq_of(&events, EventType::OperatorAccepted),
+        "the peer's append landed INSIDE the window: the acceptance was refused once, \
+         re-decided, and written after it",
+    );
+    // A stop accepted mid-flight rides: the attempt is untouched and the
+    // effect's own boundary concludes the run. Unchanged by the retry.
+    assert!(fold(&events).unwrap().riding_stop);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.event_type == EventType::OperatorAccepted)
+            .count(),
+        1,
+        "re-deciding wrote one acceptance, not one per attempt",
+    );
+}
+
+/// The peer at the other terminal. Two operators commanding at once are
+/// the same race as an operator against an engine, and it lands somewhere
+/// nastier: `fold` reads an acceptance as disposing of the command still
+/// PENDING, so an acceptance written after a peer's command has taken
+/// that place is `NoMatchingCommand` for every reader afterwards.
+#[test]
+fn a_second_operators_command_in_the_window_takes_the_acceptance_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = parked_store(&dir.path().join("two-terminals.db"), "two-terminals");
+
+    let mut peers = 1;
+    let refused = operator_command_racing(
+        &mut store,
+        "two-terminals",
+        "retry",
+        "operator",
+        "once more",
+        |store: &mut Store| {
+            if peers > 0 {
+                peers -= 1;
+                store
+                    .append_next(
+                        "two-terminals",
+                        EventType::OperatorCommanded,
+                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        "{refused:?}",
+    );
+    let events = store.load("two-terminals").unwrap();
+    assert!(
+        fold(&events).is_ok(),
+        "the journal reads back — which it would not, had the acceptance landed",
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == EventType::OperatorAccepted));
 }
 
 #[test]

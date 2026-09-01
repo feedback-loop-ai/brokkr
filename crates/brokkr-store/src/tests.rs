@@ -160,15 +160,152 @@ fn opening_a_journal_a_peer_is_writing_takes_no_write_lock() {
         )
         .unwrap();
 
-    // Opening is a read, so it does not queue behind that lock.
-    let opened = Store::open(&db).unwrap();
-    assert_eq!(opened.list_runs().unwrap().len(), 1);
-    assert_eq!(
-        opened.head_hash("held").unwrap(),
-        (0, ZERO_HASH.to_string())
-    );
+    // Opening is a read, so it does not queue behind that lock. Asked on
+    // another thread with a deadline far below the busy timeout, because
+    // the regression this fences is a WAIT: opening inline would sit on
+    // the lock for the full thirty seconds and then fail, which reads as
+    // a hung test rather than as the defect.
+    let (done, opened) = std::sync::mpsc::channel();
+    let probe = db.clone();
+    let opener = std::thread::spawn(move || {
+        let read = Store::open(&probe).map(|store| {
+            (
+                store.list_runs().unwrap().len(),
+                store.head_hash("held").unwrap(),
+            )
+        });
+        let _ = done.send(read);
+    });
+    let read = opened
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("opening queued behind the peer's write lock instead of reading")
+        .expect("a racing open still opens");
+    opener.join().unwrap();
+    assert_eq!(read, (1, (0, ZERO_HASH.to_string())));
 
     holder.execute_batch("ROLLBACK").unwrap();
+}
+
+/// Compare-and-append: the fence a caller needs when what it may legally
+/// write depends on the state it just read. The check is inside the
+/// append's own transaction, so a peer landing in between takes the head
+/// away rather than slipping underneath the decision.
+#[test]
+fn a_fenced_append_lands_only_on_the_head_it_was_decided_against() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    // An empty run has a head too, and it can be fenced on.
+    store
+        .append_next_if_head(
+            "r1",
+            0,
+            ZERO_HASH,
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let (seq, hash) = store.head_hash("r1").unwrap();
+    // The peer this fence exists for: another writer, appending between
+    // the caller's read and its write.
+    store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let moved = store.append_next_if_head(
+        "r1",
+        seq,
+        &hash,
+        EventType::PhaseEntered,
+        json!({"phase": "review"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(
+            moved,
+            Err(StoreError::HeadMoved {
+                expected_seq: 1,
+                found_seq: 2
+            })
+        ),
+        "{moved:?}",
+    );
+    // Nothing was written: a fence that fails leaves no trace, which is
+    // the whole difference between refusing and repenting.
+    assert_eq!(store.load("r1").unwrap().len(), 2);
+
+    // Re-read, re-decide, and it lands.
+    let (seq, hash) = store.head_hash("r1").unwrap();
+    store
+        .append_next_if_head(
+            "r1",
+            seq,
+            &hash,
+            EventType::PhaseEntered,
+            json!({"phase": "review"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let events = store.load("r1").unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[2].previous_hash, events[1].event_hash);
+}
+
+/// The append-only guards are repaired on open. `MIGRATION_V1` used to
+/// run unconditionally, so a journal that had lost a trigger got it back
+/// for free; reading the schema instead would have left one recorded as
+/// migrated and unguarded forever.
+#[test]
+fn a_journal_that_lost_its_guards_gets_them_back_on_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    {
+        let mut store = Store::open(&db).unwrap();
+        store
+            .create_run("r1", "feat", "self", &json!({"files": {}}))
+            .unwrap();
+        store
+            .append_next(
+                "r1",
+                EventType::RunStarted,
+                json!({"feature": "feat", "manifest": {}}),
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .conn
+            .execute_batch("DROP TRIGGER events_append_only_update")
+            .unwrap();
+        assert!(
+            store
+                .conn
+                .execute("UPDATE events SET envelope = 'x'", [])
+                .is_ok(),
+            "the trigger really was gone",
+        );
+    }
+
+    let store = Store::open(&db).unwrap();
+    assert!(
+        store
+            .conn
+            .execute("UPDATE events SET envelope = 'y'", [])
+            .is_err(),
+        "reopening restored the guard",
+    );
 }
 
 #[test]

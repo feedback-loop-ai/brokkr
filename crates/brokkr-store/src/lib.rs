@@ -6,7 +6,9 @@
 //! export is the portable, human-auditable form. Single-host,
 //! single-logical-writer *per run*: a concurrent writer on the same run
 //! loses on the (run_id, seq) primary key inside its append transaction
-//! — optimistic fencing instead of a lease service.
+//! — optimistic fencing instead of a lease service. A writer whose event
+//! is legal only against the state it read fences on that state too, with
+//! [`Store::append_next_if_head`].
 //!
 //! # Many fires, one journal
 //!
@@ -93,6 +95,8 @@ pub enum StoreError {
     SchemaMismatch { found: u32 },
     #[error("append conflict: seq {seq} already written by another writer")]
     AppendConflict { seq: u64 },
+    #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
+    HeadMoved { expected_seq: u64, found_seq: u64 },
 }
 
 /// Why an adoption refused. Every variant refuses the import WHOLE:
@@ -332,22 +336,38 @@ impl Store {
     /// between is harmless: the DDL is `IF NOT EXISTS`, the seed is
     /// `INSERT OR IGNORE`, and the schema is re-read inside the
     /// transaction, so both writers agree on what they found.
+    ///
+    /// One thing the old unconditional `MIGRATION_V1` did buy, and this
+    /// keeps: a journal whose append-only guards have gone missing gets
+    /// them back. `IF NOT EXISTS` DDL on every open repaired that for
+    /// free; reading the schema instead would have left a journal with a
+    /// recorded version and no triggers unguarded forever. So the guards
+    /// are counted — a read, on the steady path, like the schema — and
+    /// only a journal actually missing one takes the write lock.
     fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
         if let Some(found) = schema_version(conn)? {
             schema_supported(found)?;
-            // A journal that predates the arrival columns (decision
-            // 0027) grows them here. Presence is a READ in the steady
-            // state — the starvation measurement holds — and only a
-            // journal actually missing a column takes the immediate
-            // transaction, inside which presence is asked again so
-            // racing openers serialise on the lock instead of
-            // colliding on the ALTER.
+            // Two additive repairs, each a READ in the steady state —
+            // the starvation measurement holds — and each taking the
+            // immediate transaction only when something is actually
+            // missing, so racing openers serialise on the lock instead
+            // of colliding on the DDL. First: a journal that predates
+            // the arrival columns (decision 0027) grows them, presence
+            // re-asked inside the transaction. Second: a journal whose
+            // append guards predate compare-and-append re-runs the
+            // idempotent migration batch that carries them.
             if arrival_columns_missing(conn)? {
                 let tx = conn
                     .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 migrate_arrival_columns(&tx)?;
                 tx.commit()?;
             }
+            if guards_intact(conn)? {
+                return Ok(());
+            }
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            tx.execute_batch(MIGRATION_V1)?;
+            tx.commit()?;
             return Ok(());
         }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -469,9 +489,70 @@ impl Store {
     /// Envelope identity (seq, previous_hash) comes from the journal head
     /// inside the transaction; a concurrent writer conflicts instead of
     /// forking the chain.
+    ///
+    /// The head is whatever the transaction finds, so this always lands.
+    /// A caller whose event is only legal against the head it read —
+    /// anything it decided by folding — wants
+    /// [`Store::append_next_if_head`] instead.
     pub fn append_next(
         &mut self,
         run_id: &str,
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<String>,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, StoreError> {
+        self.append(run_id, None, event_type, payload, causation_id, attempt_id)
+    }
+
+    /// Append, but only onto the head the caller decided against —
+    /// compare-and-append.
+    ///
+    /// [`Store::append_next`] recomputes the head inside its own
+    /// transaction and always succeeds, which is right for a writer whose
+    /// event is legal wherever it lands: the engine appending to its own
+    /// run is the only writer of that run. It is wrong for a writer whose
+    /// event is legal only against a particular state. An
+    /// `operator/accepted` is the case that forced this: whether `fold`
+    /// can read it back depends on the run's status at that exact seq, so
+    /// a peer's append between the deciding fold and the write turns an
+    /// acceptance into `FoldError::AfterTerminal` for every reader
+    /// afterwards — and events are immutable, so nothing takes it back.
+    ///
+    /// The check runs INSIDE the same `Immediate` transaction that
+    /// writes, under the same write lock, which is what makes decide-then-
+    /// append atomic rather than merely narrow: either the head is still
+    /// `(expected_seq, expected_hash)` and the event lands, or the head
+    /// moved, nothing at all is written, and [`StoreError::HeadMoved`]
+    /// sends the caller back to re-read and decide again. `expected_seq`
+    /// of 0 with [`ZERO_HASH`] fences an append onto an empty run.
+    // Two of these arguments are the fence; the rest are `append_next`'s.
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_next_if_head(
+        &mut self,
+        run_id: &str,
+        expected_seq: u64,
+        expected_hash: &str,
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<String>,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, StoreError> {
+        self.append(
+            run_id,
+            Some((expected_seq, expected_hash)),
+            event_type,
+            payload,
+            causation_id,
+            attempt_id,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append(
+        &mut self,
+        run_id: &str,
+        expected_head: Option<(u64, &str)>,
         event_type: EventType,
         payload: Value,
         causation_id: Option<String>,
@@ -492,6 +573,16 @@ impl Store {
             Some((seq, hash)) => (seq as u64, hash),
             None => (0, ZERO_HASH.to_string()),
         };
+        if let Some((expected_seq, expected_hash)) = expected_head {
+            if last_seq != expected_seq || previous_hash != expected_hash {
+                // Dropping the transaction rolls it back: a fence that
+                // fails writes nothing, not even the row it was building.
+                return Err(StoreError::HeadMoved {
+                    expected_seq,
+                    found_seq: last_seq,
+                });
+            }
+        }
         let envelope = EventEnvelope {
             run_id: run_id.to_string(),
             seq: last_seq + 1,
@@ -1091,6 +1182,27 @@ fn is_busy(error: &rusqlite::Error) -> bool {
         error.sqlite_error_code(),
         Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
     )
+}
+
+/// The append-only and immutability triggers `MIGRATION_V1` installs, by
+/// name. Named here so [`Store::migrate`] can ask whether a journal still
+/// carries all of them.
+const GUARD_TRIGGERS: [&str; 3] = [
+    "events_append_only_update",
+    "events_append_only_delete",
+    "runs_manifest_immutable",
+];
+
+/// Does this journal still carry every guard trigger? A pure read of
+/// `sqlite_master`, so an open that finds them all takes no write lock.
+fn guards_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let present: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger'
+         AND name IN (?1, ?2, ?3)",
+        params![GUARD_TRIGGERS[0], GUARD_TRIGGERS[1], GUARD_TRIGGERS[2]],
+        |row| row.get(0),
+    )?;
+    Ok(present == GUARD_TRIGGERS.len() as i64)
 }
 
 /// The schema a journal records, or `None` for a file that has never
