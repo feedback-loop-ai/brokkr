@@ -193,7 +193,7 @@ fn inspect_shows_the_fallback_in_json_and_in_prose() {
     let run_id = ws.run();
 
     let view = ws.inspect_json(&run_id);
-    assert_eq!(view["view_version"], 2);
+    assert_eq!(view["view_version"], 3);
     let seat = view["participants"]
         .as_array()
         .unwrap()
