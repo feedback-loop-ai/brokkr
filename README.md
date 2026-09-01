@@ -239,9 +239,16 @@ the thing you were handed is a thing that runs. It also reads the
 repository you ran it from — the manifests and lockfiles at that root,
 nothing executed — so the implementer's and verifier's charters name
 that stack's own build, test and lint commands, and say plainly when no
-stack was recognized. The digest is therefore a function of what was
-scaffolded and differs from repository to repository; the one printed
-above is elided for that reason.
+stack was recognized. Lockfiles have the deciding vote where a manifest
+is ambiguous (`bun.lock` out-votes the npm fallback, `uv.lock` out-votes
+pip), a monorepo orchestrator (`turbo.json`, `nx.json`) out-votes any
+single package's script and is run through whichever package manager the
+root's lockfile names, and a Cargo workspace or a `go.work` gets a
+charter that says so rather than a command it did not need. The digest
+is therefore a function of what was scaffolded and differs from
+repository to repository; the one printed above is elided for that
+reason. [`docs/guides/starters/`](docs/guides/starters/) shows the
+actual output per stack, transcribed from real runs.
 
 ## Guides
 
@@ -250,9 +257,11 @@ walkthrough, written for someone arriving from outside this repository.
 
 | Guide | For |
 |---|---|
-| [Quickstart](docs/guides/quickstart.md) | A repo, an agent CLI, and twenty minutes: install, `doctor`, `init`, one run, reading its ending, the escape hatches, and what it costs. |
+| [Quickstart](docs/guides/quickstart.md) | One four-step spine — install, `init .`, `run`, read the journal — stated once, with the escape hatches and what it costs. Everything else in `docs/guides/` is a diff over it. |
+| [Stack cards](docs/guides/cards/) | The spine's steps 2 and 3 per language — node, bun (extends node), rust, go, python — a handful of lines each, never a second walkthrough. |
+| [Starter samples](docs/guides/starters/) | What `brokkr init` actually wrote, per stack, transcribed from real runs and annotated line by line. |
 | [Recipe authoring](docs/guides/recipe-authoring.md) | `bundle.json` + `policy.json` + `roles/` anatomy, composition via `extends`/`override`, digest identity, the rule grammar including `visits` and the reforging ladder. |
-| [Adopting a Node repo](docs/guides/adopting-a-node-repo.md) | Driving a Node/TypeScript repository with `recipes/node`: the four files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
+| [Adopting a Node repo](docs/guides/adopting-a-node-repo.md) | The quickstart's flow 3 at length for a Node/TypeScript repo on `recipes/node`: what you are granting, the four files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
 | [Driver authoring](docs/guides/driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code or Codex: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
 | [Versioning](docs/guides/versioning.md) | What is stable and what may still move: the frozen-contract law, the two manifest lineages, semver as of 1.0, and the live deprecation window. |
 

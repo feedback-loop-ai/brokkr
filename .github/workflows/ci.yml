@@ -98,6 +98,27 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # The bootstrap budgets, measured rather than promised. NOT in any
+  # required status check or branch protection: whether a blown budget
+  # blocks a merge is an operator's ruling, and this job exists so the
+  # ruling can be made against numbers instead of impressions.
+  #
+  # What it does NOT prove is printed by the script itself, every run:
+  # the download is a local file:// read, not a GitHub transfer, and the
+  # timed run drives a stub standing in for the `claude` binary, so no
+  # agent session is spawned and nothing is billed.
+  bootstrap-budgets:
+    name: bootstrap budgets (60s install / 5min first run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p brokkr-cli
+      - name: install and first-run budgets hold
+        run: bash scripts/bootstrap-bench.sh --binary target/release/brokkr
+
   release-binary:
     name: release binary artifact
     runs-on: ubuntu-latest

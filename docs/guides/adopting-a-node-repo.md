@@ -1,30 +1,32 @@
-# Adopting a Node repo — from nothing installed to a first run
+# Adopting a Node repo — the long form of flow 3
 
-This guide walks a stranger with a Node/TypeScript repository from zero
-to one Brokkr run driven by [`recipes/node`](../../recipes/node/), the
-reference recipe for a JavaScript stack.
+This is [quickstart.md](quickstart.md)'s **flow 3** for a Node/TypeScript
+repository driven by [`recipes/node`](../../recipes/node/), the reference
+recipe for a JavaScript stack.
+
+**Read the spine first.** Install, `doctor`, `brokkr run` and reading the
+journal are the quickstart's four steps and are not repeated here — they
+are not Node-specific and re-deriving them would only give you a second
+copy to keep true. What is Node-specific is on this page:
+
+- [What you are granting](#what-you-are-granting) — read this before
+  anything else
+- [The four files your repo needs](#the-four-files-your-repo-needs)
+- [Your `realms.json`](#your-realmsjson) — flow 3's one added step
+- [What each seat runs](#what-each-seat-runs)
+- [Fitting the recipe to your repo](#fitting-the-recipe-to-your-repo)
+- [What this guide does not claim](#what-this-guide-does-not-claim)
 
 Zero really is zero on the Brokkr side: there is nothing to `npx`, no
 package to add to your `devDependencies`, no postinstall hook. Brokkr is
 one native binary written in Rust (decision 0009) that stands *outside*
 your project and drives it. Your `package.json` never learns it exists.
 
-- [1. What you need](#1-what-you-need)
-- [2. Install the binary](#2-install-the-binary)
-- [3. Give your repo the four files](#3-give-your-repo-the-four-files)
-- [4. Write your `realms.json`](#4-write-your-realmsjson)
-- [5. Check the machine](#5-check-the-machine)
-- [6. Run one slice](#6-run-one-slice)
-- [7. Read the ending](#7-read-the-ending)
-- [8. Fitting the recipe to your repo](#8-fitting-the-recipe-to-your-repo)
-- [What this guide does not claim](#what-this-guide-does-not-claim)
+You will need, beyond the spine's requirements:
 
-## 1. What you need
-
-- A git repository you are willing to let an agent edit, with a
-  committed `package-lock.json` and a `test` script in `package.json`.
-  The recipe's verifier runs `npm ci`, so a repo without a lockfile
-  fails at step one, honestly and immediately.
+- A committed `package-lock.json` and a `test` script in
+  `package.json`. The recipe's verifier runs `npm ci`, so a repo without
+  a lockfile fails at step one, honestly and immediately.
 - `typescript` among that repo's `devDependencies`. The recipe's type
   check is `npx tsc --noEmit`, and after `npm ci` that resolves to
   `node_modules/.bin/tsc` — your lockfile's pinned copy, no network.
@@ -32,42 +34,36 @@ your project and drives it. Your `package.json` never learns it exists.
   registry instead, which is not what you want a gate seat doing. A
   plain-JavaScript repo should drop the type-check step from
   `roles/verifier.md` and `roles/implementer.md` rather than let it
-  reach out; see [section 8](#8-fitting-the-recipe-to-your-repo).
+  reach out; see [below](#fitting-the-recipe-to-your-repo).
 - `node` and `npm` on your `PATH`. The recipe is wired for npm because
   npm ships with Node — nothing to install before the first seat can
-  work. pnpm and yarn are a documented fork, not a second bundle; see
-  [section 8](#8-fitting-the-recipe-to-your-repo).
-- One agent CLI on your `PATH` — `claude`. The gate seats require it,
-  for a reason [section 3](#3-give-your-repo-the-four-files) explains.
-- `git`.
+  work. pnpm, yarn and bun are a documented fork, not a second bundle.
 
-Know what you are granting. Every seat's driver may run `npm` and `npx`,
-so every seat — the gates included — executes third-party code by
-design: `npm ci` runs the `preinstall`/`install`/`postinstall` scripts of
-your whole dependency tree, and `npx` resolves a package from the
-registry and runs it. That is the JavaScript toolchain, not something
-this recipe adds, and it is the same exposure your CI already has. Two
-consequences worth holding: `verify` installs before `review` has read
-the diff, so a dependency the `implement` seat added has already run its
-install scripts by the time anyone reviews its provenance (the reviewer
-charter names lockfile provenance and install scripts as a review
-dimension for exactly this reason); and a run wants the network the same
-way `npm ci` does. Run it against a repository whose dependency tree you
-would install by hand.
+## What you are granting
 
-## 2. Install the binary
+Every seat's driver may run `npm` and `npx`, so every seat — the gates
+included — executes third-party code by design: `npm ci` runs the
+`preinstall`/`install`/`postinstall` scripts of your whole dependency
+tree, and `npx` resolves a package from the registry and runs it. That
+is the JavaScript toolchain, not something this recipe adds, and it is
+the same exposure your CI already has.
 
-Grab the archive for your platform from the
-[latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest),
-verify it against `SHA256SUMS`, unpack it, and put `brokkr` on your
-`PATH` — the same three commands as the
-[quickstart](quickstart.md#1-install). Nothing about this step is
-Node-specific.
+Two consequences worth holding:
 
-## 3. Give your repo the four files
+- **`verify` installs before `review` has read the diff.** A dependency
+  the `implement` seat added has already run its install scripts by the
+  time anyone reviews its provenance. The reviewer charter names
+  lockfile provenance and install scripts as a review dimension for
+  exactly this reason.
+- **A run wants the network the same way `npm ci` does.**
+
+Run it against a repository whose dependency tree you would install by
+hand.
+
+## The four files your repo needs
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
-— your repository root. Four things live there:
+— your repository root:
 
 ```
 your-node-repo/
@@ -93,6 +89,11 @@ holding the trusted tier, checked when the bundle compiles, before any
 prompt exists. The tier is a ruling *your* world makes, in your own
 `adapters/` tree, which is why it is a file you own rather than a
 constant in the engine.
+
+(This is the only respect in which flow 3 differs from `brokkr init`,
+which scaffolds an `adapters/claude.json` for you — and refuses to
+overwrite one that is already there, because a tier is an operator's
+ruling and not a scaffold's.)
 
 **The recipe, second.** Install it from the local path:
 
@@ -121,12 +122,13 @@ shipper's ledger. It is never committed:
 echo '.forge/' >> .gitignore
 ```
 
-## 4. Write your `realms.json`
+## Your `realms.json`
 
-A **realms map** is the world an invocation opens (decision 0023): the
-repositories it may see, and the one journal they share. A single
-project is the degenerate map with one entry, and pays nothing for the
-shape. Write this at your repository root:
+This is flow 3's one added step, and the quickstart states it in five
+lines. The long version: a **realms map** is the world an invocation
+opens (decision 0023) — the repositories it may see, and the one journal
+they share. A single project is the degenerate map with one entry, and
+pays nothing for the shape. Write this at your repository root:
 
 ```json
 {
@@ -160,53 +162,32 @@ journal  ./.forge/forge.db
 realm    my-app  .  main  a1b2c3d
 ```
 
-## 5. Check the machine
+Two `doctor` lines are worth knowing before you run the spine's check:
 
-```
-$ brokkr doctor --bundle recipes/node
-ok       contracts: engine 0.5.0, event_schema 1, database_schema 1, driver_protocol 1
-ok       git: git version 2.51.0
-ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
-warn     agents: agents: agent library agents: No such file or directory
-ok       database: .forge/forge.db opens (WAL, append-only triggers)
-ok       bundle: 'node' compiles, digest 66a30b26ed1c…
-```
-
-Two lines are worth reading closely:
-
-- The `agents` warning is **expected and harmless**. `recipes/node`
+- **The `agents` warning is expected and harmless.** `recipes/node`
   adopts no agent from the shared library (decision 0016): its seats
   carry an inline `role` and `driver`, so there is no `agents/` tree for
   your repo to have. A warning is an optional capability, not a refusal.
-- `brokkr recipes list` will likewise warn that `./bundles/self` and
+- **`brokkr recipes list` will warn** that `./bundles/self` and
   `./bundles/verify` are missing. Those are *this* repository's own
   bundles, looked for by default; your repo has no reason to carry them.
 
-`brokkr doctor` runs no agent, so it is the cheapest way to find out
-that `claude` is missing before a run does.
+`brokkr doctor --bundle recipes/node` compiles the recipe as part of the
+check, which is worth the extra flag here.
 
-## 6. Run one slice
+## What each seat runs
 
-Pick something small and real — a bug with a reproducible failure, one
-endpoint, one component. The feature text IS the framing: this recipe
-has no intake seat to interrogate you, so write two or three sentences
-that would let a new colleague start.
+Then the spine's step 3, with `--recipe node` instead of `--bundle .`:
 
 ```
-$ brokkr run --recipe node --repo . \
-    --feature "cache the /health probe result for 5s; add a test that proves the second call does not hit the DB"
-run started: cache-the-health-probe-result-fo-3f21a9c4
-…
+brokkr run --recipe node --repo . \
+  --feature "cache the /health probe result for 5s; add a test that proves the second call does not hit the DB"
 ```
 
 `--recipe node` resolves against `--recipes-dir` (default `recipes`).
-`--repo .` is the working directory the seats run in and commit to — it
-is also the fallback, but typing it makes the command readable six
-months later. The run drives real agent sessions in the foreground;
-watch it from a second terminal with `brokkr watch --run latest` or
-`brokkr tui`, both read-only.
-
-What the four seats will do to your repository:
+This recipe has **four** seats, not the scaffold's five: there is no
+intake seat to interrogate you, so the feature text IS the framing —
+write two or three sentences that would let a new colleague start.
 
 | Seat | Class | What it runs | Commits? |
 |---|---|---|---|
@@ -218,29 +199,15 @@ What the four seats will do to your repository:
 Nobody pushes, nobody merges, and nobody publishes — no `npm publish`,
 no `npm version`, no tag. That authority is yours.
 
-## 7. Read the ending
+The spine's step 4 reads the ending, and its stop rulings mean what they
+say here too: `VERIFY-FAIL` means your suite was red and the machine
+refused to review red code; `REVIEW-SECURITY-HOLD` means a reviewer
+found something high or critical and no path to `done` exists past it.
+The `review` phase is constitutionally protected — the compiler refuses
+any recipe with a path to a non-`stop` terminal that bypasses it, so
+there is no flag that ships around a review.
 
-`brokkr run` exits **0** at `done`, **2** when it parks for you, **3**
-when it stops, **1** on an error. Then ask the run what happened:
-
-```
-brokkr inspect --run latest     # the ruling, the seats, the costs
-brokkr tui                      # the fleet, keyboard-navigable
-```
-
-A stop is a result, not a failure: `VERIFY-FAIL` means your suite was
-red and the machine refused to review red code; `REVIEW-SECURITY-HOLD`
-means a reviewer found something high or critical and no path to `done`
-exists past it. The `review` phase is constitutionally protected — the
-compiler refuses any recipe with a path to a non-`stop` terminal that
-bypasses it, so there is no flag that ships around a review.
-
-Everything the run wrote is under `.forge/`: `tasks/<slug>.md` (the
-framing the seats were handed), `results/<effect_id>.json` (one typed
-result per seat attempt — the only channel the engine reads),
-`ledger/<run-id>.md` (the close-out), and `forge.db` (the journal).
-
-## 8. Fitting the recipe to your repo
+## Fitting the recipe to your repo
 
 The recipe is yours once copied; these are the three edits that actually
 come up.
@@ -250,7 +217,8 @@ come up.
 swap point for pnpm and yarn: the `--allowedTools` list in each seat's
 driver, and the install/type-check/test commands plus the lockfile name
 in the four charters. There is deliberately no second bundle to keep in
-sync.
+sync. For bun, [cards/bun.md](cards/bun.md) names the same three
+command swaps.
 
 **Your repo's own scripts.** If your suite is `npm run test:ci`, or your
 type check is `npm run typecheck`, edit `roles/verifier.md` and
@@ -282,11 +250,13 @@ will be what says so — not a sentence in a guide.
 
 ## See also
 
+- [quickstart.md](quickstart.md) — the spine this page is a delta over.
+- [cards/node.md](cards/node.md) — the same delta at card length.
+- [starters/node.md](starters/node.md) — what `brokkr init` writes for
+  a Node repo, if you would rather scaffold than adopt.
 - [`recipes/node/README.md`](../../recipes/node/README.md) — the
   recipe's own notes: the package-manager fork, the limits, why every
   gate seats an agent driver.
-- [quickstart.md](quickstart.md) — the general tour, with the escape
-  hatches (`retry`, `stop`, `resume`, `rerun`) and what a run costs.
 - [recipe-authoring.md](recipe-authoring.md) — the anatomy of the files
   you just copied, and how to compose rather than fork.
 - [decision 0021](../decisions/0021-model-policy.md) — work seats, gate

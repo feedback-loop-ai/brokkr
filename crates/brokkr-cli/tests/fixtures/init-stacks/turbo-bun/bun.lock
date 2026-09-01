@@ -1,0 +1,2 @@
+# bun's text lockfile. Contents elided: presence is the whole of the
+# evidence init reads, and a real lockfile would be noise in a fixture.
