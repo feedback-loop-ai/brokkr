@@ -11,9 +11,9 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 # Decision 0018: permissive, never copyleft; the Rust ecosystem's dual
 # convention, so a user picks either license.
 license = "MIT OR Apache-2.0"

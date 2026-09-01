@@ -3021,7 +3021,7 @@ where
             session: session.as_deref(),
             working: session_is_live(tui, &views),
             force: std::mem::take(&mut tui.force),
-            fleet: tui.ticks % RUNS_REFRESH_TICKS == 0,
+            fleet: tui.ticks.is_multiple_of(RUNS_REFRESH_TICKS),
             // Only the ACTIVE hearth is ever asked about, so an inactive
             // tab's journal is neither polled nor opened.
             tab: tui.tab,

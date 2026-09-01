@@ -40,7 +40,7 @@ checked against the workflow that produced it:
 gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 ```
 
-**Or build from a checkout.** Rust 1.85 or newer:
+**Or build from a checkout.** Rust 1.88 or newer:
 
 ```
 cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
