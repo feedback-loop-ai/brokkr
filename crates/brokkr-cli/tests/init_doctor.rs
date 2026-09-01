@@ -62,6 +62,28 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
 }
 
+/// The other half of that: the scaffold WRITES a trust declaration, and
+/// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
+/// its bundle against clobbering; the declaration is workspace data and
+/// is guarded on the same terms, so scaffolding into a tree that already
+/// declares one cannot silently re-promote what the operator demoted.
+#[test]
+fn init_refuses_to_overwrite_an_operators_trust_declaration() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("adapters")).unwrap();
+    let declaration = bundle.join("adapters/claude.json");
+    std::fs::write(&declaration, "{\"trust_tier\": \"untrusted\"}\n").unwrap();
+
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+    // The demotion is still the operator's, and nothing else was written.
+    let kept = std::fs::read_to_string(&declaration).unwrap();
+    assert!(kept.contains("untrusted"), "{kept}");
+    assert!(!bundle.join("bundle.json").exists());
+}
+
 /// Decision 0021, from the operator's side: the scaffold's gate seats
 /// stand on a declaration in the operator's own tree, so demoting the
 /// tier there refuses the very next compile — naming the seat and the

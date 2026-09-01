@@ -184,6 +184,21 @@ pub fn init(dir: &Path) -> Result<String> {
             dir.display()
         );
     }
+    // The scaffold now writes a trust declaration too, and that is
+    // WORKSPACE data rather than this bundle's own text: an `adapters/`
+    // already standing here is an operator's ruling (decision 0021
+    // ruling 3), and a scaffolder that wrote over it would silently
+    // re-promote a tier the operator had demoted — the one move this
+    // vocabulary exists to make impossible by accident. Refused on the
+    // same terms, and before anything is written.
+    let declaration = dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json");
+    if declaration.exists() {
+        bail!(
+            "{} already declares a trust tier; refusing to overwrite — a tier \
+             is an operator's ruling, not a scaffold's",
+            declaration.display()
+        );
+    }
     std::fs::create_dir_all(dir.join("roles"))?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
