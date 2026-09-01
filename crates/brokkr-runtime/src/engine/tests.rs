@@ -1218,6 +1218,108 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     assert!(operator_command(&mut poisoned, "poisoned", "stop", "operator", "later").is_err());
 }
 
+/// A command the vocabulary does not know is refused by NAME before any
+/// question of fences or cursors: `refusal_for` closes the verb set.
+#[test]
+fn a_command_outside_the_vocabulary_is_refused_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = parked_store(&dir.path().join("verbs.db"), "verbs");
+    let refused = operator_command(&mut store, "verbs", "dance", "operator", "please").unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == COMMAND_NOT_ALLOWED),
+        "{refused:?}"
+    );
+}
+
+/// A contender that NEVER yields: the head moves in every window the
+/// fence opens, and after `FENCE_ATTEMPTS` lost rounds the command is
+/// refused rather than spun forever — the loop's exhaustion arm is a
+/// bound, and a bound must be reachable to be real.
+#[test]
+fn a_fence_lost_every_round_is_refused_not_spun_forever() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = in_flight_store(&dir.path().join("relentless.db"), "relentless");
+    let mut checkpoints = 0;
+    let refused = operator_command_racing(
+        &mut store,
+        "relentless",
+        "stop",
+        "operator",
+        "enough",
+        |store: &mut Store| {
+            // A checkpoint is fold-neutral for a run mid-effect: the
+            // status stays running, the pending command stays pending,
+            // and only the head moves — which is the whole point.
+            checkpoints += 1;
+            store
+                .append_next(
+                    "relentless",
+                    EventType::EffectCheckpointed,
+                    json!({"effect_id":"effect","attempt_id":"attempt","note":checkpoints}),
+                    None,
+                    Some("attempt".into()),
+                )
+                .unwrap();
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        "{refused:?}"
+    );
+    assert!(
+        checkpoints > FENCE_ATTEMPTS,
+        "the bound was reached, not merely approached: {checkpoints}"
+    );
+    fold(&store.load("relentless").unwrap()).unwrap();
+}
+
+/// The fenced path's own append-time race: the cursor check passed, the
+/// command landed, and a peer appended before the acceptance could — the
+/// acceptance must NOT land on a head the cursor never covered, and the
+/// caller is told their cursor went stale.
+#[test]
+fn a_fenced_acceptance_beaten_to_the_head_reports_a_stale_cursor() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = parked_store(&dir.path().join("beaten.db"), "beaten");
+    let (seq, hash) = store.head_hash("beaten").unwrap();
+    let mut peers = 1;
+    let refused = apply_fenced_racing(
+        &mut store,
+        "beaten",
+        "looper-command",
+        "retry",
+        "operator",
+        "once more",
+        seq,
+        &hash,
+        |store: &mut Store| {
+            if peers > 0 {
+                peers -= 1;
+                store
+                    .append_next(
+                        "beaten",
+                        EventType::OperatorCommanded,
+                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
+                        None,
+                        None,
+                    )
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == "stale_cursor"),
+        "{refused:?}"
+    );
+    let events = store.load("beaten").unwrap();
+    fold(&events).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == EventType::OperatorAccepted));
+}
+
 /// Where the first event of a type sits in a journal — the order of the
 /// three events a raced command leaves behind is what proves the peer
 /// landed inside the window rather than before or after it.

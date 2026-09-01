@@ -357,8 +357,8 @@ impl Store {
             // append guards predate compare-and-append re-runs the
             // idempotent migration batch that carries them.
             if arrival_columns_missing(conn)? {
-                let tx = conn
-                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                let tx =
+                    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 migrate_arrival_columns(&tx)?;
                 tx.commit()?;
             }
@@ -1161,7 +1161,12 @@ pub enum VerifyError {
 /// a peer that beats us to it leaves the file in exactly the mode we
 /// wanted, which the next read observes.
 fn ensure_wal(conn: &Connection) -> Result<(), StoreError> {
-    let deadline = std::time::Instant::now() + BUSY_TIMEOUT;
+    ensure_wal_by(conn, std::time::Instant::now() + BUSY_TIMEOUT)
+}
+
+/// [`ensure_wal`] with the deadline in hand: patience is an argument so
+/// the test that proves it runs out does not have to wait it out.
+fn ensure_wal_by(conn: &Connection, deadline: std::time::Instant) -> Result<(), StoreError> {
     loop {
         let mode: String = conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
         if mode.eq_ignore_ascii_case("wal") {

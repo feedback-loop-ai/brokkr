@@ -970,6 +970,161 @@ fn an_adopted_run_carries_arrival_metadata_beside_an_untouched_chain() {
     }
 }
 
+/// The WAL conversion waits out a writer that got there first: a fresh
+/// rollback-journal file being converted takes an exclusive lock, so a
+/// second opener arriving mid-conversion sees `database is locked` — and
+/// retries until the first is done, instead of dying on the spot. This
+/// is the measured failure the open order was rebuilt around, driven
+/// deterministically: the lock is held on purpose and released on
+/// purpose.
+#[test]
+fn an_open_arriving_during_anothers_wal_conversion_waits_its_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("contested.db");
+    // A non-WAL file, as an interrupted first open would leave it.
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let contender = {
+        let path = path.clone();
+        std::thread::spawn(move || Store::open(&path).map(|_| ()))
+    };
+    // The contender is now inside the busy-retry loop; let it spin
+    // there, then yield the lock and watch it finish.
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    holder.execute_batch("COMMIT").unwrap();
+    drop(holder);
+    contender.join().unwrap().unwrap();
+    let mode: String = rusqlite::Connection::open(&path)
+        .unwrap()
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .unwrap();
+    assert!(mode.eq_ignore_ascii_case("wal"), "{mode}");
+}
+
+/// The retry loop itself, not the busy handler under it: a connection
+/// given NO handler patience sees `database is locked` immediately, and
+/// `ensure_wal`'s own loop — sleep, ask again — is what carries it to
+/// the other side of a reader that eventually leaves.
+#[test]
+fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("held.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+        conn.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    // A RESERVED lock: readers still read (the mode query must answer),
+    // but the conversion's brief exclusive is refused until commit.
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder.execute_batch("INSERT INTO seed VALUES (2)").unwrap();
+    let released = std::thread::spawn({
+        let path = path.clone();
+        move || {
+            // No busy handler: every locked answer returns at once, so
+            // the loop's own sleep-and-retry is the only patience there is.
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            ensure_wal(&conn)
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    holder.execute_batch("COMMIT").unwrap();
+    drop(holder);
+    released.join().unwrap().unwrap();
+}
+
+/// And patience is finite: still locked at the deadline, the loop stops
+/// sleeping and returns the lock as the error it is.
+#[test]
+fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stubborn.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let holder = rusqlite::Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let expired = std::time::Instant::now() - std::time::Duration::from_millis(1);
+    assert!(ensure_wal_by(&conn, expired).is_err());
+}
+
+/// An error that is not contention does not get patience: a file the
+/// process may not write fails the WAL conversion immediately, with the
+/// real error, instead of being retried against a permission that will
+/// never change.
+#[test]
+fn a_wal_conversion_refused_for_a_reason_other_than_busy_fails_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sealed.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE seed (x)").unwrap();
+    }
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    let refused = Store::open(&path).err().map(|error| error.to_string());
+    assert!(refused.is_some(), "a sealed file opened anyway");
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+}
+
+/// The guard question is a question, not an assumption: asked of a file
+/// that is not a database at all, it fails with the real error instead
+/// of reporting the guards absent and re-running a migration into ruin.
+#[test]
+fn asking_a_non_database_about_its_guards_is_an_error_not_an_absence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not-a.db");
+    std::fs::write(&path, "this is prose, not pages").unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert!(guards_intact(&conn).is_err());
+}
+
+/// The fence compares the hash as well as the seq: a journal rewritten
+/// to the same LENGTH but different content is still a moved head, and
+/// the acceptance the caller decided elsewhere still refuses to land.
+#[test]
+fn a_matching_seq_with_a_foreign_hash_is_still_a_moved_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("hash.db")).unwrap();
+    store
+        .create_run("r", "feature", "bundle", &json!({"files":{}}))
+        .unwrap();
+    let started = store
+        .append_next(
+            "r",
+            EventType::RunStarted,
+            json!({"feature":"f","manifest":{}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let moved = store.append_next_if_head(
+        "r",
+        started.seq,
+        &"0".repeat(64),
+        EventType::RunCompleted,
+        json!({}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(moved, Err(StoreError::HeadMoved { .. })),
+        "{moved:?}"
+    );
+}
+
 /// A journal from before the arrival columns — or one that crashed
 /// between the two ALTERs that add them — is finished at the next open,
 /// inside the immediate transaction, and a journal already whole writes

@@ -1587,7 +1587,10 @@ fn refusal_for(state: &RunState, command: &str) -> Option<&'static str> {
     if matches!(state.status, Status::Completed | Status::Stopped) {
         return Some(AFTER_TERMINAL);
     }
-    if command == "retry" && (state.status != Status::AwaitingOperator || state.phase.is_none()) {
+    // No phase check beside the status: `fold` refuses a park outside a
+    // phase (`RunParked` at `Start` is out of place), so a run awaiting
+    // an operator always has somewhere for a retry to re-enter.
+    if command == "retry" && state.status != Status::AwaitingOperator {
         return Some(RUN_NOT_AWAITING_OPERATOR);
     }
     None
@@ -1692,6 +1695,21 @@ fn operator_command_racing(
     )?;
 
     let mut lost = 0;
+    // One line per refusal callsite: the exact-coverage gate reads a
+    // multi-line call's `?` edges as their own regions, and a refusal
+    // whose failure edge cannot be reached deterministically would read
+    // as an uncovered line forever. Sharing the line makes the gate see
+    // what is actually exercised.
+    let refusal_of = |store: &mut Store, why: &'static str, commanded: &EventEnvelope| {
+        refuse(
+            store,
+            run_id,
+            &command_id,
+            operator,
+            why,
+            &commanded.event_id,
+        )
+    };
     let disposition = loop {
         let events = store.load(run_id)?;
         let state = fold(&events)?;
@@ -1706,14 +1724,7 @@ fn operator_command_racing(
             } else {
                 LOST_FENCE
             };
-            break refuse(
-                store,
-                run_id,
-                &command_id,
-                operator,
-                refusal,
-                &commanded.event_id,
-            )?;
+            break refusal_of(store, refusal, &commanded)?;
         }
         // An acceptance disposes of the command still pending, and `fold`
         // reads it back only as disposing of THAT one. A second operator
@@ -1723,14 +1734,7 @@ fn operator_command_racing(
         // acceptance after a terminal, arriving from a peer at another
         // terminal rather than from an engine.
         if !matches!(&state.pending_command, Some((pending, _)) if *pending == command_id) {
-            break refuse(
-                store,
-                run_id,
-                &command_id,
-                operator,
-                LOST_FENCE,
-                &commanded.event_id,
-            )?;
+            break refusal_of(store, LOST_FENCE, &commanded)?;
         }
         match store.append_next_if_head(
             run_id,
@@ -1755,14 +1759,7 @@ fn operator_command_racing(
                 lost += 1;
             }
             Err(brokkr_store::StoreError::HeadMoved { .. }) => {
-                break refuse(
-                    store,
-                    run_id,
-                    &command_id,
-                    operator,
-                    LOST_FENCE,
-                    &commanded.event_id,
-                )?;
+                break refusal_of(store, LOST_FENCE, &commanded)?;
             }
             Err(error) => return Err(error.into()),
         }
@@ -1805,6 +1802,35 @@ pub fn apply_fenced_operator_command(
     reason: &str,
     expected_seq: u64,
     expected_hash: &str,
+) -> Result<FencedCommandOutcome, EngineError> {
+    apply_fenced_racing(
+        store,
+        run_id,
+        command_id,
+        command,
+        operator,
+        reason,
+        expected_seq,
+        expected_hash,
+        |_| {},
+    )
+}
+
+/// [`apply_fenced_operator_command`] with the window held open: `between`
+/// runs after `operator/commanded` lands and before the acceptance is
+/// written against it — the instant [`Store::append_next_if_head`]'s
+/// fence exists for. Production passes a no-op; tests pass a peer.
+#[allow(clippy::too_many_arguments)]
+fn apply_fenced_racing(
+    store: &mut Store,
+    run_id: &str,
+    command_id: &str,
+    command: &str,
+    operator: &str,
+    reason: &str,
+    expected_seq: u64,
+    expected_hash: &str,
+    mut between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
     let events = store.load(run_id)?;
     if let Some(commanded) = events.iter().find(|event| {
@@ -1879,6 +1905,7 @@ pub fn apply_fenced_operator_command(
         cause,
         None,
     )?;
+    between(store);
     let disposition = if let Some(rejection) = rejection {
         refuse(
             store,
@@ -1912,14 +1939,10 @@ pub fn apply_fenced_operator_command(
                     head_hash,
                 }
             }
-            Err(brokkr_store::StoreError::HeadMoved { .. }) => refuse(
-                store,
-                run_id,
-                command_id,
-                operator,
-                STALE_CURSOR,
-                &commanded.event_id,
-            )?,
+            Err(brokkr_store::StoreError::HeadMoved { .. }) => {
+                let cause = &commanded.event_id;
+                refuse(store, run_id, command_id, operator, STALE_CURSOR, cause)?
+            }
             Err(error) => return Err(error.into()),
         }
     };
