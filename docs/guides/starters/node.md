@@ -32,14 +32,15 @@ run brokkr from inside my-bundle — its adapters/ declares the trust tier the v
 
 ## What it wrote
 
-The same eight files as every other stack — `bundle.json`,
-`policy.json`, `adapters/claude.json`, and five charters. Those first
-three and the intake / reviewer / shipper charters **do not vary by
-stack**; see [rust.md](rust.md#what-it-wrote) for the invariant
-`bundle.json` in full. Only the two charters below were written to this
-repository.
+The same files as every other stack — `bundle.json`, `policy.json`,
+`README.md`, `adapters/claude.json`, five agents and five charters.
+`bundle.json`, `policy.json` and the intake / reviewer / shipper
+charters **do not vary by stack**; see [rust.md](rust.md#what-it-wrote)
+for the invariant `bundle.json` in full. The adapter's tool map and the
+agents' grants name this stack's binary (`npm`) the way rust.md's name
+`cargo`. The two charters below were written to this repository.
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -81,7 +82,7 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -121,7 +122,7 @@ initialized reviewable bundle at my-bundle (digest fbd0cec903bd56c325f3293c247b6
 run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
 ```
 
-`roles/implementer.md`:
+`agents/charters/implementer.md`:
 
 ```markdown
 This repository reads as a node/turbo project (`package.json` + `turbo.json` + `pnpm-lock.yaml`), so use its own

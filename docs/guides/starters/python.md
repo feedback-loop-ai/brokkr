@@ -30,12 +30,13 @@ run brokkr from inside my-bundle — its adapters/ declares the trust tier the v
 
 Fixture:
 [`python-uv/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/python-uv/).
-The eight files it wrote are the usual eight; `bundle.json`,
-`policy.json`, `adapters/claude.json` and the intake / reviewer /
-shipper charters **do not vary by stack** (see
-[rust.md](rust.md#what-it-wrote)). Only these two did:
+The files it wrote are the usual ones; `bundle.json`, `policy.json` and
+the intake / reviewer / shipper charters **do not vary by stack** (see
+[rust.md](rust.md#what-it-wrote)), and the adapter's tool map and the
+agents' grants name this stack's binary (`uv`) the way rust.md's name
+`cargo`. Only these two charters did:
 
-### `roles/implementer.md`
+### `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -60,7 +61,7 @@ Result: `complete` (implemented, tests green, committed) · `broken`
 report `complete` with failing tests or uncommitted changes.
 ```
 
-### `roles/verifier.md`
+### `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -116,7 +117,7 @@ initialized reviewable bundle at my-bundle (digest 1467e6ec6bad103c9f66e535a3570
 run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
 ```
 
-`roles/implementer.md` and `roles/verifier.md`, the changed part only:
+`agents/charters/implementer.md` and `agents/charters/verifier.md`, the changed part only:
 
 ```markdown
 This repository reads as a python project (`pyproject.toml`), so use its own

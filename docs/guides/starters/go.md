@@ -26,12 +26,14 @@ run brokkr from inside my-bundle — its adapters/ declares the trust tier the v
 
 ## What it wrote
 
-The same eight files as every stack. `bundle.json`, `policy.json`,
-`adapters/claude.json` and the intake / reviewer / shipper charters
-**do not vary by stack** — see [rust.md](rust.md#what-it-wrote) for the
-invariant `bundle.json`. Only the two below were written to this repo.
+The same files as every stack. `bundle.json`, `policy.json` and the
+intake / reviewer / shipper charters **do not vary by stack** — see
+[rust.md](rust.md#what-it-wrote) for the invariant `bundle.json`. The
+adapter's tool map, the agents' grants and the README name this stack's
+binary (`go`) the way rust.md's name `cargo`. The two charters below
+were written to this repo.
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -67,7 +69,7 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

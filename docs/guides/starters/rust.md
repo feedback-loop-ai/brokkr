@@ -33,35 +33,45 @@ edition = "2021"
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 4f5d5e9ae9e13af46f6fdc52e416c89aa43de28c68daa3ac570c4cad44231ef2)
+initialized reviewable bundle at my-bundle (digest d2cc8fbb38c6bf41e6b53273faf42f9ba9d1ed8453a726925ddb9ded9291ea58)
 run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
 ```
 
 The digest is a function of the bytes that were written, and the
-charters below vary by stack, so **this digest is this fixture's**. Your
-Rust repository will print a different one and that is correct.
+charters, the tool map and the grants below vary by stack, so **this
+digest is this fixture's**. Your Rust repository will print a different
+one and that is correct.
 
 ## What it wrote
 
 ```
+my-bundle/README.md
 my-bundle/adapters/claude.json
+my-bundle/agents/charters/implementer.md
+my-bundle/agents/charters/intake.md
+my-bundle/agents/charters/reviewer.md
+my-bundle/agents/charters/shipper.md
+my-bundle/agents/charters/verifier.md
+my-bundle/agents/implementer.json
+my-bundle/agents/intake.json
+my-bundle/agents/reviewer.json
+my-bundle/agents/shipper.json
+my-bundle/agents/verifier.json
 my-bundle/bundle.json
 my-bundle/policy.json
-my-bundle/roles/implementer.md
-my-bundle/roles/intake.md
-my-bundle/roles/reviewer.md
-my-bundle/roles/shipper.md
-my-bundle/roles/verifier.md
 ```
 
-**`bundle.json`, `policy.json`, `adapters/claude.json` and three of the
-five charters do not vary by stack.** No interpolation happens into
-them: the seat roster, the phase table, the trust declaration, and the
-intake / reviewer / shipper charters are byte-identical for every
-repository `init` has ever been run in. Framing a task, reading a diff
-and closing out read the same in Rust as they do in Go.
+**`bundle.json`, `policy.json` and three of the five charters do not
+vary by stack.** No interpolation happens into them: the seat roster,
+the phase table, and the intake / reviewer / shipper charters are
+byte-identical for every repository `init` has ever been run in.
+Framing a task, reading a diff and closing out read the same in Rust as
+they do in Go.
 
-For completeness, the invariant `bundle.json`:
+For completeness, the invariant `bundle.json`. Every seat names an
+agent and nothing else about it — an agent reference is total, so the
+charter, the limits, the model chain and the tool grant live in the
+agent's own file under `agents/`:
 
 ```json
 {
@@ -70,48 +80,94 @@ For completeness, the invariant `bundle.json`:
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
+      "agent": "intake",
       "class": "work",
-      "results": ["resolved"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["resolved"]
     },
     "implement": {
-      "role": "roles/implementer.md",
+      "agent": "implementer",
       "class": "work",
-      "results": ["complete", "broken", "blocked"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["complete", "broken", "blocked"]
     },
     "verify": {
-      "role": "roles/verifier.md",
+      "agent": "verifier",
       "class": "gate",
-      "results": ["pass", "fail"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["pass", "fail"]
     },
     "review": {
-      "role": "roles/reviewer.md",
+      "agent": "reviewer",
       "class": "gate",
-      "results": ["clean", "residual", "security-hold"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["clean", "residual", "security-hold"]
     },
     "ship": {
-      "role": "roles/shipper.md",
+      "agent": "shipper",
       "class": "gate",
-      "results": ["ready", "shipped"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["ready", "shipped"]
     }
   }
 }
 ```
 
 Every other page in this directory omits it. The stack-specific content
-lives entirely in the two charters below.
+lives in the two charters below, and in the tool grants.
 
-## `roles/implementer.md`
+## The tool grants
+
+The same detection that chose the commands decides what the seats may
+run. The adapter maps the binary the commands invoke — `cargo` here —
+plus the four every seat needs, and nothing broader:
+
+```json
+  "tool_permissions": {
+    "flag": "--allowedTools",
+    "separator": ",",
+    "names": {
+      "cargo": "Bash(cargo:*)",
+      "git": "Bash(git:*)",
+      "ls": "Bash(ls:*)",
+      "rg": "Bash(rg:*)",
+      "mkdir": "Bash(mkdir:*)"
+    }
+  },
+```
+
+The work seats are granted the whole set; the gate seats the read-only
+subset — the test runner and the tools that read and commit, never
+`mkdir`. `agents/implementer.json` and `agents/verifier.json`:
+
+```json
+{
+  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
+  "charter": "charters/implementer.md",
+  "models": ["opus", "sonnet"],
+  "tools": {
+    "allow": ["cargo", "git", "ls", "rg", "mkdir"],
+    "mcp": []
+  },
+  "limits": {"max_attempts": 2, "timeout_seconds": 5400}
+}
+```
+
+```json
+{
+  "description": "Runs the suites and reports pass or fail on evidence, never on intent.",
+  "charter": "charters/verifier.md",
+  "models": ["sonnet", "opus"],
+  "tools": {
+    "allow": ["cargo", "git", "ls", "rg"],
+    "mcp": []
+  },
+  "limits": {"max_attempts": 2, "timeout_seconds": 3600}
+}
+```
+
+Compiled, the implement seat's argv ends in
+`--allowedTools Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)`,
+which `init_stacks.rs` asserts. A repository `init` does not recognize
+gets an empty map, no `tools` on any agent, and a `README.md` that says
+so in those words.
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -164,7 +220,7 @@ Line by line, the parts that were chosen rather than fixed:
   presence and, for the workspace line, one `[workspace]` line read out
   of `Cargo.toml`. No `cargo` subprocess is spawned.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

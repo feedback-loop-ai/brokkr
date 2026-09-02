@@ -37,7 +37,7 @@ initialized reviewable bundle at my-bundle (digest 3baaa6b9e02176f852b601b3bd02b
 run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
 ```
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -86,7 +86,7 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

@@ -1,7 +1,7 @@
 //! `brokkr init <dir>` — scaffold a minimal reviewable bundle and prove it
 //! compiles. The template carries the tightened ship taxonomy (`ready` →
 //! `shipped` as the sole entry into `done`), the protected review phase,
-//! one charter-defined seat per phase, per-seat limits (decision 0006),
+//! one agent-defined seat per phase, per-seat limits (decision 0006),
 //! the work/gate division of decision 0021 ruling 1, and the bundled
 //! headless Claude Code driver. Everything written is ordinary text meant
 //! to be reviewed and edited in git.
@@ -14,6 +14,22 @@
 //! they are scaffolded as a file in their tree rather than compiled into
 //! this binary — and `brokkr` is run from inside the scaffold, where its
 //! `adapters/` is the workspace's.
+//!
+//! It carries its own `agents/` tree for the same reason, one level up:
+//! a seat's tool grant is agent data (`tools.allow`), expressed through
+//! the adapter's tool map (`tool_permissions.names`), and a scaffold
+//! whose adapter mapped no tool at all could grant nothing — so its
+//! seats could not run the very commands their charters named, and the
+//! first delivery stopped on IMPL-BLOCKED before a line was written. The
+//! grants are read from the same detection table as the commands: the
+//! binary each command starts with is the tool the seat needs, plus
+//! `git`, `ls`, `rg` and `mkdir`. Work-class seats get the whole set, so
+//! a seat may run exactly the commands its charter names and nothing
+//! broader; gate-class seats get the read-only subset — the test runner,
+//! `git`, `ls`, `rg` — and never the install or build command, because
+//! a seat that proves and reads has no business building. Where no
+//! stack is recognized the map is written EMPTY and the README says so:
+//! a tool name is a permission, and one guessed is one granted.
 //!
 //! init LOOKS BEFORE IT SCAFFOLDS. The seats that build and prove a
 //! change are told which commands to run, and a charter that told every
@@ -116,45 +132,44 @@ const POLICY: &str = r#"{
 }
 "#;
 
+/// Every seat names an agent and nothing about what the agent IS: an
+/// agent reference is total (the compiler refuses `role`, `limits` or a
+/// `driver.command` beside it), so the seat carries only what is the
+/// seat's own — its class, which is the seat's authority and never the
+/// agent's (decision 0021 ruling 1), and its result vocabulary. The
+/// bounds, the charter, the model chain and the tool grant are the
+/// agent's, in `agents/`, where `brokkr agents show` can read them back.
+/// The class written here and the class in [`SEATS`] must agree; the
+/// scaffold's tests cross-check the two.
 const BUNDLE: &str = r#"{
   "name": "starter",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
+      "agent": "intake",
       "class": "work",
-      "results": ["resolved"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["resolved"]
     },
     "implement": {
-      "role": "roles/implementer.md",
+      "agent": "implementer",
       "class": "work",
-      "results": ["complete", "broken", "blocked"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["complete", "broken", "blocked"]
     },
     "verify": {
-      "role": "roles/verifier.md",
+      "agent": "verifier",
       "class": "gate",
-      "results": ["pass", "fail"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["pass", "fail"]
     },
     "review": {
-      "role": "roles/reviewer.md",
+      "agent": "reviewer",
       "class": "gate",
-      "results": ["clean", "residual", "security-hold"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["clean", "residual", "security-hold"]
     },
     "ship": {
-      "role": "roles/shipper.md",
+      "agent": "shipper",
       "class": "gate",
-      "results": ["ready", "shipped"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "results": ["ready", "shipped"]
     }
   }
 }
@@ -168,23 +183,267 @@ const BUNDLE: &str = r#"{
 /// grant: no seat here declares `secrets`, and a grant nothing needs is
 /// one more thing to take away later (ruling 4 — trust to judge and
 /// clearance to receive are different grants).
-const ADAPTER: &str = r#"{
+///
+/// The tool map is the one part that varies: every binary the detected
+/// stack's commands start with, plus the four every seat needs, each as
+/// the `Bash(<bin>:*)` prefix Claude Code's `--allowedTools` reads. An
+/// agent's `tools.allow` names keys of this map and nothing else, so a
+/// grant the map does not carry refuses at compile time rather than
+/// widening at run time.
+fn adapter(grants: &Grants) -> String {
+    let names = grants
+        .work
+        .iter()
+        .map(|tool| format!("      \"{tool}\": \"Bash({tool}:*)\""))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    let names = match names.is_empty() {
+        true => "{}".to_string(),
+        false => format!("{{\n{names}\n    }}"),
+    };
+    format!(
+        r#"{{
   "provider": "claude",
   "trust_tier": "trusted",
   "binding_grant": false,
   "binary": "claude",
-  "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
-  "models": {
+  "driver": ["{{brokkr}}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
+  "models": {{
     "fable": "claude-fable-5",
     "opus": "claude-opus-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5-20251001"
-  },
+  }},
   "model_flag": "--model",
-  "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": {}},
-  "mcp": {"flag": "--mcp-config", "servers": {}}
+  "tool_permissions": {{
+    "flag": "--allowedTools",
+    "separator": ",",
+    "names": {names}
+  }},
+  "mcp": {{"flag": "--mcp-config", "servers": {{}}}}
+}}
+"#
+    )
 }
-"#;
+
+/// The two classes of decision 0021 ruling 1, as the scaffold seats them.
+enum Class {
+    Work,
+    Gate,
+}
+
+/// One scaffolded agent: its name (the one [`BUNDLE`] seats it by), the
+/// class the seat declares there, the charter file under
+/// `agents/charters/`, and the bounds and model chain the agent carries.
+/// Work seats lead with the stronger model; gate seats lead with the
+/// cheaper one and fall back — the same chains the repository's own
+/// library declares.
+struct Spec {
+    agent: &'static str,
+    class: Class,
+    charter: &'static str,
+    description: &'static str,
+    models: [&'static str; 2],
+    max_attempts: u64,
+    timeout_seconds: u64,
+}
+
+const SEATS: &[Spec] = &[
+    Spec {
+        agent: "intake",
+        class: Class::Work,
+        charter: "intake.md",
+        description: "Frames the feature into a recorded, actionable task before any code is written.",
+        models: ["opus", "sonnet"],
+        max_attempts: 2,
+        timeout_seconds: 1800,
+    },
+    Spec {
+        agent: "implementer",
+        class: Class::Work,
+        charter: "implementer.md",
+        description: "Builds the framed task to the repository's conventions and commits the work with its tests.",
+        models: ["opus", "sonnet"],
+        max_attempts: 2,
+        timeout_seconds: 5400,
+    },
+    Spec {
+        agent: "verifier",
+        class: Class::Gate,
+        charter: "verifier.md",
+        description: "Runs the suites and reports pass or fail on evidence, never on intent.",
+        models: ["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 3600,
+    },
+    Spec {
+        agent: "reviewer",
+        class: Class::Gate,
+        charter: "reviewer.md",
+        description: "Reviews the change for correctness, simplicity and security in one pass.",
+        models: ["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 3600,
+    },
+    Spec {
+        agent: "shipper",
+        class: Class::Gate,
+        charter: "shipper.md",
+        description: "Closes the delivery out: ledger, gates, and the report the operator reads before merging.",
+        models: ["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 1800,
+    },
+];
+
+/// The tools every seat needs whatever the stack: to read the tree, to
+/// search it, and to commit. `mkdir` is the one a work seat needs to
+/// write `.forge/` evidence and a gate seat never does.
+const READ_TOOLS: &[&str] = &["git", "ls", "rg"];
+const WRITE_TOOLS: &[&str] = &["mkdir"];
+
+/// What each class is granted, as keys of the adapter's tool map. Both
+/// empty when no stack was recognized: the map is then empty too, and
+/// an agent that named a key the map lacks would refuse to compile —
+/// which is the right refusal, but not one a scaffold should hand over.
+struct Grants {
+    work: Vec<String>,
+    gate: Vec<String>,
+}
+
+/// The binary a command starts with — `cargo` from `cargo build
+/// --workspace`, `pnpm` from `pnpm exec turbo run test`. That is the
+/// whole of the derivation: the table names the commands, and the tool
+/// a seat needs to run one is the thing the command invokes.
+fn binary(command: &str) -> &str {
+    command.split(' ').next().unwrap_or(command)
+}
+
+/// The grants a detected stack earns. Work: every binary the three
+/// commands start with — the same binary in every arm the table carries
+/// today, deduplicated so a future arm that split them still lists each
+/// once — plus the read tools and the write tool. Gate: the test
+/// runner's binary plus the read tools, and nothing the build or
+/// install line alone would need.
+fn grants(stack: Option<&Detected>) -> Grants {
+    let Some(detected) = stack else {
+        return Grants {
+            work: Vec::new(),
+            gate: Vec::new(),
+        };
+    };
+    let mut work: Vec<String> = Vec::new();
+    for command in [&detected.build, &detected.test, &detected.lint] {
+        let tool = binary(command).to_string();
+        if !work.contains(&tool) {
+            work.push(tool);
+        }
+    }
+    let mut gate = vec![binary(&detected.test).to_string()];
+    for tool in READ_TOOLS {
+        work.push(tool.to_string());
+        gate.push(tool.to_string());
+    }
+    for tool in WRITE_TOOLS {
+        work.push(tool.to_string());
+    }
+    Grants { work, gate }
+}
+
+/// One agent definition, in the repository's own library format. The
+/// `tools` key is omitted — not written empty — when there is nothing to
+/// grant: the loader rejects an empty `allow` as ambiguous between "no
+/// restriction" and "restrict to nothing", and the README carries the
+/// sentence that says which of the two this is.
+fn agent(spec: &Spec, grants: &Grants) -> String {
+    let allow = match spec.class {
+        Class::Work => &grants.work,
+        Class::Gate => &grants.gate,
+    };
+    let tools = match allow.is_empty() {
+        true => String::new(),
+        false => format!(
+            "  \"tools\": {{\n    \"allow\": [{}],\n    \"mcp\": []\n  }},\n",
+            allow
+                .iter()
+                .map(|tool| format!("\"{tool}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    format!(
+        "{{\n  \"description\": \"{}\",\n  \"charter\": \"charters/{}\",\n  \"models\": [\"{}\", \"{}\"],\n{tools}  \"limits\": {{\"max_attempts\": {}, \"timeout_seconds\": {}}}\n}}\n",
+        spec.description,
+        spec.charter,
+        spec.models[0],
+        spec.models[1],
+        spec.max_attempts,
+        spec.timeout_seconds,
+    )
+}
+
+/// The scaffold's README: what was written, and — the part an operator
+/// must be able to check — which tools the seats were granted and why.
+/// Where nothing was recognized it says the map is EMPTY, in those
+/// words, so an empty grant cannot be mistaken for a considered one.
+fn readme(stack: Option<&Detected>, grants: &Grants) -> String {
+    let grants_text = match stack {
+        Some(detected) => format!(
+            "This repository reads as a {} project ({}), so `adapters/claude.json`\n\
+             maps the binaries its charters' commands invoke — and nothing\n\
+             broader — as `Bash(<bin>:*)` entries under `tool_permissions.names`:\n\
+             \n    {}\n\n\
+             Work seats (intake, implement) are granted the whole set, so a seat\n\
+             may run exactly the commands its charter names: {}.\n\n\
+             Gate seats (verify, review, ship) are granted the read-only subset —\n\
+             the test runner, and the tools that read and commit — never the\n\
+             install or build line, and never `mkdir`: {}.\n",
+            detected.name,
+            detected.evidence,
+            grants
+                .work
+                .iter()
+                .map(|tool| format!("{tool} → Bash({tool}:*)"))
+                .collect::<Vec<_>>()
+                .join("\n    "),
+            grants.work.join(", "),
+            grants.gate.join(", "),
+        ),
+        None => "NO STACK WAS RECOGNIZED at the repository root, so the tool map in\n\
+                 `adapters/claude.json` (`tool_permissions.names`) is EMPTY and no\n\
+                 agent under `agents/` declares `tools`: `brokkr init` grants no tool\n\
+                 it could not read from a manifest, because a tool name is a\n\
+                 permission and one guessed is one granted. Until you fill it in the\n\
+                 seats are handed no Bash grant at all. Add one `\"<name>\": \"Bash(<bin>:*)\"`\n\
+                 entry per binary the charters name — plus `git`, `ls`, `rg` and\n\
+                 `mkdir` — and list the names under each agent's `tools.allow`: the\n\
+                 whole set for the work seats (intake, implement), the read-only subset\n\
+                 (the test runner, `git`, `ls`, `rg`) for the gate seats (verify,\n\
+                 review, ship).\n"
+            .to_string(),
+    };
+    format!(
+        "# starter — scaffolded by `brokkr init`\n\n\
+         Run `brokkr` from inside this directory: `adapters/` declares the trust\n\
+         tier the verify, review and ship seats judge on, and `agents/` is the\n\
+         library every seat resolves through. Everything here is ordinary text,\n\
+         meant to be read and edited in git.\n\n\
+         ## What is here\n\n\
+         - `bundle.json` — five seats, each naming an agent, with the class the\n  \
+           seat declares (decision 0021 ruling 1: work or gate) and its results.\n\
+         - `policy.json` — the phase table; `review` is the protected phase.\n\
+         - `adapters/claude.json` — the one driver: its trust tier, and the tool\n  \
+           map the agents' grants are expressed through.\n\
+         - `agents/*.json` — one agent per seat: charter, model chain, tool\n  \
+           grant, limits. `brokkr agents show <name>` reads one back.\n\
+         - `agents/charters/*.md` — the charters; the implementer's and the\n  \
+           verifier's name this repository's own commands.\n\n\
+         ## Tool grants\n\n\
+         {grants_text}\n\
+         `brokkr init` chose all of this from the files at the repository root —\n\
+         it ran nothing to find out. Correct it here if it is wrong.\n"
+    )
+}
 
 /// One recognized stack: the marker files that identify it, the name the
 /// charters call it by, and the three commands a seat would actually run
@@ -538,7 +797,9 @@ fn verifier(stack: Option<&Detected>) -> String {
 /// stack that was found. Intake, review and ship name no build tooling:
 /// framing a task, reading a diff and closing out read the same in every
 /// repository, and a charter that pretended otherwise would be padding.
-fn roles(stack: Option<&Detected>) -> [(&'static str, String); 5] {
+/// They live under `agents/charters/`, because an agent's charter must
+/// stay inside the library that names it.
+fn charters(stack: Option<&Detected>) -> [(&'static str, String); 5] {
     [
         ("implementer.md", implementer(stack)),
         ("verifier.md", verifier(stack)),
@@ -585,13 +846,34 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             declaration.display()
         );
     }
-    std::fs::create_dir_all(dir.join("roles"))?;
+    // The agent library is workspace data on the same terms: a grant an
+    // operator narrowed, or a chain they re-ordered, is theirs, and a
+    // scaffolder that wrote over it would widen a permission by accident.
+    let library = dir.join(DEFAULT_AGENTS_DIR);
+    for spec in SEATS {
+        let definition = library.join(format!("{}.json", spec.agent));
+        if definition.exists() {
+            bail!(
+                "{} already defines an agent; refusing to overwrite — its grants \
+                 are an operator's ruling, not a scaffold's",
+                definition.display()
+            );
+        }
+    }
+    let detected = detect(repo);
+    let grants = grants(detected.as_ref());
+    std::fs::create_dir_all(library.join("charters"))?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
-    std::fs::write(dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json"), ADAPTER)?;
-    for (name, content) in roles(detect(repo).as_ref()) {
-        std::fs::write(dir.join("roles").join(name), content)?;
+    std::fs::write(dir.join("README.md"), readme(detected.as_ref(), &grants))?;
+    std::fs::write(&declaration, adapter(&grants))?;
+    for spec in SEATS {
+        let definition = library.join(format!("{}.json", spec.agent));
+        std::fs::write(definition, agent(spec, &grants))?;
+    }
+    for (name, content) in charters(detected.as_ref()) {
+        std::fs::write(library.join("charters").join(name), content)?;
     }
     // init proves its own output: the scaffold must compile under the
     // constitutional lint before we call it a bundle. Against the

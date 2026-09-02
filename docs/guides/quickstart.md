@@ -141,21 +141,39 @@ before printing the digest, so what you were handed is a thing that runs.
 What it wrote:
 
 ```
-./bundle.json          # name, policy path, protected_phase, five seats
+./bundle.json          # name, policy path, protected_phase, five seats — each names an agent
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./adapters/claude.json # the trust tier your gates judge on — yours to edit
-./roles/intake.md
-./roles/implementer.md
-./roles/verifier.md
-./roles/reviewer.md
-./roles/shipper.md
+./README.md            # what was written, and which tools the seats were granted
+./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
+./agents/intake.json   # one agent per seat: charter, model chain, tool grant, limits
+./agents/implementer.json
+./agents/verifier.json
+./agents/reviewer.json
+./agents/shipper.json
+./agents/charters/intake.md
+./agents/charters/implementer.md
+./agents/charters/verifier.md
+./agents/charters/reviewer.md
+./agents/charters/shipper.md
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its own result
-vocabulary and its own `limits` (attempts and a deadline in seconds).
+vocabulary and names the agent that fills it; the agent carries the
+`limits` (attempts and a deadline in seconds), the model chain and the
+tool grant, and `brokkr agents show <name>` reads one back.
+
+**The seats are granted the tools their charters name.** The same
+detection below decides what the seats may *run*: the binary each
+command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and
+`mkdir` go into the adapter's `tool_permissions.names` as
+`Bash(<bin>:*)` entries, and each agent's `tools.allow` names them —
+the whole set for the work seats, the read-only subset (the test
+runner, `git`, `ls`, `rg`) for the gates. A repository `init` does not
+recognize gets an EMPTY map and a README that says so, rather than a
+guessed permission.
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer's
