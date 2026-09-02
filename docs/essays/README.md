@@ -12,3 +12,4 @@ and the journals they cite are the footnotes.
 | [The Lore](the-lore.md) | Why a mythology layer is an engineering decision: a name that carries its lesson is documentation with a recall rate — if, and only if, the fun is under law. |
 | [The Machine That Argued With Itself](the-machine-that-argued-with-itself.md) | Self-review is theater until structure makes it argument: fresh contexts, typed verdicts, real consequences, bounded returns, and a judge that is not a model. |
 | [The Wager](the-wager.md) | Fair model comparison is an architecture property: two crews, one commission, two confessions from the referee — and the gods judged the gifts without asking which dwarf made them. |
+| [One Job, Three Hires](one-job-three-hires.md) | A lifecycle phase held by a model is a job in the ordinary sense — job description, price tag — and what a delivery costs is set by how the jobs are cut and described, not by who is hired into one. |
