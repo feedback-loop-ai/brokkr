@@ -1,6 +1,6 @@
 # 0030 — Codex session resume: the cache win and the sandbox it drops
 
-Status: proposed
+Status: accepted (ruled 2026-09-02)
 Date: 2026-09-02
 
 ## Context
@@ -138,3 +138,47 @@ holds a measured number for what that costs instead of an anecdote.
 The `adapters/codex.json` gap declaration this slice landed names the
 sandbox axis, so the next reader arrives at the same evidence without
 re-running the binary.
+
+## Ruling — 2026-09-02, operator: resume is in; it is a cost win
+
+Accepted. The measured gap (a ~75% cold plateau against 92–96% on a
+resumed thread) is a cost the fleet pays on every codex seat, and the
+safe spelling exists. The three questions above are answered so:
+
+1. **A retry may resume, and so may a re-entered seat.** A second
+   attempt of the same seat within a run resumes the thread its first
+   attempt opened; a seat the phase machine sends back into (review →
+   implement) resumes the thread it last held. A new run never resumes
+   a thread from another run — the base has moved, and a thread that
+   remembers a different tree is the wrong context, cheap or not.
+2. **The sandbox travels, or the resume does not happen.** Every resume
+   invocation re-expresses the seat's declared sandbox class as
+   `-c sandbox_mode=<class>`. Where the driver cannot express the class
+   on the resume path it spawns cold instead and records why in the
+   checkpoint — ruling 2's fail-closed temperament applied at run
+   time, never a silent escalation.
+3. **The thread id travels in the protocol's own vocabulary.** The
+   driver already folds `thread_id` into `session_meta`; the engine
+   hands it back on the next attempt through `Body::Resume`, which
+   forge-driver/v1 reserves for this, not through the seat's `input`.
+   A resume that codex refuses (unknown or expired thread) is a cold
+   spawn with the refusal journaled, not an attempt failure.
+4. **Only the same adapter instance resumes the same session, and it
+   resumes that session itself.** What is resumed is the provider's own
+   session — the codex thread, the claude session, the dsh session —
+   by the id the driver captured when it opened it: never a fork, a
+   copy, or a new session seeded with the old transcript. It is resumed
+   by the provider that opened it, through the same adapter declaration
+   (the digest the run manifest pins) and the same driver binary, on
+   the same seat of the same run — nothing else. A
+   chain fallback to another model or provider (decision 0016), an
+   adapter edit, or an engine upgrade between attempts spawns cold. A
+   thread is one model's memory of one tree; handing it to anything
+   else would be handing one model another's memory, and no cache win
+   pays for that. It is also the providers' policy, not only ours: a
+   session belongs to the credential and client that opened it, and
+   resuming it from any other instance is a terms violation that gets
+   the account blacklisted. Cost never outranks that.
+
+Enacted by the machine as its own slice, with the before/after cache
+figures recorded in the commit from the driver's own folded usage.
