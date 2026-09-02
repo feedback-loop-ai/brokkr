@@ -90,3 +90,19 @@ is operator judgment informed by the operator's own instruments, and no
 vendor's name is welded into the engine. The cost is honest bookkeeping at
 promotion time — a tier change is a ruling with evidence, not a config
 edit — which is not a cost at all in this shop.
+
+## Addendum — 2026-09-02, operator ruled: codex is trusted
+
+Codex is granted **`trusted` tier for every seat class** — work seats
+and gate seats alike. The evidence line: the wager (crew B under parity
+rigging; the judged synthesis landed as PR #85 with crew B's recognizer
+closing a residual crew A left open), the first foreign delivery's
+lineage, and the operator's own standing use. This is exactly the
+promotion path ruling 4 orders: a tier change is a ruling with
+evidence, recorded here, enacted as data in `adapters/codex.json`.
+
+Not granted here: the **binding grant** (secret-bearing seats) stays
+`false` — a separate grant with its own evidence bar, unruled today.
+The adapter's tool-permission mapping and session reuse remain the
+enabling engineering, delegated to the machine as its own slice.
+

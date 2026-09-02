@@ -580,7 +580,9 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     let adapters = Adapters::load(&root).expect("the shipped adapters load");
     for (provider, tier, grant) in [
         ("claude", TrustTier::Trusted, true),
-        ("codex", TrustTier::Untrusted, false),
+        // 0021 addendum, operator ruled 2026-09-02: trusted for every
+        // seat class; the binding grant stays a separate, unruled bar.
+        ("codex", TrustTier::Trusted, false),
         ("dsh", TrustTier::Untrusted, false),
         ("exec", TrustTier::Untrusted, true),
         // Not named by this slice's scope, and so left undeclared:
