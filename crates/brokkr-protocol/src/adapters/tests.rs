@@ -809,16 +809,17 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
     assert_eq!(invocation.exit_code, 0);
 }
 
-/// The sandbox travels or the resume does not (decision 0030 ruling 2).
-/// Every way a class can fail to travel ends in the same place: the cold
-/// argv, unchanged from what it has always been, and a checkpoint saying
-/// why the offer could not be taken.
+/// The sandbox travels or the resume does not (decision 0030 ruling 2),
+/// and neither does anything else the seat declared that a resume cannot
+/// carry. Every way an offer can fail to be taken ends in the same
+/// place: the cold argv, unchanged from what it has always been, and a
+/// checkpoint saying why.
 #[cfg(unix)]
 #[test]
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cases: [(&str, Vec<&str>, &str); 5] = [
+    let cases: [(&str, Vec<&str>, &str); 9] = [
         // Nothing declared: a codex resume does not inherit the class
         // its thread was opened under, so there is nothing to re-impose.
         (
@@ -843,7 +844,43 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
                 "-c",
                 "sandbox_mode=\"danger-full-access\"",
             ],
-            "second sandbox expression",
+            "\"-c\"",
+        ),
+        // A bypass flag beside a declared class: the class is not the
+        // only way to spend the sandbox.
+        (
+            "bypassed",
+            vec![
+                "--sandbox",
+                "read-only",
+                "--dangerously-bypass-approvals-and-sandbox",
+            ],
+            "bypass-approvals-and-sandbox",
+        ),
+        // A flag that never says "sandbox" and sets one anyway: a config
+        // profile may carry `sandbox_mode`, and a profile outranks a `-c`
+        // root override. `codex exec resume` refuses the flag outright
+        // (verified, 0.148.0) — this driver refuses it first, and says so
+        // instead of spending a spawn to be told.
+        (
+            "profiled",
+            vec!["--sandbox", "read-only", "--profile", "loose"],
+            "\"--profile\"",
+        ),
+        // `--last` picks the newest recorded session instead of the one
+        // on offer. The seat's argv never redirects the engine's offer.
+        (
+            "redirected",
+            vec!["--sandbox", "read-only", "--last"],
+            "\"--last\"",
+        ),
+        // A bare word lands positionally, where `codex exec resume
+        // [SESSION_ID] [PROMPT]` reads it as the session — ahead of the
+        // thread this driver appends.
+        (
+            "positional",
+            vec!["--sandbox", "read-only", "some-other-thread"],
+            "\"some-other-thread\"",
         ),
         // An id that is not a plain thread id never reaches an argv.
         (
@@ -1031,6 +1068,62 @@ fn the_sandbox_declaration_is_read_in_both_of_its_spellings() {
     assert!(!plain_thread_id("thread;rm"));
     // A positional argument that could be read as a flag is not an id.
     assert!(!plain_thread_id("--last"));
+}
+
+/// What the rest of the seat's argv is allowed to be on a resume: only
+/// flags `codex exec resume` takes AND that cannot reach the sandbox or
+/// choose the session (verified against codex-cli 0.148.0). Both
+/// spellings of a value flag are the same declaration, and a value is
+/// never read as a part in its own right.
+#[test]
+fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
+    let blocker = |parts: &[&str]| {
+        let passthrough: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+        codex_resume_blocker(&passthrough)
+    };
+    assert_eq!(blocker(&[]), None);
+    assert_eq!(
+        blocker(&[
+            "--model",
+            "gpt-5.6-sol",
+            "--output-schema=/tmp/s.json",
+            "--json",
+            "--skip-git-repo-check",
+            "-i",
+            "/tmp/a.png",
+        ]),
+        None
+    );
+    // A value that spells a refused flag is still just a value.
+    assert_eq!(blocker(&["-m", "--last"]), None);
+    // A value flag with nothing after it declares nothing.
+    assert_eq!(blocker(&["--model"]), Some("--model".into()));
+    for refused in [
+        "-c",
+        "--config",
+        "--enable",
+        "--disable",
+        "--last",
+        "--all",
+        "--profile",
+        "--add-dir",
+        "--approve-for-me",
+        "-C",
+        "--ignore-rules",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "a-bare-word",
+        "--a-flag-codex-has-not-invented-yet",
+        // The joined spelling is the same declaration, and gets the
+        // same answer: only the flag's NAME decides.
+        "--profile=loose",
+        "-c=sandbox_mode=\"danger-full-access\"",
+    ] {
+        assert_eq!(
+            blocker(&["--model", "sol", refused]),
+            Some(refused.to_string()),
+            "{refused} may not travel to a resume"
+        );
+    }
 }
 
 /// The offer reaches the seat through the protocol's own vocabulary: a

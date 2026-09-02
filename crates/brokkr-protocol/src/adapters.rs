@@ -495,6 +495,72 @@ fn split_codex_sandbox(extra: &[String]) -> (Option<String>, Vec<String>) {
     (class, passthrough)
 }
 
+/// The passthrough flags that may travel to a resume, each verified
+/// present in `codex exec resume --help` (codex-cli 0.148.0) and unable
+/// to express a sandbox or to say WHICH session is rejoined. The first
+/// list takes a value, the second stands alone.
+///
+/// An allow-list, and deliberately not a deny-list of the flags that
+/// raise a sandbox: the seat's argv is open-ended, `codex exec resume`
+/// takes a strict subset of what `codex exec` takes, and the class has
+/// to be re-imposed through `-c sandbox_mode=…` — a lower-precedence
+/// mechanism than the `--sandbox` flag the cold path uses. Any list of
+/// the ways to outrank it is a list that goes stale the next time codex
+/// grows a flag; a list of what is known safe fails closed instead.
+const CODEX_RESUME_VALUE_FLAGS: [&str; 7] = [
+    "-m",
+    "--model",
+    "-i",
+    "--image",
+    "-o",
+    "--output-last-message",
+    "--output-schema",
+];
+const CODEX_RESUME_BARE_FLAGS: [&str; 4] = [
+    "--json",
+    "--strict-config",
+    "--skip-git-repo-check",
+    "--ephemeral",
+];
+
+/// The first part of the seat's passthrough that may not travel to a
+/// resume, if there is one. Three kinds of part are refused here and
+/// every one of them is a real hazard, not a formality:
+///
+/// - anything that can reach the sandbox — `-c`, `--enable`/`--disable`,
+///   `--dangerously-bypass-approvals-and-sandbox`, `--ignore-rules`;
+/// - `--last` and `--all`, which choose which session is rejoined: the
+///   seat's argv never redirects an offer the engine made (ruling 4);
+/// - a bare word, which `codex exec resume [SESSION_ID] [PROMPT]` would
+///   read positionally as the session id — ahead of the one appended
+///   here;
+///
+/// and with them everything `codex exec` takes that a resume does not:
+/// `--profile`, `--add-dir`, `--approve-for-me` and `-C` are each
+/// rejected outright by `codex exec resume` (verified, 0.148.0), so
+/// passing them on would buy a usage error dressed up as a refusal.
+fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
+    let mut parts = passthrough.iter();
+    while let Some(part) = parts.next() {
+        if CODEX_RESUME_BARE_FLAGS.contains(&part.as_str()) {
+            continue;
+        }
+        if CODEX_RESUME_VALUE_FLAGS.contains(&part.as_str()) {
+            // The value travels with its flag and is never classified on
+            // its own — a model name is not a flag, whatever it spells.
+            if parts.next().is_some() {
+                continue;
+            }
+            return Some(part.clone());
+        }
+        match part.split_once('=') {
+            Some((name, _)) if CODEX_RESUME_VALUE_FLAGS.contains(&name) => continue,
+            _ => return Some(part.clone()),
+        }
+    }
+    None
+}
+
 /// A thread id as codex writes it and the journal displays it: one
 /// plain identifier of ASCII alphanumerics and dashes, not leading with
 /// one. The id reaches argv positionally, so a spelling that could be
@@ -540,16 +606,16 @@ fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str
             "sandbox class {class:?} is not one codex exec resume can be handed"
         )));
     }
-    // A second sandbox expression in the seat's own argv (a `-c
-    // sandbox_mode=…` override, a bypass flag) could outrank the one
+    // The rest of the seat's argv has to be safe to carry across, part
+    // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
-    if passthrough.iter().any(|part| part.contains("sandbox")) {
-        return cold(Some(
-            "the seat's own argv carries a second sandbox expression, which \
-             could outrank the re-imposed class"
-                .into(),
-        ));
+    if let Some(part) = codex_resume_blocker(&passthrough) {
+        return cold(Some(format!(
+            "the seat's argv carries {part:?}, which cannot travel to a codex \
+             resume: it could outrank the re-imposed class, redirect the \
+             session, or be refused outright"
+        )));
     }
     let mut command = vec![
         bin.to_string(),
@@ -712,6 +778,13 @@ fn invoke_with_stager(
             // ended non-zero having never announced a thread, so no part
             // of the seat's work had begun and starting it cold costs
             // nothing but the cache.
+            //
+            // That "never announced" is load-bearing and it is measured,
+            // not assumed: a successful `codex exec resume --json`
+            // (0.148.0) emits `thread.started` carrying the SAME thread
+            // id it was handed, before any turn begins. So a rejoin that
+            // actually ran can never land here, whatever it exits with,
+            // and the seat is never charged twice for one attempt.
             if launch.resumed.is_some()
                 && invocation.exit_code != 0
                 && !invocation.session_meta.contains_key("session_id")

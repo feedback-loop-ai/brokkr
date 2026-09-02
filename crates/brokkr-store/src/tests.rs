@@ -1324,7 +1324,7 @@ fn a_journal_that_predates_the_arrival_columns_is_finished_at_open() {
             [&DATABASE_SCHEMA.to_string()],
         )
         .unwrap();
-        // Half the migration already applied: one column of two.
+        // Half the migration already applied: one column of three.
         conn.execute("ALTER TABLE runs ADD COLUMN imported_at TEXT", [])
             .unwrap();
     }
@@ -1337,11 +1337,90 @@ fn a_journal_that_predates_the_arrival_columns_is_finished_at_open() {
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    for (column, _) in ARRIVAL_COLUMNS {
+    for (column, _) in SIDECAR_COLUMNS {
         assert!(present.iter().any(|name| name == column), "{column}");
     }
     // And the finished journal is a plain read at the next open.
-    assert!(!arrival_columns_missing(&Store::open(&path).unwrap().conn).unwrap());
+    assert!(!sidecar_columns_missing(&Store::open(&path).unwrap().conn).unwrap());
+}
+
+/// A run is "started here" only while the journal that created it is
+/// still on the machine and the account that created it (decision 0030
+/// ruling 4). The store is the only place that can answer this: an
+/// export carries events, and 0027 makes an adopted run deliberately
+/// indistinguishable from a native one INSIDE the chain.
+#[test]
+fn a_run_is_started_here_only_on_the_machine_and_account_that_created_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    store
+        .create_run("r1", "feature", "bundle", &json!({"schema":"run-manifest/v1"}))
+        .unwrap();
+
+    assert!(store.started_here("r1").unwrap());
+    // A run this journal has never heard of is not one it started.
+    assert!(!store.started_here("r2").unwrap());
+
+    // The same journal, opened somewhere else: the row travels with the
+    // file, the machine does not. (An adopted run reaches the same
+    // answer by a shorter road — `import_run` writes no origin at all.)
+    store
+        .conn
+        .execute("UPDATE runs SET origin_host = 'elsewhere'", [])
+        .unwrap();
+    assert!(!store.started_here("r1").unwrap());
+
+    // A row written by a brokkr that predates the column.
+    store
+        .conn
+        .execute("UPDATE runs SET origin_host = NULL", [])
+        .unwrap();
+    assert!(!store.started_here("r1").unwrap());
+
+    // And an installation that cannot place itself at all: no session
+    // is anyone's, including its own.
+    assert!(!store.started_under("r1", None).unwrap());
+}
+
+/// What a machine is allowed to be identified by, and what is not an
+/// identity at all. The fingerprint is opaque and stable: the same
+/// machine twice is the same token, a different one is not, and neither
+/// the hostname nor the home path it was made from can be read back out
+/// of it.
+#[test]
+fn a_machine_fingerprint_needs_a_source_that_says_something() {
+    let dir = tempfile::tempdir().unwrap();
+    let named = dir.path().join("machine-id");
+    let blank = dir.path().join("blank");
+    let missing = dir.path().join("absent");
+    std::fs::write(&named, "d9b1e0c4f1a24e0e8b3c\n").unwrap();
+    std::fs::write(&blank, "  \n").unwrap();
+    let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
+
+    // The first source that can be read wins, and a missing one is
+    // simply skipped.
+    let first = host_from(&[&path(&missing), &path(&named)], None).unwrap();
+    assert_eq!(first.len(), 16);
+    assert_eq!(host_from(&[&path(&named)], None), Some(first.clone()));
+    assert!(!first.contains("d9b1e0c4"), "the source is not readable back");
+
+    // No source at all falls back to what the caller was given, and a
+    // caller with nothing to give gets nothing.
+    assert_eq!(
+        host_from(&[&path(&missing)], Some("a-hostname".into())),
+        host_from(&[], Some("a-hostname".into()))
+    );
+    assert_ne!(host_from(&[], Some("a-hostname".into())), Some(first));
+    assert_eq!(host_from(&[&path(&missing)], None), None);
+
+    // A source that reads as whitespace says nothing, and saying
+    // nothing is not an identity.
+    assert_eq!(host_from(&[&path(&blank)], None), None);
+    assert_eq!(host_from(&[], Some(String::new())), None);
+
+    // And the real one exists, on the machine running this test.
+    assert!(local_host().is_some());
 }
 
 /// One broken link refuses the WHOLE import. No prefix of good events

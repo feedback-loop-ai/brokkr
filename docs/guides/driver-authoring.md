@@ -167,9 +167,9 @@ What a driver has to do to participate:
   or expired session is not the attempt's fault: start cold, journal the
   refusal, and carry on.
 
-What the ENGINE guarantees before it offers you anything (decision 0030
-ruling 4) — you are never handed a session that belongs to another
-instance:
+What the ENGINE checks before it offers you anything (decision 0030
+ruling 4). Every one of these is a refusal — the offer is made only when
+all of them agree:
 
 - the same run and the same seat: a retry of that seat, or a re-entry
   into it. Never another seat, and never another run;
@@ -178,12 +178,31 @@ instance:
   to another model gets nothing;
 - the same pinned bundle: an edited adapter declaration, a rewritten
   charter or an upgraded engine moves the run's pin, and a moved pin
-  offers nothing.
+  offers nothing;
+- the same machine and the same account: the journal is still where it
+  was when it started the run. A run adopted from elsewhere (decision
+  0027), a journal file carried to another host, or an installation that
+  cannot identify itself at all — each gets nothing. This one is not
+  read out of the chain, because 0027 makes an adopted run deliberately
+  indistinguishable inside it; the store answers it from bookkeeping an
+  export does not carry.
+
+And what the engine does NOT check, because it cannot: **whose
+credential your provider will bill.** It compares journaled facts and
+one local fingerprint. It does not hold your API key, cannot ask your
+provider who owns a session, and cannot tell that two attempts a second
+apart ran with a re-pointed `CODEX_HOME` or a rotated token. Everything
+above narrows the offer to one seat of one run on one machine; the last
+step — "and this session is really mine to rejoin" — is yours. Fail
+closed on a handle your harness does not recognise, and treat the
+provider's refusal as the answer it is (a cold spawn), not as an error
+to work around.
 
 The engine journals nothing about the offer itself: whether it made one
-is a pure function of the journal a reader already has. What you DID
-with it — rejoined, or started cold and why — is yours to journal, in a
-checkpoint, and it is the only record of it there will be. Send one.
+is a function of the journal a reader already has, plus whether that
+journal is still at home. What you DID with it — rejoined, or started
+cold and why — is yours to journal, in a checkpoint, and it is the only
+record of it there will be. Send one.
 
 ## `accepted` is the load-bearing message
 

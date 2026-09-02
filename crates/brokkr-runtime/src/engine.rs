@@ -766,7 +766,13 @@ impl Engine {
         // to journal. The engine widens no event vocabulary to say
         // something the record already answers.
         let offer = match single {
-            Some(_) => resume_offer(events, &self.bundle, seat_name, &started),
+            Some(_) => resume_offer(
+                events,
+                &self.bundle,
+                seat_name,
+                &started,
+                self.store.started_here(&self.run_id)?,
+            ),
             None => None,
         };
         // started is durable BEFORE the driver spawns: a crash in between
@@ -2433,13 +2439,27 @@ fn pinned_bundle_holds(events: &[EventEnvelope], bundle: &Bundle) -> bool {
 /// Only these two fields are compared, and deliberately so: `effect_id`
 /// and `attempt_id` differ on every attempt by definition, and they are
 /// the only other fields a single seat's start event carries.
+///
+/// `started_here` carries the axis the journal cannot: the same machine
+/// and the same account. It is beyond the ruling's list, which is a
+/// floor and not a ceiling — withholding an offer needs no permission —
+/// and it is here because decision 0027 made runs portable. A journal
+/// exported mid-flight and adopted elsewhere resumes as a first-class
+/// run, by design indistinguishable INSIDE the chain, so no comparison
+/// of journaled facts can tell that the attempt which opened the thread
+/// ran under another machine's credential. Codex would refuse such a
+/// thread today (its rollouts are local), but a driver whose provider
+/// keeps sessions server-side would not be, and by then the offer has
+/// been made. The store answers it instead, from bookkeeping that an
+/// export does not carry.
 fn resume_offer(
     events: &[EventEnvelope],
     bundle: &Bundle,
     seat: &str,
     started: &Value,
+    started_here: bool,
 ) -> Option<String> {
-    if !pinned_bundle_holds(events, bundle) {
+    if !started_here || !pinned_bundle_holds(events, bundle) {
         return None;
     }
     let (attempt, session) = seat_session(events, seat)?;

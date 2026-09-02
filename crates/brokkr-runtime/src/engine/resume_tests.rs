@@ -308,6 +308,86 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
     assert_eq!(fold(&events).unwrap().status, Status::Completed);
 }
 
+/// A run whose journal has moved to another machine is offered nothing,
+/// on the wire, even though every fact INSIDE the chain still agrees.
+///
+/// Both halves matter and both are here. An operator's retry after a
+/// park is a second engine process by definition, and it still resumes:
+/// the session survives the process that opened it, because what the
+/// offer rests on is durable. And the same run, continued from a journal
+/// that is no longer where it started — adopted under decision 0027,
+/// or a `.db` carried to another machine — resumes nothing, because a
+/// provider session belongs to the credential that opened it.
+#[test]
+fn a_journal_that_moved_is_offered_nothing_and_one_that_stayed_still_is() {
+    // One seat, one attempt, failing: the run parks with a session
+    // opened and an operator holding the next move.
+    let parked = |dir: &Path, moved: bool| {
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        let mut seats = BTreeMap::new();
+        seats.insert(
+            "work".into(),
+            seat(
+                single(driver(dir, "work", &["fail", "complete"]), Vec::new()),
+                &["complete"],
+                1,
+            ),
+        );
+        seats.insert(
+            "review".into(),
+            seat(
+                single(driver(dir, "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        let db = dir.join("forge.db");
+        let store = Store::open(&db).unwrap();
+        let bundle = bundle(dir, seats);
+        let mut engine =
+            Engine::start(store, bundle.clone(), "resume", Some(dir.join("work"))).unwrap();
+        let run_id = engine.run_id.clone();
+        engine.drive().unwrap();
+        assert_eq!(
+            fold(&engine.store.load(&run_id).unwrap()).unwrap().status,
+            Status::AwaitingOperator,
+            "the failed attempt parked the run"
+        );
+
+        // The journal is carried elsewhere — the row travels with the
+        // file, the machine does not. A second connection, because this
+        // is exactly the tampering the store is asked to notice.
+        if moved {
+            rusqlite::Connection::open(&db)
+                .unwrap()
+                .execute("UPDATE runs SET origin_host = 'elsewhere'", [])
+                .unwrap();
+        }
+
+        let mut store = engine.store;
+        operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+        Engine::resume(store, bundle, &run_id, Some(dir.join("work")))
+            .unwrap()
+            .drive()
+            .unwrap();
+        offers(&received(dir, "work"))
+    };
+
+    let stayed = tempfile::tempdir().unwrap();
+    assert_eq!(
+        parked(stayed.path(), false),
+        [None, Some("work-1".into())],
+        "a retry across a park still rejoins the thread its seat opened"
+    );
+
+    let travelled = tempfile::tempdir().unwrap();
+    assert_eq!(
+        parked(travelled.path(), true),
+        [None, None],
+        "the same journal, somewhere else, is handed nothing"
+    );
+}
+
 /// The offer's own predicate, one refusal at a time. Everything here is
 /// a hand-built journal because the point is what the engine reads out
 /// of one — a run whose bundle has moved under it cannot be produced by
@@ -347,13 +427,13 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
 
     // Every fact agrees: the session is offered.
     assert_eq!(
-        resume_offer(&events("work", &started), &bundle, "work", &started),
+        resume_offer(&events("work", &started), &bundle, "work", &started, true),
         Some("thread-1".into())
     );
 
     // The same journal, read for a seat that never opened it.
     assert_eq!(
-        resume_offer(&events("other", &started), &bundle, "work", &started),
+        resume_offer(&events("other", &started), &bundle, "work", &started, true),
         None
     );
 
@@ -361,7 +441,7 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     let mut moved = started.clone();
     moved["driver"] = json!("another-driver");
     assert_eq!(
-        resume_offer(&events("work", &started), &bundle, "work", &moved),
+        resume_offer(&events("work", &started), &bundle, "work", &moved, true),
         None
     );
 
@@ -369,7 +449,7 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     let mut fell_back = started.clone();
     fell_back["provenance"][0]["model"] = json!("terra");
     assert_eq!(
-        resume_offer(&events("work", &started), &bundle, "work", &fell_back),
+        resume_offer(&events("work", &started), &bundle, "work", &fell_back, true),
         None
     );
 
@@ -380,15 +460,15 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     let mut edited = bundle.clone();
     edited.manifest["files"]["adapters/codex.json"] = json!("c".repeat(64));
     assert_eq!(
-        resume_offer(&events("work", &started), &edited, "work", &started),
+        resume_offer(&events("work", &started), &edited, "work", &started, true),
         None
     );
 
     // A journal with no run/started to pin anything, and one whose
     // attempt journaled no session at all.
-    assert_eq!(resume_offer(&[], &bundle, "work", &started), None);
+    assert_eq!(resume_offer(&[], &bundle, "work", &started, true), None);
     assert_eq!(
-        resume_offer(&events("work", &started)[..3], &bundle, "work", &started),
+        resume_offer(&events("work", &started)[..3], &bundle, "work", &started, true),
         None
     );
 
@@ -396,7 +476,19 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     // by is no session anyone may be handed.
     let mut orphaned = events("work", &started);
     orphaned.remove(2);
-    assert_eq!(resume_offer(&orphaned, &bundle, "work", &started), None);
+    assert_eq!(resume_offer(&orphaned, &bundle, "work", &started, true), None);
+
+    // Every journaled fact agrees and the journal is somewhere else: a
+    // run adopted from another machine (decision 0027), a journal file
+    // copied to one, or an installation that cannot say where it is. The
+    // chain cannot tell any of those apart — by 0027's design — so the
+    // store answers instead, and its `false` ends the offer before any
+    // of the above is even asked.
+    assert_eq!(
+        resume_offer(&events("work", &started), &bundle, "work", &started, false),
+        None,
+        "a session handle never crosses a machine or an account"
+    );
 }
 
 /// One journaled event, hand-built: the store seals real ones, and these

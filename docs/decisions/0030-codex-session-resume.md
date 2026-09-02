@@ -189,6 +189,75 @@ across a re-entry, and it does: `chain_index` restarts per effect, so a
 re-entered seat can resolve back to a link that never opened the thread
 its neighbour did, and is handed nothing.
 
+### Reforged — 2026-09-02: the argv narrowed, the machine added
+
+A review of the enactment left two security residuals, both low, both on
+paths that could hand a resume more power or a wrong session than it was
+entitled to. The seat that could not run `codex` could not close them.
+Both are closed now, against the installed binary.
+
+**What may travel to a resume is now a list of what may, not a list of
+what may not.** The class is re-imposed through `-c sandbox_mode=…`,
+which the `--sandbox` flag outranks, so the guard against a competing
+expression was load-bearing — and it was a substring search for
+`sandbox`. Measured against 0.148.0: `--full-auto` does not exist in
+this codex at all (the flag the review feared), and `--profile`,
+`--add-dir`, `--approve-for-me` and `-C` are each rejected outright by
+`codex exec resume`, so they fail closed rather than escalate. But two
+holes the search could not have caught were real. `--last` and `--all`
+ARE accepted by a resume and choose which session is rejoined — the
+seat's own argv could have redirected an offer the engine made. And a
+bare word in the seat's argv lands positionally, where
+`codex exec resume [SESSION_ID] [PROMPT]` reads it as the session, ahead
+of the thread the driver appends. The passthrough is now an allow-list
+of seven value flags and four bare ones, each verified present on
+`codex exec resume --help` and unable to reach the sandbox or the
+session. Anything else — including a flag codex has not invented yet —
+spawns cold with the offending part named in the checkpoint.
+
+**A session handle no longer crosses a machine.** Decision 0027 made
+runs portable and made an adopted run deliberately indistinguishable
+from a native one *inside the chain*; a run exported mid-flight and
+resumed elsewhere therefore agreed on every journaled fact the offer
+rested on, and would have been handed a thread opened under another
+machine's credential. Codex refuses such a thread today because its
+rollouts are local, but the offer had already been made, and a driver
+whose provider keeps sessions server-side would not be refused. Since no
+comparison of journaled facts can answer this, the store answers it: an
+`origin_host` column beside the chain — 0027's own pattern, written only
+by `create_run`, left NULL by `import_run`, and absent from an export,
+which carries events. `Store::started_here` gates the offer, and the
+gate is closed for an adopted run, a copied journal, and an
+installation that cannot identify itself. The fingerprint is a hash of
+the machine id and the account's home, so the journal file holds an
+equality token rather than an operator's hostname. Nothing was added to
+any event: a start payload still reads `effect_id`, `attempt_id`,
+`driver`, and the witness golden that pins that still passes untouched.
+
+Two facts settled by measurement rather than argument while closing
+these. A successful `codex exec resume --json` emits `thread.started`
+carrying the same thread id it was handed, before any turn begins — so
+the structural refusal predicate (non-zero exit, no thread ever
+announced) cannot misfire on a rejoin that actually ran, and no seat is
+billed twice for one attempt. And the numbers reproduce: an independent
+cold/resume pair on 0.148.0 read 11008/14628 input tokens cached cold
+(75.2%) against 14080/15404 resumed (**91.4%**) — the same sixteen-point
+step the enactment measured, on a different pair of turns.
+
+The offer also survives a park: an operator's `retry` is a second engine
+process by definition, and it still rejoins, because everything the
+offer rests on is durable. That is now pinned by a test that drives a
+run to a park, retries it, and reads the wire.
+
+**Known and bounded.** The engine's check is journaled facts plus one
+local fingerprint. It cannot ask a provider who owns a session, so it
+cannot see a re-pointed `CODEX_HOME` or a rotated token between two
+attempts on one machine. `docs/guides/driver-authoring.md` now says
+exactly that, and puts the last step where it can be taken: a driver
+fails closed on a handle its own harness does not recognise. An adopted
+run's codex seats also spawn cold for good — `origin_host` stays NULL
+after an import — which costs cache and nothing else.
+
 ## Ruling — 2026-09-02, operator: resume is in; it is a cost win
 
 Accepted. The measured gap (a ~75% cold plateau against 92–96% on a
