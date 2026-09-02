@@ -3397,6 +3397,53 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
     );
 }
 
+/// A journal written before decision 0032 carries only the flat
+/// `session_id`, and names its harness through provenance alone. A codex
+/// thread id is hex and dashes, so it passes the display guard; only the
+/// provenance can keep it out of a `claude --resume` line. Provenance
+/// absent predates decision 0016, when every seat was a claude seat.
+#[test]
+fn a_pre_0032_journal_keeps_the_provider_guard_on_the_resume_line() {
+    for (provider, resumable) in [
+        (Some("codex"), false),
+        (Some("dsh"), false),
+        (Some("claude"), true),
+        (Some("lanetally"), true),
+        (None, true),
+    ] {
+        let mut events = journal("intake");
+        if let Some(provider) = provider {
+            events[3].payload = json!({
+                "effect_id": "eff-i", "attempt_id": "att1",
+                "provenance": [{"member": null, "agent": "intake", "model": "sol",
+                                "provider": provider, "chain_index": 0}],
+            });
+        }
+        events[5].payload["checkpoint"] = json!({
+            "step": "claude-session-finished",
+            "session_id": "abcd-1234",
+            "total_cost_usd": 0.03125,
+        });
+        let views = Views {
+            now: NOW.to_string(),
+            runs: fleet(),
+            run: Some(brokkr_view::run_view(&events, Some(&state()))),
+            transcript: None,
+            note: None,
+        };
+        let mut tui = at_seats("eff-i");
+        apply(&mut tui, &views, Key::Enter);
+        apply(&mut tui, &views, Key::Enter);
+        let frame = frame_of(&tui, &views, 120, 40);
+        assert!(frame.contains("transcript  —"), "{provider:?}: {frame}");
+        assert_eq!(
+            frame.contains("claude --resume abcd-1234"),
+            resumable,
+            "{provider:?}: {frame}"
+        );
+    }
+}
+
 #[test]
 fn zero_width_characters_cannot_overwrite_the_rail() {
     // The panel's residual: combining marks and variation selectors are

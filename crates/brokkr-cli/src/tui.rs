@@ -413,14 +413,20 @@ fn seat_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant> {
 
 /// The Claude session id the shell asks the local prose reader for. New
 /// journals derive it from decision 0032's transcript shape; old journals
-/// keep using the compatibility field.
+/// keep using the compatibility field — under the provenance guard that
+/// field always had, because a pre-0032 codex seat journaled its thread
+/// id there and a thread id is hex and dashes like a claude session.
+/// Provenance absent predates decision 0016, when every seat was claude.
 fn claude_session(part: &Participant) -> Option<&str> {
     let session = match &part.transcript {
         Some(transcript) if transcript.kind == "claude-session" => {
             Some(transcript.locator.as_str())
         }
         Some(_) => None,
-        None => part.session_id.as_deref(),
+        None => match part.provenance.as_ref().map(|p| p.provider.as_str()) {
+            None | Some("claude") | Some("lanetally") => part.session_id.as_deref(),
+            Some(_) => None,
+        },
     };
     session.filter(|session| crate::ui::valid_session_id(session))
 }
