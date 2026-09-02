@@ -4,7 +4,7 @@
 //! seq, head hash, and the repository HEAD it vouches for. Its tree
 //! carries the canonical NDJSON, so the ref can be pushed under
 //! `refs/heads/brokkr-runs/<run_id>` and verified without publishing the
-//! operator's SQLite journal (decision 0031). Commit objects are
+//! operator's SQLite journal (decision 0033). Commit objects are
 //! content-addressed, so a consistent rewrite of the database still
 //! fails against the ref chain. Built with plumbing on a dedicated ref:
 //! the index, working tree, and checked-out branch are never touched.

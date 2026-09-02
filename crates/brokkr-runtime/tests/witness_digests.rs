@@ -64,37 +64,37 @@ fn workspace() -> PathBuf {
 /// is the honest reading — a derived recipe IS a different strategy when
 /// its base changes.
 ///
-/// Decision 0031 deliberately moved the seven recipe witnesses: each
+/// Decision 0033 deliberately moved the seven recipe witnesses: each
 /// bundle now carries the description and relative cost rendered in the
 /// sixty-second contributing guide. `bundles/verify` did not move.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "f4ef75713bc518815a0e63ddc767f8ab691a450b1cb3484fbcb0c961a8c78c52",
+        "60ac742aa290064c0c0b8826111e614e5453ffa1bbbf5a77babee0b29003e372",
     ),
     (
         "recipes/node",
-        "053a11fc4d70d0e187764273dfcc6943fbc5d35e0e4c1459cb090c7ba96c4844",
+        "0791dcc2811cda87aca21f6002a3607a0c62c84371d218408c89b1bcd523c8f6",
     ),
     (
         "recipes/preflight",
-        "cca4aa030fb4ac79ac435587de0fb9b9062d22a7e3d842e5afdaaf782eaf751f",
+        "3cedc899170b188f69a543c69c15aef69d586b4e9c95b32ac4864f519477e9b8",
     ),
     (
         "recipes/ember",
-        "51aad7cdf6d913b8da5979afa1028b9483b9dcbde3adb349e3e67a6b5c1752c5",
+        "4d0ae8343cc72b004770cfb61d6b3486f693748105de29040acf41a0aabf21c7",
     ),
     (
         "recipes/crucible",
-        "b7a71d6c793b35b316453d53a6736de423ce4f1a18ac3931da608b868aea257c",
+        "fbcd11dcbfd789384dcb72e4ddafa338298863c615ff2447f22814ffd40146a5",
     ),
     (
         "recipes/night-shift",
-        "9c1033b52d2a8f8c347d46d9ce8f652259db55fdae9e8c1f06adce916d61514e",
+        "d9ba0158186cee71e79e4410c7e4ee8b4a1f17e43528e555bf3c3b3fbfb99589",
     ),
     (
         "recipes/wager-harness",
-        "bbdd2c114ad2f150c1dc604d1087f65c66536b3f99a31f0f734e1d819246b6b3",
+        "16dafc33e25bd5be172e22a7b5adc5943abb44e39c5c2c3c4a3ea066d4430e91",
     ),
     (
         "bundles/verify",

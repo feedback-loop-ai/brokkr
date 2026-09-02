@@ -743,7 +743,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// `bundles/verify` — moved once more when those gates began pinning
 /// the adapter declaration that authorises them, so a tier demoted in
 /// `adapters/` moves the identity of the bundles it was standing behind.
-/// Decision 0031 moved the three recipe entries once more by adding the
+/// Decision 0033 moved the three recipe entries once more by adding the
 /// descriptions and relative costs rendered in the contributing guide;
 /// the two system bundles did not move.
 /// What this proves is that COMPOSITION moves none of them:
@@ -754,7 +754,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "f4ef75713bc518815a0e63ddc767f8ab691a450b1cb3484fbcb0c961a8c78c52",
+        "60ac742aa290064c0c0b8826111e614e5453ffa1bbbf5a77babee0b29003e372",
     ),
     (
         "recipes/panel-review",
@@ -901,14 +901,14 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "984296a63b04803e0faac7beb2c4e8488ad3a2e44798f60f721288d22b98f988",
+        "cce743c6f9b12bdc0bbae184740623cdfa06ec0dc0b875449f2661fcdb766348",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
          (decision 0019), again when its inline review panel began \
          pinning the adapter declarations that authorise it to judge, \
          (decision 0021), then when the closing 0019 sweep changed the \
-         base charters, and finally when decision 0031 gave both layers \
+         base charters, and finally when decision 0033 gave both layers \
          contributor-facing description and cost data, which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

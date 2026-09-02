@@ -1,4 +1,4 @@
-# 0031 — Contributing goes through Brokkr
+# 0033 — Contributing goes through Brokkr
 
 Status: accepted (operator ruled in chat, 2026-09-02)
 Date: 2026-09-02

@@ -1,4 +1,4 @@
-//! Decision 0031's executable documentation: the sixty-second guide is
+//! Decision 0033's executable documentation: the sixty-second guide is
 //! the recipe library rendered as one table, and the contribution gate
 //! keeps its declaration, evidence, head-binding, and visible escape
 //! hatch in repository-owned platform data.
