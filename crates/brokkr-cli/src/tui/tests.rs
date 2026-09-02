@@ -100,7 +100,10 @@ fn journal(seat: &str) -> Vec<EventEnvelope> {
             EventType::EffectCheckpointed,
             json!({"effect_id": "eff-i", "attempt_id": "att1",
                    "checkpoint": {"step": "claude-session-finished",
-                                  "session_id": "abcd-1234", "total_cost_usd": 0.03125}}),
+                                  "transcript": {"kind": "claude-session",
+                                    "locator": "abcd-1234",
+                                    "home": "/home/operator/.claude/projects"},
+                                  "total_cost_usd": 0.03125}}),
             T1,
         ),
         ev(
@@ -927,6 +930,7 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
     // No local transcript: the pane says so, and the resume line is
     // still there — it is the escape hatch that always exists.
     let frame = frame_of(&tui, &views, 100, 26);
+    assert!(frame.contains("transcript  claude-session"), "{frame}");
     assert!(frame.contains("claude --resume abcd-1234"), "{frame}");
     assert!(frame.contains("no local session transcript"), "{frame}");
     assert!(frame.contains("effect/succeeded"), "terminal_line: {frame}");
@@ -948,14 +952,14 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
     assert!(frame.contains("the seat's own words"), "{frame}");
     assert!(frame.contains("transcript truncated"), "{frame}");
 
-    // A seat with no session id still gets the line, carrying the
-    // model's absence mark rather than a pasteable lie.
+    // A seat with no transcript still gets the common plain label.
     let views = views_with("intake");
     let mut tui = at_seats("eff-d");
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
     let frame = frame_of(&tui, &views, 100, 26);
-    assert!(frame.contains("claude --resume —"), "{frame}");
+    assert!(frame.contains("transcript  —"), "{frame}");
+    assert!(!frame.contains("claude --resume"), "{frame}");
 }
 
 #[test]
@@ -985,8 +989,8 @@ fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
         apply(&mut tui, &views, Key::Enter);
         let frame = frame_of(&tui, &views, 100, 26);
         assert!(
-            frame.contains("claude --resume —"),
-            "hostile id reached the resume line: {frame}"
+            !frame.contains("claude --resume"),
+            "hostile id reached a resume line: {frame}"
         );
         assert!(!frame.contains("curl"), "{frame}");
         assert!(!frame.contains("rm -rf"), "{frame}");
@@ -1459,6 +1463,9 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
 
     // A working seat with no session id has no file to watch...
     for part in &mut live.run.as_mut().unwrap().participants {
+        if let Some(transcript) = &mut part.transcript {
+            transcript.locator.clear();
+        }
         part.session_id = None;
     }
     assert!(!session_is_live(&tui, &live));
@@ -3358,6 +3365,11 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
         "provenance": [{"member": null, "agent": "intake", "model": "sol",
                         "provider": "codex", "chain_index": 0}],
     });
+    events[5].payload["checkpoint"]["transcript"] = json!({
+        "kind": "codex-thread",
+        "locator": "abcd-1234",
+        "home": "/home/operator/.codex"
+    });
     let views = Views {
         now: NOW.to_string(),
         runs: fleet(),
@@ -3369,21 +3381,19 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
     let frame = frame_of(&tui, &views, 120, 40);
-    assert!(frame.contains("abcd-1234 · held by codex"), "{frame}");
+    assert!(
+        frame.contains("transcript  codex-thread · abcd-1234"),
+        "{frame}"
+    );
     assert!(!frame.contains("claude --resume"), "{frame}");
-    assert!(frame.contains("the session line above names it"), "{frame}");
+    assert!(
+        frame.contains("the transcript line above names it"),
+        "{frame}"
+    );
 
     assert_eq!(
-        super::session_line(Some("lanetally"), "abcd"),
+        super::session_line("abcd"),
         "full session: claude --resume abcd"
-    );
-    assert_eq!(
-        super::session_line(None, "abcd"),
-        "full session: claude --resume abcd"
-    );
-    assert_eq!(
-        super::session_line(Some("dsh"), "—"),
-        "full session: — · held by dsh, no resume verb yet"
     );
 }
 

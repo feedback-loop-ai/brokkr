@@ -79,7 +79,10 @@ fn seat_journal() -> Vec<EventEnvelope> {
             EventType::EffectCheckpointed,
             json!({"effect_id": "eff1", "attempt_id": "att1",
                    "checkpoint": {"step": "claude-session-finished",
-                                  "session_id": "sess-1", "total_cost_usd": 0.03125}}),
+                                  "transcript": {"kind": "claude-session",
+                                    "locator": "sess-1",
+                                    "home": "/home/operator/.claude/projects"},
+                                  "total_cost_usd": 0.03125}}),
             T1,
         ),
         ev(
@@ -2384,11 +2387,10 @@ fn a_member_named_only_in_provenance_still_becomes_a_participant() {
 }
 
 #[test]
-fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
-    // The id used to arrive only with session-finished — at the END —
-    // so a working seat's transcript could not be located, let alone
-    // live-streamed. session-started journals it at init; the finished
-    // checkpoint later replaces it, bringing the cost.
+fn a_working_seat_carries_its_transcript_from_the_shared_checkpoint() {
+    // The reference arrives at init, so a working seat's transcript can
+    // already be located. The finished checkpoint later repeats it while
+    // bringing the cost.
     let mut events = seat_journal();
     events.truncate(5); // requested, started, one turn — still working
     events.insert(
@@ -2397,8 +2399,12 @@ fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
             9,
             EventType::EffectCheckpointed,
             json!({"effect_id": "eff1", "attempt_id": "att1",
-                   "checkpoint": {"step": "session-started",
-                                  "session_id": "sess-live"}}),
+            "checkpoint": {"step": "transcript",
+                           "transcript": {
+                               "kind": "claude-session",
+                               "locator": "sess-live",
+                               "home": "/test/.claude/projects"
+                           }}}),
             T0,
         ),
     );
@@ -2421,8 +2427,8 @@ fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
     assert_eq!(part.session_id.as_deref(), Some("sess-1"));
     assert!(part.cost.is_some());
 
-    // A RETRY: attempt two's started arrives after attempt one's
-    // finished, and the LIVE session is the one the drill must stream
+    // A RETRY: attempt two's transcript arrives after attempt one's
+    // finished, and the LIVE transcript is the one the drill must stream
     // — never the dead attempt's transcript.
     let mut retried = seat_journal();
     retried.truncate(6); // through attempt one's session-finished
@@ -2436,8 +2442,12 @@ fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
         11,
         EventType::EffectCheckpointed,
         json!({"effect_id": "eff1", "attempt_id": "att2",
-               "checkpoint": {"step": "session-started",
-                              "session_id": "sess-2-live"}}),
+        "checkpoint": {"step": "transcript",
+                       "transcript": {
+                           "kind": "claude-session",
+                           "locator": "sess-2-live",
+                           "home": "/test/.claude/projects"
+                       }}}),
         T2,
     ));
     let view = run_view(
@@ -2448,6 +2458,51 @@ fn a_working_seat_carries_its_session_id_from_the_started_checkpoint() {
         view.participants[0].session_id.as_deref(),
         Some("sess-2-live"),
         "the retry's live session replaces the dead attempt's"
+    );
+}
+
+#[test]
+fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
+    for kind in ["claude-session", "codex-thread", "dsh-session", "none"] {
+        let parsed = transcript_of(&json!({
+            "kind": kind, "locator": "seat-or-id", "home": "/test/home"
+        }))
+        .unwrap();
+        assert_eq!(parsed.kind, kind);
+        assert_eq!(parsed.locator, "seat-or-id");
+        assert_eq!(parsed.home, "/test/home");
+    }
+
+    for malformed in [
+        json!({"locator":"id", "home":"/h"}),
+        json!({"kind":"future-kind", "locator":"id", "home":"/h"}),
+        json!({"kind":"codex-thread", "home":"/h"}),
+        json!({"kind":"codex-thread", "locator":"id"}),
+    ] {
+        assert!(transcript_of(&malformed).is_none(), "{malformed}");
+    }
+
+    let none = Transcript {
+        kind: "none".into(),
+        locator: String::new(),
+        home: String::new(),
+    };
+    assert_eq!(transcript_cell(Some(&none)).text, "none");
+
+    let unannounced = Transcript {
+        kind: "codex-thread".into(),
+        locator: String::new(),
+        home: String::new(),
+    };
+    assert_eq!(
+        transcript_cell(Some(&unannounced)).text,
+        "codex-thread · — · home —"
+    );
+    let absent = transcript_cell(None);
+    assert!(absent.absent);
+    assert_eq!(
+        absent.note.as_deref(),
+        Some("no transcript reference recorded")
     );
 }
 

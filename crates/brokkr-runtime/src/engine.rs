@@ -2385,11 +2385,11 @@ fn select_candidates(
     (selection, provenance)
 }
 
-/// The session this seat is holding in THIS run: the last session id any
-/// attempt of this seat journaled, with the attempt that journaled it.
+/// The session this seat is holding in THIS run: the last transcript
+/// locator any attempt of this seat journaled, with that attempt.
 ///
 /// Journaled checkpoints are the only channel read — `state =
-/// fold(events)`, and a driver's session id reaches the record as
+/// fold(events)`, and a driver's transcript locator reaches the record as
 /// evidence the moment its harness announces one, which is what lets an
 /// attempt killed on its deadline still hand its thread to the retry
 /// that follows.
@@ -2412,10 +2412,14 @@ fn seat_session(events: &[EventEnvelope], seat: &str) -> Option<(String, String)
                 .is_some_and(|effect_id| effects.contains(&effect_id))
         })
         .find_map(|event| {
-            let session = event
-                .payload
-                .pointer("/checkpoint/session_id")
-                .and_then(Value::as_str)?;
+            let checkpoint = event.payload.get("checkpoint")?;
+            // Decision 0032's common shape is first. The old flat id stays
+            // readable so a run opened before the ruling can still resume.
+            let session = checkpoint
+                .pointer("/transcript/locator")
+                .and_then(Value::as_str)
+                .filter(|locator| !locator.is_empty())
+                .or_else(|| checkpoint.get("session_id").and_then(Value::as_str))?;
             let attempt = event.attempt_id.clone()?;
             Some((attempt, session.to_string()))
         })

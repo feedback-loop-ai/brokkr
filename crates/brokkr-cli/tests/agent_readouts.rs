@@ -193,7 +193,7 @@ fn inspect_shows_the_fallback_in_json_and_in_prose() {
     let run_id = ws.run();
 
     let view = ws.inspect_json(&run_id);
-    assert_eq!(view["view_version"], 4);
+    assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     let seat = view["participants"]
         .as_array()
         .unwrap()

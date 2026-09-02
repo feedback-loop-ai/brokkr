@@ -295,7 +295,10 @@ fn safe_checkpoint(checkpoint: &Value) -> Value {
             Value::String("withheld-private-path".into()),
         );
     }
-    if checkpoint.get("session_id").is_some() || checkpoint.get("session_ref").is_some() {
+    if checkpoint.get("session_id").is_some()
+        || checkpoint.get("session_ref").is_some()
+        || checkpoint.pointer("/transcript/locator").is_some()
+    {
         output.insert(
             "session_reference_state".into(),
             Value::String("observed-redacted".into()),

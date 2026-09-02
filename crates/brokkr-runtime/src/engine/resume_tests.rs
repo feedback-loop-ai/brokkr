@@ -416,7 +416,10 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
             envelope(
                 EventType::EffectCheckpointed,
                 json!({"effect_id":"fx", "attempt_id":"a1",
-                       "checkpoint":{"step":"session-started", "session_id":"thread-1"}}),
+                "checkpoint":{"step":"transcript", "transcript":{
+                    "kind":"codex-thread", "locator":"thread-1",
+                    "home":"/test/.codex"
+                }}}),
                 Some("a1"),
             ),
         ]
