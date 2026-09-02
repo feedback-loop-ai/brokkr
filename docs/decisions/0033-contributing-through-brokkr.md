@@ -49,7 +49,10 @@ branch, so it is the smaller carrier.
 5. The operator-only `by-hand` label is the escape hatch. When present,
    the same job succeeds without evidence and prints that the operator's
    label caused the skip; the exception is visible in the required
-   check's own output.
+   check's own output. The job reads labels from the `pull_request`
+   event that started it, and a re-run replays that event, so after
+   applying the label the operator closes and reopens the pull request
+   (or pushes) to make the skip take effect.
 6. After this change lands, the operator must add `delivered by brokkr`
    to `main`'s required checks. Branch protection belongs to the
    platform operator, so repository code can name and exercise that step
@@ -74,6 +77,13 @@ The contributor path is one screen: install, fork, choose a recipe, run
 it, review, publish its anchor, and open the pull request naming the run.
 The old handbook remains intact as the by-hand reference, but it is no
 longer the ordinary workflow; verify owns those checks.
+
+The pull request that introduces this ruling is anchored at completion
+by an engine that predates v2, so its published evidence is written
+afterwards with the branch's own binary,
+`cargo run -p brokkr-cli -- anchor --run <run-id>`, which chains a v2
+anchor onto the v1 tip before the ref is pushed. Every later run writes
+v2 at conclusion by itself.
 
 Evidence refs add one synthetic branch per proposed run to contributor
 forks. They may be deleted after the pull request lands. A rebase or any

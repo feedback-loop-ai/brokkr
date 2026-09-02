@@ -6,14 +6,18 @@ open the pull request that names the run.
 
 ## 1. Install Brokkr
 
-Use a one-command [release channel](packaging/README.md#using-the-channels):
+Download the checksum-verified archive from the
+[latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
+exactly as the [main README](README.md#60-second-quickstart) shows, or build the
+binary from your clone after step 2:
 
 ```console
-cargo binstall brokkr-cli
+cargo install --path crates/brokkr-cli
 ```
 
-The main README also lists the checksum-verified archives and source
-bootstrap. Those release and bootstrap paths are the authority.
+Those two README paths are the authority. `cargo binstall brokkr-cli`
+waits on a crates.io publication
+([packaging follow-ups](packaging/README.md#named-follow-ups)).
 
 ## 2. Fork and clone
 
