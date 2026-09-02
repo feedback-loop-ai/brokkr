@@ -887,8 +887,9 @@ fn runs_lists_completed_run_with_status_and_phase() {
     let view: Value = serde_json::from_str(&stdout).unwrap();
     // Decision 0016 moved the wire version to 2: participants gained
     // `provenance`, the run view gained `notices`. It moved to 3 when
-    // the phase rail gained `returns`, then to 4 for decision 0031's
-    // provider-reported served-model cells.
+    // the phase rail gained `returns`, to 4 for decision 0031's
+    // provider-reported served-model cells, and to 5 for decision 0032's
+    // common transcript shape. The constant is the one source of truth.
     assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     assert_eq!(view["count"], 1, "the count the trailer used to print");
     let row = &view["runs"][0];
@@ -2594,8 +2595,9 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     // Decision 0016 moved the wire version to 2: participants gained
     // `provenance`, the run view gained `notices`. It moved to 3 when
-    // the phase rail gained `returns`, then to 4 for decision 0031's
-    // provider-reported served-model cells.
+    // the phase rail gained `returns`, to 4 for decision 0031's
+    // provider-reported served-model cells, and to 5 for decision 0032's
+    // common transcript shape. The constant is the one source of truth.
     assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     let summary = &view["summary"];
     for key in [
