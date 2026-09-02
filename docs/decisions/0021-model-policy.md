@@ -106,3 +106,20 @@ Not granted here: the **binding grant** (secret-bearing seats) stays
 The adapter's tool-permission mapping and session reuse remain the
 enabling engineering, delegated to the machine as its own slice.
 
+## Addendum — 2026-09-02, operator ruled: the other drivers are the implementer's hands
+
+`adapters/claude.json` may express `Bash(codex:*)` and `Bash(dsh:*)`,
+and the two implementer agents (`implementer`, `implementer-speckit`)
+are granted both. No gate-class agent is: a judge whose shell could
+reach an untrusted driver would take that driver's word through a door
+the compile-time tier check of ruling 2 cannot see, so the verifier,
+reviewer and shipper keep the hands they had. The grant is data — a
+name in the adapter's map, an entry in each agent's `allow` — and the
+bundles that adopt those agents changed identity with it.
+
+The reverse direction needs no grant and admits no cage: `codex` and
+`dsh` declare `tool_permissions: "unsupported"`, so their seats already
+run whatever their harness permits, `claude` included. A comparison
+across drivers must say so rather than claim a symmetry the data cannot
+express.
+
