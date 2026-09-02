@@ -38,7 +38,10 @@ use serde_json::Value;
 /// `returns` — the roads back decision 0022 made real. The precedent is
 /// 0016's: an additive model field moves the wire version, because a
 /// consumer pinning the old one is entitled to know the shape grew.
-pub const VIEW_VERSION: u32 = 4;
+/// Bumped to 4 by decision 0031: participants gained served-model evidence.
+/// Bumped to 5 by decision 0032: every participant gained the common
+/// transcript shape and its rendered cell.
+pub const VIEW_VERSION: u32 = 5;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -201,6 +204,15 @@ pub struct Provenance {
     pub line: String,
 }
 
+/// The common driver transcript reference (decision 0032). It contains
+/// paths or ids only; transcript prose never enters the journal or view.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct Transcript {
+    pub kind: String,
+    pub locator: String,
+    pub home: String,
+}
+
 /// A run-level fact an operator must see rather than find: a
 /// compile-time capability gap the agent marked optional, or a fallback
 /// that actually happened. A notice that only lands in JSON nobody reads
@@ -233,6 +245,10 @@ pub struct Participant {
     pub model: Cell,
     pub activity: Activity,
     pub member_count: usize,
+    pub transcript: Option<Transcript>,
+    pub transcript_cell: Cell,
+    /// Compatibility for the Claude transcript reader and journals written
+    /// before decision 0032. New non-Claude locators never enter this field.
     pub session_id: Option<String>,
     pub terminal_line: Cell,
     pub checkpoints: Vec<CheckpointRow>,
@@ -743,6 +759,7 @@ struct Build {
     turns: Option<u64>,
     last_turn: Option<Value>,
     session: Option<Value>,
+    transcript: Option<Transcript>,
     member_outcome: Option<Value>,
     member_finished_at: Option<String>,
     checkpoints: Vec<(Value, String)>,
@@ -779,6 +796,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         turns: None,
         last_turn: None,
         session: None,
+        transcript: None,
         member_outcome: None,
         member_finished_at: None,
         checkpoints: Vec::new(),
@@ -880,6 +898,11 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                 if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                     scan.parts[part].model = Some(model.to_string());
                 }
+                if let Some(transcript) = checkpoint.get("transcript").and_then(transcript_of) {
+                    // ALWAYS replace: a retry's live transcript follows the
+                    // concluded attempt's, just as the old session id did.
+                    scan.parts[part].transcript = Some(transcript);
+                }
                 scan.parts[part]
                     .checkpoints
                     .push((checkpoint.clone(), event.recorded_at.clone()));
@@ -945,6 +968,46 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
 }
 
 // -------------------------------------------------------------- activity
+
+fn transcript_of(value: &Value) -> Option<Transcript> {
+    let kind = value.get("kind").and_then(Value::as_str)?;
+    if !matches!(
+        kind,
+        "claude-session" | "codex-thread" | "dsh-session" | "none"
+    ) {
+        return None;
+    }
+    let locator = value.get("locator").and_then(Value::as_str)?;
+    let home = value.get("home").and_then(Value::as_str)?;
+    Some(Transcript {
+        kind: kind.to_string(),
+        locator: locator.to_string(),
+        home: home.to_string(),
+    })
+}
+
+fn transcript_cell(transcript: Option<&Transcript>) -> Cell {
+    match transcript {
+        Some(transcript) if transcript.kind == "none" => cell_of(Some("none".to_string()), None),
+        Some(transcript) => {
+            let locator = if transcript.locator.is_empty() {
+                ABSENT
+            } else {
+                &transcript.locator
+            };
+            let home = if transcript.home.is_empty() {
+                ABSENT
+            } else {
+                &transcript.home
+            };
+            cell_of(
+                Some(format!("{} · {} · home {}", transcript.kind, locator, home)),
+                None,
+            )
+        }
+        None => cell_of(None, Some("no transcript reference recorded")),
+    }
+}
 
 fn target_cells(target: Option<&str>) -> (Option<String>, Option<String>) {
     match target {
@@ -1289,6 +1352,19 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             }
             None => None,
         };
+        let transcript = part.transcript.clone();
+        let session_id = transcript
+            .as_ref()
+            .filter(|transcript| transcript.kind == "claude-session")
+            .map(|transcript| transcript.locator.clone())
+            .filter(|locator| !locator.is_empty())
+            .or_else(|| {
+                part.session
+                    .as_ref()
+                    .and_then(|session| session.get("session_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
         out.push(Participant {
             key: part.key.clone(),
             label: part.label.clone(),
@@ -1309,12 +1385,9 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             model: cell_of(model, Some("no served model recorded")),
             activity: activity_for(events, scan, part, members.len()),
             member_count: members.len(),
-            session_id: part
-                .session
-                .as_ref()
-                .and_then(|session| session.get("session_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            transcript_cell: transcript_cell(transcript.as_ref()),
+            transcript,
+            session_id,
             terminal_line: terminal_line(events, scan, part),
             checkpoints: checkpoint_rows(part),
             provenance: part.provenance.as_ref().map(provenance_of),

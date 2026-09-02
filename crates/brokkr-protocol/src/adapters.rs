@@ -20,6 +20,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Map, Value};
 
 use crate::secret;
+use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -240,22 +241,18 @@ fn fold_stream_event(
     event: &Value,
     assistant_turns: &mut u64,
     session_meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
 ) {
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                let clamped: String = session_id.chars().take(128).collect();
-                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
                 // Journaled NOW, not only at session end: the
                 // transcript drilldowns can only locate — and live-
                 // stream — a WORKING seat's prose if the id is known
-                // from the first message. The id is display-guarded
-                // downstream (hex and dash only) like every session id.
-                let mut checkpoint = Map::new();
-                checkpoint.insert("step".into(), Value::String("session-started".into()));
-                checkpoint.insert("session_id".into(), Value::String(clamped));
-                emit(&Value::Object(checkpoint));
+                // from the first message. Decision 0032's shared module
+                // clamps and journals the one transcript shape.
+                transcript.record(session_id, session_meta, emit);
             }
         }
         Some("assistant") => {
@@ -322,22 +319,19 @@ fn fold_codex_event(
     event: &Value,
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
 ) {
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
-                let clamped: String = thread_id.chars().take(128).collect();
-                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
                 // Journaled NOW, as the claude fold journals its own —
                 // and for a second reason here: the thread id is what a
                 // retry resumes (decision 0030), and an attempt killed
                 // on its deadline never reaches the session-finished
                 // checkpoint. Captured at `thread.started`, the id
                 // survives exactly the failure a retry follows.
-                emit(&json!({
-                    "step":"session-started", "session_id": clamped, "harness":"codex",
-                }));
+                transcript.record(thread_id, session_meta, emit);
             }
         }
         Some("turn.started") => {
@@ -397,10 +391,7 @@ fn fold_codex_event(
                 session_meta.insert("model".into(), Value::String(model));
             }
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                session_meta.insert(
-                    "session_id".into(),
-                    Value::String(session_id.chars().take(128).collect()),
-                );
+                transcript.record(session_id, session_meta, emit);
             }
             for key in ["num_turns", "total_cost_usd"] {
                 if let Some(value) = event.get(key) {
@@ -501,18 +492,9 @@ fn fold_dsh_event(
 ) {
     match event.get("type").and_then(Value::as_str) {
         Some("session") => {
-            if let Some(session_id) = event.get("id").and_then(Value::as_str) {
-                let clamped: String = session_id.chars().take(128).collect();
-                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
-                // Journaled the moment the header lands, not at exit:
-                // the transcript drilldowns can only locate a WORKING
-                // seat's session if the id is already in the journal.
-                emit(&json!({
-                    "step":"session-started",
-                    "harness":"deepseek",
-                    "session_id": clamped,
-                }));
-            }
+            // The dsh locator is the retained seat root, known and
+            // journaled before spawn. Its internal session id is not a
+            // second locator shape (decision 0032).
         }
         Some("assistant/message") => {
             *turns += 1;
@@ -643,16 +625,17 @@ struct DshTail {
 /// TRUST BOUNDARY, and it is weaker than claude's. Claude's stream-json
 /// arrives on a pipe only the child holds; this is an ordinary file in a
 /// directory the seat's own agent can write to, and the driver publishes
-/// its path in `harness-started.target`. An agent with filesystem tools
-/// can therefore append lines this fold will believe — a forged session
-/// header renames the seat's session, forged `assistant/message` lines
-/// inflate the turn and token counts. That is accepted, not overlooked:
-/// such an agent is already trusted with the working tree, the fold
-/// clamps every value it takes (≤128-char id, ≤80-char tool name, u64
-/// counts) and derives nothing executable from any of them, so the worst
-/// case is a wrong number and a wrong drilldown in the journal, never an
-/// injection or a control-flow decision. A driver whose harness offers a
-/// real stdout stream should use it rather than inherit this.
+/// its relative path in the shared transcript locator. An agent with
+/// filesystem tools can therefore append lines this fold will believe —
+/// a forged session header can make it follow the wrong file below that
+/// seat-owned root, and forged `assistant/message` lines can inflate the
+/// turn and token counts. That is accepted, not overlooked: such an
+/// agent is already trusted with the working tree, the fold clamps every
+/// value it takes (≤80-char tool names and u64 counts) and derives
+/// nothing executable from any of them, so the worst case is wrong
+/// telemetry in the journal, never an injection or a control-flow
+/// decision. A driver whose harness offers a real stdout stream should
+/// use it rather than inherit this.
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
@@ -757,6 +740,7 @@ fn invoke_stream_json(
     workdir: &str,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     let mut command = vec![
         bin,
         "-p".into(),
@@ -800,9 +784,16 @@ fn invoke_stream_json(
         let Ok(event) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        fold_stream_event(&event, &mut assistant_turns, &mut session_meta, emit);
+        fold_stream_event(
+            &event,
+            &mut assistant_turns,
+            &mut session_meta,
+            &mut transcript,
+            emit,
+        );
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    transcript.finish(&mut session_meta, emit);
     Ok(Invocation {
         exit_code: status.code().unwrap_or(-1),
         session_meta,
@@ -822,7 +813,6 @@ const CODEX_SANDBOX_CLASSES: [&str; 3] = ["read-only", "workspace-write", "dange
 /// without a re-expressed class is the silent escalation decision 0030
 /// ruling 2 forbids, and a class without a thread is just a cold spawn.
 struct CodexResume {
-    thread: String,
     sandbox: String,
 }
 
@@ -1011,10 +1001,7 @@ fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str
     command.push("-".into());
     CodexLaunch {
         command,
-        resumed: Some(CodexResume {
-            thread: session.to_string(),
-            sandbox: class,
-        }),
+        resumed: Some(CodexResume { sandbox: class }),
         cold_reason: None,
     }
 }
@@ -1028,7 +1015,6 @@ fn codex_started(launch: &CodexLaunch) -> Value {
     match &launch.resumed {
         Some(resume) => {
             checkpoint.insert("launch".into(), Value::String("resumed".into()));
-            checkpoint.insert("session_id".into(), Value::String(resume.thread.clone()));
             checkpoint.insert("sandbox".into(), Value::String(resume.sandbox.clone()));
         }
         None => {
@@ -1050,6 +1036,7 @@ fn invoke_codex(
     workdir: &str,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     let (program, args) = (&command[0], &command[1..]);
     let child = Command::new(program)
         .args(args)
@@ -1077,7 +1064,7 @@ fn invoke_codex(
     for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
         let Ok(line) = line else { break };
         if let Ok(event) = serde_json::from_str::<Value>(&line) {
-            fold_codex_event(&event, &mut turn, &mut session_meta, emit);
+            fold_codex_event(&event, &mut turn, &mut session_meta, &mut transcript, emit);
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -1087,6 +1074,7 @@ fn invoke_codex(
             session_meta.insert("model".into(), Value::String(model));
         }
     }
+    transcript.finish(&mut session_meta, emit);
     Ok(Invocation {
         exit_code: status.code().unwrap_or(-1),
         session_meta,
@@ -1135,24 +1123,24 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
+    let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     // The seat's own root under the operator's harness home. Nothing
     // here removes it: the transcript is the operator's (see
-    // `dsh_transcript_root`), and the journal names the path below.
-    let root_dir = dsh_transcript_root()?;
+    // `dsh_transcript_root_under`), and the journal names the path below.
+    let root_dir = dsh_transcript_root_in(|| {
+        dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
+    })?;
     let root = root_dir.as_path();
     let overlay = dsh_seat_overlay(model.as_deref(), root)?;
+    let locator = transcript.locator_under_home(root)?;
+    let mut session_meta = Map::new();
+    transcript.record(&locator, &mut session_meta, emit);
     emit(&json!({
         "step":"harness-started",
         "harness":"deepseek",
         "profile":"headless",
         // The pin travels in the manifest, not here: "model" on a seat's
         // checkpoints means what SERVED (decision 0031).
-        // A directory path, within the same 80-char clamp every target
-        // takes: while the seat works, the journal alone says where its
-        // live transcript is, which is what a `brokkr watch` drilldown
-        // needs — and afterwards where the operator opens what the seat
-        // said. It is the seat's own root, and it stays.
-        "target": root.to_string_lossy().chars().take(80).collect::<String>(),
     }));
     let mut command = vec![
         bin,
@@ -1178,7 +1166,6 @@ fn invoke_dsh_with(
         let _ = pipe.read_to_end(&mut captured);
         String::from_utf8_lossy(&captured).into_owned()
     });
-    let mut session_meta = Map::new();
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
@@ -1278,7 +1265,12 @@ fn invoke_with_stager(
             // and the seat is never charged twice for one attempt.
             if launch.resumed.is_some()
                 && invocation.exit_code != 0
-                && !invocation.session_meta.contains_key("session_id")
+                && invocation
+                    .session_meta
+                    .get("transcript")
+                    .and_then(|transcript| transcript.get("locator"))
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
             {
                 emit(&json!({
                     "step":"harness-started", "harness":"codex", "launch":"cold",
@@ -1297,6 +1289,8 @@ fn invoke_with_stager(
             // UNRESOLVED template — the exact artifact the compile lint
             // proved value-free — is journalable within the 80-char
             // clamp. Resolved command lines, URLs, and prose never are.
+            let mut session_meta = Map::new();
+            Transcript::resolve(TranscriptKind::None)?.finish(&mut session_meta, emit);
             emit(&json!({
                 "step": "exec-started",
                 "target": extra.join(" ").chars().take(80).collect::<String>(),
@@ -1328,7 +1322,7 @@ fn invoke_with_stager(
             let stderr = secret::mask_bytes(&out.stderr, bindings);
             Ok(Invocation {
                 exit_code: out.status.code().unwrap_or(-1),
-                session_meta: Map::new(),
+                session_meta,
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
             })
         }
@@ -1426,29 +1420,6 @@ fn dsh_model_overlay_in(
     Ok(file)
 }
 
-/// A fresh transcript root for one seat, kept for the operator. The
-/// JSONL backend's `root` has no default and one root belongs to one
-/// encoding, so a root of its own is also what makes `compression:
-/// none` legal without disturbing the operator's zstd-encoded
-/// `$DSH_HOME/sessions`.
-///
-/// The root lives under the operator's own harness home —
-/// `$DSH_HOME/sessions/brokkr/<seat>/`, with `~/.dsh` standing in when
-/// `DSH_HOME` is unset — and the driver never removes it. Operator
-/// ruling of 2026-09-02, recorded in run
-/// per-turn-checkpoints-for-the-dsh-d7ba1e44: the transcript belongs to
-/// the operator, not to the void. It holds what the journal refuses to
-/// carry (prompt text, tool arguments, tool results), which is exactly
-/// why it is kept where the operator's other harness transcripts already
-/// are, under the same retention, and never in an unmanaged temporary
-/// directory. The journal names the path (`harness-started.target`), so
-/// `brokkr watch` and the tui can follow it while the seat works and the
-/// operator can open it after — the same `claude --resume` distance the
-/// claude seats already keep.
-fn dsh_transcript_root() -> Result<std::path::PathBuf, String> {
-    dsh_transcript_root_in(|| dsh_transcript_root_under(dsh_home()))
-}
-
 /// The root over an injected creator, so the one way staging can fail
 /// is reachable from a test without a full disk — and without a test
 /// moving the harness home out from under every other test in the
@@ -1457,46 +1428,6 @@ fn dsh_transcript_root_in(
     create: impl FnOnce() -> std::io::Result<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, String> {
     io_context(create(), "could not stage the dsh session transcript root")
-}
-
-/// One seat's own directory under `<harness home>/sessions/brokkr`:
-/// unique per invocation, so the transcript walker can never see another
-/// seat's session, and kept — the handle is released, the directory
-/// stays.
-fn dsh_transcript_root_under(
-    home: Option<std::path::PathBuf>,
-) -> std::io::Result<std::path::PathBuf> {
-    let home = home.ok_or_else(|| {
-        std::io::Error::other("no dsh home to keep the transcript under: set DSH_HOME or HOME")
-    })?;
-    let base = home.join("sessions").join("brokkr");
-    std::fs::create_dir_all(&base)?;
-    Ok(tempfile::Builder::new()
-        .prefix("seat-")
-        .tempdir_in(&base)?
-        .keep())
-}
-
-/// The operator's dsh home: `$DSH_HOME` when set and non-empty, else
-/// `~/.dsh` — the resolution the harness itself uses for its sessions.
-fn dsh_home() -> Option<std::path::PathBuf> {
-    dsh_home_from(
-        std::env::var_os("DSH_HOME"),
-        // Eager on purpose: a lazy fallback is a function no Unix test
-        // can reach, and the gate counts functions.
-        std::env::var_os("HOME").or(std::env::var_os("USERPROFILE")),
-    )
-}
-
-/// `dsh_home` over its two inputs, so every branch is a plain test.
-fn dsh_home_from(
-    dsh_home: Option<std::ffi::OsString>,
-    home: Option<std::ffi::OsString>,
-) -> Option<std::path::PathBuf> {
-    match dsh_home {
-        Some(explicit) if !explicit.is_empty() => Some(explicit.into()),
-        _ => home.map(|home| std::path::PathBuf::from(home).join(".dsh")),
-    }
 }
 
 /// The overlay row that points dsh's session persistence at this seat's

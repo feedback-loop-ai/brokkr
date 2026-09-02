@@ -140,11 +140,11 @@ What a driver has to do to participate:
 
 - **Advertise `"resume"` in `supports`.** Without it the engine never
   sends the message, and every attempt starts cold.
-- **Report the session id.** The engine reads it out of your journaled
-  checkpoints: a checkpoint whose `data` carries a `session_id` string
-  is the seat's session. Report it as soon as your harness announces
-  one, not only when the session ends — an attempt killed on its
-  deadline is exactly the attempt whose retry wants the id.
+- **Report the transcript.** Use the common `session_meta.transcript`
+  shape described below. For a resumable harness its `locator` is the
+  session or thread id. Report it as soon as your harness announces one,
+  not only when the session ends — an attempt killed on its deadline is
+  exactly the attempt whose retry wants the id.
 - **Handle `resume` as a modifier on the `start` that follows it.** It
   arrives BEFORE that `start` and carries no `seat` and no `input`: it
   is the session handle for the attempt the next `start` describes, and
@@ -248,8 +248,8 @@ the engine journals each one as `effect/checkpointed`.
 
 They must **not** carry prose, commands, or reasoning. A model's output,
 a shell command line, a diff, a rationale: none of these belong in a
-checkpoint. The Looper bridge hashes the target before export, and the
-full session transcript stays wherever your harness put it.
+checkpoint. The Looper bridge hashes locators and targets before export,
+and the full session transcript stays wherever your harness put it.
 
 Two field names are read by `brokkr costs` if you supply them:
 `num_turns` (summed into the seat's turn count) and `total_cost_usd`
@@ -265,9 +265,9 @@ assistant turn becomes at least one checkpoint while the process is
 still running; the turn count and the harness's usage ride in
 `num_turns` and `total_cost_usd` (token counts in `input_tokens`,
 `output_tokens`, `cache_read_tokens`) accumulated across the whole
-session, not overwritten per turn; and the harness's session or thread
-id lands in `session_meta` the moment the harness reveals it, not at
-exit. `brokkr watch`, the tui and the seat cost surfaces all read
+session, not overwritten per turn; and the harness's transcript locator
+lands in `session_meta` the moment the harness reveals it, not at exit.
+`brokkr watch`, the tui and the seat cost surfaces all read
 checkpoints, so a driver that speaks only at the end is invisible to
 every one of them while it works. Report nothing you were not told:
 a harness that reports no cost leaves `total_cost_usd` absent rather
@@ -284,8 +284,8 @@ standard exists to prevent, by a longer road.
 **A tailed file is a weaker source than a pipe.** Stream-json on a pipe
 can only have come from the child; a session log on disk sits where the
 seat's own agent can append to it, and the driver publishes its path in
-`harness-started`. Fold such a file only under the clamps above — a
-bounded id, a bounded tool name, numeric counts — and never derive a
+the shared transcript row. Fold such a file only under the clamps above
+— a bounded id, a bounded tool name, numeric counts — and never derive a
 path to execute, a command, or a control decision from it. The journal
 then holds, at worst, a number a compromised seat chose; it never holds
 anything that acts.
@@ -301,16 +301,31 @@ cache read separately in `cache_read_tokens` as the subset it is.
 journal key means one thing across every driver, not whatever its
 harness happened to mean.
 
-**A transcript a driver stages is the operator's, and it stays.** It
-holds precisely what the journal refuses to carry — the prompt, tool
-arguments, tool results — which is exactly why it lives where the
-operator's other harness transcripts already live: under the harness's
-own home (`$DSH_HOME/sessions/brokkr/<seat>/` for dsh, `~/.dsh` when
-`DSH_HOME` is unset), under the operator's own retention, and never
-removed by the driver. The journal carries the path in
-`harness-started`, nothing of the text. Ruled by the operator on
-2026-09-02, inside the run that asked: the transcript belongs to the
-operator, not to the void.
+**Every transcript is the operator's, and it stays.** Every driver sends
+a `checkpoint` whose `data.step` is `transcript`, and repeats the same
+object in its finishing `session_meta`:
+
+```json
+{"kind":"codex-thread",
+ "locator":"019c…",
+ "home":"/home/operator/.codex"}
+```
+
+The locator is always a path or id clamped to 80 characters. The closed
+kinds and their homes are shared by the built-in base:
+`claude-session` uses `~/.claude/projects`, `codex-thread` uses
+`$CODEX_HOME` or `~/.codex`, and `dsh-session` uses `$DSH_HOME` or
+`~/.dsh`. Claude and Codex put their session or thread id in `locator`.
+DSH stages and retains one root below
+`<dsh-home>/sessions/brokkr/<seat>/` and records its forward-slashed
+path relative to the separately recorded home. A driver with no
+transcript, including `exec`, reports `kind: "none"` with empty
+`locator` and `home` rather than omitting the row.
+
+The shape, clamp, retention, and journal row are shared; an adapter arm
+supplies only its harness locator. Drivers never delete transcripts.
+They record paths or ids only, never prompts, tool arguments, tool
+results, or other prose: paths in, prose out (decision 0032).
 
 ## Results
 

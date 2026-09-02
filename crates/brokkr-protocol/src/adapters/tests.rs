@@ -1,4 +1,5 @@
 use super::*;
+use crate::transcript::{dsh_home, dsh_home_from};
 use std::sync::Mutex;
 
 static ADAPTER_ENV: Mutex<()> = Mutex::new(());
@@ -46,13 +47,14 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Bash",
          "input": {"command": "curl -H 'auth: hunter22' https://x"}},
         {"type": "tool_use", "name": "Edit",
          "input": {"file_path": "src/lib.rs"}},
     ]}});
-    fold_stream_event(&event, &mut turns, &mut meta, &mut |c| {
+    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
         emitted.push(c.clone())
     });
     assert_eq!(emitted.len(), 2);
@@ -103,6 +105,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted = Vec::new();
+    let mut claude_transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
     for event in [
         json!({"type": "system", "subtype": "init", "session_id": "session"}),
         json!({"type": "system", "subtype": "other"}),
@@ -112,14 +115,19 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
-        fold_stream_event(&event, &mut turns, &mut meta, &mut |value| {
-            emitted.push(value.clone())
-        });
+        fold_stream_event(
+            &event,
+            &mut turns,
+            &mut meta,
+            &mut claude_transcript,
+            &mut |value| emitted.push(value.clone()),
+        );
     }
-    assert_eq!(meta["session_id"], "session");
+    assert_eq!(meta["transcript"]["locator"], "session");
     assert_eq!(meta["num_turns"], 2);
     assert_eq!(meta["model"], "claude-served");
 
+    let mut codex_transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread"}),
         json!({"type": "thread.started"}),
@@ -135,11 +143,15 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
-        fold_codex_event(&event, &mut turns, &mut meta, &mut |value| {
-            emitted.push(value.clone())
-        });
+        fold_codex_event(
+            &event,
+            &mut turns,
+            &mut meta,
+            &mut codex_transcript,
+            &mut |value| emitted.push(value.clone()),
+        );
     }
-    assert_eq!(meta["session_id"], "final");
+    assert_eq!(meta["transcript"]["locator"], "final");
     assert_eq!(meta["model"], "codex-served");
     assert_eq!(meta["cache_read_tokens"], 2);
     assert!(emitted.iter().any(|event| event["step"] == "item-started"));
@@ -524,7 +536,14 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     let finished: Vec<&Value> = bodies
         .iter()
         .filter_map(|body| match body {
-            Body::Checkpoint { data, .. } => Some(data),
+            Body::Checkpoint { data, .. }
+                if data
+                    .get("step")
+                    .and_then(Value::as_str)
+                    .is_some_and(|step| step.ends_with("-session-finished")) =>
+            {
+                Some(data)
+            }
             _ => None,
         })
         .collect();
@@ -585,7 +604,7 @@ fn adapter_stdio_ignores_noise_and_handles_control_messages() {
 }
 
 #[test]
-fn init_journals_a_session_started_checkpoint_with_the_id() {
+fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
     // The id used to be stashed for the session-finished checkpoint
     // only, which meant a WORKING seat had no session id in the
     // journal — so the transcript drilldowns could not locate, let
@@ -594,18 +613,20 @@ fn init_journals_a_session_started_checkpoint_with_the_id() {
     let mut turns = 0;
     let mut meta = serde_json::Map::new();
     let mut emitted: Vec<serde_json::Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
     fold_stream_event(
         &serde_json::json!({"type": "system", "subtype": "init",
                             "session_id": "abcd-1234-ef"}),
         &mut turns,
         &mut meta,
+        &mut transcript,
         &mut |value| emitted.push(value.clone()),
     );
     assert_eq!(emitted.len(), 1, "one checkpoint, immediately");
-    assert_eq!(emitted[0]["step"], "session-started");
-    assert_eq!(emitted[0]["session_id"], "abcd-1234-ef");
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[0]["transcript"]["locator"], "abcd-1234-ef");
     assert_eq!(
-        meta["session_id"], "abcd-1234-ef",
+        meta["transcript"]["locator"], "abcd-1234-ef",
         "and the meta still feeds the finish"
     );
 
@@ -615,6 +636,7 @@ fn init_journals_a_session_started_checkpoint_with_the_id() {
         &serde_json::json!({"type": "system", "subtype": "init", "session_id": 7}),
         &mut turns,
         &mut meta,
+        &mut transcript,
         &mut |value| emitted.push(value.clone()),
     );
     assert!(emitted.is_empty(), "no string, no checkpoint");
@@ -693,8 +715,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         "the overlay is the seat's, not the host's: gone when the seat is"
     );
 
-    assert_eq!(started[0]["step"], "harness-started");
-    assert!(started[0].get("model").is_none(), "{:?}", started[0]);
+    assert_eq!(started[0]["step"], "transcript");
+    assert_eq!(started[0]["transcript"]["kind"], "dsh-session");
+    assert_eq!(started[1]["step"], "harness-started");
+    assert!(started[1].get("model").is_none(), "{:?}", started[1]);
     let turn = started
         .iter()
         .find(|event| event["step"] == "seat-turn")
@@ -731,7 +755,7 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         "{written}"
     );
     assert!(!written.contains("agent-default-model"), "{written}");
-    assert!(started[0].get("model").is_none());
+    assert!(started[1].get("model").is_none());
     // No pin, still a served model: the record carries what the harness
     // reported, never a default (decision 0031).
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
@@ -957,12 +981,12 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
     assert_eq!(
         emitted[0],
         json!({"step":"harness-started", "harness":"codex", "launch":"resumed",
-               "session_id": THREAD, "sandbox":"read-only"}),
-        "the launch says which thread it rejoined under which class"
+               "sandbox":"read-only"}),
+        "the launch says it rejoined under the declared class"
     );
     // The fold still reads the thread out of the resumed stream, so the
     // NEXT attempt of this seat has an id to be offered in its turn.
-    assert_eq!(invocation.session_meta["session_id"], THREAD);
+    assert_eq!(invocation.session_meta["transcript"]["locator"], THREAD);
     assert_eq!(invocation.session_meta["cache_read_tokens"], 96);
     assert_eq!(invocation.exit_code, 0);
 }
@@ -1133,16 +1157,20 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     assert!(attempts[0].contains("resume"), "{attempts:?}");
     assert!(!attempts[1].contains("resume"), "{attempts:?}");
     assert!(attempts[1].contains("--sandbox read-only"), "{attempts:?}");
-    assert_eq!(emitted[0]["launch"], "resumed");
+    let launches: Vec<&Value> = emitted
+        .iter()
+        .filter(|event| event["step"] == "harness-started")
+        .collect();
+    assert_eq!(launches[0]["launch"], "resumed");
     assert_eq!(
-        emitted[1],
+        *launches[1],
         json!({"step":"harness-started", "harness":"codex", "launch":"cold",
                "reason":"codex refused the offered thread"})
     );
     // What the seat gets is the COLD session, not the refusal: exit 0,
     // and the thread the cold spawn opened.
     assert_eq!(invocation.exit_code, 0);
-    assert_eq!(invocation.session_meta["session_id"], THREAD);
+    assert_eq!(invocation.session_meta["transcript"]["locator"], THREAD);
     assert!(invocation.stderr.is_empty(), "{}", invocation.stderr);
 }
 
@@ -1338,7 +1366,7 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
         .collect();
     assert_eq!(launches.len(), 2, "one launch per seat");
     assert_eq!(launches[0]["data"]["launch"], "resumed");
-    assert_eq!(launches[0]["data"]["session_id"], THREAD);
+    assert!(launches[0]["data"].get("session_id").is_none());
     assert_eq!(
         launches[1]["data"]["launch"], "cold",
         "the offer was spent by the first seat: {}",
@@ -1421,9 +1449,10 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // 9 is the shim's verdict that the driver never spoke while it ran:
     // the checkpoint sink touched nothing before the handshake ran out.
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
-    assert_eq!(emitted[0]["step"], "harness-started");
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[1]["step"], "harness-started");
     // Retention: the seat's root sits under this test's DSH_HOME, the
-    // journal's clamped target is its prefix, and it is still there now
+    // journal's relative locator names it, and it is still there now
     // that the seat has concluded — the operator's, not the void's.
     let kept: Vec<_> = std::fs::read_dir(dir.path().join("sessions").join("brokkr"))
         .unwrap()
@@ -1432,24 +1461,13 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(kept.len(), 1, "{kept:?}");
     assert!(kept[0].file_name().to_string_lossy().starts_with("seat-"));
     assert!(kept[0].path().is_dir());
-    let target = emitted[0]["target"].as_str().unwrap();
-    assert!(
-        kept[0].path().to_string_lossy().starts_with(target),
-        "{target} vs {:?}",
-        kept[0].path()
-    );
-    // The transcript root rides the started checkpoint as an ordinary
-    // clamped target, so the seat's session stays addressable from the
-    // journal alone once the run is over.
-    // The clamp may land anywhere — on macOS the temp root alone runs
-    // past sixty characters — so the check is on the part that always
-    // survives it, and the seat's own name is proven from the directory
-    // above, not from the clamped target.
-    assert!(target.contains("sessions/brokkr/"), "{target}");
-    assert!(target.chars().count() <= 80, "{target}");
-
-    assert_eq!(emitted[1]["step"], "session-started");
-    assert_eq!(emitted[1]["session_id"], "session-fake-1");
+    let transcript = &emitted[0]["transcript"];
+    assert_eq!(transcript["kind"], "dsh-session");
+    assert_eq!(transcript["home"], dir.path().to_string_lossy().as_ref());
+    let locator = transcript["locator"].as_str().unwrap();
+    assert_eq!(dir.path().join(locator), kept[0].path());
+    assert!(locator.contains("sessions/brokkr/"), "{locator}");
+    assert!(locator.chars().count() <= 80, "{locator}");
     let turns: Vec<&Value> = emitted
         .iter()
         .filter(|event| event["step"] == "seat-turn")
@@ -1471,7 +1489,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     );
 
     let meta = &invocation.session_meta;
-    assert_eq!(meta["session_id"], "session-fake-1");
+    assert_eq!(meta["transcript"], *transcript);
     assert_eq!(meta["num_turns"], 2);
     // Summed across the session, not the last turn's counts: (10+4)+20.
     assert_eq!(meta["input_tokens"], 34);
@@ -1486,7 +1504,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // the seat. The checkpoints folded out of it are the journal's part.
     assert!(
         kept[0].path().is_dir(),
-        "the seat's transcript root did not survive the seat: {target}"
+        "the seat's transcript root did not survive the seat: {locator}"
     );
 
     // A harness that writes no transcript at all still concludes: the
@@ -1505,7 +1523,9 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-    assert_eq!(emitted.len(), 1, "{emitted:?}");
+    assert_eq!(emitted.len(), 2, "{emitted:?}");
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[1]["step"], "harness-started");
     assert_eq!(invocation.exit_code, 0);
     assert!(invocation.session_meta.get("num_turns").is_none());
 
@@ -1523,7 +1543,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
 }
 
 #[test]
-fn dsh_fold_refuses_a_nameless_session_and_journals_no_transcript() {
+fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
@@ -1544,12 +1564,11 @@ fn dsh_fold_refuses_a_nameless_session_and_journals_no_transcript() {
             emitted.push(value.clone())
         });
     }
-    assert_eq!(emitted.len(), 3, "{emitted:?}");
-    assert_eq!(emitted[0]["step"], "session-started");
-    assert_eq!(meta["session_id"], "session-1");
-    assert_eq!(emitted[1]["turn"], 1);
-    assert!(emitted[1].get("input_tokens").is_none());
-    assert_eq!(emitted[2]["tool"], "");
+    assert_eq!(emitted.len(), 2, "{emitted:?}");
+    assert!(meta.get("session_id").is_none());
+    assert_eq!(emitted[0]["turn"], 1);
+    assert!(emitted[0].get("input_tokens").is_none());
+    assert_eq!(emitted[1]["tool"], "");
     assert_eq!(meta["num_turns"], 1);
     assert!(meta.get("input_tokens").is_none());
 }
@@ -1619,7 +1638,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
         emitted.push(value.clone())
     });
     assert!(tail.file.is_some());
-    assert_eq!(emitted.len(), 1, "{emitted:?}");
+    assert!(emitted.is_empty(), "{emitted:?}");
     assert_eq!(tail.pending, b"half a line");
 }
 
@@ -1763,6 +1782,7 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
     let mut turn = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread-1"}),
         json!({"type": "turn.started"}),
@@ -1774,9 +1794,13 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
             "input_tokens": 7, "cached_input_tokens": 1, "output_tokens": 3
         }}),
     ] {
-        fold_codex_event(&event, &mut turn, &mut meta, &mut |value| {
-            emitted.push(value.clone())
-        });
+        fold_codex_event(
+            &event,
+            &mut turn,
+            &mut meta,
+            &mut transcript,
+            &mut |value| emitted.push(value.clone()),
+        );
     }
     assert_eq!(meta["num_turns"], 2);
     assert_eq!(meta["input_tokens"], 17);
@@ -1834,7 +1858,7 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
         &[],
         &mut |event| {
             emitted.push(event.clone());
-            if event["step"] == "session-started" {
+            if event["step"] == "transcript" {
                 let _ = std::fs::write(&seen, b"");
             }
         },
@@ -1854,12 +1878,12 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
     // The launch checkpoint (decision 0030) comes first; the thread id
     // is the very next thing journaled, before any turn.
     assert_eq!(emitted[0]["step"], "harness-started");
-    assert_eq!(emitted[1]["step"], "session-started");
-    assert_eq!(emitted[1]["harness"], "codex");
-    assert_eq!(emitted[1]["session_id"], thread);
+    assert_eq!(emitted[1]["step"], "transcript");
+    assert_eq!(emitted[1]["transcript"]["kind"], "codex-thread");
+    assert_eq!(emitted[1]["transcript"]["locator"], thread);
     assert_eq!(emitted.last().unwrap()["step"], "turn-completed");
     let meta = &invocation.session_meta;
-    assert_eq!(meta["session_id"], thread);
+    assert_eq!(meta["transcript"]["locator"], thread);
     assert_eq!(meta["num_turns"], 1);
     // codex's own `input_tokens` already contains the cache read, so
     // nothing is added back to it — the opposite of the dsh fold, and
@@ -1873,14 +1897,23 @@ fn a_thread_id_too_long_for_the_journal_is_clamped_in_both_places() {
     let mut turn = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
     fold_codex_event(
         &json!({"type": "thread.started", "thread_id": "x".repeat(200)}),
         &mut turn,
         &mut meta,
+        &mut transcript,
         &mut |value| emitted.push(value.clone()),
     );
-    assert_eq!(meta["session_id"].as_str().unwrap().chars().count(), 128);
-    assert_eq!(emitted[0]["session_id"], meta["session_id"]);
+    assert_eq!(
+        meta["transcript"]["locator"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        80
+    );
+    assert_eq!(emitted[0]["transcript"], meta["transcript"]);
 }
 
 #[test]
@@ -1966,5 +1999,6 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     assert!(refused.contains("no child processes"), "{refused}");
     // The seat still said it had started: what it cannot do is go quiet
     // and never come back.
-    assert_eq!(emitted[0]["step"], "harness-started");
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[1]["step"], "harness-started");
 }

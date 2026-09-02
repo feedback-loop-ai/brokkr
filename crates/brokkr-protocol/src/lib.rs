@@ -12,6 +12,7 @@ pub mod legacy;
 pub mod oneshot;
 pub mod process;
 pub mod secret;
+mod transcript;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

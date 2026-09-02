@@ -889,7 +889,7 @@ fn runs_lists_completed_run_with_status_and_phase() {
     // `provenance`, the run view gained `notices`. It moved to 3 when
     // the phase rail gained `returns`, then to 4 for decision 0031's
     // provider-reported served-model cells.
-    assert_eq!(view["view_version"], 4);
+    assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     assert_eq!(view["count"], 1, "the count the trailer used to print");
     let row = &view["runs"][0];
     assert_eq!(row["run_id"], run_id.as_str());
@@ -2596,7 +2596,7 @@ fn inspect_and_watch_read_the_run_from_the_one_derivation() {
     // `provenance`, the run view gained `notices`. It moved to 3 when
     // the phase rail gained `returns`, then to 4 for decision 0031's
     // provider-reported served-model cells.
-    assert_eq!(view["view_version"], 4);
+    assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
     let summary = &view["summary"];
     for key in [
         "run_id",

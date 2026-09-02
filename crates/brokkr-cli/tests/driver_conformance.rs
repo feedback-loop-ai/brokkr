@@ -91,9 +91,10 @@ fn make_shim(dir: &Path, body: &str) -> PathBuf {
 }
 
 fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
-    // The dsh arm keeps its seat transcript under the harness home; a
-    // conformance run keeps it under a directory of its own, never the
-    // operator's `~/.dsh`.
+    // Every harness home is test-owned. Conformance must never make a
+    // driver name (or create under) the operator's real transcript home.
+    let operator_home = tempfile::tempdir().unwrap();
+    let codex_home = tempfile::tempdir().unwrap();
     let dsh_home = tempfile::tempdir().unwrap();
     let result_path = workdir.join("results/fx.json");
     let input = json!({
@@ -127,6 +128,8 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         .env("BROKKR_CODEX_BIN", shim)
         .env_remove("BROKKR_DSH_BIN")
         .env("FORGE_DSH_BIN", shim)
+        .env("HOME", operator_home.path())
+        .env("CODEX_HOME", codex_home.path())
         .env("DSH_HOME", dsh_home.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -145,10 +148,31 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         String::from_utf8_lossy(&out.stderr)
     );
     let _ = std::fs::remove_file(&result_path);
-    String::from_utf8_lossy(&out.stdout)
+    let parsed: Vec<Value> = String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
-        .collect()
+        .collect();
+    // A transcript row proves the selected harness home, not merely the
+    // vocabulary. Invalid invocations can refuse before a driver exists.
+    if let Some(row) = parsed
+        .iter()
+        .find(|message| message.pointer("/data/step").and_then(Value::as_str) == Some("transcript"))
+    {
+        let transcript = &row["data"]["transcript"];
+        let (kind, expected_home) = match kind_args[0] {
+            "claude" | "lanetally" => (
+                "claude-session",
+                operator_home.path().join(".claude/projects"),
+            ),
+            "codex" => ("codex-thread", codex_home.path().to_path_buf()),
+            "dsh" => ("dsh-session", dsh_home.path().to_path_buf()),
+            "exec" => ("none", PathBuf::new()),
+            other => panic!("unrecognized conformance driver {other}"),
+        };
+        assert_eq!(transcript["kind"], kind);
+        assert_eq!(transcript["home"], expected_home.to_string_lossy().as_ref());
+    }
+    parsed
 }
 
 fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
@@ -256,10 +280,7 @@ fn conformance_across_all_builtin_adapters() {
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
-                // One more checkpoint than before: session-started,
-                // journaled at init so a WORKING seat's transcript is
-                // locatable and live-streamable (the id used to arrive
-                // only with session-finished, at the end).
+                // Transcript, three tool turns, session-finished.
                 &[
                     "capabilities",
                     "accepted",
@@ -271,10 +292,8 @@ fn conformance_across_all_builtin_adapters() {
                     "result",
                 ]
             } else if codex && case == "obedient" {
-                // Two more than the fold's own: the launch checkpoint
-                // (cold here — no session was offered) and the thread id
-                // journaled the moment codex announces it (decision
-                // 0030).
+                // Harness launch, transcript, and the four live codex
+                // fold rows before session-finished.
                 &[
                     "capabilities",
                     "accepted",
@@ -288,9 +307,8 @@ fn conformance_across_all_builtin_adapters() {
                     "result",
                 ]
             } else if dsh && case == "obedient" {
-                // harness-started, the session id from the transcript
-                // header, one seat-turn naming what served, then the
-                // finishing checkpoint.
+                // Transcript, harness-started, one seat-turn naming what
+                // served, then the finishing checkpoint.
                 &[
                     "capabilities",
                     "accepted",
@@ -301,11 +319,20 @@ fn conformance_across_all_builtin_adapters() {
                     "result",
                 ]
             } else if dsh || exec || codex {
-                // exec: the exec-started template checkpoint (decision
-                // 0012 amendment) then session-finished. codex under a
-                // silent shim: its launch checkpoint, then the same
-                // session-finished — a harness that announces no thread
-                // journals no session-started.
+                // Each still emits an explicit transcript shape: dsh
+                // has a retained root, exec says none, and a silent
+                // codex has an empty locator.
+                &[
+                    "capabilities",
+                    "accepted",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "result",
+                ]
+            } else {
+                // A silent Claude-shaped stream still reports the common
+                // transcript shape before its finishing checkpoint.
                 &[
                     "capabilities",
                     "accepted",
@@ -313,22 +340,56 @@ fn conformance_across_all_builtin_adapters() {
                     "checkpoint",
                     "result",
                 ]
-            } else {
-                &["capabilities", "accepted", "checkpoint", "result"]
             };
             assert_eq!(kinds, expected, "{label}/{case}: {kinds:?}");
             for message in &out {
                 assert_eq!(message["proto"], "forge-driver/v1", "{label}");
             }
+            let transcript_rows: Vec<&Value> = out
+                .iter()
+                .filter(|message| {
+                    message.pointer("/data/step").and_then(Value::as_str) == Some("transcript")
+                })
+                .collect();
+            assert_eq!(
+                transcript_rows.len(),
+                1,
+                "{label}/{case}: exactly one common transcript row: {out:?}"
+            );
+            let transcript = &transcript_rows[0]["data"]["transcript"];
+            let expected_kind = if claude || lanetally {
+                "claude-session"
+            } else if codex {
+                "codex-thread"
+            } else if dsh {
+                "dsh-session"
+            } else {
+                "none"
+            };
+            assert_eq!(transcript["kind"], expected_kind, "{label}/{case}");
+            let locator = transcript["locator"].as_str().unwrap();
+            assert!(locator.chars().count() <= 80, "{label}/{case}: {locator}");
+            assert!(
+                transcript.get("content").is_none(),
+                "{label}/{case}: paths or ids only: {transcript}"
+            );
+            if dsh {
+                assert!(
+                    locator.starts_with("sessions/brokkr/seat-"),
+                    "{label}/{case}: {locator}"
+                );
+                assert!(!locator.starts_with('/'), "{label}/{case}: {locator}");
+            } else if exec || case == "silent" {
+                assert_eq!(locator, "", "{label}/{case}");
+            } else if codex {
+                assert_eq!(locator, "codex-thread-1", "{label}/{case}");
+            } else {
+                assert_eq!(locator, "stream-1", "{label}/{case}");
+            }
             if claude && case == "obedient" {
                 assert_eq!(
-                    out[2]["data"]["step"], "session-started",
-                    "{label}: the id is journaled at init: {}",
-                    out[2]
-                );
-                assert!(
-                    out[2]["data"]["session_id"].is_string(),
-                    "{label}: {}",
+                    out[2]["data"]["step"], "transcript",
+                    "{label}: the locator is journaled at init: {}",
                     out[2]
                 );
                 assert_eq!(
@@ -354,7 +415,7 @@ fn conformance_across_all_builtin_adapters() {
                 );
                 let finished = &out[6]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
-                assert_eq!(finished["session_id"], "stream-1", "{label}");
+                assert_eq!(finished["transcript"], *transcript, "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
@@ -366,11 +427,7 @@ fn conformance_across_all_builtin_adapters() {
                 // Same stream, same fold, same disciplines as claude —
                 // plus the constant ledger-capture marker and the
                 // list-price cost flowing through unchanged.
-                assert_eq!(
-                    out[2]["data"]["step"], "session-started",
-                    "{label}: {}",
-                    out[2]
-                );
+                assert_eq!(out[2]["data"]["step"], "transcript", "{label}: {}", out[2]);
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
@@ -398,7 +455,7 @@ fn conformance_across_all_builtin_adapters() {
                     "{label}"
                 );
                 assert_eq!(finished["capture"], "lanetally", "{label}: {finished}");
-                assert_eq!(finished["session_id"], "stream-1", "{label}");
+                assert_eq!(finished["transcript"], *transcript, "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
@@ -415,8 +472,7 @@ fn conformance_across_all_builtin_adapters() {
                 );
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step":"session-started", "session_id":"codex-thread-1",
-                           "harness":"codex"}),
+                    json!({"step":"transcript", "transcript": transcript}),
                     "{label}: {}",
                     out[3]
                 );
@@ -429,26 +485,26 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(out[7]["data"]["input_tokens"], 21);
                 assert_eq!(out[7]["data"]["cache_read_tokens"], 8);
                 assert_eq!(out[7]["data"]["model"], "gpt-5.6-sol");
-                assert_eq!(out[8]["data"]["session_id"], "codex-thread-1");
+                assert_eq!(out[8]["data"]["transcript"], *transcript);
                 assert_eq!(out[8]["data"]["output_tokens"], 5);
                 assert_eq!(out[8]["data"]["model"], "gpt-5.6-sol");
             } else if dsh {
-                assert_eq!(out[2]["data"]["step"], "harness-started");
-                assert_eq!(out[2]["data"]["harness"], "deepseek");
+                assert_eq!(out[2]["data"]["step"], "transcript");
+                assert_eq!(out[3]["data"]["step"], "harness-started");
+                assert_eq!(out[3]["data"]["harness"], "deepseek");
                 let finished_index = if case == "obedient" {
-                    assert_eq!(out[3]["data"]["step"], "session-started");
-                    assert_eq!(out[3]["data"]["session_id"], "session-conformance-1");
                     assert_eq!(out[4]["data"]["step"], "seat-turn");
                     assert_eq!(out[4]["data"]["model"], "deepseek-v4-flash");
                     assert_eq!(out[4]["data"]["input_tokens"], 13);
                     5
                 } else {
-                    3
+                    4
                 };
                 assert_eq!(
                     out[finished_index]["data"]["step"],
                     "deepseek-harness-session-finished"
                 );
+                assert_eq!(out[finished_index]["data"]["transcript"], *transcript);
                 assert_eq!(
                     out[finished_index]["data"]["model"],
                     if case == "obedient" {
@@ -460,8 +516,9 @@ fn conformance_across_all_builtin_adapters() {
             } else if exec {
                 // The journaled target is the UNRESOLVED template within
                 // the 80-char clamp (decision 0012 amendment).
-                assert_eq!(out[2]["data"]["step"], "exec-started", "{label}");
-                let target = out[2]["data"]["target"].as_str().unwrap();
+                assert_eq!(out[2]["data"]["step"], "transcript", "{label}");
+                assert_eq!(out[3]["data"]["step"], "exec-started", "{label}");
+                let target = out[3]["data"]["target"].as_str().unwrap();
                 assert!(target.chars().count() <= 80, "{label}: {target}");
                 let template = args[2..].join(" ");
                 assert_eq!(
@@ -469,8 +526,14 @@ fn conformance_across_all_builtin_adapters() {
                     template.chars().take(80).collect::<String>(),
                     "{label}"
                 );
+                assert_eq!(out[out.len() - 2]["data"]["transcript"], *transcript);
                 assert_eq!(out[out.len() - 2]["data"]["model"], "not applicable");
             }
+            assert_eq!(
+                out[out.len() - 2]["data"]["transcript"],
+                *transcript,
+                "{label}/{case}: finishing session_meta repeats the journal locator"
+            );
             let result = out.last().unwrap();
             if case == "obedient" {
                 assert_eq!(result["status"], "succeeded", "{label}: {result}");
@@ -630,9 +693,13 @@ fn drive_with_secrets(
                "input": input}),
         json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
     ];
+    let operator_home = tempfile::tempdir().unwrap();
+    let codex_home = tempfile::tempdir().unwrap();
     let dsh_home = tempfile::tempdir().unwrap();
     let mut command = Command::new(brokkr_bin());
     command.arg("driver").args(driver_args);
+    command.env("HOME", operator_home.path());
+    command.env("CODEX_HOME", codex_home.path());
     command.env("DSH_HOME", dsh_home.path());
     for (key, value) in parent_env {
         command.env(key, value);
@@ -694,7 +761,8 @@ fn exec_injects_via_env_only_and_masks_the_stderr_reemit() {
         "$API_TOKEN"
     );
     // The checkpointed target is the unresolved template.
-    let target = out[2]["data"]["target"].as_str().unwrap();
+    assert_eq!(out[2]["data"]["step"], "transcript");
+    let target = out[3]["data"]["target"].as_str().unwrap();
     assert!(target.contains("{{secret:API_TOKEN}}") || target.chars().count() == 80);
     assert!(!target.contains(SECRET_VALUE));
     // The child's stderr leak reaches the driver's re-emit masked.

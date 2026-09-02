@@ -83,7 +83,10 @@ fn journal() -> Vec<EventEnvelope> {
             EventType::EffectCheckpointed,
             json!({"effect_id": "eff-i", "attempt_id": "att1",
                    "checkpoint": {"step": "claude-session-finished",
-                                  "session_id": "sess-a", "total_cost_usd": 0.03125}}),
+                                  "transcript": {"kind": "claude-session",
+                                    "locator": "sess-a",
+                                    "home": "/home/operator/.claude/projects"},
+                                  "total_cost_usd": 0.03125}}),
             T1,
         ),
         ev(
@@ -566,10 +569,15 @@ live  design:chief · turn 2 · Write
 seats
   participant                 status    attempts turns cost    model activity
   intake                      succeeded 1        3     $0.0313 —     intook · 2m03s
+    transcript  claude-session · sess-a · home /home/operator/.claude/projects
   design                      working   1        Σ 2   —       —     3 members ↓
+    transcript  —
   design:positions:simplicity succeeded 1        —     —       —     0s
+    transcript  —
   design:positions:robustness succeeded 1        —     —       —     0s
+    transcript  —
   design:chief                working   1        2     —       —     Write
+    transcript  —
 
 trail
   1 run/started        one derivation, two surfaces…
@@ -624,6 +632,7 @@ live  design:chief · turn 2 · Write
 seats
   participant status    attempts turns cost    model activity
   intake      succeeded 1        3     $0.0313 —     intook · 2m03s
+    transcript  claude-session · sess-a · home /home/operator/.claude/projects
 
 trail
   2 phase/entered      intake
