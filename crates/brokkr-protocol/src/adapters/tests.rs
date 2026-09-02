@@ -1308,7 +1308,11 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // The transcript root rides the started checkpoint as an ordinary
     // clamped target, so the seat's session stays addressable from the
     // journal alone once the run is over.
-    assert!(target.contains("sessions/brokkr/seat-"), "{target}");
+    // The clamp may land anywhere — on macOS the temp root alone runs
+    // past sixty characters — so the check is on the part that always
+    // survives it, and the seat's own name is proven from the directory
+    // above, not from the clamped target.
+    assert!(target.contains("sessions/brokkr/"), "{target}");
     assert!(target.chars().count() <= 80, "{target}");
 
     assert_eq!(emitted[1]["step"], "session-started");
