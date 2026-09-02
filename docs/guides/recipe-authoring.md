@@ -19,6 +19,85 @@ front of you.
 - [The reforging ladder](#the-reforging-ladder)
 - [Compile it](#compile-it)
 
+## Recipes and composition
+
+A recipe is a delivery strategy as reviewable data, identified by
+content digest. The library is a directory of them.
+
+```
+$ brokkr recipes list
+crucible	b7a71d6c793b	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing an Opus review sequence.	recipes/crucible
+ember	51aad7cdf6d9	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes with a cheap intake and economical working seats.	recipes/ember
+fast	f4ef75713bc5	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+night-shift	9c1033b52d2a	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
+node	053a11fc4d70	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	eb111b40d8c1	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	cca4aa030fb4	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+sdd	8c888c71ac33	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
+sdd-paranoid	984296a63b04	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+wager-harness	bbdd2c114ad2	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	2cf7480e1b34	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+self	b5e40fd02203	7 phases	implement, intake, review, ship, verify			./bundles/self
+verify	1ce203798837	4 phases	review, verify			./bundles/verify
+```
+
+| Recipe | Reach for it when | The difference it states |
+|---|---|---|
+| [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base every recipe below extends |
+| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: a haiku intake seat added, cheap models everywhere except the review gate |
+| [`crucible`](../../recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: opus throughout, and `review` becomes a `security`+`correctness` panel whose verdict a `chief` gate synthesises |
+| [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends fast`: `max_attempts: 1` on every seat, so anything unusual parks for morning instead of retrying |
+| [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
+| [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
+| [`node`](../../recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
+| [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
+| [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
+| [`sdd`](../../recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
+| [`sdd-paranoid`](../../recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
+
+Seven of the entries above carry pinned manifest digests in
+`crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
+four roster recipes, and `bundles/verify`; the rest are covered by the
+tree-wide compile test but not pinned. The `low` through `very high`
+bands printed by the library are relative strategy labels for the
+sixty-second contributor choice, never price quotes. Dollar figures
+remain absent unless a run backs them — economics is LaneTally's ledger,
+not this engine's (decision 0021 ruling 6).
+
+`recipes/node` is the same four-seat constitution as `fast`, driving a
+Node/TypeScript repository instead of this Rust one: the phase table is
+identical, only the seats' driver commands and role charters are
+JavaScript. [Adopting a Node repo](adopting-a-node-repo.md)
+walks a stranger from an unmodified repo to a first run.
+
+Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
+lines: it extends `sdd` and replaces exactly one seat, and it has to say
+so out loud.
+
+```json
+{
+  "name": "sdd-paranoid",
+  "extends": "sdd",
+  "override": { "seats": ["review"] },
+  "seats": {
+    "review": { "…": "an adversarial panel instead of SDD's" }
+  }
+}
+```
+
+Named things merge by name; redefining one the base already has without
+listing it under `override` fails compilation rather than silently
+winning. Composition resolves at compile time into ONE flat bundle — no
+inheritance at run time — and the run manifest records the chain, so a
+run states what it was composed from.
+
+Swap a strategy and compare the outcomes:
+
+```
+brokkr rerun --run <id> --recipe panel-review    # same feature, other strategy
+brokkr compare <a> <b>                           # trails, first divergence, per-seat costs
+```
+
 ## The three files
 
 ```
