@@ -150,8 +150,13 @@ jobs:
         run: |
           export BROKKR_PKG_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
           mkdir -p target/packaging
-          nfpm package --config packaging/nfpm.yaml --packager deb --target target/packaging/brokkr-linux-x86_64.deb
-          nfpm package --config packaging/nfpm.yaml --packager rpm --target target/packaging/brokkr-linux-x86_64.rpm
+          # nfpm's env interpolation does not reach every field (the
+          # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
+          # the config is rendered with envsubst first — same contract,
+          # no interpolation gamble.
+          envsubst < packaging/nfpm.yaml > target/packaging/nfpm.rendered.yaml
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager deb --target target/packaging/brokkr-linux-x86_64.deb
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager rpm --target target/packaging/brokkr-linux-x86_64.rpm
           ls -la target/packaging
       - name: the repositories, the templates and the bump render
         env:

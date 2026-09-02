@@ -117,8 +117,13 @@ jobs:
           BROKKR_PKG_BINARY: target/${{ matrix.target }}/release/brokkr
         run: |
           export BROKKR_PKG_VERSION="${GITHUB_REF_NAME#v}"
-          nfpm package --config packaging/nfpm.yaml --packager deb --target "dist/${{ matrix.name }}.deb"
-          nfpm package --config packaging/nfpm.yaml --packager rpm --target "dist/${{ matrix.name }}.rpm"
+          # nfpm's env interpolation does not reach every field (the
+          # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
+          # the config is rendered with envsubst first — same contract,
+          # no interpolation gamble.
+          envsubst < packaging/nfpm.yaml > target/packaging/nfpm.rendered.yaml
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager deb --target "dist/${{ matrix.name }}.deb"
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager rpm --target "dist/${{ matrix.name }}.rpm"
           cd dist
           for package in "${{ matrix.name }}.deb" "${{ matrix.name }}.rpm"; do
             shasum -a 256 "$package" > "$package.sha256"
