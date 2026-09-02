@@ -26,14 +26,10 @@
         "command": [
           "{brokkr}",
           "driver",
-          "claude",
+          "dsh",
           "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
           "--model",
-          "claude-sonnet-5"
+          "deepseek-v4-flash"
         ]
       }
     },

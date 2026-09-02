@@ -507,18 +507,31 @@ fn invoke_with_stager(
         }
         AdapterKind::Dsh => {
             let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+            let (model, passthrough) = split_dsh_model(extra)?;
+            let overlay = match &model {
+                Some(model) => Some(dsh_model_overlay(model)?),
+                None => None,
+            };
             emit(&json!({
                 "step":"harness-started",
                 "harness":"deepseek",
                 "profile":"headless",
+                "model": model,
             }));
             let mut command = vec![bin, "--profile".into(), "headless".into()];
-            command.extend(extra.iter().cloned());
+            if let Some(overlay) = &overlay {
+                command.push("--patch".into());
+                command.push(overlay.path().to_string_lossy().into_owned());
+            }
+            command.extend(passthrough);
             command.push(prompt.into());
             let out = run_cli(&command, None, &workdir, &[])?;
             let mut session_meta = Map::new();
             session_meta.insert("harness".into(), Value::String("deepseek".into()));
             session_meta.insert("profile".into(), Value::String("headless".into()));
+            if let Some(model) = model {
+                session_meta.insert("model".into(), Value::String(model));
+            }
             Ok(Invocation {
                 exit_code: out.status.code().unwrap_or(-1),
                 session_meta,
@@ -569,6 +582,85 @@ fn invoke_with_stager(
             })
         }
     }
+}
+
+/// The provider row dsh's headless profile boots its agent on. A patch
+/// overlay replaces the targeted row's WHOLE config (dsh-base's own
+/// words), so the overlay that pins a model must restate the provider
+/// or the boot loses it.
+const DSH_PROVIDER: &str = "deepseek-official";
+
+/// The dsh launcher takes no model flag: the model is one row of the
+/// composed profile tree (`agent-default-model`), and the launcher's
+/// only override channel is `--patch <overlay.yml>`, applied last. So
+/// the adapter data says `model_flag: "--model"` — the pinning grammar
+/// every provider shares — and this driver is where `--model <id>`
+/// becomes the overlay dsh actually reads. Everything after `--` that
+/// is not that pair passes through to the launcher unchanged.
+fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    let mut model = None;
+    let mut passthrough = Vec::with_capacity(extra.len());
+    let mut parts = extra.iter();
+    while let Some(part) = parts.next() {
+        if part == "--model" {
+            let id = parts
+                .next()
+                .ok_or_else(|| "dsh driver: --model needs a model id after it".to_string())?;
+            if model.replace(id.clone()).is_some() {
+                return Err("dsh driver: --model given twice".to_string());
+            }
+        } else {
+            passthrough.push(part.clone());
+        }
+    }
+    Ok((model, passthrough))
+}
+
+/// One overlay file for one seat, in the loader-patch grammar dsh
+/// composes after every bundle and profile layer. The id is written
+/// into YAML verbatim, so it is confined to the characters a model id
+/// is made of — a model name is data the operator pinned, never a
+/// place to smuggle a second row into the tree.
+fn dsh_model_overlay(model: &str) -> Result<tempfile::NamedTempFile, String> {
+    dsh_model_overlay_in(model, || {
+        tempfile::Builder::new()
+            .prefix("brokkr-dsh-model-")
+            .suffix(".yml")
+            .tempfile()
+    })
+}
+
+/// The overlay's body over an injected file, so the two ways staging
+/// can fail — no file, a file that takes no bytes — are reachable from
+/// a test without a full disk.
+fn dsh_model_overlay_in(
+    model: &str,
+    create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
+) -> Result<tempfile::NamedTempFile, String> {
+    let well_formed = !model.is_empty()
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'));
+    if !well_formed {
+        return Err(format!(
+            "dsh driver: model id {model:?} is not a plain identifier"
+        ));
+    }
+    let mut file = io_context(create(), "could not stage the dsh model overlay")?;
+    let body = format!(
+        "# Written by `brokkr driver dsh` for one seat: the pinned model, as the\n\
+         # overlay dsh's launcher composes last. A patch replaces the targeted\n\
+         # row's whole config, so the provider is restated beside the model.\n\
+         - id: agent-default-model\n\
+         \x20 config:\n\
+         \x20   provider: {DSH_PROVIDER}\n\
+         \x20   model: {model}\n"
+    );
+    io_context(
+        file.write_all(body.as_bytes()),
+        "could not write the dsh model overlay",
+    )?;
+    Ok(file)
 }
 
 /// Resolve one exec template part: `{workdir}`, `{prompt_file}`, and

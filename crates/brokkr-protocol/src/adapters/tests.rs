@@ -513,3 +513,148 @@ fn init_journals_a_session_started_checkpoint_with_the_id() {
     );
     assert!(emitted.is_empty(), "no string, no checkpoint");
 }
+
+#[cfg(unix)]
+#[test]
+fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let overlay = dir.path().join("overlay.yml");
+    // A stand-in launcher: records its argv one per line and keeps a
+    // copy of whatever file follows `--patch`, which is gone by the
+    // time the driver returns.
+    let fake = executable(
+        dir.path(),
+        "dsh",
+        &format!(
+            "#!/bin/sh\ncat >/dev/null\n: > {argv}\nprev=\n\
+             for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; \
+             if [ \"$prev\" = --patch ]; then cp \"$a\" {overlay}; fi; prev=$a; done\n",
+            argv = argv.display(),
+            overlay = overlay.display()
+        ),
+    );
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+
+    let extra: Vec<String> = ["--model", "deepseek-v4-flash", "--other", "kept"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut started = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Dsh,
+        &extra,
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        &[],
+        &mut |event| started.push(event.clone()),
+    )
+    .unwrap();
+
+    let lines: Vec<String> = std::fs::read_to_string(&argv)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(&lines[..3], ["--profile", "headless", "--patch"]);
+    assert!(lines[3].ends_with(".yml"), "{lines:?}");
+    // The pair itself never reaches the launcher, which has no such
+    // flag; the rest of `extra` does, in order, before the task.
+    assert_eq!(&lines[4..], ["--other", "kept", "the prompt"]);
+    assert!(!lines.iter().any(|l| l == "--model"), "{lines:?}");
+
+    let written = std::fs::read_to_string(&overlay).unwrap();
+    assert!(written.contains("- id: agent-default-model\n"), "{written}");
+    assert!(
+        written.contains("provider: deepseek-official\n"),
+        "{written}"
+    );
+    assert!(written.contains("model: deepseek-v4-flash\n"), "{written}");
+    assert!(
+        !std::path::Path::new(&lines[3]).exists(),
+        "the overlay is the seat's, not the host's: gone when the seat is"
+    );
+
+    assert_eq!(started[0]["step"], "harness-started");
+    assert_eq!(started[0]["model"], "deepseek-v4-flash");
+    assert_eq!(invocation.session_meta["model"], "deepseek-v4-flash");
+    assert_eq!(invocation.session_meta["harness"], "deepseek");
+
+    // No pair, no overlay: the profile's own default model boots, and
+    // the journal says so by naming none.
+    let mut started = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": dir.path()}),
+        &[],
+        &mut |event| started.push(event.clone()),
+    )
+    .unwrap();
+    let lines: Vec<String> = std::fs::read_to_string(&argv)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines, ["--profile", "headless", "p"]);
+    assert!(started[0]["model"].is_null());
+    assert!(invocation.session_meta.get("model").is_none());
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+}
+
+#[test]
+fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert!(split_dsh_model(&s(&["--model"]))
+        .unwrap_err()
+        .contains("needs a model id"));
+    assert!(split_dsh_model(&s(&["--model", "a", "--model", "b"]))
+        .unwrap_err()
+        .contains("twice"));
+    let (model, rest) = split_dsh_model(&s(&["--x", "--model", "deepseek-v4-flash", "y"])).unwrap();
+    assert_eq!(model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(rest, s(&["--x", "y"]));
+    // YAML is the overlay's grammar, so an id that could open a second
+    // row or a value of its own is refused rather than written.
+    for bad in ["", "v4\n- id: hmr", "v4 # x", "a:b c", "\"quoted\""] {
+        assert!(dsh_model_overlay(bad).is_err(), "{bad:?} must be refused");
+    }
+    assert!(dsh_model_overlay("deepseek-v4-flash").is_ok());
+}
+
+#[test]
+fn dsh_model_overlay_reports_a_file_it_cannot_stage_or_write() {
+    let refused =
+        dsh_model_overlay_in("deepseek-v4-flash", || Err(std::io::Error::other("no tmp")))
+            .unwrap_err();
+    assert!(
+        refused.contains("could not stage the dsh model overlay"),
+        "{refused}"
+    );
+
+    // A file that exists but takes no bytes: the same path reopened
+    // read-only, handed over as the staged file.
+    let sealed = dsh_model_overlay_in("deepseek-v4-flash", || {
+        let staged = tempfile::NamedTempFile::new()?;
+        let (_, path) = staged.into_parts();
+        let readonly = std::fs::File::open(&path)?;
+        Ok(tempfile::NamedTempFile::from_parts(readonly, path))
+    })
+    .unwrap_err();
+    assert!(
+        sealed.contains("could not write the dsh model overlay"),
+        "{sealed}"
+    );
+}
