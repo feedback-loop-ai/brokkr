@@ -173,6 +173,24 @@ Two field names are read by `brokkr costs` if you supply them:
 (summed into its cost). Anything else in `data` is journaled and
 displayed but not aggregated.
 
+**Every driver speaks per turn, not only at exit.** This is the standard
+each built-in driver meets and the one a new driver is held to: every
+assistant turn becomes at least one checkpoint while the process is
+still running; the turn count and the harness's usage ride in
+`num_turns` and `total_cost_usd` (token counts in `input_tokens`,
+`output_tokens`, `cache_read_tokens`) accumulated across the whole
+session, not overwritten per turn; and the harness's session or thread
+id lands in `session_meta` the moment the harness reveals it, not at
+exit. `brokkr watch`, the tui and the seat cost surfaces all read
+checkpoints, so a driver that speaks only at the end is invisible to
+every one of them while it works. Report nothing you were not told:
+a harness that reports no cost leaves `total_cost_usd` absent rather
+than claiming zero. Where the harness offers no event stream on stdout,
+follow whatever it writes as it goes — the dsh driver pins its own
+per-seat session-transcript root through the launcher's `--patch`
+overlay and tails the one file that appears there, which is
+unambiguous by construction and never a scan for the newest file.
+
 ## Results
 
 Exactly one `result` per `start`.

@@ -289,9 +289,18 @@ fn fold_codex_event(
             ] {
                 if let Some(value) = usage.get(source).and_then(Value::as_u64) {
                     checkpoint.insert(target.into(), Value::from(value));
-                    session_meta.insert(target.into(), Value::from(value));
+                    add_usage(session_meta, target, value);
                 }
             }
+            // The turn count is journaled HERE, not only from `result`.
+            // Verified against codex-cli 0.148.0: a real `codex exec
+            // --json` run ends at `turn.completed` and emits no `result`
+            // event at all, so a codex seat's num_turns never reached
+            // `brokkr costs` — the aggregator saw per-turn token keys it
+            // does not sum and nothing else. Cost in USD is reported
+            // nowhere in that stream (`usage` is token counts only), so
+            // total_cost_usd stays absent rather than invented.
+            session_meta.insert("num_turns".into(), Value::from(*turn));
             emit(&Value::Object(checkpoint));
         }
         // Conformance shims and older clients may provide only final metadata.
@@ -309,6 +318,164 @@ fn fold_codex_event(
             }
         }
         _ => {}
+    }
+}
+
+/// One harness-reported token count folded into the session totals.
+/// Usage ACCUMULATES: a plain insert left a multi-turn session's meta
+/// holding only its LAST turn's counts, which is the number every cost
+/// surface then read as the session's.
+fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
+    let total = session_meta
+        .get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .saturating_add(value);
+    session_meta.insert(key.to_string(), Value::from(total));
+}
+
+/// The dsh usage keys, as `@deepseek-ai/dsh-llm`'s `TokenUsage` spells
+/// them, paired with the journal's own names. Counts are disjoint there
+/// (cached input is NOT part of `inputTokens`), which is the same shape
+/// the codex fold already journals.
+const DSH_USAGE: [(&str, &str); 3] = [
+    ("inputTokens", "input_tokens"),
+    ("outputTokens", "output_tokens"),
+    ("cacheReadTokens", "cache_read_tokens"),
+];
+
+/// One dsh session-log line folded into bounded live telemetry.
+///
+/// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
+/// stream — verified against the installed binary: `dsh --help` lists
+/// `--profile/--patch/--dump-config` only, and `dsh --profile headless
+/// --help` lists `-h` only; the runner writes the final assistant text
+/// to stdout and nothing else. The live signal is therefore the JSONL
+/// transcript `@deepseek-ai/dsh-session-persistence-jsonl` appends as
+/// the session runs (observed growing 14 → 45 → 71 → 89 lines while the
+/// child was still alive).
+///
+/// The log's first line is the immutable session header, which names the
+/// session; every later line is one `SessionEvent`. An
+/// `assistant/message` is one assembled assistant turn and carries that
+/// step's `usage` when the adapter reported accounting; a `tool/call`
+/// names the tool the turn asked for.
+///
+/// Privacy invariant, same as `fold_stream_event`: a turn index, a
+/// ≤80-char tool name and token counts only — never message text,
+/// reasoning, or tool arguments. dsh's `arguments` is the model's own
+/// unparsed JSON string, so no target is derived from it at all.
+fn fold_dsh_event(
+    event: &Value,
+    turns: &mut u64,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) {
+    match event.get("type").and_then(Value::as_str) {
+        Some("session") => {
+            if let Some(session_id) = event.get("id").and_then(Value::as_str) {
+                let clamped: String = session_id.chars().take(128).collect();
+                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
+                // Journaled the moment the header lands, not at exit:
+                // the transcript drilldowns can only locate a WORKING
+                // seat's session if the id is already in the journal.
+                emit(&json!({
+                    "step":"session-started",
+                    "harness":"deepseek",
+                    "session_id": clamped,
+                }));
+            }
+        }
+        Some("assistant/message") => {
+            *turns += 1;
+            session_meta.insert("num_turns".into(), Value::from(*turns));
+            let mut checkpoint = Map::new();
+            checkpoint.insert("step".into(), Value::String("seat-turn".into()));
+            checkpoint.insert("turn".into(), Value::from(*turns));
+            checkpoint.insert("harness".into(), Value::String("deepseek".into()));
+            let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
+            for (source, target) in DSH_USAGE {
+                if let Some(value) = usage.get(source).and_then(Value::as_u64) {
+                    checkpoint.insert(target.into(), Value::from(value));
+                    add_usage(session_meta, target, value);
+                }
+            }
+            emit(&Value::Object(checkpoint));
+        }
+        Some("tool/call") => {
+            let tool = event
+                .pointer("/data/name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            emit(&json!({
+                "step":"seat-turn",
+                "turn": *turns,
+                "harness":"deepseek",
+                "tool": tool.chars().take(80).collect::<String>(),
+            }));
+        }
+        _ => {}
+    }
+}
+
+/// The fixed transcript filename the JSONL backend writes inside each
+/// session-owned directory (`<root>/--<cwd>--/<id>/session.jsonl`).
+const DSH_TRANSCRIPT: &str = "session.jsonl";
+
+/// The one transcript under a per-seat root. NEVER "the newest file":
+/// the root is fresh and belongs to this invocation alone, so the single
+/// transcript that appears under it is the child's by construction, with
+/// no directory scan to lose a race against a concurrent seat.
+fn find_dsh_transcript(root: &std::path::Path) -> Option<std::path::PathBuf> {
+    for project in std::fs::read_dir(root).ok()?.flatten() {
+        for session in std::fs::read_dir(project.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let candidate = session.path().join(DSH_TRANSCRIPT);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// What the driver has read of the growing transcript so far: the open
+/// handle and the bytes after its last complete line.
+#[derive(Default)]
+struct DshTail {
+    file: Option<std::fs::File>,
+    pending: Vec<u8>,
+}
+
+/// Fold whatever the child has appended since the last pass. Called
+/// while the process still runs, so a partly-written last line stays in
+/// `pending` until its newline arrives; a line that is not JSON is
+/// noise, dropped, never repaired (decision 0001).
+fn drain_dsh_transcript(
+    tail: &mut DshTail,
+    root: &std::path::Path,
+    turns: &mut u64,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) {
+    if tail.file.is_none() {
+        tail.file = find_dsh_transcript(root).and_then(|path| std::fs::File::open(path).ok());
+    }
+    let Some(file) = tail.file.as_mut() else {
+        return;
+    };
+    let mut chunk = Vec::new();
+    let _ = file.read_to_end(&mut chunk);
+    tail.pending.extend_from_slice(&chunk);
+    while let Some(index) = tail.pending.iter().position(|byte| *byte == b'\n') {
+        let line: Vec<u8> = tail.pending.drain(..=index).collect();
+        let Ok(event) = serde_json::from_slice::<Value>(&line) else {
+            continue;
+        };
+        fold_dsh_event(&event, turns, session_meta, emit);
     }
 }
 
@@ -412,6 +579,92 @@ fn invoke_stream_json(
     })
 }
 
+/// The dsh headless invocation. It does NOT converge on `run_cli`'s
+/// buffered `wait_with_output`: that is what left a dsh seat silent from
+/// `harness-started` to process exit — the wager challenger run
+/// scaffold-tool-grants-per-stack-b-58476f86 sat at journal seq 5 for an
+/// entire implement seat with no evidence it was alive but a process
+/// table. Instead the child's own session transcript is followed as it
+/// grows, so each assistant turn advances the journal while the seat
+/// works, the way the claude fold does with stream-json.
+///
+/// stdin and stdout are `/dev/null`: the headless runner reads no stdin
+/// and prints only its final answer, which this driver has never
+/// journaled. stderr is piped and drained on its own thread so a chatty
+/// session cannot deadlock the poll loop.
+fn invoke_dsh(
+    extra: &[String],
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+    let (model, passthrough) = split_dsh_model(extra)?;
+    let root = dsh_transcript_root()?;
+    let overlay = dsh_seat_overlay(model.as_deref(), &root)?;
+    emit(&json!({
+        "step":"harness-started",
+        "harness":"deepseek",
+        "profile":"headless",
+        "model": model,
+        // A directory path, within the same 80-char clamp every target
+        // takes: the seat's transcript is addressable afterwards from
+        // the journal alone, alongside the session id the fold lands.
+        "target": root.to_string_lossy().chars().take(80).collect::<String>(),
+    }));
+    let mut command = vec![
+        bin,
+        "--profile".into(),
+        "headless".into(),
+        "--patch".into(),
+        overlay.path().to_string_lossy().into_owned(),
+    ];
+    command.extend(passthrough);
+    command.push(prompt.into());
+    let child = Command::new(&command[0])
+        .args(&command[1..])
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = io_context(child, "could not invoke the agent CLI")?;
+    let stderr_pipe = child.stderr.take().expect("piped");
+    let stderr_thread = std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut pipe = stderr_pipe;
+        let _ = pipe.read_to_end(&mut captured);
+        String::from_utf8_lossy(&captured).into_owned()
+    });
+    let mut session_meta = Map::new();
+    let mut turns = 0u64;
+    let mut tail = DshTail::default();
+    // Exit is sampled BEFORE the drain, so the pass that follows the
+    // last one reads a settled file: nothing the child wrote can be
+    // missed by winning the race with its own exit.
+    let exit_code = loop {
+        let finished = match child.try_wait() {
+            Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
+            _ => None,
+        };
+        drain_dsh_transcript(&mut tail, &root, &mut turns, &mut session_meta, emit);
+        if let Some(code) = finished {
+            break code;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    session_meta.insert("harness".into(), Value::String("deepseek".into()));
+    session_meta.insert("profile".into(), Value::String("headless".into()));
+    if let Some(model) = model {
+        session_meta.insert("model".into(), Value::String(model));
+    }
+    Ok(Invocation {
+        exit_code,
+        session_meta,
+        stderr: stderr_thread.join().unwrap_or_default(),
+    })
+}
+
 fn invoke(
     kind: AdapterKind,
     extra: &[String],
@@ -505,39 +758,7 @@ fn invoke_with_stager(
                 stderr: stderr_thread.join().unwrap_or_default(),
             })
         }
-        AdapterKind::Dsh => {
-            let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-            let (model, passthrough) = split_dsh_model(extra)?;
-            let overlay = match &model {
-                Some(model) => Some(dsh_model_overlay(model)?),
-                None => None,
-            };
-            emit(&json!({
-                "step":"harness-started",
-                "harness":"deepseek",
-                "profile":"headless",
-                "model": model,
-            }));
-            let mut command = vec![bin, "--profile".into(), "headless".into()];
-            if let Some(overlay) = &overlay {
-                command.push("--patch".into());
-                command.push(overlay.path().to_string_lossy().into_owned());
-            }
-            command.extend(passthrough);
-            command.push(prompt.into());
-            let out = run_cli(&command, None, &workdir, &[])?;
-            let mut session_meta = Map::new();
-            session_meta.insert("harness".into(), Value::String("deepseek".into()));
-            session_meta.insert("profile".into(), Value::String("headless".into()));
-            if let Some(model) = model {
-                session_meta.insert("model".into(), Value::String(model));
-            }
-            Ok(Invocation {
-                exit_code: out.status.code().unwrap_or(-1),
-                session_meta,
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-            })
-        }
+        AdapterKind::Dsh => invoke_dsh(extra, prompt, &workdir, emit),
         AdapterKind::Exec => {
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
@@ -646,23 +867,13 @@ fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
     Ok((model, passthrough))
 }
 
-/// One overlay file for one seat, in the loader-patch grammar dsh
-/// composes after every bundle and profile layer. The id is written
-/// into YAML verbatim, so it is confined to the characters a model id
-/// is made of — a model name is data the operator pinned, never a
-/// place to smuggle a second row into the tree.
-fn dsh_model_overlay(model: &str) -> Result<tempfile::NamedTempFile, String> {
-    dsh_model_overlay_in(model, || {
-        tempfile::Builder::new()
-            .prefix("brokkr-dsh-model-")
-            .suffix(".yml")
-            .tempfile()
-    })
-}
-
-/// The overlay's body over an injected file, so the two ways staging
-/// can fail — no file, a file that takes no bytes — are reachable from
-/// a test without a full disk.
+/// The pinned-model row of the seat overlay, in the loader-patch
+/// grammar dsh composes after every bundle and profile layer, staged
+/// over an injected file so the two ways staging can fail — no file, a
+/// file that takes no bytes — are reachable from a test without a full
+/// disk. The id is written into YAML verbatim, so it is confined to the
+/// characters a model id is made of — a model name is data the operator
+/// pinned, never a place to smuggle a second row into the tree.
 fn dsh_model_overlay_in(
     model: &str,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
@@ -681,6 +892,91 @@ fn dsh_model_overlay_in(
     io_context(
         file.write_all(body.as_bytes()),
         "could not write the dsh model overlay",
+    )?;
+    Ok(file)
+}
+
+/// A fresh transcript root for one seat. The JSONL backend's `root` has
+/// no default and one root belongs to one encoding, so this is also what
+/// makes `compression: none` legal without disturbing the operator's
+/// zstd-encoded `$DSH_HOME/sessions`. The directory is KEPT, not
+/// tempfile-dropped: the transcript is the seat's evidence, and the
+/// journal names the root so it stays addressable after the seat ends.
+fn dsh_transcript_root() -> Result<std::path::PathBuf, String> {
+    dsh_transcript_root_in(|| {
+        tempfile::Builder::new()
+            .prefix("brokkr-dsh-session-")
+            .tempdir()
+    })
+}
+
+/// The root over an injected directory, so the one way staging can fail
+/// is reachable from a test without a full disk — and without a test
+/// moving `TMPDIR` out from under every other test in the process.
+fn dsh_transcript_root_in(
+    create: impl FnOnce() -> std::io::Result<tempfile::TempDir>,
+) -> Result<std::path::PathBuf, String> {
+    let root = io_context(create(), "could not stage the dsh session transcript root")?;
+    Ok(root.keep())
+}
+
+/// The overlay row that points dsh's session persistence at this seat's
+/// own root, in the encoding an external line reader can follow. The
+/// path is written as a single-quoted YAML scalar with its quotes
+/// doubled, and a path that could open a line of its own is refused
+/// rather than written — same discipline as the model id.
+fn dsh_transcript_row(root: &std::path::Path) -> Result<String, String> {
+    let root = root.to_string_lossy();
+    if root.contains('\n') || root.contains('\r') {
+        return Err(format!(
+            "dsh driver: transcript root {root:?} spans more than one line"
+        ));
+    }
+    Ok(format!(
+        "# Written by `brokkr driver dsh` for one seat: this seat's session\n\
+         # transcript, raw and line-readable, under a root only this seat\n\
+         # writes — so the driver follows the right session by construction\n\
+         # and never by scanning a shared directory for the newest file.\n\
+         - id: session-persistence-jsonl\n\
+         \x20 config:\n\
+         \x20   root: '{}'\n\
+         \x20   compression: none\n\
+         \x20   packChunks: false\n",
+        root.replace('\'', "''")
+    ))
+}
+
+/// One overlay per seat carrying every row this driver pins: the
+/// transcript root always, and the model when one is pinned. It is ONE
+/// file because `--patch` is the launcher's only override channel and
+/// the seat's argv stays as narrow as it was.
+fn dsh_seat_overlay(
+    model: Option<&str>,
+    root: &std::path::Path,
+) -> Result<tempfile::NamedTempFile, String> {
+    dsh_seat_overlay_in(model, root, || {
+        tempfile::Builder::new()
+            .prefix("brokkr-dsh-seat-")
+            .suffix(".yml")
+            .tempfile()
+    })
+}
+
+/// The seat overlay over an injected file, so the ways staging can fail
+/// are reachable from a test without a full disk.
+fn dsh_seat_overlay_in(
+    model: Option<&str>,
+    root: &std::path::Path,
+    create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
+) -> Result<tempfile::NamedTempFile, String> {
+    let row = dsh_transcript_row(root)?;
+    let mut file = match model {
+        Some(model) => dsh_model_overlay_in(model, create)?,
+        None => io_context(create(), "could not stage the dsh seat overlay")?,
+    };
+    io_context(
+        file.write_all(row.as_bytes()),
+        "could not write the dsh seat overlay",
     )?;
     Ok(file)
 }

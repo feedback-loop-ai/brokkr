@@ -584,8 +584,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     assert_eq!(invocation.session_meta["model"], "deepseek-v4-flash");
     assert_eq!(invocation.session_meta["harness"], "deepseek");
 
-    // No pair, no overlay: the profile's own default model boots, and
-    // the journal says so by naming none.
+    // No pair, no model row: the profile's own default model boots, and
+    // the journal says so by naming none. The overlay itself is still
+    // there — every seat pins its own transcript root through it, which
+    // is how the driver follows the right session at all.
     let mut started = Vec::new();
     let invocation = invoke(
         AdapterKind::Dsh,
@@ -601,7 +603,14 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         .lines()
         .map(str::to_string)
         .collect();
-    assert_eq!(lines, ["--profile", "headless", "p"]);
+    assert_eq!(&lines[..3], ["--profile", "headless", "--patch"]);
+    assert_eq!(&lines[4..], ["p"]);
+    let written = std::fs::read_to_string(&overlay).unwrap();
+    assert!(
+        written.contains("- id: session-persistence-jsonl\n"),
+        "{written}"
+    );
+    assert!(!written.contains("agent-default-model"), "{written}");
     assert!(started[0]["model"].is_null());
     assert!(invocation.session_meta.get("model").is_none());
 
@@ -628,6 +637,7 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
     assert_eq!(rest, s(&["--x", "y"]));
     // YAML is the overlay's grammar, so an id that could open a second
     // row or a value of its own is refused rather than written.
+    let root = std::path::Path::new("/nonexistent/dsh-root");
     for bad in [
         "",
         "v4\n- id: hmr",
@@ -638,9 +648,12 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "dashscope/",
         "a/b/c",
     ] {
-        assert!(dsh_model_overlay(bad).is_err(), "{bad:?} must be refused");
+        assert!(
+            dsh_seat_overlay(Some(bad), root).is_err(),
+            "{bad:?} must be refused"
+        );
     }
-    assert!(dsh_model_overlay("deepseek-v4-flash").is_ok());
+    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), root).is_ok());
 }
 
 #[test]
@@ -656,11 +669,301 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         ("dashscope", "deepseek-v4-flash-0731")
     );
     // The overlay carries the named route, not the default one.
-    let file = dsh_model_overlay("dashscope/qwen3.8-max").unwrap();
+    let file = dsh_seat_overlay(
+        Some("dashscope/qwen3.8-max"),
+        std::path::Path::new("/nonexistent/dsh-root"),
+    )
+    .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
     assert!(written.contains("provider: dashscope\n"), "{written}");
     assert!(written.contains("model: qwen3.8-max\n"), "{written}");
     assert!(!written.contains("deepseek-official"), "{written}");
+}
+
+// A stand-in launcher that behaves like dsh's headless profile does:
+// it writes NOTHING to stdout until it is done, and appends its session
+// transcript to the root the seat overlay pinned. It stops halfway and
+// waits for `dsh-seen` — the file the driver's checkpoint sink touches —
+// before writing its second turn. A driver that only folded at exit
+// would never touch it, the wait would time out, and the second turn
+// would arrive too late to be anything but the first: the handshake IS
+// the liveness proof.
+const DSH_TRANSCRIPT_SHIM: &str = r#"#!/bin/sh
+root=
+prev=
+for a in "$@"; do
+  if [ "$prev" = --patch ]; then root=$(awk -F"'" '/^    root: /{print $2}' "$a"); fi
+  prev=$a
+done
+d="$root/--project--/session-fake"
+mkdir -p "$d"
+f="$d/session.jsonl"
+printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
+printf 'not json, ignorable noise\n' >> "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4}}}\n' >> "$f"
+printf '{"type":"tool/call","data":{"turn":1,"step":1,"name":"fs_write","arguments":"hunter22"}}\n' >> "$f"
+printf '{"type":"assistant/chunk","data":{"turn":1,"step":2}}\n' >> "$f"
+i=0
+while [ ! -f dsh-seen ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done
+printf '{"type":"assistant/message","data":{"turn":1,"step":2,"usage":{"inputTokens":20,"outputTokens":3}}}\n' >> "$f"
+printf '{"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}\n' >> "$f"
+printf 'a last line still being written' >> "$f"
+"#;
+
+#[cfg(unix)]
+#[test]
+fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let fake = executable(dir.path(), "dsh", DSH_TRANSCRIPT_SHIM);
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+
+    let seen = dir.path().join("dsh-seen");
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        &[],
+        &mut |event| {
+            emitted.push(event.clone());
+            if event["step"] == "seat-turn" {
+                let _ = std::fs::write(&seen, b"");
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(invocation.exit_code, 0);
+    assert_eq!(emitted[0]["step"], "harness-started");
+    // The transcript root rides the started checkpoint as an ordinary
+    // clamped target, so the seat's session stays addressable from the
+    // journal alone once the run is over.
+    let target = emitted[0]["target"].as_str().unwrap();
+    assert!(target.contains("brokkr-dsh-session-"), "{target}");
+    assert!(target.chars().count() <= 80, "{target}");
+
+    assert_eq!(emitted[1]["step"], "session-started");
+    assert_eq!(emitted[1]["session_id"], "session-fake-1");
+    let turns: Vec<&Value> = emitted
+        .iter()
+        .filter(|event| event["step"] == "seat-turn")
+        .collect();
+    assert_eq!(turns.len(), 3, "{emitted:?}");
+    assert_eq!(turns[0]["turn"], 1);
+    assert_eq!(turns[0]["input_tokens"], 10);
+    assert_eq!(turns[0]["cache_read_tokens"], 4);
+    assert_eq!(turns[1]["tool"], "fs_write");
+    assert_eq!(turns[2]["turn"], 2, "the second turn was written LIVE");
+    assert!(turns[2].get("cache_read_tokens").is_none());
+    assert!(
+        !serde_json::to_string(&emitted)
+            .unwrap()
+            .contains("hunter22"),
+        "the model's own tool arguments never reach a checkpoint"
+    );
+
+    let meta = &invocation.session_meta;
+    assert_eq!(meta["session_id"], "session-fake-1");
+    assert_eq!(meta["num_turns"], 2);
+    // Summed across the session, not the last turn's counts.
+    assert_eq!(meta["input_tokens"], 30);
+    assert_eq!(meta["output_tokens"], 5);
+    assert_eq!(meta["cache_read_tokens"], 4);
+    assert_eq!(meta["harness"], "deepseek");
+    assert_eq!(meta["profile"], "headless");
+
+    // A harness that writes no transcript at all still concludes: the
+    // seat is silent, not broken. Named workdir absent too, so the
+    // driver falls back to its own directory as every other arm does.
+    let quiet = executable(dir.path(), "quiet-dsh", "#!/bin/sh\nexit 0\n");
+    std::env::set_var("BROKKR_DSH_BIN", &quiet);
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(AdapterKind::Dsh, &[], "p", &json!({}), &[], &mut |event| {
+        emitted.push(event.clone())
+    })
+    .unwrap();
+    assert_eq!(emitted.len(), 1, "{emitted:?}");
+    assert_eq!(invocation.exit_code, 0);
+    assert!(invocation.session_meta.get("num_turns").is_none());
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+}
+
+#[test]
+fn dsh_fold_refuses_a_nameless_session_and_journals_no_transcript() {
+    let mut turns = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    for event in [
+        // A header with no string id names nothing, so nothing is
+        // journaled — the same refusal the claude init fold makes.
+        json!({"type": "session", "id": 7}),
+        json!({"type": "session", "id": "session-1"}),
+        // An assistant turn the adapter reported no accounting for.
+        json!({"type": "assistant/message", "data": {"turn": 1, "step": 1}}),
+        // A tool call whose name the log did not carry.
+        json!({"type": "tool/call", "data": {"turn": 1}}),
+        json!({"type": "assistant/chunk", "data": {"turn": 1}}),
+        json!({"type": "turn/end", "data": {"turn": 1}}),
+        json!({}),
+    ] {
+        fold_dsh_event(&event, &mut turns, &mut meta, &mut |value| {
+            emitted.push(value.clone())
+        });
+    }
+    assert_eq!(emitted.len(), 3, "{emitted:?}");
+    assert_eq!(emitted[0]["step"], "session-started");
+    assert_eq!(meta["session_id"], "session-1");
+    assert_eq!(emitted[1]["turn"], 1);
+    assert!(emitted[1].get("input_tokens").is_none());
+    assert_eq!(emitted[2]["tool"], "");
+    assert_eq!(meta["num_turns"], 1);
+    assert!(meta.get("input_tokens").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    // No root yet: nothing to follow, and no error either — dsh
+    // materializes the root on its first append, not at boot.
+    assert!(find_dsh_transcript(&root).is_none());
+    std::fs::create_dir_all(&root).unwrap();
+    // A plain file where a project directory would be is not one.
+    std::fs::write(root.join("stray"), b"x").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+    let session = root.join("--project--").join("session-1");
+    std::fs::create_dir_all(&session).unwrap();
+    // A session directory that holds other artifacts but no transcript.
+    std::fs::write(session.join("notes.txt"), b"x").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+
+    let transcript = session.join("session.jsonl");
+    std::fs::write(&transcript, b"").unwrap();
+    assert_eq!(find_dsh_transcript(&root).as_deref(), Some(&*transcript));
+
+    // A transcript the seat cannot read is left alone and retried; it is
+    // never guessed at from a neighbouring file.
+    std::fs::set_permissions(&transcript, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let mut tail = DshTail::default();
+    let mut turns = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    drain_dsh_transcript(&mut tail, &root, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert!(tail.file.is_none());
+    assert!(emitted.is_empty());
+
+    std::fs::set_permissions(&transcript, std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::write(
+        &transcript,
+        b"{\"type\":\"session\",\"id\":\"s\"}\n\xff not utf-8\nhalf a line",
+    )
+    .unwrap();
+    drain_dsh_transcript(&mut tail, &root, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert!(tail.file.is_some());
+    assert_eq!(emitted.len(), 1, "{emitted:?}");
+    assert_eq!(tail.pending, b"half a line");
+}
+
+#[test]
+fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
+    let root = std::path::Path::new("/nonexistent/dsh-root");
+    let refused =
+        dsh_seat_overlay_in(None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
+    assert!(
+        refused.contains("could not stage the dsh seat overlay"),
+        "{refused}"
+    );
+    let sealed = dsh_seat_overlay_in(None, root, || {
+        let staged = tempfile::NamedTempFile::new()?;
+        let (_, path) = staged.into_parts();
+        let readonly = std::fs::File::open(&path)?;
+        Ok(tempfile::NamedTempFile::from_parts(readonly, path))
+    })
+    .unwrap_err();
+    assert!(
+        sealed.contains("could not write the dsh seat overlay"),
+        "{sealed}"
+    );
+    // YAML is the overlay's grammar for the root as much as the model:
+    // a path that could open a line of its own is refused, not written.
+    for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        assert!(
+            dsh_transcript_row(std::path::Path::new(bad)).is_err(),
+            "{bad:?} must be refused"
+        );
+    }
+    // A quote in the path is doubled inside the single-quoted scalar,
+    // so it closes nothing.
+    let row = dsh_transcript_row(std::path::Path::new("/tmp/it's")).unwrap();
+    assert!(row.contains("root: '/tmp/it''s'\n"), "{row}");
+    assert!(row.contains("compression: none\n"), "{row}");
+    assert!(row.contains("packChunks: false\n"), "{row}");
+}
+
+#[test]
+fn the_transcript_root_reports_a_directory_it_cannot_stage() {
+    let refused = dsh_transcript_root_in(|| Err(std::io::Error::other("no tmp"))).unwrap_err();
+    assert!(
+        refused.contains("could not stage the dsh session transcript root"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
+    // Verified against codex-cli 0.148.0: a real `codex exec --json`
+    // run ends at `turn.completed` and emits no `result` event, so the
+    // turn count has to be journaled there or a codex seat reaches the
+    // cost surfaces with no turns at all. Usage sums across turns —
+    // inserting per turn left the session holding its last turn's
+    // counts.
+    let mut turn = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    for event in [
+        json!({"type": "thread.started", "thread_id": "thread-1"}),
+        json!({"type": "turn.started"}),
+        json!({"type": "turn.completed", "usage": {
+            "input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 2
+        }}),
+        json!({"type": "turn.started"}),
+        json!({"type": "turn.completed", "usage": {
+            "input_tokens": 7, "cached_input_tokens": 1, "output_tokens": 3
+        }}),
+    ] {
+        fold_codex_event(&event, &mut turn, &mut meta, &mut |value| {
+            emitted.push(value.clone())
+        });
+    }
+    assert_eq!(meta["num_turns"], 2);
+    assert_eq!(meta["input_tokens"], 17);
+    assert_eq!(meta["cache_read_tokens"], 5);
+    assert_eq!(meta["output_tokens"], 3 + 2);
+    // Codex reports no cost in USD anywhere in that stream, so none is
+    // invented: the record says nothing rather than claiming zero.
+    assert!(meta.get("total_cost_usd").is_none());
+    // The per-turn checkpoint keeps that turn's own counts.
+    let last = emitted.last().unwrap();
+    assert_eq!(last["step"], "turn-completed");
+    assert_eq!(last["input_tokens"], 7);
 }
 
 #[test]
