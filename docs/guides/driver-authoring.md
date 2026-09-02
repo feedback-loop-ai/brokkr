@@ -248,8 +248,9 @@ the engine journals each one as `effect/checkpointed`.
 
 They must **not** carry prose, commands, or reasoning. A model's output,
 a shell command line, a diff, a rationale: none of these belong in a
-checkpoint. The Looper bridge hashes locators and targets before export,
-and the full session transcript stays wherever your harness put it.
+checkpoint. Before export the Looper bridge hashes targets and withholds
+transcript locators outright (only `observed-redacted` leaves), and the
+full session transcript stays wherever your harness put it.
 
 Two field names are read by `brokkr costs` if you supply them:
 `num_turns` (summed into the seat's turn count) and `total_cost_usd`
