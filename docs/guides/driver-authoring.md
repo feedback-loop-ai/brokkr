@@ -256,6 +256,59 @@ Two field names are read by `brokkr costs` if you supply them:
 (summed into its cost). Anything else in `data` is journaled and
 displayed but not aggregated.
 
+**Every driver speaks per turn, not only at exit.** This is the standard
+each built-in driver meets and the one a new driver is held to: every
+assistant turn becomes at least one checkpoint while the process is
+still running; the turn count and the harness's usage ride in
+`num_turns` and `total_cost_usd` (token counts in `input_tokens`,
+`output_tokens`, `cache_read_tokens`) accumulated across the whole
+session, not overwritten per turn; and the harness's session or thread
+id lands in `session_meta` the moment the harness reveals it, not at
+exit. `brokkr watch`, the tui and the seat cost surfaces all read
+checkpoints, so a driver that speaks only at the end is invisible to
+every one of them while it works. Report nothing you were not told:
+a harness that reports no cost leaves `total_cost_usd` absent rather
+than claiming zero. Where the harness offers no event stream on stdout,
+follow whatever it writes as it goes — the dsh driver pins its own
+per-seat session-transcript root through the launcher's `--patch`
+overlay and tails the one file that appears there, which is
+unambiguous by construction and never a scan for the newest file.
+And however you watch it, **conclude**: a driver that cannot tell
+whether its child is still alive reports the failure and exits. Treating
+a failed `wait` as "not finished yet" reproduces the silent seat this
+standard exists to prevent, by a longer road.
+
+**A tailed file is a weaker source than a pipe.** Stream-json on a pipe
+can only have come from the child; a session log on disk sits where the
+seat's own agent can append to it, and the driver publishes its path in
+`harness-started`. Fold such a file only under the clamps above — a
+bounded id, a bounded tool name, numeric counts — and never derive a
+path to execute, a command, or a control decision from it. The journal
+then holds, at worst, a number a compromised seat chose; it never holds
+anything that acts.
+
+**`input_tokens` is inclusive of `cache_read_tokens`.** Harnesses split
+that count both ways — codex reports `input_tokens: 14830` beside
+`cached_input_tokens: 11264`, dsh reports the same step as `inputTokens:
+94, cacheReadTokens: 7` from a `prompt_tokens: 101` — so a driver
+normalizes to the inclusive form before journaling, and reports the
+cache read separately in `cache_read_tokens` as the subset it is.
+`brokkr costs` and the seat surfaces sum `input_tokens` and
+`output_tokens` only; adding the cache read would double-count it. One
+journal key means one thing across every driver, not whatever its
+harness happened to mean.
+
+**A transcript a driver stages is the operator's, and it stays.** It
+holds precisely what the journal refuses to carry — the prompt, tool
+arguments, tool results — which is exactly why it lives where the
+operator's other harness transcripts already live: under the harness's
+own home (`$DSH_HOME/sessions/brokkr/<seat>/` for dsh, `~/.dsh` when
+`DSH_HOME` is unset), under the operator's own retention, and never
+removed by the driver. The journal carries the path in
+`harness-started`, nothing of the text. Ruled by the operator on
+2026-09-02, inside the run that asked: the transcript belongs to the
+operator, not to the void.
+
 ## Results
 
 Exactly one `result` per `start`.

@@ -956,8 +956,16 @@ function renderDetail(id, view) {
     // exists on this machine it renders here; the journal's checkpoint
     // stream is only the fallback (exec steps, vanished transcripts).
     if (sessionId !== null) {
+      // Only a claude harness answers to `claude --resume`; a session
+      // held by another harness is named with its holder and no
+      // command, so a codex thread id is never a pasteable claude lie.
+      // Provenance absent means a pre-0016 journal, all claude seats.
+      const holder = part.provenance && typeof part.provenance.provider === 'string'
+        ? part.provenance.provider : null;
       detail.appendChild(el('p', 'cause',
-        'full session: claude --resume ' + sessionId));
+        holder === null || holder === 'claude' || holder === 'lanetally'
+          ? 'full session: claude --resume ' + sessionId
+          : 'full session: ' + sessionId + ' · held by ' + holder + ', no resume verb yet'));
       const box = el('div', 'transcript');
       box.appendChild(el('p', 'cause', 'loading transcript…'));
       detail.appendChild(box);
