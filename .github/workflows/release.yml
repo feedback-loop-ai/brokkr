@@ -284,7 +284,7 @@ jobs:
           fi
           bash packaging/open-channel-pr.sh \
             --token-env BROKKR_TAP_TOKEN \
-            --repo "${GITHUB_REPOSITORY_OWNER}/homebrew-brokkr" \
+            --repo "${GITHUB_REPOSITORY_OWNER}/homebrew-tap" \
             --source packaging/homebrew/brokkr.rb \
             --destination Formula/brokkr.rb \
             --version "${GITHUB_REF_NAME#v}"
@@ -298,13 +298,20 @@ jobs:
           fi
           bash packaging/open-channel-pr.sh \
             --token-env BROKKR_BUCKET_TOKEN \
-            --repo "${GITHUB_REPOSITORY_OWNER}/scoop-brokkr" \
+            --repo "${GITHUB_REPOSITORY_OWNER}/scoop-bucket" \
             --source packaging/scoop/brokkr.json \
             --destination bucket/brokkr.json \
             --version "${GITHUB_REF_NAME#v}"
       - name: the flake's digests, as a pull request against this repository
         uses: peter-evans/create-pull-request@v7
         with:
+          # The workflow token can only open this pull request where the
+          # organization (or enterprise) allows "Actions may create pull
+          # requests". Where that policy is off, a fine-grained token with
+          # contents + pull-requests write on this repository alone, held
+          # as BROKKR_FLAKE_PR_TOKEN, does the same job; absent, the
+          # default token is used and the step reports the policy.
+          token: ${{ secrets.BROKKR_FLAKE_PR_TOKEN || secrets.GITHUB_TOKEN }}
           # A tag build is a detached HEAD, and the action refuses to
           # guess a base from one — the branch the pull request targets
           # has to be named here or the step fails on every release.

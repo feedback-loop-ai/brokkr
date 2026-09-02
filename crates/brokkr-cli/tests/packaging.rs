@@ -349,8 +349,8 @@ fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
     };
 
     let bump = at("bash packaging/bump-from-sums.sh");
-    let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-brokkr\"");
-    let bucket = at("--repo \"${GITHUB_REPOSITORY_OWNER}/scoop-brokkr\"");
+    let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
+    let bucket = at("--repo \"${GITHUB_REPOSITORY_OWNER}/scoop-bucket\"");
     let action = at("peter-evans/create-pull-request@v7");
 
     assert!(bump < tap && bump < bucket, "{channels}");

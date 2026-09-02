@@ -7,7 +7,7 @@
 # with placeholder digests installs nothing: that is the point — it
 # cannot be published by accident.
 #
-# Tap: feedback-loop-ai/homebrew-brokkr, file Formula/brokkr.rb.
+# Tap: feedback-loop-ai/homebrew-tap, file Formula/brokkr.rb.
 class Brokkr < Formula
   desc "Delivery engine that drives agent seats through a reviewable phase machine"
   homepage "https://github.com/feedback-loop-ai/brokkr"

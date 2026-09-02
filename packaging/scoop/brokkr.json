@@ -3,7 +3,7 @@
         "TEMPLATE — not a published manifest. The hash below is a placeholder",
         "(sixty-four zeros); the release workflow renders it from the release's",
         "own attested SHA256SUMS via packaging/bump-from-sums.sh and opens a pull",
-        "request against the bucket repository feedback-loop-ai/scoop-brokkr,",
+        "request against the bucket repository feedback-loop-ai/scoop-bucket,",
         "file bucket/brokkr.json."
     ],
     "version": "0.6.0",
