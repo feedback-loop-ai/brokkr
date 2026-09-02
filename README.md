@@ -725,13 +725,24 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.148.0 · serves no abstract model yet
-ok       dsh: 0.1.0-rc.6 · serves no abstract model yet
+ok       dsh: 0.1.0-rc.6 · serves flash, glm, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ```
 
 The built-in adapters are reachable directly as
 `brokkr driver <claude|lanetally|codex|dsh|exec> -- <extra args>`, which
 is exactly how a bundle names them.
+
+The `dsh` adapter reaches two provider routes through one grammar. A
+bare id (`deepseek-v4-flash`, `deepseek-v4-pro`) is DeepSeek's own API,
+keyed by `DEEPSEEK_API_KEY` in the engine's launching environment; a
+`dashscope/<id>` lane is Model Studio's Token Plan catalogue
+(`deepseek-v4-flash-0731`, `qwen3.8-max`, `glm-5.2`, …), keyed by
+`DASHSCOPE_API_KEY`, and needs that provider route declared in the dsh
+headless profile's own patch layer (`$DSH_HOME/profiles/headless/cordis.patch.yml`).
+The driver turns `--model <lane>` into the one-seat overlay dsh's
+launcher reads; neither key ever enters argv, the recipe, or the
+journal.
 
 Looper-bound runs start with `brokkr run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels

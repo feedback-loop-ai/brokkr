@@ -234,22 +234,41 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         codex.tool_permissions.is_none(),
         "codex cannot express a tool restriction, and says so"
     );
-    // `dsh` maps exactly the lane this tree has evidence for — the
-    // roster's night-shift row and LaneTally's priced deepseek-v4-flash
-    // — under an abstract name that is NOT a claude tier, so no chain
-    // written for one provider silently lands on the other. The flag
-    // is the shared `--model` grammar; the driver turns it into the
+    // `dsh` maps the lanes this tree has evidence for, each verified
+    // with a completion against its provider on 2026-09-02: DeepSeek's
+    // own API serves exactly `deepseek-v4-flash` and `deepseek-v4-pro`
+    // (bare ids — the dated spellings live only in LaneTally's price
+    // rows), and Model Studio's Token Plan catalogue serves the eight
+    // behind `dashscope/`, its own DeepSeek snapshot dated in the id.
+    // Abstract names are NOT claude tiers, so no chain written for one
+    // provider silently lands on the other. The flag is the shared
+    // `--model` grammar; the driver turns `<provider>/<id>` into the
     // overlay dsh's launcher reads. Tools stay unexpressible, and the
     // data says so.
     let dsh = adapters
         .providers()
         .find(|adapter| adapter.provider == "dsh")
         .unwrap();
+    let lanes: Vec<(&str, &str)> = dsh
+        .models
+        .iter()
+        .map(|(name, id)| (name.as_str(), id.as_str()))
+        .collect();
     assert_eq!(
-        dsh.models.get("flash").map(String::as_str),
-        Some("deepseek-v4-flash")
+        lanes,
+        [
+            ("flash", "deepseek-v4-flash"),
+            ("glm", "dashscope/glm-5.2"),
+            ("pro", "deepseek-v4-pro"),
+            ("qwen-flash", "dashscope/qwen3.8-flash"),
+            ("qwen-max", "dashscope/qwen3.8-max"),
+            ("qwen-plus", "dashscope/qwen3.7-plus"),
+            ("qwen36-flash", "dashscope/qwen3.6-flash"),
+            ("qwen37-max", "dashscope/qwen3.7-max"),
+            ("studio-flash", "dashscope/deepseek-v4-flash-0731"),
+            ("studio-pro", "dashscope/deepseek-v4-pro"),
+        ]
     );
-    assert_eq!(dsh.models.len(), 1, "one evidenced lane, no invented ones");
     assert_eq!(dsh.model_flag.as_deref(), Some("--model"));
     assert!(
         dsh.tool_permissions.is_none(),
