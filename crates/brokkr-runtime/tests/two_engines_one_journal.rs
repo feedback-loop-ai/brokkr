@@ -65,12 +65,21 @@ const POLICY: &str = r#"{
 /// binary — no second crate, no shipped helper bin — while giving the
 /// engine the clean stream it is entitled to.
 fn driver_argv() -> Vec<String> {
+    // The path is single-quoted AND forward-slashed: sh on the Windows
+    // runners eats bare backslashes before exec ever sees the path
+    // (`D:\a\brokkr` arrived as `D:abrokkr` on CI), and quoting alone
+    // is not enough for every sh that shells this. Forward slashes are
+    // valid Windows paths; single quotes keep spaces intact everywhere.
+    let exe = std::env::current_exe()
+        .unwrap()
+        .display()
+        .to_string()
+        .replace('\\', "/");
     vec![
         "sh".into(),
         "-c".into(),
         format!(
-            "exec {} --exact two_engines_driver_child --nocapture | grep --line-buffered '^{{'",
-            std::env::current_exe().unwrap().display()
+            "exec '{exe}' --exact two_engines_driver_child --nocapture | grep --line-buffered '^{{'"
         ),
     ]
 }

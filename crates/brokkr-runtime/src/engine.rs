@@ -357,11 +357,8 @@ impl Engine {
             return Err(error);
         }
         self.current_cause = events.last().map(|e| e.event_id.clone());
-        self.append(
-            EventType::RunParked,
-            json!({"reason": reason, "evidence": {}}),
-            None,
-        )?;
+        let parked = json!({"reason": reason, "evidence": {}});
+        self.append(EventType::RunParked, parked, None)?;
         let state = fold(&self.store.load(&self.run_id)?)?;
         Ok(DriveEnd { state })
     }
