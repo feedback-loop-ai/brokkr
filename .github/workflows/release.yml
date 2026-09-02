@@ -121,6 +121,7 @@ jobs:
           # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
           # the config is rendered with envsubst first — same contract,
           # no interpolation gamble.
+          mkdir -p target/packaging dist
           envsubst < packaging/nfpm.yaml > target/packaging/nfpm.rendered.yaml
           nfpm package --config target/packaging/nfpm.rendered.yaml --packager deb --target "dist/${{ matrix.name }}.deb"
           nfpm package --config target/packaging/nfpm.rendered.yaml --packager rpm --target "dist/${{ matrix.name }}.rpm"
