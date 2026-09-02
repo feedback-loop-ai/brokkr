@@ -165,7 +165,9 @@ fn explicitly_allowed(file: &str, line: &str) -> bool {
     if line.contains("SwarmForge") {
         return true;
     }
-    if line.contains(concat!("\"For", "ge\" survives as the verb")) {
+    if file == "docs/guides/versioning.md"
+        && line.contains(concat!("\"For", "ge\" survives as the verb"))
+    {
         return true;
     }
 

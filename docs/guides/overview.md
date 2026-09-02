@@ -3,6 +3,23 @@
 The front page leads with the proof; this guide carries the product tour
 and the deterministic laws behind it.
 
+**Coordination tools help agents work together. Brokkr proves what they
+did** — runs you can replay, rulings you can audit, releases you can
+prove.
+
+*The machine is the outer loop. Struck, not spun.*
+
+**A deterministic delivery engine for autonomous multi-agent software
+delivery.** The outermost layer is a pure, event-sourced phase state
+machine; agent sessions (Claude Code, Codex, any harness speaking the
+driver protocol) are leaf effects whose outputs are typed results —
+never decisions. Every claim the system makes — done, verified, parked,
+stopped, paid — is a journaled, replayable, anchored fact.
+
+> Agent output never decides a transition. Prompt content never decides
+> who pays (that's [LaneTally](https://github.com/feedback-loop-ai/lanetally)'s
+> law, one layer down). The same value, stacked.
+
 ## What it does
 
 You hand Brokkr a feature and a **recipe** (a delivery strategy:
@@ -82,20 +99,6 @@ stays on the proof path; this guide carries the tour.
 4. **Human gates are control states.** Parks exit only through operator
    events; approval is a journal entry, not a prose convention.
 
-The paradigm behind these laws is argued in long form in
-[the essays](../essays/): *[The Model Is a Detail](../essays/the-model-is-a-detail.md)*
-(why the model belongs in leaf position, with this repository's own
-history as the receipts) and
-*[Decisions as Code](../essays/decisions-as-code.md)* (the
-deliberate → rule → encode → enforce → evidence → amend lifecycle the
-[decision record](../decisions/) lives by), and
-*[The Lore](../essays/the-lore.md)* (why the
-[Edda](../lore/edda.md) is an engineering decision, not decoration),
-*[The Machine That Argued With Itself](../essays/the-machine-that-argued-with-itself.md)*
-(five arguments from the journals, and what makes them argument
-instead of theater), *[The Wager](../essays/the-wager.md)* (two
-crews, one commission, and why fair model comparison is an
-architecture property), and
-*[One Job, Three Hires](../essays/one-job-three-hires.md)* (a phase
-held by a model is a job with a description and a price tag; three
-hires into one job, thirty to one on price, the same gates for all).
+The paradigm behind these laws is argued in long form in the essays;
+[the tour's reading list](../essays/README.md#the-tours-reading-list)
+names each one and what it argues.

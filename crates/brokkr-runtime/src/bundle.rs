@@ -36,7 +36,8 @@ pub enum CompileError {
 }
 
 /// Inputs the engine owns. A seat may never supply or declare these:
-/// journal-computed truth is never accepted from a caller (decision 0002).
+/// journal-computed truth is never accepted from a caller (determinism
+/// law 2, `docs/guides/overview.md`).
 pub const ENGINE_OWNED_INPUTS: [&str; 5] = [
     "consecutive_failures",
     "drift_detected",
