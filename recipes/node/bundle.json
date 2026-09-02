@@ -1,5 +1,7 @@
 {
   "name": "node",
+  "description": "Node and TypeScript repositories using JavaScript-specific seats and tools.",
+  "cost": "medium",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {

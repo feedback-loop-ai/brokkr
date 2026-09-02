@@ -1,7 +1,13 @@
 {
   "name": "crucible",
+  "description": "Engine, store, protocol, or contract changes needing an Opus review sequence.",
+  "cost": "high",
   "extends": "fast",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "implement",
       "verify",

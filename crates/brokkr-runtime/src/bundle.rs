@@ -213,6 +213,12 @@ impl Default for Limits {
 #[derive(Debug, Clone)]
 pub struct Bundle {
     pub name: String,
+    /// Human-facing library metadata. Empty only for legacy or system
+    /// bundles that predate the contributor recipe catalogue.
+    pub description: String,
+    /// A relative cost band, not a quote; provider rates remain outside
+    /// the control-plane contract.
+    pub cost: String,
     pub dir: PathBuf,
     /// Every layer's directory, leaf first — `[dir]` for a recipe that
     /// composed nothing. Confinement mounts all of them, so an inherited
@@ -434,6 +440,16 @@ impl Bundle {
     ) -> Result<Bundle, CompileError> {
         let config = &resolved.document;
         let name = resolved.name.clone();
+        let description = config
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let cost = config
+            .get("cost")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         let table = resolved.table.clone();
         // One refusal names the complete repair set. Running this on the
         // flattened seats also means inherited omissions cannot hide in
@@ -679,6 +695,8 @@ impl Bundle {
         )?;
         Ok(Bundle {
             name,
+            description,
+            cost,
             dir: dir.to_path_buf(),
             roots: resolved.roots,
             chain: resolved.chain,

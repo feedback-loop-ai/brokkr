@@ -59,6 +59,8 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     }
     Bundle {
         name: "test".into(),
+        description: String::new(),
+        cost: String::new(),
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
         chain: Vec::new(),

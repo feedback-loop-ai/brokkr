@@ -1,7 +1,13 @@
 {
   "name": "night-shift",
+  "description": "Unattended work that should park on the first unusual result instead of retrying.",
+  "cost": "medium-high",
   "extends": "fast",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "implement",
       "verify",

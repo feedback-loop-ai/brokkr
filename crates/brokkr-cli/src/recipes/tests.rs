@@ -43,6 +43,8 @@ fn bundle_with_sequence() -> Bundle {
     );
     Bundle {
         name: "test".into(),
+        description: String::new(),
+        cost: String::new(),
         dir: PathBuf::new(),
         roots: vec![PathBuf::new()],
         chain: Vec::new(),

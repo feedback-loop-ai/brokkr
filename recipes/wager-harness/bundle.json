@@ -1,7 +1,13 @@
 {
   "name": "wager-harness",
+  "description": "Driver evaluation that swaps only implementation to Codex for a fair wager.",
+  "cost": "medium",
   "extends": "fast",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "implement"
     ]

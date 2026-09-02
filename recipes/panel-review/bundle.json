@@ -1,5 +1,7 @@
 {
   "name": "panel-review",
+  "description": "General delivery needing independent correctness and security reviewers.",
+  "cost": "high",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {

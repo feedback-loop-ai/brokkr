@@ -6,6 +6,73 @@ on:
   pull_request:
 
 jobs:
+  delivered-by-brokkr:
+    name: delivered by brokkr
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: operator by-hand escape hatch is visible
+        if: contains(github.event.pull_request.labels.*.name, 'by-hand')
+        run: echo "delivered by brokkr skipped — operator applied the by-hand label"
+      # Build the verifier from the trusted base, not from code supplied
+      # by the pull request whose evidence it judges.
+      - uses: actions/checkout@v4
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-verifier
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
+      - name: build the base branch's offline verifier
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
+        run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli
+      - name: verify the named run vouches for the pull request head
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          mapfile -t declarations < <(printf '%s\n' "$PR_BODY" | sed -n '/^Brokkr-Run:/p')
+          if (( ${#declarations[@]} != 1 )); then
+            echo "expected exactly one Brokkr-Run: line in the pull request body" >&2
+            exit 1
+          fi
+          declaration="${declarations[0]%$'\r'}"
+          if [[ ! "$declaration" =~ ^Brokkr-Run:\ ([a-z0-9-]{0,32}-[0-9a-f]{8})$ ]]; then
+            echo "Brokkr-Run must carry a native run id: [a-z0-9-]{0,32}-[0-9a-f]{8}" >&2
+            exit 1
+          fi
+          run_id="${BASH_REMATCH[1]}"
+          evidence_ref="refs/remotes/brokkr-run/${run_id}"
+          git -C "base-verifier" fetch --no-tags --depth=1 \
+            "https://github.com/${PR_HEAD_REPOSITORY}.git" \
+            "refs/heads/brokkr-runs/${run_id}:${evidence_ref}"
+          evidence_dir="base-verifier/target/brokkr-evidence"
+          mkdir -p "$evidence_dir"
+          journal="${evidence_dir}/${run_id}.ndjson"
+          anchor="${evidence_dir}/${run_id}.anchor.json"
+          git -C "base-verifier" show "${evidence_ref}:${run_id}.ndjson" > "$journal"
+          git -C "base-verifier" show -s --format=%B "$evidence_ref" > "$anchor"
+          verified="$("base-verifier/target/debug/brokkr" verify-run "$journal")"
+          printf '%s\n' "$verified"
+          printf '%s\n' "$verified" | jq -e --arg run "$run_id" \
+            '.chain == "verified" and .state.run_id == $run and .state.status == "completed"'
+          journal_head="$(tail -n 1 "$journal" | jq -er '.event_hash')"
+          journal_seq="$(tail -n 1 "$journal" | jq -er '.seq')"
+          jq -s -e 'any(.[]; .type == "transition/decided" and
+            .payload.from == "ship" and .payload.result == "shipped")' "$journal"
+          jq -e --arg run "$run_id" --arg head "$PR_HEAD" --arg journal "$journal_head" \
+            --argjson seq "$journal_seq" \
+            '.anchor == "forge.journal-anchor/v2" and .run_id == $run and
+             .repo_head == $head and .seq == $seq and
+             .journal_head_hash == $journal' "$anchor"
+          echo "Brokkr run ${run_id} is complete and vouches for ${PR_HEAD}"
+
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest

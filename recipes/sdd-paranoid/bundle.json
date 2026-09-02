@@ -1,7 +1,13 @@
 {
   "name": "sdd-paranoid",
+  "description": "Spec-driven high-risk work needing adversarial and security review.",
+  "cost": "very high",
   "extends": "sdd",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "review"
     ]

@@ -51,9 +51,6 @@ stopped, paid — is a journaled, replayable, anchored fact.
 - [Repo layout](#repo-layout)
 - [The decision culture](#the-decision-culture)
 - [Contributing](#contributing)
-  - [Quality gates](#quality-gates)
-  - [The flow](#the-flow)
-  - [Contribution licensing](#contribution-licensing)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 
@@ -579,17 +576,19 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	d33a3e69c105	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
-ember	aa6514b5bc24	7 phases	implement, intake, review, ship, verify	recipes/ember
-fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
-night-shift	a3352f00db74	6 phases	implement, review, ship, verify	recipes/night-shift
-node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
-panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-sdd	ed604f45bfce	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
-sdd-paranoid	6b8ff77d2ed4	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
-wager-harness	44da266f8554	6 phases	implement, review, ship, verify	recipes/wager-harness
-self	ada640664125	7 phases	implement, intake, review, ship, verify	./bundles/self
-verify	4a94d29f9058	4 phases	review, verify	./bundles/verify
+crucible	b7a71d6c793b	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing an Opus review sequence.	recipes/crucible
+ember	51aad7cdf6d9	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes with a cheap intake and economical working seats.	recipes/ember
+fast	f4ef75713bc5	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+night-shift	9c1033b52d2a	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
+node	053a11fc4d70	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	eb111b40d8c1	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	cca4aa030fb4	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+sdd	8c888c71ac33	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
+sdd-paranoid	984296a63b04	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+wager-harness	bbdd2c114ad2	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	2cf7480e1b34	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+self	b5e40fd02203	7 phases	implement, intake, review, ship, verify			./bundles/self
+verify	1ce203798837	4 phases	review, verify			./bundles/verify
 ```
 
 | Recipe | Reach for it when | The difference it states |
@@ -599,18 +598,21 @@ verify	4a94d29f9058	4 phases	review, verify	./bundles/verify
 | [`crucible`](recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: opus throughout, and `review` becomes a `security`+`correctness` panel whose verdict a `chief` gate synthesises |
 | [`night-shift`](recipes/night-shift/README.md) | an unattended overnight queue | `extends fast`: `max_attempts: 1` on every seat, so anything unusual parks for morning instead of retrying |
 | [`wager-harness`](recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
+| [`wager-harness-dsh`](recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
 | [`node`](recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
 | [`panel-review`](recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
+| [`preflight`](recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
 | [`sdd`](recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
 | [`sdd-paranoid`](recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
 
 Seven of the entries above carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
 four roster recipes, and `bundles/verify`; the rest are covered by the
-tree-wide compile test but not pinned. Cost figures are
-deliberately absent from every recipe README above unless a run backs
-them — economics is LaneTally's ledger, not this engine's (decision
-0021 ruling 6).
+tree-wide compile test but not pinned. The `low` through `very high`
+bands printed by the library are relative strategy labels for the
+sixty-second contributor choice, never price quotes. Dollar figures
+remain absent unless a run backs them — economics is LaneTally's ledger,
+not this engine's (decision 0021 ruling 6).
 
 `recipes/node` is the same four-seat constitution as `fast`, driving a
 Node/TypeScript repository instead of this Rust one: the phase table is
@@ -809,6 +811,7 @@ $ brokkr export --run latest --out ./out --redact  # plus a marked publishable d
 {
   "chain_length": 2,
   "journal_head_hash": "74d186fb254b62fb486b3f5f3fe1e1ad7c91fa5deef2d850d60c16e5478be918",
+  "repo_head": "c9f1…",
   "ref": "refs/forge/prefix-selectors-for-the-read-su-8bf6d692",
   "seq": 38,
   …
@@ -841,6 +844,10 @@ $ brokkr import --from ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson \
   …
 }
 ```
+
+The anchor commit's tree carries `<run>.ndjson`; publishing it as
+`refs/heads/brokkr-runs/<run>` gives pull-request CI a canonical export
+to verify offline and a `repo_head` to compare with the proposed head.
 
 `import` is the verb paired with `export`: **journals never merge, but
 one run can relocate.** Nothing lands until the whole chain re-verifies
@@ -909,7 +916,7 @@ attestations; verify an asset with
 | Path | What it is |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | The walk from clone to a green pull request: the nine checks with their exact local commands, the coverage gate's refusal shapes, the signing story, the decision culture. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | The mandatory sixty-second path: choose a recipe, run Brokkr, publish its evidence, and name the run in the pull request. |
 | `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), `forge.realms/v1` (the world's map, decision 0023) and `forge.realms/v2` (a realm may name its own journal — many hearths, decision 0026). |
 | `realms.json` | This repository's own map (decision 0023): one realm — this repository — and the journal it writes. A workspace of many projects is another file, named with `--realms`. |
@@ -940,53 +947,15 @@ can all cite "decision 0007" and mean the same paragraph.
 
 ## Contributing
 
-The engine forges its own changes and reviews them adversarially, so
-the bar for a human contribution is the bar the machine is already held
-to. **[CONTRIBUTING.md](CONTRIBUTING.md) is the walk** — the whole road
-from `git clone` to a green pull request, with every gate's exact local
-command, every refusal shape and its fix, and the parts of the story
-that are easy to get wrong.
+Contributing goes through Brokkr. **[CONTRIBUTING.md](CONTRIBUTING.md)
+is the sixty-second path** from fork to a pull request that names its
+run and publishes evidence for the deterministic `delivered by brokkr`
+check. Brokkr's verify seat runs the repository gates; the longer
+[by-hand guide](docs/guides/contributing-by-hand.md) remains as reference,
+not as a second contribution path.
 
-The shape of it, so you know what you are agreeing to:
-
-- **Nine required checks** in
-  [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — MSRV, format,
-  clippy with `-D warnings`, the bundle compiles, the full suite on
-  three operating systems, exact coverage, dependency licences, the
-  RustSec audit, and the release build. Every one of them reproduces
-  locally except the RustSec audit — and the matrix, on your own
-  operating system only. CONTRIBUTING.md lists the commands.
-- **The coverage gate is not a percentage to trend upwards.** It
-  re-folds a candidate-bound LCOV report and demands literal integer
-  equality on lines, branches and functions; it also refuses
-  attribute-based source exclusions outright, so production code cannot
-  shrink its own denominator. There is no threshold to lower.
-- **Frozen means frozen.** The v1 `contracts/`, the `fixtures/`
-  evaluator corpus, `policy/phase-machine.json` and `reference/` are
-  read-only. A contract change is a new version file, never an edit.
-- **Semantic changes need a decision.** Write it as `proposed` under
-  `docs/decisions/` and let the operator rule.
-- **The operator keeps push and merge.** Nothing here pushes on your
-  behalf.
-
-And one offer the machine makes to you before any human does:
-
-```
-brokkr run --recipe preflight --repo . --feature "<what your branch does>"
-```
-
-[`recipes/preflight`](recipes/preflight/) seats Brokkr's own `verify`
-and `review` agents against your unmerged branch — no intake, no
-implement, no ship, the table ends after review with a ruling. The same
-adversarial, typed, journalled findings the machine's own work faces,
-before you open anything.
-
-### Contribution licensing
-
-Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you, as defined in the Apache-2.0
-license, shall be dual licensed as above, without any additional terms
-or conditions.
+Unless you explicitly state otherwise, contributions are dual licensed
+under Apache-2.0 OR MIT without additional terms or conditions.
 
 ## Acknowledgments
 
