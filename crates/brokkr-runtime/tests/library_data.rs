@@ -1,11 +1,9 @@
 //! T3/T4: the shipped `agents/` library and `adapters/` data.
 //!
-//! The charters left three recipe directories with ZERO content change,
-//! which is a claim about bytes and is therefore checked as one: each
-//! charter is digested against the value recorded from the tree before
-//! the move. Two agents deliberately share a charter file — identical
-//! bytes, differing only in tools — so nothing is copied to make the
-//! roster look tidy.
+//! Each shared charter is pinned by digest. The witnesses were re-recorded
+//! when decision 0019's closing sweep changed their living prose. Two agents
+//! deliberately share a charter file — identical bytes, differing only in
+//! tools — so nothing is copied to make the roster look tidy.
 
 use std::path::PathBuf;
 
@@ -20,9 +18,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// The pre-move bytes of every charter, recorded from `bundles/self`,
-/// `recipes/panel-review` and `recipes/sdd` at the commit before the
-/// library existed.
+/// The current bytes of every shared charter.
 const CHARTERS: [(&str, &str); 14] = [
     (
         "chief-architect.md",
@@ -30,19 +26,19 @@ const CHARTERS: [(&str, &str); 14] = [
     ),
     (
         "implementer-speckit.md",
-        "3720b487fea0e433e23977c528e00cccc924fa667f1e22fa03176f2f3fb4bccc",
+        "87425568ebed546e09592abe2238cc163fe693843697f95c8689bf5a850e15c6",
     ),
     (
         "implementer.md",
-        "3c0e869efcd3c46c853c13c44fc9c1ff0d0a50df45194ab9e0a3019756443f77",
+        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
     ),
     (
         "intake-speckit.md",
-        "af6146544f8626e7c21d126088c465e3bf08c5b3c0844da650f692b022ef229c",
+        "1df8977a6972c28ca0ba9766c0bd50567f8880951ee3d13799207295faaa687c",
     ),
     (
         "intake.md",
-        "d27fd1983362c158af6b878942b6166482632cff43d23ebff72b55532c31aa9c",
+        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
     ),
     (
         "position-robustness.md",
@@ -78,7 +74,7 @@ const CHARTERS: [(&str, &str); 14] = [
     ),
     (
         "verifier.md",
-        "f209f559fbc7ae4a4371958e7a6c030f0f8f0742c2af35d02509600bccc31ee4",
+        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
 ];
 
@@ -120,7 +116,7 @@ fn adapters() -> Adapters {
 }
 
 #[test]
-fn the_charters_moved_without_changing_a_byte() {
+fn the_charter_bytes_match_their_recorded_identities() {
     let root = workspace().join("agents/charters");
     for (name, digest) in CHARTERS {
         let bytes = std::fs::read(root.join(name))

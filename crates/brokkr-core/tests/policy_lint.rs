@@ -1,7 +1,7 @@
 //! Loader-rejection suite: the Rust port of the retired oracle's
 //! `test_machine.py` lint cases (decision 0009). A malformed table
 //! refuses to LOAD; it never degrades into rules that silently stop
-//! matching (the forge-control.py typo incident, twice removed).
+//! matching (the heritage control-script typo incident, twice removed).
 
 use brokkr_core::policy::Machine;
 use serde_json::{json, Value};

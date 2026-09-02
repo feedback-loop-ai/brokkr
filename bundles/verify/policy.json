@@ -1,6 +1,6 @@
 {
   "schema": "forge.phase-machine/v1",
-  "description": "Verification bundle: the forge's verify and review agents examine an already-delivered change (named in the feature text). No implement, no ship — evidence in, ruling out. The constitutional review invariants hold: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass.",
+  "description": "Verification bundle: Brokkr's verify and review agents examine an already-delivered change (named in the feature text). No implement, no ship — evidence in, ruling out. The constitutional review invariants hold: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass.",
   "phases": ["verify", "review", "done", "stop"],
   "initial": "verify",
   "terminal": ["done", "stop"],

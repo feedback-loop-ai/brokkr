@@ -1,6 +1,6 @@
 # The constitution
 
-Every semantic change to the Forge is a numbered operator ruling, kept
+Every semantic change to Brokkr is a numbered operator ruling, kept
 here in full. The engine cites them by number in code, in error text and
 in the README, so a rule can always be read back to its reason. Only the
 operator accepts a decision; an implementer may only propose one.
@@ -38,13 +38,13 @@ in the PR record, not in this directory.
 | [0005](0005-self-forging-first-scope.md) | Self-forging first: the initial implementation scope | The first target is the smallest engine that can drive its own delivery, and what that deliberately leaves out. | accepted |
 | [0006](0006-bounded-attempts-and-deadlines.md) | Bounded automated attempts and seat deadlines | Per-seat attempt limits and deadlines; determinate failures retry, indeterminate outcomes always park. | accepted |
 | [0007](0007-input-provenance.md) | Input provenance: declared, engine-owned, or dropped | Every evaluation input is engine-computed or seat-declared; everything else is dropped before the table or the record sees it. | accepted |
-| [0008](0008-second-wave-scope.md) | Second wave: the 0005 deferrals, delivered and bounded | The deferred scope delivered slice by slice, each verified by the forge's own verify agents. | accepted |
+| [0008](0008-second-wave-scope.md) | Second wave: the 0005 deferrals, delivered and bounded | The deferred scope delivered slice by slice, each verified by Brokkr's own verify agents. | accepted |
 | [0009](0009-rust-only.md) | Rust only: the oracle retires, drivers move into the binary | The repository is Rust-only; the drivers become built-in adapters of the one binary. | accepted |
 | [0010](0010-composable-recipes.md) | Composable recipes: delivery strategies as swappable, comparable data | Recipes are a library — named, installable, swappable, comparable by run id. | accepted |
-| [0011](0011-standalone-identity.md) | Standalone identity: no origin, only heritage | The Forge is a standalone product; no document, string or comment references the workspace it came from. | accepted |
+| [0011](0011-standalone-identity.md) | Standalone identity: no origin, only heritage | Brokkr is a standalone product; no document, string or comment references the workspace it came from. | accepted |
 | [0012](0012-sealed-secret-bindings.md) | Sealed secret bindings: seats reference secrets, only the runner resolves them | Bundles and journals carry `{{secret:NAME}}` — names only; values live in an operator-side store and are masked on the way out. | accepted |
-| [0013](0013-one-derivation-two-surfaces.md) | One derivation, two surfaces: `forge-view` and the terminal readout | Every readout renders the same pure view models, so one question has one answer, tested once. | accepted |
-| [0014](0014-interactive-tui.md) | `forge tui`: an interactive, read-only console in the terminal | Keyboard navigation over the same derivation: three levels, no operator commands, nothing written to the journal. | accepted |
+| [0013](0013-one-derivation-two-surfaces.md) | One derivation, two surfaces: `brokkr-view` and the terminal readout | Every readout renders the same pure view models, so one question has one answer, tested once. | accepted |
+| [0014](0014-interactive-tui.md) | `brokkr tui`: an interactive, read-only console in the terminal | Keyboard navigation over the same derivation: three levels, no operator commands, nothing written to the journal. | accepted |
 | [0015](0015-run-selectors.md) | Run selectors: a prefix or `latest`, resolved in one place | `--run` takes any unique run-id prefix or `latest`, through one resolver shared by every readout. | proposed |
 | [0016](0016-agent-library.md) | The agent library: seats reference agents, adapters map them to providers | An agent is one file; a provider adapter is data; what a provider cannot express is written down and fails compilation. | accepted |
 | [0017](0017-composable-recipes.md) | Composable recipes: extend, override, and compose delivery strategies | `extends` plus explicit overrides, resolved at compile time into one flat bundle recorded in the run manifest. | accepted |

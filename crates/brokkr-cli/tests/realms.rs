@@ -119,7 +119,7 @@ impl Workspace {
 fn map_over(realm_path: &str) -> Value {
     json!({
         "schema": "forge.realms/v1",
-        "realms": [{"name": "the-forge", "path": realm_path, "default_branch": "main"}],
+        "realms": [{"name": "brokkr", "path": realm_path, "default_branch": "main"}],
         "journal": "state/world.db",
     })
 }
@@ -135,8 +135,8 @@ fn git(repo: &Path, args: &[&str]) {
 
 fn git_repo(repo: &Path) -> String {
     git(repo, &["init", "-q"]);
-    git(repo, &["config", "user.name", "Forge Test"]);
-    git(repo, &["config", "user.email", "forge@test"]);
+    git(repo, &["config", "user.name", "Brokkr Test"]);
+    git(repo, &["config", "user.email", "brokkr@test"]);
     git(repo, &["config", "commit.gpgSign", "false"]);
     std::fs::write(repo.join("file.txt"), "content").unwrap();
     git(repo, &["add", "."]);
@@ -164,7 +164,7 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     assert!(lines[0].ends_with("realms.json"), "{out}");
     // Paths print platform-native; the pin normalizes for the compare.
     assert_eq!(lines[1].replace('\\', "/"), "journal  ./state/world.db");
-    assert_eq!(lines[2], format!("realm    the-forge  realm  main  {head}"));
+    assert_eq!(lines[2], format!("realm    brokkr  realm  main  {head}"));
     assert_eq!(lines.len(), 3, "{out}");
 
     // `--json` is the same derivation, spelled for a script.
@@ -185,7 +185,7 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     assert_eq!(journal, "./state/world.db");
     assert_eq!(
         view["realms"],
-        json!([{"name": "the-forge", "path": "realm", "default_branch": "main",
+        json!([{"name": "brokkr", "path": "realm", "default_branch": "main",
                 "head": head, "journal": view["realms"][0]["journal"]}])
     );
 
@@ -486,11 +486,11 @@ fn the_repository_carries_the_bootstrap_map() {
         map,
         json!({
             "schema": "forge.realms/v1",
-            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "realms": [{"name": "brokkr", "path": ".", "default_branch": "main"}],
             "journal": ".forge/forge.db",
         })
     );
     let world = brokkr_runtime::World::load(&root.join("realms.json")).unwrap();
     assert_eq!(world.journal(), root.join(".forge/forge.db"));
-    assert_eq!(world.realm_for(&root).unwrap().name, "the-forge");
+    assert_eq!(world.realm_for(&root).unwrap().name, "brokkr");
 }

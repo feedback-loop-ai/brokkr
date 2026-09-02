@@ -1,6 +1,6 @@
 # Intake seat — frame the task
 
-You frame one feature request for the-forge repository so the implementer
+You frame one feature request for this repository so the implementer
 can start without re-deriving context. You change no production code.
 
 1. Read the feature description in your task block. Read `README.md`,

@@ -2,14 +2,14 @@ use super::*;
 
 const MAP: &str = r#"{
   "schema": "forge.realms/v1",
-  "realms": [{"name": "the-forge", "path": "the-forge", "default_branch": "main"}],
+  "realms": [{"name": "brokkr", "path": "brokkr", "default_branch": "main"}],
   "journal": "state/forge.db"
 }"#;
 
 /// A workspace with a map at its root and one realm directory under it.
 fn workspace(text: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("the-forge")).unwrap();
+    std::fs::create_dir(dir.path().join("brokkr")).unwrap();
     std::fs::write(dir.path().join("realms.json"), text).unwrap();
     dir
 }
@@ -30,13 +30,13 @@ fn a_loaded_world_resolves_its_journal_and_its_realms_against_the_map() {
     assert_eq!(world.journal(), dir.path().join("state/forge.db"));
     assert_eq!(
         world.path_of(&world.map.realms[0]),
-        dir.path().join("the-forge")
+        dir.path().join("brokkr")
     );
     assert_eq!(
         world.sha256,
         brokkr_core::canonical::sha256_hex(&world.content)
     );
-    assert!(format!("{world:?}").contains("the-forge"), "{world:?}");
+    assert!(format!("{world:?}").contains("brokkr"), "{world:?}");
 }
 
 /// An absolute path in a map is used as written — a world may name a
@@ -47,7 +47,7 @@ fn absolute_paths_in_a_map_are_left_alone() {
     let elsewhere = dir.path().join("elsewhere");
     let text = MAP
         .replace(
-            "\"path\": \"the-forge\"",
+            "\"path\": \"brokkr\"",
             &format!("\"path\": {:?}", elsewhere),
         )
         .replace(
@@ -105,7 +105,7 @@ fn a_workspace_with_no_map_discovers_no_world() {
     let dir = tempfile::tempdir().unwrap();
     assert!(World::discover(dir.path(), None).unwrap().is_none());
     let found = World::discover(workspace(MAP).path(), None).unwrap();
-    assert_eq!(found.unwrap().map.realms[0].name, "the-forge");
+    assert_eq!(found.unwrap().map.realms[0].name, "brokkr");
 }
 
 /// The realm a repository IS. A tree the map does not name gets no
@@ -115,13 +115,13 @@ fn a_workspace_with_no_map_discovers_no_world() {
 fn a_repository_is_the_realm_whose_path_it_is() {
     let dir = workspace(MAP);
     let world = World::load(&dir.path().join("realms.json")).unwrap();
-    let realm = world.realm_for(&dir.path().join("the-forge")).unwrap();
-    assert_eq!(realm.name, "the-forge");
+    let realm = world.realm_for(&dir.path().join("brokkr")).unwrap();
+    assert_eq!(realm.name, "brokkr");
     // The same tree named by a path that needs resolving.
-    let indirect = dir.path().join("the-forge/../the-forge");
+    let indirect = dir.path().join("brokkr/../brokkr");
     assert_eq!(
         world.realm_for(&indirect).map(|r| r.name.as_str()),
-        Some("the-forge")
+        Some("brokkr")
     );
     assert!(world.realm_for(&dir.path().join("stranger")).is_none());
     assert!(format!("{realm:?}").contains("main"), "{realm:?}");
@@ -137,9 +137,9 @@ fn a_realm_whose_tree_is_not_there_yet_still_compares() {
     let world = World::load(&dir.path().join("realms.json")).unwrap();
     assert_eq!(
         world
-            .realm_for(&dir.path().join("the-forge"))
+            .realm_for(&dir.path().join("brokkr"))
             .map(|realm| realm.name.as_str()),
-        Some("the-forge")
+        Some("brokkr")
     );
 }
 
@@ -174,14 +174,14 @@ fn a_run_reads_its_world_back_out_of_its_own_manifest() {
     assert_eq!(rehydrated.sha256, world.sha256);
     assert_eq!(rehydrated.content, world.content);
     assert_eq!(rehydrated.source, world.source);
-    assert_eq!(rehydrated.map.realms[0].name, "the-forge");
+    assert_eq!(rehydrated.map.realms[0].name, "brokkr");
     // And it resolves like the world it came from: the source path is
     // pinned too, so the realm the repository IS still answers.
     assert_eq!(
         rehydrated
-            .realm_for(&dir.path().join("the-forge"))
+            .realm_for(&dir.path().join("brokkr"))
             .map(|realm| realm.name.as_str()),
-        Some("the-forge")
+        Some("brokkr")
     );
 
     // A manifest with no pin is a run that had no world — not an error.
@@ -234,10 +234,10 @@ fn a_pin_that_cannot_answer_for_itself_is_refused() {
 const MANY: &str = r#"{
   "schema": "forge.realms/v2",
   "realms": [
-    {"name": "alpha", "path": "the-forge", "default_branch": "main", "journal": "a/forge.db"},
-    {"name": "beta", "path": "the-forge", "default_branch": "main", "journal": "b/forge.db"},
-    {"name": "gamma", "path": "the-forge", "default_branch": "main"},
-    {"name": "delta", "path": "the-forge", "default_branch": "main", "journal": "b/forge.db"}
+    {"name": "alpha", "path": "brokkr", "default_branch": "main", "journal": "a/forge.db"},
+    {"name": "beta", "path": "brokkr", "default_branch": "main", "journal": "b/forge.db"},
+    {"name": "gamma", "path": "brokkr", "default_branch": "main"},
+    {"name": "delta", "path": "brokkr", "default_branch": "main", "journal": "b/forge.db"}
   ],
   "journal": "state/forge.db"
 }"#;
@@ -307,7 +307,7 @@ fn a_v1_world_is_one_hearth_carrying_the_journal_it_always_had() {
     let hearths = world.hearths();
     assert_eq!(hearths.len(), 1);
     assert_eq!(hearths[0].journal, world.journal());
-    assert_eq!(hearths[0].label(), "the-forge");
+    assert_eq!(hearths[0].label(), "brokkr");
 }
 
 /// The degenerate many-hearth case: a v2 map whose one realm names the
@@ -317,7 +317,7 @@ fn a_v2_realm_naming_the_worlds_own_journal_adds_no_hearth() {
     let dir = workspace(
         r#"{
   "schema": "forge.realms/v2",
-  "realms": [{"name": "solo", "path": "the-forge", "default_branch": "main",
+  "realms": [{"name": "solo", "path": "brokkr", "default_branch": "main",
               "journal": "state/forge.db"}],
   "journal": "state/forge.db"
 }"#,

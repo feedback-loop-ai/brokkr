@@ -55,8 +55,8 @@ impl Workspace {
             "adapters/absent.json",
             json!({
                 "provider": "absent",
-                "binary": "forge-absent-driver",
-                "driver": ["forge-absent-driver-that-is-not-installed"],
+                "binary": "brokkr-absent-driver",
+                "driver": ["brokkr-absent-driver-that-is-not-installed"],
                 "models": {"first": "absent/first"},
                 "model_flag": "--model",
                 "tool_permissions": "unsupported",
@@ -272,8 +272,8 @@ fn exhausting_the_bound_parks_with_the_last_error() {
     ws.write("adapters/absent2.json", {
         let mut second = json!({
             "provider": "absent2",
-            "binary": "forge-absent-driver",
-            "driver": ["forge-absent-driver-that-is-not-installed-either"],
+            "binary": "brokkr-absent-driver",
+            "driver": ["brokkr-absent-driver-that-is-not-installed-either"],
             "models": {"third": "absent2/third"},
             "model_flag": "--model",
             "tool_permissions": "unsupported",
@@ -432,7 +432,7 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
         .find_map(|event| event["payload"]["provenance"].as_array().cloned())
         .expect("the sequence attempt carries provenance");
     // Exactly one record: the inline `exec` step contributes none,
-    // because it names no agent and the forge does not invent one for it.
+    // because it names no agent and the machine does not invent one for it.
     assert_eq!(provenance.len(), 1);
     assert_eq!(provenance[0]["member"], "think");
     assert_eq!(provenance[0]["agent"], "thinker");

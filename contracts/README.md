@@ -8,19 +8,19 @@ nothing implements a private variant.
 
 | Contract | File | Consumers |
 |---|---|---|
-| Event envelope | `event-envelope.v1.schema.json` | forge-core, forge-store, export/verify |
-| Event vocabulary + fold semantics | this file, below | forge-core |
-| Driver protocol | `driver-protocol.v1.schema.json` | forge-protocol, every driver |
-| Run manifest | `run-manifest.v1.schema.json` | forge-store, resume, verify-run |
-| Evaluator behavior | `../fixtures/evaluator/corpus.ndjson` | forge-core differential tests |
+| Event envelope | `event-envelope.v1.schema.json` | brokkr-core, brokkr-store, export/verify |
+| Event vocabulary + fold semantics | this file, below | brokkr-core |
+| Driver protocol | `driver-protocol.v1.schema.json` | brokkr-protocol, every driver |
+| Run manifest | `run-manifest.v1.schema.json` | brokkr-store, resume, verify-run |
+| Evaluator behavior | `../fixtures/evaluator/corpus.ndjson` | brokkr-core differential tests |
 
 The v1 files above remain frozen. Looper-bound delivery adds, without changing
 those bytes:
 
 | Contract | File | Consumers |
 |---|---|---|
-| Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, forge-core, Forge bridge |
-| Looper-bound run manifest | `run-manifest.v2.schema.json` | forge-runtime, forge-store export/resume, Forge bridge |
+| Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
+| Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -33,8 +33,8 @@ The agent library (decision 0016) adds, again without changing frozen bytes:
 
 | Contract | File | Consumers |
 |---|---|---|
-| Run manifest with pinned agent resolution | `run-manifest.v3.schema.json` | forge-runtime, forge-store export/resume |
-| Effect provenance payload extension | `effect-provenance.v1.schema.json` | forge-runtime, forge-view, every readout |
+| Run manifest with pinned agent resolution | `run-manifest.v3.schema.json` | brokkr-runtime, brokkr-store export/resume |
+| Effect provenance payload extension | `effect-provenance.v1.schema.json` | brokkr-runtime, brokkr-view, every readout |
 
 **Two lineages, not one line.** `run-manifest.v1` → `v3` is the local lineage:
 v3 is v1's bytes plus one optional `agents` property, absent when no seat
@@ -52,8 +52,8 @@ Realms (decision 0023) add two more files and change none of the bytes above:
 
 | Contract | File | Consumers |
 |---|---|---|
-| The world's map | `realms.v1.schema.json` | forge-core (shape), forge-runtime (loading), every read surface |
-| Run manifest with the world pinned | `run-manifest.v4.schema.json` | forge-runtime, forge-store export/resume |
+| The world's map | `realms.v1.schema.json` | brokkr-core (shape), brokkr-runtime (loading), every read surface |
+| Run manifest with the world pinned | `run-manifest.v4.schema.json` | brokkr-runtime, brokkr-store export/resume |
 
 `forge.realms/v1` is the minimal shape decision 0023 ruled: the `realms` —
 each a name, a path and a default branch — and the world's `journal`. The
@@ -79,7 +79,7 @@ frozen five:
 
 | Contract | File | Consumers |
 |---|---|---|
-| The world's map, with per-realm journals | `realms.v2.schema.json` | forge-core (shape), forge-runtime (hearths), every fleet read surface |
+| The world's map, with per-realm journals | `realms.v2.schema.json` | brokkr-core (shape), brokkr-runtime (hearths), every fleet read surface |
 
 `forge.realms/v2` is `v1` plus exactly one optional property per realm:
 `journal`. A realm that names none falls back to the world's journal, which is
@@ -167,7 +167,7 @@ above:
 
 | Contract | File | Consumers |
 |---|---|---|
-| Phase-machine table with the rule-driven park | `phase-machine.v2.schema.json` | forge-core, every bundle that parks by rule |
+| Phase-machine table with the rule-driven park | `phase-machine.v2.schema.json` | brokkr-core, every bundle that parks by rule |
 
 `forge.phase-machine/v2` is `v1` plus exactly one thing: a rule may rule a
 PARK instead of naming a `next` phase. The event vocabulary needs nothing —
@@ -274,7 +274,7 @@ remedy ii) adds one more file and changes none of the bytes above:
 
 | Contract | File | Consumers |
 |---|---|---|
-| Run manifest with the authorising adapters pinned | `run-manifest.v5.schema.json` | forge-runtime, forge-store export/resume |
+| Run manifest with the authorising adapters pinned | `run-manifest.v5.schema.json` | brokkr-runtime, brokkr-store export/resume |
 
 `run-manifest.v5` is `v4` plus one optional `drivers` property: invocation
 site → driver name → the sha256 of the adapter declaration that authorised an

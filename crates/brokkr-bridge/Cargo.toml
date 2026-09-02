@@ -1,6 +1,6 @@
 [package]
 name = "brokkr-bridge"
-description = "Authenticated Looper producer bridge over verified Forge journals."
+description = "Authenticated Looper producer bridge over verified Brokkr journals."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

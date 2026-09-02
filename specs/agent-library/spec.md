@@ -308,7 +308,7 @@ failure naming agent, provider and capability.
 Matching is **per named item, never per class**: "provider supports MCP"
 does not satisfy "agent needs the `github` MCP server". Otherwise the
 agent runs, finds no tools, and reports a *content* failure for a
-*configuration* cause — the forge diagnosing itself wrong, which
+*configuration* cause — the machine diagnosing itself wrong, which
 decision 0001 exists to prevent.
 
 And the checks run over **every candidate in the chain, not just the
@@ -489,7 +489,7 @@ wearing the opposite mask.
    The third — a driver that exits without accepting and without a
    determinate result — is `AttemptOutcome::Indeterminate` today
    (`process.rs:158` → `fold.rs:275`), and decision 0003 rules that it
-   parks because the forge cannot distinguish "did nothing" from
+   parks because the machine cannot distinguish "did nothing" from
    "already opened a billed session". Reclassifying it to satisfy 0016
    would make an indeterminate-shaped condition auto-retry behind a
    feature flag — a bound that applies "unless a new feature is in

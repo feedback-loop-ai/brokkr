@@ -4584,7 +4584,7 @@ fn a_switch_out_of_range_or_to_the_open_tab_moves_nothing() {
 fn a_one_hearth_world_draws_no_tab_bar_and_binds_no_tab_key() {
     let views = views();
     let plain = frame_of(&Tui::new(None), &views, 100, 20);
-    for tabs in [Vec::new(), vec!["the-forge"]] {
+    for tabs in [Vec::new(), vec!["brokkr"]] {
         let mut tui = tabbed_tui(&tabs);
         assert_eq!(frame_of(&tui, &views, 100, 20), plain, "{tabs:?}");
         assert_eq!(

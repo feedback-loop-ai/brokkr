@@ -33,7 +33,7 @@
 //! - Matching is per NAMED item. "The provider supports MCP" does not
 //!   satisfy "the agent needs the `github` server"; otherwise the agent
 //!   runs, finds no tools, and reports a content failure for a
-//!   configuration cause — the forge diagnosing itself wrong, which
+//!   configuration cause — the machine diagnosing itself wrong, which
 //!   decision 0001 exists to prevent.
 
 use std::collections::BTreeMap;

@@ -254,12 +254,12 @@ fn the_committed_fixture_journal_folds_exactly_as_it_did() {
         if let Some(recorded) = event.payload.pointer("/inputs/reviewed_heads") {
             let unkeyed = recorded.get("repo").and_then(Value::as_str);
             assert_eq!(recorded_head(recorded, None), unkeyed);
-            assert_eq!(recorded_head(recorded, Some("the-forge")), unkeyed);
+            assert_eq!(recorded_head(recorded, Some("brokkr")), unkeyed);
         }
     }
     let era = json!({"repo": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"});
     assert_eq!(
-        recorded_head(&era, Some("the-forge")),
+        recorded_head(&era, Some("brokkr")),
         era["repo"].as_str(),
         "an unkeyed head still answers for the realm the run works in"
     );

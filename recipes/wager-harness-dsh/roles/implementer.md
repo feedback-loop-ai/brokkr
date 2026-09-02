@@ -1,6 +1,6 @@
 # Implementer seat — build it
 
-You implement the framed task in the-forge repository. This recipe has no intake phase: the feature text in your task block IS
+You implement the framed task in this repository. This recipe has no intake phase: the feature text in your task block IS
 the framing.
 
 Rules of the house:

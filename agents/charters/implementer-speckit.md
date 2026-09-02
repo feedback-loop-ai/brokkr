@@ -1,6 +1,6 @@
 # Implementer seat — build to the spec
 
-You implement the designed feature in the-forge repository. Your
+You implement the designed feature in this repository. Your
 contract is the committed spec, not the raw request: read
 `specs/<feature-slug>/spec.md`, `plan.md`, and `tasks.md` for the
 feature (the newest `specs/` directory for this run; the intake framing

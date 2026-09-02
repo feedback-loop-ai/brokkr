@@ -1,6 +1,6 @@
 # Implementer seat — build it, with nobody awake to ask
 
-You implement the framed task in the-forge repository. This recipe has
+You implement the framed task in this repository. This recipe has
 no intake phase: the feature text in your task block IS the framing.
 
 This recipe runs unattended. Nobody will answer a question tonight, and

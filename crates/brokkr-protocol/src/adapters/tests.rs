@@ -345,7 +345,7 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         "closed-stdin",
         "#!/bin/sh\nexec 0<&-\nsleep 0.1\n",
     );
-    let prior_claude = std::env::var_os("FORGE_CLAUDE_BIN");
+    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
     let prior_codex = std::env::var_os("FORGE_CODEX_BIN");
     // Codex is pinned here through its OLD spelling, which the new one
     // outranks (decision 0019): an inherited BROKKR_CODEX_BIN would
@@ -354,7 +354,7 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
     std::env::remove_var("BROKKR_CODEX_BIN");
 
     for (kind, variable) in [
-        (AdapterKind::Claude, "FORGE_CLAUDE_BIN"),
+        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
         (AdapterKind::Codex, "FORGE_CODEX_BIN"),
     ] {
         std::env::set_var(variable, &invalid);
@@ -370,8 +370,8 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
     }
 
     match prior_claude {
-        Some(value) => std::env::set_var("FORGE_CLAUDE_BIN", value),
-        None => std::env::remove_var("FORGE_CLAUDE_BIN"),
+        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
     }
     match prior_codex {
         Some(value) => std::env::set_var("FORGE_CODEX_BIN", value),
@@ -379,6 +379,45 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
     }
     if let Some(value) = prior_brokkr_codex {
         std::env::set_var("BROKKR_CODEX_BIN", value);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn claude_and_lanetally_accept_their_one_release_legacy_overrides() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "legacy-override",
+        "#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\"}\\n'\n",
+    );
+
+    for (kind, primary, legacy) in [
+        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN", "FORGE_CLAUDE_BIN"),
+        (
+            AdapterKind::Lanetally,
+            "BROKKR_LANETALLY_BIN",
+            "FORGE_LANETALLY_BIN",
+        ),
+    ] {
+        let prior_primary = std::env::var_os(primary);
+        let prior_legacy = std::env::var_os(legacy);
+        std::env::remove_var(primary);
+        std::env::set_var(legacy, &shim);
+
+        let invocation = invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {})
+            .expect("the legacy override must select the shim");
+        assert_eq!(invocation.exit_code, 0);
+
+        match prior_primary {
+            Some(value) => std::env::set_var(primary, value),
+            None => std::env::remove_var(primary),
+        }
+        match prior_legacy {
+            Some(value) => std::env::set_var(legacy, value),
+            None => std::env::remove_var(legacy),
+        }
     }
 }
 
@@ -404,10 +443,10 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
         "input": {"workdir": dir.path(), "result_path": result,
                   "allowed_results": ["complete"]}
     });
-    let prior_lanetally = std::env::var_os("FORGE_LANETALLY_BIN");
-    let prior_claude = std::env::var_os("FORGE_CLAUDE_BIN");
-    std::env::set_var("FORGE_LANETALLY_BIN", &shim);
-    std::env::set_var("FORGE_CLAUDE_BIN", &shim);
+    let prior_lanetally = std::env::var_os("BROKKR_LANETALLY_BIN");
+    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
+    std::env::set_var("BROKKR_LANETALLY_BIN", &shim);
+    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
     let mut bodies = Vec::new();
     run_seat(AdapterKind::Lanetally, &[], &start, None, &mut |b| {
         bodies.push(b)
@@ -416,12 +455,12 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
         bodies.push(b)
     });
     match prior_lanetally {
-        Some(value) => std::env::set_var("FORGE_LANETALLY_BIN", value),
-        None => std::env::remove_var("FORGE_LANETALLY_BIN"),
+        Some(value) => std::env::set_var("BROKKR_LANETALLY_BIN", value),
+        None => std::env::remove_var("BROKKR_LANETALLY_BIN"),
     }
     match prior_claude {
-        Some(value) => std::env::set_var("FORGE_CLAUDE_BIN", value),
-        None => std::env::remove_var("FORGE_CLAUDE_BIN"),
+        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
     }
     let finished: Vec<&Value> = bodies
         .iter()

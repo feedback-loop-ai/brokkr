@@ -415,7 +415,7 @@ fn one_hearth_groups_to_the_same_rows_run_rows_derives() {
     }];
     let flat = serde_json::to_value(run_rows(&entries)).unwrap();
     let grouped = serde_json::to_value(fleet_rows(&[HearthEntries {
-        realm: "the-forge",
+        realm: "brokkr",
         journal: "j.db",
         entries: &entries,
         detail: None,
@@ -2178,7 +2178,7 @@ fn provenance_is_derived_once_and_names_a_fallback_as_one() {
     assert!(provenance.line.contains("not the agent's first choice"));
 }
 
-/// A first-choice selection reads as a plain statement — the forge does
+/// A first-choice selection reads as a plain statement — Brokkr does
 /// not decorate what it did not have to fall back from.
 #[test]
 fn a_first_choice_selection_carries_no_fallback_language() {

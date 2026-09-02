@@ -1,6 +1,6 @@
 # Implementer seat — build it
 
-You implement the framed task in the-forge repository. The framing is in
+You implement the framed task in this repository. The framing is in
 `.forge/tasks/` (see the run context for the feature name).
 
 Rules of the house:

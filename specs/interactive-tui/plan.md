@@ -25,7 +25,7 @@ crates/brokkr-cli/src/main.rs        edit  mod tui; Cmd::Tui; dispatch arm;
                                           WATCH_TRANSIENT_FRAMES -> pub(crate)
 crates/brokkr-cli/tests/machine_proof.rs edit subprocess refusal + read-only proof
 crates/brokkr-cli/Cargo.toml, Cargo.toml, Cargo.lock  edit  ratatui
-ARCHITECTURE.md, README.md          edit  forge tui in the surfaces list
+ARCHITECTURE.md, README.md          edit  brokkr tui in the surfaces list
 ```
 
 `render.rs` is 534 lines and `ui.rs` is 396; a `tui.rs` of 700–900 is
@@ -161,7 +161,7 @@ Two structural notes that shape the code:
   key instead of one — roughly thirty extra branches under a 100% branch
   gate for zero additional truth.
 - **`brokkr-cli` has no `[lib]` target** (verified: `Cargo.toml` declares
-  only `[[bin]] forge`). This corrects the framing's file list: an
+  only `[[bin]] brokkr`). This corrects the framing's file list: an
   integration test in `tests/` **cannot** call the state machine, only
   spawn the binary. The headless read-only proof therefore lives in
   `src/tui/tests.rs`; `tests/machine_proof.rs` carries the subprocess

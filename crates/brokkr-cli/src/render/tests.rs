@@ -259,14 +259,14 @@ fn a_many_hearth_fleet_lists_each_realm_under_its_own_heading() {
 #[test]
 fn a_hearths_section_is_the_listing_runs_already_prints() {
     let one = brokkr_view::fleet_rows(&[brokkr_view::HearthEntries {
-        realm: "the-forge",
+        realm: "brokkr",
         journal: "j.db",
         entries: &[],
         detail: None,
     }]);
     assert_eq!(
         fleet(&one, NOW, &Style::plain(80)),
-        "the-forge · 0 runs · j.db\n"
+        "brokkr · 0 runs · j.db\n"
     );
     let flat = runs(&runs_view(), NOW, &Style::plain(80));
     let grouped = fleet(&fleet_view(), NOW, &Style::plain(80));

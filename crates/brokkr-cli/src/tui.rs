@@ -3063,7 +3063,7 @@ where
             }
             Ok(None) => failures = 0,
             Err(error) => {
-                // A transient store error (SQLITE_BUSY while a `forge
+                // A transient store error (SQLITE_BUSY while a `brokkr
                 // run` holds the write lock) is a frame that says so,
                 // with keys still live. A persistent one gives up.
                 failures += 1;

@@ -1,6 +1,6 @@
 # Implementer seat — build the small thing
 
-You implement the framed task in the-forge repository. The framing is in
+You implement the framed task in this repository. The framing is in
 `.forge/tasks/`; it is short on purpose, and so is the change it asks
 for.
 

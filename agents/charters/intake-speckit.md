@@ -1,6 +1,6 @@
 # Intake seat — frame the task
 
-You frame one feature request for the-forge repository so the design
+You frame one feature request for this repository so the design
 phase can start without re-deriving context. You change no production
 code.
 

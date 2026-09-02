@@ -3,7 +3,7 @@ use serde_json::json;
 
 const MAP: &str = r#"{
   "schema": "forge.realms/v1",
-  "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+  "realms": [{"name": "brokkr", "path": ".", "default_branch": "main"}],
   "journal": ".forge/forge.db"
 }"#;
 
@@ -30,7 +30,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
         RealmMap {
             schema: SCHEMA_V1.to_string(),
             realms: vec![Realm {
-                name: "the-forge".to_string(),
+                name: "brokkr".to_string(),
                 path: ".".to_string(),
                 default_branch: "main".to_string(),
                 journal: None,
@@ -42,7 +42,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
     // in a run manifest — the digest is over exactly these bytes.
     assert_eq!(content, serde_json::from_str::<Value>(MAP).unwrap());
     // And the parts print for evidence, plainly.
-    assert!(format!("{map:?}").contains("the-forge"), "{map:?}");
+    assert!(format!("{map:?}").contains("brokkr"), "{map:?}");
 }
 
 /// Re-indenting a map, or writing its keys in another order, is not a
@@ -52,7 +52,7 @@ fn the_content_digest_ignores_formatting_but_not_facts() {
     let (_, content) = RealmMap::parse("realms.json", MAP).unwrap();
     let (_, reordered) = RealmMap::parse(
         "realms.json",
-        r#"{"journal":".forge/forge.db","realms":[{"default_branch":"main","path":".","name":"the-forge"}],"schema":"forge.realms/v1"}"#,
+        r#"{"journal":".forge/forge.db","realms":[{"default_branch":"main","path":".","name":"brokkr"}],"schema":"forge.realms/v1"}"#,
     )
     .unwrap();
     assert_eq!(
@@ -112,12 +112,12 @@ fn a_map_with_nothing_in_it_is_refused() {
 /// later inside somebody's evidence.
 #[test]
 fn a_realm_name_that_could_not_be_read_back_is_refused() {
-    for bad in ["", "The-Forge", "the forge", "-lead"] {
+    for bad in ["", "Brokkr-Realm", "brokkr realm", "-lead"] {
         let refusal = with(|map| map["realms"][0]["name"] = json!(bad));
         assert!(refusal.contains("is named"), "{bad}: {refusal}");
         assert!(refusal.contains("realm 0"), "{bad}: {refusal}");
     }
-    for good in ["the-forge", "9lives", "a.b_c", "lane2"] {
+    for good in ["brokkr", "9lives", "a.b_c", "lane2"] {
         let mut map: Value = serde_json::from_str(MAP).unwrap();
         map["realms"][0]["name"] = json!(good);
         RealmMap::parse("realms.json", &map.to_string())
@@ -128,10 +128,10 @@ fn a_realm_name_that_could_not_be_read_back_is_refused() {
 #[test]
 fn a_realm_missing_a_path_or_a_branch_is_refused() {
     let path = with(|map| map["realms"][0]["path"] = json!(""));
-    assert!(path.contains("realm 'the-forge' has no path"), "{path}");
+    assert!(path.contains("realm 'brokkr' has no path"), "{path}");
     let branch = with(|map| map["realms"][0]["default_branch"] = json!(" "));
     assert!(
-        branch.contains("realm 'the-forge' has no default branch"),
+        branch.contains("realm 'brokkr' has no default branch"),
         "{branch}"
     );
 }
@@ -142,8 +142,8 @@ fn a_realm_missing_a_path_or_a_branch_is_refused() {
 fn a_name_used_twice_is_refused() {
     let refusal = with(|map| {
         map["realms"] = json!([
-            {"name": "the-forge", "path": "a", "default_branch": "main"},
-            {"name": "the-forge", "path": "b", "default_branch": "main"},
+            {"name": "brokkr", "path": "a", "default_branch": "main"},
+            {"name": "brokkr", "path": "b", "default_branch": "main"},
         ]);
     });
     assert!(refusal.contains("is named twice"), "{refusal}");
@@ -257,13 +257,13 @@ fn v2_holds_every_v1_rule() {
 fn a_head_recorded_before_any_map_is_still_the_head() {
     let legacy = json!({LEGACY_REALM_KEY: "abc"});
     assert_eq!(recorded_head(&legacy, None), Some("abc"));
-    assert_eq!(recorded_head(&legacy, Some("the-forge")), Some("abc"));
+    assert_eq!(recorded_head(&legacy, Some("brokkr")), Some("abc"));
 }
 
 #[test]
 fn a_head_recorded_under_a_realm_answers_to_that_realm() {
-    let keyed = json!({"the-forge": "abc", "other": "def"});
-    assert_eq!(recorded_head(&keyed, Some("the-forge")), Some("abc"));
+    let keyed = json!({"brokkr": "abc", "other": "def"});
+    assert_eq!(recorded_head(&keyed, Some("brokkr")), Some("abc"));
     assert_eq!(recorded_head(&keyed, Some("other")), Some("def"));
     // Several realms and no name to ask by: nothing is guessed.
     assert_eq!(recorded_head(&keyed, None), None);
@@ -278,8 +278,8 @@ fn a_head_recorded_under_a_realm_answers_to_that_realm() {
 /// own manifest pin, so the reader knows the name to ask by.
 #[test]
 fn a_realm_keyed_head_answers_to_its_realm_alone() {
-    let one = json!({"the-forge": "abc"});
-    assert_eq!(recorded_head(&one, Some("the-forge")), Some("abc"));
+    let one = json!({"brokkr": "abc"});
+    assert_eq!(recorded_head(&one, Some("brokkr")), Some("abc"));
     assert_eq!(recorded_head(&one, None), None);
     assert_eq!(recorded_head(&one, Some("elsewhere")), None);
 }
@@ -288,9 +288,6 @@ fn a_realm_keyed_head_answers_to_its_realm_alone() {
 fn a_record_that_is_not_a_head_map_answers_nothing() {
     assert_eq!(recorded_head(&json!("abc"), None), None);
     assert_eq!(recorded_head(&json!({}), None), None);
-    assert_eq!(
-        recorded_head(&json!({"the-forge": 7}), Some("the-forge")),
-        None
-    );
-    assert_eq!(recorded_head(&json!({"the-forge": 7}), None), None);
+    assert_eq!(recorded_head(&json!({"brokkr": 7}), Some("brokkr")), None);
+    assert_eq!(recorded_head(&json!({"brokkr": 7}), None), None);
 }

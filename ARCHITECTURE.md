@@ -250,7 +250,7 @@ decision 0016's mid-session boundary is unreachable-by-construction
 rather than a comment, and the chain index is derived by scanning the
 effect's own events so a restart cannot change which model runs next.
 
-## Verification is layered, and the forge verifies itself
+## Verification is layered, and Brokkr verifies itself
 
 - **Differential corpus**: the evaluator's behavior is pinned by a
   frozen 97-case corpus ([fixtures/](fixtures/)) — contract data, never
@@ -266,7 +266,7 @@ effect's own events so a restart cannot change which model runs next.
   along, non-removable), and ship through a two-step gate where
   `shipped` is the sole entry into `done`; the operator keeps push and
   merge authority.
-- **Forge-verification**: `bundles/verify` is a two-seat bundle (verify
+- **Brokkr verification**: `bundles/verify` is a two-seat bundle (verify
   + strictly read-only review) that examines an already-delivered
   change named in its feature text. Its rulings are journaled runs like
   any other — and it has hard-stopped its own author's work on a real

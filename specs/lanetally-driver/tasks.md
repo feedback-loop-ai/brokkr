@@ -9,7 +9,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
 - [x] **T1 — `AdapterKind::Lanetally` in
   `crates/brokkr-protocol/src/adapters.rs`.** Variant; `parse("lanetally")`;
   `driver_name() = "claude-lanetally"`; module doc comment env list
-  gains `FORGE_LANETALLY_BIN`.
+  gains `BROKKR_LANETALLY_BIN`.
   *Proven by*: AC-1 unit tests beside the code (parse row, name row)
   and the `adapters_name_themselves…` row (T6).
 - [x] **T2 — Factor `invoke_stream_json`.** Move the
@@ -20,10 +20,11 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   body); the claude arm becomes a one-liner.
   *Proven by*: AC-3 — the existing claude conformance assertions pass
   literally unedited (the regression guard on the factoring).
-- [x] **T3 — The lanetally arm.** One-liner calling the helper with
-  `adapter_binary("FORGE_LANETALLY_BIN", "claude-lanetally")`.
+- [x] **T3 — The lanetally arm.** Call the helper with
+  `BROKKR_LANETALLY_BIN` as the primary override, the one-release legacy
+  argument, and `claude-lanetally` as the executable fallback.
   *Proven by*: AC-2 and AC-4 — the obedient battery leg (T6) drives it
-  through `FORGE_LANETALLY_BIN` pointed at the scripted stand-in.
+  through `BROKKR_LANETALLY_BIN` pointed at the scripted stand-in.
 - [x] **T4 — The `capture` constant in `run_seat`.** Kind-guarded
   insert of `capture: "lanetally"` immediately AFTER
   `checkpoint.extend(invocation.session_meta)` (:633-639) — a source
@@ -31,8 +32,8 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-5 — the adversarial `"capture":"evil"` shim leg (T7)
   and the claude `finished.get("capture").is_none()` negative
   assertion; plus a unit test on the insert-after-extend ordering.
-- [x] **T5 — Pin `FORGE_LANETALLY_BIN` in `drive()`.** Unconditional
-  `.env("FORGE_LANETALLY_BIN", shim)` beside the three siblings
+- [x] **T5 — Pin `BROKKR_LANETALLY_BIN` in `drive()`.** Unconditional
+  `.env("BROKKR_LANETALLY_BIN", shim)` beside the three siblings
   (`driver_conformance.rs:92-94`), in the same commit as the first
   lanetally test.
   *Proven by*: AC-6 — no conformance test can spawn a real
@@ -72,7 +73,7 @@ numbers (AC-n) refer to spec.md's `## Acceptance Criteria`.
   *Proven by*: AC-9 — a CLI test asserting both strings list it.
 - [x] **T11 — Doctor row in `crates/brokkr-cli/src/doctor.rs`.** Probe
   tuple grows an optional hint; the `claude-lanetally` warning names
-  `~/.local/bin/claude-lanetally` and the `FORGE_LANETALLY_BIN`
+  `~/.local/bin/claude-lanetally` and the `BROKKR_LANETALLY_BIN`
   override; the four existing warning strings stay byte-identical.
   *Proven by*: AC-10 — `doctor/tests.rs`: missing→warning-with-path,
   present→ok, existing-warnings-unchanged.

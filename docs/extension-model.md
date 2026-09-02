@@ -15,7 +15,7 @@ A **phase** is a node in `policy/phase-machine.json` plus a registered
 
 1. A table diff: the new phase in `phases`, its rules spliced into the
    ordered rule list (deny rules first), reviewed like any policy change.
-2. An executor definition in the pinned Forge bundle. It names a declarative
+2. An executor definition in the pinned Brokkr bundle. It names a declarative
    inner topology and its result schema. Executable leaf capabilities run out
    of process through `forge-driver/v1`, so an extension can use any language
    without entering the authoritative process.
@@ -87,7 +87,7 @@ content with stable ids and content digests, not imported executable plugins.
 
 2. **The production extension boundary is declarative data plus isolated
    drivers** — ruled 2026-08-22, see
-   [decision 0003](decisions/0003-native-rust-runtime.md). Forge ships as one
+   [decision 0003](decisions/0003-native-rust-runtime.md). Brokkr ships as one
    native Rust executable. Third-party harness code speaks a versioned
    protocol out of process; containers are optional seat isolation.
 
@@ -96,7 +96,7 @@ content with stable ids and content digests, not imported executable plugins.
    loops, gates, tools, and nested machines. They emit one schema-bound result
    to the linear outer FSM.
 
-4. **Seat identity belongs to the pinned Forge bundle** — every seat has a
+4. **Seat identity belongs to the pinned Brokkr bundle** — every seat has a
    stable id used by the journal, driver protocol, and LaneTally joins.
    LaneTally owns cost and funding truth, not orchestration identity.
 

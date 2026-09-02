@@ -214,7 +214,7 @@ fn git(cwd: &Path, args: &[&str]) {
     let out = Command::new("git")
         .args([
             "-c",
-            "user.email=forge@test",
+            "user.email=brokkr@test",
             "-c",
             "user.name=forge",
             "-c",

@@ -209,7 +209,7 @@ fn doctor_with_probe(
         // own: a bundle's compile now reads the adapter data for
         // decision 0021's refusals as well as for agent resolution, and
         // doctor reporting on one tree while compiling against another
-        // would be the forge diagnosing itself wrong.
+        // would be the machine diagnosing itself wrong.
         match Bundle::compile_with(dir, library_root, adapters_root) {
             Ok(bundle) => report.ok(
                 "bundle",

@@ -1,4 +1,4 @@
-//! Strict policy evaluation — the Rust port of `src/forge/machine.py`
+//! Strict policy evaluation — the Rust port of the heritage Python machine
 //! under decisions 0001/0002/0004, differential-tested against the
 //! committed oracle corpus (`fixtures/evaluator/corpus.ndjson`).
 //!
@@ -18,7 +18,7 @@ use thiserror::Error;
 /// vocabulary of `max_residual_severity`. Distinct from ruling severity.
 pub const SEVERITY_ORDER: [&str; 6] = ["none", "info", "low", "medium", "high", "critical"];
 
-/// Ruling severity axis — the forge.phase-event/v1 vocabulary.
+/// Ruling severity axis — the phase-event/v1 vocabulary.
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 
 /// The table format this evaluator reads. `v2` adds exactly one thing to

@@ -42,8 +42,9 @@ fn workspace() -> PathBuf {
 /// compile-time refusals moved both again, because every seat in them
 /// now declares whether it works or judges, and once more because their
 /// inline gates now pin the adapter declaration that authorises them),
+/// or decision 0019's closing sweep moved living role or policy prose,
 /// or the byte identity this slice promised to keep. Never a silent
-/// fourth thing.
+/// extra thing.
 ///
 /// `recipes/node` joined them when the Node reference recipe landed,
 /// pinned from its first compile: it ships as reference material a
@@ -65,7 +66,7 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "379db8120ee70c786e778b16b0459c756fef4af6ed3404c7b28ae426c28474bc",
+        "5a4e59fe854f1dcdc450720592aadbac7a9e803b4a7c10d3bdce5210457c790b",
     ),
     (
         "recipes/node",
@@ -73,19 +74,19 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/preflight",
-        "85e8d176ef66e53ddbb3da572ca53e9ec91bc318ccba1d1fa4b1c2b0540bc708",
+        "9e8f664fa5a0dd13503716a869aa4537552a02a155b74b970edcf4b815013105",
     ),
     (
         "recipes/ember",
-        "08905369b2f7e5207233d716b8725f00434e1aa80ffa57c1bd583d7d33fff059",
+        "df2c1ee60203094b5877020ae033a1d84ec78187f24526c7234d9dea2be4841b",
     ),
     (
         "recipes/crucible",
-        "2653a62b75503fd69a828892ea638aacabedb3e34193c111adc0c3ed7cd69f4a",
+        "c816b1d20c548da0c6a29a8b521edb79d2d37bf71dcdee238944925c99503234",
     ),
     (
         "recipes/night-shift",
-        "5bef947100fb99788be5dd5f0d54ae1fc9ac378bf037f684b63bfafeda83a460",
+        "579bc0f1034884dc8d3b574d6c0b7821bed644b643ae5fd01bada5921b49a0bd",
     ),
     (
         // Re-pinned when the 0021 addendum (2026-09-02) made the
@@ -94,11 +95,11 @@ const WITNESSES: [(&str, &str); 8] = [
         // stopped being true. `bundle.json` is untouched — only the
         // README moved, and the README is manifest input.
         "recipes/wager-harness",
-        "66cf5137dff4bdf7b421844c53af7d6ada7bf7dae56d08a22d43ee68f209b477",
+        "4c8dd70166315f42729ddd51a80c58f282bf89161d3f3aa27e2b4f027f14390c",
     ),
     (
         "bundles/verify",
-        "972c772de5705767002de01adc7e5216e90ec483ffc32a33d25ccd58f784ab4f",
+        "1ce203798837d848513c97a93c1258679d2c78713542bc96bcae1b0f53984126",
     ),
 ];
 

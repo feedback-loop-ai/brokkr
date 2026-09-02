@@ -192,7 +192,7 @@ impl Engine {
         })
     }
 
-    /// Start a Looper-bound run under the exact Forge run id and immutable
+    /// Start a Looper-bound run under the exact wire run id and immutable
     /// dispatch envelope. The ordinary bundle manifest remains recoverable
     /// for resume compatibility, while the stored/exported manifest is v2.
     pub fn start_with_dispatch(
@@ -2082,7 +2082,7 @@ pub enum FencedCommandOutcome {
 
 /// Apply a command received through the Looper producer bridge. The command id
 /// is supplied by Looper, the expected cursor/hash fences concurrent operator
-/// activity, and both acceptance and rejection become Forge journal evidence
+/// activity, and both acceptance and rejection become Brokkr journal evidence
 /// before any control-state effect is possible. The acceptance is written
 /// against the head the cursor check covered ([`Store::append_next_if_head`]),
 /// so an engine append between that check and the write loses the fence

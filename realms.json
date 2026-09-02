@@ -2,7 +2,7 @@
   "schema": "forge.realms/v1",
   "realms": [
     {
-      "name": "the-forge",
+      "name": "brokkr",
       "path": ".",
       "default_branch": "main"
     }

@@ -50,8 +50,8 @@ impl Workspace {
             "adapters/absent.json",
             json!({
                 "provider": "absent",
-                "binary": "forge-absent-driver",
-                "driver": ["forge-absent-driver-that-is-not-installed"],
+                "binary": "brokkr-absent-driver",
+                "driver": ["brokkr-absent-driver-that-is-not-installed"],
                 "models": {"first": "absent/first"},
                 "model_flag": "--model",
                 "tool_permissions": "unsupported",

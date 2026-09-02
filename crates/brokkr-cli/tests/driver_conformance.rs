@@ -93,10 +93,10 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
     let mut child = Command::new(brokkr_bin())
         .arg("driver")
         .args(kind_args)
-        .env("FORGE_CLAUDE_BIN", shim)
+        .env("BROKKR_CLAUDE_BIN", shim)
         // Pinned unconditionally: no conformance test may ever spawn a
         // real claude-lanetally on a LaneTally-equipped machine.
-        .env("FORGE_LANETALLY_BIN", shim)
+        .env("BROKKR_LANETALLY_BIN", shim)
         // Deliberately split: codex is pinned through the new spelling
         // and dsh through the old one, so a conformance run proves both
         // reach the same adapter for the release the old names survive
@@ -665,7 +665,7 @@ printf '{{"type":"result","num_turns":1,"total_cost_usd":0.0}}\n'
         dir.path(),
         &store,
         &["API_TOKEN"],
-        &[("FORGE_LANETALLY_BIN", shim.to_str().unwrap())],
+        &[("BROKKR_LANETALLY_BIN", shim.to_str().unwrap())],
     );
     let result = out.last().unwrap();
     assert_eq!(result["status"], "succeeded", "{result}");
