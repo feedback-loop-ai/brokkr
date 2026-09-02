@@ -182,7 +182,8 @@ fn explicitly_allowed(file: &str, line: &str) -> bool {
 fn retired_name(line: &str) -> bool {
     contains_word(line, RETIRED_PRODUCT)
         || line.contains(RETIRED_REPOSITORY)
-        || line.contains("the forge")
+        || contains_word(line, "the forge")
+        || contains_word(line, "The forge")
         || RETIRED_CRATES.iter().any(|name| line.contains(name))
 }
 
@@ -213,6 +214,7 @@ fn allowed_history_mechanisms_and_verbs_pass() {
     let prose = concat!(
         "Brokkr forges each slice.\n",
         "A seat can forge a ruling line.\n",
+        "The forged citation is left as the forging left it.\n",
         "The self-forge loop is bounded.\n",
         "Wire: forge-driver/v1; state: .forge/forge.db; ref: refs/forge/.\n",
         "SwarmForge is acknowledged.\n",
@@ -248,15 +250,16 @@ fn retired_names_fail_with_file_and_line() {
         "the-",
         "forge is also retired.\n",
         "the forge is still a product noun here.\n",
+        "The forge opens a sentence as the same noun.\n",
         "Dependencies: forge-core and forge_runtime.\n",
     );
     let offenses = offenses_in("docs/guides/example.md", prose, Surface::Prose);
-    assert_eq!(offenses.len(), 4, "{}", render(&offenses));
+    assert_eq!(offenses.len(), 5, "{}", render(&offenses));
     assert_eq!(offenses[0].line, 2);
-    assert_eq!(offenses[3].line, 5);
+    assert_eq!(offenses[4].line, 6);
     let failure = render(&offenses);
     assert!(failure.contains("docs/guides/example.md:2:"), "{failure}");
-    assert!(failure.contains("docs/guides/example.md:5:"), "{failure}");
+    assert!(failure.contains("docs/guides/example.md:6:"), "{failure}");
 
     let rust = concat!("let answer = 42; /", "/ For", "ge is retired here.\n");
     let offenses = offenses_in("crates/example/src/lib.rs", rust, Surface::RustComments);
