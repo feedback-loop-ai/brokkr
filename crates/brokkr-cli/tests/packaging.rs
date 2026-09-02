@@ -106,6 +106,34 @@ fn repository_url() -> String {
     field(&read("Cargo.toml"), "repository")
 }
 
+/// `cargo publish` refuses a path dependency that carries no version,
+/// so every sibling crate in `[workspace.dependencies]` names one. A
+/// dependency's version cannot be inherited from `[workspace.package]`,
+/// which makes each of these a second place the release bump has to
+/// touch — this test is what turns a forgotten one into a red bench
+/// instead of a publish that pulls last release's crate.
+#[test]
+fn every_workspace_path_dependency_names_the_workspace_version() {
+    let manifest = read("Cargo.toml");
+    let version = workspace_version();
+    let dependencies = manifest
+        .split("[workspace.dependencies]")
+        .nth(1)
+        .expect("a [workspace.dependencies] table");
+    let siblings: Vec<&str> = dependencies
+        .lines()
+        .filter(|line| line.starts_with("brokkr-"))
+        .collect();
+    assert!(!siblings.is_empty(), "{dependencies}");
+    for line in siblings {
+        assert!(line.contains("path = "), "not a path dependency: {line}");
+        assert!(
+            line.contains(&format!("version = \"{version}\"")),
+            "{line}\n  does not name the workspace version {version}"
+        );
+    }
+}
+
 /// The release matrix, read from the workflow that owns it: rust target
 /// triple → the artifact file the release publishes for it.
 fn release_artifacts() -> BTreeMap<String, String> {
