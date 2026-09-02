@@ -596,6 +596,52 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     assert!(adapters.adapter("nobody").is_none());
 }
 
+/// The path to the adapters this repository actually ships.
+fn shipped_adapters() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .parent()
+        .expect("workspace root")
+        .join("adapters")
+}
+
+#[test]
+fn the_shipped_codex_adapter_may_now_hold_a_gate() {
+    // The 0021 addendum (operator ruled 2026-09-02) made real, at the
+    // one place it can be observed: a gate seat whose driver is `codex`
+    // compiles against the SHIPPED `adapters/codex.json`, not against a
+    // fixture provider. Yesterday this same bundle refused — the tier
+    // was `untrusted`, and ruling 2 kept untrusted drivers off gates.
+    // The sibling pin above asserts the declaration; this one asserts
+    // the compiler reads it. Both must move together or neither does.
+    let fixture = Fixture::new();
+    fixture
+        .compile_against(seat("codex", Some("gate"), None), &shipped_adapters())
+        .expect("the promoted incumbent-peer may hold a gate");
+}
+
+#[test]
+fn the_shipped_codex_adapter_still_binds_no_secrets() {
+    // The other half of the addendum, and the half that did NOT move:
+    // `binding_grant` stays `false` and stays unruled, so the ruling 4
+    // refusal must still fire for codex on the shipped adapter. A
+    // future edit that grants the tier a second axis by accident trips
+    // here, naming what it took.
+    let fixture = Fixture::new();
+    let refusal = match fixture.compile_against(
+        seat("codex", None, Some(json!(["GH_TOKEN"]))),
+        &shipped_adapters(),
+    ) {
+        Ok(_) => panic!("a codex seat may not bind secrets"),
+        Err(error) => error.to_string(),
+    };
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("driver 'codex'"), "{refusal}");
+    assert!(refusal.contains("holds no binding grant"), "{refusal}");
+    assert!(refusal.contains("0021 ruling 4"), "{refusal}");
+}
+
 // ------------------------------------------------- what stays a non-event
 
 #[test]

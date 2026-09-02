@@ -65,16 +65,31 @@ schema drift rather than design:
 
 `implement` is `class: "work"`. Decision 0021 ruling 7: a driver with no
 journaled track record here holds work seats freely, whatever its
-vendor. `adapters/codex.json` declares `trust_tier: "untrusted"` and
-`binding_grant: false`, and neither blocks this seat — it judges nothing
-and binds no secrets.
+vendor. That was the whole permission this recipe needed when it was
+written, and it is still sufficient.
 
-What the challenger may **not** hold is a gate. `verify`, `review` and
-`ship` are inherited from `fast` unchanged, on the incumbent, and the
-compiler refuses at compile time any attempt to move a gate onto an
-untrusted driver. **This is a feature of the wager, not a limitation of
-it:** the judge is the same in both arms, so a comparison measures the
-crews and not the referee.
+It is no longer *necessary*, and the difference is the point of the
+instrument. The 0021 addendum the operator ruled on 2026-09-02 promoted
+codex to `trusted` for every seat class on the evidence wagers like this
+one produced; `adapters/codex.json` now declares `trust_tier:
+"trusted"`, and `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`
+pins a gate seat compiling on the shipped adapter
+(`the_shipped_codex_adapter_may_now_hold_a_gate`). The compiler that
+refused a codex gate before that date accepts one now.
+
+So `verify`, `review` and `ship` stay on the incumbent here **by the
+design of the wager, not by the compiler's refusal.** The judge must be
+the same in both arms, or the comparison measures the referee instead
+of the crews. If you seat the challenger at a gate, you are no longer
+running this instrument — you are running something else, and it will
+compile, which is exactly why the choice has to be deliberate.
+
+What codex still may **not** hold is a binding: `binding_grant` stays
+`false` and stays unruled, so a codex seat declaring `secrets` is
+refused at compile time under ruling 4
+(`the_shipped_codex_adapter_still_binds_no_secrets`). Trust to judge
+and clearance to receive are separate grants, and only one of them
+moved.
 
 ## The parity checklist
 
