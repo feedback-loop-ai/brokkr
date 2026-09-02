@@ -1,10 +1,10 @@
 //! `brokkr init` looks before it scaffolds: the repository it is invoked
 //! from is read for the manifests and lockfiles at its root, and the two
 //! charters that tell a seat to build and to prove name that stack's own
-//! commands. What is asserted here is what an operator would read in
-//! `roles/`, per stack — and, for a repository carrying no marker init
-//! knows, that the charter says so in those words instead of dressing a
-//! placeholder as a choice.
+//! commands. What is asserted here is what an operator would read in the
+//! scaffold-local `agents/` library, per stack — and, for a repository
+//! carrying no marker init knows, that the charter and README say so
+//! instead of dressing a placeholder or permission as a choice.
 //!
 //! Every scaffold is made in a tempdir the fixture's markers are COPIED
 //! into. Never in the checked-in fixture itself: `init` writes, and a
@@ -13,6 +13,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use brokkr_runtime::{Bundle, SeatBody};
 
 /// Fixture, the name the charters call the stack, then build, test, lint.
 /// The same shape as the table in `init.rs`, written out again rather
@@ -115,6 +117,25 @@ const MONOREPOS: &[(&str, &str, &str, &str, &str)] = &[
     ),
 ];
 
+/// Fixture and the executable at the front of every command detection
+/// selected for it. Kept independent from the production table so a
+/// new stack arm must state its scaffolded capability here too.
+const TOOLS: &[(&str, &str)] = &[
+    ("rust", "cargo"),
+    ("node-bun", "bun"),
+    ("node-pnpm", "pnpm"),
+    ("node-yarn", "yarn"),
+    ("node-npm", "npm"),
+    ("python-uv", "uv"),
+    ("python", "python"),
+    ("go", "go"),
+    ("make", "make"),
+    ("turbo-pnpm", "pnpm"),
+    ("turbo-bun", "bunx"),
+    ("turbo-plain", "npx"),
+    ("nx-yarn", "yarn"),
+];
+
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/init-stacks")
 }
@@ -149,7 +170,11 @@ fn scaffold_from(fixture: &str) -> (tempfile::TempDir, PathBuf) {
 }
 
 fn charter(bundle: &Path, name: &str) -> String {
-    std::fs::read_to_string(bundle.join("roles").join(name)).unwrap()
+    std::fs::read_to_string(bundle.join("agents/charters").join(name)).unwrap()
+}
+
+fn json(path: impl AsRef<Path>) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
 /// The commands a charter actually names: its indented lines, whole and
@@ -202,6 +227,88 @@ fn each_recognized_stack_gets_its_own_commands_and_no_others() {
     }
 }
 
+/// Detection and capability scaffolding are one table, not two features
+/// that can drift. Every recognized arm maps exactly its runner plus the
+/// four work tools; work agents receive that full ordered set, while
+/// every gate agent receives the read-only repository tools and runner.
+#[test]
+fn each_recognized_stack_gets_exact_per_class_tool_grants() {
+    for (fixture, runner) in TOOLS {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let adapter = json(bundle.join("adapters/claude.json"));
+        let mut names = adapter["tool_permissions"]["names"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        let mut expected = vec![*runner, "git", "ls", "rg", "mkdir"];
+        expected.sort_unstable();
+        assert_eq!(names, expected, "{fixture}");
+        for tool in &expected {
+            assert_eq!(
+                adapter["tool_permissions"]["names"][tool],
+                format!("Bash({tool}:*)"),
+                "{fixture}/{tool}"
+            );
+        }
+
+        let work = serde_json::json!([runner, "git", "ls", "rg", "mkdir"]);
+        for agent in ["intake", "implementer"] {
+            let definition = json(bundle.join(format!("agents/{agent}.json")));
+            assert_eq!(definition["tools"]["allow"], work, "{fixture}/{agent}");
+        }
+        let gate = serde_json::json!(["git", "ls", "rg", runner]);
+        for agent in ["verifier", "reviewer", "shipper"] {
+            let definition = json(bundle.join(format!("agents/{agent}.json")));
+            assert_eq!(definition["tools"]["allow"], gate, "{fixture}/{agent}");
+            assert!(
+                definition["tools"]["allow"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|tool| tool != "mkdir"),
+                "{fixture}/{agent} received a write tool"
+            );
+        }
+    }
+}
+
+/// The regression's end-to-end claim: these are not merely plausible
+/// JSON fragments. The runtime opens the scaffold's own agent and
+/// adapter roots, resolves the implement seat through both, and carries
+/// the exact Claude `--allowedTools` argument into its argv.
+#[test]
+fn bun_and_cargo_scaffolds_resolve_the_implementers_allowed_tools() {
+    for (fixture, runner) in [("node-bun", "bun"), ("rust", "cargo")] {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let compiled =
+            Bundle::compile_with(&bundle, &bundle.join("agents"), &bundle.join("adapters"))
+                .unwrap_or_else(|error| {
+                    panic!("{fixture} did not compile from its own roots: {error}")
+                });
+        let SeatBody::Single { command, .. } = &compiled.seats["implement"].body else {
+            panic!("{fixture} implement seat did not resolve to one agent");
+        };
+        assert_eq!(
+            &command[1..],
+            [
+                "driver",
+                "claude",
+                "--",
+                "--permission-mode",
+                "acceptEdits",
+                "--model",
+                "claude-opus-5",
+                "--allowedTools",
+                &format!("Bash({runner}:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"),
+            ],
+            "{fixture}"
+        );
+    }
+}
+
 /// The fallback is allowed to be generic; it is not allowed to be quiet
 /// about it. An operator reading a placeholder must not be able to
 /// mistake it for a command chosen for their project.
@@ -234,6 +341,27 @@ fn an_unrecognized_repository_gets_a_charter_that_says_so() {
             }
         }
     }
+
+    let adapter = json(bundle.join("adapters/claude.json"));
+    assert_eq!(
+        adapter["tool_permissions"]["names"],
+        serde_json::json!({}),
+        "an unknown stack must not acquire guessed permission names"
+    );
+    for agent in ["intake", "implementer", "verifier", "reviewer", "shipper"] {
+        let definition = json(bundle.join(format!("agents/{agent}.json")));
+        assert!(
+            definition["tools"].get("allow").is_none(),
+            "{agent} acquired a guessed allow-list: {definition}"
+        );
+    }
+    let readme = std::fs::read_to_string(bundle.join("README.md")).unwrap();
+    assert!(
+        readme.contains("NO TOOL GRANTS WERE SCAFFOLDED")
+            && readme.contains("empty `tool_permissions.names` map")
+            && readme.contains("no `tools.allow` narrowing"),
+        "{readme}"
+    );
 }
 
 /// A repository carrying both a language manifest and the `Makefile` that
@@ -399,14 +527,12 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
     }
 }
 
-/// Introspection rewrote prose, not the roster. Every scaffold — each
-/// recognized stack and the fallback alike — still compiles, and what it
-/// compiles to still carries decision 0021 ruling 1's division: the
-/// three judging seats declare `gate`, the two working seats declare
-/// `work`, and the compiled manifest pins the adapter that authorised a
-/// judgement for exactly those three. That pin is the gate class made
-/// visible in the output — a work seat never earns one — so a class left
-/// to default would show up here as a roster of nobody.
+/// Every scaffold — each recognized stack and the fallback alike —
+/// compiles through all five local agent definitions. The authored
+/// bundle still carries decision 0021 ruling 1's division: three judges
+/// declare `gate`, and two producers declare `work`. Agent sites pin the
+/// adapter inside their resolution record rather than the inline-driver
+/// record; the demotion test below proves the gate check itself.
 #[test]
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
@@ -427,12 +553,19 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
 
         let compiled: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-        let judged: Vec<&String> = compiled["manifest"]["drivers"]
+        let resolved: Vec<&String> = compiled["manifest"]["agents"]
             .as_object()
-            .unwrap_or_else(|| panic!("{fixture}: no seat compiled as a gate: {stdout}"))
+            .unwrap_or_else(|| panic!("{fixture}: no local agents resolved: {stdout}"))
             .keys()
             .collect();
-        assert_eq!(judged, ["review", "ship", "verify"], "{fixture}: {stdout}");
+        assert_eq!(
+            resolved,
+            ["implement", "intake", "review", "ship", "verify"],
+            "{fixture}: {stdout}"
+        );
+        for record in compiled["manifest"]["agents"].as_object().unwrap().values() {
+            assert_eq!(record["provider"], "claude", "{fixture}: {record}");
+        }
 
         let scaffolded = std::fs::read_to_string(bundle.join("bundle.json")).unwrap();
         assert_eq!(

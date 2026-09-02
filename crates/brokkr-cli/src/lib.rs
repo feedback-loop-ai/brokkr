@@ -1445,14 +1445,15 @@ fn run_with(
                 "initialized reviewable bundle at {} (digest {digest})",
                 dir.display()
             );
-            // The scaffold carries its own `adapters/`, where the trust
-            // tier its gate seats compile against is declared (decision
-            // 0021). Every other verb reads that tree from the workspace,
-            // which is the directory brokkr is run in — so say once,
-            // here, where to stand.
+            // The scaffold carries its own `agents/` and `adapters/`,
+            // where seat tool restrictions (proposed decision 0030) and
+            // the trust tier its gates compile against (decision 0021)
+            // are declared. Every other verb reads that tree from the
+            // workspace, which is the directory brokkr is run in — so
+            // say once, here, where to stand.
             eprintln!(
-                "run brokkr from inside {} — its adapters/ declares the trust \
-                 tier the verify, review and ship seats judge on",
+                "run brokkr from inside {} — its agents/ and adapters/ declare \
+                 seat tools and the trust tier the gates judge on",
                 dir.display()
             );
             Ok(ExitCode::SUCCESS)

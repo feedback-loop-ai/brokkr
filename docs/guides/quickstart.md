@@ -123,46 +123,59 @@ the result, and `--db <path>` chooses the workspace journal (default
 ### Step 2 — `brokkr init .`
 
 A **recipe** is a delivery strategy as reviewable data: a phase table, a
-seat per phase, a role charter per seat, and per-seat limits. `brokkr
-init` writes one you are meant to open and edit.
+seat per phase, and a local agent definition carrying each seat's
+charter, limits, and tool grant. `brokkr init` writes one you are meant
+to open and edit.
 
 ```
 $ brokkr init .
 initialized reviewable bundle at . (digest 6b8b876054b44e3f771e89475ad364167fdec25c59f42fd77266c8a8b7b312c7)
-run brokkr from inside . — its adapters/ declares the trust tier the verify, review and ship seats judge on
+run brokkr from inside . — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
 refuses rather than overwriting a directory that already has a
-`bundle.json` — or an `adapters/claude.json`, because a trust tier is an
-operator's ruling and not a scaffold's — and it compiles the bundle
-before printing the digest, so what you were handed is a thing that runs.
+`bundle.json`, scaffold README, local agent definition/charter, or
+`adapters/claude.json` — trust and permission data are operator-owned —
+and it compiles the bundle before printing the digest, so what you were
+handed is a thing that runs.
 
 What it wrote:
 
 ```
-./bundle.json          # name, policy path, protected_phase, five seats
-./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./adapters/claude.json # the trust tier your gates judge on — yours to edit
-./roles/intake.md
-./roles/implementer.md
-./roles/verifier.md
-./roles/reviewer.md
-./roles/shipper.md
+./README.md                       # detected stack and grant summary
+./bundle.json                     # name, policy path, five agent seats
+./policy.json                     # seven phases, nineteen rules
+./adapters/claude.json            # gate trust and Bash(<bin>:*) mappings
+./agents/intake.json              # models, work tools, limits, charter
+./agents/implementer.json
+./agents/verifier.json            # gate tools: runner + git/ls/rg
+./agents/reviewer.json
+./agents/shipper.json
+./agents/charters/intake.md
+./agents/charters/implementer.md
+./agents/charters/verifier.md
+./agents/charters/reviewer.md
+./agents/charters/shipper.md
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its own result
-vocabulary and its own `limits` (attempts and a deadline in seconds).
+vocabulary; its local agent declares `limits` (attempts and a deadline
+in seconds) and the ordered `tools.allow` that becomes Claude's
+`--allowedTools` list.
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer's
 and verifier's charters name *that stack's* build, test and lint
 commands, quoting back which files the guess came from. Nothing is
-executed to find out. Which files it reads, and what it concludes, is
-your [card](#per-stack-cards) — and
+executed to find out. The same table grants the detected runner plus
+`git`, `ls`, `rg`, and (for work agents only) `mkdir`. With no match,
+the adapter's names map stays empty and `README.md` says that no tool
+narrowing was scaffolded. Which files init reads, and what it concludes,
+is your [card](#per-stack-cards) — and
 [`docs/guides/starters/`](starters/) shows the actual output for each,
 transcribed from real runs.
 

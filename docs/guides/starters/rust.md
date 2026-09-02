@@ -33,8 +33,8 @@ edition = "2021"
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 4f5d5e9ae9e13af46f6fdc52e416c89aa43de28c68daa3ac570c4cad44231ef2)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest c6edf6601f5e7a3e257143e3f0a516111e0cea8b72f794c9b05dbd95f1abd860)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
 The digest is a function of the bytes that were written, and the
@@ -44,22 +44,30 @@ Rust repository will print a different one and that is correct.
 ## What it wrote
 
 ```
+my-bundle/README.md
 my-bundle/adapters/claude.json
+my-bundle/agents/charters/implementer.md
+my-bundle/agents/charters/intake.md
+my-bundle/agents/charters/reviewer.md
+my-bundle/agents/charters/shipper.md
+my-bundle/agents/charters/verifier.md
+my-bundle/agents/implementer.json
+my-bundle/agents/intake.json
+my-bundle/agents/reviewer.json
+my-bundle/agents/shipper.json
+my-bundle/agents/verifier.json
 my-bundle/bundle.json
 my-bundle/policy.json
-my-bundle/roles/implementer.md
-my-bundle/roles/intake.md
-my-bundle/roles/reviewer.md
-my-bundle/roles/shipper.md
-my-bundle/roles/verifier.md
 ```
 
-**`bundle.json`, `policy.json`, `adapters/claude.json` and three of the
-five charters do not vary by stack.** No interpolation happens into
-them: the seat roster, the phase table, the trust declaration, and the
-intake / reviewer / shipper charters are byte-identical for every
-repository `init` has ever been run in. Framing a task, reading a diff
-and closing out read the same in Rust as they do in Go.
+**`bundle.json`, `policy.json`, and three of the five charters do not
+vary by stack.** The seat roster, phase table, and intake / reviewer /
+shipper prose are byte-identical across repositories. The README,
+adapter tool map, five agent definitions, and implementer / verifier
+charters vary: the command runner is part of the grant as well as the
+prose. Framing a task, reading a diff and closing out read the same in
+Rust as they do in Go, but each of those agents still receives the
+permission envelope for the detected stack and its seat class.
 
 For completeness, the invariant `bundle.json`:
 
@@ -70,48 +78,41 @@ For completeness, the invariant `bundle.json`:
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
       "class": "work",
       "results": ["resolved"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "intake"
     },
     "implement": {
-      "role": "roles/implementer.md",
       "class": "work",
       "results": ["complete", "broken", "blocked"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "implementer"
     },
     "verify": {
-      "role": "roles/verifier.md",
       "class": "gate",
       "results": ["pass", "fail"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "verifier"
     },
     "review": {
-      "role": "roles/reviewer.md",
       "class": "gate",
       "results": ["clean", "residual", "security-hold"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "reviewer"
     },
     "ship": {
-      "role": "roles/shipper.md",
       "class": "gate",
       "results": ["ready", "shipped"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "shipper"
     }
   }
 }
 ```
 
 Every other page in this directory omits it. The stack-specific content
-lives entirely in the two charters below.
+lives in the README, adapter permission names, agent grants, and the two
+charters below. For Rust the adapter maps `cargo`, `git`, `ls`, `rg`, and
+`mkdir`; work agents allow that full ordered set. Gate agents allow
+`git`, `ls`, `rg`, and the `cargo` runner, omitting work-only `mkdir`.
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -164,7 +165,7 @@ Line by line, the parts that were chosen rather than fixed:
   presence and, for the workspace line, one `[workspace]` line read out
   of `Cargo.toml`. No `cargo` subprocess is spawned.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

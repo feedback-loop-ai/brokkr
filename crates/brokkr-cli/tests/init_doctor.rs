@@ -3,9 +3,10 @@
 //! any agent.
 //!
 //! Every verb below is run FROM INSIDE the scaffold, because that is what
-//! the scaffold is: a workspace carrying its own `adapters/`, where the
-//! trust tier its gate seats judge on is declared (decision 0021), read
-//! from the workspace like every other root (decision 0023).
+//! the scaffold is: a workspace carrying its own `agents/` and
+//! `adapters/`, where seat tools (proposed decision 0030) and the trust
+//! tier its gates judge on (decision 0021) are declared, read from the
+//! workspace like every other root (decision 0023).
 
 use std::process::Command;
 
@@ -55,11 +56,45 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     let adapter = std::fs::read_to_string(bundle.join("adapters/claude.json")).unwrap();
     assert!(adapter.contains("\"trust_tier\": \"trusted\""), "{adapter}");
     assert!(adapter.contains("\"binding_grant\": false"), "{adapter}");
+    for path in [
+        "README.md",
+        "agents/intake.json",
+        "agents/implementer.json",
+        "agents/verifier.json",
+        "agents/reviewer.json",
+        "agents/shipper.json",
+        "agents/charters/implementer.md",
+    ] {
+        assert!(bundle.join(path).is_file(), "missing scaffolded {path}");
+    }
 
     // Refuses to clobber an existing bundle.
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(1));
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+}
+
+/// Agent definitions become operator-editable workspace data too. Init
+/// refuses one already standing in its target instead of silently
+/// replacing the operator's charter and permission choices.
+#[test]
+fn init_refuses_to_overwrite_an_existing_agent_definition() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("agents")).unwrap();
+    let definition = bundle.join("agents/implementer.json");
+    std::fs::write(&definition, "{\"description\":\"operator-owned\"}\n").unwrap();
+
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("refusing to overwrite scaffold-owned text"),
+        "stderr: {stderr}"
+    );
+    assert!(std::fs::read_to_string(definition)
+        .unwrap()
+        .contains("operator-owned"));
+    assert!(!bundle.join("bundle.json").exists());
 }
 
 /// The other half of that: the scaffold WRITES a trust declaration, and
@@ -115,21 +150,22 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
 
 /// Decision 0019: a bundle still written with the old `{forge}` token
 /// compiles exactly as the scaffold's `{brokkr}` does, and the process
-/// says so ONCE — the scaffold has five seats, so a per-read notice
-/// would show up here as five lines — on stderr, never on stdout.
+/// says so ONCE on stderr, never on stdout. Agent resolution fans the
+/// adapter driver out to five seats, so the single notice also proves a
+/// shared adapter is not noticed once per resolution.
 #[test]
 fn the_old_token_still_compiles_and_is_noticed_once_on_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = dir.path().join("bundle");
     brokkr(&["init", bundle.to_str().unwrap()], dir.path());
 
-    let manifest = bundle.join("bundle.json");
-    let scaffolded = std::fs::read_to_string(&manifest).unwrap();
+    let adapter = bundle.join("adapters/claude.json");
+    let scaffolded = std::fs::read_to_string(&adapter).unwrap();
     assert!(
-        scaffolded.matches("{brokkr}").count() >= 2,
+        scaffolded.contains("{brokkr}"),
         "the scaffold writes the new token: {scaffolded}"
     );
-    std::fs::write(&manifest, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
+    std::fs::write(&adapter, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
 
     let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "stderr: {stderr}");

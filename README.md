@@ -233,22 +233,29 @@ apart without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
-gate constitutionally protected, one seat per working phase, and a role
-charter per seat. It compiles the bundle before printing the digest, so
-the thing you were handed is a thing that runs. It also reads the
-repository you ran it from — the manifests and lockfiles at that root,
-nothing executed — so the implementer's and verifier's charters name
-that stack's own build, test and lint commands, and say plainly when no
-stack was recognized. Lockfiles have the deciding vote where a manifest
-is ambiguous (`bun.lock` out-votes the npm fallback, `uv.lock` out-votes
-pip), a monorepo orchestrator (`turbo.json`, `nx.json`) out-votes any
-single package's script and is run through whichever package manager the
-root's lockfile names, and a Cargo workspace or a `go.work` gets a
-charter that says so rather than a command it did not need. The digest
-is therefore a function of what was scaffolded and differs from
-repository to repository; the one printed above is elided for that
-reason. [`docs/guides/starters/`](docs/guides/starters/) shows the
-actual output per stack, transcribed from real runs.
+gate constitutionally protected, one local agent per working phase, and
+a charter and limits per agent. It compiles the bundle before printing
+the digest, so the thing you were handed is a thing that runs. It also
+reads the repository you ran it from — the manifests and lockfiles at
+that root, nothing executed — so the implementer's and verifier's
+charters name that stack's own build, test and lint commands. The same
+detection writes the runner's `Bash(<bin>:*)` mapping into the local
+Claude adapter and grants it through each local agent's `tools.allow`:
+work agents also receive `git`, `ls`, `rg`, and `mkdir`; gate agents
+receive the runner and the read-only `git`, `ls`, and `rg` subset. When
+no stack is recognized, the map remains empty and the scaffold's README
+says that no tool narrowing was inferred.
+
+Lockfiles have the deciding vote where a manifest is ambiguous
+(`bun.lock` out-votes the npm fallback, `uv.lock` out-votes pip), a
+monorepo orchestrator (`turbo.json`, `nx.json`) out-votes any single
+package's script and is run through whichever package manager the root's
+lockfile names, and a Cargo workspace or a `go.work` gets a charter that
+says so rather than a command it did not need. The digest is therefore a
+function of what was scaffolded and differs from repository to
+repository; the one printed above is elided for that reason.
+[`docs/guides/starters/`](docs/guides/starters/) shows the actual output
+per stack, transcribed from real runs.
 
 ## Guides
 

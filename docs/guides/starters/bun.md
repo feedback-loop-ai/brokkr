@@ -1,10 +1,11 @@
 # Starter sample — Bun
 
-**This page extends [node.md](node.md).** The scaffold is the same eight
-files; only the two charters' package-manager lines differ. If you have
-not read the node sample, read it first — everything it says about the
-invariant `bundle.json`, the missing install step and the
-`NO STACK WAS RECOGNIZED` banner still holds.
+**This page extends [node.md](node.md).** The scaffold has the same
+fourteen-file shape; the two charters' package-manager lines, README,
+adapter map, and agent grants differ together. If you have not read the
+node sample, read it first — everything it says about the invariant
+`bundle.json`, the missing install step and the `NO STACK WAS
+RECOGNIZED` banner still holds.
 
 Transcribed from a real run against fixture
 [`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/).
@@ -29,15 +30,20 @@ Transcribed from a real run against fixture
 
 `bun.lock` beside `package.json` is the whole of the difference.
 
+It also decides the permission vocabulary: the adapter maps `bun`,
+`git`, `ls`, `rg`, and `mkdir`; work agents allow that full set, while
+gate agents allow `git`, `ls`, `rg`, and the `bun` runner their proof
+commands need.
+
 ## The invocation
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 3baaa6b9e02176f852b601b3bd02b53c86a5a73785e79486818fba08219f364d)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 1fecd074080c3c25a1044dfb494f5923105c40b6fd1f2d5355b1edae9ba6090a)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -86,7 +92,7 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

@@ -1,15 +1,17 @@
 //! `brokkr init <dir>` — scaffold a minimal reviewable bundle and prove it
 //! compiles. The template carries the tightened ship taxonomy (`ready` →
 //! `shipped` as the sole entry into `done`), the protected review phase,
-//! one charter-defined seat per phase, per-seat limits (decision 0006),
+//! one agent-defined seat per phase, per-seat limits (decision 0006),
 //! the work/gate division of decision 0021 ruling 1, and the bundled
 //! headless Claude Code driver. Everything written is ordinary text meant
 //! to be reviewed and edited in git.
 //!
 //! The scaffold is a WORKSPACE, not only a bundle: it carries its own
-//! `adapters/` tree, because since decision 0021 the tier that lets a
-//! gate seat judge is adapter data, and a starter whose review seat
-//! judged on nobody's authority would teach the wrong lesson on day one.
+//! `agents/` and `adapters/` trees (proposed decision 0030), because an
+//! agent's least-privilege tool grant and the tier that lets a gate seat
+//! judge are workspace data. A starter whose seats could neither run
+//! their charter nor show their authority would teach the wrong lesson
+//! on day one.
 //! The operator's trust declarations are theirs to edit — which is why
 //! they are scaffolded as a file in their tree rather than compiled into
 //! this binary — and `brokkr` is run from inside the scaffold, where its
@@ -52,6 +54,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::Bundle;
+use serde_json::{json, Map, Value};
 
 // Drivers are built into the brokkr binary itself (decision 0009):
 // scaffolds reference them as {brokkr} driver <kind>.
@@ -122,80 +125,48 @@ const BUNDLE: &str = r#"{
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
       "class": "work",
       "results": ["resolved"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "intake"
     },
     "implement": {
-      "role": "roles/implementer.md",
       "class": "work",
       "results": ["complete", "broken", "blocked"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "implementer"
     },
     "verify": {
-      "role": "roles/verifier.md",
       "class": "gate",
       "results": ["pass", "fail"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "verifier"
     },
     "review": {
-      "role": "roles/reviewer.md",
       "class": "gate",
       "results": ["clean", "residual", "security-hold"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "reviewer"
     },
     "ship": {
-      "role": "roles/shipper.md",
       "class": "gate",
       "results": ["ready", "shipped"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "shipper"
     }
   }
 }
 "#;
 
-/// The scaffold's own trust declaration (decision 0021 rulings 2 and 4),
-/// for the one driver it seats. `trusted`, because the starter's verify,
-/// review and ship seats are the gate roster of ruling 1 and would
-/// otherwise refuse to compile — the operator inherits the incumbent's
-/// journaled record and may demote it by editing this file. No binding
-/// grant: no seat here declares `secrets`, and a grant nothing needs is
-/// one more thing to take away later (ruling 4 — trust to judge and
-/// clearance to receive are different grants).
-const ADAPTER: &str = r#"{
-  "provider": "claude",
-  "trust_tier": "trusted",
-  "binding_grant": false,
-  "binary": "claude",
-  "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
-  "models": {
-    "fable": "claude-fable-5",
-    "opus": "claude-opus-5",
-    "sonnet": "claude-sonnet-5",
-    "haiku": "claude-haiku-4-5-20251001"
-  },
-  "model_flag": "--model",
-  "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": {}},
-  "mcp": {"flag": "--mcp-config", "servers": {}}
-}
-"#;
-
 /// One recognized stack: the marker files that identify it, the name the
-/// charters call it by, and the three commands a seat would actually run
-/// there. Data, walked in order — the only thing the code matches on is
-/// whether the named files are present.
+/// charters call it by, the runner Claude may invoke, and the three
+/// commands a seat would actually run there. Data, walked in order — the
+/// only thing the code matches on is whether the named files are present.
 struct Stack {
     /// The stack's own vocabulary, not a label invented here.
     name: &'static str,
     /// Every marker must be present at the repository root. No recursion:
     /// a scaffold is a starting point, not a monorepo analyzer.
     markers: &'static [&'static str],
+    /// The executable at the front of all three commands. This lives
+    /// beside the commands so detection and permission scaffolding cannot
+    /// acquire separate stack vocabularies.
+    tool: &'static str,
     build: &'static str,
     test: &'static str,
     lint: &'static str,
@@ -210,6 +181,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "rust",
         markers: &["Cargo.toml"],
+        tool: "cargo",
         build: "cargo build --workspace",
         test: "cargo test --workspace",
         lint: "cargo clippy --workspace --all-targets -- -D warnings",
@@ -232,6 +204,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "node/bun",
         markers: &["package.json", "bun.lock"],
+        tool: "bun",
         build: "bun install --frozen-lockfile",
         test: "bun run test",
         lint: "bun run typecheck",
@@ -239,6 +212,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "node/pnpm",
         markers: &["package.json", "pnpm-lock.yaml"],
+        tool: "pnpm",
         build: "pnpm build",
         test: "pnpm test",
         lint: "pnpm lint",
@@ -246,6 +220,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "node/yarn",
         markers: &["package.json", "yarn.lock"],
+        tool: "yarn",
         build: "yarn build",
         test: "yarn test",
         lint: "yarn lint",
@@ -253,6 +228,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "node/npm",
         markers: &["package.json"],
+        tool: "npm",
         build: "npm run build",
         test: "npm test",
         lint: "npm run lint",
@@ -265,6 +241,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "python/uv",
         markers: &["pyproject.toml", "uv.lock"],
+        tool: "uv",
         build: "uv sync",
         test: "uv run pytest",
         lint: "uv run ruff check .",
@@ -272,6 +249,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "python",
         markers: &["pyproject.toml"],
+        tool: "python",
         build: "python -m build",
         test: "python -m pytest",
         lint: "python -m ruff check .",
@@ -279,6 +257,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "go",
         markers: &["go.mod"],
+        tool: "go",
         build: "go build ./...",
         test: "go test ./...",
         lint: "go vet ./...",
@@ -286,6 +265,7 @@ const STACKS: &[Stack] = &[
     Stack {
         name: "make",
         markers: &["Makefile"],
+        tool: "make",
         build: "make build",
         test: "make test",
         lint: "make lint",
@@ -297,10 +277,10 @@ const STACKS: &[Stack] = &[
 /// order; the first lockfile present wins, and when none is `npx` is
 /// what is left — npm ships with node, and `npx` resolves a local
 /// install before it reaches for the registry.
-const RUNNERS: &[(&str, &str)] = &[
-    ("bun.lock", "bunx"),
-    ("pnpm-lock.yaml", "pnpm exec"),
-    ("yarn.lock", "yarn exec"),
+const RUNNERS: &[(&str, &str, &str)] = &[
+    ("bun.lock", "bunx", "bunx"),
+    ("pnpm-lock.yaml", "pnpm exec", "pnpm"),
+    ("yarn.lock", "yarn exec", "yarn"),
 ];
 
 /// One monorepo build orchestrator. Same shape as `Stack`, except the
@@ -389,10 +369,194 @@ const WORKSPACES: &[Workspace] = &[
 struct Detected {
     name: String,
     evidence: String,
+    tool: String,
     build: String,
     test: String,
     lint: String,
     note: Option<&'static str>,
+}
+
+/// The two permission envelopes scaffolded into the agent library
+/// (proposed decision 0030). A work seat gets the detected runner plus
+/// the repository-local hands its charters need; a gate gets the
+/// read-only repository hands and the runner needed to execute the
+/// stack's proof commands. An unknown stack gets neither: inventing a
+/// runner would be broader than admitting that init does not know.
+struct Grants {
+    adapter: Vec<String>,
+    work: Vec<String>,
+    gate: Vec<String>,
+}
+
+fn grants(stack: Option<&Detected>) -> Grants {
+    let Some(stack) = stack else {
+        return Grants {
+            adapter: Vec::new(),
+            work: Vec::new(),
+            gate: Vec::new(),
+        };
+    };
+    let work = [stack.tool.as_str(), "git", "ls", "rg", "mkdir"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let gate = ["git", "ls", "rg", stack.tool.as_str()]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    Grants {
+        adapter: work.clone(),
+        work,
+        gate,
+    }
+}
+
+/// The scaffold's own trust and capability declaration (decision 0021
+/// rulings 2 and 4), for the one driver it seats. `trusted`, because the
+/// starter's verify, review and ship seats are the gate roster of ruling
+/// 1 and would otherwise refuse to compile — the operator inherits the
+/// incumbent's journaled record and may demote it by editing this file.
+/// No binding grant: no seat here declares `secrets`, and a grant nothing
+/// needs is one more thing to take away later.
+fn adapter(grants: &Grants) -> Value {
+    let names = grants
+        .adapter
+        .iter()
+        .map(|tool| (tool.clone(), json!(format!("Bash({tool}:*)"))))
+        .collect::<Map<_, _>>();
+    json!({
+      "provider": "claude",
+      "trust_tier": "trusted",
+      "binding_grant": false,
+      "binary": "claude",
+      "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
+      "models": {
+        "fable": "claude-fable-5",
+        "opus": "claude-opus-5",
+        "sonnet": "claude-sonnet-5",
+        "haiku": "claude-haiku-4-5-20251001"
+      },
+      "model_flag": "--model",
+      "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
+      "mcp": {"flag": "--mcp-config", "servers": {}}
+    })
+}
+
+/// One definition in the scaffold-local agent library. Class remains a
+/// property of the invocation site in `bundle.json`; `gate` selects the
+/// narrower tool grant written into this definition.
+struct AgentTemplate {
+    name: &'static str,
+    description: &'static str,
+    charter: &'static str,
+    models: &'static [&'static str],
+    max_attempts: u64,
+    timeout_seconds: u64,
+    gate: bool,
+}
+
+const AGENTS: &[AgentTemplate] = &[
+    AgentTemplate {
+        name: "intake",
+        description:
+            "Frames a raw request into a recorded, actionable task before code is written.",
+        charter: "intake.md",
+        models: &["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 1800,
+        gate: false,
+    },
+    AgentTemplate {
+        name: "implementer",
+        description:
+            "Builds the framed task to the repository's conventions and commits it with tests.",
+        charter: "implementer.md",
+        models: &["opus", "sonnet"],
+        max_attempts: 2,
+        timeout_seconds: 5400,
+        gate: false,
+    },
+    AgentTemplate {
+        name: "verifier",
+        description:
+            "Runs the repository's proof commands and reports pass or fail without fixing code.",
+        charter: "verifier.md",
+        models: &["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 3600,
+        gate: true,
+    },
+    AgentTemplate {
+        name: "reviewer",
+        description: "Reviews correctness and security and records every residual finding.",
+        charter: "reviewer.md",
+        models: &["opus", "sonnet"],
+        max_attempts: 2,
+        timeout_seconds: 3600,
+        gate: true,
+    },
+    AgentTemplate {
+        name: "shipper",
+        description: "Closes delivery out for the operator without pushing or merging.",
+        charter: "shipper.md",
+        models: &["sonnet", "opus"],
+        max_attempts: 2,
+        timeout_seconds: 1800,
+        gate: true,
+    },
+];
+
+fn agent(template: &AgentTemplate, grants: &Grants) -> Value {
+    let allow = if template.gate {
+        &grants.gate
+    } else {
+        &grants.work
+    };
+    let mut tools = Map::new();
+    if !allow.is_empty() {
+        tools.insert("allow".to_string(), json!(allow));
+    }
+    tools.insert("mcp".to_string(), json!([]));
+    json!({
+      "description": template.description,
+      "charter": format!("charters/{}", template.charter),
+      "models": template.models,
+      "tools": tools,
+      "limits": {
+        "max_attempts": template.max_attempts,
+        "timeout_seconds": template.timeout_seconds
+      }
+    })
+}
+
+fn readme(stack: Option<&Detected>, grants: &Grants) -> String {
+    match stack {
+        Some(stack) => format!(
+            "# Brokkr starter\n\n\
+             Detected `{}` from {}. The Claude adapter grants only the command\n\
+             runner and repository-local tools the scaffolded seats name.\n\n\
+             - Work agents: `{}`\n\
+             - Gate agents: `{}`\n\n\
+             Edit the adapter and each agent's `tools.allow` together when you\n\
+             correct a charter command.\n",
+            stack.name,
+            stack.evidence,
+            grants.work.join("`, `"),
+            grants.gate.join("`, `"),
+        ),
+        None => "# Brokkr starter\n\n\
+                 NO TOOL GRANTS WERE SCAFFOLDED. No stack was recognized, so\n\
+                 `adapters/claude.json` has an empty `tool_permissions.names` map\n\
+                 rather than invented command names. The agents therefore carry\n\
+                 no `tools.allow` narrowing. Fill in the real charter commands,\n\
+                 adapter mappings, and agent grants together before the first run.\n"
+            .to_string(),
+    }
+}
+
+fn write_json(path: &Path, value: &Value) -> Result<()> {
+    std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(value)?))?;
+    Ok(())
 }
 
 /// `` `Cargo.toml` `` — or `` `package.json` + `pnpm-lock.yaml` ``: the
@@ -424,13 +588,15 @@ fn orchestrator(repo: &Path) -> Option<Detected> {
     let found = ORCHESTRATORS.iter().find(|o| present(repo, o.markers))?;
     let runner = RUNNERS
         .iter()
-        .find(|(lockfile, _)| repo.join(lockfile).is_file());
-    let prefix = runner.map_or("npx", |(_, runner)| *runner);
+        .find(|(lockfile, _, _)| repo.join(lockfile).is_file());
+    let prefix = runner.map_or("npx", |(_, runner, _)| *runner);
+    let tool = runner.map_or("npx", |(_, _, tool)| *tool);
     let mut markers: Vec<&str> = found.markers.to_vec();
-    markers.extend(runner.map(|(lockfile, _)| *lockfile));
+    markers.extend(runner.map(|(lockfile, _, _)| *lockfile));
     Some(Detected {
         name: found.name.to_string(),
         evidence: evidence(&markers),
+        tool: tool.to_string(),
         build: found.build.replace("{runner}", prefix),
         test: found.test.replace("{runner}", prefix),
         lint: found.lint.replace("{runner}", prefix),
@@ -455,6 +621,7 @@ fn stack(repo: &Path) -> Option<Detected> {
     Some(Detected {
         name: found.name.to_string(),
         evidence: evidence(found.markers),
+        tool: found.tool.to_string(),
         build: found.build.to_string(),
         test: found.test.to_string(),
         lint: found.lint.to_string(),
@@ -538,7 +705,7 @@ fn verifier(stack: Option<&Detected>) -> String {
 /// stack that was found. Intake, review and ship name no build tooling:
 /// framing a task, reading a diff and closing out read the same in every
 /// repository, and a charter that pretended otherwise would be padding.
-fn roles(stack: Option<&Detected>) -> [(&'static str, String); 5] {
+fn charters(stack: Option<&Detected>) -> [(&'static str, String); 5] {
     [
         ("implementer.md", implementer(stack)),
         ("verifier.md", verifier(stack)),
@@ -585,20 +752,46 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             declaration.display()
         );
     }
-    std::fs::create_dir_all(dir.join("roles"))?;
+
+    let detected = detect(repo);
+    let grants = grants(detected.as_ref());
+    let library = dir.join(DEFAULT_AGENTS_DIR);
+    let charter_root = library.join("charters");
+    let occupied = std::iter::once(dir.join("README.md"))
+        .chain(AGENTS.iter().flat_map(|template| {
+            [
+                library.join(format!("{}.json", template.name)),
+                charter_root.join(template.charter),
+            ]
+        }))
+        .find(|path| path.exists());
+    if let Some(path) = occupied {
+        bail!(
+            "{} is already present; refusing to overwrite scaffold-owned text",
+            path.display()
+        );
+    }
+
+    std::fs::create_dir_all(&charter_root)?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
+    std::fs::write(dir.join("README.md"), readme(detected.as_ref(), &grants))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
-    std::fs::write(dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json"), ADAPTER)?;
-    for (name, content) in roles(detect(repo).as_ref()) {
-        std::fs::write(dir.join("roles").join(name), content)?;
+    let adapter_path = dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json");
+    write_json(&adapter_path, &adapter(&grants))?;
+    for (name, content) in charters(detected.as_ref()) {
+        std::fs::write(charter_root.join(name), content)?;
+    }
+    for template in AGENTS {
+        let definition = library.join(format!("{}.json", template.name));
+        write_json(&definition, &agent(template, &grants))?;
     }
     // init proves its own output: the scaffold must compile under the
     // constitutional lint before we call it a bundle. Against the
     // SCAFFOLD's own roots, not the process's: what init proves must be
     // a property of what it wrote, and a starter that compiled only
-    // because the caller happened to stand in a tree with an `adapters/`
-    // would be a proof about the caller.
+    // because the caller happened to stand in a tree with `agents/` or
+    // `adapters/` would be a proof about the caller.
     let bundle = Bundle::compile_with(
         dir,
         &dir.join(DEFAULT_AGENTS_DIR),

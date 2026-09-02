@@ -20,18 +20,20 @@ go 1.22
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 1bed7b3dd4fbdb728745d892dce26961bd9e38518dd9fd7d4c4373fddb75c846)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest b42023a3b176e344209fc06efa3056cce6d00bfc04bb985e3060cf8ffd2af8f1)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
 ## What it wrote
 
-The same eight files as every stack. `bundle.json`, `policy.json`,
-`adapters/claude.json` and the intake / reviewer / shipper charters
-**do not vary by stack** — see [rust.md](rust.md#what-it-wrote) for the
-invariant `bundle.json`. Only the two below were written to this repo.
+The same fourteen-file shape as every recognized stack. `bundle.json`,
+`policy.json`, and the intake / reviewer / shipper charters do not vary
+by stack — see [rust.md](rust.md#what-it-wrote) for the complete tree.
+The README, adapter map, five agent grants, and the two command-bearing
+charters below were written to Go. Work agents allow `go`, `git`, `ls`,
+`rg`, and `mkdir`; gate agents allow `git`, `ls`, `rg`, and `go`.
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -67,7 +69,7 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

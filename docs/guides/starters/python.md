@@ -24,18 +24,20 @@ requires-python = ">=3.11"
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 375601add5322dcda372a95e6abc9e29f7a3ecbd71727b27cf0b89bb7bec2895)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 7d9ee500e8314867ff20cb492af4855a6127a67e03a0d9a44e5532bd4089608b)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
 Fixture:
 [`python-uv/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/python-uv/).
-The eight files it wrote are the usual eight; `bundle.json`,
-`policy.json`, `adapters/claude.json` and the intake / reviewer /
-shipper charters **do not vary by stack** (see
-[rust.md](rust.md#what-it-wrote)). Only these two did:
+The fourteen files it wrote have the usual shape; `bundle.json`,
+`policy.json`, and the intake / reviewer / shipper charters do not vary
+by stack (see [rust.md](rust.md#what-it-wrote)). The README, adapter,
+five agent grants, and these two command-bearing charters did. In this
+case the detected runner is `uv`: work agents allow `uv`, `git`, `ls`,
+`rg`, and `mkdir`; gate agents allow `git`, `ls`, `rg`, and `uv`.
 
-### `roles/implementer.md`
+### `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -60,7 +62,7 @@ Result: `complete` (implemented, tests green, committed) · `broken`
 report `complete` with failing tests or uncommitted changes.
 ```
 
-### `roles/verifier.md`
+### `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -112,11 +114,11 @@ Same repository, no `uv.lock`:
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 1467e6ec6bad103c9f66e535a35701444048f8537fa471e2061d4dcd7ab44f42)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 23860374b7fc6d12c920e1a2bfc38475131549b53c1590b7ac6c56dca5cb695c)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
-`roles/implementer.md` and `roles/verifier.md`, the changed part only:
+`agents/charters/implementer.md` and `agents/charters/verifier.md`, the changed part only:
 
 ```markdown
 This repository reads as a python project (`pyproject.toml`), so use its own

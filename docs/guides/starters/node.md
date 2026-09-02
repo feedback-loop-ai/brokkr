@@ -26,20 +26,26 @@ their say.
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 17967ee82617babba8e8366e6d2e0d64f5aab69c6b2b05d50356e9a81b99b075)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 7d5b4cc6903ede374eed9ebe714d8a6470dec4e7bf38436420a43aea92ab9386)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
 ## What it wrote
 
-The same eight files as every other stack — `bundle.json`,
-`policy.json`, `adapters/claude.json`, and five charters. Those first
-three and the intake / reviewer / shipper charters **do not vary by
-stack**; see [rust.md](rust.md#what-it-wrote) for the invariant
-`bundle.json` in full. Only the two charters below were written to this
-repository.
+The same fourteen files as every recognized stack: `README.md`,
+`bundle.json`, `policy.json`, one Claude adapter, five local agent
+definitions, and their five charters. `bundle.json`, `policy.json`, and
+the intake / reviewer / shipper charters do not vary by stack. The
+README, adapter tool map, every agent's `tools.allow`, and the two
+command-bearing charters do; see [rust.md](rust.md#what-it-wrote) for
+the complete tree and invariant `bundle.json`.
 
-## `roles/implementer.md`
+For this fixture the adapter maps `npm`, `git`, `ls`, `rg`, and `mkdir`.
+The intake and implementer agents allow that full ordered set. The three
+gate agents allow `git`, `ls`, `rg`, and `npm`: the runner needed for the
+proof commands, without the work-only `mkdir` grant.
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -81,7 +87,7 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -117,11 +123,11 @@ carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest fbd0cec903bd56c325f3293c247b615a8deb6b38c05731ce024a3fe71b195e78)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 978a99812209d88e5dcdb75b4bc8cabca075844fa668ab8caf02b2660b2c4c75)
+run brokkr from inside my-bundle — its agents/ and adapters/ declare seat tools and the trust tier the gates judge on
 ```
 
-`roles/implementer.md`:
+`agents/charters/implementer.md`:
 
 ```markdown
 This repository reads as a node/turbo project (`package.json` + `turbo.json` + `pnpm-lock.yaml`), so use its own
