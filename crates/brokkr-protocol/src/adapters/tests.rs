@@ -1058,3 +1058,169 @@ fn dsh_model_overlay_reports_a_file_it_cannot_stage_or_write() {
         "{sealed}"
     );
 }
+
+/// A codex whose thread opens long before its first turn does, and which
+/// refuses to finish until the driver has already said so. Exit 9 is its
+/// verdict that the thread id reached the journal only at the end.
+const CODEX_THREAD_SHIM: &str = r#"#!/bin/sh
+cat >/dev/null
+printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3aec1"}\n'
+i=0
+while [ ! -f codex-seen ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done
+[ -f codex-seen ] || exit 9
+printf '{"type":"turn.started"}\n'
+printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message"}}\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":14620,"cached_input_tokens":11264,"output_tokens":5}}\n'
+"#;
+
+#[cfg(unix)]
+#[test]
+fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
+    // The shape of the shim's stream is the installed binary's own,
+    // captured from one real `codex exec --json` run (codex-cli
+    // 0.148.0): `thread.started` first, `turn.completed` last, no
+    // `result` event at all. Before this the id lived in session_meta
+    // only, which the journal sees once — inside the finishing
+    // checkpoint — so `brokkr inspect --seat` on a WORKING codex seat
+    // showed no session id and the drilldown had nothing to open.
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let fake = executable(dir.path(), "codex", CODEX_THREAD_SHIM);
+    let prior = std::env::var_os("BROKKR_CODEX_BIN");
+    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
+    std::env::set_var("BROKKR_CODEX_BIN", &fake);
+    std::env::remove_var("FORGE_CODEX_BIN");
+
+    let seen = dir.path().join("codex-seen");
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Codex,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        &[],
+        &mut |event| {
+            emitted.push(event.clone());
+            if event["step"] == "session-started" {
+                let _ = std::fs::write(&seen, b"");
+            }
+        },
+    )
+    .unwrap();
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
+        None => std::env::remove_var("BROKKR_CODEX_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_CODEX_BIN", value);
+    }
+
+    let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
+    assert_eq!(invocation.exit_code, 0, "{emitted:?}");
+    assert_eq!(emitted[0]["step"], "session-started");
+    assert_eq!(emitted[0]["harness"], "codex");
+    assert_eq!(emitted[0]["session_id"], thread);
+    assert_eq!(emitted.last().unwrap()["step"], "turn-completed");
+    let meta = &invocation.session_meta;
+    assert_eq!(meta["session_id"], thread);
+    assert_eq!(meta["num_turns"], 1);
+    // codex's own `input_tokens` already contains the cache read, so
+    // nothing is added back to it — the opposite of the dsh fold, and
+    // the reason both drivers agree on what the journal key means.
+    assert_eq!(meta["input_tokens"], 14620);
+    assert_eq!(meta["cache_read_tokens"], 11264);
+}
+
+#[test]
+fn a_thread_id_too_long_for_the_journal_is_clamped_in_both_places() {
+    let mut turn = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    fold_codex_event(
+        &json!({"type": "thread.started", "thread_id": "x".repeat(200)}),
+        &mut turn,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert_eq!(meta["session_id"].as_str().unwrap().chars().count(), 128);
+    assert_eq!(emitted[0]["session_id"], meta["session_id"]);
+}
+
+#[test]
+fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
+    // dsh 0.1.0-rc.6 always writes the `assistant/message` that asked
+    // for a tool before the `tool/call` itself, so this is the shape of
+    // a log that got cut short or reordered. The fold reports turn 0
+    // rather than claiming a turn dsh never assembled; the turn cell is
+    // a maximum over the seat's checkpoints, so a zero never lowers it.
+    let mut turns = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    fold_dsh_event(
+        &json!({"type": "tool/call", "data": {"name": "fs_read"}}),
+        &mut turns,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert_eq!(emitted[0]["turn"], 0);
+    assert_eq!(emitted[0]["tool"], "fs_read");
+    assert!(meta.get("num_turns").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
+    // The failure the poll loop must never absorb: a `wait` that keeps
+    // erroring is not "still running". Folded into the not-yet arm it
+    // would spin at DSH_POLL_IDLE forever — no result, no error, no
+    // exit — which is exactly the invisible seat the per-turn
+    // checkpoints exist to end, reached by a longer road. A real
+    // `waitpid` cannot be made to fail from here, so the question is
+    // injected the way this driver's other syscalls already are.
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let fake = executable(dir.path(), "dsh", "#!/bin/sh\nexit 0\n");
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+
+    let mut passes = 0;
+    let mut emitted: Vec<Value> = Vec::new();
+    let refused = invoke_dsh_with(
+        &[],
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &mut |event| emitted.push(event.clone()),
+        |child| {
+            passes += 1;
+            if passes == 1 {
+                return Ok(None);
+            }
+            // The child is reaped here rather than left behind: the
+            // refusal is about what the driver does when it cannot ask,
+            // not about leaking the process it was asking about.
+            let _ = child.wait();
+            Err(std::io::Error::other("no child processes"))
+        },
+    );
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+
+    let refused = match refused {
+        Ok(_) => panic!("a child that cannot be waited on is not a success"),
+        Err(refused) => refused,
+    };
+    assert!(refused.contains("agent CLI did not conclude"), "{refused}");
+    assert!(refused.contains("no child processes"), "{refused}");
+    // The seat still said it had started: what it cannot do is go quiet
+    // and never come back.
+    assert_eq!(emitted[0]["step"], "harness-started");
+}

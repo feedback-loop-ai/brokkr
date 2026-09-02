@@ -208,9 +208,13 @@ fn conformance_across_all_builtin_adapters() {
                     "result",
                 ]
             } else if codex && case == "obedient" {
+                // Same one-more-checkpoint story as claude above: codex's
+                // thread id is journaled when `thread.started` opens the
+                // stream, not only inside the finishing checkpoint.
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
@@ -317,16 +321,24 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
             } else if codex && case == "obedient" {
+                // The id is in the journal from the FIRST line of the
+                // stream, so a running codex seat is as addressable as a
+                // running claude or dsh one.
                 assert_eq!(
                     out[2]["data"],
+                    json!({"step":"session-started", "harness":"codex",
+                           "session_id":"codex-thread-1"})
+                );
+                assert_eq!(
+                    out[3]["data"],
                     json!({"step":"turn-started", "turn":1, "harness":"codex"})
                 );
-                assert_eq!(out[3]["data"]["tool"], "command_execution");
-                assert!(out[3]["data"].get("command").is_none());
-                assert_eq!(out[5]["data"]["input_tokens"], 21);
-                assert_eq!(out[5]["data"]["cache_read_tokens"], 8);
-                assert_eq!(out[6]["data"]["session_id"], "codex-thread-1");
-                assert_eq!(out[6]["data"]["output_tokens"], 5);
+                assert_eq!(out[4]["data"]["tool"], "command_execution");
+                assert!(out[4]["data"].get("command").is_none());
+                assert_eq!(out[6]["data"]["input_tokens"], 21);
+                assert_eq!(out[6]["data"]["cache_read_tokens"], 8);
+                assert_eq!(out[7]["data"]["session_id"], "codex-thread-1");
+                assert_eq!(out[7]["data"]["output_tokens"], 5);
             } else if dsh {
                 assert_eq!(out[2]["data"]["step"], "harness-started");
                 assert_eq!(out[2]["data"]["harness"], "deepseek");

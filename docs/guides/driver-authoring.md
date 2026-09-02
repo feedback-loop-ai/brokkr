@@ -190,6 +190,19 @@ follow whatever it writes as it goes — the dsh driver pins its own
 per-seat session-transcript root through the launcher's `--patch`
 overlay and tails the one file that appears there, which is
 unambiguous by construction and never a scan for the newest file.
+And however you watch it, **conclude**: a driver that cannot tell
+whether its child is still alive reports the failure and exits. Treating
+a failed `wait` as "not finished yet" reproduces the silent seat this
+standard exists to prevent, by a longer road.
+
+**A tailed file is a weaker source than a pipe.** Stream-json on a pipe
+can only have come from the child; a session log on disk sits where the
+seat's own agent can append to it, and the driver publishes its path in
+`harness-started`. Fold such a file only under the clamps above — a
+bounded id, a bounded tool name, numeric counts — and never derive a
+path to execute, a command, or a control decision from it. The journal
+then holds, at worst, a number a compromised seat chose; it never holds
+anything that acts.
 
 **`input_tokens` is inclusive of `cache_read_tokens`.** Harnesses split
 that count both ways — codex reports `input_tokens: 14830` beside

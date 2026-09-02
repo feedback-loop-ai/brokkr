@@ -254,10 +254,22 @@ fn fold_codex_event(
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
-                session_meta.insert(
-                    "session_id".into(),
-                    Value::String(thread_id.chars().take(128).collect()),
-                );
+                let clamped: String = thread_id.chars().take(128).collect();
+                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
+                // Journaled the moment the thread opens, not only inside
+                // the finishing checkpoint that carries session_meta at
+                // exit. `thread.started` is the FIRST line codex-cli
+                // 0.148.0 writes — verified on the installed binary,
+                // `{"type":"thread.started","thread_id":"01a0619c-…"}`
+                // ahead of `turn.started` — so until now `brokkr inspect
+                // --seat` on a WORKING codex seat showed no session id
+                // at all and the live transcript drilldown had nothing
+                // to open. Same discipline as the claude and dsh folds.
+                emit(&json!({
+                    "step":"session-started",
+                    "harness":"codex",
+                    "session_id": clamped,
+                }));
             }
         }
         Some("turn.started") => {
@@ -536,6 +548,20 @@ struct DshTail {
 /// while the process still runs, so a partly-written last line stays in
 /// `pending` until its newline arrives; a line that is not JSON is
 /// noise, dropped, never repaired (decision 0001).
+///
+/// TRUST BOUNDARY, and it is weaker than claude's. Claude's stream-json
+/// arrives on a pipe only the child holds; this is an ordinary file in a
+/// directory the seat's own agent can write to, and the driver publishes
+/// its path in `harness-started.target`. An agent with filesystem tools
+/// can therefore append lines this fold will believe — a forged session
+/// header renames the seat's session, forged `assistant/message` lines
+/// inflate the turn and token counts. That is accepted, not overlooked:
+/// such an agent is already trusted with the working tree, the fold
+/// clamps every value it takes (≤128-char id, ≤80-char tool name, u64
+/// counts) and derives nothing executable from any of them, so the worst
+/// case is a wrong number and a wrong drilldown in the journal, never an
+/// injection or a control-flow decision. A driver whose harness offers a
+/// real stdout stream should use it rather than inherit this.
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
@@ -558,6 +584,38 @@ fn drain_dsh_transcript(
             continue;
         };
         fold_dsh_event(&event, turns, session_meta, emit);
+    }
+}
+
+/// How long the poll loop idles between passes over a running seat's
+/// transcript.
+const DSH_POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// Carry a running seat to its exit code: sample the child's state, then
+/// drain whatever it has appended. Exit is sampled BEFORE the drain, so
+/// the pass that follows the last one reads a settled file — nothing the
+/// child wrote can be missed by the driver losing a race with its own
+/// child's exit.
+///
+/// A `wait` that ERRORS is terminal, never "not finished yet". Folding
+/// that error back into the loop is exactly how a seat goes silent
+/// forever: a persistent `waitpid` failure — ECHILD, if anything in the
+/// process reaps children out from under this one — would spin here at
+/// `DSH_POLL_IDLE` with no result, no error and no exit, which is the
+/// invisible seat this whole driver change exists to end. The buffered
+/// path this loop replaced surfaced such a failure as `agent CLI did not
+/// conclude`; so does this one.
+fn poll_until_exit(
+    mut wait: impl FnMut() -> std::io::Result<Option<i32>>,
+    mut drain: impl FnMut(),
+) -> Result<i32, String> {
+    loop {
+        let finished = io_context(wait(), "agent CLI did not conclude")?;
+        drain();
+        if let Some(code) = finished {
+            return Ok(code);
+        }
+        std::thread::sleep(DSH_POLL_IDLE);
     }
 }
 
@@ -680,6 +738,26 @@ fn invoke_dsh(
     workdir: &str,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
+    invoke_dsh_with(extra, prompt, workdir, emit, |child| {
+        child
+            .try_wait()
+            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+    })
+}
+
+/// The same invocation with the one question the OS answers — "is the
+/// child still running?" — injectable, the way `stage_prompt_with` and
+/// `dsh_transcript_root_in` make their own syscalls injectable. A real
+/// `waitpid` failure cannot be provoked from a test, and the arm that
+/// handles it is the difference between a seat that reports a refusal
+/// and a seat that spins in silence forever, so it is reachable here.
+fn invoke_dsh_with(
+    extra: &[String],
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
     // Bound for the whole invocation: dropping it removes the seat's
@@ -725,20 +803,10 @@ fn invoke_dsh(
     let mut session_meta = Map::new();
     let mut turns = 0u64;
     let mut tail = DshTail::default();
-    // Exit is sampled BEFORE the drain, so the pass that follows the
-    // last one reads a settled file: nothing the child wrote can be
-    // missed by winning the race with its own exit.
-    let exit_code = loop {
-        let finished = match child.try_wait() {
-            Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
-            _ => None,
-        };
-        drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit);
-        if let Some(code) = finished {
-            break code;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    };
+    let exit_code = poll_until_exit(
+        || wait(&mut child),
+        || drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit),
+    )?;
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     if let Some(model) = model {
