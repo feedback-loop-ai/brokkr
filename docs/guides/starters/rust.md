@@ -45,8 +45,8 @@ correct.
 ## What it wrote
 
 ```
-my-bundle/README.md
 my-bundle/adapters/claude.json
+my-bundle/agents/README.md
 my-bundle/agents/charters/implementer.md
 my-bundle/agents/charters/intake.md
 my-bundle/agents/charters/reviewer.md

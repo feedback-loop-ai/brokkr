@@ -32,7 +32,7 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 
 ## What it wrote
 
-The same fourteen files as every stack: `README.md`, `bundle.json`,
+The same fourteen files as every stack: `agents/README.md`, `bundle.json`,
 `policy.json`, `adapters/claude.json`, five agent definitions under
 `agents/` and their five charters under `agents/charters/`. The
 invariant `bundle.json` — five seats each naming an agent — is in

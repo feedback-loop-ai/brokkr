@@ -511,11 +511,12 @@ fn allowance<'a>(spec: &AgentSpec, grants: &'a Grants) -> Option<&'a [Tool]> {
     }
 }
 
-/// The scaffold's README: what was written, where each half of the grant
-/// lives, and — the part an operator must be able to check — which tools
-/// the seats were granted and why. Where no stack was recognized it says
-/// the map is EMPTY, in those words, so an empty grant cannot be mistaken
-/// for a considered one.
+/// The scaffold's README, written as `agents/README.md` beside the agents
+/// it describes: what was written, where each half of the grant lives,
+/// and — the part an operator must be able to check — which tools the
+/// seats were granted and why. Where no stack was recognized it says the
+/// map is EMPTY, in those words, so an empty grant cannot be mistaken for
+/// a considered one. It is never written to the target's own README.md.
 fn readme(detected: Option<&Detected>) -> String {
     match detected {
         Some(detected) => {
@@ -1032,7 +1033,10 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), BUNDLE)?;
-    std::fs::write(dir.join("README.md"), readme(detected))?;
+    // The scaffold's notes live inside the library it wrote, never at the
+    // target's own README.md: `brokkr init .` runs at a project's root, and
+    // a project's README is the operator's file, not a scaffold's.
+    std::fs::write(library.join("README.md"), readme(detected))?;
     std::fs::write(&declaration, adapter_json(&grants))?;
     for spec in SEATS {
         let allowance = allowance(spec, &grants);

@@ -600,7 +600,8 @@ fn each_stack_grants_its_own_tools_by_seat_class() {
         }
 
         // The README names the grant in words an operator can check.
-        let readme = std::fs::read_to_string(bundle.join("README.md")).unwrap();
+        let readme =
+            std::fs::read_to_string(bundle.join(DEFAULT_AGENTS_DIR).join("README.md")).unwrap();
         assert!(!readme.contains("NO STACK WAS RECOGNIZED"), "{fixture}");
         for name in *work {
             assert!(
@@ -718,7 +719,8 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
         assert_eq!(definition["models"].as_array().unwrap().len(), 2);
     }
 
-    let readme = std::fs::read_to_string(bundle.join("README.md")).unwrap();
+    let readme =
+        std::fs::read_to_string(bundle.join(DEFAULT_AGENTS_DIR).join("README.md")).unwrap();
     assert!(readme.contains("NO STACK WAS RECOGNIZED"), "{readme}");
     assert!(readme.contains("EMPTY"), "{readme}");
     assert!(
@@ -872,4 +874,34 @@ fn init_refuses_to_overwrite_an_operators_agent_definition() {
     assert!(kept.contains("the operator's"), "{kept}");
     assert!(!bundle.join("bundle.json").exists());
     assert!(!bundle.join(DEFAULT_ADAPTERS_DIR).exists());
+}
+
+/// The documented primary flow is `brokkr init .` at a project's root,
+/// and a project's root has a README.md of its own. The scaffold's notes
+/// go under `agents/`, and the project's README keeps every byte —
+/// caught at review of the wager's arms, both of which wrote over it.
+#[test]
+fn init_at_a_projects_root_leaves_its_own_readme_untouched() {
+    let repo = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(fixtures().join("rust")).unwrap() {
+        let marker = entry.unwrap().path();
+        std::fs::copy(&marker, repo.path().join(marker.file_name().unwrap())).unwrap();
+    }
+    let theirs = "# Their project\n\nThe operator's own words, byte for byte.\n";
+    std::fs::write(repo.path().join("README.md"), theirs).unwrap();
+
+    let (code, _, stderr) = brokkr(&["init", "."], repo.path());
+    assert_eq!(code, Some(0), "{stderr}");
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("README.md")).unwrap(),
+        theirs,
+        "init wrote over the project's README"
+    );
+    let notes =
+        std::fs::read_to_string(repo.path().join(DEFAULT_AGENTS_DIR).join("README.md")).unwrap();
+    assert!(
+        notes.contains("cargo"),
+        "the scaffold's notes moved under agents/: {notes}"
+    );
 }

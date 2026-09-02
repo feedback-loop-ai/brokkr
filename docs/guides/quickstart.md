@@ -145,8 +145,8 @@ What it wrote:
 ```
 ./bundle.json          # name, policy path, protected_phase, five seats — each names an agent
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./README.md            # what was written, and which tools the seats were granted
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
+./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
 ./agents/intake.json   # one agent per seat: charter, model chain, tool grant, limits
 ./agents/implementer.json
 ./agents/verifier.json
