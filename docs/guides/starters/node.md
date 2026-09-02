@@ -26,20 +26,22 @@ their say.
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 17967ee82617babba8e8366e6d2e0d64f5aab69c6b2b05d50356e9a81b99b075)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 73c4d35763c6684dbf95b299968ba59739af86124c5dc764899565263f2e875d)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 ## What it wrote
 
-The same eight files as every other stack — `bundle.json`,
-`policy.json`, `adapters/claude.json`, and five charters. Those first
-three and the intake / reviewer / shipper charters **do not vary by
-stack**; see [rust.md](rust.md#what-it-wrote) for the invariant
-`bundle.json` in full. Only the two charters below were written to this
-repository.
+The same fourteen files as every stack: `README.md`, `bundle.json`,
+`policy.json`, `adapters/claude.json`, five agent definitions under
+`agents/` and their five charters under `agents/charters/`. The
+invariant `bundle.json` — five seats each naming an agent — is in
+[rust.md](rust.md#what-it-wrote), and so are the fixed parts of the
+agent files. What this repository changed is the stack's own data:
+the two charters below, `adapters/claude.json`'s tool map and every
+agent's `tools.allow` (shown after the charters).
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -81,7 +83,7 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -108,6 +110,28 @@ exactly — never soften a failure).
   verify gate, which is the correct failure: it is a five-second edit to
   this file, and a silently-skipped lint is not.
 
+## The tool grant
+
+Every command this stack's seats run goes through one binary — `npm` —
+so the adapter's `tool_permissions.names` maps it and the four tools
+every seat needs:
+
+```json
+"names": {
+  "git": "Bash(git:*)",
+  "ls": "Bash(ls:*)",
+  "mkdir": "Bash(mkdir:*)",
+  "npm": "Bash(npm:*)",
+  "rg": "Bash(rg:*)"
+}
+```
+
+The work agents (`intake`, `implement`) carry all five names in
+`tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the
+same minus `mkdir`. The grant is per binary, not per subcommand:
+`Bash(npm:*)` answers to `npm run build` as readily as to `npm test`,
+and what keeps a gate from building is its charter, not the glob.
+
 ## The monorepo variant
 
 The same node stack with a `turbo.json` at the root is a **different**
@@ -117,11 +141,11 @@ carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest fbd0cec903bd56c325f3293c247b615a8deb6b38c05731ce024a3fe71b195e78)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 1359509b294a10b7d46885bd112459f90198b39d882db8d7b363c3b6e392c07c)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-`roles/implementer.md`:
+`agents/charters/implementer.md`:
 
 ```markdown
 This repository reads as a node/turbo project (`package.json` + `turbo.json` + `pnpm-lock.yaml`), so use its own
@@ -147,7 +171,9 @@ Two axes crossed, both read from the root:
   test`, `yarn.lock` gives `yarn exec`, and a repository with no
   lockfile at all gets `npx`, which resolves the local install before it
   reaches for the registry. All four are fixtures and all four are
-  asserted.
+  asserted — and the granted binary follows the same prefix: this
+  scaffold's map names `pnpm`, a `turbo-bun` scaffold's names `bunx`, a
+  lockfile-free one's names `npx`.
 - **The MONOREPO paragraph** — right command, but a seat that was not
   told it is in a monorepo may still "helpfully" narrow it to one
   package. `nx.json` gets the same treatment with `nx run-many -t test`.

@@ -20,18 +20,25 @@ go 1.22
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 1bed7b3dd4fbdb728745d892dce26961bd9e38518dd9fd7d4c4373fddb75c846)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest feac6d904f012e999c22f74277663b1315a57253c43fcf8acdd02f723e60d60b)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 ## What it wrote
 
-The same eight files as every stack. `bundle.json`, `policy.json`,
-`adapters/claude.json` and the intake / reviewer / shipper charters
-**do not vary by stack** — see [rust.md](rust.md#what-it-wrote) for the
-invariant `bundle.json`. Only the two below were written to this repo.
+The same fourteen files as every stack: `README.md`, `bundle.json`,
+`policy.json`, `adapters/claude.json`, five agent definitions under
+`agents/` and their five charters under `agents/charters/`. The
+invariant `bundle.json` — five seats each naming an agent — is in
+[rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
+files. What this repository changed is the stack's own data:
 
-## `roles/implementer.md`
+- `agents/charters/implementer.md` and `agents/charters/verifier.md`
+  below;
+- `adapters/claude.json`'s tool map and every agent's `tools.allow`,
+  sized to this stack's commands (shown after the charters).
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -67,7 +74,7 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -93,6 +100,28 @@ exactly — never soften a failure).
   because it ships with the toolchain: `golangci-lint` would be a better
   gate in most repositories and a broken command in a repository that
   never installed it. Swap it in this file if you have it.
+
+## The tool grant
+
+Every command this stack's seats run goes through one binary — `go` —
+so the adapter's `tool_permissions.names` maps it and the four tools
+every seat needs:
+
+```json
+"names": {
+  "git": "Bash(git:*)",
+  "go": "Bash(go:*)",
+  "ls": "Bash(ls:*)",
+  "mkdir": "Bash(mkdir:*)",
+  "rg": "Bash(rg:*)"
+}
+```
+
+The work agents (`intake`, `implement`) carry all five names in
+`tools.allow`; the gate agents (`verify`, `review`, `ship`) carry the
+same minus `mkdir`. The grant is per binary, not per subcommand:
+`Bash(go:*)` answers to `go build` as readily as to `go test`, and what
+keeps a gate from building is its charter, not the glob.
 
 ## A Go workspace
 

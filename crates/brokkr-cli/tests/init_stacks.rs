@@ -2,9 +2,16 @@
 //! from is read for the manifests and lockfiles at its root, and the two
 //! charters that tell a seat to build and to prove name that stack's own
 //! commands. What is asserted here is what an operator would read in
-//! `roles/`, per stack — and, for a repository carrying no marker init
-//! knows, that the charter says so in those words instead of dressing a
-//! placeholder as a choice.
+//! `agents/charters/`, per stack — and, for a repository carrying no marker
+//! init knows, that the charter says so in those words instead of dressing
+//! a placeholder as a choice.
+//!
+//! The same table decides what the seats may RUN: the binary each command
+//! invokes is written into the scaffold's adapter as a tool permission and
+//! granted to the scaffolded agents — the whole set to the work seats, the
+//! read-only subset to the gates — and what is asserted is the resolved
+//! argv the compiler composes for the implement seat, because a grant that
+//! never reached `--allowedTools` is no grant.
 //!
 //! Every scaffold is made in a tempdir the fixture's markers are COPIED
 //! into. Never in the checked-in fixture itself: `init` writes, and a
@@ -13,6 +20,10 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use brokkr_runtime::{Bundle, SeatBody};
+use serde_json::Value;
 
 /// Fixture, the name the charters call the stack, then build, test, lint.
 /// The same shape as the table in `init.rs`, written out again rather
@@ -60,12 +71,14 @@ const RECOGNIZED: &[(&str, &str, &str, &str, &str)] = &[
         "uv run pytest",
         "uv run ruff check .",
     ),
+    // The plain-python row runs through `python3`, the interpreter a fresh
+    // project actually resolves (the shipped adapters grant it that name).
     (
         "python",
         "python",
-        "python -m build",
-        "python -m pytest",
-        "python -m ruff check .",
+        "python3 -m build",
+        "python3 -m pytest",
+        "python3 -m ruff check .",
     ),
     (
         "go",
@@ -115,6 +128,94 @@ const MONOREPOS: &[(&str, &str, &str, &str, &str)] = &[
     ),
 ];
 
+/// The tool-grant table, asserted per stack: fixture, the WORK allowance
+/// (intake, implement — the full set: the stack's runners plus git, ls,
+/// rg and mkdir), then the GATE allowance (verify, review, ship — the
+/// read-only subset: the test runner's tools plus git, ls and rg, never
+/// the write tool). Written out again rather than imported, like every
+/// other table here: a grant silently widened or narrowed in `init.rs`
+/// fails here.
+const TOOLS: &[(&str, &[&str], &[&str])] = &[
+    (
+        "rust",
+        &["cargo", "git", "ls", "rg", "mkdir"],
+        &["cargo", "git", "ls", "rg"],
+    ),
+    (
+        "node-bun",
+        &["bun", "git", "ls", "rg", "mkdir"],
+        &["bun", "git", "ls", "rg"],
+    ),
+    (
+        "node-pnpm",
+        &["pnpm", "git", "ls", "rg", "mkdir"],
+        &["pnpm", "git", "ls", "rg"],
+    ),
+    (
+        "node-yarn",
+        &["yarn", "git", "ls", "rg", "mkdir"],
+        &["yarn", "git", "ls", "rg"],
+    ),
+    (
+        "node-npm",
+        &["npm", "git", "ls", "rg", "mkdir"],
+        &["npm", "git", "ls", "rg"],
+    ),
+    (
+        "python-uv",
+        &["uv", "git", "ls", "rg", "mkdir"],
+        &["uv", "git", "ls", "rg"],
+    ),
+    // The plain-python row: the interpreter the commands run through plus
+    // pytest, the venv's own suite binary.
+    (
+        "python",
+        &["python3", "pytest", "git", "ls", "rg", "mkdir"],
+        &["python3", "pytest", "git", "ls", "rg"],
+    ),
+    (
+        "go",
+        &["go", "git", "ls", "rg", "mkdir"],
+        &["go", "git", "ls", "rg"],
+    ),
+    (
+        "make",
+        &["make", "git", "ls", "rg", "mkdir"],
+        &["make", "git", "ls", "rg"],
+    ),
+    // A monorepo runs through whichever runner its lockfile picked.
+    (
+        "turbo-pnpm",
+        &["pnpm", "git", "ls", "rg", "mkdir"],
+        &["pnpm", "git", "ls", "rg"],
+    ),
+    (
+        "turbo-bun",
+        &["bunx", "git", "ls", "rg", "mkdir"],
+        &["bunx", "git", "ls", "rg"],
+    ),
+    (
+        "turbo-plain",
+        &["npx", "git", "ls", "rg", "mkdir"],
+        &["npx", "git", "ls", "rg"],
+    ),
+    (
+        "nx-yarn",
+        &["yarn", "git", "ls", "rg", "mkdir"],
+        &["yarn", "git", "ls", "rg"],
+    ),
+];
+
+/// The Bash expression each granted tool name stands for — the same
+/// vocabulary the shipped adapters carry, written out again so an
+/// expression silently changed in `init.rs` fails here.
+fn expr(name: &str) -> String {
+    match name {
+        "pytest" => "Bash(.venv/bin/pytest:*)".to_string(),
+        other => format!("Bash({other}:*)"),
+    }
+}
+
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/init-stacks")
 }
@@ -148,8 +249,64 @@ fn scaffold_from(fixture: &str) -> (tempfile::TempDir, PathBuf) {
     (repo, bundle)
 }
 
+/// A charter is the agent of the same name's text, scaffolded under
+/// `agents/charters/` — inside the library root the compiler resolves it
+/// against (decision 0016).
 fn charter(bundle: &Path, name: &str) -> String {
-    std::fs::read_to_string(bundle.join("roles").join(name)).unwrap()
+    std::fs::read_to_string(bundle.join(DEFAULT_AGENTS_DIR).join("charters").join(name)).unwrap()
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// One scaffolded agent definition.
+fn agent(bundle: &Path, name: &str) -> Value {
+    read_json(&bundle.join(DEFAULT_AGENTS_DIR).join(format!("{name}.json")))
+}
+
+/// The tool names one scaffolded agent's `tools.allow` lists, in order.
+fn allow_of(definition: &Value) -> Vec<&str> {
+    definition["tools"]["allow"]
+        .as_array()
+        .map(|allow| {
+            allow
+                .iter()
+                .map(|name| name.as_str().expect("a tool name"))
+                .collect()
+        })
+        .expect("every scaffolded agent on a recognized stack declares tools.allow")
+}
+
+/// The scaffolded `adapters/claude.json` tool map: name → Bash(...).
+fn names_map(bundle: &Path) -> Value {
+    read_json(&bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json"))["tool_permissions"]["names"]
+        .clone()
+}
+
+/// Compile the scaffold against ITS OWN roots — the property init proves
+/// when it prints its digest, asserted here from the outside.
+fn compiles(bundle: &Path) -> Bundle {
+    Bundle::compile_with(
+        bundle,
+        &bundle.join(DEFAULT_AGENTS_DIR),
+        &bundle.join(DEFAULT_ADAPTERS_DIR),
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "{} must compile under its own adapters/ and agents/: {e}",
+            bundle.display()
+        )
+    })
+}
+
+/// One seat's resolved argv, from `driver` on — `[0]` is this machine's
+/// absolute path to the brokkr executable, which is nobody's contract.
+fn argv(compiled: &Bundle, seat: &str) -> Vec<String> {
+    match &compiled.seats[seat].body {
+        SeatBody::Single { command, .. } => command[1..].to_vec(),
+        other => panic!("{seat} is not a single-agent seat: {other:?}"),
+    }
 }
 
 /// The commands a charter actually names: its indented lines, whole and
@@ -312,7 +469,7 @@ fn uv_out_votes_the_pip_fallback() {
     for text in [&implementer, &verifier] {
         assert!(text.contains("a python/uv project"), "{text}");
         assert!(text.contains("`pyproject.toml` + `uv.lock`"), "{text}");
-        for fallback in ["python -m build", "python -m pytest", "python -m ruff"] {
+        for fallback in ["python3 -m build", "python3 -m pytest", "python3 -m ruff"] {
             assert!(!text.contains(fallback), "uv charter still says {fallback}");
         }
     }
@@ -399,14 +556,200 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
     }
 }
 
-/// Introspection rewrote prose, not the roster. Every scaffold — each
-/// recognized stack and the fallback alike — still compiles, and what it
-/// compiles to still carries decision 0021 ruling 1's division: the
-/// three judging seats declare `gate`, the two working seats declare
-/// `work`, and the compiled manifest pins the adapter that authorised a
-/// judgement for exactly those three. That pin is the gate class made
-/// visible in the output — a work seat never earns one — so a class left
-/// to default would show up here as a roster of nobody.
+/// The tool-grant half of the table: every recognized stack scaffolds an
+/// adapter whose `tool_permissions.names` maps exactly the granted names
+/// to their `Bash(...)` expressions, and agents sized by decision 0021
+/// ruling 1's classes — the two work agents (intake, implement) carry the
+/// full set, the three gate agents (verify, review, ship) carry the
+/// read-only subset and never the write tool. The class is read from the
+/// scaffolded `bundle.json`, not assumed, so the roster the seats declare
+/// and the roster the allowances were written for cannot drift apart
+/// without failing here. The test style is the file's own: the table
+/// above is written out again, so a grant changed in `init.rs` fails
+/// here.
+#[test]
+fn each_stack_grants_its_own_tools_by_seat_class() {
+    for (fixture, work, gate) in TOOLS {
+        let (_repo, bundle) = scaffold_from(fixture);
+
+        // The adapter map is the union of every allowance: the work set,
+        // each name mapped to the Bash(...) expression the CLI needs.
+        let names = names_map(&bundle);
+        let mut expected = serde_json::Map::new();
+        for name in *work {
+            expected.insert(name.to_string(), Value::String(expr(name)));
+        }
+        assert_eq!(names, Value::Object(expected), "{fixture}");
+
+        // The two work-class agents carry the full set...
+        let seats = read_json(&bundle.join("bundle.json"));
+        let seats = seats["seats"].as_object().unwrap();
+        for (seat, declared) in seats {
+            let agent_name = declared["agent"].as_str().unwrap();
+            let definition = agent(&bundle, agent_name);
+            let wanted = match declared["class"].as_str().unwrap() {
+                "work" => work,
+                "gate" => gate,
+                other => panic!("{fixture}/{seat}: unknown class {other}"),
+            };
+            assert_eq!(
+                allow_of(&definition),
+                wanted.to_vec(),
+                "{fixture}/{seat} ({agent_name})"
+            );
+        }
+
+        // The README names the grant in words an operator can check.
+        let readme = std::fs::read_to_string(bundle.join("README.md")).unwrap();
+        assert!(!readme.contains("NO STACK WAS RECOGNIZED"), "{fixture}");
+        for name in *work {
+            assert!(
+                readme.contains(&format!("{name} → {}", expr(name))),
+                "{fixture}: README does not map {name}: {readme}"
+            );
+        }
+
+        // Every allowance is expressible: the scaffold compiles under its
+        // own adapters/ and agents/ (init proved the same when it printed
+        // its digest).
+        compiles(&bundle);
+    }
+}
+
+/// The implement seat's resolved argv — the command the engine would
+/// spawn for the seat that builds — carries the expected `--allowedTools`
+/// list, composed from the implementer agent's `tools.allow` through the
+/// adapter's names map (decision 0016). node/bun and rust/cargo are the
+/// two the adoption run asked for; the gate seats' argv carries the
+/// read-only subset, and never `mkdir`.
+#[test]
+fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
+    for (fixture, work, gate) in TOOLS {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let compiled = compiles(&bundle);
+
+        let SeatBody::Single { command, .. } = &compiled.seats["implement"].body else {
+            panic!("implement is a single-agent seat")
+        };
+        let allowed: Vec<String> = work.iter().map(|name| expr(name)).collect();
+        assert!(
+            command
+                .windows(2)
+                .any(|pair| pair[0] == "--allowedTools" && pair[1] == allowed.join(",")),
+            "{fixture}: implement argv {command:?} lacks {allowed:?}"
+        );
+
+        for gate_seat in ["verify", "review", "ship"] {
+            let SeatBody::Single { command, .. } = &compiled.seats[gate_seat].body else {
+                panic!("{gate_seat} is a single-agent seat")
+            };
+            let allowed: Vec<String> = gate.iter().map(|name| expr(name)).collect();
+            assert!(
+                command
+                    .windows(2)
+                    .any(|pair| pair[0] == "--allowedTools" && pair[1] == allowed.join(",")),
+                "{fixture}/{gate_seat}: argv {command:?} lacks {allowed:?}"
+            );
+            assert!(
+                !command.iter().any(|part| part.contains("mkdir")),
+                "{fixture}/{gate_seat}: a gate carries the write tool: {command:?}"
+            );
+        }
+    }
+}
+
+/// The recorded regression, pinned whole: the two stacks the adoption
+/// run (issue #211) was reported against, node/bun and rust/cargo. The
+/// implement seat's resolved argv ends in exactly the stack's
+/// `--allowedTools` list — the driver prefix, the pinned model, and the
+/// list, in the order the work allowance names them — and the verify
+/// seat's ends in the gate subset. A grant that reached the adapter map
+/// and the agent file but never the argv would fail here.
+#[test]
+fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
+    for (fixture, binary) in [("node-bun", "bun"), ("rust", "cargo")] {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let compiled = compiles(&bundle);
+
+        let prefix = ["driver", "claude", "--", "--permission-mode", "acceptEdits"];
+        let mut implement: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
+        implement.extend([
+            "--model".to_string(),
+            "claude-opus-5".to_string(),
+            "--allowedTools".to_string(),
+            format!("Bash({binary}:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"),
+        ]);
+        assert_eq!(argv(&compiled, "implement"), implement, "{fixture}");
+
+        let mut verify: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
+        verify.extend([
+            "--model".to_string(),
+            "claude-sonnet-5".to_string(),
+            "--allowedTools".to_string(),
+            format!("Bash({binary}:*),Bash(git:*),Bash(ls:*),Bash(rg:*)"),
+        ]);
+        assert_eq!(argv(&compiled, "verify"), verify, "{fixture}");
+    }
+}
+
+/// A repository no row recognizes is granted nothing BY NAME: the
+/// adapter's names map stays empty and no agent declares a `tools`
+/// restriction (the loader reads an absent `tools` as "no restriction" —
+/// the only honest reading an empty map can serve). The README says so in
+/// those words rather than letting the silence pass for a choice, and the
+/// scaffold still compiles with no `--allowedTools` on any seat.
+#[test]
+fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
+    let (_repo, bundle) = scaffold_from("generic");
+
+    assert_eq!(
+        names_map(&bundle),
+        serde_json::json!({}),
+        "generic grants were invented"
+    );
+    for name in ["intake", "implementer", "verifier", "reviewer", "shipper"] {
+        let definition = agent(&bundle, name);
+        assert!(
+            definition.get("tools").is_none(),
+            "generic agent {name} declares a tools restriction the empty map cannot express"
+        );
+        // Everything else an agent needs is still there.
+        assert_eq!(definition["charter"], format!("charters/{name}.md"));
+        assert_eq!(definition["models"].as_array().unwrap().len(), 2);
+    }
+
+    let readme = std::fs::read_to_string(bundle.join("README.md")).unwrap();
+    assert!(readme.contains("NO STACK WAS RECOGNIZED"), "{readme}");
+    assert!(readme.contains("EMPTY"), "{readme}");
+    assert!(
+        readme.contains("grants no tool it could not read from a manifest"),
+        "{readme}"
+    );
+
+    // A scaffold that declares nothing still compiles, with no seat
+    // handed a Bash grant it was never given.
+    let compiled = compiles(&bundle);
+    for seat in ["intake", "implement", "verify", "review", "ship"] {
+        let command = argv(&compiled, seat);
+        assert!(
+            !command.iter().any(|part| part == "--allowedTools"),
+            "{seat}: {command:?}"
+        );
+        assert!(
+            command.contains(&"--model".to_string()),
+            "{seat}: {command:?}"
+        );
+    }
+}
+
+/// Introspection rewrote prose and grants, not the roster. Every
+/// scaffold — each recognized stack and the fallback alike — still
+/// compiles, and what it compiles to still carries decision 0021 ruling
+/// 1's division: the three judging seats declare `gate`, the two working
+/// seats declare `work`. Every seat now resolves through an agent, so the
+/// manifest pins each seat's resolution record — five of them, all
+/// served by the scaffold's own `claude` adapter — and a seat that had
+/// quietly stayed inline would show up here as a record missing.
 #[test]
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
@@ -426,13 +769,19 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         assert_eq!(code, Some(0), "{fixture}: {stderr}");
         assert!(stdout.contains("\"starter\""), "{fixture}: {stdout}");
 
-        let compiled: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-        let judged: Vec<&String> = compiled["manifest"]["drivers"]
+        let compiled: Value = serde_json::from_str(&stdout).unwrap();
+        let records = compiled["manifest"]["agents"]
             .as_object()
-            .unwrap_or_else(|| panic!("{fixture}: no seat compiled as a gate: {stdout}"))
-            .keys()
-            .collect();
-        assert_eq!(judged, ["review", "ship", "verify"], "{fixture}: {stdout}");
+            .unwrap_or_else(|| panic!("{fixture}: no seat resolved through an agent: {stdout}"));
+        let seated: Vec<&String> = records.keys().collect();
+        assert_eq!(
+            seated,
+            ["implement", "intake", "review", "ship", "verify"],
+            "{fixture}: {stdout}"
+        );
+        for (seat, record) in records {
+            assert_eq!(record["provider"], "claude", "{fixture}/{seat}: {record}");
+        }
 
         let scaffolded = std::fs::read_to_string(bundle.join("bundle.json")).unwrap();
         assert_eq!(
@@ -454,7 +803,7 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
 #[test]
 fn a_stack_aware_scaffolds_gates_refuse_an_untrusted_driver() {
     let (_repo, bundle) = scaffold_from("rust");
-    let adapter = bundle.join("adapters/claude.json");
+    let adapter = bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json");
     let declared = std::fs::read_to_string(&adapter).unwrap();
     std::fs::write(
         &adapter,
@@ -471,4 +820,56 @@ fn a_stack_aware_scaffolds_gates_refuse_an_untrusted_driver() {
         stderr.contains("gate class") && stderr.contains("claude"),
         "stderr: {stderr}"
     );
+}
+
+/// The other side of the same coin: on a recognized stack, an agent
+/// allowance that names a tool the adapter map does not express is a
+/// compile refusal (decision 0016) — the two files are one grant, and an
+/// operator editing one side learns the coupling from the compiler, not
+/// from a run that silently granted nothing.
+#[test]
+fn an_allowance_the_adapter_cannot_express_refuses_the_scaffolds_compile() {
+    let (_repo, bundle) = scaffold_from("node-bun");
+    // Remove bun from the adapter map; the work agents still list it.
+    let adapter_path = bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json");
+    let mut adapter = read_json(&adapter_path);
+    adapter["tool_permissions"]["names"]
+        .as_object_mut()
+        .unwrap()
+        .remove("bun");
+    std::fs::write(
+        &adapter_path,
+        serde_json::to_string_pretty(&adapter).unwrap(),
+    )
+    .unwrap();
+
+    let (code, _, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("no tool permission named 'bun'"),
+        "stderr: {stderr}"
+    );
+}
+
+/// The library is workspace data on the trust declaration's own terms:
+/// an agent an operator already defines — its grant narrowed, its chain
+/// re-ordered — is theirs, and a scaffolder that wrote over it would
+/// widen a permission by accident. Refused by name before anything is
+/// written.
+#[test]
+fn init_refuses_to_overwrite_an_operators_agent_definition() {
+    let repo = tempfile::tempdir().unwrap();
+    let bundle = repo.path().join("bundle");
+    std::fs::create_dir_all(bundle.join(DEFAULT_AGENTS_DIR)).unwrap();
+    let definition = bundle.join(DEFAULT_AGENTS_DIR).join("implementer.json");
+    std::fs::write(&definition, "{\"description\": \"the operator's\"}\n").unwrap();
+
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], repo.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+    assert!(stderr.contains("implementer.json"), "stderr: {stderr}");
+    let kept = std::fs::read_to_string(&definition).unwrap();
+    assert!(kept.contains("the operator's"), "{kept}");
+    assert!(!bundle.join("bundle.json").exists());
+    assert!(!bundle.join(DEFAULT_ADAPTERS_DIR).exists());
 }
