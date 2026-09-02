@@ -186,6 +186,13 @@ pub struct Adapter {
     pub models: BTreeMap<String, String>,
     pub model_flag: Option<String>,
     pub tool_permissions: Option<ToolPermissions>,
+    /// Why `tool_permissions` is absent, when the operator MEASURED the
+    /// provider's CLI and found no per-tool allow-list to map onto.
+    /// Never a capability: a declared gap refuses exactly as a bare
+    /// `"unsupported"` does. It exists so the refusal can name the
+    /// provider's real restriction axis (codex's sandbox classes) rather
+    /// than leaving a reader to wonder whether anyone ever looked.
+    pub tool_permissions_gap: Option<String>,
     pub mcp: Option<McpSupport>,
     pub digest: String,
 }
@@ -353,14 +360,22 @@ fn compose(
 
     if let Some(allow) = &agent.allow {
         let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
+            // A measured gap names the axis the provider DOES have; a
+            // bare `"unsupported"` names nothing, because nothing was
+            // recorded. Either way the attempt refuses here.
+            let declared = match &adapter.tool_permissions_gap {
+                Some(reason) => {
+                    format!("the provider declares tool_permissions unsupported ({reason})")
+                }
+                None => "the provider declares tool_permissions unsupported".to_string(),
+            };
             capability_gap(
                 agent,
                 adapter,
                 model,
                 format!(
-                    "the provider declares tool_permissions unsupported, so the \
-                     agent's restriction to {allow:?} cannot be expressed and the \
-                     agent would run with MORE power than it declares"
+                    "{declared}, so the agent's restriction to {allow:?} cannot be \
+                     expressed and the agent would run with MORE power than it declares"
                 ),
             )
         })?;

@@ -88,8 +88,13 @@ const WITNESSES: [(&str, &str); 8] = [
         "5bef947100fb99788be5dd5f0d54ae1fc9ac378bf037f684b63bfafeda83a460",
     ),
     (
+        // Re-pinned when the 0021 addendum (2026-09-02) made the
+        // recipe's README prose stale: it still said the challenger
+        // may not hold a gate, which the promotion to `trusted` had
+        // stopped being true. `bundle.json` is untouched — only the
+        // README moved, and the README is manifest input.
         "recipes/wager-harness",
-        "e5ab1113ac00f181c5e685516a050839a474b21a196e0e07b2649af069df0a19",
+        "66cf5137dff4bdf7b421844c53af7d6ada7bf7dae56d08a22d43ee68f209b477",
     ),
     (
         "bundles/verify",

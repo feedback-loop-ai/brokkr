@@ -9,8 +9,14 @@
     "codex",
     "--"
   ],
-  "models": {},
+  "models": {
+    "sol": "gpt-5.6-sol",
+    "terra": "gpt-5.6-terra",
+    "luna": "gpt-5.6-luna"
+  },
   "model_flag": "--model",
-  "tool_permissions": "unsupported",
+  "tool_permissions": {
+    "unsupported": "codex-cli 0.148.0 restricts by sandbox CLASS, not by tool name: `codex exec -s|--sandbox` takes read-only|workspace-write|danger-full-access and there is no per-tool allow-list flag (no --allowedTools analogue) to map a seat's declared tools onto; --ask-for-approval exists on the interactive `codex` but not on `codex exec`"
+  },
   "mcp": "unsupported"
 }

@@ -221,18 +221,48 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     assert!(exec.tool_permissions.is_none());
     assert!(exec.mcp.is_none());
     assert!(exec.models.is_empty());
-    // `codex` maps no model either: this tree has no established
-    // abstract-name → concrete-id mapping for it, and inventing one is
-    // exactly the quiet substitution decision 0016 refuses. Adding one is
-    // a file edit, not a release.
+    // `codex` DOES map models now, and the reason the old pin's "no
+    // established mapping" no longer holds is evidence: `codex debug
+    // models` on the installed codex-cli 0.148.0 names these three
+    // slugs with visibility "list" and supported_in_api true. The
+    // abstract names are codex's own family words — deliberately NOT
+    // claude tiers, for the reason `dsh` below spells out.
     let codex = adapters
         .providers()
         .find(|adapter| adapter.provider == "codex")
         .unwrap();
-    assert!(codex.models.is_empty(), "codex maps no model yet");
+    for (abstract_name, concrete) in [
+        ("sol", "gpt-5.6-sol"),
+        ("terra", "gpt-5.6-terra"),
+        ("luna", "gpt-5.6-luna"),
+    ] {
+        assert_eq!(
+            codex.models.get(abstract_name).map(String::as_str),
+            Some(concrete),
+            "codex maps the {abstract_name} lane its own CLI catalog names"
+        );
+    }
+    assert_eq!(
+        codex.models.len(),
+        3,
+        "three catalogued lanes, no invented ones"
+    );
+    assert_eq!(codex.model_flag.as_deref(), Some("--model"));
+    // Still no tool restriction — but now for a MEASURED reason rather
+    // than a bare "unsupported". The capability stays `None`, so the
+    // fail-closed refusal is byte-for-byte the same decision it was;
+    // what changed is that the adapter can say why.
     assert!(
         codex.tool_permissions.is_none(),
-        "codex cannot express a tool restriction, and says so"
+        "codex cannot express a per-tool restriction, and says so"
+    );
+    let gap = codex
+        .tool_permissions_gap
+        .as_deref()
+        .expect("codex records WHY it cannot, not just that it cannot");
+    assert!(
+        gap.contains("--sandbox"),
+        "the gap names codex's real restriction axis: {gap}"
     );
     // `dsh` maps the lanes this tree has evidence for, each verified
     // with a completion against its provider on 2026-09-02: DeepSeek's

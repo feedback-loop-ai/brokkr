@@ -260,6 +260,68 @@ fn a_restriction_the_provider_cannot_express_is_a_hard_failure() {
     assert!(message.contains("MORE power"), "{message}");
 }
 
+/// The same refusal, from a provider that MEASURED its gap: the
+/// attempt still fails — a reason is not a capability — but the message
+/// now names the restriction axis the provider does have, so the reader
+/// learns what to do about it instead of only that it cannot.
+#[test]
+fn a_measured_gap_refuses_exactly_as_a_bare_unsupported_does() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+    let mut adapter = claude_body();
+    adapter["tool_permissions"] = json!({
+        "unsupported": "restricts by sandbox CLASS, not by tool name: --sandbox \
+                        read-only|workspace-write|danger-full-access"
+    });
+    tree.write("adapters/claude.json", &adapter);
+    let message = refusal(&tree, "tester");
+    // Everything the bare-`"unsupported"` arm asserts still holds …
+    assert!(message.contains("agent 'tester'"), "{message}");
+    assert!(message.contains("provider 'claude'"), "{message}");
+    assert!(
+        message.contains("tool_permissions unsupported"),
+        "{message}"
+    );
+    assert!(message.contains("MORE power"), "{message}");
+    // … plus the measured axis, which is the whole point of declaring it.
+    assert!(message.contains("--sandbox"), "{message}");
+    assert!(message.contains("sandbox CLASS"), "{message}");
+}
+
+/// A declared gap is not a back door: an adapter cannot smuggle a
+/// working allow-list in beside the reason it says it has none.
+#[test]
+fn a_declared_gap_admits_no_other_key() {
+    let tree = Tree::new();
+    let mut adapter = claude_body();
+    adapter["tool_permissions"] = json!({
+        "unsupported": "no per-tool flag",
+        "flag": "--allowedTools",
+    });
+    tree.write("adapters/claude.json", &adapter);
+    let error = tree.adapters_error();
+    assert!(
+        error.contains("'tool_permissions' has unknown key"),
+        "{error}"
+    );
+}
+
+/// An empty reason is the bare `"unsupported"` wearing a costume — it
+/// records nothing, so it is refused at load rather than read back as
+/// evidence that someone looked.
+#[test]
+fn a_declared_gap_needs_an_actual_reason() {
+    let tree = Tree::new();
+    let mut adapter = claude_body();
+    adapter["tool_permissions"] = json!({"unsupported": ""});
+    tree.write("adapters/claude.json", &adapter);
+    let error = tree.adapters_error();
+    assert!(
+        error.contains("needs a non-empty string 'unsupported'"),
+        "{error}"
+    );
+}
+
 /// Per named item, never per class: the provider expresses tool
 /// permissions, just not this one.
 #[test]
@@ -790,6 +852,15 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
                    "models": {}, "tool_permissions": {"invented": 1}}),
             "'tool_permissions' has unknown key",
+        ),
+        // A flag with no separator cannot join two names — the argv it
+        // would compose is a guess about the provider's grammar, which
+        // is the one thing an adapter file may never be.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": {"flag": "--allowedTools",
+                   "names": {"cargo": "Bash(cargo:*)"}}}),
+            "'tool_permissions' needs a non-empty string 'separator'",
         ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
