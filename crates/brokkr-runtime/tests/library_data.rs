@@ -270,6 +270,11 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     // (bare ids — the dated spellings live only in LaneTally's price
     // rows), and Model Studio's Token Plan catalogue serves the eight
     // behind `dashscope/`, its own DeepSeek snapshot dated in the id.
+    // `spark/` is the operator's DGX Spark: SGLang serving
+    // RadixArk/Qwen3.8-Flash-Next-NVFP4 as `qwen3.8-flash` (256k context,
+    // qwen3_coder tool parser, radix prefix cache), verified with a
+    // headless dsh turn on 2026-09-02; the route lives in the dsh profile
+    // and costs electricity, not cents.
     // Abstract names are NOT claude tiers, so no chain written for one
     // provider silently lands on the other. The flag is the shared
     // `--model` grammar; the driver turns `<provider>/<id>` into the
@@ -295,6 +300,7 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
             ("qwen-plus", "dashscope/qwen3.7-plus"),
             ("qwen36-flash", "dashscope/qwen3.6-flash"),
             ("qwen37-max", "dashscope/qwen3.7-max"),
+            ("spark-flash", "spark/qwen3.8-flash"),
             ("studio-flash", "dashscope/deepseek-v4-flash-0731"),
             ("studio-pro", "dashscope/deepseek-v4-pro"),
         ]

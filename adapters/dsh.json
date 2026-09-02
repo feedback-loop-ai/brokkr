@@ -18,6 +18,7 @@
     "qwen-plus": "dashscope/qwen3.7-plus",
     "qwen36-flash": "dashscope/qwen3.6-flash",
     "qwen37-max": "dashscope/qwen3.7-max",
+    "spark-flash": "spark/qwen3.8-flash",
     "studio-flash": "dashscope/deepseek-v4-flash-0731",
     "studio-pro": "dashscope/deepseek-v4-pro"
   },
