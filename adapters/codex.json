@@ -1,6 +1,6 @@
 {
   "provider": "codex",
-  "trust_tier": "untrusted",
+  "trust_tier": "trusted",
   "binding_grant": false,
   "binary": "codex",
   "driver": [
