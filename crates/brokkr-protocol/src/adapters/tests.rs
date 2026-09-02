@@ -685,9 +685,12 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
 // transcript to the root the seat overlay pinned. It stops halfway and
 // waits for `dsh-seen` — the file the driver's checkpoint sink touches —
 // before writing its second turn. A driver that only folded at exit
-// would never touch it, the wait would time out, and the second turn
-// would arrive too late to be anything but the first: the handshake IS
-// the liveness proof.
+// would never touch it, so the wait runs out; the shim then FAILS the
+// seat (`exit 9`) rather than writing the turn anyway, because a turn
+// written after the timeout is indistinguishable in the transcript from
+// one written live. The bound is only there so a broken driver fails in
+// seconds instead of hanging: the handshake IS the liveness proof, and
+// it has to be enforced, not merely waited for.
 const DSH_TRANSCRIPT_SHIM: &str = r#"#!/bin/sh
 root=
 prev=
@@ -705,6 +708,7 @@ printf '{"type":"tool/call","data":{"turn":1,"step":1,"name":"fs_write","argumen
 printf '{"type":"assistant/chunk","data":{"turn":1,"step":2}}\n' >> "$f"
 i=0
 while [ ! -f dsh-seen ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done
+[ -f dsh-seen ] || exit 9
 printf '{"type":"assistant/message","data":{"turn":1,"step":2,"usage":{"inputTokens":20,"outputTokens":3}}}\n' >> "$f"
 printf '{"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}\n' >> "$f"
 printf 'a last line still being written' >> "$f"
@@ -738,7 +742,9 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     )
     .unwrap();
 
-    assert_eq!(invocation.exit_code, 0);
+    // 9 is the shim's verdict that the driver never spoke while it ran:
+    // the checkpoint sink touched nothing before the handshake ran out.
+    assert_eq!(invocation.exit_code, 0, "{emitted:?}");
     assert_eq!(emitted[0]["step"], "harness-started");
     // The transcript root rides the started checkpoint as an ordinary
     // clamped target, so the seat's session stays addressable from the
