@@ -1,10 +1,11 @@
 # Starter sample — Bun
 
-**This page extends [node.md](node.md).** The scaffold is the same eight
-files; only the two charters' package-manager lines differ. If you have
-not read the node sample, read it first — everything it says about the
-invariant `bundle.json`, the missing install step and the
-`NO STACK WAS RECOGNIZED` banner still holds.
+**This page extends [node.md](node.md).** The scaffold is the same set of
+files; only the package-manager lines of the two stack-aware charters and
+the granted runner differ. If you have not read the node sample, read it
+first — everything it says about the invariant `bundle.json`, the tool
+grants, the missing install step and the `NO STACK WAS RECOGNIZED`
+banner still holds.
 
 Transcribed from a real run against fixture
 [`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/).
@@ -33,11 +34,20 @@ Transcribed from a real run against fixture
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 3baaa6b9e02176f852b601b3bd02b53c86a5a73785e79486818fba08219f364d)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 31d038cd2361d342ec07e3d9c6504fd4a7c0b502fe91959502deda1bbc33a6af)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-## `roles/implementer.md`
+The tool grants grant the runner `bun`: the adapter's
+`tool_permissions.names` carries `bun → Bash(bun:*)` beside `git`,
+`ls`, `rg` and `mkdir`, the work-class agents (`intake`, `implement`)
+carry all five names, and the gate-class agents (`verify`, `review`,
+`ship`) carry `["bun", "git", "ls", "rg"]` — the read-only subset.
+Because the stack's install *is* `bun install`, and tests run through
+the same binary, `Bash(bun:*)` reaches the install from any seat that
+holds bun — a gate seat's charter simply never asks it to.
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -86,7 +96,7 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -128,7 +138,9 @@ install by hand. The same warning, in more detail, is in
 ## A bun monorepo
 
 `turbo.json` plus `bun.lock` is `bunx turbo run test` — the orchestrator
-arm crossed with bun's runner. See
+arm crossed with bun's runner, and the grant table names `bunx` rather
+than `bun`, because the command a seat actually runs is
+`bunx turbo run …`. See
 [node.md § the monorepo variant](node.md#the-monorepo-variant); the only
 difference is the prefix.
 

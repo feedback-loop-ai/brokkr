@@ -20,18 +20,28 @@ go 1.22
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 1bed7b3dd4fbdb728745d892dce26961bd9e38518dd9fd7d4c4373fddb75c846)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest ac8e84a06e84b3e5214ab324a72548e6ff1fbb045d07782ca529eabd4f23cd3a)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 ## What it wrote
 
-The same eight files as every stack. `bundle.json`, `policy.json`,
-`adapters/claude.json` and the intake / reviewer / shipper charters
-**do not vary by stack** — see [rust.md](rust.md#what-it-wrote) for the
-invariant `bundle.json`. Only the two below were written to this repo.
+The same files as every stack: `bundle.json`, `policy.json`,
+`README.md`, `adapters/claude.json`, and under `agents/` the five agent
+definitions plus their five charters under `agents/charters/`.
+`bundle.json`, `policy.json`, the trust declaration, and the intake /
+reviewer / shipper charters **do not vary by stack** — see
+[rust.md](rust.md#what-it-wrote) for the invariant `bundle.json` and
+[rust.md § the tool grants](rust.md#the-tool-grants) for the allowance
+mechanics. The stack-specific half below was written to this repo.
 
-## `roles/implementer.md`
+The tool grants name the runner `go`: `adapters/claude.json` maps
+`go → Bash(go:*)` beside `git`, `ls`, `rg` and `mkdir`; the work-class
+agents (`intake`, `implement`) carry all five names; the gate-class
+agents (`verify`, `review`, `ship`) carry `["go", "git", "ls", "rg"]` —
+the read-only subset, never the write tools.
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -67,7 +77,7 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing

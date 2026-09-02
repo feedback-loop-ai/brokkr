@@ -129,7 +129,7 @@ init` writes one you are meant to open and edit.
 ```
 $ brokkr init .
 initialized reviewable bundle at . (digest 6b8b876054b44e3f771e89475ad364167fdec25c59f42fd77266c8a8b7b312c7)
-run brokkr from inside . — its adapters/ declares the trust tier the verify, review and ship seats judge on
+run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
@@ -141,26 +141,29 @@ before printing the digest, so what you were handed is a thing that runs.
 What it wrote:
 
 ```
-./bundle.json          # name, policy path, protected_phase, five seats
+./bundle.json          # name, policy path, protected_phase, five agent seats
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./adapters/claude.json # the trust tier your gates judge on — yours to edit
-./roles/intake.md
-./roles/implementer.md
-./roles/verifier.md
-./roles/reviewer.md
-./roles/shipper.md
+./README.md            # the stack that was read and the tools its seats were granted
+./adapters/claude.json # the trust tier your gates judge on + the tool map — yours to edit
+./agents/              # one agent per seat: charter, models, tools.allow, limits
+./agents/charters/     # the five charters — implementer's and verifier's name the stack
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its own result
-vocabulary and its own `limits` (attempts and a deadline in seconds).
+vocabulary and its own class, and the seat's `limits` and tool allowance
+live on its agent.
 
 **`init` looks before it scaffolds.** The repository you ran it from is
-read for the manifests and lockfiles at its root, and the implementer's
-and verifier's charters name *that stack's* build, test and lint
-commands, quoting back which files the guess came from. Nothing is
+read for the manifests and lockfiles at its root, the implementer's and
+verifier's charters name *that stack's* build, test and lint commands —
+quoting back which files the guess came from — and the tool grants are
+sized to exactly the binaries those commands run through: the work-class
+seats get the full set, the gate-class seats the read-only subset, each
+name written into `adapters/claude.json`'s `tool_permissions.names` as a
+`Bash(<bin>:*)` entry and into the agents' `tools.allow`. Nothing is
 executed to find out. Which files it reads, and what it concludes, is
 your [card](#per-stack-cards) — and
 [`docs/guides/starters/`](starters/) shows the actual output for each,

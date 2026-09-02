@@ -26,20 +26,51 @@ their say.
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 17967ee82617babba8e8366e6d2e0d64f5aab69c6b2b05d50356e9a81b99b075)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 9ef00f82d48db4bfc2c7a8db709ee8aed690184deab8218e68832997c8566879)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 ## What it wrote
 
-The same eight files as every other stack — `bundle.json`,
-`policy.json`, `adapters/claude.json`, and five charters. Those first
-three and the intake / reviewer / shipper charters **do not vary by
-stack**; see [rust.md](rust.md#what-it-wrote) for the invariant
-`bundle.json` in full. Only the two charters below were written to this
-repository.
+The same files as every other stack — `bundle.json`, `policy.json`,
+`README.md`, `adapters/claude.json`, and under `agents/` the five agent
+definitions and their five charters under `agents/charters/`.
+`bundle.json`, `policy.json`, the trust declaration inside
+`adapters/claude.json`, and the intake / reviewer / shipper charters
+**do not vary by stack**; see [rust.md](rust.md#what-it-wrote) for the
+invariant `bundle.json` in full, and [rust.md § the tool
+grants](rust.md#the-tool-grants) for how the allowances work. What was
+written to *this* repository is the stack-specific half below.
 
-## `roles/implementer.md`
+## The tool grants
+
+The stack's runner here is `npm` — the leading binary of `npm run
+build`, `npm test` and `npm run lint` — so the adapter's
+`tool_permissions.names` maps `npm` beside the read trio and `mkdir`,
+and the agents' `tools.allow` lists are sized by class:
+
+```json
+{
+  "names": {
+    "git": "Bash(git:*)",
+    "ls": "Bash(ls:*)",
+    "mkdir": "Bash(mkdir:*)",
+    "npm": "Bash(npm:*)",
+    "rg": "Bash(rg:*)"
+  }
+}
+```
+
+`agents/intake.json` and `agents/implementer.json` (work class) carry
+`["npm", "git", "ls", "rg", "mkdir"]`; `agents/verifier.json`,
+`agents/reviewer.json` and `agents/shipper.json` (gate class) carry
+`["npm", "git", "ls", "rg"]` — the read-only subset, never the write
+tools. `Bash(npm:*)` reaches `npm ci`, which executes your dependency
+tree's lifecycle scripts: that is the JavaScript toolchain, not
+something the scaffold adds — see
+[adopting-a-node-repo.md § what you are granting](../adopting-a-node-repo.md#what-you-are-granting).
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -81,7 +112,7 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -117,11 +148,11 @@ carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest fbd0cec903bd56c325f3293c247b615a8deb6b38c05731ce024a3fe71b195e78)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 0ec0d8ce01870f376fb1bc8f22576d70d77d5856027c3f3a8a9633272d9dfd32)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-`roles/implementer.md`:
+`agents/charters/implementer.md`:
 
 ```markdown
 This repository reads as a node/turbo project (`package.json` + `turbo.json` + `pnpm-lock.yaml`), so use its own
@@ -148,6 +179,10 @@ Two axes crossed, both read from the root:
   lockfile at all gets `npx`, which resolves the local install before it
   reaches for the registry. All four are fixtures and all four are
   asserted.
+- **The grants follow the runner.** The monorepo's tool grants are the
+  runner's: a turbo repo locked to pnpm grants `pnpm`, one locked to bun
+  grants `bunx`, one with no lockfile grants `npx` — each beside `git`,
+  `ls`, `rg` and, for the work class, `mkdir`.
 - **The MONOREPO paragraph** — right command, but a seat that was not
   told it is in a monorepo may still "helpfully" narrow it to one
   package. `nx.json` gets the same treatment with `nx run-many -t test`.

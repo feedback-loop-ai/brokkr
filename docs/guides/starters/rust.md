@@ -9,8 +9,8 @@ The fixture is
 [`crates/brokkr-cli/tests/fixtures/init-stacks/rust/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/rust/),
 the same one
 [`init_stacks.rs`](../../../crates/brokkr-cli/tests/init_stacks.rs)
-asserts against — so if these commands ever stop being what `init`
-writes, a test goes red before this page goes stale.
+asserts against — so if these commands or tool grants ever stop being
+what `init` writes, a test goes red before this page goes stale.
 
 ## The repository init read
 
@@ -33,33 +33,43 @@ edition = "2021"
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 4f5d5e9ae9e13af46f6fdc52e416c89aa43de28c68daa3ac570c4cad44231ef2)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest f257d41facd28a6e494984e72f0cf2c39cefd89d205f3ada34043494d11e1908)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 The digest is a function of the bytes that were written, and the
-charters below vary by stack, so **this digest is this fixture's**. Your
-Rust repository will print a different one and that is correct.
+charters and tool grants below vary by stack, so **this digest is this
+fixture's**. Your Rust repository will print a different one and that is
+correct.
 
 ## What it wrote
 
 ```
+my-bundle/README.md
 my-bundle/adapters/claude.json
+my-bundle/agents/charters/implementer.md
+my-bundle/agents/charters/intake.md
+my-bundle/agents/charters/reviewer.md
+my-bundle/agents/charters/shipper.md
+my-bundle/agents/charters/verifier.md
+my-bundle/agents/implementer.json
+my-bundle/agents/intake.json
+my-bundle/agents/reviewer.json
+my-bundle/agents/shipper.json
+my-bundle/agents/verifier.json
 my-bundle/bundle.json
 my-bundle/policy.json
-my-bundle/roles/implementer.md
-my-bundle/roles/intake.md
-my-bundle/roles/reviewer.md
-my-bundle/roles/shipper.md
-my-bundle/roles/verifier.md
 ```
 
-**`bundle.json`, `policy.json`, `adapters/claude.json` and three of the
-five charters do not vary by stack.** No interpolation happens into
-them: the seat roster, the phase table, the trust declaration, and the
-intake / reviewer / shipper charters are byte-identical for every
-repository `init` has ever been run in. Framing a task, reading a diff
-and closing out read the same in Rust as they do in Go.
+**`bundle.json`, `policy.json`, the three intake / reviewer / shipper
+charters, and the `adapters/claude.json` trust declaration do not vary
+by stack.** The seats reference the scaffold's own agents (decision
+0016): `intake` and `implement` are `class: "work"`, `verify`, `review`
+and `ship` are `class: "gate"` — the division of decision 0021 ruling 1
+— and each agent carries its charter, its bounds and its tool allowance.
+What varies by stack is the text inside the agents' `tools.allow`, the
+adapter's `tool_permissions.names`, the two stack-aware charters, and
+the README.
 
 For completeness, the invariant `bundle.json`:
 
@@ -70,48 +80,136 @@ For completeness, the invariant `bundle.json`:
   "protected_phase": "review",
   "seats": {
     "intake": {
-      "role": "roles/intake.md",
       "class": "work",
       "results": ["resolved"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "intake"
     },
     "implement": {
-      "role": "roles/implementer.md",
       "class": "work",
       "results": ["complete", "broken", "blocked"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "implementer"
     },
     "verify": {
-      "role": "roles/verifier.md",
       "class": "gate",
       "results": ["pass", "fail"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "verifier"
     },
     "review": {
-      "role": "roles/reviewer.md",
       "class": "gate",
       "results": ["clean", "residual", "security-hold"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "reviewer"
     },
     "ship": {
-      "role": "roles/shipper.md",
       "class": "gate",
       "results": ["ready", "shipped"],
-      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]}
+      "agent": "shipper"
     }
   }
 }
 ```
 
-Every other page in this directory omits it. The stack-specific content
-lives entirely in the two charters below.
+Every other page in this directory omits it.
 
-## `roles/implementer.md`
+## The tool grants
+
+The stack decides what a seat may run. A claude seat that may run
+anything runs nothing headless: it stops at every shell prompt it is not
+allowed to answer. So `init` grants the stack's own runners by name —
+for this fixture, `cargo`, the leading binary of all three commands the
+charters name. The grant is written in **two files that are one grant**
+(decision 0016): the adapter's `tool_permissions.names` maps every name
+to the `Bash(...)` expression the claude CLI understands, and each
+agent's `tools.allow` lists the names it may use. An allowance whose
+name the adapter map cannot express refuses the scaffold's own compile.
+
+`adapters/claude.json`, the names half:
+
+```json
+{
+  "flag": "--allowedTools",
+  "names": {
+    "cargo": "Bash(cargo:*)",
+    "git": "Bash(git:*)",
+    "ls": "Bash(ls:*)",
+    "mkdir": "Bash(mkdir:*)",
+    "rg": "Bash(rg:*)"
+  },
+  "separator": ","
+}
+```
+
+`agents/intake.json` and `agents/implementer.json`, the work-class
+agents, carry the full set — the runner plus `git`, `ls`, `rg` and
+`mkdir` — so a seat may run exactly the commands its charter names and
+nothing broader:
+
+```json
+{
+  "charter": "charters/implementer.md",
+  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 5400
+  },
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
+    "mcp": []
+  }
+}
+```
+
+`agents/verifier.json`, `agents/reviewer.json` and `agents/shipper.json`,
+the gate-class agents, carry the read-only subset — the runner plus
+`git`, `ls` and `rg`, never the write tools, because nobody stands
+behind the judges:
+
+```json
+{
+  "charter": "charters/verifier.md",
+  "description": "Runs the suites and gates and reports pass or fail on evidence, never on intent.",
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 3600
+  },
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "tools": {
+    "allow": [
+      "cargo",
+      "git",
+      "ls",
+      "rg"
+    ],
+    "mcp": []
+  }
+}
+```
+
+The README says the same thing in prose:
+
+> `bundle.json` seats one agent per phase. Each agent lives in
+> `agents/`, its charter in `agents/charters/`, and its tool allowance
+> in the agent's `tools.allow`: the work-class seats (`intake`,
+> `implement`) may run the full set — `Bash(cargo:*)`, `Bash(git:*)`,
+> `Bash(ls:*)`, `Bash(rg:*)`, `Bash(mkdir:*)` — so a seat may run
+> exactly the commands its charter names and nothing broader; the
+> gate-class seats (`verify`, `review`, `ship`) may run the read-only
+> subset — `Bash(cargo:*)`, `Bash(git:*)`, `Bash(ls:*)`, `Bash(rg:*)` —
+> and never the write tools, because nobody stands behind the judges.
+
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -164,7 +262,7 @@ Line by line, the parts that were chosen rather than fixed:
   presence and, for the workspace line, one `[workspace]` line read out
   of `Cargo.toml`. No `cargo` subprocess is spawned.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -199,12 +297,14 @@ exactly — never soften a failure).
 
 ## Correcting it
 
-The charter is ordinary Markdown in your tree. If your suite is
-`cargo nextest run` or your lint carries `--all-features`, edit these
-two files — that is what the "correct them here if they are wrong" line
-is inviting. Every edit moves the bundle's digest, which is the point: a
-strategy is identified by its bytes, and a run records which bytes it
-ran.
+Everything above is ordinary text in your tree. If your suite is
+`cargo nextest run` or your lint carries `--all-features`, edit the two
+charters — that is what the "correct them here if they are wrong" line
+is inviting. If a seat needs a tool the scaffold did not grant, edit the
+agent's `tools.allow` AND the adapter's `tool_permissions.names`: an
+allowance whose name the map cannot express refuses the next compile.
+Every edit moves the bundle's digest, which is the point: a strategy is
+identified by its bytes, and a run records which bytes it ran.
 
 ## See also
 

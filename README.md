@@ -233,22 +233,31 @@ apart without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
-gate constitutionally protected, one seat per working phase, and a role
-charter per seat. It compiles the bundle before printing the digest, so
-the thing you were handed is a thing that runs. It also reads the
-repository you ran it from — the manifests and lockfiles at that root,
-nothing executed — so the implementer's and verifier's charters name
-that stack's own build, test and lint commands, and say plainly when no
-stack was recognized. Lockfiles have the deciding vote where a manifest
-is ambiguous (`bun.lock` out-votes the npm fallback, `uv.lock` out-votes
-pip), a monorepo orchestrator (`turbo.json`, `nx.json`) out-votes any
-single package's script and is run through whichever package manager the
-root's lockfile names, and a Cargo workspace or a `go.work` gets a
-charter that says so rather than a command it did not need. The digest
-is therefore a function of what was scaffolded and differs from
-repository to repository; the one printed above is elided for that
-reason. [`docs/guides/starters/`](docs/guides/starters/) shows the
-actual output per stack, transcribed from real runs.
+gate constitutionally protected, one agent per seat (each carrying its
+own charter, bounds and tool allowance), and the `adapters/` + `agents/`
+data the seats compile against — the starter is a workspace, not only a
+bundle. It compiles the bundle before printing the digest, so the thing
+you were handed is a thing that runs. It also reads the repository you
+ran it from — the manifests and lockfiles at that root, nothing executed
+— so the implementer's and verifier's charters name that stack's own
+build, test and lint commands, and the tool grants are sized to exactly
+the binaries those commands run through: each name is written into the
+scaffolded `adapters/claude.json` `tool_permissions.names` as a
+`Bash(<bin>:*)` entry and into the scaffolded agents' `tools.allow`, the
+work-class seats (intake, implement) getting the full set and the
+gate-class seats (verify, review, ship) the read-only subset. When no
+stack was recognized the scaffold says so plainly, in the charters and
+in its README, and the tool map stays empty rather than inventing names.
+Lockfiles have the deciding vote where a manifest is ambiguous
+(`bun.lock` out-votes the npm fallback, `uv.lock` out-votes pip), a
+monorepo orchestrator (`turbo.json`, `nx.json`) out-votes any single
+package's script and is run through whichever package manager the root's
+lockfile names, and a Cargo workspace or a `go.work` gets a charter that
+says so rather than a command it did not need. The digest is therefore a
+function of what was scaffolded and differs from repository to
+repository; the one printed above is elided for that reason.
+[`docs/guides/starters/`](docs/guides/starters/) shows the actual output
+per stack, transcribed from real runs.
 
 ## Guides
 
