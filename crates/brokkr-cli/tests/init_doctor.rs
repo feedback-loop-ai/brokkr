@@ -113,23 +113,26 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
     );
 }
 
-/// Decision 0019: a bundle still written with the old `{forge}` token
+/// Decision 0019: a driver still written with the old `{forge}` token
 /// compiles exactly as the scaffold's `{brokkr}` does, and the process
-/// says so ONCE — the scaffold has five seats, so a per-read notice
-/// would show up here as five lines — on stderr, never on stdout.
+/// says so ONCE — the token now lives in the scaffold's
+/// `adapters/claude.json` driver prefix, which every agent seat's
+/// resolution expands (five seats, each with a two-model chain, so a
+/// per-expansion notice would show up here as ten lines) — on stderr,
+/// never on stdout.
 #[test]
 fn the_old_token_still_compiles_and_is_noticed_once_on_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = dir.path().join("bundle");
     brokkr(&["init", bundle.to_str().unwrap()], dir.path());
 
-    let manifest = bundle.join("bundle.json");
-    let scaffolded = std::fs::read_to_string(&manifest).unwrap();
+    let adapter = bundle.join("adapters/claude.json");
+    let scaffolded = std::fs::read_to_string(&adapter).unwrap();
     assert!(
-        scaffolded.matches("{brokkr}").count() >= 2,
+        scaffolded.contains("\"{brokkr}\""),
         "the scaffold writes the new token: {scaffolded}"
     );
-    std::fs::write(&manifest, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
+    std::fs::write(&adapter, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
 
     let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "stderr: {stderr}");

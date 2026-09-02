@@ -19,7 +19,7 @@ toolchain, so no lockfile tiebreaker is needed and `go.sum` is not read.
 - **`go vet` is the honest lint default**, because it ships with the
   toolchain. `golangci-lint` is the better gate in most repositories and
   a broken command in one that never installed it — swap it into
-  `roles/verifier.md` if you have it.
+  `agents/charters/verifier.md` if you have it.
 - **A `go.work` adds a sentence, not a command.** `./...` beside a
   workspace file already spans every module it lists, so what a
   workspace root gets is the charter saying so. A `go.mod` with no

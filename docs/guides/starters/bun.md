@@ -1,10 +1,11 @@
 # Starter sample — Bun
 
-**This page extends [node.md](node.md).** The scaffold is the same eight
-files; only the two charters' package-manager lines differ. If you have
-not read the node sample, read it first — everything it says about the
-invariant `bundle.json`, the missing install step and the
-`NO STACK WAS RECOGNIZED` banner still holds.
+**This page extends [node.md](node.md).** The scaffold is the same
+fourteen files; what differs is the stack's own data — the two charters'
+package-manager lines, the adapter's tool map and every agent's
+`tools.allow`. If you have not read the node sample, read it first —
+everything it says about the invariant `bundle.json`, the missing install
+step and the `NO STACK WAS RECOGNIZED` banner still holds.
 
 Transcribed from a real run against fixture
 [`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/).
@@ -33,11 +34,11 @@ Transcribed from a real run against fixture
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 3baaa6b9e02176f852b601b3bd02b53c86a5a73785e79486818fba08219f364d)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest fcdb0fc2d428c0b73746ec923a9be398f9dc64d2455da8a6dd1177d6e5d89ce0)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-## `roles/implementer.md`
+## `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -86,7 +87,7 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `roles/verifier.md`
+## `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -112,6 +113,32 @@ exactly — never soften a failure).
   seat's slot is "the second proving command", and for a bun/TypeScript
   repository a type check is the one that catches more. If your
   repository lints too, add the line — this file is yours.
+
+## The tool grant
+
+This stack's adapter map names `bun` — every command runs through it —
+plus `git`, `ls`, `rg` and `mkdir`:
+
+```json
+"names": {
+  "bun": "Bash(bun:*)",
+  "git": "Bash(git:*)",
+  "ls": "Bash(ls:*)",
+  "mkdir": "Bash(mkdir:*)",
+  "rg": "Bash(rg:*)"
+}
+```
+
+The work agents carry all five names in `tools.allow`; the gate agents
+carry the same minus `mkdir`. Read that sentence twice, because bun is
+the arm where it matters most: the gate seats hold `Bash(bun:*)` —
+their test runner IS bun — and that same glob answers to `bun install`
+as readily as to `bun run test`. The grant cannot draw the boundary, so
+it is each gate's charter — "prove it, fix nothing", with no install
+line — and not the grant that keeps a verify seat from installing. The
+boundary is not expressible finer than per binary: a gate that may not
+run `bun` at all could not run `bun run test` either, and an allowance
+whose name the adapter map lacks refuses the scaffold's own compile.
 
 ## The install step is a real cost
 

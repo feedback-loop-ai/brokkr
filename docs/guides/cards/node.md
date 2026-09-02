@@ -21,7 +21,7 @@ marker set and so the last one tried:
 Two things to check before step 3:
 
 - **`npm run lint` is a guess with a name on it.** If your
-  `package.json` has no `lint` script, edit `roles/verifier.md` — that
+  `package.json` has no `lint` script, edit `agents/charters/verifier.md` — that
   is a five-second fix, and a lint that silently does not run is not.
 - **No install step is scaffolded.** What `npm ci` should do in your
   repository depends on your CI and your network posture, and a charter
@@ -72,8 +72,8 @@ registry. The charters also say, in those words, that this is a monorepo
 — so a seat does not helpfully narrow the command back down to one
 package.
 
-Raise the seat `limits` in `bundle.json` if your install alone runs ten
-minutes. They are seat data, not law.
+Raise an agent's `limits` in `agents/*.json` if your install alone runs
+ten minutes — the bounds ride on the agent the seat names, not on the seat.
 
 ## See also
 

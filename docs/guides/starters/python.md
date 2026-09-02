@@ -24,18 +24,19 @@ requires-python = ">=3.11"
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 375601add5322dcda372a95e6abc9e29f7a3ecbd71727b27cf0b89bb7bec2895)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 789009a981d943e0d5c767b4699b97ec3ece87cd8052f55aea536747575928ae)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 Fixture:
 [`python-uv/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/python-uv/).
-The eight files it wrote are the usual eight; `bundle.json`,
-`policy.json`, `adapters/claude.json` and the intake / reviewer /
-shipper charters **do not vary by stack** (see
-[rust.md](rust.md#what-it-wrote)). Only these two did:
+It writes the same fourteen files as every stack (see
+[rust.md](rust.md#what-it-wrote) for the invariant `bundle.json` and the
+fixed parts of the agent files). What this repository changed is the
+stack's own data: the two charters below, the adapter's tool map and
+every agent's `tools.allow`.
 
-### `roles/implementer.md`
+### `agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
@@ -60,7 +61,7 @@ Result: `complete` (implemented, tests green, committed) · `broken`
 report `complete` with failing tests or uncommitted changes.
 ```
 
-### `roles/verifier.md`
+### `agents/charters/verifier.md`
 
 ```markdown
 # Verifier seat — prove it, fix nothing
@@ -89,7 +90,7 @@ Annotated:
   `pyproject.toml` arm — the same precedence rule that makes
   `bun.lock` out-vote npm.
 - **`uv sync`** sits in the `build` slot. Python has no universal build
-  step and `python -m build` produces a wheel nobody asked for; what a
+  step and `python3 -m build` produces a wheel nobody asked for; what a
   seat actually needs before it can run anything is a resolved
   environment, and `uv sync` is that. It is a lockfile-respecting
   command, so it checks the lockfile rather than drifting from it.
@@ -102,6 +103,10 @@ Annotated:
   repository uses a different linter, edit this line; that is what the
   "correct them here" invitation is for.
 
+The tool grant follows the one binary every command runs through:
+`uv` maps to `Bash(uv:*)` beside `git`, `ls`, `rg` and `mkdir`. Work
+agents carry all five names; gate agents carry the same minus `mkdir`.
+
 ## The fallback case — fixture `python`
 
 Same repository, no `uv.lock`:
@@ -112,36 +117,46 @@ Same repository, no `uv.lock`:
 
 ```
 $ brokkr init my-bundle
-initialized reviewable bundle at my-bundle (digest 1467e6ec6bad103c9f66e535a35701444048f8537fa471e2061d4dcd7ab44f42)
-run brokkr from inside my-bundle — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d5874e48b01ae627bff9dbdde37305179e11ae)
+run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-`roles/implementer.md` and `roles/verifier.md`, the changed part only:
+`agents/charters/implementer.md` and `agents/charters/verifier.md`, the
+changed part only:
 
 ```markdown
 This repository reads as a python project (`pyproject.toml`), so use its own
 tooling:
 
-    python -m build
-    python -m pytest
+    python3 -m build
+    python3 -m pytest
 ```
 
 ```markdown
 This repository reads as a python project (`pyproject.toml`), so use its own
 tooling:
 
-    python -m pytest
-    python -m ruff check .
+    python3 -m pytest
+    python3 -m ruff check .
 ```
 
-- **`python -m …` and not bare `pytest` / `ruff`.** Without a lockfile
-  `init` cannot know which environment manager is in play, so it names
-  the one thing it can be sure of: the interpreter the seat is standing
-  in. `python -m pytest` at least runs pytest *from that interpreter*
-  rather than from whatever is first on `PATH`.
+- **`python3`, not `python`.** Without a lockfile `init` cannot know
+  which environment manager is in play, so it names the one thing it can
+  be sure of: the interpreter the seat is standing in — and the
+  interpreter a fresh project actually resolves is `python3` (the
+  shipped adapters grant it that name). `python3 -m pytest` at least
+  runs pytest *from that interpreter* rather than from whatever is first
+  on `PATH`.
 - **This is a fallback, and it is a weaker answer than the uv one.** If
   your repository has a lockfile — uv's or otherwise — say so in these
   two files. `init` writes a starting point, not a verdict.
+
+The grant names both halves of that fallback: `python3` maps to
+`Bash(python3:*)` and — because the venv's own suite binary is the
+honest spelling of "run the suite" in a fresh project — `pytest` maps to
+the narrower `Bash(.venv/bin/pytest:*)`. Work agents carry
+`python3`, `pytest`, `git`, `ls`, `rg` and `mkdir`; gate agents carry
+the same without `mkdir`.
 
 ## See also
 

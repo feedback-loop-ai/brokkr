@@ -10,9 +10,9 @@ markers beat one, so uv wins where uv is in play:
 
 | | with `uv.lock` | `pyproject.toml` alone |
 |---|---|---|
-| implementer, first | `uv sync` | `python -m build` |
-| implementer, second | `uv run pytest` | `python -m pytest` |
-| verifier, second | `uv run ruff check .` | `python -m ruff check .` |
+| implementer, first | `uv sync` | `python3 -m build` |
+| implementer, second | `uv run pytest` | `python3 -m pytest` |
+| verifier, second | `uv run ruff check .` | `python3 -m ruff check .` |
 
 - **`uv sync` sits in the build slot** because Python has no universal
   build step, and what a seat actually needs before it can run anything
@@ -22,9 +22,11 @@ markers beat one, so uv wins where uv is in play:
   environment uv resolved; a bare `pytest` runs against whatever
   interpreter the seat inherited, and a green suite from the wrong
   interpreter is worse than a red one.
-- **The fallback is weaker and knows it.** `python -m …` at least runs
+- **The fallback is weaker and knows it.** `python3 -m …` at least runs
   the tool from the interpreter the seat is standing in rather than from
-  whatever is first on `PATH`. If your repository has a lockfile of any
+  whatever is first on `PATH` — and it names `python3`, because that is
+  the interpreter a fresh project actually resolves and the name the
+  shipped adapters grant. If your repository has a lockfile of any
   other kind, say so in the two charters — `init` writes a starting
   point, not a verdict.
 

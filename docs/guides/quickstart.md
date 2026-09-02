@@ -123,39 +123,60 @@ the result, and `--db <path>` chooses the workspace journal (default
 ### Step 2 — `brokkr init .`
 
 A **recipe** is a delivery strategy as reviewable data: a phase table, a
-seat per phase, a role charter per seat, and per-seat limits. `brokkr
-init` writes one you are meant to open and edit.
+seat per phase, and — since decision 0016 — an agent per seat, where
+the charter, the model chain, the per-seat limits and the tool grant
+live. `brokkr init` writes one you are meant to open and edit.
 
 ```
 $ brokkr init .
-initialized reviewable bundle at . (digest 6b8b876054b44e3f771e89475ad364167fdec25c59f42fd77266c8a8b7b312c7)
-run brokkr from inside . — its adapters/ declares the trust tier the verify, review and ship seats judge on
+initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
+run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
 `init` takes the directory as a **positional argument**, not a flag. It
 refuses rather than overwriting a directory that already has a
-`bundle.json` — or an `adapters/claude.json`, because a trust tier is an
-operator's ruling and not a scaffold's — and it compiles the bundle
-before printing the digest, so what you were handed is a thing that runs.
+`bundle.json`, an `adapters/claude.json`, or an agent definition under
+`agents/` — a trust tier and a tool grant are operator rulings, not a
+scaffold's — and it compiles the bundle before printing the digest, so
+what you were handed is a thing that runs.
 
 What it wrote:
 
 ```
-./bundle.json          # name, policy path, protected_phase, five seats
+./bundle.json          # name, policy path, protected_phase, five seats — each names an agent
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./adapters/claude.json # the trust tier your gates judge on — yours to edit
-./roles/intake.md
-./roles/implementer.md
-./roles/verifier.md
-./roles/reviewer.md
-./roles/shipper.md
+./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
+./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
+./agents/intake.json   # one agent per seat: charter, model chain, tool grant, limits
+./agents/implementer.json
+./agents/verifier.json
+./agents/reviewer.json
+./agents/shipper.json
+./agents/charters/intake.md
+./agents/charters/implementer.md
+./agents/charters/verifier.md
+./agents/charters/reviewer.md
+./agents/charters/shipper.md
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
 the protected phase: compilation rejects any table with a path to a
-non-`stop` terminal that skips it. Each seat declares its own result
-vocabulary and its own `limits` (attempts and a deadline in seconds).
+non-`stop` terminal that skips it. Each seat declares its class — work
+or gate (decision 0021 ruling 1) — and its result vocabulary, and names
+the agent that fills it; the agent carries the charter, the `limits`
+(attempts and a deadline in seconds), the model chain and the tool
+grant, and `brokkr agents show <name>` reads one back.
+
+**The seats are granted the tools their charters name.** The same
+detection below decides what the seats may *run*: the binary each
+command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and
+`mkdir` go into the adapter's `tool_permissions.names` as
+`Bash(<bin>:*)` entries, and each agent's `tools.allow` names them —
+the whole set for the work seats, the read-only subset (the test
+runner's tools, `git`, `ls`, `rg` — never `mkdir`) for the gates. A
+repository `init` does not recognize gets an EMPTY map and a README
+that says so, rather than a guessed permission.
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer's
@@ -168,7 +189,7 @@ transcribed from real runs.
 
 The digest above is printed in full and will not be yours: it is a
 function of what was scaffolded, and two repositories with different
-stacks get different charters and so different digests.
+stacks get different charters and tool maps and so different digests.
 
 If you would rather start from a maintained strategy than a scaffold,
 the library ships several:
