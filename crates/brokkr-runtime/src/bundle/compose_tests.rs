@@ -751,7 +751,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "5a4e59fe854f1dcdc450720592aadbac7a9e803b4a7c10d3bdce5210457c790b",
+        "5b38ac406e18b3c2138740040515ff68ff623e20baf974261e9f3f73fb690475",
     ),
     (
         "recipes/panel-review",
@@ -767,7 +767,7 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "bundles/verify",
-        "1ce203798837d848513c97a93c1258679d2c78713542bc96bcae1b0f53984126",
+        "05b40fe006ac31bb5cfeecb8b5c503d28166a8bb79600d481f5b3ed715a8b874",
     ),
 ];
 
@@ -898,14 +898,15 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "9b60d9123aabab6593803c5aa8e5db9ad9d2d6d77bc90ffd5c82db4046351086",
+        "94c25df41f36249817cecfbeba5997e646e018110695b94bb2ca94fe65359af7",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
-         (decision 0019), and again when its inline review panel began \
-         pinning the adapter declarations that authorise it to judge \
+         (decision 0019), again when its inline review panel began \
+         pinning the adapter declarations that authorise it to judge, \
          (decision 0021), then when the closing 0019 sweep changed the \
-         base charters, which is this test's own principle: changing a \
+         base charters, and again when every inline model became \
+         explicit (0031), which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }

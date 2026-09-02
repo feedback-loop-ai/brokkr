@@ -3,7 +3,7 @@
 [`wager-harness`](../wager-harness/README.md)'s pattern, copied as it
 asks to be: `fast` with the implement seat's driver swapped, and
 nothing else. The one line of experiment here is
-`{brokkr} driver dsh -- --model deepseek-v4-flash`. The charter is a
+`{brokkr} driver dsh -- --model deepseek/deepseek-v4-flash`. The charter is a
 byte-identical copy of `recipes/fast/roles/implementer.md`; limits,
 results, class, the phase table, and every gate are `fast`'s, inherited.
 

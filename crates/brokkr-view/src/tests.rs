@@ -1091,6 +1091,39 @@ fn a_panel_parent_aggregates_its_members_with_a_sigma() {
 }
 
 #[test]
+fn panel_and_terminal_rows_aggregate_one_or_several_served_models() {
+    let with_models = |second: &str| {
+        let mut events = panel_journal();
+        for event in &mut events {
+            let member = event
+                .payload
+                .pointer("/checkpoint/member")
+                .and_then(Value::as_str);
+            let model = match member {
+                Some("simplicity") => Some("model-a"),
+                Some("robustness") => Some(second),
+                _ => None,
+            };
+            if let Some(model) = model {
+                event.payload["checkpoint"]["model"] = json!(model);
+            }
+        }
+        events
+    };
+
+    let one = run_view(&with_models("model-a"), None);
+    assert_eq!(one.participants[0].model.text, "model-a");
+    assert_eq!(one.journal.last().unwrap().model.text, "model-a");
+
+    let several = run_view(&with_models("model-b"), None);
+    assert_eq!(several.participants[0].model.text, "model-a, model-b");
+    assert_eq!(
+        several.journal.last().unwrap().model.text,
+        "model-a, model-b"
+    );
+}
+
+#[test]
 fn a_parent_with_its_own_telemetry_does_not_aggregate() {
     let mut events = panel_journal();
     events.push(ev(
@@ -2174,11 +2207,81 @@ fn provenance_is_derived_once_and_names_a_fallback_as_one() {
     assert_eq!(provenance.provider, "claude");
     assert_eq!(provenance.chain_index, 1);
     assert!(provenance.fallback);
-    assert!(provenance.line.contains("intake · opus via claude"));
+    assert!(provenance
+        .line
+        .contains("intake · selected opus via claude"));
     assert!(provenance.line.contains("not the agent's first choice"));
 }
 
 /// A first-choice selection reads as a plain statement — Brokkr does
+#[test]
+fn served_model_is_distinct_from_selection_and_reaches_every_view_model() {
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1", "provenance": [{
+                "member": null, "agent": "implementer", "model": "abstract-choice",
+                "provider": "claude", "chain_index": 0
+            }]}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a1", "checkpoint": {
+                "step": "seat-turn", "turn": 1, "tool": "Read",
+                "model": "claude-fable-5-1"
+            }}),
+            T1,
+        ),
+        ev(
+            5,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "fx", "attempt_id": "a1", "result": {
+                "result": "complete", "model": "claude-fable-5-1"
+            }}),
+            T2,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let participant = &view.participants[0];
+    assert_eq!(participant.model.text, "claude-fable-5-1");
+    assert_eq!(
+        participant.provenance.as_ref().unwrap().model,
+        "abstract-choice"
+    );
+    assert_eq!(participant.checkpoints[0].model.text, "claude-fable-5-1");
+    assert_eq!(
+        view.phases[0].columns[0].nodes[0].model.text,
+        "claude-fable-5-1"
+    );
+    assert_eq!(view.journal[3].model.text, "claude-fable-5-1");
+    assert_eq!(view.journal[4].model.text, "claude-fable-5-1");
+}
+
+#[test]
+fn old_journals_keep_model_absent_instead_of_borrowing_the_selected_pin() {
+    let view = run_view(&adopting_journal(), None);
+    let participant = &view.participants[0];
+    assert!(participant.model.absent);
+    assert_eq!(participant.model.text, ABSENT);
+    assert_eq!(participant.provenance.as_ref().unwrap().model, "opus");
+}
+
+/// A first-choice selection reads as a plain statement — the machine does
 /// not decorate what it did not have to fall back from.
 #[test]
 fn a_first_choice_selection_carries_no_fallback_language() {
@@ -2194,7 +2297,7 @@ fn a_first_choice_selection_carries_no_fallback_language() {
     let provenance = view.participants[0].provenance.as_ref().unwrap();
     assert_eq!(provenance.chain_index, 0);
     assert!(!provenance.fallback);
-    assert_eq!(provenance.line, "intake · fable via claude");
+    assert_eq!(provenance.line, "intake · selected fable via claude");
     assert!(!provenance.line.contains("fallback"));
 }
 
@@ -2204,7 +2307,7 @@ fn a_first_choice_selection_carries_no_fallback_language() {
 fn an_unreadable_provenance_record_reads_as_absence() {
     let derived = provenance_of(&json!({}));
     assert_eq!(derived.agent, "?");
-    assert_eq!(derived.line, "? · ? via ?");
+    assert_eq!(derived.line, "? · selected ? via ?");
     assert!(!derived.fallback);
 }
 
@@ -2219,7 +2322,9 @@ fn run_notices_carry_capability_gaps_and_fallbacks_without_duplicates() {
         .text
         .starts_with("intake: optional capability gap"));
     assert_eq!(view.notices[1].kind, "fallback");
-    assert!(view.notices[1].text.starts_with("seat: intake · opus"));
+    assert!(view.notices[1]
+        .text
+        .starts_with("seat: intake · selected opus"));
 
     // A second fallback attempt on the same link says it once.
     let mut repeated = adopting_journal();

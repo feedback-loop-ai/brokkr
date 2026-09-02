@@ -26,7 +26,7 @@ case "$last" in
   *) prompt=$(cat) ;;
 esac
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
-[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 printf '{"type":"result","session_id":"s1","num_turns":1,"total_cost_usd":0.0}\n'
 printf 'session id: deadbeef1234\n'
 "#;
@@ -38,23 +38,44 @@ printf 'session id: deadbeef1234\n'
 const CLAUDE_STREAM_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
-[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 printf '{"type":"system","subtype":"init","session_id":"stream-1"}\n'
-printf '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
+printf '{"type":"assistant","message":{"model":"claude-fable-5-1","content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
 printf 'not json, ignorable noise\n'
-printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
+printf '{"type":"assistant","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
 printf '{"type":"result","num_turns":2,"total_cost_usd":0.125}\n'
 "#;
 
 const CODEX_JSON_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
-[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work"}' > "$target"
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
 printf '{"type":"turn.started"}\n'
 printf '{"type":"item.started","item":{"type":"command_execution","command":"secret command"}}\n'
 printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"private output"}}\n'
-printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens":8,"output_tokens":5}}\n'
+printf '{"type":"turn.completed","usage":{"model":"gpt-5.6-sol","input_tokens":21,"cached_input_tokens":8,"output_tokens":5}}\n'
+"#;
+
+/// A dsh that behaves like the installed one: it prints nothing the
+/// driver reads on stdout and writes its session transcript under the
+/// root the seat overlay pins, naming the model that served each
+/// message the way the JSONL backend does (`data.message.source.model`).
+const DSH_USAGE_SHIM: &str = r#"#!/bin/sh
+prompt=$*
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
+root=
+prev=
+for a in "$@"; do
+  if [ "$prev" = --patch ]; then root=$(awk -F"'" '/^    root: /{print $2}' "$a"); fi
+  prev=$a
+done
+d="$root/--conformance--/session-served"
+mkdir -p "$d"
+f="$d/session.jsonl"
+printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
 "#;
 
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
@@ -132,10 +153,42 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
 
 fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     vec![
-        ("claude", vec!["claude".into()]),
-        ("lanetally", vec!["lanetally".into()]),
-        ("codex", vec!["codex".into()]),
-        ("dsh", vec!["dsh".into()]),
+        (
+            "claude",
+            vec![
+                "claude".into(),
+                "--".into(),
+                "--model".into(),
+                "claude-fable-5-1".into(),
+            ],
+        ),
+        (
+            "lanetally",
+            vec![
+                "lanetally".into(),
+                "--".into(),
+                "--model".into(),
+                "claude-fable-5-1".into(),
+            ],
+        ),
+        (
+            "codex",
+            vec![
+                "codex".into(),
+                "--".into(),
+                "--model".into(),
+                "gpt-5.6-sol".into(),
+            ],
+        ),
+        (
+            "dsh",
+            vec![
+                "dsh".into(),
+                "--".into(),
+                "--model".into(),
+                "deepseek/deepseek-v4-flash".into(),
+            ],
+        ),
         (
             "exec-stdin",
             vec![
@@ -174,6 +227,9 @@ fn conformance_across_all_builtin_adapters() {
         let codex_dir = dir.path().join("codex-json");
         std::fs::create_dir_all(&codex_dir).unwrap();
         let codex_shim = make_shim(&codex_dir, CODEX_JSON_SHIM);
+        let dsh_dir = dir.path().join("dsh-usage");
+        std::fs::create_dir_all(&dsh_dir).unwrap();
+        let dsh_shim = make_shim(&dsh_dir, DSH_USAGE_SHIM);
         for (label, args) in all_adapters(&shim) {
             // The claude adapter streams its session: its obedient shim
             // speaks stream-json and yields three seat-turn checkpoints
@@ -191,6 +247,8 @@ fn conformance_across_all_builtin_adapters() {
                 &claude_shim
             } else if codex && case == "obedient" {
                 &codex_shim
+            } else if dsh && case == "obedient" {
+                &dsh_shim
             } else {
                 &shim
             };
@@ -223,6 +281,19 @@ fn conformance_across_all_builtin_adapters() {
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
+                    "result",
+                ]
+            } else if dsh && case == "obedient" {
+                // harness-started, the session id from the transcript
+                // header, one seat-turn naming what served, then the
+                // finishing checkpoint.
+                &[
+                    "capabilities",
+                    "accepted",
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
@@ -263,21 +334,21 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs"}),
+                           "target": "src/lib.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs"}),
+                           "target": "src/main.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[4]
                 );
                 assert_eq!(
                     out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs"}),
+                           "target": "src/out.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[5]
                 );
@@ -287,6 +358,7 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
+                assert_eq!(finished["model"], "claude-fable-5-1", "{label}");
                 // The capture guard is kind-scoped: only lanetally's
                 // finished checkpoint ever carries the marker.
                 assert!(finished.get("capture").is_none(), "{label}: {finished}");
@@ -302,21 +374,21 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs"}),
+                           "target": "src/lib.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs"}),
+                           "target": "src/main.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[4]
                 );
                 assert_eq!(
                     out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs"}),
+                           "target": "src/out.rs", "model": "claude-fable-5-1"}),
                     "{label}: {}",
                     out[5]
                 );
@@ -330,6 +402,7 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["num_turns"], 2, "{label}");
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
+                assert_eq!(finished["model"], "claude-fable-5-1", "{label}");
             } else if codex && case == "obedient" {
                 // Nobody offered this attempt a session, so the launch
                 // is cold and says so with no reason to give: a reason
@@ -355,12 +428,35 @@ fn conformance_across_all_builtin_adapters() {
                 assert!(out[5]["data"].get("command").is_none());
                 assert_eq!(out[7]["data"]["input_tokens"], 21);
                 assert_eq!(out[7]["data"]["cache_read_tokens"], 8);
+                assert_eq!(out[7]["data"]["model"], "gpt-5.6-sol");
                 assert_eq!(out[8]["data"]["session_id"], "codex-thread-1");
                 assert_eq!(out[8]["data"]["output_tokens"], 5);
+                assert_eq!(out[8]["data"]["model"], "gpt-5.6-sol");
             } else if dsh {
                 assert_eq!(out[2]["data"]["step"], "harness-started");
                 assert_eq!(out[2]["data"]["harness"], "deepseek");
-                assert_eq!(out[3]["data"]["step"], "deepseek-harness-session-finished");
+                let finished_index = if case == "obedient" {
+                    assert_eq!(out[3]["data"]["step"], "session-started");
+                    assert_eq!(out[3]["data"]["session_id"], "session-conformance-1");
+                    assert_eq!(out[4]["data"]["step"], "seat-turn");
+                    assert_eq!(out[4]["data"]["model"], "deepseek-v4-flash");
+                    assert_eq!(out[4]["data"]["input_tokens"], 13);
+                    5
+                } else {
+                    3
+                };
+                assert_eq!(
+                    out[finished_index]["data"]["step"],
+                    "deepseek-harness-session-finished"
+                );
+                assert_eq!(
+                    out[finished_index]["data"]["model"],
+                    if case == "obedient" {
+                        "deepseek-v4-flash"
+                    } else {
+                        "not reported"
+                    }
+                );
             } else if exec {
                 // The journaled target is the UNRESOLVED template within
                 // the 80-char clamp (decision 0012 amendment).
@@ -373,11 +469,25 @@ fn conformance_across_all_builtin_adapters() {
                     template.chars().take(80).collect::<String>(),
                     "{label}"
                 );
+                assert_eq!(out[out.len() - 2]["data"]["model"], "not applicable");
             }
             let result = out.last().unwrap();
             if case == "obedient" {
                 assert_eq!(result["status"], "succeeded", "{label}: {result}");
                 assert_eq!(result["result"]["result"], "resolved", "{label}");
+                let expected_model = if claude || lanetally {
+                    "claude-fable-5-1"
+                } else if codex {
+                    "gpt-5.6-sol"
+                } else if dsh {
+                    "deepseek-v4-flash"
+                } else {
+                    "not applicable"
+                };
+                assert_eq!(
+                    result["result"]["model"], expected_model,
+                    "{label}: {result}"
+                );
             } else {
                 assert_eq!(result["status"], "failed", "{label}: {result}");
                 assert!(
@@ -431,12 +541,19 @@ printf '{"type":"result","num_turns":1,"total_cost_usd":0.5,"capture":"evil"}\n'
 fn lanetally_argv_is_claude_shaped_and_the_capture_constant_survives_adversarial_streams() {
     let dir = tempfile::tempdir().unwrap();
     let shim = make_shim(dir.path(), LANETALLY_ADVERSARIAL_SHIM);
-    let out = drive(&["lanetally"], &shim, dir.path());
+    let out = drive(
+        &["lanetally", "--", "--model", "claude-fable-5-1"],
+        &shim,
+        dir.path(),
+    );
     // The wrapper is invoked exactly as claude would be: the stream-json
     // argv, prompt on stdin (the shim finds the result path only if the
     // prompt arrived there — the succeeded result below proves it).
     let argv = std::fs::read_to_string(dir.path().join("lanetally-argv.txt")).unwrap();
-    assert_eq!(argv.trim_end(), "-p --output-format stream-json --verbose");
+    assert_eq!(
+        argv.trim_end(),
+        "-p --output-format stream-json --verbose --model claude-fable-5-1"
+    );
     let finished = &out[out.len() - 2]["data"];
     assert_eq!(finished["step"], "claude-lanetally-session-finished");
     // The constant is inserted after the session_meta extend: no

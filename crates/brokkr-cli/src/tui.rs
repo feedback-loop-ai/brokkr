@@ -1688,6 +1688,17 @@ fn column_label(column: &Column) -> &str {
     }
 }
 
+/// Put the provider-reported model directly in a graph node without
+/// changing old-journal geometry: absent model cells keep the historic
+/// label, while reported models lead so the bounded label cannot hide
+/// what the field means.
+fn modelled_label(label: &str, node: Option<&Node>) -> String {
+    match node {
+        Some(node) if !node.model.absent => format!("model {} · {label}", node.model.text),
+        _ => label.to_string(),
+    }
+}
+
 /// A label's footprint beside its node: one space and the text, or
 /// nothing at all when there is no text.
 fn label_span(label: &str) -> usize {
@@ -1923,11 +1934,12 @@ fn place_column(
         // One node on the rail with its label beside it — and, where a
         // parallel column could not be drawn as lanes, the `⑂n` that
         // keeps it reading as parallel rather than as a sequential step.
-        let label = match members > 1 {
-            true => format!("⑂{members}"),
-            false => clamp(column_label(column), LABEL_MAX),
-        };
         let chosen = column.nodes.get(worst(&column.nodes));
+        let base = match members > 1 {
+            true => format!("⑂{members}"),
+            false => column_label(column).to_string(),
+        };
+        let label = clamp(&modelled_label(&base, chosen), LABEL_MAX);
         marks.push(Mark {
             x,
             row: ink.rail_row,
@@ -1958,7 +1970,7 @@ fn place_column(
             row,
             class: class_for_node(&member.state_class),
             live: member.state == "active" && ink.status == "running",
-            label: clamp(&member.label, LABEL_MAX),
+            label: clamp(&modelled_label(&member.label, Some(member)), LABEL_MAX),
             selected: ink.node == Some(member.key.as_str()),
         });
     }
@@ -2715,6 +2727,7 @@ fn draw_seats(
             "attempts",
             "turns",
             "cost",
+            "model",
             "activity",
         ]
         .iter()
@@ -2743,6 +2756,7 @@ fn draw_seats(
                 cell(&part.attempts.to_string(), plain()),
                 cell(&part.turns_cell.text, plain()),
                 cell(&part.cost_cell.text, plain()),
+                cell(&part.model.text, plain()),
                 cell(&part.activity.text, live),
             ])
             .style(selected_style(cursor == Some(part.key.as_str()))),
@@ -2761,6 +2775,7 @@ fn draw_seats(
                 cell("", plain()),
                 cell("", plain()),
                 cell("", plain()),
+                cell("", plain()),
                 cell(&format!("↳ {}", provenance.line), plain()),
             ]));
         }
@@ -2771,6 +2786,7 @@ fn draw_seats(
         Constraint::Length(8),
         Constraint::Length(6),
         Constraint::Length(10),
+        Constraint::Length(22),
         Constraint::Min(10),
     ];
     frame.render_widget(
@@ -2795,8 +2811,13 @@ fn draw_trail(
         .filter(|row| row.in_trail && render::keeps_row(lens, row))
         .map(|row| {
             let seq = row.seq.to_string();
+            let model = if row.model.absent {
+                String::new()
+            } else {
+                format!(" · model {}", row.model.text)
+            };
             line(
-                &format!("{seq}  {}  {}", row.event_type, row.what.text),
+                &format!("{seq}  {}  {}{model}", row.event_type, row.what.text),
                 selected_style(cursor == Some(seq.as_str())),
             )
         })
@@ -2809,7 +2830,7 @@ fn draw_trail(
 
 fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, part: &Participant) {
     let [head, stream, transcript] = Layout::vertical([
-        Constraint::Length(7),
+        Constraint::Length(8),
         Constraint::Percentage(50),
         Constraint::Percentage(50),
     ])
@@ -2842,11 +2863,12 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         ),
         line(
             &match &part.provenance {
-                Some(provenance) => format!("served by  {}", provenance.line),
-                None => format!("served by  {}", brokkr_view::ABSENT),
+                Some(provenance) => format!("selected by  {}", provenance.line),
+                None => format!("selected by  {}", brokkr_view::ABSENT),
             },
             plain(),
         ),
+        line(&format!("model     {}", part.model.text), plain()),
         line(
             &format!(
                 "attempts {} · turns {} · cost {}",
@@ -2863,8 +2885,8 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         .map(|row| {
             line(
                 &format!(
-                    "{}  {}  {}  {}",
-                    row.turn.text, row.step, row.target.text, row.recorded_at
+                    "{}  {}  model {}  {}  {}",
+                    row.turn.text, row.step, row.model.text, row.target.text, row.recorded_at
                 ),
                 plain(),
             )

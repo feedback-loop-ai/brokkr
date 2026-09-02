@@ -454,7 +454,7 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
         json!({
             "provider": "rude",
             "binary": "sh",
-            "driver": ["sh", "-c", "read line; printf '%s\n' 'not a protocol message'"],
+            "driver": ["sh", "-c", "read -r line; printf '%s\n' 'not a protocol message'"],
             "models": {"rude-model": "rude/1"},
             "model_flag": "--model",
             "tool_permissions": "unsupported",

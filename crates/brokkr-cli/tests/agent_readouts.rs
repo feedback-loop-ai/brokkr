@@ -193,7 +193,7 @@ fn inspect_shows_the_fallback_in_json_and_in_prose() {
     let run_id = ws.run();
 
     let view = ws.inspect_json(&run_id);
-    assert_eq!(view["view_version"], 3);
+    assert_eq!(view["view_version"], 4);
     let seat = view["participants"]
         .as_array()
         .unwrap()
@@ -205,6 +205,7 @@ fn inspect_shows_the_fallback_in_json_and_in_prose() {
     assert_eq!(seat["provenance"]["provider"], "fake");
     assert_eq!(seat["provenance"]["chain_index"], 1);
     assert_eq!(seat["provenance"]["fallback"], json!(true));
+    assert_eq!(seat["model"]["text"], "fake/second");
 
     let notices = view["notices"].as_array().unwrap();
     assert_eq!(notices.len(), 1);
@@ -212,7 +213,7 @@ fn inspect_shows_the_fallback_in_json_and_in_prose() {
 
     let text = ws.inspect_text(&run_id);
     assert!(text.contains("note  fallback"), "{text}");
-    assert!(text.contains("worker · second via fake"), "{text}");
+    assert!(text.contains("worker · selected second via fake"), "{text}");
     assert!(text.contains("not the agent's first choice"), "{text}");
 
     // The inline review seat claims nothing: the journal carries no
@@ -236,7 +237,7 @@ fn a_first_choice_run_carries_no_notice_at_all() {
     assert!(view["notices"].as_array().unwrap().is_empty());
     let text = ws.inspect_text(&run_id);
     assert!(!text.contains("note  fallback"), "{text}");
-    assert!(text.contains("worker · second via fake"), "{text}");
+    assert!(text.contains("worker · selected second via fake"), "{text}");
 }
 
 /// AC-18: `brokkr compare` reports a model difference as a FIRST-CLASS
@@ -277,13 +278,19 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
     ]);
     let report: Value = serde_json::from_str(&stdout).unwrap();
     let divergence = &report["comparison"]["resolution_divergence"];
-    assert_eq!(divergence["implement"]["a"]["model"], "second");
-    assert_eq!(divergence["implement"]["b"]["model"], "first");
-    assert_eq!(divergence["implement"]["a"]["fallback"], json!(true));
-    assert_eq!(divergence["implement"]["b"]["fallback"], json!(false));
+    assert_eq!(divergence["implement"]["a"]["model"], "fake/second");
+    assert_eq!(divergence["implement"]["b"]["model"], "absent/first");
+    assert_eq!(
+        divergence["implement"]["a"]["selected"]["fallback"],
+        json!(true)
+    );
+    assert_eq!(
+        divergence["implement"]["b"]["selected"]["fallback"],
+        json!(false)
+    );
     // Each run's own section names what served it, too.
     assert_eq!(
-        report["runs"][&fallen_back]["resolution"]["implement"]["provider"],
+        report["runs"][&fallen_back]["resolution"]["implement"]["selected"]["provider"],
         "fake"
     );
 

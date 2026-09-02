@@ -107,7 +107,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "system", "subtype": "init", "session_id": "session"}),
         json!({"type": "system", "subtype": "other"}),
         json!({"type": "system", "subtype": "init"}),
-        json!({"type": "result", "num_turns": 2, "total_cost_usd": 1.5}),
+        json!({"type": "result", "model": "claude-served", "num_turns": 2,
+               "total_cost_usd": 1.5}),
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
@@ -117,6 +118,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     }
     assert_eq!(meta["session_id"], "session");
     assert_eq!(meta["num_turns"], 2);
+    assert_eq!(meta["model"], "claude-served");
 
     for event in [
         json!({"type": "thread.started", "thread_id": "thread"}),
@@ -128,7 +130,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "input_tokens": 3, "cached_input_tokens": 2, "output_tokens": 1
         }}),
         json!({"type": "turn.completed"}),
-        json!({"type": "result", "session_id": "final", "num_turns": 1}),
+        json!({"type": "result", "model": "codex-served", "session_id": "final",
+               "num_turns": 1}),
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
@@ -137,9 +140,40 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         });
     }
     assert_eq!(meta["session_id"], "final");
+    assert_eq!(meta["model"], "codex-served");
     assert_eq!(meta["cache_read_tokens"], 2);
     assert!(emitted.iter().any(|event| event["step"] == "item-started"));
     assert!(emitted.iter().any(|event| event["tool"] == "unknown"));
+}
+
+#[test]
+fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
+    assert_eq!(
+        model_token(" claude-fable-5-1 ").as_deref(),
+        Some("claude-fable-5-1")
+    );
+    assert_eq!(
+        model_token("deepseek/deepseek-v4-flash").as_deref(),
+        Some("deepseek/deepseek-v4-flash")
+    );
+    assert_eq!(model_token(""), None);
+    assert_eq!(model_token(&"x".repeat(81)), None);
+    assert_eq!(model_token("model with spaces"), None);
+
+    assert_eq!(
+        model_in_json(&json!({"model":"gpt-5.6-sol"})).as_deref(),
+        Some("gpt-5.6-sol")
+    );
+    assert_eq!(
+        model_in_json(&json!({"data":{"message":{"source":{"model":"served-by-dsh"}}}})).as_deref(),
+        Some("served-by-dsh")
+    );
+    assert_eq!(model_in_json(&json!({"model":7})), None);
+    assert_eq!(
+        model_in_header("noise\nmodel: first\n model: second ").as_deref(),
+        Some("second")
+    );
+    assert_eq!(model_in_header("models: guess\nmodel: not valid"), None);
 }
 
 #[test]
@@ -164,7 +198,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         &[
             "sh".into(),
             "-c".into(),
-            "read value; printf %s \"$value\"".into(),
+            "read -r value; printf %s \"$value\"".into(),
         ],
         Some("payload\n"),
         "",
@@ -316,6 +350,31 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
             result: Some(value),
             ..
         } if value.get("__unparseable_result_file__").is_some()
+    ));
+
+    std::fs::write(&result, "7").unwrap();
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Exec,
+        &["sh".into(), "-c".into(), "cat >/dev/null".into()],
+        &json!({
+            "effect_id":"effect",
+            "attempt_id":"attempt",
+            "input": {
+                "feature":"feature", "phase":"work", "workdir":dir.path(),
+                "result_path":result, "allowed_results":["complete"]
+            }
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    assert!(matches!(
+        messages.last().unwrap(),
+        Body::Result {
+            status: ResultStatus::Succeeded,
+            result: Some(value),
+            ..
+        } if value == &json!(7)
     ));
 }
 
@@ -577,7 +636,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         &format!(
             "#!/bin/sh\ncat >/dev/null\n: > {argv}\nprev=\n\
              for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; \
-             if [ \"$prev\" = --patch ]; then cp \"$a\" {overlay}; fi; prev=$a; done\n",
+             if [ \"$prev\" = --patch ]; then cp \"$a\" {overlay}; fi; prev=$a; done\n\
+             root=$(awk -F\"'\" '/^    root: /{{print $2}}' {overlay}); d=\"$root/--p--/s\"; mkdir -p \"$d\"\n\
+             printf '{{\"type\":\"session\",\"version\":0,\"id\":\"session-served\"}}\n' > \"$d/session.jsonl\"\n\
+             printf '{{\"type\":\"assistant/message\",\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"source\":{{\"model\":\"served-by-dsh\"}}}}}}}}\n' >> \"$d/session.jsonl\"\n",
             argv = argv.display(),
             overlay = overlay.display()
         ),
@@ -632,8 +694,13 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     );
 
     assert_eq!(started[0]["step"], "harness-started");
-    assert_eq!(started[0]["model"], "deepseek-v4-flash");
-    assert_eq!(invocation.session_meta["model"], "deepseek-v4-flash");
+    assert!(started[0].get("model").is_none(), "{:?}", started[0]);
+    let turn = started
+        .iter()
+        .find(|event| event["step"] == "seat-turn")
+        .expect("the transcript's assistant message became a checkpoint");
+    assert_eq!(turn["model"], "served-by-dsh");
+    assert_eq!(invocation.session_meta["model"], "served-by-dsh");
     assert_eq!(invocation.session_meta["harness"], "deepseek");
 
     // No pair, no model row: the profile's own default model boots, and
@@ -664,8 +731,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         "{written}"
     );
     assert!(!written.contains("agent-default-model"), "{written}");
-    assert!(started[0]["model"].is_null());
-    assert!(invocation.session_meta.get("model").is_none());
+    assert!(started[0].get("model").is_none());
+    // No pin, still a served model: the record carries what the harness
+    // reported, never a default (decision 0031).
+    assert_eq!(invocation.session_meta["model"], "served-by-dsh");
 
     match prior {
         Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
@@ -809,6 +878,31 @@ fn with_codex_bin<T>(shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
         std::env::set_var("FORGE_CODEX_BIN", value);
     }
     outcome
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "codex-model-header",
+        "#!/bin/sh\ncat >/dev/null\nprintf 'model: gpt-from-header\\n' >&2\n",
+    );
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &["--model".into(), "gpt-pinned".into()],
+            "prompt",
+            &json!({"workdir":dir.path()}),
+            None,
+            &[],
+            &mut |_| {},
+        )
+        .unwrap()
+    });
+    assert_eq!(invocation.session_meta["model"], "gpt-from-header");
 }
 
 /// The resume argv, whole: the subcommand, the seat's own sandbox class
@@ -1280,7 +1374,7 @@ mkdir -p "$d"
 f="$d/session.jsonl"
 printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
 printf 'not json, ignorable noise\n' >> "$f"
-printf '{"type":"assistant/message","data":{"turn":1,"step":1,"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4}}}\n' >> "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4}}}\n' >> "$f"
 printf '{"type":"tool/call","data":{"turn":1,"step":1,"name":"fs_write","arguments":"hunter22"}}\n' >> "$f"
 printf '{"type":"assistant/chunk","data":{"turn":1,"step":2}}\n' >> "$f"
 i=0

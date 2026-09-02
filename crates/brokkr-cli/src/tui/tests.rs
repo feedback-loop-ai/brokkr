@@ -815,8 +815,22 @@ fn the_runs_table_is_a_bordered_navigable_table_of_model_fields() {
 
 #[test]
 fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
-    let views = views();
-    let tui = at_run();
+    let mut views = views();
+    let reported = views
+        .run
+        .as_mut()
+        .unwrap()
+        .journal
+        .iter_mut()
+        .find(|row| row.in_trail)
+        .unwrap();
+    reported.model = brokkr_view::Cell {
+        text: "claude-fable-5-1".to_string(),
+        absent: false,
+        note: None,
+    };
+    let mut tui = at_run();
+    tui.pane = 2;
     let frame = frame_of(&tui, &views, 110, 30);
 
     // The console's grammar: one rail, arrowed steps, a fork that
@@ -860,6 +874,7 @@ fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
     // The decision trail.
     assert!(frame.contains("INTAKE-OK"), "{frame}");
     assert!(frame.contains("transition/decided"), "{frame}");
+    assert!(frame.contains("model claude-fable-5-1"), "{frame}");
 }
 
 #[test]
@@ -1617,7 +1632,22 @@ fn gnode(label: &str, state: &str, class: &str) -> Node {
         key: format!("key:{label}"),
         state: state.to_string(),
         state_class: class.to_string(),
+        model: brokkr_view::Cell {
+            text: "—".to_string(),
+            absent: true,
+            note: None,
+        },
     }
+}
+
+fn gnode_with_model(label: &str, model: &str) -> Node {
+    let mut node = gnode(label, "finished", "on-phosphor");
+    node.model = brokkr_view::Cell {
+        text: model.to_string(),
+        absent: false,
+        note: None,
+    };
+    node
 }
 
 fn gcolumn(label: Option<&str>, nodes: Vec<Node>) -> Column {
@@ -1733,6 +1763,17 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
     assert_eq!(width_of(&clamp("simplicity", 6)), 6, "the clamp is exact");
     assert_eq!(clamp("設計フェーズ", 5), "設計…");
     assert_eq!(width_of(&clamp("設計フェーズ", 5)), 5);
+    let absent = gnode("implement", "finished", "on-phosphor");
+    assert_eq!(modelled_label("implement", Some(&absent)), "implement");
+    let reported = gnode_with_model("implement", "claude-fable-5-1");
+    assert_eq!(
+        modelled_label("implement", Some(&reported)),
+        "model claude-fable-5-1 · implement"
+    );
+    assert!(
+        clamp(&modelled_label("implement", Some(&reported)), LABEL_MAX).starts_with("model "),
+        "the bounded graph label must retain the field name"
+    );
     assert_eq!(clamp("simplicity", 0), "", "nothing fits in nothing");
     assert_eq!(clamp("a\u{202E}b", 8), "ab", "and it sanitizes on the way");
 
@@ -3259,7 +3300,10 @@ fn the_run_level_shows_run_notices_and_per_seat_provenance() {
     let frame = frame_of(&at_run(), &adopting, 120, 40);
     assert!(frame.contains("note  capability-gap"), "{frame}");
     assert!(frame.contains("note  fallback"), "{frame}");
-    assert!(frame.contains("intake · opus via claude"), "{frame}");
+    assert!(
+        frame.contains("intake · selected opus via claude"),
+        "{frame}"
+    );
 
     // A run that resolves nothing shows neither, so an inline fleet
     // reads exactly as it did before decision 0016.
@@ -3269,28 +3313,35 @@ fn the_run_level_shows_run_notices_and_per_seat_provenance() {
     assert!(!frame.contains(" via "), "{frame}");
 }
 
-/// The seat level answers "what served this seat" beside "how do I
-/// resume it", and marks absence rather than guessing.
+/// The seat level keeps the selected plan separate from the served
+/// model beside the session resume command.
 #[test]
 fn the_seat_level_names_what_served_the_seat() {
     let adopting = adopting_views();
     let seats = frame_of(&at_seats("eff-i"), &adopting, 120, 40);
-    assert!(seats.contains("intake · opus via claude"), "{seats}");
+    assert!(
+        seats.contains("intake · selected opus via claude"),
+        "{seats}"
+    );
 
     // Two rungs: the first scopes the seat, the second descends into it.
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &adopting, Key::Enter);
     apply(&mut tui, &adopting, Key::Enter);
     let detail = frame_of(&tui, &adopting, 120, 40);
-    assert!(detail.contains("served by"), "{detail}");
-    assert!(detail.contains("intake · opus via claude"), "{detail}");
+    assert!(detail.contains("selected by"), "{detail}");
+    assert!(
+        detail.contains("intake · selected opus via claude"),
+        "{detail}"
+    );
+    assert!(detail.contains("model     —"), "{detail}");
 
     let inline = views();
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &inline, Key::Enter);
     apply(&mut tui, &inline, Key::Enter);
     let detail = frame_of(&tui, &inline, 120, 40);
-    assert!(detail.contains("served by"), "{detail}");
+    assert!(detail.contains("selected by"), "{detail}");
     assert!(detail.contains(brokkr_view::ABSENT), "{detail}");
 }
 

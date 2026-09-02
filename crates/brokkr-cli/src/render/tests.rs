@@ -564,12 +564,12 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
-  participant                 status    attempts turns cost    activity
-  intake                      succeeded 1        3     $0.0313 intook · 2m03s
-  design                      working   1        Σ 2   —       3 members ↓
-  design:positions:simplicity succeeded 1        —     —       0s
-  design:positions:robustness succeeded 1        —     —       0s
-  design:chief                working   1        2     —       Write
+  participant                 status    attempts turns cost    model activity
+  intake                      succeeded 1        3     $0.0313 —     intook · 2m03s
+  design                      working   1        Σ 2   —       —     3 members ↓
+  design:positions:simplicity succeeded 1        —     —       —     0s
+  design:positions:robustness succeeded 1        —     —       —     0s
+  design:chief                working   1        2     —       —     Write
 
 trail
   1 run/started        one derivation, two surfaces…
@@ -580,12 +580,12 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → intake · finished · model —
   design ×1  ←current
     ⑂ positions
-      simplicity · finished
-      robustness · finished
-    → chief · active
+      simplicity · finished · model —
+      robustness · finished · model —
+    → chief · active · model —
 "
     );
 }
@@ -622,8 +622,8 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
-  participant status    attempts turns cost    activity
-  intake      succeeded 1        3     $0.0313 intook · 2m03s
+  participant status    attempts turns cost    model activity
+  intake      succeeded 1        3     $0.0313 —     intook · 2m03s
 
 trail
   2 phase/entered      intake
@@ -632,7 +632,7 @@ trail
 
 graph
   intake ×1
-    → intake · finished
+    → intake · finished · model —
 "
     );
 
@@ -815,7 +815,7 @@ fn a_step_with_a_single_member_still_reads_as_the_step() {
     let view = brokkr_view::run_view(&events, None);
     let out = inspect(&view, None, false, &Style::plain(80));
     assert!(
-        out.contains("    → positions · finished\n"),
+        out.contains("    → positions · finished · model —\n"),
         "the column label wins over the lone node's own: {out}"
     );
 }

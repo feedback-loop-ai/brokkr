@@ -65,13 +65,24 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
             json!({"effect_id":"fx", "checkpoint":{
                 "step":"claude-lanetally-session-finished",
                 "capture":"lanetally",
+                "model":"claude-fable-5-1",
                 "num_turns":2, "total_cost_usd":0.125}}),
+        ),
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"fx-2", "seat":"implement"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"fx-2"})),
+        event(
+            EventType::EffectSucceeded,
+            json!({"effect_id":"fx-2", "result":{"model":"claude-sonnet-5"}}),
         ),
     ];
     let (costs, total) = seat_costs(&events);
     assert_eq!(
         costs["implement"],
-        json!({"attempts": 1, "turns": 2, "cost_usd": 0.125})
+        json!({"attempts": 2, "turns": 2, "cost_usd": 0.125,
+               "model": "claude-fable-5-1, claude-sonnet-5"})
     );
     assert_eq!(total, 0.125);
 }

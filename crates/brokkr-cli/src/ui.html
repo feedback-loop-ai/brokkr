@@ -418,6 +418,8 @@ function renderLoops(detail, view, id) {
   const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
   const pulsing = status === 'running';
   const drillable = new Set(view.participants.map((part) => part.key));
+  const nodeText = (node, label = node.label) =>
+    label + ' · model ' + node.model.text;
 
   // Geometry: ONE center rail. Sequential work sits on the rail joined
   // by arrowed edges ("then"); a panel forks into symmetric lanes that
@@ -452,13 +454,12 @@ function renderLoops(detail, view, id) {
         if (i > 0) cursor += COL_GAP;
         const n = col.nodes.length;
         if (n === 1) {
-          const w = Math.max(30, mono(col.nodes[0].label) + 6,
-                             col.label ? mono(col.label) + 6 : 0);
+          const w = Math.max(30, mono(nodeText(col.nodes[0], col.label ?? col.nodes[0].label)) + 6);
           seg.cols.push({ col, fork: false, x: cursor + w / 2,
                           entry: cursor + w / 2 - 8, exit: cursor + w / 2 + 8 });
           cursor += w;
         } else {
-          const labelW = Math.max(...col.nodes.map((nd) => mono(nd.label)));
+          const labelW = Math.max(...col.nodes.map((nd) => mono(nodeText(nd))));
           const w = 26 + 10 + labelW + 16 + 14;
           seg.cols.push({ col, fork: true, x0: cursor, x1: cursor + w,
                           nodeX: cursor + 26, entry: cursor, exit: cursor + w });
@@ -577,7 +578,8 @@ function renderLoops(detail, view, id) {
           cn.setAttribute('r', 5);
           g.appendChild(cn);
           if (drillable.has(n.key)) {
-            g.appendChild(svgEl('title', null, n.label + ' — open participant'));
+            g.appendChild(svgEl('title', null,
+              nodeText(n) + ' — open participant'));
             g.onclick = () => {
               activeParticipant = n.key;
               selectedPhase = null;
@@ -589,7 +591,8 @@ function renderLoops(detail, view, id) {
         };
         if (!c.fork) {
           const g = drawNode(c.col.nodes[0], c.x, Y);
-          const t = svgEl('text', null, c.col.label ?? c.col.nodes[0].label);
+          const t = svgEl('text', null,
+            nodeText(c.col.nodes[0], c.col.label ?? c.col.nodes[0].label));
           t.setAttribute('x', c.x);
           t.setAttribute('y', stepLabelY);
           t.setAttribute('text-anchor', 'middle');
@@ -605,7 +608,7 @@ function renderLoops(detail, view, id) {
               ' L' + c.x1 + ' ' + Y);
             svg.appendChild(laneP);
             const g = drawNode(nd, c.nodeX, ly);
-            const t = svgEl('text', null, nd.label);
+            const t = svgEl('text', null, nodeText(nd));
             t.setAttribute('x', c.nodeX + 10);
             t.setAttribute('y', ly + 3.5);
             g.appendChild(t);
@@ -710,7 +713,8 @@ function checkpointTable(part) {
   const stream = el('table');
   stream.appendChild(row([
     el('th', null, 'turn'), el('th', null, 'tool'),
-    el('th', null, 'target'), el('th', null, 'recorded'),
+    el('th', null, 'model'), el('th', null, 'target'),
+    el('th', null, 'recorded'),
   ]));
   for (const item of part.checkpoints) {
     const target = el('td', 'target');
@@ -722,6 +726,7 @@ function checkpointTable(part) {
     stream.appendChild(row([
       cell(item.turn),
       el('td', null, item.step),
+      cell(item.model),
       target,
       el('td', null, item.recorded_at),
     ]));
@@ -877,7 +882,8 @@ function renderDetail(id, view) {
     seats.appendChild(row([
       el('th', null, 'participant'), el('th', null, 'status'),
       el('th', null, 'attempts'), el('th', null, 'turns'),
-      el('th', null, 'cost'), el('th', null, 'activity'),
+      el('th', null, 'cost'), el('th', null, 'model'),
+      el('th', null, 'activity'),
     ]));
     for (const part of shownParts) {
       const statusCell = el('td');
@@ -899,8 +905,8 @@ function renderDetail(id, view) {
       } else {
         activity.textContent = act.text;
       }
-      // The agent, model and provider that actually served this
-      // invocation, rendered by the single derivation.
+      // The agent resolution that selected this invocation, rendered
+      // separately from the provider-reported model cell.
       const label = el('td');
       label.appendChild(document.createTextNode(part.label));
       if (part.provenance) {
@@ -912,6 +918,7 @@ function renderDetail(id, view) {
         el('td', null, part.attempts),
         cell(part.turns_cell),
         cell(part.cost_cell),
+        cell(part.model),
         activity,
       ]);
       tr.className = 'seat';
@@ -952,6 +959,10 @@ function renderDetail(id, view) {
       header.appendChild(document.createTextNode(' · session ' + sessionId));
     }
     detail.appendChild(header);
+    detail.appendChild(el('p', 'cause', 'model ' + part.model.text));
+    if (part.provenance) {
+      detail.appendChild(el('p', 'cause', 'selected by ' + part.provenance.line));
+    }
     // The lowest level IS the session prose. When the seat's transcript
     // exists on this machine it renders here; the journal's checkpoint
     // stream is only the fallback (exec steps, vanished transcripts).
@@ -1013,9 +1024,10 @@ function renderDetail(id, view) {
   const table = el('table');
   table.appendChild(row(rawJournal
     ? [el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
-       el('th', null, 'payload'), el('th', null, 'recorded')]
+       el('th', null, 'model'), el('th', null, 'payload'), el('th', null, 'recorded')]
     : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
-       el('th', null, 'what happened'), el('th', null, 'recorded')]));
+       el('th', null, 'what happened'), el('th', null, 'model'),
+       el('th', null, 'recorded')]));
   for (const e of view.journal) {
     if (phaseFilter && !e.phases.includes(phaseFilter)) continue;
     if (!rawJournal && !e.in_trail) continue;
@@ -1040,7 +1052,8 @@ function renderDetail(id, view) {
         what.appendChild(el('div', 'problem', e.what.problem));
       }
       table.appendChild(row([
-        seqCell, el('td', null, e.event_type), what, el('td', null, e.recorded_at),
+        seqCell, el('td', null, e.event_type), what, cell(e.model),
+        el('td', null, e.recorded_at),
       ]));
       continue;
     }
@@ -1049,6 +1062,7 @@ function renderDetail(id, view) {
       seqCell,
       el('td', null, e.event_type),
       cell(e.label, 'label'),
+      cell(e.model),
       payloadCell(e.payload_json),
       el('td', null, e.recorded_at),
     ]));

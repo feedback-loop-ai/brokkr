@@ -34,6 +34,7 @@ It is two things at once, and both matter:
       "limits": { "max_attempts": 2, "timeout_seconds": 5400 },
       "driver": {
         "command": ["{brokkr}", "driver", "codex", "--",
+                    "--model", "gpt-5.6-sol",
                     "--sandbox", "danger-full-access"]
       }
     }

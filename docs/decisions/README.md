@@ -60,6 +60,7 @@ in the PR record, not in this directory.
 | [0027](0027-import.md) | Import: journals never merge, runs relocate | One run moves from a canonical export into a destination journal byte-identically, behind full verification; a broken chain, a run-id collision and a redacted derivative each refuse the import whole; arrival is recorded beside the chain, never inside it. | accepted |
 | [0028](0028-keep-refs.md) | Keep-refs: the journal's exhibits outlive the branch | Every SHA a run's journal cites gets `refs/forge/keep/<run>/<sha>`, planted automatically at conclusion and by verb; idempotent, listed by one `for-each-ref`, deleted only by the operator. | accepted |
 | [0030](0030-codex-session-resume.md) | Codex session resume: the cache win and the sandbox it drops | `codex exec resume` lifts the prompt-cache hit from a ~75% cold plateau to 92–96% (measured), but refuses `--sandbox` and does not inherit it — a resumed read-only thread writes. Safe only via `-c sandbox_mode=`. Ruled: a retry or a re-entry of the same seat rejoins its own thread with the class re-imposed, or the driver spawns cold; only the instance that opened a session may resume it. | accepted |
+| [0031](0031-seat-model-pin.md) | The served model is evidence; every model seat is pinned | Drivers record the provider-reported served model, never a configured guess; every model-backed invocation is compile-refused unless explicitly pinned. | accepted |
 
 ## How a decision is made
 
