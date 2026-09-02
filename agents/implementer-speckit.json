@@ -14,7 +14,9 @@
       "ls",
       "rg",
       "mkdir",
-      "specify"
+      "specify",
+      "codex",
+      "dsh"
     ],
     "mcp": []
   },

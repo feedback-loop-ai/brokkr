@@ -32,6 +32,13 @@ fn workspace() -> PathBuf {
 const BASE_TOOLS: &str = "Bash(cargo:*),Bash(git:*),Bash(python3:*),\
                           Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)";
 
+/// The two other drivers' CLIs, granted to the implementer agents on
+/// 2026-09-02 and to no gate-class agent: a work seat may put codex or
+/// dsh to work under its own charter, while a judge's hands stay where
+/// decision 0021's compile-time tier check can see them. This is the one
+/// deliberate departure from the inline argv the adoption reproduced.
+const DRIVER_HANDS: &str = ",Bash(codex:*),Bash(dsh:*)";
+
 /// The argv every adopting seat inlined before this slice: the claude
 /// driver, `acceptEdits`, and one `--allowedTools` list.
 fn historic(specify: bool) -> Vec<String> {
@@ -55,8 +62,12 @@ fn historic(specify: bool) -> Vec<String> {
 
 /// The same argv with the model pinned: `--model <id>` inserted where
 /// the adapter composes it, immediately before the tool permissions.
-fn expected(specify: bool, model: &str) -> Vec<String> {
+fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
     let mut argv = historic(specify);
+    if hands {
+        let tools = argv.last_mut().expect("the tool list is last");
+        tools.push_str(DRIVER_HANDS);
+    }
     let at = argv.len() - 2;
     argv.splice(at..at, ["--model".to_string(), model.to_string()]);
     argv
@@ -254,10 +265,12 @@ fn assert_adopted(relative: &str, roster: &Roster) {
         let (charter, argv) = sites
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
+        let hands = site.starts_with("implement");
         assert_eq!(
             &argv[1..],
-            expected(*specify, model).as_slice(),
-            "{relative} site '{site}' argv is not the inline argv plus its model"
+            expected(*specify, hands, model).as_slice(),
+            "{relative} site '{site}' argv is not the inline argv plus its model \
+             (plus the driver hands, on an implement seat)"
         );
         let bytes = std::fs::read(charter).unwrap();
         assert_eq!(

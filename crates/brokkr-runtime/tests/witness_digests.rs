@@ -65,35 +65,35 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "0f747c6148b8f05425a89fe7c3d57b7af01766b799fbb2a9b39c1f8289c0531d",
+        "379db8120ee70c786e778b16b0459c756fef4af6ed3404c7b28ae426c28474bc",
     ),
     (
         "recipes/node",
-        "afcbac0419a6e43ea88e2a826b2801d2220c817bfa0f252b6370ac24ea36726d",
+        "6b93c0cd29a1d6b4e7fda0c98e2e1723c505fc262cc50b493e236bf5b28daae7",
     ),
     (
         "recipes/preflight",
-        "eaa39563e867505cd7069620f1d23bd89f6d642116b2a24f2aa460e6be29afe1",
+        "85e8d176ef66e53ddbb3da572ca53e9ec91bc318ccba1d1fa4b1c2b0540bc708",
     ),
     (
         "recipes/ember",
-        "2c4cf909a415a26f9fa84fcd64df6036ad9dceba905edf54e1cf4c9701127f9d",
+        "08905369b2f7e5207233d716b8725f00434e1aa80ffa57c1bd583d7d33fff059",
     ),
     (
         "recipes/crucible",
-        "13270a0cdca6e85698b941d9c6d466bf7c7052428ddda9c5cadcdbabaeafa6f8",
+        "2653a62b75503fd69a828892ea638aacabedb3e34193c111adc0c3ed7cd69f4a",
     ),
     (
         "recipes/night-shift",
-        "65132b3c2c6734c09fea51248ef1c6bce41cb6f3104bc4bff9227609ecf71d4e",
+        "5bef947100fb99788be5dd5f0d54ae1fc9ac378bf037f684b63bfafeda83a460",
     ),
     (
         "recipes/wager-harness",
-        "cfe1b36e440601693e04fa3a9c9a97797c5745e0fafb5590ce3a17d7b3ce3a3e",
+        "e5ab1113ac00f181c5e685516a050839a474b21a196e0e07b2649af069df0a19",
     ),
     (
         "bundles/verify",
-        "af8914ca855de321809c0d82e32c9441451e7fd56939ffafa33ef93f1e52f969",
+        "972c772de5705767002de01adc7e5216e90ec483ffc32a33d25ccd58f784ab4f",
     ),
 ];
 

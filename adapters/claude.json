@@ -29,7 +29,9 @@
       "ls": "Bash(ls:*)",
       "rg": "Bash(rg:*)",
       "mkdir": "Bash(mkdir:*)",
-      "specify": "Bash(specify:*)"
+      "specify": "Bash(specify:*)",
+      "codex": "Bash(codex:*)",
+      "dsh": "Bash(dsh:*)"
     }
   },
   "mcp": {

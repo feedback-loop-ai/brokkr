@@ -13,7 +13,9 @@
       "pytest",
       "ls",
       "rg",
-      "mkdir"
+      "mkdir",
+      "codex",
+      "dsh"
     ],
     "mcp": []
   },
