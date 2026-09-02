@@ -173,9 +173,12 @@ deliberate → rule → encode → enforce → evidence → amend lifecycle the
 [Edda](docs/lore/edda.md) is an engineering decision, not decoration),
 *[The Machine That Argued With Itself](docs/essays/the-machine-that-argued-with-itself.md)*
 (five arguments from the journals, and what makes them argument
-instead of theater), and *[The Wager](docs/essays/the-wager.md)* (two
+instead of theater), *[The Wager](docs/essays/the-wager.md)* (two
 crews, one commission, and why fair model comparison is an
-architecture property).
+architecture property), and
+*[One Job, Three Hires](docs/essays/one-job-three-hires.md)* (a phase
+held by a model is a job with a description and a price tag; three
+hires into one job, thirty to one on price, the same gates for all).
 
 ## 60-second quickstart
 
