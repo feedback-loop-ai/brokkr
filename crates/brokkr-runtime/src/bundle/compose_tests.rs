@@ -743,6 +743,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// `bundles/verify` — moved once more when those gates began pinning
 /// the adapter declaration that authorises them, so a tier demoted in
 /// `adapters/` moves the identity of the bundles it was standing behind.
+/// Decision 0033 moved the three recipe entries once more by adding the
+/// descriptions and relative costs rendered in the contributing guide;
+/// the two system bundles did not move.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -751,15 +754,15 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "5b38ac406e18b3c2138740040515ff68ff623e20baf974261e9f3f73fb690475",
+        "60ac742aa290064c0c0b8826111e614e5453ffa1bbbf5a77babee0b29003e372",
     ),
     (
         "recipes/panel-review",
-        "27d8c8a1dcfbc044b322e664be3f9748f1fd055f51e047a5b7db8393d550c430",
+        "eb111b40d8c1e4ce03c7d630079d27bc05a1b1dee59246e537f1889efcd98a62",
     ),
     (
         "recipes/sdd",
-        "03f1cc3cb9129dd62a79f6ac348b396ee103434638fdbe179c768f018f83730d",
+        "8c888c71ac3353803ec7d62ae7872e2b23c94d8ace29cc940a51532ee0841cbb",
     ),
     (
         "bundles/self",
@@ -898,15 +901,15 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "94c25df41f36249817cecfbeba5997e646e018110695b94bb2ca94fe65359af7",
+        "cce743c6f9b12bdc0bbae184740623cdfa06ec0dc0b875449f2661fcdb766348",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
          (decision 0019), again when its inline review panel began \
          pinning the adapter declarations that authorise it to judge, \
          (decision 0021), then when the closing 0019 sweep changed the \
-         base charters, and again when every inline model became \
-         explicit (0031), which is this test's own principle: changing a \
+         base charters, and finally when decision 0033 gave both layers \
+         contributor-facing description and cost data, which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }

@@ -1,7 +1,13 @@
 {
   "name": "wager-harness-dsh",
+  "description": "Driver evaluation that swaps only implementation to DSH for a fair wager.",
+  "cost": "medium",
   "extends": "fast",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "implement"
     ]

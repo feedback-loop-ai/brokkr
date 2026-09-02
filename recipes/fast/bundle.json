@@ -1,5 +1,7 @@
 {
   "name": "fast",
+  "description": "Default Rust delivery from implementation through verification, review, and ship.",
+  "cost": "medium",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {

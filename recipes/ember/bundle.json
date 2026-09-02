@@ -1,8 +1,14 @@
 {
   "name": "ember",
+  "description": "Docs, chores, and small fixes with a cheap intake and economical working seats.",
+  "cost": "low",
   "extends": "fast",
   "policy": "policy.json",
   "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
     "seats": [
       "implement",
       "verify",

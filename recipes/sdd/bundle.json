@@ -1,5 +1,7 @@
 {
   "name": "sdd",
+  "description": "Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.",
+  "cost": "high",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {

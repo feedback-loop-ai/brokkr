@@ -45,6 +45,8 @@ Two worked shapes are in the tree:
 ```json
 {
   "name": "sdd",
+  "description": "Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.",
+  "cost": "high",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": { "…": "one entry per working phase" }
@@ -54,6 +56,8 @@ Two worked shapes are in the tree:
 | Key | Required | Meaning |
 |---|---|---|
 | `name` | yes | The strategy's identity. For a composed recipe this is the leaf's name. |
+| `description` | shipped recipes | The one-line answer to "when should I use this?", rendered by `brokkr recipes list` and the contributing guide. |
+| `cost` | shipped recipes | A relative cost band for choosing a strategy, never a provider quote. |
 | `policy` | in the layer that supplies a table | Path to this layer's phase-machine file, relative to this layer's directory. A layer that declares no `policy` contributes no table. |
 | `protected_phase` | no | The phase every path to a non-`stop` terminal must pass through. Defaults to `"review"`. |
 | `seats` | in the layer that supplies them | Phase name → seat definition. Every working phase needs one by the time composition has resolved. |

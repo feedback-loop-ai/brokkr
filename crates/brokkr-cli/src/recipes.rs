@@ -109,10 +109,12 @@ pub fn list(workspace: &Path, dir: &Path) -> Result<()> {
     for (name, path) in candidates {
         match compile_in(workspace, &path) {
             Ok(bundle) => println!(
-                "{name}\t{}\t{} phases\t{}\t{}",
+                "{name}\t{}\t{} phases\t{}\t{}\t{}\t{}",
                 &bundle.manifest_digest()[..12],
                 bundle.machine.phases.len(),
                 seat_summary(&bundle),
+                bundle.cost,
+                bundle.description,
                 path.display()
             ),
             Err(e) => println!("warning: {name} ({}): {e}", path.display()),

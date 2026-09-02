@@ -131,6 +131,8 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
 fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
     Bundle {
         name: "resume".into(),
+        description: String::new(),
+        cost: String::new(),
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
         chain: Vec::new(),

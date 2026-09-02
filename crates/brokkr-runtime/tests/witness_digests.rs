@@ -63,39 +63,38 @@ fn workspace() -> PathBuf {
 /// manifest entry: edit `recipes/fast` and all move together, which
 /// is the honest reading — a derived recipe IS a different strategy when
 /// its base changes.
+///
+/// Decision 0033 deliberately moved the seven recipe witnesses: each
+/// bundle now carries the description and relative cost rendered in the
+/// sixty-second contributing guide. `bundles/verify` did not move.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "5b38ac406e18b3c2138740040515ff68ff623e20baf974261e9f3f73fb690475",
+        "60ac742aa290064c0c0b8826111e614e5453ffa1bbbf5a77babee0b29003e372",
     ),
     (
         "recipes/node",
-        "78adff80ecd1a0bb9d0ae1f3e7ff015f3b8f8d6dcc170e28d1c99ce6a61c54dd",
+        "0791dcc2811cda87aca21f6002a3607a0c62c84371d218408c89b1bcd523c8f6",
     ),
     (
         "recipes/preflight",
-        "4bf573ee0586c53285a91f239d0356d17c1fc8288b49eff6dd4f3aeca8643a81",
+        "3cedc899170b188f69a543c69c15aef69d586b4e9c95b32ac4864f519477e9b8",
     ),
     (
         "recipes/ember",
-        "d6773384e750d3b70819895e9e19944d6f4aec39b584099442c1115c13445c19",
+        "4d0ae8343cc72b004770cfb61d6b3486f693748105de29040acf41a0aabf21c7",
     ),
     (
         "recipes/crucible",
-        "fcb2a65f500a09e43572e37926d1873c854d4fe3e70151a374116f06edcf2647",
+        "fbcd11dcbfd789384dcb72e4ddafa338298863c615ff2447f22814ffd40146a5",
     ),
     (
         "recipes/night-shift",
-        "5bfaab37a51b09b387c0400376f1b2b4d9eb54d8e4549a73368700365d756169",
+        "d9ba0158186cee71e79e4410c7e4ee8b4a1f17e43528e555bf3c3b3fbfb99589",
     ),
     (
-        // Re-pinned when the 0021 addendum (2026-09-02) made the
-        // recipe's README prose stale: it still said the challenger
-        // may not hold a gate, which the promotion to `trusted` had
-        // stopped being true. `bundle.json` is untouched — only the
-        // README moved, and the README is manifest input.
         "recipes/wager-harness",
-        "e91dd8e2a728f3b4c72d84cbaa3cea20a9af960252befc46f7c11fe10221b779",
+        "16dafc33e25bd5be172e22a7b5adc5943abb44e39c5c2c3c4a3ea066d4430e91",
     ),
     (
         "bundles/verify",

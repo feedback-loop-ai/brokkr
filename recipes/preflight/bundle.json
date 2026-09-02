@@ -1,5 +1,7 @@
 {
   "name": "preflight",
+  "description": "Verify and review an existing branch without implementing or shipping it.",
+  "cost": "medium",
   "policy": "policy.json",
   "protected_phase": "review",
   "seats": {

@@ -253,7 +253,11 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         .find(|l| l.starts_with("good\t"))
         .expect("listing line for the valid recipe");
     let cols: Vec<&str> = line.split('\t').collect();
-    assert_eq!(cols.len(), 5, "name, digest, phases, seats, path: {line}");
+    assert_eq!(
+        cols.len(),
+        7,
+        "name, digest, phases, seats, cost, description, path: {line}"
+    );
     assert_eq!(
         cols[1],
         &digest[..12],
@@ -267,7 +271,12 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         cols[3]
     );
     assert!(cols[3].contains("implement"), "seats: {}", cols[3]);
-    assert!(cols[4].ends_with("good"), "source path: {}", cols[4]);
+    assert!(cols[4].is_empty(), "legacy fixture has no cost: {line}");
+    assert!(
+        cols[5].is_empty(),
+        "legacy fixture has no description: {line}"
+    );
+    assert!(cols[6].ends_with("good"), "source path: {}", cols[6]);
 
     let warning = stdout
         .lines()

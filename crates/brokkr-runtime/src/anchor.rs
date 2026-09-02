@@ -1,23 +1,24 @@
 //! Git-ref anchoring: tamper-EVIDENCE, not tamper-proofing (the
 //! referee-era lore in reference/handoff-protocol.md, ported). Every
 //! anchor is a commit on `refs/forge/<run_id>` recording the journal's
-//! seq and head hash; commit objects are content-addressed, so a
-//! consistent rewrite of the database still fails against the ref chain.
-//! Built with plumbing on a dedicated ref: the index, working tree, and
-//! checked-out branch are never touched. The ref carries no signature —
-//! anyone able to run git here can rebuild it; it raises the cost of
-//! forgery and makes honest corruption visible (the signing service
-//! stays deferred, decision 0008).
+//! seq, head hash, and the repository HEAD it vouches for. Its tree
+//! carries the canonical NDJSON, so the ref can be pushed under
+//! `refs/heads/brokkr-runs/<run_id>` and verified without publishing the
+//! operator's SQLite journal (decision 0033). Commit objects are
+//! content-addressed, so a consistent rewrite of the database still
+//! fails against the ref chain. Built with plumbing on a dedicated ref:
+//! the index, working tree, and checked-out branch are never touched.
+//! The ref carries no signature — anyone able to run git here can
+//! rebuild it; it raises the cost of forgery and makes honest corruption
+//! visible (the signing service stays deferred, decision 0008).
 
 use std::path::Path;
 use std::process::Command;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 use thiserror::Error;
-
-/// git's well-known empty tree.
-const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 #[derive(Debug, Error)]
 pub enum AnchorError {
@@ -75,10 +76,31 @@ fn ref_name(run_id: &str) -> String {
     format!("refs/forge/{run_id}")
 }
 
+/// The run, not the caller's current checkout, says which commit was
+/// reviewed and then drift-checked at ship. One repository is the
+/// delivered shape today, so more than one recorded realm is ambiguous
+/// and vouches for nothing rather than picking one by map order.
+fn vouched_head(events: &[EventEnvelope]) -> Option<String> {
+    let recorded = events.iter().rev().find_map(|event| {
+        (event.event_type == EventType::TransitionDecided)
+            .then(|| event.payload.pointer("/inputs/reviewed_heads"))
+            .flatten()
+    })?;
+    let heads = recorded.as_object()?;
+    if heads.len() != 1 {
+        return None;
+    }
+    let head = heads.values().next()?.as_str()?;
+    (head.len() == 40 && head.chars().all(|character| character.is_ascii_hexdigit()))
+        .then(|| head.to_ascii_lowercase())
+}
+
 /// Append an anchor commit for the run's current journal head. Chains to
 /// the previous anchor when one exists. Returns the commit sha.
 pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, AnchorError> {
     let (seq, head_hash) = store.head_hash(run_id)?;
+    let journal = store.export_ndjson(run_id)?;
+    let repo_head = vouched_head(&store.load(run_id)?);
     let reference = ref_name(run_id);
     let parent = git(
         repo,
@@ -86,14 +108,18 @@ pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, Anchor
         None,
     )
     .ok();
+    let blob = git(repo, &["hash-object", "-w", "--stdin"], Some(&journal))?;
+    let tree_entry = format!("100644 blob {blob}\t{run_id}.ndjson\n");
+    let tree = git(repo, &["mktree"], Some(&tree_entry))?;
     let message = json!({
-        "anchor": "forge.journal-anchor/v1",
+        "anchor": "forge.journal-anchor/v2",
         "run_id": run_id,
         "seq": seq,
         "journal_head_hash": head_hash,
+        "repo_head": repo_head,
     })
     .to_string();
-    let mut args = vec!["commit-tree", EMPTY_TREE];
+    let mut args = vec!["commit-tree", &tree];
     if let Some(parent_sha) = parent.as_deref() {
         args.extend(["-p", parent_sha]);
     }
@@ -132,6 +158,7 @@ pub fn verify(store: &Store, repo: &Path, run_id: &str) -> Result<Value, AnchorE
         "tip": tip,
         "seq": seq,
         "journal_head_hash": head_hash,
+        "repo_head": recorded.get("repo_head").cloned().unwrap_or(Value::Null),
         "chain_length": chain_length.parse::<u64>().unwrap_or(0),
         "verdict": "anchored",
     }))
