@@ -221,21 +221,40 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     assert!(exec.tool_permissions.is_none());
     assert!(exec.mcp.is_none());
     assert!(exec.models.is_empty());
-    // `codex` and `dsh` map no model either: this tree has no established
-    // abstract-name → concrete-id mapping for them, and inventing one is
+    // `codex` maps no model either: this tree has no established
+    // abstract-name → concrete-id mapping for it, and inventing one is
     // exactly the quiet substitution decision 0016 refuses. Adding one is
     // a file edit, not a release.
-    for provider in ["codex", "dsh"] {
-        let adapter = adapters
-            .providers()
-            .find(|adapter| adapter.provider == provider)
-            .unwrap();
-        assert!(adapter.models.is_empty(), "{provider} maps no model yet");
-        assert!(
-            adapter.tool_permissions.is_none(),
-            "{provider} cannot express a tool restriction, and says so"
-        );
-    }
+    let codex = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "codex")
+        .unwrap();
+    assert!(codex.models.is_empty(), "codex maps no model yet");
+    assert!(
+        codex.tool_permissions.is_none(),
+        "codex cannot express a tool restriction, and says so"
+    );
+    // `dsh` maps exactly the lane this tree has evidence for — the
+    // roster's night-shift row and LaneTally's priced deepseek-v4-flash
+    // — under an abstract name that is NOT a claude tier, so no chain
+    // written for one provider silently lands on the other. The flag
+    // is the shared `--model` grammar; the driver turns it into the
+    // overlay dsh's launcher reads. Tools stay unexpressible, and the
+    // data says so.
+    let dsh = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "dsh")
+        .unwrap();
+    assert_eq!(
+        dsh.models.get("flash").map(String::as_str),
+        Some("deepseek-v4-flash")
+    );
+    assert_eq!(dsh.models.len(), 1, "one evidenced lane, no invented ones");
+    assert_eq!(dsh.model_flag.as_deref(), Some("--model"));
+    assert!(
+        dsh.tool_permissions.is_none(),
+        "dsh cannot express a tool restriction, and says so"
+    );
 }
 
 /// No adapter file carries a value — only names, flags and ids

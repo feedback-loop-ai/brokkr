@@ -85,7 +85,7 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/night-shift",
-        "196728594d96a0f214e990a758d93054ded17b702fd845aa8af0242b9dca93a1",
+        "65132b3c2c6734c09fea51248ef1c6bce41cb6f3104bc4bff9227609ecf71d4e",
     ),
     (
         "recipes/wager-harness",

@@ -8,7 +8,7 @@ dark.
 
 | Phase | Model | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | sonnet *(see TODO below)* | **1** | 7200 | work |
+| `implement` | deepseek-v4-flash via `dsh` | **1** | 7200 | work |
 | `verify` | opus | **1** | 3600 | gate |
 | `review` | opus | **1** | 3600 | gate |
 | `ship` | opus | **1** | 1800 | gate |
@@ -37,35 +37,29 @@ The two behaviours, side by side:
 | Seat reported `broken` (a valid typed result) | back to `implement` once | back to `implement` once |
 | Review reported `security-hold` | hard stop | hard stop |
 
-## TODO — the deepseek lane is not wired
+## The deepseek lane
 
-The roster analysis called for `implement` to be driven by the **dsh**
-adapter's deepseek lane. It is not, and this seat runs on
-`claude`/`sonnet` instead.
+`implement` is driven by the **dsh** adapter: `{brokkr} driver dsh --
+--model deepseek-v4-flash`. It is lawful under decision 0021 as it
+stands — `dsh` is `trust_tier: "untrusted"`, and ruling 7 admits an
+untrusted driver to a **work** seat freely; `implement` is `class:
+"work"` and carries no `secrets` key, so neither compile-time
+prohibition (untrusted judge, ungranted secret binding) applies.
 
-**The blocker is a missing model mapping, not a trust-tier refusal.**
-`adapters/dsh.json` declares `"models": {}` — an empty map, verified at
-the time this recipe was written — so there is no deepseek model name to
-put behind a `--model` flag; the same file declares `"model_flag":
-"unsupported"`. Nothing about decision 0021 stands in the way: `dsh` is
-`trust_tier: "untrusted"`, and ruling 7 admits an untrusted driver to a
-**work** seat freely. `implement` is declared `class: "work"` and
-carries no `secrets` key, so neither of 0021's two compile-time
-prohibitions (untrusted judge, ungranted secret binding) applies to it.
-The seat is lawful today; it simply has nothing to name.
+What the seat gives up, and the comparison must say: `adapters/dsh.json`
+declares `tool_permissions: "unsupported"`, because the headless dsh
+launcher has no allowed-tools flag. The seat runs with whatever the
+harness permits, not the seven `Bash` prefixes the sonnet seat named.
+That asymmetry is the same one [`recipes/wager-harness`](../wager-harness/README.md)
+records for its challenger arm, for the same reason.
 
-The follow-up is therefore adapter work, not recipe work: give
-`adapters/dsh.json` a `models` map and a usable `model_flag`, then
-change this seat's `driver.command` to
-`["{brokkr}", "driver", "dsh", "--", …]` and drop this section.
-`adapters/*.json` is shared cross-recipe data that other bundles and the
-model-policy tests key off, so it was deliberately not edited from a
-recipe-authoring change: fabricating a `models` entry would have
-silently changed what every other bundle sees as "the deepseek lane
-exists."
-
-Reference: [decision 0021](../../docs/decisions/0021-model-policy.md),
-rulings 2 and 7.
+How the pin reaches the harness: dsh has no model flag of its own; the
+model is a row of its composed profile tree, and the launcher's only
+override is a `--patch` overlay. The `dsh` driver turns `--model <id>`
+into that overlay for the one seat and passes the rest of its arguments
+through — see `crates/brokkr-protocol/src/adapters.rs`. The abstract
+name `flash` in `adapters/dsh.json` is deliberately not a claude tier,
+so no agent chain written for one provider lands on the other.
 
 ## Cost expectations
 
@@ -77,10 +71,9 @@ structural fact:
   one — [`ember`](../ember/README.md) is. Night-shift buys *unattended
   safety*: the gates are the seats nobody will double-check before
   breakfast, so they get the best judge.
-- Its intended saving was the implement seat on a cheap untrusted
-  lane, and that saving is **not currently realised** — see the TODO
-  above. On sonnet, the implement seat costs what any sonnet implement
-  seat costs.
+- Its intended saving is the implement seat on a cheap untrusted
+  lane, which it now sits on. Whether the saving is real is what the
+  first night-shift runs will show; nothing here has measured it.
 - `max_attempts: 1` caps the worst case at one session per seat entry
   rather than two. That is a real bound on spend, and the only one this
   recipe adds.
@@ -120,12 +113,12 @@ run it attended.
 
 ## The one-line swap property
 
-The implement seat is one JSON object; the TODO above is literally a
-one-line-plus-flag change once `adapters/dsh.json` names a model. That
-is the property [`recipes/wager-harness`](../wager-harness/README.md)
+The implement seat is one JSON object; moving it from sonnet to the
+deepseek lane was a driver name and a model id, nothing else. That is
+the property [`recipes/wager-harness`](../wager-harness/README.md)
 turns into a procedure — and the discipline it names (same sandbox, same
-tools, same repo base) is exactly what a future dsh-vs-sonnet comparison
-on this seat will need.
+tools, same repo base) is exactly what a dsh-vs-sonnet comparison on
+this seat will need.
 
 ## How the models are pinned
 

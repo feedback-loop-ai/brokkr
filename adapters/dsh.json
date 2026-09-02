@@ -9,8 +9,10 @@
     "dsh",
     "--"
   ],
-  "models": {},
-  "model_flag": "unsupported",
+  "models": {
+    "flash": "deepseek-v4-flash"
+  },
+  "model_flag": "--model",
   "tool_permissions": "unsupported",
   "mcp": "unsupported"
 }
