@@ -37,7 +37,7 @@ run with one command:
 
 ```console
 $ brokkr run --recipe fast --repo . --feature "add one small behavior and the test that proves it"
-run started: add-one-small-behavior-and-the-tes-8bf6d692
+run started: add-one-small-behavior-and-the-t-8bf6d692
 …
 ```
 
@@ -45,7 +45,7 @@ When it finishes, put the proof on screen:
 
 ```console
 $ brokkr inspect --run latest
-run  add-one-small-behavior-and-the-tes-8bf6d692
+run  add-one-small-behavior-and-the-t-8bf6d692
      completed · phase done · seq 38
 ruling  SHIP-COMPLETE  ship → done · shipped
 
