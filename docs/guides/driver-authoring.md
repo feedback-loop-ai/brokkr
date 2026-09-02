@@ -191,6 +191,24 @@ per-seat session-transcript root through the launcher's `--patch`
 overlay and tails the one file that appears there, which is
 unambiguous by construction and never a scan for the newest file.
 
+**`input_tokens` is inclusive of `cache_read_tokens`.** Harnesses split
+that count both ways — codex reports `input_tokens: 14830` beside
+`cached_input_tokens: 11264`, dsh reports the same step as `inputTokens:
+94, cacheReadTokens: 7` from a `prompt_tokens: 101` — so a driver
+normalizes to the inclusive form before journaling, and reports the
+cache read separately in `cache_read_tokens` as the subset it is.
+`brokkr costs` and the seat surfaces sum `input_tokens` and
+`output_tokens` only; adding the cache read would double-count it. One
+journal key means one thing across every driver, not whatever its
+harness happened to mean.
+
+**A transcript a driver stages for its own use goes with the seat.** It
+holds precisely what the journal refuses to carry — the prompt, tool
+arguments, tool results — so it is not evidence to retain; the
+checkpoints folded out of it are. Whatever retention the harness itself
+does under its own home is the operator's to manage, not the driver's
+to duplicate.
+
 ## Results
 
 Exactly one `result` per `start`.

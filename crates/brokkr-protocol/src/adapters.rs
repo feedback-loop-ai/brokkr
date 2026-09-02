@@ -335,31 +335,68 @@ fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
 }
 
 /// The dsh usage keys, as `@deepseek-ai/dsh-llm`'s `TokenUsage` spells
-/// them, paired with the journal's own names. Counts are disjoint there
-/// (cached input is NOT part of `inputTokens`), which is the same shape
-/// the codex fold already journals.
+/// them, paired with the journal's own names.
+///
+/// dsh's own counts are DISJOINT: a cache read is NOT part of
+/// `inputTokens`. Verified by arithmetic against 0.1.0-rc.6 — a step
+/// whose provider reported `prompt_tokens: 101` with `cached_tokens: 7`
+/// was written to the transcript as `inputTokens: 94, cacheReadTokens:
+/// 7`, and the next step's 103/21 as 82/21.
+///
+/// The journal's `input_tokens` is INCLUSIVE, because that is what the
+/// key already meant everywhere else: codex reports `input_tokens:
+/// 14830` beside `cached_input_tokens: 11264` (codex-cli 0.148.0, one
+/// real `codex exec --json` turn), and `brokkr-view::session_tokens`
+/// sums `input_tokens` and `output_tokens` *only*, documenting that a
+/// cache read arrives inside the input count and adding it again would
+/// double-count. So `DSH_INPUT_CACHE_READ` is folded back into the
+/// input count below rather than leaving one journal key meaning one
+/// thing for codex and another for dsh.
 const DSH_USAGE: [(&str, &str); 3] = [
     ("inputTokens", "input_tokens"),
     ("outputTokens", "output_tokens"),
-    ("cacheReadTokens", "cache_read_tokens"),
+    (DSH_INPUT_CACHE_READ, "cache_read_tokens"),
 ];
+
+/// The dsh count that is a subset of the journal's `input_tokens` but a
+/// sibling of dsh's own `inputTokens`.
+const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
 
 /// One dsh session-log line folded into bounded live telemetry.
 ///
 /// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
 /// stream — verified against the installed binary: `dsh --help` lists
-/// `--profile/--patch/--dump-config` only, and `dsh --profile headless
-/// --help` lists `-h` only; the runner writes the final assistant text
-/// to stdout and nothing else. The live signal is therefore the JSONL
-/// transcript `@deepseek-ai/dsh-session-persistence-jsonl` appends as
-/// the session runs (observed growing 14 → 45 → 71 → 89 lines while the
-/// child was still alive).
+/// `-V/--profile/--patch/--dump-config/--dump-default-config` and the
+/// `web`/`plugin` commands, none of them an output format, and `dsh
+/// --profile headless --help` lists `-h` alone under "Answer one task,
+/// print the final assistant message, and exit". The live signal is
+/// therefore the JSONL transcript
+/// `@deepseek-ai/dsh-session-persistence-jsonl` appends as the session
+/// runs (observed growing 14 → 45 → 71 → 89 lines while the child was
+/// still alive).
 ///
 /// The log's first line is the immutable session header, which names the
-/// session; every later line is one `SessionEvent`. An
-/// `assistant/message` is one assembled assistant turn and carries that
+/// session; every later line is one `SessionEvent`. One real session,
+/// driven end to end through 0.1.0-rc.6 with a tool call in it, wrote:
+///
+/// ```text
+/// session · permission/preset · sandbox/mode · approval/policy
+/// agent/inbox/spliced · turn/start · step/start · user/message
+/// request/header · request/context · assistant/chunk × 9
+/// assistant/message · tool/call · tool/result · step/end
+/// step/start · assistant/chunk × 5 · assistant/message · step/end
+/// turn/end
+/// ```
+///
+/// So an `assistant/message` is one assembled assistant *step*, not one
+/// dsh turn: dsh authors its own coarser `data.turn`, and the two
+/// messages above both carry `turn: 1` with `step: 1` and `step: 2`. A
+/// headless seat answers one task, so dsh's own turn index never leaves
+/// 1 and would report no progress at all. The step is the unit that
+/// advances, and it is the same unit the claude fold counts — one
+/// assembled assistant message per model response. It carries that
 /// step's `usage` when the adapter reported accounting; a `tool/call`
-/// names the tool the turn asked for.
+/// names the tool the step asked for.
 ///
 /// Privacy invariant, same as `fold_stream_event`: a turn index, a
 /// ≤80-char tool name and token counts only — never message text,
@@ -394,8 +431,18 @@ fn fold_dsh_event(
             checkpoint.insert("turn".into(), Value::from(*turns));
             checkpoint.insert("harness".into(), Value::String("deepseek".into()));
             let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
+            let cache_read = usage
+                .get(DSH_INPUT_CACHE_READ)
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             for (source, target) in DSH_USAGE {
-                if let Some(value) = usage.get(source).and_then(Value::as_u64) {
+                if let Some(mut value) = usage.get(source).and_then(Value::as_u64) {
+                    // The one place dsh's disjoint accounting is
+                    // reconciled with the journal's inclusive
+                    // `input_tokens` — see DSH_USAGE.
+                    if source == "inputTokens" {
+                        value = value.saturating_add(cache_read);
+                    }
                     checkpoint.insert(target.into(), Value::from(value));
                     add_usage(session_meta, target, value);
                 }
@@ -422,10 +469,16 @@ fn fold_dsh_event(
 /// session-owned directory (`<root>/--<cwd>--/<id>/session.jsonl`).
 const DSH_TRANSCRIPT: &str = "session.jsonl";
 
-/// The one transcript under a per-seat root. NEVER "the newest file":
-/// the root is fresh and belongs to this invocation alone, so the single
-/// transcript that appears under it is the child's by construction, with
-/// no directory scan to lose a race against a concurrent seat.
+/// The seat's own transcript under a per-seat root. NEVER "the newest
+/// file": the root is fresh and belongs to this invocation alone, so no
+/// directory scan can lose a race against a concurrent seat.
+///
+/// One root is not the same claim as one session, though. dsh's session
+/// header carries a `delegationDepth`, so a session this seat delegates
+/// writes a SECOND transcript under the same root, and `read_dir` yields
+/// entries in whatever order the filesystem likes. The seat's own
+/// session is therefore chosen by what its header says — depth 0 — and
+/// not by which entry happened to come back first.
 fn find_dsh_transcript(root: &std::path::Path) -> Option<std::path::PathBuf> {
     for project in std::fs::read_dir(root).ok()?.flatten() {
         for session in std::fs::read_dir(project.path())
@@ -434,12 +487,41 @@ fn find_dsh_transcript(root: &std::path::Path) -> Option<std::path::PathBuf> {
             .flatten()
         {
             let candidate = session.path().join(DSH_TRANSCRIPT);
-            if candidate.is_file() {
+            if names_the_seats_own_session(&candidate) {
                 return Some(candidate);
             }
         }
     }
     None
+}
+
+/// Whether a transcript's first line is the header of the session this
+/// seat booted, rather than one it delegated.
+///
+/// A file whose header has not landed yet — dsh creates it before its
+/// first append, and a half-written line is not JSON — is not the answer
+/// *yet*: the poll loop simply asks again on its next pass, which is the
+/// same discipline as a root that does not exist at boot.
+fn names_the_seats_own_session(candidate: &std::path::Path) -> bool {
+    let Ok(file) = std::fs::File::open(candidate) else {
+        return false;
+    };
+    let mut header = String::new();
+    if std::io::BufReader::new(file)
+        .read_line(&mut header)
+        .is_err()
+    {
+        return false;
+    }
+    let Ok(event) = serde_json::from_str::<Value>(&header) else {
+        return false;
+    };
+    event.get("type").and_then(Value::as_str) == Some("session")
+        && event
+            .get("delegationDepth")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            == 0
 }
 
 /// What the driver has read of the growing transcript so far: the open
@@ -600,16 +682,20 @@ fn invoke_dsh(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
-    let root = dsh_transcript_root()?;
-    let overlay = dsh_seat_overlay(model.as_deref(), &root)?;
+    // Bound for the whole invocation: dropping it removes the seat's
+    // transcript, so it must outlive the poll loop that reads it.
+    let root_dir = dsh_transcript_root()?;
+    let root = root_dir.path();
+    let overlay = dsh_seat_overlay(model.as_deref(), root)?;
     emit(&json!({
         "step":"harness-started",
         "harness":"deepseek",
         "profile":"headless",
         "model": model,
         // A directory path, within the same 80-char clamp every target
-        // takes: the seat's transcript is addressable afterwards from
-        // the journal alone, alongside the session id the fold lands.
+        // takes: while the seat works, the journal alone says where its
+        // live transcript is, which is what a `brokkr watch` drilldown
+        // needs. It is the seat's own root and goes with the seat.
         "target": root.to_string_lossy().chars().take(80).collect::<String>(),
     }));
     let mut command = vec![
@@ -647,7 +733,7 @@ fn invoke_dsh(
             Ok(Some(status)) => Some(status.code().unwrap_or(-1)),
             _ => None,
         };
-        drain_dsh_transcript(&mut tail, &root, &mut turns, &mut session_meta, emit);
+        drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit);
         if let Some(code) = finished {
             break code;
         }
@@ -899,10 +985,18 @@ fn dsh_model_overlay_in(
 /// A fresh transcript root for one seat. The JSONL backend's `root` has
 /// no default and one root belongs to one encoding, so this is also what
 /// makes `compression: none` legal without disturbing the operator's
-/// zstd-encoded `$DSH_HOME/sessions`. The directory is KEPT, not
-/// tempfile-dropped: the transcript is the seat's evidence, and the
-/// journal names the root so it stays addressable after the seat ends.
-fn dsh_transcript_root() -> Result<std::path::PathBuf, String> {
+/// zstd-encoded `$DSH_HOME/sessions`.
+///
+/// The directory lives exactly as long as the invocation does. It is
+/// what `brokkr watch` and the tui can follow WHILE the seat works, and
+/// the checkpoints folded out of it are what survives: session id, step
+/// count, per-step usage, tool names. The raw file is not evidence to
+/// keep — it holds the prompt text, tool arguments and tool results that
+/// the journal's privacy invariant deliberately excludes, so retaining
+/// it would put precisely the excluded prose in an unmanaged directory
+/// outside the operator's own `$DSH_HOME` retention, one per seat,
+/// forever. It is dropped with the seat instead.
+fn dsh_transcript_root() -> Result<tempfile::TempDir, String> {
     dsh_transcript_root_in(|| {
         tempfile::Builder::new()
             .prefix("brokkr-dsh-session-")
@@ -915,9 +1009,8 @@ fn dsh_transcript_root() -> Result<std::path::PathBuf, String> {
 /// moving `TMPDIR` out from under every other test in the process.
 fn dsh_transcript_root_in(
     create: impl FnOnce() -> std::io::Result<tempfile::TempDir>,
-) -> Result<std::path::PathBuf, String> {
-    let root = io_context(create(), "could not stage the dsh session transcript root")?;
-    Ok(root.keep())
+) -> Result<tempfile::TempDir, String> {
+    io_context(create(), "could not stage the dsh session transcript root")
 }
 
 /// The overlay row that points dsh's session persistence at this seat's
@@ -925,6 +1018,14 @@ fn dsh_transcript_root_in(
 /// path is written as a single-quoted YAML scalar with its quotes
 /// doubled, and a path that could open a line of its own is refused
 /// rather than written — same discipline as the model id.
+///
+/// Accepted by the installed 0.1.0-rc.6, not merely by a shim: `dsh
+/// --profile headless --dump-config` composes this row over the
+/// `session-persistence-jsonl` id that `@deepseek-ai/dsh-base` already
+/// contributes (whose only default is `root: dshHomePath('sessions')`),
+/// and a real headless session run with it wrote a plain-text
+/// `<root>/--<cwd>--/session-<uuid>/session.jsonl` — the layout
+/// `find_dsh_transcript` walks and `DSH_TRANSCRIPT` names.
 fn dsh_transcript_row(root: &std::path::Path) -> Result<String, String> {
     let root = root.to_string_lossy();
     if root.contains('\n') || root.contains('\r') {

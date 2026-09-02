@@ -761,7 +761,9 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
         .collect();
     assert_eq!(turns.len(), 3, "{emitted:?}");
     assert_eq!(turns[0]["turn"], 1);
-    assert_eq!(turns[0]["input_tokens"], 10);
+    // 10 + 4: dsh counts a cache read beside its input, the journal
+    // counts it inside — the key means one thing across drivers.
+    assert_eq!(turns[0]["input_tokens"], 14);
     assert_eq!(turns[0]["cache_read_tokens"], 4);
     assert_eq!(turns[1]["tool"], "fs_write");
     assert_eq!(turns[2]["turn"], 2, "the second turn was written LIVE");
@@ -776,12 +778,20 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     let meta = &invocation.session_meta;
     assert_eq!(meta["session_id"], "session-fake-1");
     assert_eq!(meta["num_turns"], 2);
-    // Summed across the session, not the last turn's counts.
-    assert_eq!(meta["input_tokens"], 30);
+    // Summed across the session, not the last turn's counts: (10+4)+20.
+    assert_eq!(meta["input_tokens"], 34);
     assert_eq!(meta["output_tokens"], 5);
     assert_eq!(meta["cache_read_tokens"], 4);
     assert_eq!(meta["harness"], "deepseek");
     assert_eq!(meta["profile"], "headless");
+
+    // The transcript holds the prompt, the tool arguments and the tool
+    // results the journal deliberately refuses to carry. It goes with
+    // the seat: what survives is the checkpoints folded out of it.
+    assert!(
+        !std::path::Path::new(target).exists(),
+        "the seat's transcript root outlived the seat: {target}"
+    );
 
     // A harness that writes no transcript at all still concludes: the
     // seat is silent, not broken. Named workdir absent too, so the
@@ -857,8 +867,24 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     std::fs::write(session.join("notes.txt"), b"x").unwrap();
     assert!(find_dsh_transcript(&root).is_none());
 
+    // dsh creates the file before its first append, and a header still
+    // being written is not JSON. Neither names a session yet, so neither
+    // is the answer yet — the poll loop asks again.
     let transcript = session.join("session.jsonl");
     std::fs::write(&transcript, b"").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+    std::fs::write(&transcript, b"{\"type\":\"session\",\"id\":\"s").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+    // A line that parses but is not the header names nothing either.
+    std::fs::write(&transcript, b"{\"type\":\"turn/start\"}\n").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+    // Nor does a header line that is not text at all: the read itself
+    // fails, and a file that cannot be read names no session.
+    std::fs::write(&transcript, b"\xff\xfe not utf-8 at all\n").unwrap();
+    assert!(find_dsh_transcript(&root).is_none());
+
+    let header = b"{\"type\":\"session\",\"id\":\"s\",\"delegationDepth\":0}\n";
+    std::fs::write(&transcript, header).unwrap();
     assert_eq!(find_dsh_transcript(&root).as_deref(), Some(&*transcript));
 
     // A transcript the seat cannot read is left alone and retried; it is
@@ -880,12 +906,48 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
         b"{\"type\":\"session\",\"id\":\"s\"}\n\xff not utf-8\nhalf a line",
     )
     .unwrap();
+    // A header with no depth at all is the seat's own session: dsh
+    // writes `delegationDepth` from the root session onward, and an
+    // absent one has never meant "delegated".
     drain_dsh_transcript(&mut tail, &root, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert!(tail.file.is_some());
     assert_eq!(emitted.len(), 1, "{emitted:?}");
     assert_eq!(tail.pending, b"half a line");
+}
+
+#[test]
+fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
+    // One root is not the same claim as one session: dsh's header
+    // carries a `delegationDepth`, so a session the seat delegates
+    // writes a SECOND transcript under the same root. `read_dir` yields
+    // entries in whatever order the filesystem likes, so the seat's own
+    // session is picked by what its header SAYS, not by which entry came
+    // back first. Both orders are written here and both must answer the
+    // same way.
+    for (seat, delegated) in [("a-seat", "b-delegated"), ("z-seat", "a-delegated")] {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("root").join("--project--");
+        let mut wanted = std::path::PathBuf::new();
+        for (name, depth) in [(seat, 0), (delegated, 1)] {
+            let transcript = project.join(name).join("session.jsonl");
+            std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+            std::fs::write(
+                &transcript,
+                format!("{{\"type\":\"session\",\"id\":\"{name}\",\"delegationDepth\":{depth}}}\n"),
+            )
+            .unwrap();
+            if depth == 0 {
+                wanted = transcript;
+            }
+        }
+        assert_eq!(
+            find_dsh_transcript(&dir.path().join("root")).as_deref(),
+            Some(&*wanted),
+            "the seat's own session is {seat}, not {delegated}"
+        );
+    }
 }
 
 #[test]
