@@ -21,7 +21,7 @@ struct Offense {
     text: String,
 }
 
-const FIXED_PROSE: [&str; 9] = [
+const FIXED_PROSE: [&str; 10] = [
     "README.md",
     "ARCHITECTURE.md",
     "CONTRIBUTING.md",
@@ -30,6 +30,7 @@ const FIXED_PROSE: [&str; 9] = [
     "docs/target-architecture.md",
     "docs/extension-model.md",
     "docs/decisions/README.md",
+    "docs/lore/README.md",
     "contracts/README.md",
 ];
 
@@ -165,13 +166,16 @@ fn explicitly_allowed(file: &str, line: &str) -> bool {
     if line.contains("SwarmForge") {
         return true;
     }
-    if file == "README.md" && line.contains(concat!("\"For", "ge\" survives as the verb")) {
+    if matches!(file, "README.md" | "docs/lore/README.md")
+        && line.contains(concat!("\"For", "ge\" survives as the verb"))
+    {
         return true;
     }
 
     let history_file = matches!(
         file,
         "README.md"
+            | "docs/lore/README.md"
             | ".github/workflows/ci.yml"
             | ".github/workflows/release.yml"
             | "crates/brokkr-cli/Cargo.toml"
@@ -239,6 +243,112 @@ fn allowed_history_mechanisms_and_verbs_pass() {
         ),
         []
     );
+}
+
+#[test]
+fn front_page_is_brief_proof_first_and_points_to_owners() {
+    let root = workspace();
+    let readme = std::fs::read_to_string(root.join("README.md")).expect("the front page ships");
+
+    assert!(
+        readme.lines().count() < 150,
+        "README.md grew past the front-page budget"
+    );
+    assert!(
+        readme
+            .contains("Coordination tools help agents work together. Brokkr proves what they did."),
+        "the positioning line moved"
+    );
+
+    let install = readme.find("## Install").expect("install section");
+    let quickstart = readme
+        .find("## 60-second quickstart")
+        .expect("quickstart section");
+    let map = readme.find("## Read next").expect("documentation map");
+    assert!(install < quickstart && quickstart < map, "{readme}");
+
+    for proof in [
+        "brokkr run --recipe fast",
+        "brokkr inspect --run latest",
+        "The inspection is derived from the journal",
+        "review      succeeded",
+        "graph",
+    ] {
+        assert!(readme.contains(proof), "front page lost proof: {proof}");
+    }
+    for owner in [
+        "docs/guides/README.md",
+        "docs/decisions/README.md",
+        "docs/essays/README.md",
+        "docs/lore/README.md",
+        "docs/evidence/README.md",
+        "CONTRIBUTING.md",
+        "ARCHITECTURE.md",
+    ] {
+        assert!(readme.contains(owner), "front page lost owner: {owner}");
+    }
+
+    for moved in [
+        "## The read surfaces",
+        "## Recipes and composition",
+        "## The agent library",
+        "## Provider adapters",
+        "## Secrets",
+        "## The journal and verification",
+        "## Repo layout",
+        "## The decision culture",
+    ] {
+        assert!(
+            !readme.contains(moved),
+            "guide material returned to README.md: {moved}"
+        );
+    }
+    assert_eq!(
+        readme
+            .lines()
+            .filter(|line| line.contains("](CONTRIBUTING.md)"))
+            .count(),
+        1,
+        "contributing must remain one map entry"
+    );
+}
+
+#[test]
+fn displaced_front_page_sections_have_documentation_homes() {
+    let root = workspace();
+    for (relative, marker) in [
+        (
+            "docs/guides/read-surfaces.md",
+            "`brokkr inspect` — one run, explained",
+        ),
+        ("docs/guides/recipe-authoring.md", "$ brokkr recipes list"),
+        ("docs/guides/agent-library.md", "$ brokkr agents list"),
+        (
+            "docs/guides/provider-adapters.md",
+            "A provider adapter is **data**",
+        ),
+        (
+            "docs/guides/secrets.md",
+            "$ brokkr secrets set GITHUB_TOKEN",
+        ),
+        (
+            "docs/guides/journal-and-verification.md",
+            "$ brokkr verify-run",
+        ),
+        (
+            "docs/guides/repository-layout.md",
+            "| `crates/` | The engine:",
+        ),
+        ("docs/decisions/README.md", "## The decision culture"),
+        (
+            "docs/essays/README.md",
+            "## The reading path from the determinism laws",
+        ),
+    ] {
+        let contents = std::fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|error| panic!("{relative}: {error}"));
+        assert!(contents.contains(marker), "{relative} lost: {marker}");
+    }
 }
 
 #[test]

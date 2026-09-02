@@ -74,3 +74,16 @@ in the PR record, not in this directory.
 
 A decision is never edited into a different meaning. When a ruling
 changes, a new numbered decision supersedes it and says so.
+
+## The decision culture
+
+Every semantic change is a numbered operator ruling in
+[`docs/decisions/`](./), kept in full, cited by number in
+the code that enforces it. [The index](README.md) lists
+them with their status.
+
+An implementer may write a decision, but only ever with status
+`proposed`; acceptance is the operator's, recorded in the file. A ruling
+is never edited into a different meaning — a new number supersedes it
+and says so. That is why the README, the error messages and the tests
+can all cite "decision 0007" and mean the same paragraph.

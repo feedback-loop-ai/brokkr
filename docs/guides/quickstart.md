@@ -609,6 +609,91 @@ Neither number is a claim about your machine. Run the script.
   `TERM`, width follows `COLUMNS`; without a Unicode-width dependency,
   CJK and emoji columns misalign in the readouts.
 
+## Compact first-run tour
+
+This is the compact tour that formerly lived on the front page.
+
+One native binary — no Python, no Node, no services.
+
+**Install from a release.** Grab the archive for your platform from the
+[latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
+(linux x86_64/aarch64, macOS arm64/x86_64, windows x86_64), verify it
+against the release's `SHA256SUMS`, then unpack:
+
+```
+curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/brokkr-linux-x86_64.tar.gz
+curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS      # brokkr-linux-x86_64.tar.gz: OK
+tar xzf brokkr-linux-x86_64.tar.gz            # → ./brokkr
+```
+
+Every archive and the `SHA256SUMS` manifest carry a signed GitHub
+Sigstore build-provenance attestation, so the checksum itself can be
+checked against the workflow that produced it:
+
+```
+gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
+```
+
+**Or build it.** Rust 1.88 or newer:
+
+```
+cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
+```
+
+**Then deliver something.**
+
+```
+$ brokkr doctor                           # tools, agent CLIs, database, contracts
+ok       contracts: engine 0.6.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       git: git version 2.51.0
+ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
+ok       agent implementer: would run opus via claude here (chain opus → sonnet)
+…
+
+$ brokkr init my-bundle                   # scaffold a reviewable starter recipe
+initialized reviewable bundle at my-bundle (digest …)
+
+$ brokkr run --bundle my-bundle --repo . --feature "prefix selectors for the read surfaces"
+run started: prefix-selectors-for-the-read-su-8bf6d692
+…
+
+$ brokkr tui                              # explore what just happened
+```
+
+`brokkr run` exits 0 when the run reaches `done`, 2 when it parks for the
+operator, and 3 when it stops — so a shell script can tell the three
+apart without parsing anything.
+
+`brokkr init` writes a starter recipe you are meant to read: a seven-phase
+policy table (five working phases plus `done` and `stop`) with the review
+gate constitutionally protected and one agent-defined seat per working
+phase. The seats name agents; the agent files in the scaffold's own
+`agents/` carry each seat's charter, model chain, per-seat limits
+(decision 0006) and tool grant. It compiles the bundle before printing
+the digest, so the thing you were handed is a thing that runs. It also
+reads the repository you ran it from — the manifests and lockfiles at
+that root, nothing executed — so the implementer's and verifier's
+charters name that stack's own build, test and lint commands, and say
+plainly when no stack was recognized. Lockfiles have the deciding vote
+where a manifest is ambiguous (`bun.lock` out-votes the npm fallback,
+`uv.lock` out-votes pip), a monorepo orchestrator (`turbo.json`,
+`nx.json`) out-votes any single package's script and is run through
+whichever package manager the root's lockfile names, and a Cargo
+workspace or a `go.work` gets a charter that says so rather than a
+command it did not need. The same stack decides what the seats may RUN:
+the binaries its commands invoke are written into the scaffold's
+`adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
+entries and granted in the agents' `tools.allow` — the whole set to the
+work seats, the read-only subset (the test runner's tools plus `git`,
+`ls` and `rg`) to the gates, never `mkdir`. A repository no row
+recognizes gets an EMPTY map and a scaffold README that says so, because
+a tool name is a permission and one guessed is one granted. The digest
+is therefore a function of what was scaffolded and differs from
+repository to repository; the one printed above is elided for that
+reason. [`docs/guides/starters/`](starters/) shows the
+actual output per stack, transcribed from real runs.
+
 ## Next
 
 - [starters/](starters/) — what `brokkr init` actually wrote, per

@@ -1057,39 +1057,59 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
     }
 }
 
-/// Part 7. The quickstart's install step carries a row per channel, and
-/// every command in it either ran here or says where it is wired.
+/// Part 7. Both install maps carry a row per channel, and every command
+/// in them either ran here or says where it is wired.
 #[test]
-fn the_quickstart_install_step_carries_the_manager_matrix() {
+fn the_install_surfaces_carry_the_manager_matrix() {
     let quickstart = read("docs/guides/quickstart.md");
-    let install = quickstart
+    let quickstart_install = quickstart
         .split("### Step 1 — install")
         .nth(1)
         .expect("the install step")
         .split("\n### ")
         .next()
         .expect("the step ends");
+    let front_page = read("README.md");
+    let front_page_install = front_page
+        .split("## Install")
+        .nth(1)
+        .expect("the front-page install section")
+        .split("\n## ")
+        .next()
+        .expect("the section ends");
 
-    for row in [
-        "brew install",
-        "apt-get install brokkr",
-        "dnf install brokkr",
-        "cargo binstall brokkr-cli",
-        "scoop install brokkr",
-        "nix profile install",
-        "tar xzf",
+    for (surface, install) in [
+        ("front page", front_page_install),
+        ("quickstart", quickstart_install),
     ] {
-        assert!(install.contains(row), "no row for {row}:\n{install}");
+        for row in [
+            "brew install",
+            "apt-get install brokkr",
+            "dnf install brokkr",
+            "cargo binstall brokkr-cli",
+            "scoop install brokkr",
+            "nix profile install",
+            "tar xzf",
+        ] {
+            assert!(
+                install.contains(row),
+                "no {surface} row for {row}:\n{install}"
+            );
+        }
+        assert!(install.contains("wired at the bench"), "{install}");
     }
     // The accuracy law: nothing that needs the bench's secret or the
     // sibling repositories is written as if it were tested.
-    assert!(install.contains("wired at the bench"), "{install}");
+    assert!(
+        quickstart_install.contains("wired at the bench"),
+        "{quickstart_install}"
+    );
     // The forward note about the bootstrap spine resolved itself: the
     // matrix now lives ON the spine, and the tarball row remains the
     // one the 60-second budget gates — assert the merged reality.
     assert!(
-        install.contains("60-second budget"),
-        "the tarball row no longer names the budget it gates:\n{install}"
+        quickstart_install.contains("60-second budget"),
+        "the tarball row no longer names the budget it gates:\n{quickstart_install}"
     );
 }
 
