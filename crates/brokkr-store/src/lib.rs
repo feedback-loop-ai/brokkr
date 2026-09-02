@@ -356,14 +356,64 @@ fn host_from(sources: &[&str], fallback: Option<String>) -> Option<String> {
     if machine.is_empty() {
         return None;
     }
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = account_home();
     let digest = brokkr_core::canonical::sha256_hex(&serde_json::json!([machine, home]));
     Some(digest[..16].to_string())
 }
 
+/// The account's home directory, spelled the way each platform exports
+/// it: `HOME` on unix, `USERPROFILE` on Windows. Empty when neither is
+/// set, so the fingerprint still folds and the machine half decides.
+fn account_home() -> String {
+    home_from(&["HOME", "USERPROFILE"])
+}
+
+/// The first of `variables` that is set, else empty.
+fn home_from(variables: &[&str]) -> String {
+    variables
+        .iter()
+        .find_map(|variable| std::env::var(variable).ok())
+        .unwrap_or_default()
+}
+
+/// The machine's name where no identity file can be read — the case on
+/// every released platform but Linux. The first of `variables` that is
+/// set and non-blank wins (`HOSTNAME`, which POSIX shells set but rarely
+/// export; `COMPUTERNAME`, which Windows always publishes); failing
+/// both, `ask` is consulted once. Blank answers count as none.
+fn machine_name(variables: &[&str], ask: impl FnOnce() -> Option<String>) -> Option<String> {
+    variables
+        .iter()
+        .find_map(|variable| std::env::var(variable).ok())
+        .filter(|name| !name.trim().is_empty())
+        .or_else(ask)
+        .filter(|name| !name.trim().is_empty())
+}
+
+/// What `hostname` prints: the same spelling `/proc/sys/kernel/hostname`
+/// carries on Linux, and the one thing macOS ships that names the
+/// machine without a daemon or a crate. `None` when the command is
+/// missing or fails, and a `None` hands out no sessions.
+fn hostname_command() -> Option<String> {
+    hostname_from("hostname")
+}
+
+/// `program`'s standard output when it runs and succeeds; `None` when
+/// it is missing or exits nonzero.
+fn hostname_from(program: &str) -> Option<String> {
+    let out = std::process::Command::new(program).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
 /// This machine and this account, as [`host_from`] fingerprints them.
 fn local_host() -> Option<String> {
-    host_from(&MACHINE_SOURCES, std::env::var("HOSTNAME").ok())
+    host_from(
+        &MACHINE_SOURCES,
+        machine_name(&["HOSTNAME", "COMPUTERNAME"], hostname_command),
+    )
 }
 
 /// Add the sidecar columns to a journal that predates them. SQLite has

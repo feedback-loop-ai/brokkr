@@ -110,9 +110,9 @@ fn handshake_and_eof_defects_fail_closed() {
         "supports": [],
     });
     for script in [
-        format!("read line; printf '\\n%s\\n' '{}'", wrong_proto),
+        format!("read -r line; printf '\\n%s\\n' '{}'", wrong_proto),
         format!(
-            "read line; printf '%s\\n' '{}'; read line",
+            "read -r line; printf '%s\\n' '{}'; read -r line",
             wire(Body::Accepted {
                 effect_id: "effect".into(),
                 attempt_id: "attempt".into(),
@@ -126,13 +126,16 @@ fn handshake_and_eof_defects_fail_closed() {
         ));
     }
 
-    let before_accept = format!("read line; printf '%s\\n' '{}'; read line", capabilities());
+    let before_accept = format!(
+        "read -r line; printf '%s\\n' '{}'; read -r line",
+        capabilities()
+    );
     assert!(matches!(
         run(&before_accept).outcome,
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
     let after_accept = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(Body::Accepted {
             effect_id: "effect".into(),
@@ -172,7 +175,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
     ];
     for body in cases {
         let script = format!(
-            "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+            "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
             capabilities(),
             wire(body)
         );
@@ -190,7 +193,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         error: None,
     };
     let script = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(no_payload)
     );
@@ -207,7 +210,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         error: None,
     };
     let script = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(failed)
     );
@@ -219,14 +222,14 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
 
 #[test]
 fn pipe_and_stdout_failures_are_terminal_reports() {
-    let invalid_utf8 = "read line; printf '\\377'";
+    let invalid_utf8 = "read -r line; printf '\\377'";
     assert!(matches!(
         run(invalid_utf8).outcome,
         AttemptOutcome::Failed { error } if error.contains("stdout read failed")
     ));
 
     assert!(matches!(
-        run("read line").outcome,
+        run("read -r line").outcome,
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
 
@@ -474,12 +477,15 @@ fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
         ("nothing offered", &advertising, None, 1),
     ] {
         let log = dir.path().join(case.replace(' ', "-"));
+        // The path rides inside an `sh` script: Windows spells it with
+        // backslashes, which `sh` eats — forward-slashed and quoted, the
+        // same spelling works on every leg.
         let script = format!(
-            "read line; printf '%s\\n' '{capabilities}'; \
-             while read line; do printf '%s\\n' \"$line\" >> {log}; \
+            "read -r line; printf '%s\\n' '{capabilities}'; \
+             while read -r line; do printf '%s\\n' \"$line\" >> '{log}'; \
              case \"$line\" in *start*) break ;; esac; done; \
-             printf '%s\\n' '{succeeded}'; read line",
-            log = log.display()
+             printf '%s\\n' '{succeeded}'; read -r line",
+            log = log.display().to_string().replace('\\', "/")
         );
         let report = DriverProcess::spawn(&command(&script), std::path::Path::new("."), None)
             .unwrap()

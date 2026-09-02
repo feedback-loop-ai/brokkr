@@ -45,15 +45,15 @@ fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     }))
     .unwrap();
     let mut script = String::from(
-        "n=$(cat @COUNT@ 2>/dev/null || echo 0)\n\
+        "n=$(cat '@COUNT@' 2>/dev/null || echo 0)\n\
          n=$((n+1))\n\
-         printf '%s' \"$n\" > @COUNT@\n\
-         verdict=$(sed -n \"${n}p\" @VERDICTS@)\n\
-         [ -n \"$verdict\" ] || verdict=$(tail -1 @VERDICTS@)\n\
-         read line\n\
+         printf '%s' \"$n\" > '@COUNT@'\n\
+         verdict=$(sed -n \"${n}p\" '@VERDICTS@')\n\
+         [ -n \"$verdict\" ] || verdict=$(tail -1 '@VERDICTS@')\n\
+         read -r line\n\
          printf '%s\\n' '@CAPABILITIES@'\n\
-         while read line; do\n\
-         printf '%s\\n' \"$line\" >> @LOG@\n\
+         while read -r line; do\n\
+         printf '%s\\n' \"$line\" >> '@LOG@'\n\
          case \"$line\" in *start*) break ;; esac\n\
          done\n\
          eid=$(printf '%s' \"$line\" | sed 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/')\n\
@@ -62,7 +62,7 @@ fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
          if [ \"$verdict\" = start-failure ]; then\n\
          printf '%s,\"type\":\"result\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\
          \"status\":\"failed\",\"error\":\"no session opened\"}\\n' \"$base\" \"$eid\" \"$aid\"\n\
-         read line\n\
+         read -r line\n\
          exit 0\n\
          fi\n\
          printf '%s,\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\"}\\n' \
@@ -78,23 +78,18 @@ fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
          \"status\":\"succeeded\",\"result\":{\"result\":\"'\"$verdict\"'\"}}\\n' \
          \"$base\" \"$eid\" \"$aid\"\n\
          fi\n\
-         read line\n",
+         read -r line\n",
     );
     std::fs::write(dir.join(format!("{tag}.verdicts")), results.join("\n")).unwrap();
+    // The paths ride inside an `sh` script: Windows spells them with
+    // backslashes, which `sh` eats — forward-slashed here and quoted in
+    // the script, one spelling works on every leg.
+    let spelled = |name: &str| dir.join(name).display().to_string().replace('\\', "/");
     for (marker, value) in [
         ("@CAPABILITIES@", capabilities),
-        (
-            "@LOG@",
-            dir.join(format!("{tag}.log")).display().to_string(),
-        ),
-        (
-            "@COUNT@",
-            dir.join(format!("{tag}.count")).display().to_string(),
-        ),
-        (
-            "@VERDICTS@",
-            dir.join(format!("{tag}.verdicts")).display().to_string(),
-        ),
+        ("@LOG@", spelled(&format!("{tag}.log"))),
+        ("@COUNT@", spelled(&format!("{tag}.count"))),
+        ("@VERDICTS@", spelled(&format!("{tag}.verdicts"))),
         ("@TAG@", tag.to_string()),
     ] {
         script = script.replace(marker, &value);
@@ -468,7 +463,13 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     // attempt journaled no session at all.
     assert_eq!(resume_offer(&[], &bundle, "work", &started, true), None);
     assert_eq!(
-        resume_offer(&events("work", &started)[..3], &bundle, "work", &started, true),
+        resume_offer(
+            &events("work", &started)[..3],
+            &bundle,
+            "work",
+            &started,
+            true
+        ),
         None
     );
 
@@ -476,7 +477,10 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     // by is no session anyone may be handed.
     let mut orphaned = events("work", &started);
     orphaned.remove(2);
-    assert_eq!(resume_offer(&orphaned, &bundle, "work", &started, true), None);
+    assert_eq!(
+        resume_offer(&orphaned, &bundle, "work", &started, true),
+        None
+    );
 
     // Every journaled fact agrees and the journal is somewhere else: a
     // run adopted from another machine (decision 0027), a journal file

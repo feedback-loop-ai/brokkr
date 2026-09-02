@@ -1355,7 +1355,12 @@ fn a_run_is_started_here_only_on_the_machine_and_account_that_created_it() {
     let path = dir.path().join("forge.db");
     let mut store = Store::open(&path).unwrap();
     store
-        .create_run("r1", "feature", "bundle", &json!({"schema":"run-manifest/v1"}))
+        .create_run(
+            "r1",
+            "feature",
+            "bundle",
+            &json!({"schema":"run-manifest/v1"}),
+        )
         .unwrap();
 
     assert!(store.started_here("r1").unwrap());
@@ -1403,7 +1408,10 @@ fn a_machine_fingerprint_needs_a_source_that_says_something() {
     let first = host_from(&[&path(&missing), &path(&named)], None).unwrap();
     assert_eq!(first.len(), 16);
     assert_eq!(host_from(&[&path(&named)], None), Some(first.clone()));
-    assert!(!first.contains("d9b1e0c4"), "the source is not readable back");
+    assert!(
+        !first.contains("d9b1e0c4"),
+        "the source is not readable back"
+    );
 
     // No source at all falls back to what the caller was given, and a
     // caller with nothing to give gets nothing.
@@ -1419,8 +1427,62 @@ fn a_machine_fingerprint_needs_a_source_that_says_something() {
     assert_eq!(host_from(&[&path(&blank)], None), None);
     assert_eq!(host_from(&[], Some(String::new())), None);
 
-    // And the real one exists, on the machine running this test.
+    // And the real one exists, on the machine running this test — on
+    // every released platform, not only the one with /etc/machine-id.
     assert!(local_host().is_some());
+}
+
+/// Where no identity file exists (macOS, Windows), the machine's name
+/// comes from the environment the platform actually exports, and as a
+/// last resort from `hostname` itself. Blank answers are no answer.
+#[test]
+fn a_machine_without_an_identity_file_still_names_itself() {
+    let variable = "BROKKR_TEST_MACHINE_NAME_7f3c";
+    std::env::remove_var(variable);
+    // Nothing set: the command is asked, and asked once.
+    let mut asked = 0;
+    let answered = machine_name(&[variable], || {
+        asked += 1;
+        Some("bench-host".to_string())
+    });
+    assert_eq!(answered.as_deref(), Some("bench-host"));
+    assert_eq!(asked, 1);
+    // A blank command answer is none.
+    assert_eq!(machine_name(&[variable], || Some("  \n".to_string())), None);
+    assert_eq!(machine_name(&[variable], || None), None);
+    // A set variable wins without asking.
+    std::env::set_var(variable, "exported-name");
+    assert_eq!(
+        machine_name(&[variable], || panic!("the command must not be asked")).as_deref(),
+        Some("exported-name")
+    );
+    // A blank variable does not win.
+    std::env::set_var(variable, "   ");
+    assert_eq!(
+        machine_name(&[variable], || Some("fallback".to_string())).as_deref(),
+        Some("fallback")
+    );
+    std::env::remove_var(variable);
+
+    // The real command answers on the machine running this test; a
+    // missing program and a failing one are both no answer.
+    let printed = hostname_command().expect("hostname prints on every released platform");
+    assert!(!printed.trim().is_empty());
+    assert_eq!(hostname_from("brokkr-no-such-program-7f3c"), None);
+    assert_eq!(hostname_from("false"), None);
+
+    // And the home half follows the platform's spelling: the first set
+    // variable wins, and none set is empty rather than a panic.
+    let home_variable = "BROKKR_TEST_HOME_7f3c";
+    std::env::remove_var(home_variable);
+    assert_eq!(home_from(&[home_variable]), "");
+    std::env::set_var(home_variable, "/somewhere");
+    assert_eq!(
+        home_from(&["BROKKR_TEST_UNSET_7f3c", home_variable]),
+        "/somewhere"
+    );
+    std::env::remove_var(home_variable);
+    let _ = account_home();
 }
 
 /// One broken link refuses the WHOLE import. No prefix of good events
