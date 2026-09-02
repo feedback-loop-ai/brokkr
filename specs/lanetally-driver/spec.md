@@ -17,7 +17,7 @@ list-price `total_cost_usd`. LaneTally's session-capture wrapper
 priceable at real marginal cost (subscription-vs-API accounting).
 `brokkr driver lanetally` runs the SAME Claude Code harness through that
 wrapper, so seat sessions become ledger-priceable with zero change to
-what the harness streams or what forge journals — plus one constant
+what the harness streams or what Brokkr journals — plus one constant
 field that lets `brokkr costs` and the UI tell captured sessions apart.
 
 Operator-established facts this design relies on and does not
@@ -31,7 +31,7 @@ existing stream-json fold therefore apply unchanged.
 
 The LaneTally adapter is the claude adapter with a different binary and
 one constant. `AdapterKind::Lanetally` parses from `"lanetally"`,
-resolves its binary from `FORGE_LANETALLY_BIN` (default
+resolves its binary from `BROKKR_LANETALLY_BIN` (default
 `claude-lanetally`), and invokes through a shared, binary-parameterized
 helper factored verbatim from today's claude arm — the helper takes a
 binary, never an `AdapterKind`, so lanetally-only drift is
@@ -73,8 +73,9 @@ fn invoke_stream_json(bin: String, extra: &[String], prompt: &str,
     workdir: &str, emit: &mut impl FnMut(&Value)) -> Result<Invocation, String>
 ```
 
-with both arms reduced to one-liners selecting the binary
-(`FORGE_CLAUDE_BIN`/`claude`, `FORGE_LANETALLY_BIN`/`claude-lanetally`).
+with both arms reduced to calls selecting the `BROKKR_CLAUDE_BIN`/`claude`
+or `BROKKR_LANETALLY_BIN`/`claude-lanetally` pair through the shared
+one-release legacy resolver.
 Three properties of the current arm are invariants the helper MUST
 preserve, each pinned by tests:
 
@@ -134,7 +135,7 @@ if kind == AdapterKind::Lanetally {
   single dispatch point; nothing else changes.
 - Doctor's optional-tool probe list gains `claude-lanetally`,
   present-or-advisory: missing is a WARNING naming the expected install
-  path (`~/.local/bin/claude-lanetally`) and the `FORGE_LANETALLY_BIN`
+  path (`~/.local/bin/claude-lanetally`) and the `BROKKR_LANETALLY_BIN`
   absolute-path override (the default resolution relies on
   `~/.local/bin` being on PATH, routinely false under systemd/cron/CI)
   — never a hard failure; the fleet must work on machines without
@@ -159,17 +160,17 @@ code). Two honest boundary lines:
   therefore bake the store's known plaintext into the shim's result
   notes — a shim echoing `$API_TOKEN` would leak nothing and prove
   nothing.
-- **Forge masks its journal, not LaneTally's files.** LaneTally's
-  session capture happens inside the wrapper, upstream of forge's choke
+- **Brokkr masks its journal, not LaneTally's files.** LaneTally's
+  session capture happens inside the wrapper, upstream of Brokkr's choke
   points; whatever the harness streams is captured there unmasked by
-  forge. The guarantee is "forge's journal is masked", and any future
+  Brokkr. The guarantee is "Brokkr's journal is masked", and any future
   extension that injects secret env into this arm must revisit this
   boundary explicitly.
 
 ## Non-goals
 
 - No per-session actual-cost join, no readplane/HTTP query, no reading
-  LaneTally's ledger from the forge. No new dependencies, no HTTP
+  LaneTally's ledger from Brokkr. No new dependencies, no HTTP
   client.
 - No changes to `brokkr costs` aggregation or the UI: checkpoint `data`
   is open, the extra field rides free — verified by test, then zero
@@ -177,7 +178,7 @@ code). Two honest boundary lines:
 - No wrapper metadata in the checkpoint (session id, ledger row,
   wrapper version, timestamps): all data-derived (forbidden) or join
   territory (deferred). The constant is the whole payload.
-- No configurability beyond `FORGE_LANETALLY_BIN`; no capture on/off
+- No configurability beyond `BROKKR_LANETALLY_BIN`; no capture on/off
   flag; `extra` after `--` already flows.
 - No changes to the secrets machinery (decision 0012) — assertion only.
 - No changes to claude/codex/dsh/exec observable behavior; frozen
@@ -195,7 +196,7 @@ code). Two honest boundary lines:
    `adapters_name_themselves…` includes the
    `("lanetally", "claude-lanetally")` row.
 2. **Binary resolution**: the harness binary comes from
-   `FORGE_LANETALLY_BIN`, default `claude-lanetally`, via the existing
+   `BROKKR_LANETALLY_BIN`, default `claude-lanetally`, via the existing
    `adapter_binary()` idiom; the module doc comment's env list names it.
 3. **Shared invocation**: the factored helper takes a binary, not an
    `AdapterKind`; the lanetally shim records its argv and the test
@@ -213,7 +214,7 @@ code). Two honest boundary lines:
    `"capture":"evil"` in its result event still yields
    `capture:"lanetally"` on the finished checkpoint; the claude
    finished checkpoint carries no `capture` key.
-6. **No real-wrapper escape**: `drive()` sets `FORGE_LANETALLY_BIN`
+6. **No real-wrapper escape**: `drive()` sets `BROKKR_LANETALLY_BIN`
    unconditionally beside its three siblings, so no conformance test
    can ever spawn a real `claude-lanetally` on a LaneTally-equipped
    machine.
@@ -228,7 +229,7 @@ code). Two honest boundary lines:
 9. **CLI surface**: the unknown-driver error and the `Driver` help
    text both list `lanetally`.
 10. **Doctor**: missing `claude-lanetally` → warning naming
-    `~/.local/bin/claude-lanetally` and the `FORGE_LANETALLY_BIN`
+    `~/.local/bin/claude-lanetally` and the `BROKKR_LANETALLY_BIN`
     override; present → ok; the four existing warning strings are
     byte-identical to before.
 11. **Docs**: `ARCHITECTURE.md` and `docs/extension-model.md` list

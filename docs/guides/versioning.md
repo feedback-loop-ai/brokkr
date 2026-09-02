@@ -205,20 +205,17 @@ Decision 0019 renamed the project, and two spellings from before the
 rename **still answer, for one more release**. This is a deprecation
 window with an end, not a permanent guarantee.
 
-**Environment overrides.** Four harness variables moved to a `BROKKR_`
+**Environment overrides.** Six harness variables moved to a `BROKKR_`
 prefix and answer to their old `FORGE_` spelling:
 
 | Current | Still answers to |
 |---|---|
+| `BROKKR_CLAUDE_BIN` | `FORGE_CLAUDE_BIN` |
+| `BROKKR_LANETALLY_BIN` | `FORGE_LANETALLY_BIN` |
 | `BROKKR_CODEX_BIN` | `FORGE_CODEX_BIN` |
 | `BROKKR_DSH_BIN` | `FORGE_DSH_BIN` |
 | `BROKKR_EXEC_NAME` | `FORGE_EXEC_NAME` |
 | `BROKKR_BROWSER_BIN` | `FORGE_BROWSER_BIN` |
-
-Two adapter overrides were **never renamed** and keep their original
-spelling with no alias: `FORGE_CLAUDE_BIN` and `FORGE_LANETALLY_BIN`. A
-variable that was never renamed has no old spelling and earns no
-notice.
 
 **The bundle argv token.** `{forge}` still expands to the same path as
 `{brokkr}`.

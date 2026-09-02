@@ -164,7 +164,7 @@ pub enum DispatchError {
     UnsafeBounds,
     #[error("dispatch budget/cost envelope is incomplete")]
     Budget,
-    #[error("run manifest is not a supported Forge manifest")]
+    #[error("run manifest is not a supported Brokkr manifest")]
     BadManifest,
     /// Decision 0016's first named limit, refused rather than truncated.
     /// `bundle_manifest_from_run` reconstructs the bundle manifest from

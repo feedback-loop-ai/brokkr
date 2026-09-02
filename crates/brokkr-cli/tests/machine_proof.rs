@@ -211,7 +211,7 @@ impl Workspace {
         (code, value, stderr)
     }
 
-    /// Like `forge`, but returns stdout verbatim for commands whose
+    /// Like `brokkr`, but returns stdout verbatim for commands whose
     /// output is not JSON (e.g. the tab-separated `runs` listing).
     fn brokkr_raw(&self, args: &[&str]) -> (Option<i32>, String, String) {
         let out = Command::new(brokkr_bin())
@@ -2235,11 +2235,11 @@ fn gate_park_resets_consecutive_failures() {
 }
 
 // ------------------------------------------------------------------
-// Sealed secret bindings (decision 0012): the forge secrets CLI, the
+// Sealed secret bindings (decision 0012): the Brokkr secrets CLI, the
 // layer-6 journal invariant, and the single-call-site grep gate.
 // ------------------------------------------------------------------
 
-/// Run forge with a stdin payload (forge secrets set reads the value
+/// Run Brokkr with a stdin payload (`brokkr secrets set` reads the value
 /// from stdin, never argv).
 fn brokkr_stdin(cwd: &Path, args: &[&str], payload: &str) -> (Option<i32>, String, String) {
     use std::io::Write;

@@ -3,16 +3,15 @@
 **Status**: implementation blueprint, accepted 2026-08-22 under
 [decision 0003](decisions/0003-native-rust-runtime.md).
 
-> **Name errata** (2026-09-02): this blueprint predates the rename
-> ruled by [decision 0019](decisions/0019-brokkr.md) and is kept as
-> the dated record it is — "Forge" below reads **Brokkr**. Wire
+> **Name note** (2026-09-02): the product name in this living blueprint
+> follows [decision 0019](decisions/0019-brokkr.md). Wire
 > identifiers (`forge-driver/v1`, `forge.phase-machine/*`,
 > `forge-dispatch/v2`, `forge.*` schema ids, `.forge/`, `refs/forge/`)
 > never rename, by the same ruling.
 
 ## Product contract
 
-Forge is an event-sourced, deterministic process manager around stochastic and
+Brokkr is an event-sourced, deterministic process manager around stochastic and
 fallible effects. It coordinates autonomous software delivery while keeping
 transition authority outside every agent harness.
 
@@ -291,7 +290,7 @@ network capabilities.
 Cordis/DeepSeek Harness implements one driver, not a special control path:
 
 ```text
-Forge phase/topology node
+Brokkr phase/topology node
 └── CordisDriver
     └── persisted DSH session
         ├── turns and tool calls
@@ -300,7 +299,7 @@ Forge phase/topology node
         └── final typed result
 ```
 
-Forge records the external session identity, driver configuration digest,
+Brokkr records the external session identity, driver configuration digest,
 checkpoints, accounting, artifact digest, and result. DSH owns its detailed
 model-visible trajectory. The same outer node can instead use Codex, Claude,
 another harness, or a replay driver.
@@ -402,7 +401,7 @@ change journal semantics.
    preconditions before permitting a push or PR effect.
 9. **Ship the embedded UI**: begin read-only, then add operator commands and
    configuration editing as diff-producing workflows.
-10. **Self-host under observation**: Forge prepares its own later changes;
+10. **Self-host under observation**: Brokkr prepares its own later changes;
     humans retain review and merge authority until crash, replay, audit, and
     security acceptance suites are consistently green.
 
@@ -410,7 +409,7 @@ change journal semantics.
 
 - One downloaded executable can initialize, run, resume, inspect, and replay a
   local feature without installing a language runtime or database.
-- Killing Forge at every durable boundary never loses a committed fact and
+- Killing Brokkr at every durable boundary never loses a committed fact and
   never converts an uncertain effect into a success.
 - Replaying a run twice yields byte-identical canonical state and ruling output.
 - An unknown event, invalid result, missing artifact, version mismatch, open

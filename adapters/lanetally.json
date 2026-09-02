@@ -1,7 +1,7 @@
 {
   "provider": "lanetally",
   "binary": "claude-lanetally",
-  "hint": "LaneTally's session-capture wrapper, expected at ~/.local/bin/claude-lanetally; set FORGE_LANETALLY_BIN to an absolute path if ~/.local/bin is not on PATH",
+  "hint": "LaneTally's session-capture wrapper, expected at ~/.local/bin/claude-lanetally; set BROKKR_LANETALLY_BIN to an absolute path if ~/.local/bin is not on PATH",
   "driver": [
     "{brokkr}",
     "driver",

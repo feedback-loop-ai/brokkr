@@ -37,7 +37,7 @@ strategy.
 ## Running it
 
 ```
-forge run --recipe sdd-paranoid --feature "<the task>"
+brokkr run --recipe sdd-paranoid --feature "<the task>"
 ```
 
 The panel is read-only, like SDD's. One `security-hold` from either

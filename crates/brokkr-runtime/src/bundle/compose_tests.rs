@@ -738,7 +738,8 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// every adapter gained the trust tier and binding grant those refusals
 /// read — the law is part of what a bundle IS, so a bundle that now
 /// declares it is a different bundle. Every one of them is a different
-/// bundle now. The two with INLINE gates — `recipes/fast` and
+/// bundle now. Closing decision 0019's rename moved the living role text
+/// and policy descriptions once more. The two with INLINE gates — `recipes/fast` and
 /// `bundles/verify` — moved once more when those gates began pinning
 /// the adapter declaration that authorises them, so a tier demoted in
 /// `adapters/` moves the identity of the bundles it was standing behind.
@@ -750,23 +751,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "379db8120ee70c786e778b16b0459c756fef4af6ed3404c7b28ae426c28474bc",
+        "5a4e59fe854f1dcdc450720592aadbac7a9e803b4a7c10d3bdce5210457c790b",
     ),
     (
         "recipes/panel-review",
-        "c2c4b57ddb3f12012b739ad2b945e50410b90ae0ac077cd3776c986317e33a05",
+        "27d8c8a1dcfbc044b322e664be3f9748f1fd055f51e047a5b7db8393d550c430",
     ),
     (
         "recipes/sdd",
-        "ab862c7ff446a3459ceec423a761498c7bba9ecfe358edce6a15c537780a88ee",
+        "03f1cc3cb9129dd62a79f6ac348b396ee103434638fdbe179c768f018f83730d",
     ),
     (
         "bundles/self",
-        "731030fa2119e7107ecc4a1b80d3c8d7f110f9fb155ab54219093511bb14a031",
+        "b5e40fd02203c928338aeee9c5a032e44e66e200c138560d0107eed192872362",
     ),
     (
         "bundles/verify",
-        "972c772de5705767002de01adc7e5216e90ec483ffc32a33d25ccd58f784ab4f",
+        "1ce203798837d848513c97a93c1258679d2c78713542bc96bcae1b0f53984126",
     ),
 ];
 
@@ -897,13 +898,14 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "71be6c9f084e5c33e8d0acff2c49c7b5a6164225814887cfba62739888fe300e",
+        "9b60d9123aabab6593803c5aa8e5db9ad9d2d6d77bc90ffd5c82db4046351086",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
          (decision 0019), and again when its inline review panel began \
          pinning the adapter declarations that authorise it to judge \
-         (decision 0021), which is this test's own principle: changing a \
+         (decision 0021), then when the closing 0019 sweep changed the \
+         base charters, which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }

@@ -1,6 +1,6 @@
 {
   "schema": "forge.phase-machine/v2",
-  "description": "Self-delivery table (decision 0005): the trimmed linear machine the-forge uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, and a security residual never slips onto the tracked-debt path unanswered \u2014 under decision 0022 it sends the run BACK to implement, at most twice, and the exhaustion ladder then stops, parks, or ships it as named debt.",
+  "description": "Self-delivery table (decision 0005): the trimmed linear machine Brokkr uses to deliver changes to itself. One seat per phase; verification is the repo's own test suites, not a stack boot. The constitutional review/security invariants from the production table are intact: review is unavoidable on every path to done, security-hold is a hard stop, and a security residual never slips onto the tracked-debt path unanswered \u2014 under decision 0022 it sends the run BACK to implement, at most twice, and the exhaustion ladder then stops, parks, or ships it as named debt.",
   "phases": [
     "intake",
     "implement",

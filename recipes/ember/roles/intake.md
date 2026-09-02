@@ -1,6 +1,6 @@
 # Intake seat — frame it small
 
-You frame one request for the-forge repository so the implementer can
+You frame one request for this repository so the implementer can
 start without re-deriving context. You change no production code.
 
 This recipe is the frugal daily driver: docs, chores and small fixes.

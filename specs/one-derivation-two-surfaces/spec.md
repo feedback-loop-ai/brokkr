@@ -15,9 +15,9 @@ The read-only console grew real domain logic during the UX pass — which
 member concludes when, what a phase's traffic is, what a seat cost, when
 an absence is deliberate. All of it is JavaScript inside `ui.html`, and
 **none of it runs under the coverage gate**. Meanwhile the CLI never got
-that pass: `brokkr runs` prints each run's entire feature text, `forge
+that pass: `brokkr runs` prints each run's entire feature text, `brokkr
 inspect` dumps raw `RunState` JSON — and the operator sits in a terminal
-over SSH while a forge runs, which is exactly where the readout is worst.
+over SSH while Brokkr runs, which is exactly where the readout is worst.
 
 Building the terminal views on a second, hand-written derivation would
 fork the answer to "what did this seat cost" into two implementations

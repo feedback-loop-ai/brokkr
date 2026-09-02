@@ -37,12 +37,12 @@ fn every_head_a_run_ever_cited_is_collected_in_both_shapes() {
     // records a third per realm. State would keep only the last — the
     // exhibits are all three, plus the legacy unkeyed shape.
     let events = [
-        decided(json!({"reviewed_heads": {"the-forge": A}})),
-        decided(json!({"reviewed_heads": {"the-forge": B}})),
+        decided(json!({"reviewed_heads": {"brokkr": A}})),
+        decided(json!({"reviewed_heads": {"brokkr": B}})),
         decided(json!({"reviewed_heads": {"repo": WIDE}})),
         decided(json!({
-            "reviewed_heads": {"the-forge": B},
-            "realm_facts": {"the-forge": {"head": C, "dirty_worktrees": false}},
+            "reviewed_heads": {"brokkr": B},
+            "realm_facts": {"brokkr": {"head": C, "dirty_worktrees": false}},
         })),
     ];
     assert_eq!(
@@ -59,10 +59,10 @@ fn every_head_a_run_ever_cited_is_collected_in_both_shapes() {
 #[test]
 fn one_head_cited_twice_is_one_exhibit_whatever_its_case() {
     let events = [
-        decided(json!({"reviewed_heads": {"the-forge": A}})),
-        decided(json!({"reviewed_heads": {"the-forge": A}})),
-        decided(json!({"reviewed_heads": {"the-forge": A.to_uppercase()}})),
-        decided(json!({"realm_facts": {"the-forge": {"head": A}}})),
+        decided(json!({"reviewed_heads": {"brokkr": A}})),
+        decided(json!({"reviewed_heads": {"brokkr": A}})),
+        decided(json!({"reviewed_heads": {"brokkr": A.to_uppercase()}})),
+        decided(json!({"realm_facts": {"brokkr": {"head": A}}})),
     ];
     assert_eq!(cited_shas(&events), BTreeSet::from([A.to_string()]));
 }
@@ -76,16 +76,16 @@ fn only_decisions_and_only_object_names_are_citations() {
         event(EventType::RunStarted, json!({"feature": A})),
         event(
             EventType::EffectSucceeded,
-            json!({"inputs": {"reviewed_heads": {"the-forge": A}}}),
+            json!({"inputs": {"reviewed_heads": {"brokkr": A}}}),
         ),
-        decided(json!({"reviewed_heads": {"the-forge": "main"}})),
-        decided(json!({"reviewed_heads": {"the-forge": &A[..12]}})),
-        decided(json!({"reviewed_heads": {"the-forge": 7}})),
+        decided(json!({"reviewed_heads": {"brokkr": "main"}})),
+        decided(json!({"reviewed_heads": {"brokkr": &A[..12]}})),
+        decided(json!({"reviewed_heads": {"brokkr": 7}})),
         decided(json!({"reviewed_heads": "not-an-object"})),
-        decided(json!({"realm_facts": {"the-forge": {"dirty_worktrees": true}}})),
+        decided(json!({"realm_facts": {"brokkr": {"dirty_worktrees": true}}})),
         decided(json!({"realm_facts": "not-an-object"})),
         event(EventType::TransitionDecided, json!({"from": "review"})),
-        decided(json!({"reviewed_heads": {"the-forge": B}})),
+        decided(json!({"reviewed_heads": {"brokkr": B}})),
     ];
     assert_eq!(cited_shas(&events), BTreeSet::from([B.to_string()]));
 }

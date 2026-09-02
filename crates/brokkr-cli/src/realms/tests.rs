@@ -22,7 +22,7 @@ fn the_world_reads_out_as_the_map_the_journal_and_the_realms() {
         "./realms.json",
         ".forge/forge.db",
         &[
-            row("the-forge", ".", "main", "5a4bf4a"),
+            row("brokkr", ".", "main", "5a4bf4a"),
             row("lanetally", "../lanetally", "trunk", "0f0f0f0"),
         ],
         false,
@@ -31,7 +31,7 @@ fn the_world_reads_out_as_the_map_the_journal_and_the_realms() {
         out,
         "map      ./realms.json\n\
          journal  .forge/forge.db\n\
-         realm    the-forge  .             main   5a4bf4a\n\
+         realm    brokkr     .             main   5a4bf4a\n\
          realm    lanetally  ../lanetally  trunk  0f0f0f0\n"
     );
 }

@@ -73,11 +73,10 @@ can still guess what a command does with no glossary: `.forge/`,
 `forge.db`, `refs/forge/`, the wire protocols.
 
 **The binary is `brokkr`, and now the only one.** The `forge` shim that
-rode along for one release is gone, and the crates are `brokkr-*`. Two
-old spellings still answer for one more release, each saying so once on
-stderr the first time it is used: the `FORGE_CODEX_BIN`, `FORGE_DSH_BIN`,
-`FORGE_EXEC_NAME` and `FORGE_BROWSER_BIN` overrides, now `BROKKR_*`, and
-the `{forge}` token in bundle argv, now `{brokkr}`.
+rode along for one release is gone, and the crates are `brokkr-*`.
+Environment override names carry one-release legacy fallbacks documented
+in the [versioning guide](docs/guides/versioning.md), and the `{forge}`
+token in bundle argv still answers to `{brokkr}` for the same window.
 
 [Decision 0019](docs/decisions/0019-brokkr.md) is the ruling, with the
 reasoning and the five laws that bound it. [The Edda](docs/lore/edda.md)
@@ -339,7 +338,7 @@ journal the world writes. Read-only, like every other readout, and
 $ brokkr realms
 map      ./realms.json
 journal  ./.forge/forge.db
-realm    the-forge  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
+realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
 ```
 
 ### `brokkr runs` — the fleet
@@ -976,7 +975,7 @@ And one offer the machine makes to you before any human does:
 brokkr run --recipe preflight --repo . --feature "<what your branch does>"
 ```
 
-[`recipes/preflight`](recipes/preflight/) seats the forge's own `verify`
+[`recipes/preflight`](recipes/preflight/) seats Brokkr's own `verify`
 and `review` agents against your unmerged branch — no intake, no
 implement, no ship, the table ends after review with a ruling. The same
 adversarial, typed, journalled findings the machine's own work faces,

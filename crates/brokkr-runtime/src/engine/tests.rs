@@ -191,7 +191,7 @@ fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
             "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
             "immutable_inputs_sha256":"a".repeat(64)},
         "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"forge","accountable_operator_id":"operator","authority_source":"looper-grant",
+            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
             "operating_profile":"bounded"},
         "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
             "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
@@ -200,7 +200,7 @@ fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
             "ceiling_microunits":1000,"currency":"USD"},
         "producer":{"registration_id":"registration","token_reference":"key",
             "callback_audience":"https://dogfood.example","accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"forge@test","protocol_version":1,
+            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
             "starting_cursor":0},
         "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
             "artifact_decide","workflow_advance","release_promote"],
@@ -946,7 +946,7 @@ fn git_commit(repo: &Path, message: &str) -> String {
             .status()
             .unwrap()
             .success());
-        for (key, value) in [("user.name", "Forge Test"), ("user.email", "forge@test")] {
+        for (key, value) in [("user.name", "Brokkr Test"), ("user.email", "brokkr@test")] {
             assert!(Command::new("git")
                 .args(["config", key, value])
                 .current_dir(repo)
@@ -2566,14 +2566,14 @@ fn a_run_in_a_world_pins_the_maps_hash_and_embeds_the_map() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    let world = world_over(dir.path(), &repo, "the-forge");
+    let world = world_over(dir.path(), &repo, "brokkr");
     let (digest, content) = (world.sha256.clone(), world.content.clone());
     let engine = engine_in(dir.path(), Some(world), &repo);
 
     let manifest = engine.store.manifest(&engine.run_id).unwrap();
     assert_eq!(manifest["realms"]["sha256"], json!(digest));
     assert_eq!(manifest["realms"]["map"], content);
-    assert_eq!(manifest["realms"]["map"]["realms"][0]["name"], "the-forge");
+    assert_eq!(manifest["realms"]["map"]["realms"][0]["name"], "brokkr");
     assert!(manifest["realms"]["source"]
         .as_str()
         .unwrap()
@@ -2613,7 +2613,7 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    let world = world_over(dir.path(), &repo, "the-forge");
+    let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
 
     let reviewed = git_commit(&repo, "reviewed");
@@ -2627,19 +2627,19 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(
         events[1].payload["inputs"]["reviewed_heads"],
-        json!({ "the-forge": reviewed })
+        json!({ "brokkr": reviewed })
     );
 
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "the-forge": reviewed }));
+    ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
     engine
         .decide(&ship, "effect", json!({"result":"shipped"}))
         .unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["dirty_worktrees"], json!(false));
-    let facts = &inputs["realm_facts"]["the-forge"];
+    let facts = &inputs["realm_facts"]["brokkr"];
     assert_eq!(facts["drift_detected"], json!(true));
     assert_eq!(facts["dirty_worktrees"], json!(false));
     assert_eq!(facts["head"], json!(git_head(&repo).unwrap()));
@@ -2657,12 +2657,12 @@ fn an_unresolvable_realm_at_ship_is_drift_not_silence() {
     std::fs::create_dir(&repo).unwrap();
     let elsewhere = dir.path().join("elsewhere");
     std::fs::create_dir(&elsewhere).unwrap();
-    let world = world_over(dir.path(), &repo, "the-forge");
+    let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &elsewhere);
     let reviewed = git_commit(&repo, "reviewed");
     git_commit(&elsewhere, "unrelated");
     let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "the-forge": reviewed }));
+    ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
     engine
         .decide(&ship, "effect", json!({"result":"shipped"}))
         .unwrap();
@@ -2683,7 +2683,7 @@ fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    let world = world_over(dir.path(), &repo, "the-forge");
+    let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
     let reviewed = git_commit(&repo, "reviewed");
     let mut ship = state(Some("ship"), Cursor::Idle);
@@ -2694,7 +2694,7 @@ fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(false));
     assert_eq!(
-        inputs["realm_facts"]["the-forge"]["drift_detected"],
+        inputs["realm_facts"]["brokkr"]["drift_detected"],
         json!(false)
     );
 }
@@ -2709,7 +2709,7 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     let stranger = dir.path().join("stranger");
     std::fs::create_dir(&mapped).unwrap();
     std::fs::create_dir(&stranger).unwrap();
-    let world = world_over(dir.path(), &mapped, "the-forge");
+    let world = world_over(dir.path(), &mapped, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &stranger);
     let reviewed = git_commit(&stranger, "reviewed");
     engine
@@ -2763,7 +2763,7 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
-    let world = world_over(dir.path(), &repo, "the-forge");
+    let world = world_over(dir.path(), &repo, "brokkr");
     let engine = engine_in(dir.path(), Some(world), &repo);
     let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
 
@@ -2776,7 +2776,7 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
             .world
             .as_ref()
             .map(|world| world.map.realms[0].name.as_str()),
-        Some("the-forge")
+        Some("brokkr")
     );
 
     let reviewed = git_commit(&repo, "reviewed");
@@ -2790,7 +2790,7 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     let events = resumed.store.load(&run_id).unwrap();
     assert_eq!(
         events.last().unwrap().payload["inputs"]["reviewed_heads"],
-        json!({"the-forge": reviewed}),
+        json!({"brokkr": reviewed}),
         "a resumed run keys by realm exactly as the run that started it did"
     );
 }
@@ -2817,7 +2817,7 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
         "source": "realms.json",
         "sha256": "0".repeat(64),
         "map": {"schema": brokkr_core::realms::SCHEMA_V1,
-                "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+                "realms": [{"name": "brokkr", "path": ".", "default_branch": "main"}],
                 "journal": "forge.db"},
     });
     store

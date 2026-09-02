@@ -407,7 +407,7 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     let manifest = json!({"files": {}, "realms": {
         "source": "/home/carol/clients/acme/realms.json",
         "sha256": "a".repeat(64),
-        "map": {"realms": [{"name": "acme", "path": "/home/carol/source/forge"}]},
+        "map": {"realms": [{"name": "acme", "path": "/home/carol/source/brokkr"}]},
     }});
     store
         .create_run("r1", "feature", "test", &manifest)
@@ -426,7 +426,7 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
             "r1",
             EventType::EffectStarted,
             json!({"effect_id": "eff", "attempt_id": "att",
-                   "driver": "/home/carol/source/forge/target/debug/forge"}),
+                   "driver": "/home/carol/source/brokkr/target/debug/brokkr"}),
             None,
             None,
         )
@@ -548,7 +548,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
         .status()
         .unwrap()
         .success());
-    for (key, value) in [("user.name", "Forge Test"), ("user.email", "forge@test")] {
+    for (key, value) in [("user.name", "Brokkr Test"), ("user.email", "brokkr@test")] {
         assert!(Command::new("git")
             .args(["config", key, value])
             .current_dir(&repo)
@@ -608,8 +608,8 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     };
     git(&["init", "--quiet"]);
     for (key, value) in [
-        ("user.name", "Forge Test"),
-        ("user.email", "forge@test"),
+        ("user.name", "Brokkr Test"),
+        ("user.email", "brokkr@test"),
         ("commit.gpgsign", "false"),
     ] {
         git(&["config", key, value]);
@@ -749,7 +749,7 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
             "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
             "immutable_inputs_sha256":"a".repeat(64)},
         "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"forge","accountable_operator_id":"operator","authority_source":"looper-grant",
+            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
             "operating_profile":"bounded"},
         "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
             "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
@@ -758,7 +758,7 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
             "ceiling_microunits":1000,"currency":"USD"},
         "producer":{"registration_id":"registration","token_reference":"key",
             "callback_audience":callback,"accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"forge@test","protocol_version":1,
+            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
             "starting_cursor":0},
         "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
             "artifact_decide","workflow_advance","release_promote"],
@@ -2307,7 +2307,7 @@ fn realms_map(dir: &std::path::Path) -> PathBuf {
         &path,
         json!({
             "schema": "forge.realms/v1",
-            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "realms": [{"name": "brokkr", "path": ".", "default_branch": "main"}],
             "journal": "mapped.db",
         })
         .to_string(),
@@ -2363,7 +2363,7 @@ fn the_map_names_the_journal_and_db_outranks_it() {
     let map = realms_map(dir.path());
 
     let named = Invocation::resolve(unmapped(), Some(map.clone()), None).unwrap();
-    assert_eq!(named.world.unwrap().map.realms[0].name, "the-forge");
+    assert_eq!(named.world.unwrap().map.realms[0].name, "brokkr");
     assert!(named.named, "the operator typed this one");
     assert_eq!(named.journal, dir.path().join("mapped.db"));
     assert_eq!(named.notice, None, "a map typed needs no announcement");
@@ -2440,7 +2440,7 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
         plain.path().join("realms.json"),
         json!({
             "schema": "forge.realms/v1",
-            "realms": [{"name": "the-forge", "path": ".", "default_branch": "main"}],
+            "realms": [{"name": "brokkr", "path": ".", "default_branch": "main"}],
             "journal": default_journal.display().to_string(),
         })
         .to_string(),

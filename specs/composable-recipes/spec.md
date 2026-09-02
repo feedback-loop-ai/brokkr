@@ -23,7 +23,7 @@ Decision 0017 rules the alternative: **a recipe may extend another
 recipe and state only its differences**. The differences are resolved at
 compile time into one flat bundle; the engine never learns that
 composition happened. That is what makes the experiment surface decision
-0010 was aiming at actually cheap — swap one phase, rerun, `forge
+0010 was aiming at actually cheap — swap one phase, rerun, `brokkr
 compare` — without buying a run-time inheritance mechanism nobody can
 reason about at 3am.
 

@@ -32,9 +32,8 @@ fn the_old_spelling_answers_when_the_new_one_is_absent() {
     std::env::remove_var("FORGE_RENAME_OLD");
 }
 
-/// The two overrides decision 0019 did not rename read one name and one
-/// name only: no old spelling, so nothing to fall back to and nothing to
-/// say.
+/// A variable deliberately configured without a legacy spelling reads one
+/// name only, so there is nothing to fall back to and nothing to say.
 #[test]
 fn a_variable_with_no_old_spelling_reads_only_its_own_name() {
     let _guard = LEGACY_ENV.lock().unwrap();

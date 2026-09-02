@@ -299,7 +299,7 @@ if you think they are at risk:
 ## The pre-flight: let the machine review you first
 
 Before you open the pull request, have the machine review the branch.
-`recipes/preflight` seats the forge's own `verify` and `review` agents —
+`recipes/preflight` seats Brokkr's own `verify` and `review` agents —
 the same two that judge the machine's own work — and points them at an
 unmerged branch:
 

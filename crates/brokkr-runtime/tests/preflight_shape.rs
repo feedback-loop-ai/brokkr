@@ -1,7 +1,7 @@
 //! `recipes/preflight`'s terminal shape, made a test rather than a
 //! comment.
 //!
-//! The recipe exists so a contributor can point the forge's own verify
+//! The recipe exists so a contributor can point Brokkr's own verify
 //! and review seats at their unmerged branch before opening a pull
 //! request. The whole safety of that offer is what the table CANNOT do:
 //! there is no intake to reframe the work, no implement to change the

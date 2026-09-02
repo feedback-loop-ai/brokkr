@@ -9,11 +9,10 @@
 //! the ENGINE parks with raw evidence (decision 0001). Adapters never
 //! repair anything.
 //!
-//! Env overrides for conformance shims: FORGE_CLAUDE_BIN,
-//! FORGE_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
-//! BROKKR_EXEC_NAME. The three `BROKKR_*` names answer to their old
-//! `FORGE_*` spelling for one more release (decision 0019, `legacy`);
-//! the two that were never renamed read one name only.
+//! Env overrides for conformance shims: BROKKR_CLAUDE_BIN,
+//! BROKKR_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
+//! BROKKR_EXEC_NAME. All five names answer to their old `FORGE_*`
+//! spelling for one more release (decision 0019, `legacy`).
 
 use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
@@ -229,7 +228,7 @@ fn fold_stream_event(
                     Value::String(tool.chars().take(80).collect()),
                 );
                 // file_path ONLY: commands and URLs can embed inline secrets,
-                // and the journal is append-only — the forge-verify review
+                // and the journal is append-only — the verification review
                 // hard-stopped on exactly this (run verify-…-917996f5). Full
                 // detail belongs to the resumable transcript, not the record.
                 let target = tool_use.pointer("/input/file_path").and_then(Value::as_str);
@@ -1145,7 +1144,7 @@ fn invoke_with_stager(
         .to_string();
     match kind {
         AdapterKind::Claude => invoke_stream_json(
-            adapter_binary("FORGE_CLAUDE_BIN", None, "claude"),
+            adapter_binary("BROKKR_CLAUDE_BIN", Some("FORGE_CLAUDE_BIN"), "claude"),
             extra,
             prompt,
             &workdir,
@@ -1157,7 +1156,11 @@ fn invoke_with_stager(
         // `claude` when the wrapper is missing — that would silently
         // un-capture sessions; doctor is the advisory surface.
         AdapterKind::Lanetally => invoke_stream_json(
-            adapter_binary("FORGE_LANETALLY_BIN", None, "claude-lanetally"),
+            adapter_binary(
+                "BROKKR_LANETALLY_BIN",
+                Some("FORGE_LANETALLY_BIN"),
+                "claude-lanetally",
+            ),
             extra,
             prompt,
             &workdir,

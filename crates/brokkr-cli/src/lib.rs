@@ -1,7 +1,7 @@
 //! `brokkr` — the one shipped binary (decision 0003, named by decision
 //! 0019). No UI, no required services: one executable, one workspace
-//! database. One bin target enters here: the `forge` shim that kept the
-//! old name working for a release is gone (ruling 9).
+//! database. The compatibility shim that kept the old name working for
+//! a release is gone; one bin target enters here (ruling 9).
 
 mod agents;
 mod compare;
@@ -1410,7 +1410,7 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
 /// roots they always did — but since decision 0021 a compile reads the
 /// adapter data for a bundle that names no agent at all (a gate seat's
 /// trust tier and a secret binding's grant live there), and a verb that
-/// resolved one tree while compiling against another would be the forge
+/// resolved one tree while compiling against another would be the machine
 /// diagnosing itself wrong.
 pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> Result<Bundle> {
     Ok(Bundle::compile_with(

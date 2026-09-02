@@ -8,7 +8,7 @@
 //! A benchmark that timed a run which never ran would report a very
 //! good number.
 //!
-//! The stand-in is the adapter's own `FORGE_CLAUDE_BIN` override, and
+//! The stand-in is the adapter's own `BROKKR_CLAUDE_BIN` override, and
 //! it is deliberately the SMALLEST possible substitution: the bundle is
 //! byte-identical to what an operator is handed, the compile runs with
 //! its decision-0021 gate-class trust check intact against the
@@ -115,7 +115,7 @@ fn a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent() {
             "--feature",
             "bootstrap benchmark: reach one completed effect",
         ])
-        .env("FORGE_CLAUDE_BIN", &stub)
+        .env("BROKKR_CLAUDE_BIN", &stub)
         .current_dir(repo)
         .output()
         .unwrap();

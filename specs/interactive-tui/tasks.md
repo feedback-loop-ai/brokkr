@@ -87,7 +87,7 @@ byte, it must surface now and not inside a large new file.
   else and `bail!`s. `Store::open` is unreachable when the db is not an
   existing file.
   *Proven by*: AC-2 — unit tests of all `refuse` branches with literal
-  values; a subprocess test in `tests/machine_proof.rs` running `forge
+  values; a subprocess test in `tests/machine_proof.rs` running `brokkr
   tui --db <nonexistent>` asserting exit 1, both verbs named on stderr,
   **and that no file, directory, `-wal` or `-shm` was created**.
 

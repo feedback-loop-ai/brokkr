@@ -127,6 +127,17 @@ asset. An undisciplined one is a theme park.
     use of public-domain myth in lore and agent definitions is free, and
     only the marquee tier carries commercial caution.
 
+11. **The home and the ref namespace keep the verb** (added 2026-09-02,
+    operator ruled). `.forge/` — the journal, secrets store, results,
+    tasks, ledger, Muninn's record — and `refs/forge/<run>` with
+    `refs/forge/keep/` stay as they are. They read as the verb ruling 2
+    keeps, not as the retired proper noun: what was forged lives there,
+    and what a run forged is anchored there. Every journal on disk
+    already names those paths, so a move would cost every checkout and
+    every adopter for nothing the journal could verify. The residual
+    guard that closes the rename (the sweep of 2026-09-02) does not
+    scan them, by this ruling rather than by oversight.
+
 ## Consequences
 
 The product gains a findable, ownable name whose story encodes its thesis,

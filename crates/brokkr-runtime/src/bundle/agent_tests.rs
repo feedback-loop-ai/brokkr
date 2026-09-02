@@ -160,7 +160,7 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
             "Bash(cargo:*)"
         ]
     );
-    assert!(!command[0].contains('{'), "the forge token is expanded");
+    assert!(!command[0].contains('{'), "the legacy token is expanded");
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].model, "opus");
 

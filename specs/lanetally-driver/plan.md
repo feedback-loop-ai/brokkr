@@ -11,7 +11,7 @@ adapter with a different binary and one constant; `capture` attaches in
 untouched; no new module, trait, or file in `brokkr-protocol`; no
 spawn-time fallback to plain `claude`; no wrapper metadata; no
 `brokkr costs`/UI changes; no configurability beyond
-`FORGE_LANETALLY_BIN`; doctor is advisory with the four existing
+`BROKKR_LANETALLY_BIN`; doctor is advisory with the four existing
 warning strings byte-identical; docs get exactly the framed
 cost-provenance sentence. The chief's rulings on the divergences:
 
@@ -57,7 +57,7 @@ cost-provenance sentence. The chief's rulings on the divergences:
    event and argv recording, and neither invariant is testable without
    it; the two checks share the one shim.
 6. **The two silent-wrongness traps** — *robustness adopted*:
-   (a) `drive()` pins `FORGE_LANETALLY_BIN` unconditionally, or tests
+   (a) `drive()` pins `BROKKR_LANETALLY_BIN` unconditionally, or tests
    spawn the real wallet-touching wrapper on LaneTally-equipped
    machines while staying green elsewhere; (b) the masking leg bakes
    the store's plaintext into the shim's result notes — simplicity's
@@ -75,12 +75,12 @@ cost-provenance sentence. The chief's rulings on the divergences:
    stays true (`compare.rs` reads only `num_turns`/`total_cost_usd`).
 8. **Doctor detail** — *reconciled*: the probe tuple grows an optional
    hint suffix so the lanetally warning names both
-   `~/.local/bin/claude-lanetally` and the `FORGE_LANETALLY_BIN`
+   `~/.local/bin/claude-lanetally` and the `BROKKR_LANETALLY_BIN`
    override (robustness — `~/.local/bin` is routinely off PATH in
    non-interactive contexts) while the four existing warning strings
    stay byte-identical (both positions). No second probe loop.
 9. **Masking boundary sentence** — *robustness adopted*: the spec
-   records that forge masks its journal, not LaneTally's capture files,
+   records that Brokkr masks its journal, not LaneTally's capture files,
    so a future env-injection extension to this arm cannot silently leak
    into a second data store. Committed docs keep exactly the framed
    one-sentence cost-provenance scope.
@@ -96,13 +96,14 @@ Six edits in dependency order; no new production files.
 1. **`crates/brokkr-protocol/src/adapters.rs`**:
    - `AdapterKind::Lanetally`; `parse("lanetally")`;
      `driver_name() = "claude-lanetally"`; module doc comment env list
-     gains `FORGE_LANETALLY_BIN`.
+     gains `BROKKR_LANETALLY_BIN`.
    - Extract the `AdapterKind::Claude` arm of `invoke_with_stager`
      (:348-401) verbatim into private
      `fn invoke_stream_json(bin, extra, prompt, workdir, emit)`;
      both arms become one-liners
-     (`adapter_binary("FORGE_CLAUDE_BIN", "claude")` /
-     `adapter_binary("FORGE_LANETALLY_BIN", "claude-lanetally")`).
+     (`adapter_binary` with the `BROKKR_CLAUDE_BIN` or
+     `BROKKR_LANETALLY_BIN` primary, its one-release legacy argument,
+     and the executable fallback).
      Live fold, stderr-drain thread, and noise pass-through move
      unmodified; `fold_stream_event` untouched.
    - In `run_seat` (:633-639), after
@@ -118,7 +119,7 @@ Six edits in dependency order; no new production files.
    warnings byte-identical. `doctor/tests.rs`: missing→warning-with-path,
    present→ok, existing-strings-unchanged.
 4. **`crates/brokkr-cli/tests/driver_conformance.rs`**:
-   - `drive()` gains `.env("FORGE_LANETALLY_BIN", shim)` beside its
+   - `drive()` gains `.env("BROKKR_LANETALLY_BIN", shim)` beside its
      three siblings (unconditional).
    - `all_adapters()` gains `("lanetally", vec!["lanetally"])`;
      lanetally gets its own explicit label branch (no
@@ -163,7 +164,7 @@ recipes. No new dependencies.
   accepted: timing is not directly asserted (the current battery checks
   order, not liveness), same epistemic position as today's claude arm.
 - **Conformance reaches a real wrapper.** `drive()` pins
-  `FORGE_LANETALLY_BIN` in the same commit that adds the first
+  `BROKKR_LANETALLY_BIN` in the same commit that adds the first
   lanetally test; AC-6 makes the pin itself an acceptance criterion.
 - **The masking assertion goes vacuous.** The leak shim bakes plaintext
   (never `$API_TOKEN` env expansion); the test asserts both the masked

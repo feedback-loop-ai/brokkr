@@ -145,7 +145,7 @@ below. Six disputes are ruled here.
    **Honest deviation, flagged not smuggled:** ratatui depends on
    `unicode-width` internally, so CJK and emoji align *better* inside the
    TUI than in `brokkr runs`/`inspect`. The non-goal "no Unicode-width
-   dependency" constrains forge-authored arithmetic and `brokkr-view`'s
+   dependency" constrains Brokkr-authored arithmetic and `brokkr-view`'s
    manifest; the ruling adopted ratatui with its tree. No existing
    surface changes behaviour.
 8. **No `Journal` trait, and no `Store` in the TUI at all.** The
@@ -193,7 +193,7 @@ below. Six disputes are ruled here.
 `brokkr tui [--run <id>] [--db <path>]`. `--db` defaults to
 `.forge/forge.db` exactly as every other read verb. `--run` opens
 directly at the RUN level for that run. Clean quit exits `SUCCESS`;
-refusal or error exits `1` through `main`'s existing `Err` arm. `forge
+refusal or error exits `1` through `main`'s existing `Err` arm. `brokkr
 tui` does **not** inherit `watch`'s status→exit-code mapping: that
 mapping exists so CI can wait on a run, and an interactive console is
 never in a pipeline.
@@ -387,7 +387,7 @@ subprocess).
 - **AC-2 — Startup refusals precede every side effect.** Not a tty
   (`std::io::stdout().is_terminal()`, the same `IsTerminal` `render.rs`
   uses), terminal smaller than the minimum, or `--db` not an existing
-  file → a message on stderr naming **both** `brokkr inspect` and `forge
+  file → a message on stderr naming **both** `brokkr inspect` and `brokkr
   watch`, exit 1, printed outside any alternate screen, with
   `Store::open` never called and no file, directory, `-wal` or `-shm`
   created.

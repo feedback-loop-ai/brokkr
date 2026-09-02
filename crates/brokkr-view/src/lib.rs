@@ -194,7 +194,7 @@ pub struct Provenance {
     pub model: String,
     pub provider: String,
     pub chain_index: u64,
-    /// The forge never claims the second choice equals the first.
+    /// Brokkr never claims the second choice equals the first.
     pub fallback: bool,
     pub line: String,
 }

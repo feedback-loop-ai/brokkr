@@ -1,12 +1,12 @@
-//! T21/T22, AC-5: the adopting recipes resolve to exactly what they used
-//! to inline, plus the model they never used to name.
+//! T21/T22, AC-5: the adopting recipes keep the argv they used to inline,
+//! plus the model they never used to name, and pin their shared charters.
 //!
 //! Every seat, panel member and sequence step below has its PRE-ADOPTION
 //! argv recorded here as it stood in the tree, and the test asserts the
 //! resolved argv is that argv with one `--model <concrete id>` pair
 //! inserted — nothing added, nothing dropped, `--allowedTools` ordering
-//! element for element. The charter is asserted by digest against the
-//! role file it was moved from.
+//! element for element. Charter digests were re-pinned when decision 0019's
+//! closing sweep changed their living prose.
 //!
 //! That the argv changes at all is the point of the feature and is
 //! stated as such in the spec: an adopting seat used to pass no `--model`
@@ -126,8 +126,7 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (specify tools?, concrete model id, the digest of the role file
-/// the charter was moved from).
+/// site → (specify tools?, concrete model id, current charter digest).
 type Roster = [(&'static str, bool, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
@@ -135,19 +134,19 @@ const PANEL_REVIEW: &Roster = &[
         "intake",
         false,
         "claude-sonnet-5",
-        "d27fd1983362c158af6b878942b6166482632cff43d23ebff72b55532c31aa9c",
+        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
     ),
     (
         "implement",
         false,
         "claude-opus-5",
-        "3c0e869efcd3c46c853c13c44fc9c1ff0d0a50df45194ab9e0a3019756443f77",
+        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
     ),
     (
         "verify",
         false,
         "claude-sonnet-5",
-        "f209f559fbc7ae4a4371958e7a6c030f0f8f0742c2af35d02509600bccc31ee4",
+        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
@@ -174,19 +173,19 @@ const SDD: &Roster = &[
         "intake",
         true,
         "claude-sonnet-5",
-        "af6146544f8626e7c21d126088c465e3bf08c5b3c0844da650f692b022ef229c",
+        "1df8977a6972c28ca0ba9766c0bd50567f8880951ee3d13799207295faaa687c",
     ),
     (
         "implement",
         true,
         "claude-opus-5",
-        "3720b487fea0e433e23977c528e00cccc924fa667f1e22fa03176f2f3fb4bccc",
+        "87425568ebed546e09592abe2238cc163fe693843697f95c8689bf5a850e15c6",
     ),
     (
         "verify",
         true,
         "claude-sonnet-5",
-        "f209f559fbc7ae4a4371958e7a6c030f0f8f0742c2af35d02509600bccc31ee4",
+        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
@@ -230,19 +229,19 @@ const SELF: &Roster = &[
         "intake",
         false,
         "claude-sonnet-5",
-        "d27fd1983362c158af6b878942b6166482632cff43d23ebff72b55532c31aa9c",
+        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
     ),
     (
         "implement",
         false,
         "claude-opus-5",
-        "3c0e869efcd3c46c853c13c44fc9c1ff0d0a50df45194ab9e0a3019756443f77",
+        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
     ),
     (
         "verify",
         false,
         "claude-sonnet-5",
-        "f209f559fbc7ae4a4371958e7a6c030f0f8f0742c2af35d02509600bccc31ee4",
+        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "review",
@@ -276,7 +275,7 @@ fn assert_adopted(relative: &str, roster: &Roster) {
         assert_eq!(
             brokkr_core::canonical::sha256_bytes(&bytes),
             *charter_digest,
-            "{relative} site '{site}' charter is not the text it replaced"
+            "{relative} site '{site}' charter moved without a witness update"
         );
         // The pin that replaces the `manifest.files` entry the charter
         // lost by moving out of the recipe directory.

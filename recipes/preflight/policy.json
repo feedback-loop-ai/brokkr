@@ -1,6 +1,6 @@
 {
   "schema": "forge.phase-machine/v1",
-  "description": "Preflight: the forge's verify and review seats pointed at an UNMERGED branch, before a pull request exists. The table has no intake, no implement and no ship phase and it ends after review — so a preflight run can only produce a ruling, never a change and never a merge. The constitutional review invariants hold unchanged: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass, and a reviewer that claims it edited the branch is itself the defect.",
+  "description": "Preflight: Brokkr's verify and review seats pointed at an UNMERGED branch, before a pull request exists. The table has no intake, no implement and no ship phase and it ends after review — so a preflight run can only produce a ruling, never a change and never a merge. The constitutional review invariants hold unchanged: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass, and a reviewer that claims it edited the branch is itself the defect.",
   "phases": ["verify", "review", "done", "stop"],
   "initial": "verify",
   "terminal": ["done", "stop"],

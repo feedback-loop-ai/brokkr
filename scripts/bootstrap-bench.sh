@@ -27,7 +27,7 @@
 # 2. NO AGENT SESSION IS SPAWNED. `brokkr run` would otherwise start a
 #    real, billed Claude Code session per seat — unusable inside a timing
 #    gate. The run below is driven by a stub standing in for the `claude`
-#    binary, via the adapter's own `FORGE_CLAUDE_BIN` override: it reads
+#    binary, via the adapter's own `BROKKR_CLAUDE_BIN` override: it reads
 #    the seat prompt, writes the typed result file the engine reads, and
 #    exits. Everything else is real — the real bundle `brokkr init`
 #    scaffolded, the real compile with its gate-class trust check, the
@@ -96,7 +96,7 @@ say 'MOCKED, so the numbers are not read as more than they are:'
 say '  · the download is a file:// read from a local staging dir,'
 say '    NOT a GitHub transfer. Network time is not in the 60s.'
 say '  · the run is driven by a stub standing in for the `claude`'
-say '    binary (FORGE_CLAUDE_BIN). No agent session is spawned and'
+say '    binary (BROKKR_CLAUDE_BIN). No agent session is spawned and'
 say '    nothing is billed. The bundle, compile, gate-class trust'
 say '    check, driver transport and journal are all real.'
 rule
@@ -217,7 +217,7 @@ started=$(date +%s)
 set +e
 (
   cd "$trial"
-  export FORGE_CLAUDE_BIN="$stub_dir/claude"
+  export BROKKR_CLAUDE_BIN="$stub_dir/claude"
   "$install_dir/brokkr" init .
   "$install_dir/brokkr" run --bundle . --repo . --db .forge/forge.db \
     --feature 'bootstrap benchmark: reach one completed effect'

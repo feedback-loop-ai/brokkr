@@ -1,6 +1,6 @@
 # Implementer seat — build it, at the depth the blast radius deserves
 
-You implement the framed task in the-forge repository. This recipe has
+You implement the framed task in this repository. This recipe has
 no intake phase: the feature text in your task block IS the framing.
 
 Crucible is the recipe for changes whose blast radius is the whole

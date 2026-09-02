@@ -580,7 +580,7 @@ The script prints this every run, and so does this page:
 - **The first-run budget excludes the agent.** A real `brokkr run`
   spawns billed sessions, which cannot live inside a timing gate, so the
   bench stubs the `claude` binary through the adapter's own
-  `FORGE_CLAUDE_BIN` override. The bundle, the compile with its
+  `BROKKR_CLAUDE_BIN` override. The bundle, the compile with its
   gate-class trust check, the driver transport and the journal are all
   real; only the session at the far end is not. So 5min is the
   *machinery's* cost to reach a first completed effect, and your slice's

@@ -80,7 +80,7 @@ fn doctor_reports_providers_and_models_read_from_the_adapter_files() {
         rendered.contains("~/.local/bin/claude-lanetally"),
         "{rendered}"
     );
-    assert!(rendered.contains("FORGE_LANETALLY_BIN"), "{rendered}");
+    assert!(rendered.contains("BROKKR_LANETALLY_BIN"), "{rendered}");
     // The declared models are read from the file, not from a list here.
     assert!(
         rendered.contains("serves fable, haiku, opus, sonnet"),

@@ -2,9 +2,9 @@
 //!
 //! The bridge reads only through `brokkr-store`'s verified public API. It never
 //! exposes SQLite, never forwards raw driver output, and never treats producer
-//! evidence as Looper authority. Ordered Forge facts are normalized into the
+//! evidence as Looper authority. Ordered Brokkr facts are normalized into the
 //! closed producer vocabulary; separately authorized operator commands are
-//! fenced by the exact Forge journal head before becoming control events.
+//! fenced by the exact Brokkr journal head before becoming control events.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -145,7 +145,7 @@ pub trait ProducerTransport {
     ) -> Result<(), BridgeError>;
 }
 
-/// Blocking HTTPS transport for the one native Forge binary. The bearer value
+/// Blocking HTTPS transport for the one native Brokkr binary. The bearer value
 /// is held in memory and is never serialized into a run, event, or error.
 pub struct HttpTransport {
     base_url: String,
