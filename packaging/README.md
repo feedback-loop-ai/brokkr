@@ -92,10 +92,12 @@ named follow-up below.
 
 ### 3. The tap and the bucket
 
-Two sibling repositories the landing bench creates:
+Two sibling repositories, created by the operator on 2026-09-02:
 
-- `feedback-loop-ai/homebrew-brokkr`, file `Formula/brokkr.rb`
-- `feedback-loop-ai/scoop-brokkr`, file `bucket/brokkr.json`
+- `feedback-loop-ai/homebrew-tap`, file `Formula/brokkr.rb` — installs
+  as `brew install feedback-loop-ai/tap/brokkr`
+- `feedback-loop-ai/scoop-bucket`, file `bucket/brokkr.json` — installs
+  after `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket`
 
 and two repository secrets holding a fine-grained token with
 `contents: write` and `pull requests: write` **on that repository only**:
@@ -106,6 +108,14 @@ and two repository secrets holding a fine-grained token with
 Until each is set the corresponding release step logs a warning and does
 nothing — it never fails the release, and it never pretends it bumped a
 channel it did not.
+
+The flake-digest pull request against this repository is opened by the
+workflow token, which only works where the organization (or the
+enterprise above it) allows *Actions may create pull requests*. Where
+that policy is off, a third fine-grained token with `contents: write`
+and `pull requests: write` on this repository, held as
+`BROKKR_FLAKE_PR_TOKEN`, is used instead; without it the step falls
+back to the workflow token and fails with the policy's own message.
 
 ## Using the channels
 

@@ -49,8 +49,8 @@ together.
 | nix | `nix profile install github:feedback-loop-ai/brokkr` | works from the first release after this slice, once that release's flake-digest pull request is merged — nix reads the default branch |
 | apt | `sudo apt-get install brokkr` | **wired at the bench** — needs the signing secret and the Pages site |
 | dnf | `sudo dnf install brokkr` | **wired at the bench** — same |
-| brew | `brew install feedback-loop-ai/brokkr/brokkr` | **wired at the bench** — needs the tap repository |
-| scoop | `scoop install brokkr` | **wired at the bench** — needs the bucket repository |
+| brew | `brew install feedback-loop-ai/tap/brokkr` | **wired at the bench** — needs the tap repository |
+| scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | **wired at the bench** — needs the bucket repository |
 
 "Wired at the bench" means exactly what it says: the tooling is in this
 repository and tested in CI, and the last step — a repository secret, a
