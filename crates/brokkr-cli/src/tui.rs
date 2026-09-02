@@ -634,6 +634,24 @@ fn selected_turn<'a>(tui: &Tui, views: &'a Views) -> Option<(usize, &'a Turn)> {
 /// quietly hides the cap.
 const TRUNCATED_NOTICE: &str = "transcript truncated (size cap) — claude --resume carries the rest";
 
+/// The seat's session as a line the operator can act on. Only a claude
+/// harness (`claude`, `lanetally`) answers to `claude --resume`; a
+/// session id held by any other harness is shown with its holder and
+/// NO command, so a codex thread id never renders as a claude
+/// invocation — the pasteable lie this run's own reviewer caught once
+/// codex seats started journaling their thread ids. Provenance absent
+/// means a journal older than decision 0016, when every seat was a
+/// claude seat. The per-harness resume verbs arrive with the shared
+/// transcript law; until then honesty beats a guess.
+fn session_line(provider: Option<&str>, session: &str) -> String {
+    match provider {
+        None | Some("claude") | Some("lanetally") => {
+            format!("full session: claude --resume {session}")
+        }
+        Some(holder) => format!("full session: {session} · held by {holder}, no resume verb yet"),
+    }
+}
+
 /// The whole turn, composed for the reader: a header naming the role
 /// and the timestamp, then every block in order — prose in full, tool
 /// blocks as the same `⚙ name · target` marker the console shows.
@@ -2813,7 +2831,13 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
             span(&part.status, tone_style(&part.status)),
         ]),
         line(&format!("terminal  {}", part.terminal_line.text), plain()),
-        line(&format!("full session: claude --resume {session}"), plain()),
+        line(
+            &session_line(
+                part.provenance.as_ref().map(|p| p.provider.as_str()),
+                &session,
+            ),
+            plain(),
+        ),
         line(
             &match &part.provenance {
                 Some(provenance) => format!("served by  {}", provenance.line),
@@ -2859,7 +2883,7 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         ),
         None => (
             vec![line(
-                "no local session transcript on this machine — the `claude --resume` line above opens the full session",
+                "no local session transcript on this machine — the session line above names it",
                 plain(),
             )],
             0,
