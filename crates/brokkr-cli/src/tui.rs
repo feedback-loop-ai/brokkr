@@ -2814,9 +2814,11 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         Constraint::Percentage(50),
     ])
     .areas(area);
-    // The `claude --resume` line is always here: the id is the model's
+    // The session line is always here: the id is the model's
     // `session_id`, and its absence is the model's absence mark rather
-    // than a pasteable lie.
+    // than a pasteable lie. Whether that line carries the
+    // `claude --resume` command is `session_line`'s ruling on the
+    // harness holding the session, not this pane's.
     // A session id that could not name a transcript must not be
     // rendered into a pasteable command either: an id failing the
     // shared guard is an absence, not a suggestion.
