@@ -411,11 +411,29 @@ fn seat_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant> {
     tui.seat.as_deref().and_then(|key| participant(views, key))
 }
 
-/// The session id the shell asks the transcript lookup for: a model
-/// field, read only while the operator is reading that seat.
+/// The Claude session id the shell asks the local prose reader for. New
+/// journals derive it from decision 0032's transcript shape; old journals
+/// keep using the compatibility field — under the provenance guard that
+/// field always had, because a pre-0032 codex seat journaled its thread
+/// id there and a thread id is hex and dashes like a claude session.
+/// Provenance absent predates decision 0016, when every seat was claude.
+fn claude_session(part: &Participant) -> Option<&str> {
+    let session = match &part.transcript {
+        Some(transcript) if transcript.kind == "claude-session" => {
+            Some(transcript.locator.as_str())
+        }
+        Some(_) => None,
+        None => match part.provenance.as_ref().map(|p| p.provider.as_str()) {
+            None | Some("claude") | Some("lanetally") => part.session_id.as_deref(),
+            Some(_) => None,
+        },
+    };
+    session.filter(|session| crate::ui::valid_session_id(session))
+}
+
 fn session_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a str> {
     match tui.level {
-        Level::Participant => seat_of(tui, views).and_then(|part| part.session_id.as_deref()),
+        Level::Participant => seat_of(tui, views).and_then(claude_session),
         _ => None,
     }
 }
@@ -634,22 +652,10 @@ fn selected_turn<'a>(tui: &Tui, views: &'a Views) -> Option<(usize, &'a Turn)> {
 /// quietly hides the cap.
 const TRUNCATED_NOTICE: &str = "transcript truncated (size cap) — claude --resume carries the rest";
 
-/// The seat's session as a line the operator can act on. Only a claude
-/// harness (`claude`, `lanetally`) answers to `claude --resume`; a
-/// session id held by any other harness is shown with its holder and
-/// NO command, so a codex thread id never renders as a claude
-/// invocation — the pasteable lie this run's own reviewer caught once
-/// codex seats started journaling their thread ids. Provenance absent
-/// means a journal older than decision 0016, when every seat was a
-/// claude seat. The per-harness resume verbs arrive with the shared
-/// transcript law; until then honesty beats a guess.
-fn session_line(provider: Option<&str>, session: &str) -> String {
-    match provider {
-        None | Some("claude") | Some("lanetally") => {
-            format!("full session: claude --resume {session}")
-        }
-        Some(holder) => format!("full session: {session} · held by {holder}, no resume verb yet"),
-    }
+/// The extra action line a Claude transcript keeps. Other transcript kinds
+/// have one common `transcript` line and no invented resume command.
+fn session_line(session: &str) -> String {
+    format!("full session: claude --resume {session}")
 }
 
 /// The whole turn, composed for the reader: a header naming the role
@@ -2835,19 +2841,11 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         Constraint::Percentage(50),
     ])
     .areas(area);
-    // The session line is always here: the id is the model's
-    // `session_id`, and its absence is the model's absence mark rather
-    // than a pasteable lie. Whether that line carries the
-    // `claude --resume` command is `session_line`'s ruling on the
-    // harness holding the session, not this pane's.
-    // A session id that could not name a transcript must not be
-    // rendered into a pasteable command either: an id failing the
-    // shared guard is an absence, not a suggestion.
-    let session = match &part.session_id {
-        Some(session) if crate::ui::valid_session_id(session) => session.clone(),
-        _ => brokkr_view::ABSENT.to_string(),
-    };
-    let lines = vec![
+    // One plain mechanism label for every driver. A Claude locator also
+    // keeps the resume line decision 0014 established; no other kind is
+    // ever rendered as a Claude command.
+    let session = claude_session(part);
+    let mut lines = vec![
         Line::from(vec![
             span(&part.label, header_style()),
             span(" · ", plain()),
@@ -2855,12 +2853,14 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         ]),
         line(&format!("terminal  {}", part.terminal_line.text), plain()),
         line(
-            &session_line(
-                part.provenance.as_ref().map(|p| p.provider.as_str()),
-                &session,
-            ),
+            &format!("transcript  {}", part.transcript_cell.text),
             plain(),
         ),
+    ];
+    if let Some(session) = session {
+        lines.push(line(&session_line(session), plain()));
+    }
+    lines.extend([
         line(
             &match &part.provenance {
                 Some(provenance) => format!("selected by  {}", provenance.line),
@@ -2876,7 +2876,7 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
             ),
             plain(),
         ),
-    ];
+    ]);
     frame.render_widget(Paragraph::new(lines).block(pane("seat", false)), head);
 
     let checkpoints: Vec<Line> = part
@@ -2907,7 +2907,7 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         ),
         None => (
             vec![line(
-                "no local session transcript on this machine — the session line above names it",
+                "no local session transcript on this machine — the transcript line above names it",
                 plain(),
             )],
             0,

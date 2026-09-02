@@ -621,6 +621,13 @@ fn normalization_covers_the_closed_event_vocabulary_and_redaction_edges() {
         safe_checkpoint(&json!({"total_cost_usd": -1.0})),
         json!({"state":"withheld", "reason":"no-policy-permitted-checkpoint-fields"})
     );
+    assert_eq!(
+        safe_checkpoint(&json!({"step":"transcript", "transcript": {
+            "kind":"dsh-session", "locator":"sessions/brokkr/seat-private",
+            "home":"/private/.dsh"
+        }})),
+        json!({"step":"transcript", "session_reference_state":"observed-redacted"})
+    );
 
     let mut forbidden = dispatch.clone();
     forbidden.allowed_effects.clear();

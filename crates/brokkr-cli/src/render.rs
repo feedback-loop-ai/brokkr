@@ -462,6 +462,13 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
         }
         line.push_str(&brokkr_view::clamp(row[6].as_str(), remaining));
         push_line(&mut out, &line);
+        push_line(
+            &mut out,
+            &format!(
+                "    transcript  {}",
+                Safe::new(&part.transcript_cell.text).as_str()
+            ),
+        );
         // Which agent resolution selected this seat (decision 0016).
         // The sentence comes from the single
         // derivation; this surface only indents it.
