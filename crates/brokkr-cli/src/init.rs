@@ -25,11 +25,15 @@
 //! binary each command starts with is the tool the seat needs, plus
 //! `git`, `ls`, `rg` and `mkdir`. Work-class seats get the whole set, so
 //! a seat may run exactly the commands its charter names and nothing
-//! broader; gate-class seats get the read-only subset — the test runner,
-//! `git`, `ls`, `rg` — and never the install or build command, because
-//! a seat that proves and reads has no business building. Where no
-//! stack is recognized the map is written EMPTY and the README says so:
-//! a tool name is a permission, and one guessed is one granted.
+//! broader; gate-class seats get the smaller subset — the test runner,
+//! `git`, `ls`, `rg` — and never `mkdir`, because a seat that proves and
+//! reads writes nothing. The grant is per BINARY, not per subcommand:
+//! `Bash(cargo:*)` answers to `cargo build` as readily as to `cargo
+//! test`, so it is the gate's charter — prove it, fix nothing — and not
+//! the grant that keeps a gate from building, and the README says so
+//! rather than promising a boundary the glob cannot draw. Where no stack
+//! is recognized the map is written EMPTY and the README says so: a tool
+//! name is a permission, and one guessed is one granted.
 //!
 //! init LOOKS BEFORE IT SCAFFOLDS. The seats that build and prove a
 //! change are told which commands to run, and a charter that told every
@@ -395,9 +399,13 @@ fn readme(stack: Option<&Detected>, grants: &Grants) -> String {
              \n    {}\n\n\
              Work seats (intake, implement) are granted the whole set, so a seat\n\
              may run exactly the commands its charter names: {}.\n\n\
-             Gate seats (verify, review, ship) are granted the read-only subset —\n\
-             the test runner, and the tools that read and commit — never the\n\
-             install or build line, and never `mkdir`: {}.\n",
+             Gate seats (verify, review, ship) are granted the smaller subset —\n\
+             the test runner's binary, and the tools that read and commit — and\n\
+             never `mkdir`: {}.\n\n\
+             The grant is per binary, not per subcommand: the test runner's\n\
+             binary also answers to its build and install subcommands, so it is\n\
+             each gate's charter (prove it, fix nothing) and not the grant that\n\
+             keeps a gate from building.\n",
             detected.name,
             detected.evidence,
             grants
