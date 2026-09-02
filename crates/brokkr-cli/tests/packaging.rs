@@ -1093,6 +1093,36 @@ fn the_quickstart_install_step_carries_the_manager_matrix() {
     );
 }
 
+#[test]
+fn the_front_page_install_commands_match_the_published_channels() {
+    let readme = read("README.md");
+    let install = readme
+        .split("## Install")
+        .nth(1)
+        .expect("the front-page install section")
+        .split("\n## ")
+        .next()
+        .expect("the section ends");
+
+    for command in [
+        "tar xzf brokkr-linux-x86_64.tar.gz",
+        "cargo binstall brokkr-cli",
+        "nix profile install github:feedback-loop-ai/brokkr",
+        "sudo apt-get update && sudo apt-get install brokkr",
+        "sudo dnf install brokkr",
+        "brew install feedback-loop-ai/tap/brokkr",
+        "scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr",
+    ] {
+        assert_eq!(
+            install.matches(command).count(),
+            1,
+            "front page must carry one exact command for {command}:\n{install}"
+        );
+    }
+    assert!(install.contains("wired at the bench"), "{install}");
+    assert!(install.contains("(packaging/README.md)"), "{install}");
+}
+
 /// The packaging README is where the operator's steps live: the secrets
 /// to provision, and what this slice deliberately did not do.
 #[test]

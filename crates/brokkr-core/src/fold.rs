@@ -68,7 +68,7 @@ pub struct RunState {
     pub status: Status,
     pub phase: Option<String>,
     pub cursor: Cursor,
-    /// Journal-computed, never accepted from a caller (README law 2).
+    /// Journal-computed, never accepted from a caller (decision 0002).
     pub consecutive_failures: BTreeMap<String, u64>,
     /// How many times the run has ENTERED each phase — the count the
     /// graph already renders as `×N`, now readable by the table as the

@@ -76,7 +76,7 @@ pub struct RunEntry<'a> {
     /// Why the state is absent: a fleet read quarantines a run whose
     /// journal does not fold rather than losing the whole fleet with it,
     /// and the error text is the row's whole account of itself. Nothing
-    /// is repaired here (README law 2) — the refusal is reported.
+    /// is repaired here (decision 0002) — the refusal is reported.
     pub detail: Option<&'a str>,
 }
 
@@ -118,7 +118,7 @@ pub struct RealmRuns {
     /// Why this hearth lists no runs, when the journal could not be
     /// read at all: the open's own words. A world does not lose its
     /// other hearths because one realm's journal is missing, and
-    /// nothing is repaired — the refusal is reported (README law 2).
+    /// nothing is repaired — the refusal is reported (decision 0002).
     pub detail: Option<String>,
 }
 
@@ -1647,7 +1647,7 @@ fn phase_rail(
             EventType::TransitionDecided => {
                 // A ruling that parks carries no `next` at all, and a
                 // ruling this crate cannot read is never repaired into
-                // one (README law 2).
+                // one (decision 0002).
                 let (Some(from), Some(next)) =
                     (field(&event.payload, "from"), field(&event.payload, "next"))
                 else {

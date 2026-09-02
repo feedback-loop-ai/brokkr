@@ -165,7 +165,7 @@ fn explicitly_allowed(file: &str, line: &str) -> bool {
     if line.contains("SwarmForge") {
         return true;
     }
-    if file == "README.md" && line.contains(concat!("\"For", "ge\" survives as the verb")) {
+    if line.contains(concat!("\"For", "ge\" survives as the verb")) {
         return true;
     }
 
@@ -222,7 +222,7 @@ fn allowed_history_mechanisms_and_verbs_pass() {
     assert_eq!(offenses_in("README.md", prose, Surface::Prose), []);
     assert_eq!(
         offenses_in(
-            "README.md",
+            "docs/guides/versioning.md",
             concat!(
                 "**\"For",
                 "ge\" survives as the verb.**\nThe `forge` shim is retired.\n"
@@ -290,4 +290,109 @@ fn living_surfaces_have_no_retired_product_or_crate_names() {
         "retired forge-to-Brokkr names remain:\n{}",
         render(&offenses)
     );
+}
+
+#[test]
+fn the_front_page_is_the_short_path_to_visible_proof() {
+    let root = workspace();
+    let readme = std::fs::read_to_string(root.join("README.md")).expect("the front page");
+    assert!(
+        readme.lines().count() < 150,
+        "front page grew to {} lines",
+        readme.lines().count()
+    );
+
+    let install = readme.find("## Install").expect("install");
+    let quickstart = readme
+        .find("## Sixty-second quickstart")
+        .expect("quickstart");
+    let map = readme.find("## Read next").expect("documentation map");
+    assert!(install < quickstart && quickstart < map, "{readme}");
+
+    assert_eq!(readme.matches("$ brokkr run ").count(), 1, "{readme}");
+    for proof in [
+        "$ brokkr inspect --run latest",
+        "review      succeeded",
+        "effect/succeeded   review · clean",
+        "graph",
+    ] {
+        assert!(
+            readme.contains(proof),
+            "front page has no {proof}:\n{readme}"
+        );
+    }
+
+    for departed in [
+        "## The read surfaces",
+        "## Recipes and composition",
+        "## The agent library",
+        "## Provider adapters",
+        "## Secrets",
+        "## The journal and verification",
+        "## Repo layout",
+        "## The decision culture",
+    ] {
+        assert!(
+            !readme.contains(departed),
+            "{departed} returned to README.md"
+        );
+    }
+
+    for destination in [
+        "docs/guides/README.md",
+        "docs/decisions/README.md",
+        "docs/essays/README.md",
+        "docs/lore/edda.md",
+        "docs/evidence/README.md",
+        "CONTRIBUTING.md",
+        "ARCHITECTURE.md",
+    ] {
+        assert!(
+            readme.contains(&format!("]({destination})")),
+            "front page does not link {destination}"
+        );
+        assert!(root.join(destination).is_file(), "{destination} is missing");
+    }
+
+    for (destination, moved_section) in [
+        ("docs/guides/read-surfaces.md", "## The read surfaces"),
+        (
+            "docs/guides/recipe-authoring.md",
+            "## Recipes and composition",
+        ),
+        ("docs/guides/agent-library.md", "## The agent library"),
+        ("docs/guides/driver-authoring.md", "## Provider adapters"),
+        ("docs/guides/secrets.md", "## Secrets"),
+        (
+            "docs/guides/journal-and-verification.md",
+            "## The journal and verification",
+        ),
+        ("docs/guides/repository-layout.md", "## Repo layout"),
+        ("docs/decisions/README.md", "## The decision culture"),
+        ("docs/essays/README.md", "## The tour's reading list"),
+    ] {
+        let guide = std::fs::read_to_string(root.join(destination))
+            .unwrap_or_else(|error| panic!("{destination}: {error}"));
+        assert!(
+            guide.contains(moved_section),
+            "{moved_section} did not move to {destination}"
+        );
+    }
+
+    let surfaces = living_surfaces(&root);
+    for guide in [
+        "README.md",
+        "docs/guides/README.md",
+        "docs/guides/agent-library.md",
+        "docs/guides/journal-and-verification.md",
+        "docs/guides/overview.md",
+        "docs/guides/read-surfaces.md",
+        "docs/guides/repository-layout.md",
+        "docs/guides/secrets.md",
+    ] {
+        assert!(
+            surfaces.iter().any(|(path, _)| path == &root.join(guide)),
+            "rename guard does not scan {guide}"
+        );
+    }
 }

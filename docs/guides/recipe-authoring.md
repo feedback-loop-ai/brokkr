@@ -526,3 +526,82 @@ composition markers all describe something real.
   provenance.
 - [decision 0017](../decisions/0017-composable-recipes.md) — composition.
 - [decision 0022](../decisions/0022-reforging.md) — the reforging ladder.
+
+---
+
+The authoring guide explains the file format; this guide carries the
+maintained library tour and the composition examples.
+
+## Recipes and composition
+
+A recipe is a delivery strategy as reviewable data, identified by
+content digest. The library is a directory of them.
+
+```
+$ brokkr recipes list
+crucible	d33a3e69c105	6 phases	implement, review[positions>chief], ship, verify	recipes/crucible
+ember	aa6514b5bc24	7 phases	implement, intake, review, ship, verify	recipes/ember
+fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
+night-shift	a3352f00db74	6 phases	implement, review, ship, verify	recipes/night-shift
+node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
+panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+sdd	ed604f45bfce	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+sdd-paranoid	6b8ff77d2ed4	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	recipes/sdd-paranoid
+wager-harness	44da266f8554	6 phases	implement, review, ship, verify	recipes/wager-harness
+self	ada640664125	7 phases	implement, intake, review, ship, verify	./bundles/self
+verify	4a94d29f9058	4 phases	review, verify	./bundles/verify
+```
+
+| Recipe | Reach for it when | The difference it states |
+|---|---|---|
+| [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base every recipe below extends |
+| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: a haiku intake seat added, cheap models everywhere except the review gate |
+| [`crucible`](../../recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: opus throughout, and `review` becomes a `security`+`correctness` panel whose verdict a `chief` gate synthesises |
+| [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends fast`: `max_attempts: 1` on every seat, so anything unusual parks for morning instead of retrying |
+| [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
+| [`node`](../../recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
+| [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
+| [`sdd`](../../recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
+| [`sdd-paranoid`](../../recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
+
+Seven of the entries above carry pinned manifest digests in
+`crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
+four roster recipes, and `bundles/verify`; the rest are covered by the
+tree-wide compile test but not pinned. Cost figures are
+deliberately absent from every recipe README above unless a run backs
+them — economics is LaneTally's ledger, not this engine's (decision
+0021 ruling 6).
+
+`recipes/node` is the same four-seat constitution as `fast`, driving a
+Node/TypeScript repository instead of this Rust one: the phase table is
+identical, only the seats' driver commands and role charters are
+JavaScript. [Adopting a Node repo](adopting-a-node-repo.md)
+walks a stranger from an unmodified repo to a first run.
+
+Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
+lines: it extends `sdd` and replaces exactly one seat, and it has to say
+so out loud.
+
+```json
+{
+  "name": "sdd-paranoid",
+  "extends": "sdd",
+  "override": { "seats": ["review"] },
+  "seats": {
+    "review": { "…": "an adversarial panel instead of SDD's" }
+  }
+}
+```
+
+Named things merge by name; redefining one the base already has without
+listing it under `override` fails compilation rather than silently
+winning. Composition resolves at compile time into ONE flat bundle — no
+inheritance at run time — and the run manifest records the chain, so a
+run states what it was composed from.
+
+Swap a strategy and compare the outcomes:
+
+```
+brokkr rerun --run <id> --recipe panel-review    # same feature, other strategy
+brokkr compare <a> <b>                           # trails, first divergence, per-seat costs
+```

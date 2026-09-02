@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
-      # The README's claim, enforced: the badge says 1.88+, so 1.88
-      # must check the locked tree — an untested MSRV is prose, and
-      # this one was found stale (it said 1.85; darling requires 1.88).
+      # The workspace's MSRV, enforced: Cargo.toml says 1.88, so 1.88
+      # must check the locked tree — an untested floor is prose, and
+      # this one was found stale once (darling requires 1.88).
       - run: cargo check --workspace --locked
   quality:
     name: format, clippy, contracts
