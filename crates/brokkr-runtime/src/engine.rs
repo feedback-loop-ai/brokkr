@@ -53,6 +53,22 @@ pub enum EngineError {
     World(#[from] crate::realms::WorldError),
 }
 
+impl EngineError {
+    /// The contention this error carries, if that is what it is.
+    ///
+    /// [`EngineError::Store`] is `transparent`, so the store error it
+    /// holds is NOT a link in its `source()` chain — a caller walking an
+    /// `anyhow` chain would step straight past it. This is the door
+    /// through, and it asks the store's own predicate rather than
+    /// reading error text.
+    pub fn contention(&self) -> Option<&brokkr_store::StoreError> {
+        match self {
+            EngineError::Store(error) if error.is_contention() => Some(error),
+            _ => None,
+        }
+    }
+}
+
 pub struct Engine {
     pub store: Store,
     pub bundle: Bundle,
@@ -255,41 +271,96 @@ impl Engine {
     }
 
     /// Drive the run until it parks, completes, or stops.
+    ///
+    /// Or until a peer's lock on the shared journal outlasts the store's
+    /// whole patience — which is a fourth ending, and it is an ending,
+    /// not a death. See [`Engine::lawful_end_under_contention`].
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
         loop {
-            let events = self.store.load(&self.run_id)?;
-            self.current_cause = events.last().map(|e| e.event_id.clone());
-            let state = fold(&events)?;
-            match (&state.status, &state.cursor) {
-                (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
-                    // Best-effort tamper-evidence: anchor the journal head
-                    // in refs/forge/<run>. Gaps are reported, never fatal
-                    // (the referee-era anchor-gap lore).
-                    if let Some(repo) = &self.repo {
-                        if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
-                            eprintln!("anchor gap for {}: {e}", self.run_id);
-                        }
-                        // And the exhibits the journal cites, kept
-                        // reachable past the branch delete and the gc
-                        // that follow a landing (decision 0028). Same
-                        // shape of act as the anchor: derived entirely
-                        // from the journal, writing refs and never
-                        // branches, so it crosses into no authority the
-                        // operator keeps. Best-effort in the same way —
-                        // a ref-planting gap is reported, never fatal.
-                        if let Some(gap) =
-                            crate::keep_refs::plant_or_report(&self.store, repo, &self.run_id)
-                        {
-                            eprintln!("{gap}");
-                        }
-                    }
-                    return Ok(DriveEnd { state });
-                }
-                (Status::Running, _) => {
-                    self.advance_running(&events, state)?;
-                }
+            match self.drive_once() {
+                Ok(Some(end)) => return Ok(end),
+                Ok(None) => {}
+                Err(error) => return self.lawful_end_under_contention(error),
             }
         }
+    }
+
+    /// One turn of the loop: `Some(end)` when the run has reached its
+    /// conclusion, `None` when there is more to do.
+    fn drive_once(&mut self) -> Result<Option<DriveEnd>, EngineError> {
+        let events = self.store.load(&self.run_id)?;
+        self.current_cause = events.last().map(|e| e.event_id.clone());
+        let state = fold(&events)?;
+        match (&state.status, &state.cursor) {
+            (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
+                // Best-effort tamper-evidence: anchor the journal head
+                // in refs/forge/<run>. Gaps are reported, never fatal
+                // (the referee-era anchor-gap lore).
+                if let Some(repo) = &self.repo {
+                    if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
+                        eprintln!("anchor gap for {}: {e}", self.run_id);
+                    }
+                    // And the exhibits the journal cites, kept
+                    // reachable past the branch delete and the gc
+                    // that follow a landing (decision 0028). Same
+                    // shape of act as the anchor: derived entirely
+                    // from the journal, writing refs and never
+                    // branches, so it crosses into no authority the
+                    // operator keeps. Best-effort in the same way —
+                    // a ref-planting gap is reported, never fatal.
+                    if let Some(gap) =
+                        crate::keep_refs::plant_or_report(&self.store, repo, &self.run_id)
+                    {
+                        eprintln!("{gap}");
+                    }
+                }
+                return Ok(Some(DriveEnd { state }));
+            }
+            (Status::Running, _) => {
+                self.advance_running(&events, state)?;
+            }
+        }
+        Ok(None)
+    }
+
+    /// An engine that meets contention on the shared journal ends
+    /// lawfully or not at all — it never dies of it.
+    ///
+    /// [`StoreError::Contended`] is the store saying it waited its whole
+    /// patience for a peer's write lock and wrote nothing. That is an
+    /// accident of timing, not a verdict: the same call made later is
+    /// the same call. Every other error — including the fenced-append
+    /// refusals, which are verdicts — leaves here exactly as it arrived.
+    ///
+    /// Where the fold admits a park, the contention is SAID, in the
+    /// journal, in the run's own words: `run/parked` naming the lock it
+    /// lost. `brokkr_core::fold` admits `run/parked` at exactly two
+    /// cursors, so where it does not, this returns the typed contention
+    /// instead of forging an event the fold would refuse — an engine
+    /// that ends on contention must leave a journal that still folds.
+    /// Either way the run is intact and `brokkr resume` picks it up:
+    /// nothing was written, so nothing was lost.
+    fn lawful_end_under_contention(&mut self, error: EngineError) -> Result<DriveEnd, EngineError> {
+        let EngineError::Store(store_error) = &error else {
+            return Err(error);
+        };
+        if !store_error.is_contention() {
+            return Err(error);
+        }
+        let reason = format!("journal contention: {store_error}");
+        let events = self.store.load(&self.run_id)?;
+        let state = fold(&events)?;
+        if !matches!(
+            state.cursor,
+            Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
+        ) {
+            return Err(error);
+        }
+        self.current_cause = events.last().map(|e| e.event_id.clone());
+        let parked = json!({"reason": reason, "evidence": {}});
+        self.append(EventType::RunParked, parked, None)?;
+        let state = fold(&self.store.load(&self.run_id)?)?;
+        Ok(DriveEnd { state })
     }
 
     fn advance_running(
@@ -2621,6 +2692,9 @@ mod artifact_gate_tests;
 
 #[cfg(test)]
 mod conclude_tests;
+
+#[cfg(test)]
+mod contention_tests;
 
 #[cfg(test)]
 mod secret_threading_tests;

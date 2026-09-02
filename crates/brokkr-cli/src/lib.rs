@@ -833,15 +833,65 @@ fn driver_extra_args(args: Vec<String>) -> Vec<String> {
     }
 }
 
+/// A peer still held the shared journal's write lock when this process
+/// ran out of patience for it. Its own exit code because it is its own
+/// thing: nothing was written, nothing is wrong, and the same command
+/// run again is likely to land. Distinct from 1 (a defect), from 2 (a
+/// park the run itself decided on) and from 3 (stopped).
+pub const CONTENDED_EXIT: u8 = 4;
+
+/// Did this error come from a peer holding the journal's lock?
+///
+/// Asked of the whole chain and answered by the store's own typed
+/// predicate — never by matching error text. Both shapes it arrives in
+/// are asked: a `StoreError` raised straight out of a store call, and
+/// one an `EngineError` carries — the latter needs asking separately
+/// because that variant is `transparent`, which puts the store error's
+/// own source in the chain and the store error itself nowhere in it.
+///
+/// A contention that reached here wrote nothing, so there is no
+/// half-done work to describe.
+fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
+    error.chain().find_map(|link| {
+        link.downcast_ref::<brokkr_store::StoreError>()
+            .filter(|store| store.is_contention())
+            .or_else(|| {
+                link.downcast_ref::<brokkr_runtime::EngineError>()
+                    .and_then(brokkr_runtime::EngineError::contention)
+            })
+    })
+}
+
+/// How a failed command leaves: one line for an operator and one exit
+/// code, chosen by what the error IS.
+///
+/// The bug this closes ended here. A `database is locked` used to arrive
+/// as an anonymous error, print `error: {e:#}` and exit 1 —
+/// indistinguishable from any other defect — and an engine that had
+/// journaled nineteen good events simply vanished. Contention says its
+/// own name now, says that nothing was lost, and carries its own code.
+fn report(error: &anyhow::Error) -> ExitCode {
+    match contention(error) {
+        Some(store) => {
+            eprintln!(
+                "contended: {store}\nA peer is writing this journal. Nothing was \
+                 written and nothing was lost — resume when it is done."
+            );
+            ExitCode::from(CONTENDED_EXIT)
+        }
+        None => {
+            eprintln!("error: {error:#}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// The binary's entry: one parse, one command set, one set of exit
 /// codes. There is one bin now — decision 0019 ruling 9's shim is gone.
 pub fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(code) => code,
-        Err(e) => {
-            eprintln!("error: {e:#}");
-            ExitCode::from(1)
-        }
+        Err(e) => report(&e),
     }
 }
 

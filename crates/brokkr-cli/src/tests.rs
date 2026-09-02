@@ -2910,3 +2910,50 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         "a quoted reason opened a line of its own: {drawn}",
     );
 }
+
+/// The bug's last mile: a `database is locked` used to reach `main()` as
+/// an anonymous error, print `error: {e:#}` and return 1 — the same exit
+/// a genuine defect gets, from a process that had journaled nineteen
+/// good events and then simply vanished. Contention has its own exit
+/// code now, and it is found by the store's own predicate rather than by
+/// reading error text: through an `EngineError`, through an `anyhow`
+/// context, as deep as a real call stack puts it.
+#[test]
+fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() {
+    let contended = || brokkr_store::StoreError::Contended {
+        operation: "append",
+        waited_ms: 30_000,
+    };
+    let moved = || brokkr_store::StoreError::HeadMoved {
+        expected_seq: 4,
+        found_seq: 5,
+    };
+
+    // Through an engine, under a context, as deep as a real call stack
+    // puts it.
+    let deep = anyhow::Error::from(brokkr_runtime::EngineError::Store(contended()))
+        .context("driving run r1");
+    let found = contention(&deep).expect("contention buried in a chain is still contention");
+    assert!(found.is_contention());
+    assert!(found.to_string().contains("nothing was written"));
+    assert_eq!(report(&deep), ExitCode::from(CONTENDED_EXIT));
+
+    // And straight out of a store call, which is how every reading verb
+    // in this file would meet one.
+    let bare: anyhow::Error = contended().into();
+    assert!(contention(&bare).is_some());
+
+    // The fenced-append refusal next door is NOT contention, by either
+    // road: it is a verdict about content, and giving it the retryable
+    // exit code would invite exactly the retry decision 0029 forbids.
+    let moved_bare: anyhow::Error = moved().into();
+    assert!(contention(&moved_bare).is_none());
+    let moved_engine: anyhow::Error = brokkr_runtime::EngineError::Store(moved()).into();
+    assert!(contention(&moved_engine).is_none());
+
+    // And neither is an ordinary defect, which keeps the exit it had.
+    let defect = anyhow::anyhow!("a real defect");
+    assert!(contention(&defect).is_none());
+    assert_eq!(report(&defect), ExitCode::from(1));
+    assert_eq!(CONTENDED_EXIT, 4);
+}
