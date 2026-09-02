@@ -40,7 +40,7 @@ The two behaviours, side by side:
 ## The deepseek lane
 
 `implement` is driven by the **dsh** adapter: `{brokkr} driver dsh --
---model deepseek-v4-flash`. It is lawful under decision 0021 as it
+--model deepseek/deepseek-v4-flash`. It is lawful under decision 0021 as it
 stands — `dsh` is `trust_tier: "untrusted"`, and ruling 7 admits an
 untrusted driver to a **work** seat freely; `implement` is `class:
 "work"` and carries no `secrets` key, so neither compile-time

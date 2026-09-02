@@ -296,6 +296,98 @@ fn needs_adapters(value: &Value) -> bool {
     }
 }
 
+/// The model-bearing built-in named by one raw driver command. Custom
+/// drivers own their own contract; exec has no model to pin.
+fn built_in_model_driver(raw: &Value) -> Option<&str> {
+    let command = raw.pointer("/driver/command").and_then(Value::as_array)?;
+    if command.get(1).and_then(Value::as_str) != Some("driver") {
+        return None;
+    }
+    match command.get(2).and_then(Value::as_str) {
+        Some(kind @ ("claude" | "lanetally" | "codex" | "dsh")) => Some(kind),
+        _ => None,
+    }
+}
+
+fn command_pins_model(raw: &Value) -> bool {
+    let concrete = |model: &str| {
+        !model.is_empty()
+            && !model.starts_with('-')
+            && model.chars().count() <= 80
+            && model
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'))
+    };
+    let Some(command) = raw.pointer("/driver/command").and_then(Value::as_array) else {
+        return false;
+    };
+    let mut pin = None;
+    let mut parts = command.iter().filter_map(Value::as_str);
+    while let Some(part) = parts.next() {
+        if part == "--model" {
+            let Some(model) = parts.next().filter(|model| concrete(model)) else {
+                return false;
+            };
+            if pin.replace(model).is_some() {
+                return false;
+            }
+        }
+        if let Some(model) = part.strip_prefix("--model=") {
+            if !concrete(model) || pin.replace(model).is_some() {
+                return false;
+            }
+        }
+    }
+    pin.is_some()
+}
+
+/// Inspect every driver-bearing invocation site in the already composed
+/// bundle. Agent references are pinned by their resolved candidate
+/// chains; inline built-ins must state the concrete pin in their argv.
+fn collect_unpinned(what: &str, raw: &Value, out: &mut Vec<String>) {
+    if raw.get("agent").is_some() {
+        return;
+    }
+    if built_in_model_driver(raw).is_some() && !command_pins_model(raw) {
+        out.push(what.to_string());
+        return;
+    }
+    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
+        for (member, member_raw) in panel {
+            collect_unpinned(&format!("{what}:{member}"), member_raw, out);
+        }
+    }
+    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
+        for (index, step) in sequence.iter().enumerate() {
+            let name = step
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("step-{}", index + 1));
+            collect_unpinned(&format!("{what}:{name}"), step, out);
+        }
+    }
+}
+
+fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
+    let mut unpinned = Vec::new();
+    for (phase, raw) in seats {
+        collect_unpinned(phase, raw, &mut unpinned);
+    }
+    if unpinned.is_empty() {
+        return Ok(());
+    }
+    let labels = unpinned
+        .iter()
+        .map(|site| format!("'{site}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(CompileError::Invalid(format!(
+        "seats {labels} do not pin a model; add '--model <concrete-model-id>' to each \
+         driver.command (decision 0031 ruling 2)"
+    )))
+}
+
 impl Bundle {
     /// Compile against the default `agents/` and `adapters/` roots.
     pub fn compile(dir: &Path) -> Result<Bundle, CompileError> {
@@ -343,6 +435,10 @@ impl Bundle {
         let config = &resolved.document;
         let name = resolved.name.clone();
         let table = resolved.table.clone();
+        // One refusal names the complete repair set. Running this on the
+        // flattened seats also means inherited omissions cannot hide in
+        // a composition layer.
+        enforce_model_pins(&resolved.seats)?;
         let machine = Machine::from_table(&table)?;
 
         let protected_phase = config

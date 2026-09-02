@@ -410,8 +410,15 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     if seats.is_empty() {
         return String::new();
     }
-    let header = ["participant", "status", "attempts", "turns", "cost"];
-    let mut rows: Vec<[Safe; 6]> = Vec::new();
+    let header = [
+        "participant",
+        "status",
+        "attempts",
+        "turns",
+        "cost",
+        "model",
+    ];
+    let mut rows: Vec<[Safe; 7]> = Vec::new();
     for part in &seats {
         rows.push([
             Safe::new(&part.label),
@@ -419,10 +426,11 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.attempts.to_string()),
             Safe::new(&part.turns_cell.text),
             Safe::new(&part.cost_cell.text),
+            Safe::new(&part.model.text),
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 5];
+    let mut widths = [0usize; 6];
     for (index, name) in header.iter().enumerate() {
         widths[index] = name.chars().count();
     }
@@ -452,10 +460,10 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             });
             line.push(' ');
         }
-        line.push_str(&brokkr_view::clamp(row[5].as_str(), remaining));
+        line.push_str(&brokkr_view::clamp(row[6].as_str(), remaining));
         push_line(&mut out, &line);
-        // Which agent, model and provider actually served this seat
-        // (decision 0016). The sentence comes from the single
+        // Which agent resolution selected this seat (decision 0016).
+        // The sentence comes from the single
         // derivation; this surface only indents it.
         if let Some(provenance) = &part.provenance {
             push_line(
@@ -486,11 +494,18 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("trail\n");
     for row in &rows {
+        let model = if row.model.absent {
+            String::new()
+        } else {
+            format!(" · model {}", Safe::new(&row.model.text).as_str())
+        };
+        let what_width = remaining.saturating_sub(model.chars().count());
         let line = format!(
-            "  {:>seq_width$} {} {}",
+            "  {:>seq_width$} {} {}{}",
             row.seq,
             Safe::new(&row.event_type).padded(type_width),
-            brokkr_view::clamp(Safe::new(&row.what.text).as_str(), remaining),
+            brokkr_view::clamp(Safe::new(&row.what.text).as_str(), what_width),
+            model,
         );
         push_line(&mut out, &line);
     }
@@ -532,9 +547,10 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
                 push_line(
                     &mut out,
                     &format!(
-                        "    → {} · {}",
+                        "    → {} · {} · model {}",
                         Safe::new(label).as_str(),
-                        Safe::new(&node.state).as_str()
+                        Safe::new(&node.state).as_str(),
+                        Safe::new(&node.model.text).as_str()
                     ),
                 );
             } else {
@@ -547,9 +563,10 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
                     push_line(
                         &mut out,
                         &format!(
-                            "      {} · {}",
+                            "      {} · {} · model {}",
                             Safe::new(&node.label).as_str(),
-                            Safe::new(&node.state).as_str()
+                            Safe::new(&node.state).as_str(),
+                            Safe::new(&node.model.text).as_str()
                         ),
                     );
                 }

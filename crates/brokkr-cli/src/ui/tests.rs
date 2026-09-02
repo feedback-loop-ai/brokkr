@@ -948,7 +948,7 @@ fn the_console_serves_and_paints_agent_provenance() {
     assert!(provenance["line"]
         .as_str()
         .unwrap()
-        .contains("intake · opus via claude"));
+        .contains("intake · selected opus via claude"));
     let notices = parsed["notices"].as_array().unwrap();
     assert_eq!(notices.len(), 2);
     assert_eq!(notices[0]["kind"], "capability-gap");

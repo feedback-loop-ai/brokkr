@@ -66,27 +66,27 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "5a4e59fe854f1dcdc450720592aadbac7a9e803b4a7c10d3bdce5210457c790b",
+        "5b38ac406e18b3c2138740040515ff68ff623e20baf974261e9f3f73fb690475",
     ),
     (
         "recipes/node",
-        "6b93c0cd29a1d6b4e7fda0c98e2e1723c505fc262cc50b493e236bf5b28daae7",
+        "78adff80ecd1a0bb9d0ae1f3e7ff015f3b8f8d6dcc170e28d1c99ce6a61c54dd",
     ),
     (
         "recipes/preflight",
-        "9e8f664fa5a0dd13503716a869aa4537552a02a155b74b970edcf4b815013105",
+        "4bf573ee0586c53285a91f239d0356d17c1fc8288b49eff6dd4f3aeca8643a81",
     ),
     (
         "recipes/ember",
-        "df2c1ee60203094b5877020ae033a1d84ec78187f24526c7234d9dea2be4841b",
+        "d6773384e750d3b70819895e9e19944d6f4aec39b584099442c1115c13445c19",
     ),
     (
         "recipes/crucible",
-        "c816b1d20c548da0c6a29a8b521edb79d2d37bf71dcdee238944925c99503234",
+        "fcb2a65f500a09e43572e37926d1873c854d4fe3e70151a374116f06edcf2647",
     ),
     (
         "recipes/night-shift",
-        "579bc0f1034884dc8d3b574d6c0b7821bed644b643ae5fd01bada5921b49a0bd",
+        "5bfaab37a51b09b387c0400376f1b2b4d9eb54d8e4549a73368700365d756169",
     ),
     (
         // Re-pinned when the 0021 addendum (2026-09-02) made the
@@ -95,11 +95,11 @@ const WITNESSES: [(&str, &str); 8] = [
         // stopped being true. `bundle.json` is untouched — only the
         // README moved, and the README is manifest input.
         "recipes/wager-harness",
-        "4c8dd70166315f42729ddd51a80c58f282bf89161d3f3aa27e2b4f027f14390c",
+        "e91dd8e2a728f3b4c72d84cbaa3cea20a9af960252befc46f7c11fe10221b779",
     ),
     (
         "bundles/verify",
-        "1ce203798837d848513c97a93c1258679d2c78713542bc96bcae1b0f53984126",
+        "05b40fe006ac31bb5cfeecb8b5c503d28166a8bb79600d481f5b3ed715a8b874",
     ),
 ];
 

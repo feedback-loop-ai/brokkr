@@ -155,10 +155,10 @@ fn driver_command(effect_id: &str, attempt_id: &str, outcome: AttemptOutcome) ->
         AttemptOutcome::Indeterminate { .. } => None,
     };
     let mut script = format!(
-        "read line; printf '%s\\n' '{capabilities}'; read line; printf '%s\\n' '{accepted}'; printf '%s\\n' '{checkpoint}'"
+        "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}'; printf '%s\\n' '{checkpoint}'"
     );
     if let Some(terminal) = terminal {
-        script.push_str(&format!("; printf '%s\\n' '{terminal}'; read line"));
+        script.push_str(&format!("; printf '%s\\n' '{terminal}'; read -r line"));
     }
     vec!["sh".into(), "-c".into(), script]
 }
@@ -2061,9 +2061,9 @@ fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
         "sh".into(),
         "-c".into(),
         format!(
-            "read line; printf '%s\\n' '{capabilities}'; read line; printf '%s\\n' \
+            "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' \
              '{accepted}'; printf '%s\\n' '{first}'; printf '%s\\n' '{second}'; \
-             printf '%s\\n' '{terminal}'; read line"
+             printf '%s\\n' '{terminal}'; read -r line"
         ),
     ]
 }
@@ -2870,9 +2870,9 @@ fn capturing_driver_command(
         "sh".into(),
         "-c".into(),
         format!(
-            "read hello; printf '%s\\n' '{capabilities}'; read start; \
+            "read -r hello; printf '%s\\n' '{capabilities}'; read -r start; \
              printf '%s' \"$start\" > '{path}'; printf '%s\\n' '{accepted}'; \
-             printf '%s\\n' '{terminal}'; read line"
+             printf '%s\\n' '{terminal}'; read -r line"
         ),
     ]
 }

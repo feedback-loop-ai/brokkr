@@ -23,6 +23,8 @@ use crate::secret;
 use crate::{Body, Message, ResultStatus};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const MODEL_NOT_REPORTED: &str = "not reported";
+pub const MODEL_NOT_APPLICABLE: &str = "not applicable";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterKind {
@@ -120,6 +122,51 @@ struct Invocation {
     stderr: String,
 }
 
+/// Provider-reported model ids are journal data, so admit only the
+/// identifier alphabet providers use and clamp them before they cross
+/// the driver boundary. In particular, no model output or diagnostic
+/// prose can become a model label.
+fn model_token(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty()
+        || raw.chars().count() > 80
+        || !raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'))
+    {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
+/// The built-in harnesses have used each of these envelopes for usage
+/// reports. This reads only a string in a named model field; it never
+/// scans prose or substitutes the configured pin.
+fn model_in_json(event: &Value) -> Option<String> {
+    [
+        "/model",
+        "/message/model",
+        "/usage/model",
+        "/data/model",
+        "/data/usage/model",
+        "/data/message/source/model",
+        "/message/source/model",
+    ]
+    .into_iter()
+    .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+    .and_then(model_token)
+}
+
+/// Codex releases which omit the model from JSONL name it in the
+/// driver's own launch/usage header. The anchored `model:` field is the
+/// only stderr text admitted as evidence.
+fn model_in_header(stderr: &str) -> Option<String> {
+    stderr
+        .lines()
+        .rev()
+        .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))
+}
+
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
     match result {
         Ok(value) => Ok(value),
@@ -213,6 +260,10 @@ fn fold_stream_event(
         }
         Some("assistant") => {
             *assistant_turns += 1;
+            let model = model_in_json(event);
+            if let Some(model) = &model {
+                session_meta.insert("model".into(), Value::String(model.clone()));
+            }
             let blocks = event.pointer("/message/content").and_then(Value::as_array);
             let tool_uses = blocks
                 .into_iter()
@@ -222,6 +273,14 @@ fn fold_stream_event(
                 let mut checkpoint = Map::new();
                 checkpoint.insert("step".into(), Value::String("seat-turn".into()));
                 checkpoint.insert("turn".into(), Value::from(*assistant_turns));
+                checkpoint.insert(
+                    "model".into(),
+                    Value::String(
+                        model
+                            .clone()
+                            .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
+                    ),
+                );
                 let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
                 checkpoint.insert(
                     "tool".into(),
@@ -242,6 +301,9 @@ fn fold_stream_event(
             }
         }
         Some("result") => {
+            if let Some(model) = model_in_json(event) {
+                session_meta.insert("model".into(), Value::String(model));
+            }
             for key in ["num_turns", "total_cost_usd"] {
                 if let Some(value) = event.get(key) {
                     session_meta.insert(key.to_string(), value.clone());
@@ -296,10 +358,18 @@ fn fold_codex_event(
         }
         Some("turn.completed") => {
             let usage = event.get("usage").unwrap_or(&Value::Null);
+            let model = model_in_json(event);
+            if let Some(model) = &model {
+                session_meta.insert("model".into(), Value::String(model.clone()));
+            }
             let mut checkpoint = Map::new();
             checkpoint.insert("step".into(), Value::String("turn-completed".into()));
             checkpoint.insert("turn".into(), Value::from(*turn));
             checkpoint.insert("harness".into(), Value::String("codex".into()));
+            checkpoint.insert(
+                "model".into(),
+                Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
+            );
             for (source, target) in [
                 ("input_tokens", "input_tokens"),
                 ("cached_input_tokens", "cache_read_tokens"),
@@ -323,6 +393,9 @@ fn fold_codex_event(
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
+            if let Some(model) = model_in_json(event) {
+                session_meta.insert("model".into(), Value::String(model));
+            }
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
                 session_meta.insert(
                     "session_id".into(),
@@ -444,10 +517,22 @@ fn fold_dsh_event(
         Some("assistant/message") => {
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
+            // The served model, from the harness's own record of the
+            // response (`data.message.source.model`), never from the pin
+            // (decision 0031): the last reported one becomes the seat's
+            // served model, and a step that names none says so.
+            let model = model_in_json(event);
+            if let Some(model) = &model {
+                session_meta.insert("model".into(), Value::String(model.clone()));
+            }
             let mut checkpoint = Map::new();
             checkpoint.insert("step".into(), Value::String("seat-turn".into()));
             checkpoint.insert("turn".into(), Value::from(*turns));
             checkpoint.insert("harness".into(), Value::String("deepseek".into()));
+            checkpoint.insert(
+                "model".into(),
+                Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
+            );
             let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
             let cache_read = usage
                 .get(DSH_INPUT_CACHE_READ)
@@ -996,10 +1081,16 @@ fn invoke_codex(
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    let stderr = stderr_thread.join().unwrap_or_default();
+    if !session_meta.contains_key("model") {
+        if let Some(model) = model_in_header(&stderr) {
+            session_meta.insert("model".into(), Value::String(model));
+        }
+    }
     Ok(Invocation {
         exit_code: status.code().unwrap_or(-1),
         session_meta,
-        stderr: stderr_thread.join().unwrap_or_default(),
+        stderr,
     })
 }
 
@@ -1054,7 +1145,8 @@ fn invoke_dsh_with(
         "step":"harness-started",
         "harness":"deepseek",
         "profile":"headless",
-        "model": model,
+        // The pin travels in the manifest, not here: "model" on a seat's
+        // checkpoints means what SERVED (decision 0031).
         // A directory path, within the same 80-char clamp every target
         // takes: while the seat works, the journal alone says where its
         // live transcript is, which is what a `brokkr watch` drilldown
@@ -1095,9 +1187,8 @@ fn invoke_dsh_with(
     )?;
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
-    if let Some(model) = model {
-        session_meta.insert("model".into(), Value::String(model));
-    }
+    // No pin lands in session_meta: "model" there is only ever what the
+    // transcript said served (decision 0031).
     Ok(Invocation {
         exit_code,
         session_meta,
@@ -1604,15 +1695,32 @@ fn run_seat(
             return;
         }
     };
-    let stderr_tail_start = stderr_tail_start(&invocation.stderr);
-    eprint!("{}", &invocation.stderr[stderr_tail_start..]);
+    let Invocation {
+        exit_code,
+        session_meta,
+        stderr,
+    } = invocation;
+    let served_model = if kind == AdapterKind::Exec {
+        MODEL_NOT_APPLICABLE.to_string()
+    } else {
+        session_meta
+            .get("model")
+            .and_then(Value::as_str)
+            .and_then(model_token)
+            .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())
+    };
+    let stderr_tail_start = stderr_tail_start(&stderr);
+    eprint!("{}", &stderr[stderr_tail_start..]);
     let mut checkpoint = Map::new();
     checkpoint.insert(
         "step".into(),
         Value::String(format!("{}-session-finished", kind.driver_name())),
     );
-    checkpoint.insert("exit_code".into(), Value::from(invocation.exit_code));
-    checkpoint.extend(invocation.session_meta);
+    checkpoint.insert("exit_code".into(), Value::from(exit_code));
+    checkpoint.extend(session_meta);
+    // Inserted after driver metadata: this field is always the normalized
+    // provider report, never a configured default supplied by the seat.
+    checkpoint.insert("model".into(), Value::String(served_model.clone()));
     // Ledger-capture marker: a source-literal CONSTANT, never
     // data-derived, inserted AFTER the session_meta extend so
     // last-write-wins guarantees no stream-derived key can ever shadow
@@ -1627,13 +1735,13 @@ fn run_seat(
         data: Value::Object(checkpoint),
     });
 
-    if invocation.exit_code != 0 {
+    if exit_code != 0 {
         send(Body::Result {
             effect_id,
             attempt_id,
             status: ResultStatus::Failed,
             result: None,
-            error: Some(format!("agent CLI exited {}", invocation.exit_code)),
+            error: Some(format!("agent CLI exited {exit_code}")),
         });
         return;
     }
@@ -1656,10 +1764,16 @@ fn run_seat(
     let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
     // raw evidence (decision 0001); adapters repair nothing.
-    let seat_result = match serde_json::from_str::<Value>(&raw) {
+    let mut seat_result = match serde_json::from_str::<Value>(&raw) {
         Ok(result) => result,
         Err(error) => json!({"__unparseable_result_file__": error.to_string()}),
     };
+    // Result contracts are objects. Enrich the driver's copy with the
+    // provider report after masking/parsing so seat-authored content can
+    // neither forge nor suppress the model in the final result.
+    if let Some(result) = seat_result.as_object_mut() {
+        result.insert("model".into(), Value::String(served_model));
+    }
     send(Body::Result {
         effect_id,
         attempt_id,

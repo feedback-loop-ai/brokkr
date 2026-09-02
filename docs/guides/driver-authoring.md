@@ -253,8 +253,11 @@ full session transcript stays wherever your harness put it.
 
 Two field names are read by `brokkr costs` if you supply them:
 `num_turns` (summed into the seat's turn count) and `total_cost_usd`
-(summed into its cost). Anything else in `data` is journaled and
-displayed but not aggregated.
+(summed into its cost). A third, `model`, is the provider-reported model
+id displayed by every read surface (decision 0031). Put it on every
+turn checkpoint. If the harness cannot report it, write the literal
+`not reported`; never copy the configured pin or adapter default into
+this evidentiary field. A model-free driver writes `not applicable`.
 
 **Every driver speaks per turn, not only at exit.** This is the standard
 each built-in driver meets and the one a new driver is held to: every
@@ -334,6 +337,7 @@ has its own shape:
 | `result` | **Required string**, and it must be one of the seat's declared `results`. Anything else — a non-object payload, a missing `result` string, or a string outside the vocabulary — fails schema validation and **parks** the run with the raw evidence attached. It is never repaired, coerced, or handed to a model to fix. |
 | `inputs` | Optional typed facts for the table. Only the seat's **declared** inputs survive; engine-owned keys and undeclared claims are dropped before evaluation and never enter the journal record (decision 0007). |
 | `notes` | Optional human summary. Display and evidence only. |
+| `model` | The provider-reported served model, under the same rules as checkpoint `model`; required of new driver results by decision 0031 even though the v1 result object remains extensible for wire compatibility. |
 
 Your driver does not decide the next phase and should not try to. It
 reports a typed result; the pinned policy table rules.
@@ -376,7 +380,9 @@ The adapters then:
    `result_path` and the `allowed_results` vocabulary verbatim.
 2. Spawn the agent CLI with that prompt (on stdin, or written to a file
    and passed as `{prompt_file}`).
-3. On exit: a nonzero exit code is a `failed` result naming the code. A
+3. Enrich the parsed result object with the served `model` learned from
+   the harness; the agent-authored file does not supply this field.
+4. On exit: a nonzero exit code is a `failed` result naming the code. A
    missing result file is a `failed` result with `seat wrote no result
    file (the result contract was not met)`. An unparseable one is
    reported as a succeeded result whose payload is

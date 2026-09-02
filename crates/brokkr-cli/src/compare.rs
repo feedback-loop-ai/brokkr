@@ -5,7 +5,7 @@
 //! manifest — no bundle recompilation, no writes, no timestamp-derived
 //! semantics (`recorded_at` is evidence only).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -21,7 +21,7 @@ use serde_json::{json, Map, Value};
 /// report map and the total cost.
 pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
     let mut effect_seat: BTreeMap<String, String> = BTreeMap::new();
-    let mut seats: BTreeMap<String, (u64, u64, f64)> = BTreeMap::new();
+    let mut seats: BTreeMap<String, (u64, u64, f64, BTreeSet<String>)> = BTreeMap::new();
     for event in events {
         let payload = &event.payload;
         match event.event_type {
@@ -59,18 +59,39 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                         .get("total_cost_usd")
                         .and_then(Value::as_f64)
                         .unwrap_or(0.0);
+                    if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
+                        entry.3.insert(model.to_string());
+                    }
+                }
+            }
+            EventType::EffectSucceeded => {
+                let seat = payload
+                    .get("effect_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| effect_seat.get(id))
+                    .cloned();
+                if let (Some(seat), Some(model)) = (
+                    seat,
+                    payload.pointer("/result/model").and_then(Value::as_str),
+                ) {
+                    seats.entry(seat).or_default().3.insert(model.to_string());
                 }
             }
             _ => {}
         }
     }
-    let total: f64 = seats.values().map(|(_, _, c)| c).sum();
+    let total: f64 = seats.values().map(|(_, _, c, _)| c).sum();
     let report: Map<String, Value> = seats
         .into_iter()
-        .map(|(seat, (attempts, turns, cost))| {
+        .map(|(seat, (attempts, turns, cost, models))| {
+            let model = match models.len() {
+                0 => "not reported".to_string(),
+                1 => models.into_iter().next().expect("one model"),
+                _ => models.into_iter().collect::<Vec<_>>().join(", "),
+            };
             (
                 seat,
-                json!({"attempts": attempts, "turns": turns, "cost_usd": cost}),
+                json!({"attempts": attempts, "turns": turns, "cost_usd": cost, "model": model}),
             )
         })
         .collect();
@@ -86,7 +107,8 @@ struct RunFacts {
     trail: Vec<String>,
     total_cost: f64,
     attempts: u64,
-    /// Participant label → what actually served it (decision 0016).
+    /// Participant label → the provider-reported model and the distinct
+    /// agent-selection provenance.
     /// Computed by CALLING the `brokkr-view` derivation rather than
     /// re-deriving here, so `compare` cannot describe a fallback
     /// differently from every other readout.
@@ -99,19 +121,20 @@ fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
     brokkr_view::run_view(events, None)
         .participants
         .into_iter()
-        .filter_map(|part| {
-            part.provenance.map(|provenance| {
-                (
-                    part.label,
-                    json!({
-                        "agent": provenance.agent,
-                        "model": provenance.model,
-                        "provider": provenance.provider,
-                        "chain_index": provenance.chain_index,
-                        "fallback": provenance.fallback,
-                    }),
-                )
-            })
+        .map(|part| {
+            let selected = part.provenance.map(|provenance| {
+                json!({
+                    "agent": provenance.agent,
+                    "model": provenance.model,
+                    "provider": provenance.provider,
+                    "chain_index": provenance.chain_index,
+                    "fallback": provenance.fallback,
+                })
+            });
+            (
+                part.label,
+                json!({"model": part.model.text, "selected": selected}),
+            )
         })
         .collect()
 }

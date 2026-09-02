@@ -179,3 +179,34 @@ fn doctor_reports_health_and_validates_a_bundle() {
     assert_eq!(code, Some(1), "doctor output: {stdout}");
     assert!(stdout.contains("MISSING  bundle"));
 }
+
+#[test]
+fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    let bundle_file = bundle.join("bundle.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&bundle_file).unwrap()).unwrap();
+    for (phase, charter, kind) in [
+        ("implement", "implementer", "claude"),
+        ("verify", "verifier", "codex"),
+    ] {
+        let seat = &mut config["seats"][phase];
+        seat.as_object_mut().unwrap().remove("agent");
+        seat["role"] = serde_json::json!(format!("agents/charters/{charter}.md"));
+        seat["driver"] = serde_json::json!({
+            "command": ["{brokkr}", "driver", kind, "--"]
+        });
+    }
+    std::fs::write(&bundle_file, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    let db = dir.path().join("forge.db");
+    let (code, stdout, _) = brokkr(
+        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
+        &bundle,
+    );
+    assert_eq!(code, Some(1), "{stdout}");
+    assert!(stdout.contains("'implement'"), "{stdout}");
+    assert!(stdout.contains("'verify'"), "{stdout}");
+    assert!(stdout.contains("--model <concrete-model-id>"), "{stdout}");
+}

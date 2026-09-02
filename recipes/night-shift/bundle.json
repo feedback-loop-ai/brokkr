@@ -29,7 +29,7 @@
           "dsh",
           "--",
           "--model",
-          "deepseek-v4-flash"
+          "deepseek/deepseek-v4-flash"
         ]
       }
     },

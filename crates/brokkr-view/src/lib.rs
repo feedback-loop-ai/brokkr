@@ -38,7 +38,7 @@ use serde_json::Value;
 /// `returns` — the roads back decision 0022 made real. The precedent is
 /// 0016's: an additive model field moves the wire version, because a
 /// consumer pinning the old one is entitled to know the shape grew.
-pub const VIEW_VERSION: u32 = 3;
+pub const VIEW_VERSION: u32 = 4;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -179,13 +179,15 @@ pub struct Activity {
 pub struct CheckpointRow {
     pub turn: Cell,
     pub step: String,
+    pub model: Cell,
     pub target: Cell,
     pub target_full: Option<String>,
     pub recorded_at: String,
 }
 
-/// Which agent, model and provider actually served one invocation
-/// (decision 0016). Derived HERE and nowhere else: `line` is the
+/// Which agent resolution selected one invocation's adapter and pinned
+/// model (decision 0016). This is plan provenance, deliberately distinct
+/// from the provider-reported served model on [`Participant`]. `line` is the
 /// rendered sentence every surface prints, so no surface can decide on
 /// its own how to describe a fallback — or quietly stop mentioning one.
 #[derive(Serialize, Clone, PartialEq, Eq)]
@@ -226,13 +228,15 @@ pub struct Participant {
     pub cost: Option<f64>,
     pub cost_aggregated: bool,
     pub cost_cell: Cell,
+    /// The provider-reported model. No adapter default or abstract agent
+    /// choice is substituted when the journal carries no such report.
+    pub model: Cell,
     pub activity: Activity,
     pub member_count: usize,
     pub session_id: Option<String>,
     pub terminal_line: Cell,
     pub checkpoints: Vec<CheckpointRow>,
-    /// Absent for an inline seat: the journal carries no claim about
-    /// which model served it, and the view invents none.
+    /// Absent for an inline seat: it has no agent-resolution provenance.
     pub provenance: Option<Provenance>,
 }
 
@@ -248,6 +252,7 @@ pub struct Node {
     pub key: String,
     pub state: String,
     pub state_class: String,
+    pub model: Cell,
 }
 
 #[derive(Serialize)]
@@ -300,6 +305,7 @@ pub struct JournalRow {
     pub phases: Vec<String>,
     pub what: What,
     pub label: Cell,
+    pub model: Cell,
     pub payload_json: String,
 }
 
@@ -732,6 +738,8 @@ struct Build {
     /// The LAST attempt's provenance for this invocation site: what
     /// actually ran, which is the only thing a fallback is visible in.
     provenance: Option<Value>,
+    /// Last provider-reported model for this invocation site.
+    model: Option<String>,
     turns: Option<u64>,
     last_turn: Option<Value>,
     session: Option<Value>,
@@ -767,6 +775,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         label,
         member: member.map(str::to_string),
         provenance: None,
+        model: None,
         turns: None,
         last_turn: None,
         session: None,
@@ -848,6 +857,10 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                 // it does not clear `open`, set the status, or
                 // contribute a duration or a result token.
                 if field(payload, "attempt_id") == scan.effects[slot].open.as_deref() {
+                    if let Some(model) = payload.pointer("/result/model").and_then(Value::as_str) {
+                        let part = ensure(&mut scan, slot, effect_id, None);
+                        scan.parts[part].model = Some(model.to_string());
+                    }
                     let effect = &mut scan.effects[slot];
                     effect.open = None;
                     effect.terminal = terminal_status(event.event_type);
@@ -864,6 +877,9 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     .and_then(Value::as_str)
                     .map(str::to_string);
                 let part = ensure(&mut scan, slot, effect_id, member.as_deref());
+                if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
+                    scan.parts[part].model = Some(model.to_string());
+                }
                 scan.parts[part]
                     .checkpoints
                     .push((checkpoint.clone(), event.recorded_at.clone()));
@@ -1065,6 +1081,13 @@ fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
                 Some("not a numbered turn"),
             ),
             step,
+            model: cell_of(
+                checkpoint
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                Some("no served model recorded for this checkpoint"),
+            ),
             target: cell_of(
                 short,
                 Some("no target recorded — the journal carries file targets only"),
@@ -1249,6 +1272,23 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             (None, Some(tokens)) => Some(format!("{tokens_prefix}{}", fmt_tokens(tokens))),
             (None, None) => None,
         };
+        let model = match &part.model {
+            Some(model) => Some(model.clone()),
+            None if !members.is_empty() => {
+                let mut reported: Vec<&str> = members
+                    .iter()
+                    .filter_map(|member| member.model.as_deref())
+                    .collect();
+                reported.sort_unstable();
+                reported.dedup();
+                match reported.as_slice() {
+                    [] => None,
+                    [only] => Some((*only).to_string()),
+                    _ => Some(reported.join(", ")),
+                }
+            }
+            None => None,
+        };
         out.push(Participant {
             key: part.key.clone(),
             label: part.label.clone(),
@@ -1266,6 +1306,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             cost,
             cost_aggregated,
             cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
+            model: cell_of(model, Some("no served model recorded")),
             activity: activity_for(events, scan, part, members.len()),
             member_count: members.len(),
             session_id: part
@@ -1293,10 +1334,10 @@ fn provenance_of(entry: &Value) -> Provenance {
         .unwrap_or_default();
     let (agent, model, provider) = (text("agent"), text("model"), text("provider"));
     let line = match chain_index {
-        0 => format!("{agent} · {model} via {provider}"),
+        0 => format!("{agent} · selected {model} via {provider}"),
         // The chain is a fallback chain, not a portability claim.
         _ => format!(
-            "{agent} · {model} via {provider} (fallback #{chain_index}; \
+            "{agent} · selected {model} via {provider} (fallback #{chain_index}; \
              not the agent's first choice)"
         ),
     };
@@ -1535,6 +1576,10 @@ fn make_node(scan: &Scan, effect_id: &str, label: &str, tag: Option<&str>, done:
         key,
         state: state.to_string(),
         state_class: state_class.to_string(),
+        model: cell_of(
+            part.and_then(|part| part.model.clone()),
+            Some("no served model recorded"),
+        ),
     }
 }
 
@@ -1837,6 +1882,33 @@ fn journal_rows(events: &[EventEnvelope], scan: &Scan, buckets: &Buckets) -> Vec
         .iter()
         .map(|event| {
             let payload = &event.payload;
+            let recorded_model = payload
+                .pointer("/checkpoint/model")
+                .or_else(|| payload.pointer("/result/model"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    terminal_status(event.event_type)?;
+                    let effect_id = field(payload, "effect_id")?;
+                    let part = scan.by_key.get(effect_id)?;
+                    if let Some(model) = &scan.parts[*part].model {
+                        return Some(model.clone());
+                    }
+                    let effect_index = scan.parts[*part].effect_index;
+                    let mut models: Vec<&str> = scan
+                        .parts
+                        .iter()
+                        .filter(|candidate| candidate.effect_index == effect_index)
+                        .filter_map(|candidate| candidate.model.as_deref())
+                        .collect();
+                    models.sort_unstable();
+                    models.dedup();
+                    match models.as_slice() {
+                        [] => None,
+                        [only] => Some((*only).to_string()),
+                        _ => Some(models.join(", ")),
+                    }
+                });
             let mut phases: Vec<String> = Vec::new();
             for key in ["phase", "from"] {
                 if let Some(name) = field(payload, key) {
@@ -1866,6 +1938,7 @@ fn journal_rows(events: &[EventEnvelope], scan: &Scan, buckets: &Buckets) -> Vec
                 phases,
                 what: what_of(scan, event),
                 label: label_of(event),
+                model: cell_of(recorded_model, Some("no served model recorded")),
                 payload_json: match payload {
                     Value::Object(_) => payload.to_string(),
                     _ => "{}".to_string(),

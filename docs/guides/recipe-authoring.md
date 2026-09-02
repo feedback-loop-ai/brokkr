@@ -84,7 +84,8 @@ so it cannot smuggle a route around review.
   "limits": { "max_attempts": 2, "timeout_seconds": 5400 },
   "secrets": ["GITHUB_TOKEN"],
   "driver": {
-    "command": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"]
+    "command": ["{brokkr}", "driver", "claude", "--", "--model",
+                "claude-fable-5-1", "--permission-mode", "acceptEdits"]
   }
 }
 ```
@@ -105,6 +106,12 @@ and a `./`-prefixed entry is bundle-relative. `{forge}` is the same
 token under its pre-rename name; it still expands and warns once on
 stderr. The expansion is machine-local, which is why the manifest
 records driver *names*, never resolved argv.
+
+Every inline Claude, LaneTally, Codex, or dsh command must carry a
+non-empty `--model <concrete-model-id>` (decision 0031). Compilation
+refuses the complete set of unpinned invocation sites and names this
+same fix. Agent-backed seats satisfy the rule through their resolved
+candidate argv. Exec is model-free and needs no pin.
 
 **Engine-owned inputs are never seat-declarable.** `drift_detected`,
 `dirty_worktrees`, `reviewed_heads`, `realm_facts`, the

@@ -1195,6 +1195,22 @@ impl Engine {
                 AttemptOutcome::Failed { .. } => "failed",
                 AttemptOutcome::Indeterminate { .. } => "indeterminate",
             };
+            let model = match &report.outcome {
+                AttemptOutcome::Succeeded { result } => result
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                _ => None,
+            }
+            .or_else(|| {
+                report
+                    .checkpoints
+                    .iter()
+                    .rev()
+                    .find_map(|checkpoint| checkpoint.get("model").and_then(Value::as_str))
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "not reported".to_string());
             self.append(
                 EventType::EffectCheckpointed,
                 json!({
@@ -1204,6 +1220,7 @@ impl Engine {
                         "step": "panel-member-finished",
                         "member": format!("{tag_prefix}{name}"),
                         "outcome": kind,
+                        "model": model,
                         "session_ref": report.session_ref,
                         "inner_checkpoints": report.checkpoints.len(),
                     },
@@ -1359,6 +1376,11 @@ impl Engine {
                     return Ok(());
                 }
             };
+            let model = result
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or("not reported")
+                .to_string();
             if index + 1 == steps.len() {
                 self.append(
                     EventType::EffectSucceeded,
@@ -1374,6 +1396,7 @@ impl Engine {
                         "checkpoint": {
                             "step": "sequence-step-finished",
                             "step_name": step.name,
+                            "model": model,
                             "result": result,
                         },
                     }),

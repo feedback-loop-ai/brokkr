@@ -150,10 +150,40 @@ impl Fixture {
 
 /// An inline seat driven by `provider`, classed and bound as given.
 fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
+    let command = match provider {
+        "claude" | "lanetally" => json!([
+            "{brokkr}",
+            "driver",
+            provider,
+            "--",
+            "--model",
+            "claude-fable-5-1",
+            "true"
+        ]),
+        "codex" => json!([
+            "{brokkr}",
+            "driver",
+            provider,
+            "--",
+            "--model",
+            "gpt-5.6-sol",
+            "true"
+        ]),
+        "dsh" => json!([
+            "{brokkr}",
+            "driver",
+            provider,
+            "--",
+            "--model",
+            "deepseek-v4-flash",
+            "true"
+        ]),
+        _ => json!(["{brokkr}", "driver", provider, "--", "true"]),
+    };
     let mut value = json!({
         "role": "roles/role.md",
         "results": ["pass", "fail"],
-        "driver": {"command": ["{brokkr}", "driver", provider, "--", "true"]},
+        "driver": {"command": command},
     });
     if let Some(class) = class {
         value["class"] = json!(class);
@@ -162,6 +192,91 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
         value["secrets"] = secrets;
     }
     value
+}
+
+// -------------------------------- decision 0031: every model seat is pinned
+
+#[test]
+fn the_model_pin_refusal_names_every_inline_invocation_site_and_the_fix() {
+    let seats = json!({
+        "implement": {
+            "role": "roles/role.md",
+            "driver": {"command": ["{brokkr}", "driver", "claude", "--"]},
+        },
+        "review": {
+            "sequence": [
+                {"name": "codex-step", "role": "roles/role.md",
+                 "driver": {"command": ["{brokkr}", "driver", "codex", "--"]}},
+                {"name": "panel", "panel": {
+                    "dsh-member": {"role": "roles/role.md", "driver": {"command":
+                        ["{brokkr}", "driver", "dsh", "--"]}},
+                    "lane-member": {"role": "roles/role.md", "driver": {"command":
+                        ["{brokkr}", "driver", "lanetally", "--"]}}
+                }},
+                {"role": "roles/role.md",
+                 "driver": {"command": ["{brokkr}", "driver", "claude", "--"]}}
+            ]
+        }
+    });
+    let refusal = enforce_model_pins(seats.as_object().unwrap())
+        .unwrap_err()
+        .to_string();
+    for site in [
+        "'implement'",
+        "'review:codex-step'",
+        "'review:panel:dsh-member'",
+        "'review:panel:lane-member'",
+        "'review:step-3'",
+    ] {
+        assert!(refusal.contains(site), "{site}: {refusal}");
+    }
+    assert!(refusal.contains("--model <concrete-model-id>"), "{refusal}");
+    assert!(refusal.contains("0031 ruling 2"), "{refusal}");
+}
+
+#[test]
+fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() {
+    let seats = json!({
+        "claude": {"driver": {"command":
+            ["{brokkr}", "driver", "claude", "--", "--model", "claude-fable-5-1"]}},
+        "codex": {"driver": {"command":
+            ["{brokkr}", "driver", "codex", "--", "--model=gpt-5.6-sol"]}},
+        "exec": {"driver": {"command":
+            ["{brokkr}", "driver", "exec", "--", "true"]}},
+        "agent": {"agent": "implementer"},
+        "custom": {"driver": {"command": ["custom-driver"]}}
+    });
+    enforce_model_pins(seats.as_object().unwrap()).expect("every model invocation is pinned");
+
+    for command in [
+        json!(null),
+        json!(["{brokkr}", "driver", "claude", "--", "--model"]),
+        json!(["{brokkr}", "driver", "claude", "--", "--model", "--verbose"]),
+        json!(["{brokkr}", "driver", "claude", "--", "--model="]),
+        json!(["{brokkr}", "driver", "claude", "--", "--model", "one", "--model", "two"]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "one",
+            "--model=two"
+        ]),
+    ] {
+        assert!(
+            !command_pins_model(&json!({"driver":{"command":command}})),
+            "a missing, flag-shaped or ambiguous model is not a concrete pin"
+        );
+    }
 }
 
 // ------------------------------------------------- ruling 2: the gate
