@@ -257,7 +257,17 @@ None of the scripts carries an executable bit; each is invoked as
    cannot resolve a crate the registry has never seen, so the binstall
    metadata is correct and inert until a release publishes the crate.
    Whether Brokkr's crates belong on crates.io at all is the operator's
-   call, not this directory's.
+   call, not this directory's. If ruled yes: the workspace's sibling
+   dependencies already carry the version `cargo publish` requires, and
+   the crates go up in dependency order, each waiting for the registry
+   to index the one before —
+
+   ```sh
+   for crate in brokkr-core brokkr-store brokkr-protocol brokkr-view \
+                brokkr-runtime brokkr-bridge brokkr-cli; do
+     cargo publish -p "$crate" --locked
+   done
+   ```
 5. **The bootstrap spine.** The manager matrix landed as rows inside the
    quickstart's existing install section. When `slice-bootstrap` merges,
    its `| Step | Budget |` spine becomes the right home for them, and
