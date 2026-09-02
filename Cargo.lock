@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-bridge"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "brokkr-core",
  "brokkr-runtime",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "brokkr-bridge",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "hex",
  "serde",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-protocol"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-runtime"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "brokkr-core",
  "brokkr-protocol",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-store"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "brokkr-core",
  "rusqlite",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-view"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "brokkr-core",
  "serde",
