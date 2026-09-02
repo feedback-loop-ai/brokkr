@@ -243,6 +243,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         &prompt_template,
         "prompt",
         &json!({}),
+        None,
         &[],
         &mut |_| {},
         |_| Err("staging refused".into()),
@@ -261,6 +262,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         &[],
         "prompt",
         &json!({}),
+        None,
         &[],
         &mut |_| {},
     ) {
@@ -277,6 +279,7 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
         AdapterKind::Exec,
         &[],
         &json!({"effect_id":"effect", "attempt_id":"attempt"}),
+        None,
         &mut |body| messages.push(body),
     );
     assert!(matches!(messages[0], Body::Accepted { .. }));
@@ -303,6 +306,7 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
                 "result_path":result, "allowed_results":["complete"]
             }
         }),
+        None,
         &mut |body| messages.push(body),
     );
     assert!(matches!(
@@ -354,11 +358,11 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         (AdapterKind::Codex, "FORGE_CODEX_BIN"),
     ] {
         std::env::set_var(variable, &invalid);
-        assert!(invoke(kind, &[], "prompt", &json!({}), &[], &mut |_| {}).is_ok());
+        assert!(invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {}).is_ok());
 
         std::env::set_var(variable, &closed);
         let prompt = "x".repeat(1_000_000);
-        let error = match invoke(kind, &[], &prompt, &json!({}), &[], &mut |_| {}) {
+        let error = match invoke(kind, &[], &prompt, &json!({}), None, &[], &mut |_| {}) {
             Ok(_) => panic!("closed stdin must refuse prompt delivery"),
             Err(error) => error,
         };
@@ -405,8 +409,12 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     std::env::set_var("FORGE_LANETALLY_BIN", &shim);
     std::env::set_var("FORGE_CLAUDE_BIN", &shim);
     let mut bodies = Vec::new();
-    run_seat(AdapterKind::Lanetally, &[], &start, &mut |b| bodies.push(b));
-    run_seat(AdapterKind::Claude, &[], &start, &mut |b| bodies.push(b));
+    run_seat(AdapterKind::Lanetally, &[], &start, None, &mut |b| {
+        bodies.push(b)
+    });
+    run_seat(AdapterKind::Claude, &[], &start, None, &mut |b| {
+        bodies.push(b)
+    });
     match prior_lanetally {
         Some(value) => std::env::set_var("FORGE_LANETALLY_BIN", value),
         None => std::env::remove_var("FORGE_LANETALLY_BIN"),
@@ -550,6 +558,7 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         &extra,
         "the prompt",
         &json!({"workdir": dir.path()}),
+        None,
         &[],
         &mut |event| started.push(event.clone()),
     )
@@ -592,6 +601,7 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         &[],
         "p",
         &json!({"workdir": dir.path()}),
+        None,
         &[],
         &mut |event| started.push(event.clone()),
     )
@@ -685,5 +695,500 @@ fn dsh_model_overlay_reports_a_file_it_cannot_stage_or_write() {
     assert!(
         sealed.contains("could not write the dsh model overlay"),
         "{sealed}"
+    );
+}
+
+/// A codex thread id in the shape codex writes it, used wherever a test
+/// needs a plausible one.
+const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
+
+/// A stand-in codex that records the argv it was given and the prompt it
+/// was fed, then answers with the two events the fold reads.
+#[cfg(unix)]
+fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std::path::PathBuf {
+    let argv = argv.display();
+    executable(
+        dir,
+        name,
+        &format!(
+            "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\n\
+             cat >> {argv}.stdin\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":100,\
+             \"cached_input_tokens\":96,\"output_tokens\":4}}}}\\n'\n"
+        ),
+    )
+}
+
+#[cfg(unix)]
+fn recorded(argv: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(argv)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Pin the codex binary for one test and put back whatever was there.
+#[cfg(unix)]
+fn with_codex_bin<T>(shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
+    let prior = std::env::var_os("BROKKR_CODEX_BIN");
+    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
+    std::env::set_var("BROKKR_CODEX_BIN", shim);
+    std::env::remove_var("FORGE_CODEX_BIN");
+    let outcome = body();
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
+        None => std::env::remove_var("BROKKR_CODEX_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_CODEX_BIN", value);
+    }
+    outcome
+}
+
+/// The resume argv, whole: the subcommand, the seat's own sandbox class
+/// re-expressed as the config override `codex exec resume` accepts (it
+/// takes neither `-C` nor `-s`, verified against codex-cli 0.148.0), the
+/// rest of the seat's passthrough in order, the thread positionally, and
+/// `-` for the prompt — the only spelling that makes a resume read the
+/// prompt this driver writes to its stdin.
+#[cfg(unix)]
+#[test]
+fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = codex_shim(dir.path(), "codex", &argv);
+    let extra: Vec<String> = ["--sandbox", "read-only", "--model", "gpt-5.6-sol"]
+        .iter()
+        .map(|part| part.to_string())
+        .collect();
+    let mut emitted = Vec::new();
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "the prompt",
+            &json!({"workdir": dir.path()}),
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+
+    assert_eq!(
+        recorded(&argv),
+        [
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            "sandbox_mode=\"read-only\"",
+            "--model",
+            "gpt-5.6-sol",
+            THREAD,
+            "-",
+        ]
+    );
+    assert_eq!(
+        std::fs::read_to_string(format!("{}.stdin", argv.display())).unwrap(),
+        "the prompt"
+    );
+    assert_eq!(
+        emitted[0],
+        json!({"step":"harness-started", "harness":"codex", "launch":"resumed",
+               "session_id": THREAD, "sandbox":"read-only"}),
+        "the launch says which thread it rejoined under which class"
+    );
+    // The fold still reads the thread out of the resumed stream, so the
+    // NEXT attempt of this seat has an id to be offered in its turn.
+    assert_eq!(invocation.session_meta["session_id"], THREAD);
+    assert_eq!(invocation.session_meta["cache_read_tokens"], 96);
+    assert_eq!(invocation.exit_code, 0);
+}
+
+/// The sandbox travels or the resume does not (decision 0030 ruling 2),
+/// and neither does anything else the seat declared that a resume cannot
+/// carry. Every way an offer can fail to be taken ends in the same
+/// place: the cold argv, unchanged from what it has always been, and a
+/// checkpoint saying why.
+#[cfg(unix)]
+#[test]
+fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let cases: [(&str, Vec<&str>, &str); 9] = [
+        // Nothing declared: a codex resume does not inherit the class
+        // its thread was opened under, so there is nothing to re-impose.
+        (
+            "undeclared",
+            vec!["--model", "sol"],
+            "declares no sandbox class",
+        ),
+        // A flag with nothing after it declares nothing either.
+        ("dangling", vec!["--sandbox"], "declares no sandbox class"),
+        // A class this driver cannot spell as a config override.
+        (
+            "invented",
+            vec!["--sandbox", "invented"],
+            "is not one codex exec resume",
+        ),
+        // A second expression that could outrank the re-imposed one.
+        (
+            "doubled",
+            vec![
+                "--sandbox",
+                "read-only",
+                "-c",
+                "sandbox_mode=\"danger-full-access\"",
+            ],
+            "\"-c\"",
+        ),
+        // A bypass flag beside a declared class: the class is not the
+        // only way to spend the sandbox.
+        (
+            "bypassed",
+            vec![
+                "--sandbox",
+                "read-only",
+                "--dangerously-bypass-approvals-and-sandbox",
+            ],
+            "bypass-approvals-and-sandbox",
+        ),
+        // A flag that never says "sandbox" and sets one anyway: a config
+        // profile may carry `sandbox_mode`, and a profile outranks a `-c`
+        // root override. `codex exec resume` refuses the flag outright
+        // (verified, 0.148.0) — this driver refuses it first, and says so
+        // instead of spending a spawn to be told.
+        (
+            "profiled",
+            vec!["--sandbox", "read-only", "--profile", "loose"],
+            "\"--profile\"",
+        ),
+        // `--last` picks the newest recorded session instead of the one
+        // on offer. The seat's argv never redirects the engine's offer.
+        (
+            "redirected",
+            vec!["--sandbox", "read-only", "--last"],
+            "\"--last\"",
+        ),
+        // A bare word lands positionally, where `codex exec resume
+        // [SESSION_ID] [PROMPT]` reads it as the session — ahead of the
+        // thread this driver appends.
+        (
+            "positional",
+            vec!["--sandbox", "read-only", "some-other-thread"],
+            "\"some-other-thread\"",
+        ),
+        // An id that is not a plain thread id never reaches an argv.
+        (
+            "forged",
+            vec!["--sandbox", "read-only"],
+            "not a plain thread id",
+        ),
+    ];
+    for (case, extra, reason) in cases {
+        let argv = dir.path().join(format!("argv-{case}"));
+        let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
+        let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        let session = if case == "forged" {
+            "not a thread"
+        } else {
+            THREAD
+        };
+        let mut emitted = Vec::new();
+        with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &extra,
+                "prompt",
+                &json!({"workdir": dir.path()}),
+                Some(session),
+                &[],
+                &mut |event| emitted.push(event.clone()),
+            )
+            .unwrap()
+        });
+        let mut cold = vec![
+            "exec".to_string(),
+            "--json".into(),
+            "-C".into(),
+            dir.path().to_string_lossy().into_owned(),
+        ];
+        cold.extend(extra.iter().cloned());
+        assert_eq!(recorded(&argv), cold, "{case}: the cold argv, unchanged");
+        assert_eq!(emitted[0]["launch"], "cold", "{case}: {}", emitted[0]);
+        assert!(
+            emitted[0]["reason"].as_str().unwrap().contains(reason),
+            "{case}: {}",
+            emitted[0]
+        );
+        assert!(
+            emitted[0].get("session_id").is_none(),
+            "{case}: a cold launch rejoined nothing: {}",
+            emitted[0]
+        );
+    }
+}
+
+/// A resume codex refuses — an unknown or expired thread — is a cold
+/// spawn with the refusal journaled, never the attempt's failure
+/// (decision 0030 ruling 3). The predicate is structural: a non-zero
+/// exit with no thread ever announced.
+#[cfg(unix)]
+#[test]
+fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = executable(
+        dir.path(),
+        "codex-refusing",
+        &format!(
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+             case \"$*\" in\n\
+             *resume*) printf 'Error: no rollout found for thread id\\n' >&2; exit 1 ;;\n\
+             esac\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n",
+            argv = argv.display()
+        ),
+    );
+    let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    let mut emitted = Vec::new();
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "prompt",
+            &json!({"workdir": dir.path()}),
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+
+    let attempts = recorded(&argv);
+    assert_eq!(attempts.len(), 2, "the refusal is followed by a cold spawn");
+    assert!(attempts[0].contains("resume"), "{attempts:?}");
+    assert!(!attempts[1].contains("resume"), "{attempts:?}");
+    assert!(attempts[1].contains("--sandbox read-only"), "{attempts:?}");
+    assert_eq!(emitted[0]["launch"], "resumed");
+    assert_eq!(
+        emitted[1],
+        json!({"step":"harness-started", "harness":"codex", "launch":"cold",
+               "reason":"codex refused the offered thread"})
+    );
+    // What the seat gets is the COLD session, not the refusal: exit 0,
+    // and the thread the cold spawn opened.
+    assert_eq!(invocation.exit_code, 0);
+    assert_eq!(invocation.session_meta["session_id"], THREAD);
+    assert!(invocation.stderr.is_empty(), "{}", invocation.stderr);
+}
+
+/// A resumed session that starts and THEN fails is an ordinary attempt
+/// failure: the seat's work began inside it, and re-running it cold
+/// would be a second billed session for one attempt. Only a refusal —
+/// nothing started — falls back.
+#[cfg(unix)]
+#[test]
+fn a_resume_that_started_and_failed_is_not_respawned_cold() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = executable(
+        dir.path(),
+        "codex-failing",
+        &format!(
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
+             exit 3\n",
+            argv = argv.display()
+        ),
+    );
+    let extra = vec!["--sandbox".to_string(), "workspace-write".into()];
+    let mut emitted = Vec::new();
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "prompt",
+            &json!({"workdir": dir.path()}),
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+    assert_eq!(recorded(&argv).len(), 1, "one session, one attempt");
+    assert_eq!(invocation.exit_code, 3);
+    assert_eq!(emitted[0]["sandbox"], "workspace-write");
+    assert!(
+        !emitted.iter().any(|event| event["launch"] == "cold"),
+        "{emitted:?}"
+    );
+}
+
+/// The `--sandbox=<class>` spelling is the same declaration as the
+/// separated pair, and a class declared twice is the one declared last —
+/// the reading `codex exec` itself gives them.
+#[test]
+fn the_sandbox_declaration_is_read_in_both_of_its_spellings() {
+    let split = |parts: &[&str]| {
+        let extra: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+        split_codex_sandbox(&extra)
+    };
+    assert_eq!(
+        split(&["--sandbox=read-only", "--model", "sol"]),
+        (
+            Some("read-only".into()),
+            vec!["--model".into(), "sol".into()]
+        )
+    );
+    assert_eq!(
+        split(&["-s", "workspace-write"]),
+        (Some("workspace-write".into()), Vec::new())
+    );
+    assert_eq!(
+        split(&["--sandbox", "read-only", "--sandbox", "danger-full-access"]),
+        (Some("danger-full-access".into()), Vec::new())
+    );
+    assert_eq!(
+        split(&["--model", "sol"]),
+        (None, vec!["--model".into(), "sol".into()])
+    );
+
+    // A session handle reaches an argv, so it stays a plain identifier.
+    assert!(plain_thread_id(THREAD));
+    assert!(!plain_thread_id(""));
+    assert!(!plain_thread_id(&"a".repeat(129)));
+    assert!(!plain_thread_id("thread id"));
+    assert!(!plain_thread_id("thread;rm"));
+    // A positional argument that could be read as a flag is not an id.
+    assert!(!plain_thread_id("--last"));
+}
+
+/// What the rest of the seat's argv is allowed to be on a resume: only
+/// flags `codex exec resume` takes AND that cannot reach the sandbox or
+/// choose the session (verified against codex-cli 0.148.0). Both
+/// spellings of a value flag are the same declaration, and a value is
+/// never read as a part in its own right.
+#[test]
+fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
+    let blocker = |parts: &[&str]| {
+        let passthrough: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+        codex_resume_blocker(&passthrough)
+    };
+    assert_eq!(blocker(&[]), None);
+    assert_eq!(
+        blocker(&[
+            "--model",
+            "gpt-5.6-sol",
+            "--output-schema=/tmp/s.json",
+            "--json",
+            "--skip-git-repo-check",
+            "-i",
+            "/tmp/a.png",
+        ]),
+        None
+    );
+    // A value that spells a refused flag is still just a value.
+    assert_eq!(blocker(&["-m", "--last"]), None);
+    // A value flag with nothing after it declares nothing.
+    assert_eq!(blocker(&["--model"]), Some("--model".into()));
+    for refused in [
+        "-c",
+        "--config",
+        "--enable",
+        "--disable",
+        "--last",
+        "--all",
+        "--profile",
+        "--add-dir",
+        "--approve-for-me",
+        "-C",
+        "--ignore-rules",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "a-bare-word",
+        "--a-flag-codex-has-not-invented-yet",
+        // The joined spelling is the same declaration, and gets the
+        // same answer: only the flag's NAME decides.
+        "--profile=loose",
+        "-c=sandbox_mode=\"danger-full-access\"",
+    ] {
+        assert_eq!(
+            blocker(&["--model", "sol", refused]),
+            Some(refused.to_string()),
+            "{refused} may not travel to a resume"
+        );
+    }
+}
+
+/// The offer reaches the seat through the protocol's own vocabulary: a
+/// `resume` arrives ahead of the `start` it belongs to, is spent by that
+/// one seat, and a `start` with nothing in front of it is a cold start.
+#[cfg(unix)]
+#[test]
+fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = codex_shim(dir.path(), "codex", &argv);
+    let result = dir.path().join("result.json");
+    std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
+    let start = |id: &str| {
+        serde_json::to_string(&json!({
+            "proto":"forge-driver/v1", "msg_id":id, "type":"start",
+            "effect_id":"fx", "attempt_id":id, "seat":"work",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results":["complete"], "feature":"f", "phase":"work"},
+        }))
+        .unwrap()
+    };
+    let hello = serde_json::to_string(&Message::new(Body::Hello {
+        engine_version: "test".into(),
+    }))
+    .unwrap();
+    let resume = serde_json::to_string(&Message::new(Body::Resume {
+        effect_id: "fx".into(),
+        attempt_id: "a1".into(),
+        session_ref: THREAD.into(),
+    }))
+    .unwrap();
+    let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    let input = format!("{hello}\n{resume}\n{}\n{}\n", start("a1"), start("a2"));
+    let mut output = Vec::new();
+    with_codex_bin(&shim, || {
+        serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
+    });
+    let messages: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+
+    // Codex declares what it can honour; the others still declare none.
+    assert_eq!(messages[0]["supports"], json!(["resume"]));
+    assert_eq!(AdapterKind::Claude.supports(), Vec::<String>::new());
+    assert_eq!(AdapterKind::Dsh.supports(), Vec::<String>::new());
+
+    let launches: Vec<&Value> = messages
+        .iter()
+        .filter(|message| message["data"]["step"] == "harness-started")
+        .collect();
+    assert_eq!(launches.len(), 2, "one launch per seat");
+    assert_eq!(launches[0]["data"]["launch"], "resumed");
+    assert_eq!(launches[0]["data"]["session_id"], THREAD);
+    assert_eq!(
+        launches[1]["data"]["launch"], "cold",
+        "the offer was spent by the first seat: {}",
+        launches[1]
+    );
+    assert!(
+        launches[1]["data"].get("reason").is_none(),
+        "nobody offered the second seat anything to refuse: {}",
+        launches[1]
     );
 }

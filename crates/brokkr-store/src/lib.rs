@@ -290,17 +290,29 @@ CREATE TRIGGER IF NOT EXISTS runs_manifest_immutable
     BEGIN SELECT RAISE(ABORT, 'run manifests are immutable'); END;
 "#;
 
-/// Arrival bookkeeping beside the chain (decision 0027): where an
-/// adopted run came from, and when it landed. Additive columns on a
-/// table that is already store bookkeeping — no event carries this, no
-/// fold can observe it, and NULL means the run was driven here natively.
+/// Bookkeeping beside the chain: facts about a run that belong to this
+/// journal rather than to the record inside it. Additive columns on a
+/// table that is already store bookkeeping — no event carries any of
+/// them, and no fold can observe any of them.
+///
+/// Arrival, decision 0027: where an adopted run came from and when it
+/// landed. NULL means the run was driven here natively.
+///
+/// Origin, decision 0030: the machine and account this journal was
+/// driving the run FROM when it created the run. It is written by
+/// [`Store::create_run`] and by nothing else — an adopted run's row is
+/// written by [`Store::import_run`], which leaves it NULL, and an
+/// exported journal is events, so the column never travels with one.
+/// That is the whole mechanism: [`Store::started_here`] answers "is this
+/// run still being driven where it started", and a session handle is
+/// offered to nobody else.
 ///
 /// `DATABASE_SCHEMA` deliberately does not move. The version guards
 /// *compatibility*, and columns nobody selects break nothing in either
 /// direction: an older binary reads a migrated journal exactly as
 /// before, and this binary migrates an older journal the moment it
 /// opens it read-write. Bumping it would refuse both, buying nothing.
-const ARRIVAL_COLUMNS: [(&str, &str); 2] = [
+const SIDECAR_COLUMNS: [(&str, &str); 3] = [
     (
         "imported_at",
         "ALTER TABLE runs ADD COLUMN imported_at TEXT",
@@ -309,31 +321,124 @@ const ARRIVAL_COLUMNS: [(&str, &str); 2] = [
         "imported_from",
         "ALTER TABLE runs ADD COLUMN imported_from TEXT",
     ),
+    (
+        "origin_host",
+        "ALTER TABLE runs ADD COLUMN origin_host TEXT",
+    ),
 ];
 
-/// Add the arrival columns to a journal that predates them. SQLite has
+/// Where a machine says who it is, in the order asked. The machine id
+/// where the OS publishes one; the kernel's hostname where it does not.
+const MACHINE_SOURCES: [&str; 3] = [
+    "/etc/machine-id",
+    "/var/lib/dbus/machine-id",
+    "/proc/sys/kernel/hostname",
+];
+
+/// An opaque fingerprint of the machine and the account this process is
+/// running as: the first `sources` entry that can be read, else
+/// `fallback`, folded together with the account's home directory — which
+/// is where every driver brokkr ships keeps the credential that OWNS a
+/// provider session (`~/.codex`, `~/.claude`). Hashed and clipped, so
+/// what lands in the journal file is an equality token rather than an
+/// operator's hostname and home path.
+///
+/// `None` when nothing identifying can be read, and a `None` is never
+/// equal to anything — an installation that cannot say where it is
+/// hands out no sessions, which is exactly what brokkr did before
+/// decision 0030.
+fn host_from(sources: &[&str], fallback: Option<String>) -> Option<String> {
+    let machine = sources
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())
+        .or(fallback)?;
+    let machine = machine.trim();
+    if machine.is_empty() {
+        return None;
+    }
+    let home = account_home();
+    let digest = brokkr_core::canonical::sha256_hex(&serde_json::json!([machine, home]));
+    Some(digest[..16].to_string())
+}
+
+/// The account's home directory, spelled the way each platform exports
+/// it: `HOME` on unix, `USERPROFILE` on Windows. Empty when neither is
+/// set, so the fingerprint still folds and the machine half decides.
+fn account_home() -> String {
+    home_from(&["HOME", "USERPROFILE"])
+}
+
+/// The first of `variables` that is set, else empty.
+fn home_from(variables: &[&str]) -> String {
+    variables
+        .iter()
+        .find_map(|variable| std::env::var(variable).ok())
+        .unwrap_or_default()
+}
+
+/// The machine's name where no identity file can be read — the case on
+/// every released platform but Linux. The first of `variables` that is
+/// set and non-blank wins (`HOSTNAME`, which POSIX shells set but rarely
+/// export; `COMPUTERNAME`, which Windows always publishes); failing
+/// both, `ask` is consulted once. Blank answers count as none.
+fn machine_name(variables: &[&str], ask: impl FnOnce() -> Option<String>) -> Option<String> {
+    variables
+        .iter()
+        .find_map(|variable| std::env::var(variable).ok())
+        .filter(|name| !name.trim().is_empty())
+        .or_else(ask)
+        .filter(|name| !name.trim().is_empty())
+}
+
+/// What `hostname` prints: the same spelling `/proc/sys/kernel/hostname`
+/// carries on Linux, and the one thing macOS ships that names the
+/// machine without a daemon or a crate. `None` when the command is
+/// missing or fails, and a `None` hands out no sessions.
+fn hostname_command() -> Option<String> {
+    hostname_from("hostname")
+}
+
+/// `program`'s standard output when it runs and succeeds; `None` when
+/// it is missing or exits nonzero.
+fn hostname_from(program: &str) -> Option<String> {
+    let out = std::process::Command::new(program).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// This machine and this account, as [`host_from`] fingerprints them.
+fn local_host() -> Option<String> {
+    host_from(
+        &MACHINE_SOURCES,
+        machine_name(&["HOSTNAME", "COMPUTERNAME"], hostname_command),
+    )
+}
+
+/// Add the sidecar columns to a journal that predates them. SQLite has
 /// no `ADD COLUMN IF NOT EXISTS`, so presence is asked rather than an
 /// error swallowed — a swallowed error is how a real migration failure
 /// would hide here.
-/// Does the `runs` table lack any arrival column? A read, so the
-/// steady-state open writes nothing while a pre-0027 journal still gets
+/// Does the `runs` table lack any sidecar column? A read, so the
+/// steady-state open writes nothing while an older journal still gets
 /// noticed.
-fn arrival_columns_missing(conn: &Connection) -> Result<bool, StoreError> {
+fn sidecar_columns_missing(conn: &Connection) -> Result<bool, StoreError> {
     let present: Vec<String> = conn
         .prepare("SELECT name FROM pragma_table_info('runs')")?
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(ARRIVAL_COLUMNS
+    Ok(SIDECAR_COLUMNS
         .iter()
         .any(|(column, _)| !present.iter().any(|name| name == column)))
 }
 
-fn migrate_arrival_columns(conn: &Connection) -> Result<(), StoreError> {
+fn migrate_sidecar_columns(conn: &Connection) -> Result<(), StoreError> {
     let present: Vec<String> = conn
         .prepare("SELECT name FROM pragma_table_info('runs')")?
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    for (column, statement) in ARRIVAL_COLUMNS {
+    for (column, statement) in SIDECAR_COLUMNS {
         if !present.iter().any(|name| name == column) {
             conn.execute(statement, [])?;
         }
@@ -363,9 +468,16 @@ fn create_run_once(
         return Err(StoreError::RunExists(run_id.to_string()));
     }
     tx.execute(
-        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![run_id, feature, bundle_name, manifest, now_rfc3339()],
+        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at, origin_host)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            run_id,
+            feature,
+            bundle_name,
+            manifest,
+            now_rfc3339(),
+            local_host()
+        ],
     )?;
     tx.commit()?;
     Ok(())
@@ -532,14 +644,15 @@ impl Store {
             // immediate transaction only when something is actually
             // missing, so racing openers serialise on the lock instead
             // of colliding on the DDL. First: a journal that predates
-            // the arrival columns (decision 0027) grows them, presence
-            // re-asked inside the transaction. Second: a journal whose
-            // append guards predate compare-and-append re-runs the
-            // idempotent migration batch that carries them.
-            if arrival_columns_missing(conn)? {
+            // the sidecar columns (arrival, decision 0027; origin,
+            // decision 0030) grows them, presence re-asked inside the
+            // transaction. Second: a journal whose append guards predate
+            // compare-and-append re-runs the idempotent migration batch
+            // that carries them.
+            if sidecar_columns_missing(conn)? {
                 let tx =
                     conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                migrate_arrival_columns(&tx)?;
+                migrate_sidecar_columns(&tx)?;
                 tx.commit()?;
             }
             if guards_intact(conn)? {
@@ -552,7 +665,7 @@ impl Store {
         }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute_batch(MIGRATION_V1)?;
-        migrate_arrival_columns(&tx)?;
+        migrate_sidecar_columns(&tx)?;
         tx.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
             [&DATABASE_SCHEMA.to_string()],
@@ -612,6 +725,49 @@ impl Store {
         patiently("create_run", self.patience, || {
             create_run_once(conn, run_id, feature, bundle_name, &manifest)
         })
+    }
+
+    /// Is this run still being driven from where it started — the same
+    /// machine, the same account (decision 0030 ruling 4)?
+    ///
+    /// The only caller is the engine's session offer, and the only thing
+    /// a `false` costs is a cold spawn. It is `false` for a run this
+    /// journal never started: one adopted from elsewhere (decision
+    /// 0027 leaves `origin_host` NULL, and an exported journal is events
+    /// — the column does not travel with it), one started by a brokkr
+    /// that predates this column, one whose journal file has been copied
+    /// to another machine, and one this installation cannot place at all
+    /// because it could read no machine identity. A provider session
+    /// belongs to the credential that opened it, so "I cannot prove this
+    /// is the same installation" and "it is not" get the same answer.
+    ///
+    /// It is deliberately NOT a fact about the run: an adopted run is a
+    /// run (decision 0027), no event carries this, and no phase machine
+    /// can see it. It is a fact about this journal file's relationship
+    /// to this machine, which is why it lives here and not in the chain.
+    pub fn started_here(&self, run_id: &str) -> Result<bool, StoreError> {
+        self.started_under(run_id, local_host())
+    }
+
+    /// [`Store::started_here`] against a given fingerprint, so the
+    /// "nowhere in particular" answer is reachable from a test on a
+    /// machine that does know who it is.
+    fn started_under(&self, run_id: &str, local: Option<String>) -> Result<bool, StoreError> {
+        let Some(local) = local else {
+            return Ok(false);
+        };
+        let origin: Option<String> = patiently("started_here", self.patience, || {
+            Ok(self
+                .conn
+                .query_row(
+                    "SELECT origin_host FROM runs WHERE run_id = ?1",
+                    params![run_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten())
+        })?;
+        Ok(origin.as_deref() == Some(local.as_str()))
     }
 
     pub fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {

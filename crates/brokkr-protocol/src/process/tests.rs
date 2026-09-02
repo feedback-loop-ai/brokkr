@@ -110,9 +110,9 @@ fn handshake_and_eof_defects_fail_closed() {
         "supports": [],
     });
     for script in [
-        format!("read line; printf '\\n%s\\n' '{}'", wrong_proto),
+        format!("read -r line; printf '\\n%s\\n' '{}'", wrong_proto),
         format!(
-            "read line; printf '%s\\n' '{}'; read line",
+            "read -r line; printf '%s\\n' '{}'; read -r line",
             wire(Body::Accepted {
                 effect_id: "effect".into(),
                 attempt_id: "attempt".into(),
@@ -126,13 +126,16 @@ fn handshake_and_eof_defects_fail_closed() {
         ));
     }
 
-    let before_accept = format!("read line; printf '%s\\n' '{}'; read line", capabilities());
+    let before_accept = format!(
+        "read -r line; printf '%s\\n' '{}'; read -r line",
+        capabilities()
+    );
     assert!(matches!(
         run(&before_accept).outcome,
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
     let after_accept = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(Body::Accepted {
             effect_id: "effect".into(),
@@ -172,7 +175,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
     ];
     for body in cases {
         let script = format!(
-            "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+            "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
             capabilities(),
             wire(body)
         );
@@ -190,7 +193,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         error: None,
     };
     let script = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(no_payload)
     );
@@ -207,7 +210,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         error: None,
     };
     let script = format!(
-        "read line; printf '%s\\n' '{}'; read line; printf '%s\\n' '{}'",
+        "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
         capabilities(),
         wire(failed)
     );
@@ -219,14 +222,14 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
 
 #[test]
 fn pipe_and_stdout_failures_are_terminal_reports() {
-    let invalid_utf8 = "read line; printf '\\377'";
+    let invalid_utf8 = "read -r line; printf '\\377'";
     assert!(matches!(
         run(invalid_utf8).outcome,
         AttemptOutcome::Failed { error } if error.contains("stdout read failed")
     ));
 
     assert!(matches!(
-        run("read line").outcome,
+        run("read -r line").outcome,
         AttemptOutcome::Indeterminate { reason } if reason.contains("before accepting")
     ));
 
@@ -446,4 +449,101 @@ fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
         false,
     );
     assert!(matches!(report.outcome, AttemptOutcome::Failed { .. }));
+}
+
+/// The session offer reaches a driver that DECLARED it can rejoin one,
+/// ahead of the start it belongs to — and reaches no other driver at
+/// all. A session handle belongs to the client that opened it, so a
+/// driver that never said it knows what to do with one is never handed
+/// one, whatever the engine found in the journal (decision 0030).
+#[test]
+fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
+    let advertising = wire(Body::Capabilities {
+        driver: "test".into(),
+        version: "1".into(),
+        supports: vec!["resume".into()],
+    });
+    let succeeded = wire(Body::Result {
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        status: ResultStatus::Succeeded,
+        result: Some(json!({"result": "complete"})),
+        error: None,
+    });
+    let dir = tempfile::tempdir().unwrap();
+    for (case, capabilities, offered, expected) in [
+        ("declared", &advertising, Some("thread-1"), 2),
+        ("silent", &capabilities(), Some("thread-1"), 1),
+        ("nothing offered", &advertising, None, 1),
+    ] {
+        let log = dir.path().join(case.replace(' ', "-"));
+        // The path rides inside an `sh` script: Windows spells it with
+        // backslashes, which `sh` eats — forward-slashed and quoted, the
+        // same spelling works on every leg.
+        let script = format!(
+            "read -r line; printf '%s\\n' '{capabilities}'; \
+             while read -r line; do printf '%s\\n' \"$line\" >> '{log}'; \
+             case \"$line\" in *start*) break ;; esac; done; \
+             printf '%s\\n' '{succeeded}'; read -r line",
+            log = log.display().to_string().replace('\\', "/")
+        );
+        let report = DriverProcess::spawn(&command(&script), std::path::Path::new("."), None)
+            .unwrap()
+            .run_attempt_resuming(
+                "test",
+                "effect",
+                "attempt",
+                "seat",
+                json!({}),
+                offered.map(str::to_string),
+                |_| {},
+            );
+        assert!(
+            matches!(report.outcome, AttemptOutcome::Succeeded { .. }),
+            "{case}"
+        );
+        let received: Vec<Value> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(received.len(), expected, "{case}: {received:?}");
+        if expected == 2 {
+            assert_eq!(received[0]["type"], "resume", "{case}");
+            assert_eq!(received[0]["session_ref"], "thread-1", "{case}");
+            assert_eq!(received[0]["effect_id"], "effect", "{case}");
+            assert_eq!(received[0]["attempt_id"], "attempt", "{case}");
+        }
+        assert_eq!(received.last().unwrap()["type"], "start", "{case}");
+    }
+}
+
+/// A pipe that breaks between the greeting and the offer fails the
+/// attempt in its own words, like every other send on this path.
+#[test]
+fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
+    let script = format!(
+        "printf '%s\\n' '{}'",
+        wire(Body::Capabilities {
+            driver: "test".into(),
+            version: "1".into(),
+            supports: vec!["resume".into()],
+        })
+    );
+    let mut process =
+        DriverProcess::spawn(&command(&script), std::path::Path::new("."), None).unwrap();
+    process.stdin = Box::new(BreakAfterFirstFlush::default());
+    let report = process.run_attempt_resuming(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        Some("thread-1".into()),
+        |_| {},
+    );
+    assert!(matches!(
+        report.outcome,
+        AttemptOutcome::Failed { error } if error.contains("could not send resume")
+    ));
 }

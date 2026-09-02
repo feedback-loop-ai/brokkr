@@ -1,5 +1,7 @@
 //! Subprocess transport for `forge-driver/v1`: spawn the driver command,
-//! handshake, send `start`, and drive the attempt to a terminal outcome.
+//! handshake, offer the seat's prior session to a driver that declared
+//! it can rejoin one, send `start`, and drive the attempt to a terminal
+//! outcome.
 //! Every protocol violation degrades to `Failed` (driver defect, retry
 //! is a new attempt); a silent exit degrades to `Indeterminate`; a
 //! deadline expiry kills the driver and degrades to `Failed` — the kill
@@ -222,12 +224,41 @@ impl DriverProcess {
     /// with each checkpoint payload so the engine can journal it before
     /// the attempt concludes.
     pub fn run_attempt(
+        self,
+        engine_version: &str,
+        effect_id: &str,
+        attempt_id: &str,
+        seat: &str,
+        input: Value,
+        on_checkpoint: impl FnMut(&Value),
+    ) -> AttemptReport {
+        self.run_attempt_resuming(
+            engine_version,
+            effect_id,
+            attempt_id,
+            seat,
+            input,
+            None,
+            on_checkpoint,
+        )
+    }
+
+    /// The same attempt, offering the seat's prior session first when the
+    /// engine has one to hand back (decision 0030). The offer rides
+    /// `resume`, ahead of the `start` that describes the work, and it
+    /// reaches the driver ONLY when the driver's own `capabilities`
+    /// declared `resume`: a session handle belongs to the credential and
+    /// client that opened it, so it is never posted to a driver that did
+    /// not say it knows what to do with one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_attempt_resuming(
         mut self,
         engine_version: &str,
         effect_id: &str,
         attempt_id: &str,
         seat: &str,
         input: Value,
+        offered: Option<String>,
         mut on_checkpoint: impl FnMut(&Value),
     ) -> AttemptReport {
         let mut session_ref: Option<String> = None;
@@ -264,16 +295,27 @@ impl DriverProcess {
             }
             fail!("could not greet driver: {e}");
         }
-        match self.recv() {
+        let supports = match self.recv() {
             Some(Ok(Message {
-                body: Body::Capabilities { .. },
+                body: Body::Capabilities { supports, .. },
                 ..
-            })) => {}
+            })) => supports,
             Some(Ok(other)) => fail!("expected capabilities, got {:?}", other.body),
             Some(Err(e)) => fail!("{e}"),
             None => {
                 let outcome = self.eof_outcome(false);
                 return self.finish(outcome, None, Vec::new(), accepted);
+            }
+        };
+        if let Some(session_ref) =
+            offered.filter(|_| supports.iter().any(|feature| feature == "resume"))
+        {
+            if let Err(e) = self.send(Body::Resume {
+                effect_id: effect_id.to_string(),
+                attempt_id: attempt_id.to_string(),
+                session_ref,
+            }) {
+                fail!("could not send resume: {e}");
             }
         }
         if let Err(e) = self.send(Body::Start {

@@ -729,6 +729,22 @@ impl Engine {
         // channel, and five consumers plus the engine would otherwise
         // have to parse a packed grammar to make a control decision.
         let (selection, provenance) = select_candidates(events, effect_id, &seat.body);
+        let workdir = self.workdir();
+        // The single-driver argv is composed HERE, ahead of the durable
+        // start, because the session question is asked of it: which
+        // instance this attempt resolves to is part of what decides
+        // whether a prior session may be handed back to it.
+        let single = match &seat.body {
+            SeatBody::Single {
+                command, confine, ..
+            } => Some(confined_command(
+                argv_for(&selection, &None, command),
+                confine.as_ref(),
+                &workdir,
+                &self.bundle.roots,
+            )),
+            _ => None,
+        };
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -737,11 +753,32 @@ impl Engine {
         if let Some(provenance) = provenance {
             started["provenance"] = provenance;
         }
+        // Which session — if any — this attempt may rejoin, decided from
+        // journaled facts before anything spawns (decision 0030). The
+        // `started` payload IS the identity the offer is judged against,
+        // which is why the question is asked here, after the driver
+        // label and the provenance are in it.
+        //
+        // The offer itself adds no field to the payload. It is a pure
+        // function of this journal and the pinned bundle, so recording
+        // it would record a derivation, not a fact — and the fact, what
+        // the driver DID with the offer, is the driver's own checkpoint
+        // to journal. The engine widens no event vocabulary to say
+        // something the record already answers.
+        let offer = match single {
+            Some(_) => resume_offer(
+                events,
+                &self.bundle,
+                seat_name,
+                &started,
+                self.store.started_here(&self.run_id)?,
+            ),
+            None => None,
+        };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
-        let workdir = self.workdir();
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
         let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
 
@@ -765,18 +802,12 @@ impl Engine {
                 deadline,
                 &selection,
             ),
-            SeatBody::Single {
-                command, confine, ..
-            } => {
-                // Agents choose the argv (model selection); composition
-                // decides what is mounted — a composed bundle spans every
-                // recipe directory in its chain, not one dir.
-                let command = confined_command(
-                    argv_for(&selection, &None, command),
-                    confine.as_ref(),
-                    &workdir,
-                    &self.bundle.roots,
-                );
+            // Agents choose the argv (model selection); composition
+            // decides what is mounted — a composed bundle spans every
+            // recipe directory in its chain, not one dir. Both were
+            // settled above, where the session question needed them.
+            SeatBody::Single { .. } => {
+                let command = single.expect("a single seat composed its command");
                 let run = self.run_driver(
                     effect_id,
                     &attempt_id,
@@ -785,6 +816,7 @@ impl Engine {
                     input,
                     deadline,
                     None,
+                    offer,
                 )?;
                 self.conclude_single(effect_id, &attempt_id, run, &selection)
             }
@@ -863,8 +895,10 @@ impl Engine {
 
     /// Spawn one driver and run one attempt, journaling its live
     /// checkpoints as they stream — member-tagged when `member_tag`
-    /// names a sequence step. Appends NO terminal effect event: the
-    /// caller owns the attempt's conclusion.
+    /// names a sequence step. `session_ref` is the seat's prior session,
+    /// offered to a driver that declares it can rejoin one (decision
+    /// 0030). Appends NO terminal effect event: the caller owns the
+    /// attempt's conclusion.
     #[allow(clippy::too_many_arguments)]
     fn run_driver(
         &mut self,
@@ -875,6 +909,7 @@ impl Engine {
         input: Value,
         deadline: std::time::Duration,
         member_tag: Option<&str>,
+        session_ref: Option<String>,
     ) -> Result<DriverRun, EngineError> {
         let workdir = self.workdir();
         let process = match DriverProcess::spawn(command, &workdir, Some(deadline)) {
@@ -885,12 +920,13 @@ impl Engine {
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
-        let report = process.run_attempt(
+        let report = process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
             attempt_id,
             driver_seat,
             input,
+            session_ref,
             |data| {
                 if checkpoint_error.is_none() {
                     let checkpoint = match member_tag {
@@ -1234,6 +1270,10 @@ impl Engine {
                         &self.workdir(),
                         &self.bundle.roots,
                     );
+                    // A sequence step is not a seat: decision 0030 hands
+                    // a session back to the same SEAT of the same run,
+                    // and a step's session has no such identity to be
+                    // matched by. Steps start cold, as they always did.
                     match self.run_driver(
                         effect_id,
                         attempt_id,
@@ -1242,6 +1282,7 @@ impl Engine {
                         input,
                         deadline,
                         Some(&step.name),
+                        None,
                     )? {
                         DriverRun::SpawnFailed(error) => {
                             start_failures.push(site);
@@ -2321,6 +2362,119 @@ fn select_candidates(
     (selection, provenance)
 }
 
+/// The session this seat is holding in THIS run: the last session id any
+/// attempt of this seat journaled, with the attempt that journaled it.
+///
+/// Journaled checkpoints are the only channel read — `state =
+/// fold(events)`, and a driver's session id reaches the record as
+/// evidence the moment its harness announces one, which is what lets an
+/// attempt killed on its deadline still hand its thread to the retry
+/// that follows.
+fn seat_session(events: &[EventEnvelope], seat: &str) -> Option<(String, String)> {
+    let effects: Vec<&str> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectRequested)
+        .filter(|event| event.payload.get("seat").and_then(Value::as_str) == Some(seat))
+        .filter_map(|event| event.payload.get("effect_id").and_then(Value::as_str))
+        .collect();
+    events
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter(|event| {
+            event
+                .payload
+                .get("effect_id")
+                .and_then(Value::as_str)
+                .is_some_and(|effect_id| effects.contains(&effect_id))
+        })
+        .find_map(|event| {
+            let session = event
+                .payload
+                .pointer("/checkpoint/session_id")
+                .and_then(Value::as_str)?;
+            let attempt = event.attempt_id.clone()?;
+            Some((attempt, session.to_string()))
+        })
+}
+
+/// Is the bundle this attempt runs under the one the run pinned at its
+/// first event? The pin carries the engine version, every bundle file's
+/// digest, each referenced charter and agent definition, and the adapter
+/// declaration digest that authorised each driver — so this single
+/// comparison is decision 0030 ruling 4's "an adapter edit, or an engine
+/// upgrade between attempts spawns cold", asked of the journal rather
+/// than argued from `Engine::resume` refusing the same thing one layer
+/// out. Two doors, one answer, and this one is on the path that hands
+/// over a session handle.
+fn pinned_bundle_holds(events: &[EventEnvelope], bundle: &Bundle) -> bool {
+    events
+        .iter()
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.get("manifest"))
+        .and_then(|manifest| bundle_manifest_from_run(manifest).ok())
+        .is_some_and(|pinned| pinned == bundle.manifest)
+}
+
+/// The session id this attempt may be handed, or `None` — which is the
+/// answer for every attempt whose seat holds no session, and for every
+/// attempt that is not the instance that opened the one it holds.
+///
+/// A session is one model's memory of one tree, held by the credential
+/// and client that opened it. Handing it anywhere else is a terms
+/// violation before it is a bug, so this offers one only when every
+/// journaled fact about the two attempts agrees (decision 0030 ruling 4):
+///
+/// - the same run and the same seat, by construction — `seat_session`
+///   reads this run's journal and only this seat's effects, so a retry
+///   and a phase-machine re-entry qualify and nothing else does;
+/// - the same driver binary and the same resolved candidate, by
+///   comparing the `driver` label and the `provenance` this attempt is
+///   about to journal against the ones the attempt that opened the
+///   session did. A decision-0016 chain fallback moves the provenance;
+///   a bundle that names a different driver moves the label;
+/// - the same adapter declarations and the same engine, by the run's own
+///   pin.
+///
+/// Only these two fields are compared, and deliberately so: `effect_id`
+/// and `attempt_id` differ on every attempt by definition, and they are
+/// the only other fields a single seat's start event carries.
+///
+/// `started_here` carries the axis the journal cannot: the same machine
+/// and the same account. It is beyond the ruling's list, which is a
+/// floor and not a ceiling — withholding an offer needs no permission —
+/// and it is here because decision 0027 made runs portable. A journal
+/// exported mid-flight and adopted elsewhere resumes as a first-class
+/// run, by design indistinguishable INSIDE the chain, so no comparison
+/// of journaled facts can tell that the attempt which opened the thread
+/// ran under another machine's credential. Codex would refuse such a
+/// thread today (its rollouts are local), but a driver whose provider
+/// keeps sessions server-side would not be, and by then the offer has
+/// been made. The store answers it instead, from bookkeeping that an
+/// export does not carry.
+fn resume_offer(
+    events: &[EventEnvelope],
+    bundle: &Bundle,
+    seat: &str,
+    started: &Value,
+    started_here: bool,
+) -> Option<String> {
+    if !started_here || !pinned_bundle_holds(events, bundle) {
+        return None;
+    }
+    let (attempt, session) = seat_session(events, seat)?;
+    let opened_by = events
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == EventType::EffectStarted)
+        .find(|event| event.attempt_id.as_deref() == Some(attempt.as_str()))
+        .map(|event| &event.payload)?;
+    let same_instance = ["driver", "provenance"]
+        .iter()
+        .all(|field| opened_by.get(field) == started.get(field));
+    same_instance.then_some(session)
+}
+
 /// The argv to spawn for one invocation site: the selected candidate's,
 /// or the compiled command when the site is inline.
 fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> &'a [String] {
@@ -2695,6 +2849,9 @@ mod conclude_tests;
 
 #[cfg(test)]
 mod contention_tests;
+
+#[cfg(test)]
+mod resume_tests;
 
 #[cfg(test)]
 mod secret_threading_tests;

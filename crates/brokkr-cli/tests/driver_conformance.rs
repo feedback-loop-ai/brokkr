@@ -208,6 +208,10 @@ fn conformance_across_all_builtin_adapters() {
                     "result",
                 ]
             } else if codex && case == "obedient" {
+                // Two more than the fold's own: the launch checkpoint
+                // (cold here — no session was offered) and the thread id
+                // journaled the moment codex announces it (decision
+                // 0030).
                 &[
                     "capabilities",
                     "accepted",
@@ -216,11 +220,16 @@ fn conformance_across_all_builtin_adapters() {
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
+                    "checkpoint",
+                    "checkpoint",
                     "result",
                 ]
-            } else if dsh || exec {
+            } else if dsh || exec || codex {
                 // exec: the exec-started template checkpoint (decision
-                // 0012 amendment) then session-finished.
+                // 0012 amendment) then session-finished. codex under a
+                // silent shim: its launch checkpoint, then the same
+                // session-finished — a harness that announces no thread
+                // journals no session-started.
                 &[
                     "capabilities",
                     "accepted",
@@ -317,16 +326,32 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
             } else if codex && case == "obedient" {
+                // Nobody offered this attempt a session, so the launch
+                // is cold and says so with no reason to give: a reason
+                // exists only where an offer could not be taken.
                 assert_eq!(
                     out[2]["data"],
+                    json!({"step":"harness-started", "harness":"codex", "launch":"cold"}),
+                    "{label}: {}",
+                    out[2]
+                );
+                assert_eq!(
+                    out[3]["data"],
+                    json!({"step":"session-started", "session_id":"codex-thread-1",
+                           "harness":"codex"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
                     json!({"step":"turn-started", "turn":1, "harness":"codex"})
                 );
-                assert_eq!(out[3]["data"]["tool"], "command_execution");
-                assert!(out[3]["data"].get("command").is_none());
-                assert_eq!(out[5]["data"]["input_tokens"], 21);
-                assert_eq!(out[5]["data"]["cache_read_tokens"], 8);
-                assert_eq!(out[6]["data"]["session_id"], "codex-thread-1");
-                assert_eq!(out[6]["data"]["output_tokens"], 5);
+                assert_eq!(out[5]["data"]["tool"], "command_execution");
+                assert!(out[5]["data"].get("command").is_none());
+                assert_eq!(out[7]["data"]["input_tokens"], 21);
+                assert_eq!(out[7]["data"]["cache_read_tokens"], 8);
+                assert_eq!(out[8]["data"]["session_id"], "codex-thread-1");
+                assert_eq!(out[8]["data"]["output_tokens"], 5);
             } else if dsh {
                 assert_eq!(out[2]["data"]["step"], "harness-started");
                 assert_eq!(out[2]["data"]["harness"], "deepseek");
