@@ -555,20 +555,41 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         return invalid(format!("{what} 'driver' is empty; it is the invocation"));
     }
     let models = name_map(map, "models", &what)?;
-    let tool_permissions = match capability(map, "tool_permissions", &what)? {
-        None => None,
+    // Three legal shapes, two outcomes. `"unsupported"` and a declared
+    // gap BOTH yield `None` — the refusal in `compose` is identical, so
+    // no seat gains power by the reason existing. What the reason buys
+    // is that a future reader learns the gap was MEASURED against the
+    // provider's CLI, not defaulted by whoever wrote the file first.
+    let (tool_permissions, tool_permissions_gap) = match capability(map, "tool_permissions", &what)?
+    {
+        None => (None, None),
         Some(value) => {
             let raw = object(value, &format!("{what} 'tool_permissions'"))?;
-            only_keys(
-                raw,
-                &["flag", "separator", "names"],
-                &format!("{what} 'tool_permissions'"),
-            )?;
-            Some(ToolPermissions {
-                flag: string(raw, "flag", &format!("{what} 'tool_permissions'"))?,
-                separator: string(raw, "separator", &format!("{what} 'tool_permissions'"))?,
-                names: name_map(raw, "names", &format!("{what} 'tool_permissions'"))?,
-            })
+            if raw.contains_key("unsupported") {
+                only_keys(raw, &["unsupported"], &format!("{what} 'tool_permissions'"))?;
+                (
+                    None,
+                    Some(string(
+                        raw,
+                        "unsupported",
+                        &format!("{what} 'tool_permissions'"),
+                    )?),
+                )
+            } else {
+                only_keys(
+                    raw,
+                    &["flag", "separator", "names"],
+                    &format!("{what} 'tool_permissions'"),
+                )?;
+                (
+                    Some(ToolPermissions {
+                        flag: string(raw, "flag", &format!("{what} 'tool_permissions'"))?,
+                        separator: string(raw, "separator", &format!("{what} 'tool_permissions'"))?,
+                        names: name_map(raw, "names", &format!("{what} 'tool_permissions'"))?,
+                    }),
+                    None,
+                )
+            }
         }
     };
     let mcp = match capability(map, "mcp", &what)? {
@@ -596,6 +617,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         models,
         model_flag: model_flag(map, &what)?,
         tool_permissions,
+        tool_permissions_gap,
         mcp,
         digest: sha256_bytes(&std::fs::read(path)?),
     })
