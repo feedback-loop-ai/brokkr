@@ -1,0 +1,29 @@
+# SKETCH — out of scope for this slice, kept here so the shape is known.
+#
+# Publishing `brokkr-bin` to the AUR needs the operator's own AUR account
+# and SSH key (aur.archlinux.org accepts pushes from a registered
+# maintainer, not from a workflow token), so nothing in CI touches this
+# file. `sha256sums` below are placeholders in the same sense as the
+# homebrew and scoop templates: rendered from the release's attested
+# SHA256SUMS before a push, never by hand.
+#
+# Maintainer: feedback-loop-ai <valentin@cmd.bg>
+pkgname=brokkr-bin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Delivery engine that drives agent seats through a reviewable phase machine"
+arch=('x86_64' 'aarch64')
+url="https://github.com/feedback-loop-ai/brokkr"
+license=('MIT' 'Apache-2.0')
+provides=('brokkr')
+conflicts=('brokkr')
+source_x86_64=("brokkr-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/brokkr-linux-x86_64.tar.gz")
+source_aarch64=("brokkr-${pkgver}-aarch64.tar.gz::${url}/releases/download/v${pkgver}/brokkr-linux-aarch64.tar.gz")
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
+sha256sums_aarch64=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  # Decision 0019 ruling 9: one binary, and it is `brokkr`.
+  install -Dm755 "${srcdir}/brokkr" "${pkgdir}/usr/bin/brokkr"
+  install -Dm644 "${srcdir}/LICENSE-MIT" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-MIT" 2>/dev/null || true
+}

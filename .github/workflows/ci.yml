@@ -119,6 +119,72 @@ jobs:
       - name: install and first-run budgets hold
         run: bash scripts/bootstrap-bench.sh --binary target/release/brokkr
 
+  # The packaging channels are proved with the real tools, against real
+  # packages built from the real binary — the test's own fallbacks (a
+  # synthetic .deb, a skipped createrepo_c) exist for a developer's
+  # laptop, and `BROKKR_PACKAGING_TOOLS=required` forbids them here.
+  packaging:
+    name: packaging channels
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev createrepo-c rpm
+          # The same pin the release path uses — CI proves the pinned
+          # version is installable before a tag depends on it.
+          nfpm_version="$(tr -d '[:space:]' < packaging/nfpm-version.txt)"
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${nfpm_version}"
+      - run: cargo build --release --locked -p brokkr-cli
+      - name: nfpm builds the .deb and the .rpm
+        env:
+          BROKKR_PKG_ARCH: amd64
+          BROKKR_PKG_BINARY: target/release/brokkr
+        run: |
+          export BROKKR_PKG_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          mkdir -p target/packaging
+          # nfpm's env interpolation does not reach every field (the
+          # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
+          # the config is rendered with envsubst first — same contract,
+          # no interpolation gamble.
+          envsubst < packaging/nfpm.yaml > target/packaging/nfpm.rendered.yaml
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager deb --target target/packaging/brokkr-linux-x86_64.deb
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager rpm --target target/packaging/brokkr-linux-x86_64.rpm
+          ls -la target/packaging
+      - name: the repositories, the templates and the bump render
+        env:
+          BROKKR_PACKAGING_TOOLS: required
+          BROKKR_PACKAGING_DIST: target/packaging
+        run: cargo test --locked -p brokkr-cli --test packaging
+
+  # `nix flake check` is run where nix exists rather than asserted where
+  # it does not: this job installs it. What the check proves is that the
+  # flake evaluates — building it needs a release's real digests, which
+  # the channels job renders after the tag (see packaging/README.md).
+
+  # `nix flake check` is run where nix exists rather than asserted where
+  # it does not: this job installs it. What the check proves is that the
+  # flake evaluates — building it needs a release's real digests, which
+  # the channels job renders after the tag (see packaging/README.md).
+  flake:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - run: nix flake check
+
   release-binary:
     name: release binary artifact
     runs-on: ubuntu-latest

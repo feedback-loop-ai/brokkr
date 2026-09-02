@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Open a pull request in a sibling channel repository (the homebrew tap,
+# the scoop bucket) carrying one rendered file.
+#
+#   BROKKR_TAP_TOKEN=… bash packaging/open-channel-pr.sh \
+#        --token-env BROKKR_TAP_TOKEN --repo <owner/name> \
+#        --source packaging/homebrew/brokkr.rb --destination Formula/brokkr.rb \
+#        --version 0.6.0
+#
+# The token is a repository secret the bench provisions, and the only
+# thing this script does with it is hand it to git and gh for that one
+# repository (decision 0012). It is never printed, never written to a
+# file that survives the run, and never used against this repository.
+#
+# It arrives by the *name* of an environment variable, never as an
+# argument: an argument is readable from the process table by anything
+# else on the machine for as long as the command runs.
+set -euo pipefail
+
+token_env=""
+token=""
+repo=""
+source_file=""
+destination=""
+version=""
+
+die() {
+  printf 'open-channel-pr: %s\n' "$1" >&2
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --token-env) token_env="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    --source) source_file="${2:-}"; shift 2 ;;
+    --destination) destination="${2:-}"; shift 2 ;;
+    --version) version="${2:-}"; shift 2 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[ -n "$token_env" ] || die "--token-env <VARIABLE> is required"
+case "$token_env" in
+  *[!A-Za-z0-9_]* | [0-9]*) die "--token-env takes a variable name, not a value" ;;
+esac
+token="${!token_env-}"
+[ -n "$token" ] || die "\$${token_env} is unset or empty — the caller holds the token, this script only reads it"
+[ -n "$repo" ] || die "--repo <owner/name> is required"
+[ -n "$source_file" ] || die "--source <path> is required"
+[ -n "$destination" ] || die "--destination <path> is required"
+[ -n "$version" ] || die "--version <x.y.z> is required"
+[ -f "$source_file" ] || die "no such file: $source_file"
+
+# A rendered file still carrying the placeholder digest would publish a
+# formula nobody can install. Refuse rather than open that pull request.
+if grep -q '0000000000000000000000000000000000000000000000000000000000000000' "$source_file"; then
+  die "$source_file still carries a placeholder digest — run packaging/bump-from-sums.sh first"
+fi
+
+command -v gh >/dev/null 2>&1 || die "missing required tool: gh"
+
+rendered="$(mktemp)"
+cp "$source_file" "$rendered"
+
+work="$(mktemp -d)"
+cleanup() {
+  rm -rf "$work" "$rendered"
+}
+trap cleanup EXIT
+
+export GH_TOKEN="$token"
+gh repo clone "$repo" "$work/checkout" -- --depth 1 >/dev/null 2>&1 ||
+  die "cannot clone $repo — is the token scoped to it?"
+
+cd "$work/checkout"
+
+# `gh repo clone` authenticates its own fetch, but the push below is
+# plain git against an https remote, and gh is not a credential helper
+# until something says so. Without this the release would publish, the
+# clone would succeed, and the run would then die at the push with the
+# channel's pull request never opened — the loud-but-late failure the
+# whole token dance exists to avoid.
+#
+# Configured local to this throwaway checkout, so it dies with the temp
+# directory and touches no config that outlives the run. The helper reads
+# GH_TOKEN from the environment: the token still never lands on disk, and
+# never goes into the remote URL, where `git remote -v` would print it.
+git config credential.helper '!gh auth git-credential'
+
+branch="brokkr-${version}"
+git checkout -b "$branch" >/dev/null
+mkdir -p "$(dirname "$destination")"
+cp "$rendered" "$destination"
+
+# Staged first, then compared against the index: `git diff` alone is
+# silent about a destination the tap does not carry yet, so the very
+# first bump into a fresh tap would report "nothing to open" and open
+# nothing — a channel that never gets its formula, and a green release.
+git config user.name "brokkr release"
+git config user.email "noreply@github.com"
+git add "$destination"
+
+if git diff --cached --quiet -- "$destination"; then
+  printf 'open-channel-pr: %s already carries v%s, nothing to open\n' "$repo" "$version"
+  exit 0
+fi
+
+git commit --quiet --message "brokkr ${version}"
+git push --quiet origin "$branch"
+
+gh pr create \
+  --repo "$repo" \
+  --head "$branch" \
+  --title "brokkr ${version}" \
+  --body "Digests rendered from the attested \`SHA256SUMS\` of brokkr v${version}. Same artifacts as the GitHub release; nothing rebuilt."
+
+printf 'open-channel-pr: opened a pull request against %s for v%s\n' "$repo" "$version"

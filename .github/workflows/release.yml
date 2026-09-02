@@ -59,8 +59,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: brokkr-linux-x86_64 }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: brokkr-linux-aarch64 }
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: brokkr-linux-x86_64, nfpm_arch: amd64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: brokkr-linux-aarch64, nfpm_arch: arm64 }
           - { os: macos-latest,     target: aarch64-apple-darwin,      name: brokkr-macos-arm64 }
           # macos-13 (Intel runners) is retired: cross-compile from arm64.
           - { os: macos-latest,     target: x86_64-apple-darwin,       name: brokkr-macos-x86_64, cross: true }
@@ -89,6 +89,45 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "target/${{ matrix.target }}/release/brokkr.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
           (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
+      # The .deb and the .rpm are made from the binary the tarball leg
+      # just packaged — nfpm never compiles — so every channel carries
+      # one build, and both land in `dist/` before the attest step below
+      # sees it. That is the whole provenance argument: same bytes, same
+      # sidecar, same SHA256SUMS, same attestation.
+      - uses: actions/setup-go@v5
+        if: matrix.nfpm_arch
+        with:
+          go-version: stable
+      - name: install nfpm
+        if: matrix.nfpm_arch
+        # Pinned, and pinned in one file both workflows read. `@latest`
+        # would let a publication made after this commit decide what goes
+        # into packages the attestation below then vouches for; a version
+        # is immutable through Go's checksum database, so what builds the
+        # .deb and the .rpm is fixed here and changes only by a commit.
+        # `go install` compiles for the host, so one pin serves both the
+        # x86_64 and the aarch64 runner.
+        run: |
+          nfpm_version="$(tr -d '[:space:]' < packaging/nfpm-version.txt)"
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${nfpm_version}"
+      - name: package (linux .deb and .rpm)
+        if: matrix.nfpm_arch
+        env:
+          BROKKR_PKG_ARCH: ${{ matrix.nfpm_arch }}
+          BROKKR_PKG_BINARY: target/${{ matrix.target }}/release/brokkr
+        run: |
+          export BROKKR_PKG_VERSION="${GITHUB_REF_NAME#v}"
+          # nfpm's env interpolation does not reach every field (the
+          # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
+          # the config is rendered with envsubst first — same contract,
+          # no interpolation gamble.
+          envsubst < packaging/nfpm.yaml > target/packaging/nfpm.rendered.yaml
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager deb --target "dist/${{ matrix.name }}.deb"
+          nfpm package --config target/packaging/nfpm.rendered.yaml --packager rpm --target "dist/${{ matrix.name }}.rpm"
+          cd dist
+          for package in "${{ matrix.name }}.deb" "${{ matrix.name }}.rpm"; do
+            shasum -a 256 "$package" > "$package.sha256"
+          done
       - name: attest packaged binary and checksum
         uses: actions/attest@v4
         with:
@@ -130,6 +169,151 @@ jobs:
             One native binary per platform — no Python, no Node, no services.
             The binary is `brokkr`, and now the only one: the `forge` shim
             that rode along for one release is gone.
+            Linux also ships `.deb` and `.rpm` built from those same
+            binaries; every package manager channel serves these files.
             Verify downloads against SHA256SUMS, then verify signed GitHub
             build provenance with `gh attestation verify <asset> -R ${{ github.repository }}`.
             See ARCHITECTURE.md and docs/decisions/ for what this engine is and why.
+
+  # The apt and dnf repositories are the release's own artifacts served
+  # under a directory layout those tools understand — never a rebuild.
+  # Signing happens here, in the workflow, from a repository secret
+  # (decision 0012: the name is in the repository, the value never is).
+  pages:
+    name: publish apt and rpm repositories
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev createrepo-c
+      - name: build the apt repository
+        run: bash packaging/apt/build-repo.sh --debs dist --out site/apt
+      - name: build the rpm repository
+        run: |
+          bash packaging/rpm/build-repo.sh --rpms dist --out site/rpm \
+            --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/rpm"
+      - name: sign the repository indexes
+        env:
+          BROKKR_APT_SIGNING_KEY: ${{ secrets.BROKKR_APT_SIGNING_KEY }}
+          BROKKR_APT_SIGNING_KEY_PASSPHRASE: ${{ secrets.BROKKR_APT_SIGNING_KEY_PASSPHRASE }}
+        run: |
+          if [ -z "${BROKKR_APT_SIGNING_KEY}" ]; then
+            echo "refusing to publish an unsigned repository: BROKKR_APT_SIGNING_KEY is not set" >&2
+            echo "see packaging/README.md for provisioning the steward key" >&2
+            exit 1
+          fi
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          printf '%s\n' "${BROKKR_APT_SIGNING_KEY}" | gpg --batch --quiet --import
+          key="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')"
+          # The passphrase goes in on stdin, not on argv: an argument is
+          # readable from the runner's process table for as long as the
+          # command runs. The key block above arrives the same way.
+          sign() {
+            printf '%s' "${BROKKR_APT_SIGNING_KEY_PASSPHRASE}" |
+              gpg --batch --yes --quiet --pinentry-mode loopback \
+                --passphrase-fd 0 --local-user "$key" "$@"
+          }
+          release=site/apt/dists/stable/Release
+          sign --armor --detach-sign --output "${release}.gpg" "$release"
+          sign --clearsign --output site/apt/dists/stable/InRelease "$release"
+          for repomd in site/rpm/*/repodata/repomd.xml; do
+            sign --armor --detach-sign --output "${repomd}.asc" "$repomd"
+          done
+          gpg --armor --export "$key" > site/brokkr-archive-keyring.asc
+          rm -rf "$GNUPGHOME"
+      - name: the site's front door
+        run: cp packaging/pages/index.html site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # Homebrew, scoop and nix all read their digests from the release's own
+  # attested SHA256SUMS — never from a second download of their own.
+  channels:
+    name: bump downstream channels
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: render the templates from the attested manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" --pattern SHA256SUMS --dir .
+          bash packaging/bump-from-sums.sh --version "${GITHUB_REF_NAME#v}" --sums SHA256SUMS
+          rm SHA256SUMS
+      # The tap and the bucket live in sibling repositories that a
+      # workflow token cannot reach. Each step is skipped — loudly, not
+      # silently — until the bench provisions its token; see
+      # packaging/README.md.
+      #
+      # These read the files the bump just rendered, so they run before
+      # `create-pull-request`, which moves the working tree through its
+      # own branch to build the flake's pull request. Ordering them this
+      # way means no one has to know whether that action puts an
+      # unlisted file back exactly as it found it.
+      - name: open the homebrew tap pull request
+        env:
+          BROKKR_TAP_TOKEN: ${{ secrets.BROKKR_TAP_TOKEN }}
+        run: |
+          if [ -z "${BROKKR_TAP_TOKEN}" ]; then
+            echo "::warning::BROKKR_TAP_TOKEN is not set — the homebrew tap was not bumped for ${GITHUB_REF_NAME}"
+            exit 0
+          fi
+          bash packaging/open-channel-pr.sh \
+            --token-env BROKKR_TAP_TOKEN \
+            --repo "${GITHUB_REPOSITORY_OWNER}/homebrew-brokkr" \
+            --source packaging/homebrew/brokkr.rb \
+            --destination Formula/brokkr.rb \
+            --version "${GITHUB_REF_NAME#v}"
+      - name: open the scoop bucket pull request
+        env:
+          BROKKR_BUCKET_TOKEN: ${{ secrets.BROKKR_BUCKET_TOKEN }}
+        run: |
+          if [ -z "${BROKKR_BUCKET_TOKEN}" ]; then
+            echo "::warning::BROKKR_BUCKET_TOKEN is not set — the scoop bucket was not bumped for ${GITHUB_REF_NAME}"
+            exit 0
+          fi
+          bash packaging/open-channel-pr.sh \
+            --token-env BROKKR_BUCKET_TOKEN \
+            --repo "${GITHUB_REPOSITORY_OWNER}/scoop-brokkr" \
+            --source packaging/scoop/brokkr.json \
+            --destination bucket/brokkr.json \
+            --version "${GITHUB_REF_NAME#v}"
+      - name: the flake's digests, as a pull request against this repository
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # A tag build is a detached HEAD, and the action refuses to
+          # guess a base from one — the branch the pull request targets
+          # has to be named here or the step fails on every release.
+          base: ${{ github.event.repository.default_branch }}
+          add-paths: flake.nix
+          branch: channels/flake-${{ github.ref_name }}
+          commit-message: "packaging: the flake's digests catch up with ${{ github.ref_name }}"
+          title: "packaging: flake.nix digests for ${{ github.ref_name }}"
+          body: |
+            Rendered by `packaging/bump-from-sums.sh` from the attested
+            `SHA256SUMS` of ${{ github.ref_name }}. The flake fetches the
+            release artifacts, so its digests can only land after the
+            release exists.
