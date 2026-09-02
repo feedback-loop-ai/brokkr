@@ -1079,6 +1079,188 @@ fn a_wal_conversion_refused_for_a_reason_other_than_busy_fails_at_once() {
     std::fs::set_permissions(&path, permissions).unwrap();
 }
 
+/// A peer connection holding the write lock for as long as the test
+/// wants it held. Returned so the caller drops or rolls it back on
+/// purpose — the whole point of these tests is that the lock is released
+/// by a decision and never by luck.
+fn write_lock_on(db: &std::path::Path) -> Connection {
+    let holder = Connection::open(db).unwrap();
+    holder
+        .busy_timeout(std::time::Duration::from_secs(30))
+        .unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    holder
+        .execute(
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    holder
+}
+
+/// A journal with one run declared and started, ready to be appended to.
+fn contended_journal() -> (tempfile::TempDir, std::path::PathBuf, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("realm.db");
+    let mut store = Store::open(&db).unwrap();
+    store.create_run("r1", "feat", "self", &json!({})).unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    (dir, db, store)
+}
+
+/// The bug, at the store layer. A peer's lock outlasting the whole
+/// patience used to come back as a bare `StoreError::Sqlite` carrying
+/// `database is locked` — a shape no caller can tell from a genuine
+/// defect, and the one that killed a live engine 2.5 minutes and
+/// nineteen good events into a run. It is [`StoreError::Contended`] now:
+/// typed, naming the operation and what it waited, and saying that
+/// nothing was written.
+#[test]
+fn a_lock_held_past_all_patience_is_typed_contention_not_a_bare_sqlite_error() {
+    let (_dir, db, mut store) = contended_journal();
+    store
+        .set_patience(std::time::Duration::from_millis(150))
+        .unwrap();
+    let holder = write_lock_on(&db);
+
+    let refused = store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .expect_err("a lock held throughout cannot be appended past");
+    assert!(
+        matches!(&refused, StoreError::Contended { operation, .. } if *operation == "append"),
+        "contention arrived untyped: {refused:?}"
+    );
+    assert!(refused.is_contention());
+    assert!(
+        refused.to_string().contains("nothing was written"),
+        "the message must say the journal is untouched: {refused}"
+    );
+
+    // And it is true: the journal is exactly as it was.
+    holder.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(store.head_hash("r1").unwrap().0, 1);
+    assert_eq!(store.load("r1").unwrap().len(), 1);
+
+    // `create_run` is the other engine-side write, and it answers the
+    // same way rather than in SQLite's words.
+    let holder = write_lock_on(&db);
+    let refused = store
+        .create_run("r2", "feat", "self", &json!({}))
+        .expect_err("a lock held throughout cannot be created past");
+    assert!(
+        matches!(&refused, StoreError::Contended { operation, .. } if *operation == "create_run"),
+        "contention arrived untyped: {refused:?}"
+    );
+    holder.execute_batch("ROLLBACK").unwrap();
+}
+
+/// The escape itself: a `SQLITE_BUSY` the busy handler is never asked
+/// about.
+///
+/// SQLite returns one whenever consulting the handler could deadlock —
+/// measured here at microseconds against the same held lock that costs a
+/// covered connection the full thirty seconds. A bounded timeout cannot
+/// see that shape: the budget is not spent, so nothing waits, and the
+/// caller meets `database is locked` with its whole patience still in
+/// its pocket. The handler is set to zero here to stage exactly that,
+/// leaving `patiently` as the only thing standing between the peer and
+/// the caller — and the append lands.
+#[test]
+fn a_busy_the_handler_is_never_asked_about_is_survived_by_the_patience_left_over() {
+    let (_dir, db, mut store) = contended_journal();
+    store.conn.busy_timeout(std::time::Duration::ZERO).unwrap();
+    store.patience = std::time::Duration::from_secs(10);
+    let holder = write_lock_on(&db);
+
+    let released = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        holder.execute_batch("ROLLBACK").unwrap();
+    });
+    let landed = store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .expect("patience the handler did not spend still covers the peer");
+    released.join().unwrap();
+
+    assert_eq!(landed.seq, 2);
+    assert_eq!(store.load("r1").unwrap().len(), 2);
+}
+
+/// Contention is patient; a refusal is not. A fenced append onto a head
+/// a peer has moved is a verdict about content, so it comes back at once
+/// and is never retried into place — even with a patience long enough to
+/// retry it many times over, and even while the same journal is under a
+/// peer's lock in the busy sense.
+#[test]
+fn a_moved_head_is_a_refusal_and_is_never_retried_into_place() {
+    let (_dir, _db, mut store) = contended_journal();
+    store
+        .set_patience(std::time::Duration::from_secs(10))
+        .unwrap();
+    let (stale_seq, stale_hash) = store.head_hash("r1").unwrap();
+    // A peer lands one event, taking the head away from the fence.
+    store
+        .append_next(
+            "r1",
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let refused = store
+        .append_next_if_head(
+            "r1",
+            stale_seq,
+            &stale_hash,
+            EventType::OperatorAccepted,
+            json!({"command": "retry", "operator": "op", "reason": "r"}),
+            None,
+            None,
+        )
+        .expect_err("a moved head refuses");
+    assert!(
+        matches!(
+            refused,
+            StoreError::HeadMoved {
+                expected_seq: 1,
+                found_seq: 2
+            }
+        ),
+        "the fence stopped reading as a fence: {refused:?}"
+    );
+    assert!(!refused.is_contention(), "a refusal is not an accident");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "the fence was retried instead of refused: {:?}",
+        started.elapsed()
+    );
+    // Nothing of it landed.
+    assert_eq!(store.head_hash("r1").unwrap().0, 2);
+}
+
 /// The guard question is a question, not an assumption: asked of a file
 /// that is not a database at all, it fails with the real error instead
 /// of reporting the guards absent and re-running a migration into ruin.

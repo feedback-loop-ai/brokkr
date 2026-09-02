@@ -36,6 +36,23 @@
 //! append. See [`Store::open`] and [`Store::migrate`] for what
 //! measurement found and what each line now buys.
 //!
+//! # When a peer wins anyway
+//!
+//! The busy timeout is a budget and not a guarantee, and it is not even
+//! always spent: SQLite returns `SQLITE_BUSY` *without* consulting the
+//! busy handler whenever consulting it could deadlock, so a caller can
+//! meet `database is locked` in microseconds with its whole patience
+//! untouched. That is what killed a live engine on 2026-09-02, and
+//! [`patiently`] is the answer — one place, one budget, spent to a
+//! deadline by whichever line of defence does the waiting.
+//!
+//! What survives the budget is [`StoreError::Contended`]: typed, saying
+//! nothing was written, and deliberately a different thing from the two
+//! refusals beside it. [`StoreError::HeadMoved`] and
+//! [`StoreError::AppendConflict`] are verdicts about content and are
+//! never retried; contention is an accident of timing and the same call
+//! made again is the same call.
+//!
 //! This is what lets a realm's `journal` path in `realms.json` be the
 //! shared target for same-realm parallel burns: several `brokkr`
 //! processes, each driving its own run, appending into one journal. A
@@ -58,6 +75,13 @@ pub const DATABASE_SCHEMA: u32 = 1;
 /// up. Every connection sets this as its FIRST act, so no statement in
 /// the crate — pragma, migration, or append — is ever the one that runs
 /// without it.
+///
+/// Setting it is not the same as being covered by it, and that gap is
+/// what [`patiently`] closes: SQLite declines to consult a busy handler
+/// whenever consulting it could deadlock, and returns `SQLITE_BUSY` on
+/// the spot instead. So this is the budget, not the mechanism — read it
+/// as the whole time one operation may spend waiting, however the
+/// waiting gets done.
 ///
 /// Thirty seconds, not ten, and the number comes from a measurement.
 /// SQLite's busy handler is not a fair queue: it wakes, retries, and
@@ -97,6 +121,35 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
+    /// A peer still held the journal's write lock when this operation's
+    /// whole patience ran out. **Nothing was written.**
+    ///
+    /// This is a third thing, and the distinction is the point. An
+    /// [`StoreError::AppendConflict`] means a peer took the seq; a
+    /// [`StoreError::HeadMoved`] means a peer moved the head the caller
+    /// decided against — both are *refusals*, verdicts about content,
+    /// and neither may ever be retried into place. Contention is an
+    /// accident of timing on a lock: the same call, made again, is the
+    /// same call. It is typed separately so a caller can end lawfully on
+    /// it instead of dying as if the journal had refused it something.
+    #[error(
+        "contended: a peer still held the journal's write lock after {waited_ms}ms of \
+         {operation}; nothing was written"
+    )]
+    Contended {
+        operation: &'static str,
+        waited_ms: u128,
+    },
+}
+
+impl StoreError {
+    /// Is this the contention accident rather than a refusal or a
+    /// defect? The one predicate callers branch on — no error-text
+    /// matching anywhere, and [`StoreError::HeadMoved`] answers `false`
+    /// here forever.
+    pub fn is_contention(&self) -> bool {
+        matches!(self, StoreError::Contended { .. })
+    }
 }
 
 /// Why an adoption refused. Every variant refuses the import WHOLE:
@@ -200,6 +253,11 @@ fn escaped(run_id: &str) -> String {
 
 pub struct Store {
     conn: Connection,
+    /// The whole budget one store operation spends on a peer's lock —
+    /// the connection's busy handler and [`patiently`]'s retry together,
+    /// never one each. [`BUSY_TIMEOUT`] unless a caller says otherwise;
+    /// see [`Store::set_patience`].
+    patience: std::time::Duration,
 }
 
 const MIGRATION_V1: &str = r#"
@@ -283,6 +341,110 @@ fn migrate_arrival_columns(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// [`Store::create_run`]'s one transaction, as a body [`patiently`] may
+/// run again. It reads and writes only inside that transaction, so an
+/// attempt that ends busy has left the journal exactly as it found it.
+fn create_run_once(
+    conn: &mut Connection,
+    run_id: &str,
+    feature: &str,
+    bundle_name: &str,
+    manifest: &str,
+) -> Result<(), StoreError> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let existing: Option<String> = tx
+        .query_row(
+            "SELECT run_id FROM runs WHERE run_id = ?1",
+            params![run_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if existing.is_some() {
+        return Err(StoreError::RunExists(run_id.to_string()));
+    }
+    tx.execute(
+        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![run_id, feature, bundle_name, manifest, now_rfc3339()],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
+/// run again.
+///
+/// Every fact it writes — the head it chains onto, the seq, the seal —
+/// is derived INSIDE the transaction, so a retry is the same call made
+/// again rather than a second one: an attempt that ends busy committed
+/// nothing and the next attempt reads the journal fresh. The envelope it
+/// discards was never sealed into anything.
+///
+/// The two refusals it can return, [`StoreError::HeadMoved`] and
+/// [`StoreError::AppendConflict`], leave here untouched. They are not
+/// busy errors, so [`patiently`] does not look at them — which is what
+/// keeps a fence a fence.
+#[allow(clippy::too_many_arguments)]
+fn append_once(
+    conn: &mut Connection,
+    run_id: &str,
+    expected_head: Option<(u64, &str)>,
+    event_type: EventType,
+    payload: Value,
+    causation_id: Option<String>,
+    attempt_id: Option<String>,
+) -> Result<EventEnvelope, StoreError> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let head: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT seq, event_hash FROM events WHERE run_id = ?1
+             ORDER BY seq DESC LIMIT 1",
+            params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (last_seq, previous_hash) = match head {
+        Some((seq, hash)) => (seq as u64, hash),
+        None => (0, ZERO_HASH.to_string()),
+    };
+    if let Some((expected_seq, expected_hash)) = expected_head {
+        if last_seq != expected_seq || previous_hash != expected_hash {
+            // Dropping the transaction rolls it back: a fence that
+            // fails writes nothing, not even the row it was building.
+            return Err(StoreError::HeadMoved {
+                expected_seq,
+                found_seq: last_seq,
+            });
+        }
+    }
+    let envelope = EventEnvelope {
+        run_id: run_id.to_string(),
+        seq: last_seq + 1,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_schema_version: 1,
+        event_type,
+        payload,
+        causation_id,
+        correlation_id: run_id.to_string(),
+        attempt_id,
+        recorded_at: now_rfc3339(),
+        previous_hash,
+        event_hash: String::new(),
+    }
+    .sealed();
+    let serialized = serde_json::to_string(&envelope)?;
+    let inserted = tx.execute(
+        "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
+    )?;
+    if inserted == 0 {
+        return Err(StoreError::AppendConflict { seq: envelope.seq });
+    }
+    tx.commit()?;
+    Ok(envelope)
+}
+
 impl Store {
     /// Open (creating if absent) a journal for writing.
     ///
@@ -308,8 +470,26 @@ impl Store {
         conn.busy_timeout(BUSY_TIMEOUT)?;
         ensure_wal(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        Store::migrate(&mut conn)?;
-        Ok(Store { conn })
+        patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
+        Ok(Store {
+            conn,
+            patience: BUSY_TIMEOUT,
+        })
+    }
+
+    /// The whole budget every operation of this store spends on a peer's
+    /// lock, set on both lines of defence at once — the connection's own
+    /// busy handler and [`patiently`]'s retry — so the two can never add
+    /// up to more than one wait.
+    ///
+    /// [`BUSY_TIMEOUT`] is the measured default and no operator has a
+    /// reason to change it. Patience is an argument for the same reason
+    /// [`ensure_wal_by`]'s deadline is one: the tests that prove a budget
+    /// runs out must not have to wait it out.
+    pub fn set_patience(&mut self, patience: std::time::Duration) -> Result<(), StoreError> {
+        self.conn.busy_timeout(patience)?;
+        self.patience = patience;
+        Ok(())
     }
 
     /// Bring a journal to [`DATABASE_SCHEMA`], writing only when it is
@@ -391,13 +571,18 @@ impl Store {
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
-        let found: String = conn.query_row(
-            "SELECT value FROM meta WHERE key = 'database_schema'",
-            [],
-            |row| row.get(0),
-        )?;
+        let found: String = patiently("open_read_only", BUSY_TIMEOUT, || {
+            Ok(conn.query_row(
+                "SELECT value FROM meta WHERE key = 'database_schema'",
+                [],
+                |row| row.get(0),
+            )?)
+        })?;
         schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store { conn })
+        Ok(Store {
+            conn,
+            patience: BUSY_TIMEOUT,
+        })
     }
 
     /// Declare a run in the journal. The existence check and the insert
@@ -423,38 +608,23 @@ impl Store {
         manifest: &Value,
     ) -> Result<(), StoreError> {
         let manifest = serde_json::to_string(manifest)?;
-        let created_at = now_rfc3339();
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT run_id FROM runs WHERE run_id = ?1",
-                params![run_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if existing.is_some() {
-            return Err(StoreError::RunExists(run_id.to_string()));
-        }
-        tx.execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![run_id, feature, bundle_name, manifest, created_at],
-        )?;
-        tx.commit()?;
-        Ok(())
+        let conn = &mut self.conn;
+        patiently("create_run", self.patience, || {
+            create_run_once(conn, run_id, feature, bundle_name, &manifest)
+        })
     }
 
     pub fn manifest(&self, run_id: &str) -> Result<Value, StoreError> {
-        let raw: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT manifest FROM runs WHERE run_id = ?1",
-                params![run_id],
-                |r| r.get(0),
-            )
-            .optional()?;
+        let raw: Option<String> = patiently("manifest", self.patience, || {
+            Ok(self
+                .conn
+                .query_row(
+                    "SELECT manifest FROM runs WHERE run_id = ?1",
+                    params![run_id],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        })?;
         let raw = raw.ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
         Ok(serde_json::from_str(&raw)?)
     }
@@ -470,6 +640,10 @@ impl Store {
     }
 
     fn head(&self, run_id: &str) -> Result<(u64, String), StoreError> {
+        patiently("head", self.patience, || self.head_once(run_id))
+    }
+
+    fn head_once(&self, run_id: &str) -> Result<(u64, String), StoreError> {
         let head: Option<(i64, String)> = self
             .conn
             .query_row(
@@ -558,62 +732,27 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let head: Option<(i64, String)> = tx
-            .query_row(
-                "SELECT seq, event_hash FROM events WHERE run_id = ?1
-                 ORDER BY seq DESC LIMIT 1",
-                params![run_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+        let conn = &mut self.conn;
+        patiently("append", self.patience, || {
+            append_once(
+                conn,
+                run_id,
+                expected_head,
+                event_type,
+                payload.clone(),
+                causation_id.clone(),
+                attempt_id.clone(),
             )
-            .optional()?;
-        let (last_seq, previous_hash) = match head {
-            Some((seq, hash)) => (seq as u64, hash),
-            None => (0, ZERO_HASH.to_string()),
-        };
-        if let Some((expected_seq, expected_hash)) = expected_head {
-            if last_seq != expected_seq || previous_hash != expected_hash {
-                // Dropping the transaction rolls it back: a fence that
-                // fails writes nothing, not even the row it was building.
-                return Err(StoreError::HeadMoved {
-                    expected_seq,
-                    found_seq: last_seq,
-                });
-            }
-        }
-        let envelope = EventEnvelope {
-            run_id: run_id.to_string(),
-            seq: last_seq + 1,
-            event_id: uuid::Uuid::new_v4().to_string(),
-            event_schema_version: 1,
-            event_type,
-            payload,
-            causation_id,
-            correlation_id: run_id.to_string(),
-            attempt_id,
-            recorded_at: now_rfc3339(),
-            previous_hash,
-            event_hash: String::new(),
-        }
-        .sealed();
-        let serialized = serde_json::to_string(&envelope)?;
-        let inserted = tx.execute(
-            "INSERT OR IGNORE INTO events (run_id, seq, event_hash, envelope)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![run_id, envelope.seq as i64, envelope.event_hash, serialized],
-        )?;
-        if inserted == 0 {
-            return Err(StoreError::AppendConflict { seq: envelope.seq });
-        }
-        tx.commit()?;
-        Ok(envelope)
+        })
     }
 
     /// Load and verify the full journal of a run. A journal that fails
     /// chain verification is corrupt and is never partially returned.
     pub fn load(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
+        patiently("load", self.patience, || self.load_once(run_id))
+    }
+
+    fn load_once(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
         let mut stmt = self
             .conn
             .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?;
@@ -1187,6 +1326,70 @@ fn is_busy(error: &rusqlite::Error) -> bool {
         error.sqlite_error_code(),
         Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
     )
+}
+
+/// How long [`patiently`] waits between retries. Short enough that the
+/// case it exists for — a `SQLITE_BUSY` returned in microseconds,
+/// without the busy handler ever being asked — does not turn a
+/// millisecond of contention into a visible stall; long enough that
+/// losing a whole patience to a genuinely held lock costs a bounded
+/// number of wakeups rather than a spin.
+const CONTENTION_PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// The ONE place a `SQLITE_BUSY` is handled, and the only one. Every
+/// store operation an engine can reach runs inside it; no call site
+/// anywhere else in the workspace retries anything.
+///
+/// The connection's busy handler is the first line and covers almost
+/// everything, but it is not a promise SQLite always keeps. Its own
+/// documentation says so: *"If SQLite determines that invoking the busy
+/// handler could result in a deadlock, it will go ahead and return
+/// SQLITE_BUSY to the application instead of invoking the busy
+/// handler."* The btree layer's retry loop is guarded by
+/// `pBt->inTransaction==TRANS_NONE`, so a write that follows a read
+/// still open on the same connection is refused the handler outright and
+/// comes back busy in **microseconds** — measured here at 12µs against a
+/// peer's held write lock, versus the 30.03s the same contention costs a
+/// connection the handler does cover. That is the shape a bounded
+/// timeout cannot see: the budget was never spent, so nothing waited,
+/// and the caller met `database is locked` with 29.99 seconds of
+/// patience left in its pocket.
+///
+/// So patience is spent to a DEADLINE rather than counted in attempts:
+/// whichever line of defence does the waiting, the total is one
+/// [`Store::set_patience`] budget and never two. A handler that spends
+/// the whole budget lands on the deadline and reports
+/// [`StoreError::Contended`] at once; a busy the handler declined
+/// returns instantly and this loop spends the rest.
+///
+/// What it retries is exactly one thing: a raw `SQLITE_BUSY` /
+/// `SQLITE_LOCKED`. Every other error — including
+/// [`StoreError::HeadMoved`] and [`StoreError::AppendConflict`], which
+/// are refusals and not accidents — returns on the first attempt,
+/// untouched. `attempt` must therefore write nothing outside its own
+/// transaction, which is what makes re-running it the same call rather
+/// than a second one.
+fn patiently<T>(
+    operation: &'static str,
+    patience: std::time::Duration,
+    mut attempt: impl FnMut() -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    let started = std::time::Instant::now();
+    let deadline = started + patience;
+    loop {
+        match attempt() {
+            Err(StoreError::Sqlite(error)) if is_busy(&error) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(StoreError::Contended {
+                        operation,
+                        waited_ms: started.elapsed().as_millis(),
+                    });
+                }
+                std::thread::sleep(CONTENTION_PAUSE);
+            }
+            settled => return settled,
+        }
+    }
 }
 
 /// The append-only and immutability triggers `MIGRATION_V1` installs, by
