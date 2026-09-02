@@ -584,11 +584,41 @@ fn invoke_with_stager(
     }
 }
 
-/// The provider row dsh's headless profile boots its agent on. A patch
-/// overlay replaces the targeted row's WHOLE config (dsh-base's own
-/// words), so the overlay that pins a model must restate the provider
-/// or the boot loses it.
+/// The provider row dsh's headless profile boots its agent on when the
+/// pinned model names none. A patch overlay replaces the targeted row's
+/// WHOLE config (dsh-base's own words), so the overlay that pins a
+/// model must restate the provider or the boot loses it.
 const DSH_PROVIDER: &str = "deepseek-official";
+
+/// One pinned model, as dsh addresses it: a provider route in the
+/// profile tree and a model id that route serves. `<id>` alone is the
+/// official DeepSeek route; `<provider>/<id>` names another route the
+/// profile declares — `dashscope/qwen3.8-max` for Model Studio. The
+/// split is on the first slash and the id keeps none, so a route name
+/// and a model id are each one plain identifier.
+struct DshModel<'a> {
+    provider: &'a str,
+    model: &'a str,
+}
+
+fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+    };
+    let (provider, model) = match pinned.split_once('/') {
+        Some((provider, model)) => (provider, model),
+        None => (DSH_PROVIDER, pinned),
+    };
+    if !plain(provider) || !plain(model) {
+        return Err(format!(
+            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain identifiers"
+        ));
+    }
+    Ok(DshModel { provider, model })
+}
 
 /// The dsh launcher takes no model flag: the model is one row of the
 /// composed profile tree (`agent-default-model`), and the launcher's
@@ -637,15 +667,7 @@ fn dsh_model_overlay_in(
     model: &str,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<tempfile::NamedTempFile, String> {
-    let well_formed = !model.is_empty()
-        && model
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'));
-    if !well_formed {
-        return Err(format!(
-            "dsh driver: model id {model:?} is not a plain identifier"
-        ));
-    }
+    let DshModel { provider, model } = parse_dsh_model(model)?;
     let mut file = io_context(create(), "could not stage the dsh model overlay")?;
     let body = format!(
         "# Written by `brokkr driver dsh` for one seat: the pinned model, as the\n\
@@ -653,7 +675,7 @@ fn dsh_model_overlay_in(
          # row's whole config, so the provider is restated beside the model.\n\
          - id: agent-default-model\n\
          \x20 config:\n\
-         \x20   provider: {DSH_PROVIDER}\n\
+         \x20   provider: {provider}\n\
          \x20   model: {model}\n"
     );
     io_context(

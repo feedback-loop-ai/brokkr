@@ -10,7 +10,16 @@
     "--"
   ],
   "models": {
-    "flash": "deepseek-v4-flash"
+    "flash": "deepseek-v4-flash",
+    "glm": "dashscope/glm-5.2",
+    "pro": "deepseek-v4-pro",
+    "qwen-flash": "dashscope/qwen3.8-flash",
+    "qwen-max": "dashscope/qwen3.8-max",
+    "qwen-plus": "dashscope/qwen3.7-plus",
+    "qwen36-flash": "dashscope/qwen3.6-flash",
+    "qwen37-max": "dashscope/qwen3.7-max",
+    "studio-flash": "dashscope/deepseek-v4-flash-0731",
+    "studio-pro": "dashscope/deepseek-v4-pro"
   },
   "model_flag": "--model",
   "tool_permissions": "unsupported",

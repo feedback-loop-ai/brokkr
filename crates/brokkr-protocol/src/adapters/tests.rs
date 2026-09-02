@@ -628,10 +628,39 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
     assert_eq!(rest, s(&["--x", "y"]));
     // YAML is the overlay's grammar, so an id that could open a second
     // row or a value of its own is refused rather than written.
-    for bad in ["", "v4\n- id: hmr", "v4 # x", "a:b c", "\"quoted\""] {
+    for bad in [
+        "",
+        "v4\n- id: hmr",
+        "v4 # x",
+        "a:b c",
+        "\"quoted\"",
+        "/qwen3.8-max",
+        "dashscope/",
+        "a/b/c",
+    ] {
         assert!(dsh_model_overlay(bad).is_err(), "{bad:?} must be refused");
     }
     assert!(dsh_model_overlay("deepseek-v4-flash").is_ok());
+}
+
+#[test]
+fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
+    let official = parse_dsh_model("deepseek-v4-flash").unwrap();
+    assert_eq!(
+        (official.provider, official.model),
+        ("deepseek-official", "deepseek-v4-flash")
+    );
+    let studio = parse_dsh_model("dashscope/deepseek-v4-flash-0731").unwrap();
+    assert_eq!(
+        (studio.provider, studio.model),
+        ("dashscope", "deepseek-v4-flash-0731")
+    );
+    // The overlay carries the named route, not the default one.
+    let file = dsh_model_overlay("dashscope/qwen3.8-max").unwrap();
+    let written = std::fs::read_to_string(file.path()).unwrap();
+    assert!(written.contains("provider: dashscope\n"), "{written}");
+    assert!(written.contains("model: qwen3.8-max\n"), "{written}");
+    assert!(!written.contains("deepseek-official"), "{written}");
 }
 
 #[test]
