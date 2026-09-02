@@ -37,7 +37,9 @@ You need a git repository you are willing to let an agent edit and one configure
 brokkr run --recipe fast --repo . --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 
-The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph:
+As written, that line runs from a clone of this repository: `--recipe` resolves names under `./recipes`, and `fast` drives a Rust delivery. In your own repository the same line is `brokkr init . && brokkr run --bundle . --repo . --feature "…"`, which scaffolds a recipe for your stack first; the [full quickstart](docs/guides/quickstart.md#step-2--brokkr-init-) shows what it writes.
+
+The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph. The sample below is abridged: a real trail lists every event, and each finished seat carries its duration:
 
 ```text
 run  add-one-visible-improvement-8bf6d692

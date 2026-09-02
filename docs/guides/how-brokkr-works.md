@@ -59,7 +59,7 @@ brokkr compare <a> <b>                              # journal-backed A/B
   that run took.
 
 [ARCHITECTURE.md](../../ARCHITECTURE.md) is the deep dive: crates, journal,
-effect discipline, verification layers. This README stays the tour.
+effect discipline, verification layers. This guide stays the tour.
 
 ## Determinism laws
 
