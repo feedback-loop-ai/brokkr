@@ -16,6 +16,7 @@ engine is narrower than the schema, this guide says so.
 - [The message family](#the-message-family)
 - [The exchange, in order](#the-exchange-in-order)
 - [What the engine actually sends](#what-the-engine-actually-sends)
+- [`resume` — rejoining the session you opened](#resume--rejoining-the-session-you-opened)
 - [`accepted` is the load-bearing message](#accepted-is-the-load-bearing-message)
 - [Checkpoints](#checkpoints)
 - [Results](#results)
@@ -101,7 +102,8 @@ The subprocess transport
 (`crates/brokkr-protocol/src/process.rs`) is narrower than the schema,
 and you should build against the narrower shape:
 
-- **`hello` and `start` are the only messages sent before your result.**
+- **`hello`, an optional `resume`, and `start` are the only messages
+  sent before your result.**
 - **`shutdown` is sent once, after your result or after EOF**, followed
   by the engine closing your stdin. Treat both as "stop now"; exit
   cleanly on either.
@@ -110,16 +112,78 @@ and you should build against the narrower shape:
   kill on deadline expiry, not as a protocol message. Implement
   `cancel` → `cancelled` if you want the contract covered; do not rely
   on receiving one.
-- **`resume` is defined in the contract but the engine does not
-  currently send it.** `brokkr resume` replays the journal and re-runs
-  the pending seat as a fresh attempt; it does not reattach to a
-  driver's session. Advertising `"resume"` in `supports` is therefore
-  currently inert.
-- **`supports` is recorded but not gated on.** The engine reads your
-  `capabilities` message and does not branch on its contents. The
-  built-in adapters ship `"supports": []` and still emit checkpoints and
-  answer `cancel`. Fill it in honestly anyway — it is what a future
-  engine will read, and it costs nothing.
+- **`supports` is read on exactly one axis: `resume`.** The engine will
+  not offer a session to a driver that did not declare it can rejoin
+  one. Nothing else in `supports` is branched on — the built-in adapters
+  emit checkpoints and answer `cancel` whatever they list. Fill it in
+  honestly anyway.
+
+## `resume` — rejoining the session you opened
+
+The engine may hand a seat back the session that seat's own earlier
+attempt opened, so a retry or a phase-machine re-entry continues a warm
+provider session instead of paying for a cold one (decision 0030; the
+measured effect on codex is a cache-read ratio of ~74% cold against ~88%
+on the resumed attempt).
+
+```
+engine → { "type": "hello", "engine_version": "0.7.0" }
+driver → { "type": "capabilities", "driver": "my-driver", "version": "1.0.0",
+           "supports": ["resume"] }
+engine → { "type": "resume", "effect_id": "fx", "attempt_id": "a2",
+           "session_ref": "<the id you reported earlier>" }
+engine → { "type": "start", "effect_id": "fx", "attempt_id": "a2",
+           "seat": "implement", "input": { … } }
+```
+
+What a driver has to do to participate:
+
+- **Advertise `"resume"` in `supports`.** Without it the engine never
+  sends the message, and every attempt starts cold.
+- **Report the session id.** The engine reads it out of your journaled
+  checkpoints: a checkpoint whose `data` carries a `session_id` string
+  is the seat's session. Report it as soon as your harness announces
+  one, not only when the session ends — an attempt killed on its
+  deadline is exactly the attempt whose retry wants the id.
+- **Handle `resume` as a modifier on the `start` that follows it.** It
+  arrives BEFORE that `start` and carries no `seat` and no `input`: it
+  is the session handle for the attempt the next `start` describes, and
+  nothing else. One offer belongs to one seat; a `start` with no
+  `resume` in front of it is a cold start.
+- **Rejoin that session itself.** What you resume is your provider's own
+  session, by the id you captured — never a fork, a copy, or a new
+  session seeded with the old transcript. A session belongs to the
+  credential and client that opened it; resuming it from anywhere else
+  is a terms violation with the account at the end of it, not a clever
+  optimisation.
+- **Re-express every restriction the seat declared.** If your harness's
+  resume path drops a sandbox class, a permission mode or a tool
+  allow-list, put it back explicitly. Where you cannot, start cold and
+  say why in a checkpoint. A resumed attempt that runs with more power
+  than its seat declared is the failure this whole mechanism is fenced
+  against — the codex adapter translates its seat's `--sandbox <class>`
+  into `-c sandbox_mode="<class>"` for exactly this reason.
+- **Treat a refused resume as a cold spawn, not a failure.** An unknown
+  or expired session is not the attempt's fault: start cold, journal the
+  refusal, and carry on.
+
+What the ENGINE guarantees before it offers you anything (decision 0030
+ruling 4) — you are never handed a session that belongs to another
+instance:
+
+- the same run and the same seat: a retry of that seat, or a re-entry
+  into it. Never another seat, and never another run;
+- the same driver binary and the same resolved model, provider and agent
+  as the attempt that opened the session. A decision-0016 chain fallback
+  to another model gets nothing;
+- the same pinned bundle: an edited adapter declaration, a rewritten
+  charter or an upgraded engine moves the run's pin, and a moved pin
+  offers nothing.
+
+The engine journals nothing about the offer itself: whether it made one
+is a pure function of the journal a reader already has. What you DID
+with it — rejoined, or started cold and why — is yours to journal, in a
+checkpoint, and it is the only record of it there will be. Send one.
 
 ## `accepted` is the load-bearing message
 

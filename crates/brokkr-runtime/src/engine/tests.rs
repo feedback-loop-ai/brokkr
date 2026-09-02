@@ -560,6 +560,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 json!({}),
                 std::time::Duration::from_secs(1),
                 None,
+                None,
             )
             .unwrap(),
         DriverRun::SpawnFailed(_)
@@ -581,6 +582,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 json!({}),
                 std::time::Duration::from_secs(2),
                 Some("step"),
+                None,
             )
             .unwrap(),
         DriverRun::Ran(_)
@@ -596,6 +598,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
             &command,
             json!({}),
             std::time::Duration::from_secs(2),
+            None,
             None,
         )
         .is_err());

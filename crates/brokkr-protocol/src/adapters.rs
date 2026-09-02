@@ -46,6 +46,18 @@ impl AdapterKind {
         }
     }
 
+    /// What this adapter honours of the protocol's OPTIONAL vocabulary.
+    /// Codex is the one built-in that can rejoin the session it opened
+    /// (`codex exec resume`, codex-cli 0.148.0); every other arm answers
+    /// the empty list it always did, and the engine's offer never
+    /// reaches a driver that did not declare it.
+    fn supports(&self) -> Vec<String> {
+        match self {
+            AdapterKind::Codex => vec!["resume".to_string()],
+            _ => Vec::new(),
+        }
+    }
+
     fn driver_name(&self) -> String {
         match self {
             AdapterKind::Claude => "claude-code".to_string(),
@@ -254,10 +266,17 @@ fn fold_codex_event(
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
-                session_meta.insert(
-                    "session_id".into(),
-                    Value::String(thread_id.chars().take(128).collect()),
-                );
+                let clamped: String = thread_id.chars().take(128).collect();
+                session_meta.insert("session_id".into(), Value::String(clamped.clone()));
+                // Journaled NOW, as the claude fold journals its own —
+                // and for a second reason here: the thread id is what a
+                // retry resumes (decision 0030), and an attempt killed
+                // on its deadline never reaches the session-finished
+                // checkpoint. Captured at `thread.started`, the id
+                // survives exactly the failure a retry follows.
+                emit(&json!({
+                    "step":"session-started", "session_id": clamped, "harness":"codex",
+                }));
             }
         }
         Some("turn.started") => {
@@ -412,15 +431,237 @@ fn invoke_stream_json(
     })
 }
 
+/// The sandbox classes `codex exec -s|--sandbox` takes — read-only,
+/// workspace-write, danger-full-access (verified against the installed
+/// codex-cli 0.148.0, `codex exec --help`). A resume re-expresses a
+/// class this list names, or it does not happen: an unknown spelling is
+/// never translated on a guess (decision 0030 ruling 2).
+const CODEX_SANDBOX_CLASSES: [&str; 3] = ["read-only", "workspace-write", "danger-full-access"];
+
+/// The thread a launch rejoins and the class re-imposed on it. The two
+/// travel together because neither is lawful without the other: a resume
+/// without a re-expressed class is the silent escalation decision 0030
+/// ruling 2 forbids, and a class without a thread is just a cold spawn.
+struct CodexResume {
+    thread: String,
+    sandbox: String,
+}
+
+/// One codex launch, decided before anything spawns: the argv, the
+/// session it rejoins (`None` is a cold spawn), and — when a session was
+/// on offer and this is a cold spawn anyway — why it could not be taken.
+struct CodexLaunch {
+    command: Vec<String>,
+    resumed: Option<CodexResume>,
+    cold_reason: Option<String>,
+}
+
+/// The cold argv, exactly as it has always been: `codex exec --json -C
+/// <workdir>` plus the seat's own passthrough.
+fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
+    let mut command = vec![
+        bin.to_string(),
+        "exec".into(),
+        "--json".into(),
+        "-C".into(),
+        workdir.to_string(),
+    ];
+    command.extend(extra.iter().cloned());
+    command
+}
+
+/// The seat's declared sandbox class, taken out of its own passthrough.
+/// `codex exec resume` accepts neither `-C/--cd` nor `-s/--sandbox`
+/// (verified: `codex exec resume --help`, codex-cli 0.148.0), so the
+/// class has to leave the argv here and go back in as
+/// `-c sandbox_mode="<class>"`. A flag with nothing after it declares
+/// nothing, and the resume refuses itself rather than inventing a class.
+fn split_codex_sandbox(extra: &[String]) -> (Option<String>, Vec<String>) {
+    let mut class = None;
+    let mut passthrough = Vec::with_capacity(extra.len());
+    let mut parts = extra.iter();
+    while let Some(part) = parts.next() {
+        if let Some(value) = part.strip_prefix("--sandbox=") {
+            class = Some(value.to_string());
+        } else if part == "--sandbox" || part == "-s" {
+            match parts.next() {
+                Some(value) => class = Some(value.clone()),
+                None => passthrough.push(part.clone()),
+            }
+        } else {
+            passthrough.push(part.clone());
+        }
+    }
+    (class, passthrough)
+}
+
+/// A thread id as codex writes it and the journal displays it: one
+/// plain identifier of ASCII alphanumerics and dashes, not leading with
+/// one. The id reaches argv positionally, so a spelling that could be
+/// read as a flag — or as anything but an id — is refused rather than
+/// passed on, and the attempt spawns cold.
+fn plain_thread_id(id: &str) -> bool {
+    !id.starts_with('-')
+        && !id.is_empty()
+        && id.len() <= 128
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// How codex is launched for this attempt. A session on offer is taken
+/// ONLY when the seat's declared sandbox class can travel with it: the
+/// resume drops the class it was opened under (measured — a thread
+/// opened `-s read-only` writes files on a bare resume), so a class that
+/// cannot be re-expressed is a cold spawn with the reason journaled,
+/// never a quiet escalation (decision 0030 ruling 2).
+fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str>) -> CodexLaunch {
+    let cold = |cold_reason: Option<String>| CodexLaunch {
+        command: codex_cold(bin, extra, workdir),
+        resumed: None,
+        cold_reason,
+    };
+    let Some(session) = session else {
+        return cold(None);
+    };
+    if !plain_thread_id(session) {
+        return cold(Some(
+            "the offered session id is not a plain thread id".into(),
+        ));
+    }
+    let (class, passthrough) = split_codex_sandbox(extra);
+    let Some(class) = class else {
+        return cold(Some(
+            "the seat declares no sandbox class, and a codex resume does not \
+             inherit the class its thread was opened under"
+                .into(),
+        ));
+    };
+    if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
+        return cold(Some(format!(
+            "sandbox class {class:?} is not one codex exec resume can be handed"
+        )));
+    }
+    // A second sandbox expression in the seat's own argv (a `-c
+    // sandbox_mode=…` override, a bypass flag) could outrank the one
+    // re-imposed here, and last-write-wins is not a thing to gamble a
+    // restriction on.
+    if passthrough.iter().any(|part| part.contains("sandbox")) {
+        return cold(Some(
+            "the seat's own argv carries a second sandbox expression, which \
+             could outrank the re-imposed class"
+                .into(),
+        ));
+    }
+    let mut command = vec![
+        bin.to_string(),
+        "exec".into(),
+        "resume".into(),
+        "--json".into(),
+        "-c".into(),
+        format!("sandbox_mode=\"{class}\""),
+    ];
+    command.extend(passthrough);
+    command.push(session.to_string());
+    // The prompt still arrives on stdin, which `codex exec resume` reads
+    // only when the prompt positional is `-` (verified against 0.148.0).
+    command.push("-".into());
+    CodexLaunch {
+        command,
+        resumed: Some(CodexResume {
+            thread: session.to_string(),
+            sandbox: class,
+        }),
+        cold_reason: None,
+    }
+}
+
+/// The launch checkpoint: what this seat did with the session it was (or
+/// was not) offered, in the shape the dsh arm established.
+fn codex_started(launch: &CodexLaunch) -> Value {
+    let mut checkpoint = Map::new();
+    checkpoint.insert("step".into(), Value::String("harness-started".into()));
+    checkpoint.insert("harness".into(), Value::String("codex".into()));
+    match &launch.resumed {
+        Some(resume) => {
+            checkpoint.insert("launch".into(), Value::String("resumed".into()));
+            checkpoint.insert("session_id".into(), Value::String(resume.thread.clone()));
+            checkpoint.insert("sandbox".into(), Value::String(resume.sandbox.clone()));
+        }
+        None => {
+            checkpoint.insert("launch".into(), Value::String("cold".into()));
+        }
+    }
+    if let Some(reason) = &launch.cold_reason {
+        checkpoint.insert("reason".into(), Value::String(reason.clone()));
+    }
+    Value::Object(checkpoint)
+}
+
+/// Spawn codex, write the prompt to its stdin, and fold its stable
+/// `exec --json` JSONL live. Shared by the cold and resume argvs so the
+/// two paths differ in exactly one thing: the command line.
+fn invoke_codex(
+    command: &[String],
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let (program, args) = (&command[0], &command[1..]);
+    let child = Command::new(program)
+        .args(args)
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = io_context(child, "could not invoke the agent CLI")?;
+    let mut stdin = child.stdin.take().expect("piped");
+    io_context(
+        stdin.write_all(prompt.as_bytes()),
+        "could not write the prompt",
+    )?;
+    drop(stdin);
+    let stderr_pipe = child.stderr.take().expect("piped");
+    let stderr_thread = std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut pipe = stderr_pipe;
+        let _ = pipe.read_to_end(&mut captured);
+        String::from_utf8_lossy(&captured).into_owned()
+    });
+    let mut session_meta = Map::new();
+    let mut turn = 0;
+    for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
+        let Ok(line) = line else { break };
+        if let Ok(event) = serde_json::from_str::<Value>(&line) {
+            fold_codex_event(&event, &mut turn, &mut session_meta, emit);
+        }
+    }
+    let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    Ok(Invocation {
+        exit_code: status.code().unwrap_or(-1),
+        session_meta,
+        stderr: stderr_thread.join().unwrap_or_default(),
+    })
+}
+
 fn invoke(
     kind: AdapterKind,
     extra: &[String],
     prompt: &str,
     input: &Value,
+    session: Option<&str>,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    invoke_with_stager(kind, extra, prompt, input, bindings, emit, stage_prompt)
+    invoke_with_stager(
+        kind,
+        extra,
+        prompt,
+        input,
+        session,
+        bindings,
+        emit,
+        stage_prompt,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -429,6 +670,7 @@ fn invoke_with_stager(
     extra: &[String],
     prompt: &str,
     input: &Value,
+    session: Option<&str>,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
@@ -460,50 +702,27 @@ fn invoke_with_stager(
         ),
         AdapterKind::Codex => {
             let bin = adapter_binary("BROKKR_CODEX_BIN", Some("FORGE_CODEX_BIN"), "codex");
-            let mut command = vec![
-                bin,
-                "exec".into(),
-                "--json".into(),
-                "-C".into(),
-                workdir.clone(),
-            ];
-            command.extend(extra.iter().cloned());
-            let (program, args) = (&command[0], &command[1..]);
-            let child = Command::new(program)
-                .args(args)
-                .current_dir(if workdir.is_empty() { "." } else { &workdir })
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn();
-            let mut child = io_context(child, "could not invoke the agent CLI")?;
-            let mut stdin = child.stdin.take().expect("piped");
-            io_context(
-                stdin.write_all(prompt.as_bytes()),
-                "could not write the prompt",
-            )?;
-            drop(stdin);
-            let stderr_pipe = child.stderr.take().expect("piped");
-            let stderr_thread = std::thread::spawn(move || {
-                let mut captured = Vec::new();
-                let mut pipe = stderr_pipe;
-                let _ = pipe.read_to_end(&mut captured);
-                String::from_utf8_lossy(&captured).into_owned()
-            });
-            let mut session_meta = Map::new();
-            let mut turn = 0;
-            for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
-                let Ok(line) = line else { break };
-                if let Ok(event) = serde_json::from_str::<Value>(&line) {
-                    fold_codex_event(&event, &mut turn, &mut session_meta, emit);
-                }
+            let launch = codex_launch(&bin, extra, &workdir, session);
+            emit(&codex_started(&launch));
+            let invocation = invoke_codex(&launch.command, prompt, &workdir, emit)?;
+            // A resume codex would not take — an unknown or expired
+            // thread — is a cold spawn with the refusal journaled, not an
+            // attempt failure (decision 0030 ruling 3). The predicate is
+            // structural, never a read of codex's prose: the process
+            // ended non-zero having never announced a thread, so no part
+            // of the seat's work had begun and starting it cold costs
+            // nothing but the cache.
+            if launch.resumed.is_some()
+                && invocation.exit_code != 0
+                && !invocation.session_meta.contains_key("session_id")
+            {
+                emit(&json!({
+                    "step":"harness-started", "harness":"codex", "launch":"cold",
+                    "reason":"codex refused the offered thread",
+                }));
+                return invoke_codex(&codex_cold(&bin, extra, &workdir), prompt, &workdir, emit);
             }
-            let status = io_context(child.wait(), "agent CLI did not conclude")?;
-            Ok(Invocation {
-                exit_code: status.code().unwrap_or(-1),
-                session_meta,
-                stderr: stderr_thread.join().unwrap_or_default(),
-            })
+            Ok(invocation)
         }
         AdapterKind::Dsh => {
             let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
@@ -717,7 +936,17 @@ fn stderr_tail_start(stderr: &str) -> usize {
     start
 }
 
-fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl FnMut(Body)) {
+/// `session` is the prior session the engine handed back for this seat
+/// (decision 0030), or `None` for the cold start every attempt was
+/// before it. Only the codex arm knows what to do with one; the rest
+/// ignore it exactly as they ignored the message that carried it.
+fn run_seat(
+    kind: AdapterKind,
+    extra: &[String],
+    start: &Value,
+    session: Option<&str>,
+    send: &mut impl FnMut(Body),
+) {
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
@@ -780,6 +1009,7 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
         extra,
         &prompt,
         &input,
+        session,
         &bindings,
         &mut |data: &Value| {
             send(Body::Checkpoint {
@@ -866,9 +1096,14 @@ fn run_seat(kind: AdapterKind, extra: &[String], start: &Value, send: &mut impl 
     });
 }
 
-/// The adapter main loop over stdio: hello/capabilities, start→seat,
-/// cancel/shutdown. `extra` are the args after `--` in the bundle's
-/// driver command.
+/// The adapter main loop over stdio: hello/capabilities, an optional
+/// resume offer, start→seat, cancel/shutdown. `extra` are the args after
+/// `--` in the bundle's driver command.
+///
+/// `resume` arrives BEFORE the `start` it belongs to and carries no seat
+/// and no input — it is the session handle for the attempt the next
+/// `start` describes, and nothing else. It is consumed by that one seat:
+/// a second start with no resume in front of it is a cold start.
 fn serve_io(
     kind: AdapterKind,
     extra: &[String],
@@ -882,6 +1117,7 @@ fn serve_io(
         let _ = output.write_all(b"\n");
         let _ = output.flush();
     };
+    let mut offered: Option<String> = None;
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -894,9 +1130,15 @@ fn serve_io(
             Some("hello") => send(Body::Capabilities {
                 driver: kind.driver_name(),
                 version: ADAPTER_VERSION.to_string(),
-                supports: vec![],
+                supports: kind.supports(),
             }),
-            Some("start") => run_seat(kind, extra, &message, &mut send),
+            Some("resume") => {
+                offered = message
+                    .get("session_ref")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+            }
+            Some("start") => run_seat(kind, extra, &message, offered.take().as_deref(), &mut send),
             Some("cancel") => {
                 send(Body::Cancelled {
                     effect_id: message

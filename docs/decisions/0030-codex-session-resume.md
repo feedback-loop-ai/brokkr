@@ -139,6 +139,56 @@ The `adapters/codex.json` gap declaration this slice landed names the
 sandbox axis, so the next reader arrives at the same evidence without
 re-running the binary.
 
+### Enacted — 2026-09-02, and what it measured
+
+Wired as ruled. `Body::Resume` now leaves the engine ahead of the
+`start` it belongs to; the codex arm spends it on
+`codex exec resume --json -c sandbox_mode="<class>" … <thread> -`; and
+the offer is made only to the same seat of the same run, resolving to
+the same driver binary and the same candidate under the same pinned
+bundle.
+
+The before/after is a real two-attempt codex seat (`codex-cli 0.148.0`,
+`codex` on PATH, seat argv `--sandbox read-only`), read off the driver's
+own folded usage in the journal:
+
+| attempt | launch | input | cache read | hit |
+|---|---|---|---|---|
+| 1 | cold `exec` | 14972 | 11008 | 73.5% |
+| 2 | `exec resume`, same thread | 15956 | 14080 | **88.2%** |
+
+The second attempt's `harness-started` checkpoint records
+`launch: resumed`, the thread it rejoined, and `sandbox: read-only` —
+the whole acceptance, in one journaled line. The first attempt sits on
+the cold plateau this decision measured; the resumed one clears it by
+fifteen points on its first resume, the same direction as the 92–96%
+the Context table found on later ones.
+
+No event payload widened to say any of this. Whether the engine offered
+a session is a pure function of the journal and the pinned bundle, so
+recording it would journal a derivation; what the driver did with the
+offer is a fact, and the driver journals it in its own checkpoint. The
+`event_schema: 1` payload vocabulary is untouched, and so is every
+frozen contract — the wire already reserved `resume`.
+
+Two of the Context's codex claims were re-verified against the installed
+binary rather than inherited: `codex exec resume` still takes `-c` and
+`--json` and still refuses `-C` and `-s` (`codex exec resume --help`),
+and the class still does not travel by itself — a thread opened
+`-s read-only`, asked on a bare resume to run `touch`, ran it and left
+the file on disk, while the same thread under
+`-c sandbox_mode="read-only"` answered `BLOCKED` and wrote nothing. That
+is the whole reason ruling 2 exists, and it is still true.
+
+One thing the ruling did not have to say, and the wiring found: a
+decision-0016 chain fallback can never carry a session out of the effect
+it happened in, because the fail-to-start predicate requires an attempt
+that accepted nothing and checkpointed nothing — an attempt that opened
+no session. The fallback suppression therefore only ever has to hold
+across a re-entry, and it does: `chain_index` restarts per effect, so a
+re-entered seat can resolve back to a link that never opened the thread
+its neighbour did, and is handed nothing.
+
 ## Ruling — 2026-09-02, operator: resume is in; it is a cost win
 
 Accepted. The measured gap (a ~75% cold plateau against 92–96% on a
