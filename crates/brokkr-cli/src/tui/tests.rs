@@ -3294,6 +3294,48 @@ fn the_seat_level_names_what_served_the_seat() {
     assert!(detail.contains(brokkr_view::ABSENT), "{detail}");
 }
 
+/// A session id held by a harness that is not claude is named with its
+/// holder and never rendered as a `claude --resume` command: codex
+/// seats journal their thread ids now, and a thread id is not a claude
+/// session. Provenance absent keeps the claude line, since only claude
+/// seats predate decision 0016.
+#[test]
+fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
+    let mut events = journal("intake");
+    events[3].payload = json!({
+        "effect_id": "eff-i", "attempt_id": "att1",
+        "provenance": [{"member": null, "agent": "intake", "model": "sol",
+                        "provider": "codex", "chain_index": 0}],
+    });
+    let views = Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(brokkr_view::run_view(&events, Some(&state()))),
+        transcript: None,
+        note: None,
+    };
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &views, Key::Enter);
+    apply(&mut tui, &views, Key::Enter);
+    let frame = frame_of(&tui, &views, 120, 40);
+    assert!(frame.contains("abcd-1234 · held by codex"), "{frame}");
+    assert!(!frame.contains("claude --resume"), "{frame}");
+    assert!(frame.contains("the session line above names it"), "{frame}");
+
+    assert_eq!(
+        super::session_line(Some("lanetally"), "abcd"),
+        "full session: claude --resume abcd"
+    );
+    assert_eq!(
+        super::session_line(None, "abcd"),
+        "full session: claude --resume abcd"
+    );
+    assert_eq!(
+        super::session_line(Some("dsh"), "—"),
+        "full session: — · held by dsh, no resume verb yet"
+    );
+}
+
 #[test]
 fn zero_width_characters_cannot_overwrite_the_rail() {
     // The panel's residual: combining marks and variation selectors are

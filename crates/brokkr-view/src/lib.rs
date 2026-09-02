@@ -1131,6 +1131,11 @@ fn session_cost(part: &Build) -> Option<f64> {
 /// `cache_read_tokens` is not an addend: a cache read IS an input token,
 /// billed differently, and it arrives inside `input_tokens` already
 /// (3,830,272 of the wager's 3,975,322). Adding it would double-count.
+/// That is the journal's convention, not any one harness's — dsh counts
+/// the two disjointly and its adapter folds the cache read back into
+/// `input_tokens` before journaling, so this sum holds whichever driver
+/// wrote the checkpoint. See "Checkpoints" in
+/// `docs/guides/driver-authoring.md`.
 fn session_tokens(part: &Build) -> Option<u64> {
     let mut total: Option<u64> = None;
     for (checkpoint, _) in &part.checkpoints {

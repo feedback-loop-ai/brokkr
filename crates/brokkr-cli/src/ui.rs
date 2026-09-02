@@ -186,8 +186,10 @@ pub(crate) struct Turn {
 /// caller. Both surfaces call [`session_turns`], which calls this first.
 ///
 /// It is also a DISPLAY guard, which is why it is public: the id is a
-/// raw journal string, and every surface renders it inside a
-/// `claude --resume <id>` line an operator is invited to paste. Control
+/// raw journal string, and every surface renders it into the seat's
+/// session line — which, for a claude harness, is the
+/// `claude --resume <id>` command an operator is invited to paste
+/// (`tui::session_line` and the same rule in `ui.html`). Control
 /// characters alone are not enough — `;`, `&&`, `$(…)` and backticks
 /// survive sanitizing, so a hostile seat could otherwise hand the
 /// operator a pasteable shell command. Ids that fail this render as the
