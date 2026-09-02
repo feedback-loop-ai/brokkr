@@ -537,8 +537,12 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     );
     let prior = std::env::var_os("BROKKR_DSH_BIN");
     let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
     std::env::set_var("BROKKR_DSH_BIN", &fake);
     std::env::remove_var("FORGE_DSH_BIN");
+    // The seat's transcript is kept under the harness home; in a test
+    // that home is this test's own directory, never the operator's.
+    std::env::set_var("DSH_HOME", dir.path());
 
     let extra: Vec<String> = ["--model", "deepseek-v4-flash", "--other", "kept"]
         .iter()
@@ -620,6 +624,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     }
     if let Some(value) = prior_legacy {
         std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
     }
 }
 
@@ -722,8 +730,12 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     let fake = executable(dir.path(), "dsh", DSH_TRANSCRIPT_SHIM);
     let prior = std::env::var_os("BROKKR_DSH_BIN");
     let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
     std::env::set_var("BROKKR_DSH_BIN", &fake);
     std::env::remove_var("FORGE_DSH_BIN");
+    // The seat's transcript is kept under the harness home; in a test
+    // that home is this test's own directory, never the operator's.
+    std::env::set_var("DSH_HOME", dir.path());
 
     let seen = dir.path().join("dsh-seen");
     let mut emitted: Vec<Value> = Vec::new();
@@ -746,11 +758,26 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // the checkpoint sink touched nothing before the handshake ran out.
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
     assert_eq!(emitted[0]["step"], "harness-started");
+    // Retention: the seat's root sits under this test's DSH_HOME, the
+    // journal's clamped target is its prefix, and it is still there now
+    // that the seat has concluded — the operator's, not the void's.
+    let kept: Vec<_> = std::fs::read_dir(dir.path().join("sessions").join("brokkr"))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0].file_name().to_string_lossy().starts_with("seat-"));
+    assert!(kept[0].path().is_dir());
+    let target = emitted[0]["target"].as_str().unwrap();
+    assert!(
+        kept[0].path().to_string_lossy().starts_with(target),
+        "{target} vs {:?}",
+        kept[0].path()
+    );
     // The transcript root rides the started checkpoint as an ordinary
     // clamped target, so the seat's session stays addressable from the
     // journal alone once the run is over.
-    let target = emitted[0]["target"].as_str().unwrap();
-    assert!(target.contains("brokkr-dsh-session-"), "{target}");
+    assert!(target.contains("sessions/brokkr/seat-"), "{target}");
     assert!(target.chars().count() <= 80, "{target}");
 
     assert_eq!(emitted[1]["step"], "session-started");
@@ -786,11 +813,12 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(meta["profile"], "headless");
 
     // The transcript holds the prompt, the tool arguments and the tool
-    // results the journal deliberately refuses to carry. It goes with
-    // the seat: what survives is the checkpoints folded out of it.
+    // results the journal deliberately refuses to carry — which is why
+    // it is the operator's, kept under the harness home, and outlives
+    // the seat. The checkpoints folded out of it are the journal's part.
     assert!(
-        !std::path::Path::new(target).exists(),
-        "the seat's transcript root outlived the seat: {target}"
+        kept[0].path().is_dir(),
+        "the seat's transcript root did not survive the seat: {target}"
     );
 
     // A harness that writes no transcript at all still concludes: the
@@ -813,6 +841,10 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     }
     if let Some(value) = prior_legacy {
         std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
     }
 }
 
@@ -993,6 +1025,57 @@ fn the_transcript_root_reports_a_directory_it_cannot_stage() {
         refused.contains("could not stage the dsh session transcript root"),
         "{refused}"
     );
+}
+
+#[test]
+fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
+    let home = tempfile::tempdir().unwrap();
+    let root = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
+    assert!(
+        root.starts_with(home.path().join("sessions").join("brokkr")),
+        "{root:?}"
+    );
+    assert!(root
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .starts_with("seat-"));
+    // The creating handle is gone; the directory is not.
+    assert!(root.is_dir(), "{root:?}");
+    let other = dsh_transcript_root_under(Some(home.path().to_path_buf())).unwrap();
+    assert_ne!(root, other, "one root per seat");
+
+    let refused = dsh_transcript_root_under(None).unwrap_err();
+    assert!(
+        refused.to_string().contains("set DSH_HOME or HOME"),
+        "{refused}"
+    );
+    // A file where the base must be a directory is the staging failure.
+    let blocked = tempfile::tempdir().unwrap();
+    std::fs::write(blocked.path().join("sessions"), b"not a directory").unwrap();
+    assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
+}
+
+#[test]
+fn the_dsh_home_is_dsh_home_when_set_else_dot_dsh_under_home() {
+    use std::ffi::OsString;
+    assert_eq!(
+        dsh_home_from(
+            Some(OsString::from("/opt/dsh")),
+            Some(OsString::from("/home/x"))
+        ),
+        Some(std::path::PathBuf::from("/opt/dsh"))
+    );
+    assert_eq!(
+        dsh_home_from(Some(OsString::new()), Some(OsString::from("/home/x"))),
+        Some(std::path::PathBuf::from("/home/x/.dsh"))
+    );
+    assert_eq!(
+        dsh_home_from(None, Some(OsString::from("/home/x"))),
+        Some(std::path::PathBuf::from("/home/x/.dsh"))
+    );
+    assert_eq!(dsh_home_from(None, None), None);
+    assert!(dsh_home().is_some(), "a test process has a home");
 }
 
 #[test]
@@ -1183,8 +1266,12 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     let fake = executable(dir.path(), "dsh", "#!/bin/sh\nexit 0\n");
     let prior = std::env::var_os("BROKKR_DSH_BIN");
     let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
     std::env::set_var("BROKKR_DSH_BIN", &fake);
     std::env::remove_var("FORGE_DSH_BIN");
+    // The seat's transcript is kept under the harness home; in a test
+    // that home is this test's own directory, never the operator's.
+    std::env::set_var("DSH_HOME", dir.path());
 
     let mut passes = 0;
     let mut emitted: Vec<Value> = Vec::new();
@@ -1212,6 +1299,10 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     }
     if let Some(value) = prior_legacy {
         std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
     }
 
     let refused = match refused {

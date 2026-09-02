@@ -760,10 +760,11 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
-    // Bound for the whole invocation: dropping it removes the seat's
-    // transcript, so it must outlive the poll loop that reads it.
+    // The seat's own root under the operator's harness home. Nothing
+    // here removes it: the transcript is the operator's (see
+    // `dsh_transcript_root`), and the journal names the path below.
     let root_dir = dsh_transcript_root()?;
-    let root = root_dir.path();
+    let root = root_dir.as_path();
     let overlay = dsh_seat_overlay(model.as_deref(), root)?;
     emit(&json!({
         "step":"harness-started",
@@ -773,7 +774,8 @@ fn invoke_dsh_with(
         // A directory path, within the same 80-char clamp every target
         // takes: while the seat works, the journal alone says where its
         // live transcript is, which is what a `brokkr watch` drilldown
-        // needs. It is the seat's own root and goes with the seat.
+        // needs — and afterwards where the operator opens what the seat
+        // said. It is the seat's own root, and it stays.
         "target": root.to_string_lossy().chars().take(80).collect::<String>(),
     }));
     let mut command = vec![
@@ -1050,35 +1052,75 @@ fn dsh_model_overlay_in(
     Ok(file)
 }
 
-/// A fresh transcript root for one seat. The JSONL backend's `root` has
-/// no default and one root belongs to one encoding, so this is also what
-/// makes `compression: none` legal without disturbing the operator's
-/// zstd-encoded `$DSH_HOME/sessions`.
+/// A fresh transcript root for one seat, kept for the operator. The
+/// JSONL backend's `root` has no default and one root belongs to one
+/// encoding, so a root of its own is also what makes `compression:
+/// none` legal without disturbing the operator's zstd-encoded
+/// `$DSH_HOME/sessions`.
 ///
-/// The directory lives exactly as long as the invocation does. It is
-/// what `brokkr watch` and the tui can follow WHILE the seat works, and
-/// the checkpoints folded out of it are what survives: session id, step
-/// count, per-step usage, tool names. The raw file is not evidence to
-/// keep — it holds the prompt text, tool arguments and tool results that
-/// the journal's privacy invariant deliberately excludes, so retaining
-/// it would put precisely the excluded prose in an unmanaged directory
-/// outside the operator's own `$DSH_HOME` retention, one per seat,
-/// forever. It is dropped with the seat instead.
-fn dsh_transcript_root() -> Result<tempfile::TempDir, String> {
-    dsh_transcript_root_in(|| {
-        tempfile::Builder::new()
-            .prefix("brokkr-dsh-session-")
-            .tempdir()
-    })
+/// The root lives under the operator's own harness home —
+/// `$DSH_HOME/sessions/brokkr/<seat>/`, with `~/.dsh` standing in when
+/// `DSH_HOME` is unset — and the driver never removes it. Operator
+/// ruling of 2026-09-02, recorded in run
+/// per-turn-checkpoints-for-the-dsh-d7ba1e44: the transcript belongs to
+/// the operator, not to the void. It holds what the journal refuses to
+/// carry (prompt text, tool arguments, tool results), which is exactly
+/// why it is kept where the operator's other harness transcripts already
+/// are, under the same retention, and never in an unmanaged temporary
+/// directory. The journal names the path (`harness-started.target`), so
+/// `brokkr watch` and the tui can follow it while the seat works and the
+/// operator can open it after — the same `claude --resume` distance the
+/// claude seats already keep.
+fn dsh_transcript_root() -> Result<std::path::PathBuf, String> {
+    dsh_transcript_root_in(|| dsh_transcript_root_under(dsh_home()))
 }
 
-/// The root over an injected directory, so the one way staging can fail
+/// The root over an injected creator, so the one way staging can fail
 /// is reachable from a test without a full disk — and without a test
-/// moving `TMPDIR` out from under every other test in the process.
+/// moving the harness home out from under every other test in the
+/// process.
 fn dsh_transcript_root_in(
-    create: impl FnOnce() -> std::io::Result<tempfile::TempDir>,
-) -> Result<tempfile::TempDir, String> {
+    create: impl FnOnce() -> std::io::Result<std::path::PathBuf>,
+) -> Result<std::path::PathBuf, String> {
     io_context(create(), "could not stage the dsh session transcript root")
+}
+
+/// One seat's own directory under `<harness home>/sessions/brokkr`:
+/// unique per invocation, so the transcript walker can never see another
+/// seat's session, and kept — the handle is released, the directory
+/// stays.
+fn dsh_transcript_root_under(
+    home: Option<std::path::PathBuf>,
+) -> std::io::Result<std::path::PathBuf> {
+    let home = home.ok_or_else(|| {
+        std::io::Error::other("no dsh home to keep the transcript under: set DSH_HOME or HOME")
+    })?;
+    let base = home.join("sessions").join("brokkr");
+    std::fs::create_dir_all(&base)?;
+    Ok(tempfile::Builder::new()
+        .prefix("seat-")
+        .tempdir_in(&base)?
+        .keep())
+}
+
+/// The operator's dsh home: `$DSH_HOME` when set and non-empty, else
+/// `~/.dsh` — the resolution the harness itself uses for its sessions.
+fn dsh_home() -> Option<std::path::PathBuf> {
+    dsh_home_from(
+        std::env::var_os("DSH_HOME"),
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")),
+    )
+}
+
+/// `dsh_home` over its two inputs, so every branch is a plain test.
+fn dsh_home_from(
+    dsh_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
+    match dsh_home {
+        Some(explicit) if !explicit.is_empty() => Some(explicit.into()),
+        _ => home.map(|home| std::path::PathBuf::from(home).join(".dsh")),
+    }
 }
 
 /// The overlay row that points dsh's session persistence at this seat's

@@ -215,12 +215,16 @@ cache read separately in `cache_read_tokens` as the subset it is.
 journal key means one thing across every driver, not whatever its
 harness happened to mean.
 
-**A transcript a driver stages for its own use goes with the seat.** It
+**A transcript a driver stages is the operator's, and it stays.** It
 holds precisely what the journal refuses to carry — the prompt, tool
-arguments, tool results — so it is not evidence to retain; the
-checkpoints folded out of it are. Whatever retention the harness itself
-does under its own home is the operator's to manage, not the driver's
-to duplicate.
+arguments, tool results — which is exactly why it lives where the
+operator's other harness transcripts already live: under the harness's
+own home (`$DSH_HOME/sessions/brokkr/<seat>/` for dsh, `~/.dsh` when
+`DSH_HOME` is unset), under the operator's own retention, and never
+removed by the driver. The journal carries the path in
+`harness-started`, nothing of the text. Ruled by the operator on
+2026-09-02, inside the run that asked: the transcript belongs to the
+operator, not to the void.
 
 ## Results
 

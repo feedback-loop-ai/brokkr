@@ -70,6 +70,10 @@ fn make_shim(dir: &Path, body: &str) -> PathBuf {
 }
 
 fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
+    // The dsh arm keeps its seat transcript under the harness home; a
+    // conformance run keeps it under a directory of its own, never the
+    // operator's `~/.dsh`.
+    let dsh_home = tempfile::tempdir().unwrap();
     let result_path = workdir.join("results/fx.json");
     let input = json!({
         "feature": "conformance", "phase": "intake", "seat": "intake",
@@ -102,6 +106,7 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
         .env("BROKKR_CODEX_BIN", shim)
         .env_remove("BROKKR_DSH_BIN")
         .env("FORGE_DSH_BIN", shim)
+        .env("DSH_HOME", dsh_home.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -495,8 +500,10 @@ fn drive_with_secrets(
                "input": input}),
         json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
     ];
+    let dsh_home = tempfile::tempdir().unwrap();
     let mut command = Command::new(brokkr_bin());
     command.arg("driver").args(driver_args);
+    command.env("DSH_HOME", dsh_home.path());
     for (key, value) in parent_env {
         command.env(key, value);
     }
