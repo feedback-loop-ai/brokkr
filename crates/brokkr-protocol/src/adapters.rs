@@ -1108,7 +1108,9 @@ fn dsh_transcript_root_under(
 fn dsh_home() -> Option<std::path::PathBuf> {
     dsh_home_from(
         std::env::var_os("DSH_HOME"),
-        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")),
+        // Eager on purpose: a lazy fallback is a function no Unix test
+        // can reach, and the gate counts functions.
+        std::env::var_os("HOME").or(std::env::var_os("USERPROFILE")),
     )
 }
 
