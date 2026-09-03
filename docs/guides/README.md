@@ -13,7 +13,7 @@ for someone arriving from outside this repository.
 | [Recipe authoring](recipe-authoring.md) | `bundle.json` + `policy.json` + `roles/` anatomy, composition via `extends`/`override`, digest identity, the rule grammar including `visits` and the reforging ladder. |
 | [Agent library](agent-library.md) | One agent definition, its ordered model chain, limits, declared inputs and tool grant, resolved once and pinned. |
 | [Provider adapters](provider-adapters.md) | The data files that map abstract models and permissions onto Claude, Codex, DSH, LaneTally and exec. |
-| [Driver authoring](driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code or Codex: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
+| [Driver authoring](driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code, Codex or dsh: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
 | [Secrets](secrets.md) | Names cross the control plane; values stay in the operator-side store and are masked before capture. |
 | [Journal and verification](journal-and-verification.md) | Anchor, export, verify, replay, import and keep the evidence that proves a run. |
 | [Repository layout](repository-layout.md) | The crates, contracts, recipes, evidence and read-only shelves, with the reason each exists. |

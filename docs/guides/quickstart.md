@@ -1,7 +1,7 @@
 # Quickstart — one spine, and everything else is a diff over it
 
 You need a git repository you are willing to let an agent edit, and one
-agent CLI on your `PATH` (`claude` or `codex`). Everything else is one
+agent CLI on your `PATH` (`claude`, `codex` or `dsh`). Everything else is one
 native binary — no Python, no Node, no services.
 
 Everything in this guide is **four steps**. They are stated once, below,
@@ -87,7 +87,7 @@ plain `brokkr`.
 
 ```
 $ brokkr --version
-brokkr 0.6.0
+brokkr 0.8.0
 ```
 
 > **Building from a checkout** is a fallback, not a co-equal option: it
@@ -104,7 +104,7 @@ brokkr 0.6.0
 
 ```
 $ brokkr doctor
-ok       contracts: engine 0.6.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
 warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
@@ -645,7 +645,7 @@ cargo install --path crates/brokkr-cli    # installs the `brokkr` binary
 
 ```
 $ brokkr doctor                           # tools, agent CLIs, database, contracts
-ok       contracts: engine 0.6.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
@@ -702,5 +702,5 @@ actual output per stack, transcribed from real runs.
 - [recipe-authoring.md](recipe-authoring.md) — write or extend a
   delivery strategy.
 - [driver-authoring.md](driver-authoring.md) — put a harness that is not
-  Claude Code or Codex behind a seat.
+  Claude Code, Codex or dsh behind a seat.
 - [versioning.md](versioning.md) — what is stable, what may still move.
