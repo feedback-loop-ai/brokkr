@@ -1,6 +1,6 @@
 # 0040 — `--model` is always read: the flag grammar of the pin, and the two riders beside it
 
-Status: proposed (ruling 1 is the operator's, given in chat on 2026-09-03; rulings 2–5 are this draft's reading of the same axis and await the operator)
+Status: accepted (ruled 2026-09-04)
 Date: 2026-09-03
 
 ## Context
@@ -67,6 +67,14 @@ apart (`UnreadSpelling` keeps 0031's question from answering 0036's) and
 refuse to guess. That is the honest compiler answer and it is not a
 grammar. It leaves finding 1 open on every adapter the operator adds,
 which is the population 0036 was written for.
+
+## Ruling — 2026-09-04, operator: accepted as proposed
+
+Accepted without amendment, the day after it was drafted. Ruling 1 was
+the operator's before the draft existed; rulings 2–5 are now theirs
+too, including ruling 2's reading of the short attached form as a pin.
+The five bindings are the commission of the enactment slice, fired on
+acceptance.
 
 ## Rulings
 
