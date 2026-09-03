@@ -3017,6 +3017,30 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
         "boxed\n"
     );
 
+    // Only the leading separator is the verb's: a command that carries
+    // its own `--` keeps it, where the first pass stripped every one.
+    let code = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work.clone(),
+            spec: "\"workspace\"".into(),
+            command: vec![
+                "--".into(),
+                "bash".into(),
+                "-c".into(),
+                "printf '%s\\n' \"$@\" > args.txt".into(),
+                "sh".into(),
+                "--".into(),
+                "kept".into(),
+            ],
+        },
+    }))
+    .unwrap();
+    assert_eq!(code, ExitCode::SUCCESS);
+    assert_eq!(
+        std::fs::read_to_string(work.join("args.txt")).unwrap(),
+        "--\nkept\n"
+    );
+
     let refused = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work,
