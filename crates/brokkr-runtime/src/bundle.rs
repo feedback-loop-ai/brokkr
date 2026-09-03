@@ -1182,7 +1182,40 @@ fn enforce_model_policy(
     // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
     // name becomes concrete through the adapter that maps it.
     let drivers: Vec<(Option<String>, ModelPin)> = match candidates.is_empty() {
-        true => vec![(dispatch_driver(&command_parts(raw)), model_pin(raw))],
+        // An inline site's route is read off its own argv, and the flag
+        // that carries a pin is the ADAPTER's to name (`model_flag`,
+        // since decision 0016). So the adapter is resolved first and
+        // the read follows it: a provider the operator adds that takes
+        // `-m` is read on `-m`, and the route named there is the route
+        // this site reaches. Reading a hardcoded `--model` would find
+        // nothing on such an argv, call it `Absent`, and hand the site
+        // its adapter's own unprefixed class — decision 0036's first
+        // rejected alternative arriving through a second door.
+        true => {
+            let driver = dispatch_driver(&command_parts(raw));
+            let pin = match driver
+                .as_deref()
+                .and_then(|provider| adapters.adapter(provider))
+            {
+                // An adapter declaring `model_flag: "unsupported"` has
+                // no flag to carry a pin at all, so there is nothing to
+                // read and nothing to disambiguate: `Absent`, and the
+                // unprefixed case below is the honest one. A provider
+                // that cannot be told a model cannot name a route.
+                Some(adapter) => match adapter.model_flag.as_deref() {
+                    Some(flag) => command_pin(raw, flag, 80),
+                    None => ModelPin::Absent,
+                },
+                // No adapter answers for this driver, so none declares
+                // a flag to read one on. Whatever this read returns,
+                // the `(None, _)` arm below lands the site on
+                // `Uncontracted` — the flag guessed here cannot change
+                // that, and guessing the commonest one keeps the
+                // no-adapter path written where every other rule is.
+                None => model_pin(raw),
+            };
+            vec![(driver, pin)]
+        }
         false => candidates
             .iter()
             .map(|candidate| {
@@ -1219,19 +1252,24 @@ fn enforce_model_policy(
         //
         // - a driver NO adapter declares: the operator has said nothing
         //   about this binary's endpoint at all;
-        // - a `--model` this compiler cannot READ as one concrete id.
+        // - a model pin this compiler cannot READ as one concrete id.
         //   Ruling 2 gives an unprefixed id the adapter's own class
         //   because an unprefixed id genuinely arrives at the
         //   destination that class is the operator's word about. A site
-        //   that writes a `--model` has declined that default for
-        //   somewhere the machine cannot name, so the adapter's word no
-        //   longer covers it — reading the adapter's class here would
-        //   clear an unnameable route on the strength of a ruling about
-        //   a different one, the same fail-open ruling 2's asymmetry
+        //   that writes a pin has declined that default for somewhere
+        //   the machine cannot name, so the adapter's word no longer
+        //   covers it — reading the adapter's class here would clear an
+        //   unnameable route on the strength of a ruling about a
+        //   different one, the same fail-open ruling 2's asymmetry
         //   exists to prevent. `enforce_model_pins` refuses this shape
-        //   first for the four model-bearing built-ins; an adapter the
-        //   operator ADDS is not on that list, and this is the only
-        //   thing standing between it and its adapter's clearance.
+        //   first for the four model-bearing built-ins, all of which
+        //   take `--model`; an adapter the operator ADDS is not on that
+        //   list, and this refusal is what stands between it and its
+        //   adapter's clearance. It can stand there because the pin
+        //   above is read on that adapter's OWN declared `model_flag`:
+        //   the flag the provider is actually told is the flag this
+        //   reads, so an adapter taking `-m` has no second door to walk
+        //   an unruled route through.
         let (reached, egress) = match (adapter, &pin) {
             (Some(adapter), ModelPin::Concrete(model)) => {
                 destination(resolve_route(adapter, model))
@@ -1241,10 +1279,16 @@ fn enforce_model_policy(
             // literally the unprefixed case, and `resolve_route` stays
             // the one place ruling 2's rule is written.
             (Some(adapter), ModelPin::Absent) => destination(resolve_route(adapter, "")),
-            (Some(_), ModelPin::Unreadable) => (
-                "on a destination it does not name (its '--model' pin is not one \
-                 readable concrete model id, so no route can be read off it)"
-                    .to_string(),
+            // Named on the flag the read actually used, not on a
+            // constant: `Unreadable` is only reachable where the
+            // adapter declared one, since an unsupported `model_flag`
+            // reads `Absent` above.
+            (Some(adapter), ModelPin::Unreadable) => (
+                format!(
+                    "on a destination it does not name (its '{}' pin is not one \
+                     readable concrete model id, so no route can be read off it)",
+                    adapter.model_flag.as_deref().unwrap_or("--model"),
+                ),
                 EgressClass::Uncontracted,
             ),
             (None, _) => destination((None, EgressClass::Uncontracted)),

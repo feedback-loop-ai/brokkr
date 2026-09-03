@@ -777,6 +777,166 @@ fn unpinned_seat(command: Value) -> Value {
 }
 
 #[test]
+fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
+    // The second door, held shut. `model_flag` is per-adapter data: a
+    // provider the operator ADDS may take `-m`, and it is told its
+    // model on `-m`, so that is where the route is written. A resolver
+    // reading a hardcoded `--model` finds nothing on such an argv,
+    // calls the site unpinned, and hands it the adapter's own class —
+    // clearing a route nobody ruled on because the pin naming it was
+    // read with the wrong key. That is decision 0036's first rejected
+    // alternative ("granting the grant clears every route at the same
+    // stroke") arriving by a different route than the one ruling 2's
+    // asymmetry watches.
+    //
+    // `many` is contracted at the adapter here for the same reason as
+    // the two tests above: it is the only shape where inheriting the
+    // adapter's word is visible rather than a coincidence of the floor.
+    let fixture = Fixture::new();
+    let mut takes_dash_m = many_routes();
+    takes_dash_m["egress"] = json!("contracted");
+    takes_dash_m["model_flag"] = json!("-m");
+    fixture.write_adapter(takes_dash_m);
+
+    // The probe: a route this adapter never named, pinned on the flag
+    // this adapter actually takes, under a seat that binds a secret.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m",
+        "elsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // The same flag reads the declared routes too — the fix moves which
+    // key is read, not which rule is applied. `nearby` is local and
+    // clears the bar; the adapter's own contracted word still carries
+    // an argv that pins nothing at all.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m",
+            "nearby/small-1",
+            "true"
+        ])))
+        .expect("a declared local route, named on the flag the adapter takes");
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}", "driver", "many", "--", "true"
+        ])))
+        .expect("an argv naming no model rides its adapter's own destination");
+
+    // And a `--model` on this adapter is no longer a pin at all: the
+    // provider is never told that flag, so the argv reaches whatever
+    // the profile resolves — the unprefixed case, on the adapter's own
+    // word, which is exactly what such an argv does at run time.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "elsewhere/large-1",
+            "true"
+        ])))
+        .expect("a flag this provider does not take pins nothing");
+
+    // An unreadable pin names the flag it was read on, not a constant.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m",
+        "partner/qwen@2024",
+        "true"
+    ])));
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+}
+
+#[test]
+fn an_adapter_that_cannot_be_told_a_model_rides_its_own_class_and_no_better() {
+    // `model_flag: "unsupported"` is a measured fact about a CLI: there
+    // is no flag to carry a pin, so no argv on it can name a route.
+    // A route-shaped word in such an argv is a word, not a pin — the
+    // site reaches whatever the provider's own profile resolves, which
+    // is the unprefixed case, on the adapter's own class.
+    let fixture = Fixture::new();
+    let mut untellable = many_routes();
+    untellable["model_flag"] = json!("unsupported");
+    fixture.write_adapter(untellable);
+
+    // NO BETTER: the adapter is uncontracted, and a `nearby/` word in
+    // the argv — a route this adapter declares LOCAL — lends the site
+    // nothing. A resolver that read the word anyway would let an
+    // untellable provider pick its own clearance out of the models map.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "--model",
+        "nearby/small-1",
+        "true"
+    ])));
+    assert!(
+        refusal.contains("on its own declared destination"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // And no worse, and no refusal for illegibility either: the same
+    // argv on a contracted adapter compiles, because `Absent` is what
+    // an unreadable-flag read HAS to be — there is no pin to fail to
+    // read, and nothing to disambiguate.
+    let fixture = Fixture::new();
+    let mut ruled = many_routes();
+    ruled["egress"] = json!("contracted");
+    ruled["model_flag"] = json!("unsupported");
+    fixture.write_adapter(ruled);
+    for command in [
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "elsewhere/large-1",
+            "true"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "partner/qwen@2024",
+            "true"
+        ]),
+        json!(["{brokkr}", "driver", "many", "--", "--model"]),
+    ] {
+        fixture
+            .compile(unpinned_seat(command.clone()))
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+}
+
+#[test]
 fn the_operator_rules_the_minimum_into_the_bundle() {
     // Ruling 4's bar is the operator's, not the engine's. Raised, the
     // contracted route that just compiled refuses; lowered, the
