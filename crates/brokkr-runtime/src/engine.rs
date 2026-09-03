@@ -371,10 +371,12 @@ impl Engine {
         match state.cursor.clone() {
             Cursor::Start => {
                 let initial = self.bundle.machine.initial.clone();
-                self.append(EventType::PhaseEntered, json!({"phase": initial}), None)?;
+                let payload = self.phase_entered_payload(&initial);
+                self.append(EventType::PhaseEntered, payload, None)?;
             }
             Cursor::EnterPhase { phase } => {
-                self.append(EventType::PhaseEntered, json!({"phase": phase}), None)?;
+                let payload = self.phase_entered_payload(&phase);
+                self.append(EventType::PhaseEntered, payload, None)?;
             }
             Cursor::RequestEffect => self.request_or_finish(&state)?,
             Cursor::ExecuteEffect {
@@ -1495,6 +1497,12 @@ impl Engine {
             if phase == self.bundle.protected_phase {
                 if let Some(head) = git_head(repo) {
                     inputs.insert("reviewed_heads".into(), json!({ key: head }));
+                }
+                // Decision 0039: what the protected phase itself
+                // committed, classified — so a table can send a docs-only
+                // fix to ship without buying the whole verify again.
+                if let Some(docs_only) = self.fixes_docs_only(repo, &phase) {
+                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                 }
             }
             if phase == "ship" {
@@ -2846,6 +2854,77 @@ fn artifact_problem(rule_id: &str, failures: &[(String, &'static str)]) -> Strin
         .collect::<Vec<_>>()
         .join("; ");
     format!("requires_artifacts unmet for rule {rule_id}: {list}")
+}
+
+impl Engine {
+    /// The payload of `phase/entered`: the phase, and for the protected
+    /// phase the repository head it was entered at (decision 0039), so
+    /// the phase's own commits can later be told from the ones it judged.
+    /// Optional and absent by default — no repository, no head — and
+    /// published as `contracts/phase-entered-head.v1.schema.json`; `fold`
+    /// never reads it.
+    fn phase_entered_payload(&self, phase: &str) -> Value {
+        let mut payload = json!({"phase": phase});
+        if phase == self.bundle.protected_phase {
+            if let Some(head) = self.repo.as_deref().and_then(git_head) {
+                payload["head"] = Value::String(head);
+            }
+        }
+        payload
+    }
+
+    /// Decision 0039: whether every commit the protected phase added
+    /// since it was entered lies in the repository's declared docs class.
+    /// `None` whenever the question has no honest answer — no entry head
+    /// recorded, no repository head, the same head, nothing committed, a
+    /// diff git cannot take, or no class declared — and an absent input
+    /// never satisfies a rule (decision 0004).
+    fn fixes_docs_only(&self, repo: &std::path::Path, phase: &str) -> Option<bool> {
+        let events = self.store.load(&self.run_id).ok()?;
+        let entered = events.iter().rev().find_map(|event| {
+            (event.event_type == EventType::PhaseEntered && event.payload["phase"] == phase)
+                .then(|| event.payload["head"].as_str().map(str::to_string))
+                .flatten()
+        })?;
+        let head = git_head(repo)?;
+        if entered == head {
+            return None;
+        }
+        let class = docs_class(repo)?;
+        let out = Command::new("git")
+            .args(["diff", "--no-renames", "--name-only", &entered, &head])
+            .current_dir(repo)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let listed = String::from_utf8_lossy(&out.stdout);
+        let paths: Vec<&str> = listed.lines().collect();
+        if paths.is_empty() {
+            return None;
+        }
+        Some(
+            paths
+                .iter()
+                .all(|path| class.iter().any(|pattern| pattern.is_match(path))),
+        )
+    }
+}
+
+/// The docs class the repository declares for itself, exactly as the
+/// contribution gate reads it (decision 0038 ruling 3):
+/// `.github/delivery-classes.json`, `classes.docs.paths`, regular
+/// expressions over the repository-relative path. Absent, unreadable or
+/// malformed means no class — and therefore no answer, never a guess.
+fn docs_class(repo: &std::path::Path) -> Option<Vec<regex::Regex>> {
+    let raw = std::fs::read_to_string(repo.join(".github/delivery-classes.json")).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    value["classes"]["docs"]["paths"]
+        .as_array()?
+        .iter()
+        .map(|pattern| pattern.as_str().and_then(|s| regex::Regex::new(s).ok()))
+        .collect()
 }
 
 /// The repository's observed HEAD, or nothing when there is no readable

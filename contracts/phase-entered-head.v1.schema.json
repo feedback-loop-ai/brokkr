@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/phase-entered-head.v1.json",
+  "title": "Forge phase-entered head v1 (an additive payload extension at event_schema 1)",
+  "description": "The optional, absent-by-default payload field decision 0039 adds to phase/entered for the protected phase: the repository head at the moment the phase was entered. Legal at event_schema 1 under the amended rule in contracts/README.md — optional, absent by default (no repository, no readable head), published here as a numbered extension schema, and never read by fold. The engine reads it back at the protected phase's ruling to diff the phase's own commits from the head it was handed, and classifies those paths against the repository's .github/delivery-classes.json docs class into the engine-owned boolean input fixes_docs_only. A v1 consumer that ignores this field folds to the identical state.",
+  "type": "object",
+  "properties": {
+    "head": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The repository's HEAD commit id when the protected phase was entered. Present only on phase/entered events for the protected phase, and only when the run has a repository whose head is readable."
+    }
+  }
+}

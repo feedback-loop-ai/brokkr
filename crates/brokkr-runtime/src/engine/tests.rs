@@ -3014,3 +3014,180 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
         );
     }
 }
+
+// ── decision 0039: the review's own commits, classified ──────────────
+
+fn git(repo: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
+    let file = repo.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, contents).unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "-m", message]);
+    git_head(repo).unwrap()
+}
+
+const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
+
+/// Record that the protected phase was entered at the repository's
+/// current head — what the engine writes on `phase/entered` (0039).
+fn enter_review_at(engine: &mut Engine, head: &str) {
+    engine
+        .store
+        .append_next(
+            &engine.run_id,
+            EventType::PhaseEntered,
+            json!({"phase": "review", "head": head}),
+            None,
+            None,
+        )
+        .unwrap();
+}
+
+fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result": "clean", "inputs": claim}),
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    events.last().unwrap().payload["inputs"]
+        .as_object()
+        .cloned()
+        .unwrap()
+}
+
+/// Ruling 1: the protected phase's entry carries the head; no other
+/// phase's does, and a run with no readable repository carries none.
+#[test]
+fn the_protected_phase_is_entered_at_a_recorded_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let probe = engine_in(dir.path(), None, &repo);
+    // Not a git repository yet: no head to record.
+    assert_eq!(
+        probe.phase_entered_payload("review"),
+        json!({"phase": "review"})
+    );
+    let head = git_commit(&repo, "base");
+    assert_eq!(
+        probe.phase_entered_payload("review"),
+        json!({"phase": "review", "head": head})
+    );
+    assert_eq!(
+        probe.phase_entered_payload("implement"),
+        json!({"phase": "implement"})
+    );
+
+    // Driven, not hand-fed: the first phase is entered without a head,
+    // because the first phase is not the protected one.
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine.drive_once().unwrap();
+    let entered = &engine.store.load(&engine.run_id).unwrap()[1];
+    assert_eq!(entered.event_type, EventType::PhaseEntered);
+    assert!(entered.payload.get("head").is_none());
+}
+
+/// Rulings 2 and 3: docs-only commits read true, a code commit reads
+/// false, and the seat's own claim is overwritten either way.
+#[test]
+fn docs_only_review_commits_are_classified_and_never_claimed() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let entered = commit_file(
+        &repo,
+        ".github/delivery-classes.json",
+        DOCS_CLASS,
+        "classes",
+    );
+    let mut engine = engine_in(dir.path(), None, &repo);
+
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n", "a page");
+    commit_file(&repo, "README.md", "# readme\n", "the readme");
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": false}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n\nmore\n", "more prose");
+    commit_file(&repo, "src/lib.rs", "fn f() {}\n", "and code");
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": true}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+}
+
+/// Ruling 3's absences: the input is left out whenever the question has
+/// no honest answer, and an absent input never satisfies a rule.
+#[test]
+fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let classes = repo.join(".github/delivery-classes.json");
+    let entered = commit_file(
+        &repo,
+        ".github/delivery-classes.json",
+        DOCS_CLASS,
+        "classes",
+    );
+    let mut engine = engine_in(dir.path(), None, &repo);
+
+    // No entry head recorded for the phase at all.
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // Entered at the current head: nothing committed since.
+    enter_review_at(&mut engine, &entered);
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // A commit that touches nothing.
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "empty"]);
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // Real commits, but no class declared — or one that does not parse.
+    commit_file(&repo, "docs/page.md", "# page\n", "a page");
+    std::fs::write(&classes, "{not json").unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    std::fs::write(&classes, r#"{"classes":{"docs":{"paths":["("]}}}"#).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    std::fs::remove_file(&classes).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    std::fs::write(&classes, DOCS_CLASS).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+
+    // An entry head git cannot diff from.
+    enter_review_at(&mut engine, &"d".repeat(40));
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // A repository whose head can no longer be read.
+    enter_review_at(&mut engine, &entered);
+    std::fs::remove_dir_all(repo.join(".git")).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+}

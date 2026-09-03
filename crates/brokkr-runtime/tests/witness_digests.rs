@@ -76,10 +76,17 @@ fn workspace() -> PathBuf {
 /// loud. Nothing else moved them — no charter, no policy, no role
 /// prose; the diff on each is `--effort <level>` beside `--model`, and
 /// each level is the driver's own default rather than a tuned choice.
+/// Decision 0039 moved `recipes/fast` and the four recipes composed
+/// from it, and nothing else: the table gained `REVIEW-CLEAN-DOCS-FIXES`,
+/// which ships a clean review whose own commits lie entirely in the
+/// repository's docs class instead of buying the whole verify again. A
+/// table that rules differently is a different strategy, and this is
+/// where that is said. `recipes/node`, `recipes/preflight` and
+/// `bundles/verify` do not derive from `fast` and did not move.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "99bd67392c4f4fbf156951b4503752788c4f2583e0ef8db8538a2668d68c267a",
+        "f0c9ae33fea90f68f8b6ff5568660f86d7a7fa36ff5ce6ef19611018bc20ed59",
     ),
     (
         "recipes/node",
@@ -91,19 +98,19 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/ember",
-        "ec945799b48eb3c45b0e368769fa2b24023e42a43ffaaa840097490737fac4d5",
+        "720264b6847ba9e9051b6be7501f04613fc4f71f756044f9e8c56f7d6af4fc4e",
     ),
     (
         "recipes/crucible",
-        "f89d5ecb5bd6cf9cff0bbb8b001a388c32851de5f2c2d5ed8b727cc44b34afb6",
+        "988f0f6e452e4473bb28161b04be43f716bab8cf706c2a1f1ec60d24627532f4",
     ),
     (
         "recipes/night-shift",
-        "bf1e9b4fa8e1bff8cc73cbc5619b9ec4c7229063098310c31262803173faccba",
+        "20e82883c0949b8d6ee143ad91bc3c28a80d30cb3f7fc45f723813d569c992d8",
     ),
     (
         "recipes/wager-harness",
-        "69cce347313752cb564f1cd98bcdeb2f4c0c4f13c69051c13caf3aca9f478a10",
+        "dbca158da1f52954204654dffbf43b4e4d2878f077544cc6e623e7a183a83eba",
     ),
     (
         "bundles/verify",

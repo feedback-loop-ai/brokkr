@@ -155,7 +155,7 @@ stateDiagram-v2
   implement --> implement: broken, once
   implement --> verify: complete
   verify --> review: pass
-  review --> ship: clean · residual at or below medium
+  review --> ship: clean · docs-only fixes · residual at or below medium
   review --> verify: clean, fixes applied
   review --> implement: security residual — reforge, bounded by visits_implement
   review --> parked: reforging exhausted

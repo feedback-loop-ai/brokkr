@@ -161,7 +161,11 @@ false`.
 
 The extension fields defined so far are in
 `effect-provenance.v1.schema.json`: `effect/started.provenance`, and
-`effect/failed.start_failure` with `start_failure_sites`.
+`effect/failed.start_failure` with `start_failure_sites`; and in
+`phase-entered-head.v1.schema.json` (decision 0039): `phase/entered.head`,
+the repository head the protected phase was entered at, which the engine
+reads back to tell the review's own commits from the ones it judged.
+`fold` reads neither file's fields.
 
 Reforging (decision 0022) adds one more file and changes none of the bytes
 above:
