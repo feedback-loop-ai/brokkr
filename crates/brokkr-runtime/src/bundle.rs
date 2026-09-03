@@ -39,11 +39,15 @@ pub enum CompileError {
 
 /// Inputs the engine owns. A seat may never supply or declare these:
 /// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 5] = [
+pub const ENGINE_OWNED_INPUTS: [&str; 6] = [
     "consecutive_failures",
     "drift_detected",
     "dirty_worktrees",
     "reviewed_heads",
+    // Read from the tree at the protected phase's ruling (decision
+    // 0039): the review's own commits, classified by the repository's
+    // declared docs class.
+    "fixes_docs_only",
     // The same repository facts, keyed by realm (decision 0023). Read
     // from the tree by the engine, exactly like the two above it.
     REALM_FACTS,

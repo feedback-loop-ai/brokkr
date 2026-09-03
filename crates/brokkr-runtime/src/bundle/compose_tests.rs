@@ -724,6 +724,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
     assert_eq!(role_path, &leaf.join("roles/role.md"));
 }
 
+/// Decision 0039 moved `recipes/fast` here as it moved it in the witness
+/// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
+/// rules differently is a different bundle. Nothing else in this list moved.
 /// The five bundles that declare no `extends`. Their digests are pinned
 /// to what MAIN produces without composition — three of them moved when
 /// those recipes adopted agents (decision 0016), and four moved again
@@ -760,7 +763,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "99bd67392c4f4fbf156951b4503752788c4f2583e0ef8db8538a2668d68c267a",
+        "f0c9ae33fea90f68f8b6ff5568660f86d7a7fa36ff5ce6ef19611018bc20ed59",
     ),
     (
         "recipes/panel-review",

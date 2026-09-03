@@ -25,6 +25,7 @@ repository = "https://github.com/feedback-loop-ai/brokkr"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
 
 [workspace.dependencies]
+regex = "1.13"
 brokkr-core = { path = "crates/brokkr-core", version = "0.8.0" }
 brokkr-store = { path = "crates/brokkr-store", version = "0.8.0" }
 brokkr-protocol = { path = "crates/brokkr-protocol", version = "0.8.0" }

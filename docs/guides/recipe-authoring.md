@@ -198,9 +198,14 @@ same fix. Agent-backed seats satisfy the rule through their resolved
 candidate argv. Exec is model-free and needs no pin.
 
 **Engine-owned inputs are never seat-declarable.** `drift_detected`,
-`dirty_worktrees`, `reviewed_heads`, `realm_facts`, the
-`consecutive_failures` counter and the whole `visits_<phase>` family are
-computed by the fold from the journal. A seat that claims one has the
+`dirty_worktrees`, `reviewed_heads`, `realm_facts`, `fixes_docs_only`
+(decision 0039: whether every commit the review itself added lies in the
+docs class of the repository's `.github/delivery-classes.json` as it was
+committed at the head the review was entered at, never the working tree's
+copy — absent when the repository declared no class there), the
+`consecutive_failures` counter and the
+whole `visits_<phase>` family are computed by the engine from the journal
+and the tree. A seat that claims one has the
 claim dropped; a bundle that declares one fails compilation.
 
 ## Seat bodies: single, panel, sequence
@@ -508,7 +513,7 @@ naming the rule and the known set.
 
 | Form | Reads | Known names |
 |---|---|---|
-| bare name | a boolean input, by name | `skip_verify`, `fixes_applied`, `has_security_residual`, `high_risk_uncovered`, `drift_detected`, `dirty_worktrees` |
+| bare name | a boolean input, by name | `skip_verify`, `fixes_applied`, `has_security_residual`, `high_risk_uncovered`, `drift_detected`, `dirty_worktrees`, `fixes_docs_only` |
 | `<counter>_gte` | numeric threshold | `consecutive_failures` |
 | `visits_<phase>_gte` | how many times the run has entered `<phase>` | any phase **this table** declares |
 | `<axis>_above` | severity strictly above the threshold | `max_residual_severity` |

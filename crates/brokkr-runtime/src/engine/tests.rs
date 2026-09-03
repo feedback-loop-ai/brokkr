@@ -3014,3 +3014,315 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
         );
     }
 }
+
+// ── decision 0039: the review's own commits, classified ──────────────
+
+fn git(repo: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
+    let file = repo.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, contents).unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "-m", message]);
+    git_head(repo).unwrap()
+}
+
+const CLASSES: &str = ".github/delivery-classes.json";
+
+const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
+
+/// A class whose one pattern matches every path — what a phase would
+/// commit if it could choose the class its own fixes are judged by.
+const EVERYTHING_IS_DOCS: &str = r#"{"classes":{"docs":{"paths":[""]}}}"#;
+
+/// Append a `phase/entered` for the protected phase with the given
+/// payload — what the engine writes (0039), or what a journal carries.
+fn enter_review(engine: &mut Engine, payload: Value) {
+    engine
+        .store
+        .append_next(&engine.run_id, EventType::PhaseEntered, payload, None, None)
+        .unwrap();
+}
+
+/// Record that the protected phase was entered at the given head.
+fn enter_review_at(engine: &mut Engine, head: &str) {
+    enter_review(engine, json!({"phase": "review", "head": head}));
+}
+
+fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result": "clean", "inputs": claim}),
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    events.last().unwrap().payload["inputs"]
+        .as_object()
+        .cloned()
+        .unwrap()
+}
+
+/// Ruling 1: the protected phase's entry carries the head; no other
+/// phase's does, and a run with no readable repository carries none.
+#[test]
+fn the_protected_phase_is_entered_at_a_recorded_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let probe = engine_in(dir.path(), None, &repo);
+    // Not a git repository yet: no head to record.
+    assert_eq!(
+        probe.phase_entered_payload("review"),
+        json!({"phase": "review"})
+    );
+    let head = git_commit(&repo, "base");
+    assert_eq!(
+        probe.phase_entered_payload("review"),
+        json!({"phase": "review", "head": head})
+    );
+    assert_eq!(
+        probe.phase_entered_payload("implement"),
+        json!({"phase": "implement"})
+    );
+
+    // Driven, not hand-fed: the first phase is entered without a head,
+    // because the first phase is not the protected one.
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine.drive_once().unwrap();
+    let entered = &engine.store.load(&engine.run_id).unwrap()[1];
+    assert_eq!(entered.event_type, EventType::PhaseEntered);
+    assert!(entered.payload.get("head").is_none());
+}
+
+/// Rulings 2 and 3: docs-only commits read true, a code commit reads
+/// false, and the seat's own claim is overwritten either way.
+#[test]
+fn docs_only_review_commits_are_classified_and_never_claimed() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
+    let mut engine = engine_in(dir.path(), None, &repo);
+
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n", "a page");
+    commit_file(&repo, "README.md", "# readme\n", "the readme");
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": false}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n\nmore\n", "more prose");
+    commit_file(&repo, "src/lib.rs", "fn f() {}\n", "and code");
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": true}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+
+    // Renames are unpaired: a code file moved under a docs name is a
+    // deletion in `src/` and an addition in `docs/`, and the deletion is
+    // code. Paired, git would report one docs path and the answer would
+    // be a lie — the same trap the contribution gate closes (0038).
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    git(&repo, &["mv", "src/lib.rs", "docs/lib.md"]);
+    git(&repo, &["commit", "-q", "-m", "move the code under docs"]);
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": true}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+
+    // A docs name that is not ASCII is looked up as itself. Porcelain
+    // `git diff` would quote it — `"docs/caf\303\251.md"` — into a
+    // path no pattern matches, and an honest prose fix would buy a
+    // verify; the diff is the anchor's plumbing, and the gate's.
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/café.md", "# café\n", "prose, accented");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+}
+
+/// Ruling 3: the class is the one committed at the entry head, so the
+/// phase being judged cannot widen the class its own fixes are judged
+/// by — neither in the working tree nor in a commit of its own, where the
+/// class file is a path classified by the class it was entered under.
+#[test]
+fn the_docs_class_is_read_at_the_entry_head_and_not_from_the_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
+    let mut engine = engine_in(dir.path(), None, &repo);
+
+    // Widened in the working tree only: the tree is not consulted, so a
+    // prose fix still reads true and a code fix still reads false.
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n", "a page");
+    std::fs::write(repo.join(CLASSES), EVERYTHING_IS_DOCS).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+    git(&repo, &["checkout", "-q", "--", CLASSES]);
+    commit_file(&repo, "src/lib.rs", "fn f() {}\n", "and code");
+    std::fs::write(repo.join(CLASSES), EVERYTHING_IS_DOCS).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+    git(&repo, &["checkout", "-q", "--", CLASSES]);
+
+    // Widened in a commit of the phase's own, and nothing else touched:
+    // the class file is under `.github/`, which the class it was entered
+    // under calls code.
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, CLASSES, EVERYTHING_IS_DOCS, "widen the class");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+
+    // Widened alongside code, entered under the honest class: false,
+    // for both paths.
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "narrow it back");
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, CLASSES, EVERYTHING_IS_DOCS, "widen the class again");
+    commit_file(&repo, "src/lib.rs", "fn g() {}\n", "code, judged as docs?");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+
+    // The boundary, stated: a widening that read false above bought the
+    // verify and the review that judge it as the code change it is, and
+    // only THEN does it govern an entry. A run's later visit is entered
+    // under a class its earlier visits were judged for — and the pull
+    // request gate still reads the base branch's copy, never this one.
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    commit_file(
+        &repo,
+        "src/lib.rs",
+        "fn h() {}\n",
+        "code under the judged widening",
+    );
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+
+    // An empty class declared at the entry head is a class that calls
+    // every path code: false, not absent — the honest answer to a
+    // repository that says nothing of it is prose.
+    let entered = commit_file(
+        &repo,
+        CLASSES,
+        r#"{"classes":{"docs":{"paths":[]}}}"#,
+        "nothing is docs",
+    );
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n\nagain\n", "a page, again");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+}
+
+/// Ruling 3's absences: the input is left out whenever the question has
+/// no honest answer, and an absent input never satisfies a rule.
+#[test]
+fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
+    let mut engine = engine_in(dir.path(), None, &repo);
+
+    // No entry recorded for the phase at all.
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // Entered at the current head: nothing committed since.
+    enter_review_at(&mut engine, &entered);
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // A commit that touches nothing.
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "empty"]);
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // Real commits, but the class committed at the entry head does not
+    // parse, is not a regular expression, declares no docs class, or
+    // declares a pattern that is not one.
+    for broken in [
+        "{not json",
+        r#"{"classes":{"docs":{"paths":["("]}}}"#,
+        r#"{"classes":{}}"#,
+        r#"{"classes":{"docs":{"paths":[7]}}}"#,
+    ] {
+        let entered = commit_file(&repo, CLASSES, broken, "a class that is not one");
+        enter_review_at(&mut engine, &entered);
+        commit_file(&repo, "docs/page.md", broken, "a page");
+        let inputs = review_inputs(&mut engine, json!({}));
+        assert!(
+            inputs.get("fixes_docs_only").is_none(),
+            "{broken}: {inputs:?}"
+        );
+    }
+    // No class file at the entry head at all.
+    git(&repo, &["rm", "-q", CLASSES]);
+    git(&repo, &["commit", "-q", "-m", "no class"]);
+    enter_review_at(&mut engine, &git_head(&repo).unwrap());
+    commit_file(&repo, "docs/page.md", "# page\n", "a page");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    // And a class declared again answers again.
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes, restored");
+    enter_review_at(&mut engine, &entered);
+    commit_file(&repo, "docs/page.md", "# page\n\nmore\n", "more prose");
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert_eq!(inputs["fixes_docs_only"], json!(true), "{inputs:?}");
+
+    // The phase's LATEST entry recorded no head: an older visit's head
+    // is not borrowed, even though borrowing would read true here —
+    // the commits since that older entry are not this visit's.
+    enter_review(&mut engine, json!({"phase": "review"}));
+    commit_file(
+        &repo,
+        "docs/page.md",
+        "# page\n\nstill more\n",
+        "still more prose",
+    );
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // An entry head that is not the shape the contract promises never
+    // reaches git: a journal row is not an argument list.
+    let stolen = dir.path().join("stolen");
+    enter_review_at(&mut engine, &format!("--output={}", stolen.display()));
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    assert!(
+        !stolen.exists(),
+        "the journal named a file and git wrote it"
+    );
+    enter_review_at(&mut engine, &entered.to_ascii_uppercase());
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // An entry head git does not have.
+    enter_review_at(&mut engine, &"d".repeat(40));
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+
+    // A repository whose head can no longer be read.
+    enter_review_at(&mut engine, &entered);
+    std::fs::remove_dir_all(repo.join(".git")).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+}

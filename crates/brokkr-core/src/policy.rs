@@ -35,13 +35,17 @@ pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
 /// visits, a seat never claims one.
 pub const VISIT_PREFIX: &str = "visits_";
 
-pub const BOOLEAN_INPUTS: [&str; 6] = [
+pub const BOOLEAN_INPUTS: [&str; 7] = [
     "skip_verify",
     "fixes_applied",
     "has_security_residual",
     "high_risk_uncovered",
     "drift_detected",
     "dirty_worktrees",
+    // Decision 0039: every commit the protected phase added since it
+    // was entered lies in the repository's docs class. Engine-owned,
+    // like the two above it.
+    "fixes_docs_only",
 ];
 pub const COUNTER_INPUTS: [&str; 1] = ["consecutive_failures"];
 pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
