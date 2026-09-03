@@ -1496,13 +1496,15 @@ impl Engine {
                 .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
             if phase == self.bundle.protected_phase {
                 if let Some(head) = git_head(repo) {
-                    inputs.insert("reviewed_heads".into(), json!({ key: head }));
-                }
-                // Decision 0039: what the protected phase itself
-                // committed, classified — so a table can send a docs-only
-                // fix to ship without buying the whole verify again.
-                if let Some(docs_only) = self.fixes_docs_only(repo, &phase) {
-                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
+                    inputs.insert("reviewed_heads".into(), json!({ key: &head }));
+                    // Decision 0039: what the protected phase itself
+                    // committed since it was entered, classified — so a
+                    // table can send a docs-only fix to ship without
+                    // buying the whole verify again. The same observed
+                    // head the record above vouches for, read once.
+                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
+                    }
                 }
             }
             if phase == "ship" {
@@ -2874,25 +2876,26 @@ impl Engine {
     }
 
     /// Decision 0039: whether every commit the protected phase added
-    /// since it was entered lies in the repository's declared docs class.
-    /// `None` whenever the question has no honest answer — no entry head
-    /// recorded, no repository head, the same head, nothing committed, a
-    /// diff git cannot take, or no class declared — and an absent input
-    /// never satisfies a rule (decision 0004).
-    fn fixes_docs_only(&self, repo: &std::path::Path, phase: &str) -> Option<bool> {
+    /// between the head it was entered at and `head`, the repository's
+    /// head now, lies in the repository's declared docs class. `None`
+    /// whenever the question has no honest answer — no entry head
+    /// recorded, the same head, nothing committed, a diff git cannot
+    /// take, or no class declared — and an absent input never satisfies
+    /// a rule (decision 0004). A repository whose head cannot be read
+    /// never reaches here: the caller records no head and asks nothing.
+    fn fixes_docs_only(&self, repo: &std::path::Path, phase: &str, head: &str) -> Option<bool> {
         let events = self.store.load(&self.run_id).ok()?;
         let entered = events.iter().rev().find_map(|event| {
             (event.event_type == EventType::PhaseEntered && event.payload["phase"] == phase)
                 .then(|| event.payload["head"].as_str().map(str::to_string))
                 .flatten()
         })?;
-        let head = git_head(repo)?;
         if entered == head {
             return None;
         }
         let class = docs_class(repo)?;
         let out = Command::new("git")
-            .args(["diff", "--no-renames", "--name-only", &entered, &head])
+            .args(["diff", "--no-renames", "--name-only", &entered, head])
             .current_dir(repo)
             .output()
             .ok()?;
