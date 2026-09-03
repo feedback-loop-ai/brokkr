@@ -139,6 +139,7 @@ Two worked shapes are in the tree:
 | `cost` | shipped recipes | A relative cost band for choosing a strategy, never a provider quote. |
 | `policy` | in the layer that supplies a table | Path to this layer's phase-machine file, relative to this layer's directory. A layer that declares no `policy` contributes no table. |
 | `protected_phase` | no | The phase every path to a non-`stop` terminal must pass through. Defaults to `"review"`. |
+| `egress_minimum` | no | The egress class a seat's route must meet before that seat may bind secrets (decision [0036](../decisions/0036-egress-is-a-property-of-the-route.md) ruling 4): `"local"`, `"contracted"` or `"uncontracted"`. Defaults to `"contracted"`. |
 | `seats` | in the layer that supplies them | Phase name → seat definition. Every working phase needs one by the time composition has resolved. |
 | `extends` | no | The name of a recipe in the library this one builds on. See [composition](#composition-extends-and-override). |
 | `override`, `remove` | no | Resolver markers, only meaningful with `extends`. |
@@ -180,7 +181,7 @@ so it cannot smuggle a route around review.
 | `agent` | The library form (decision 0016): `"agent": "implementer"` resolves charter, driver, limits and declared inputs from `agents/`. Mutually exclusive with the inline form. |
 | `inputs` | The typed facts this seat may supply (decision 0007). Defaults to the non-engine-owned inputs this phase's own rules reference. Anything undeclared is dropped before evaluation and never enters the journal record. |
 | `limits` | `max_attempts` and `timeout_seconds`. Defaults: one attempt, 3600 seconds. |
-| `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. |
+| `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. The seat's driver must reach a route whose egress class meets the bundle's `egress_minimum`, or compilation refuses (decision 0036 ruling 4). |
 | `driver.confine` | Optional container confinement: `image`, `network`, `mounts`. |
 
 Two argv tokens are expanded at spawn time: `{brokkr}` becomes this

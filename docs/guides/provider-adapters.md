@@ -33,6 +33,15 @@ The driver turns `--model <lane>` into the one-seat overlay dsh's
 launcher reads; neither key ever enters argv, the recipe, or the
 journal.
 
+A key taken from the launching environment is the one channel that
+moves no digest and reaches no journal row. It is not forbidden, but an
+adapter may name it — `"credentials": {"<route>": "<VARIABLE>"}`, a
+name only — and then `brokkr doctor` warns, by route, whenever that
+variable is satisfied from the process environment rather than the
+bindings store (decision
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md) ruling
+5).
+
 Looper-bound runs start with `brokkr run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels
 with `brokkr export`. `brokkr bridge --run <id> --looper-url <url>` tails only the

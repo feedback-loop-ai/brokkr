@@ -42,6 +42,13 @@ use serde_json::{json, Value};
 /// history across files that no single reader can fold together.
 pub const DEFAULT_DB: &str = ".forge/forge.db";
 
+/// The operator-side secrets store the engine threads to seats with
+/// declared bindings (decision 0012), spelled here because `doctor` now
+/// reads its NAMES to tell a bound credential from an ambient one
+/// (decision 0036 ruling 5). The run verbs resolve the same path against
+/// their workdir; doctor has no workdir of its own.
+pub const DEFAULT_SECRETS: &str = ".forge/secrets.env";
+
 /// Exit codes: 0 completed/ok · 2 parked (operator needed) · 3 stopped ·
 /// 1 error.
 #[derive(Parser)]
@@ -131,6 +138,11 @@ enum Cmd {
         bundle: Option<PathBuf>,
         #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
+        /// Operator-side secrets store, so doctor can say which declared
+        /// credentials a route is taking from the ambient environment
+        /// instead (decision 0036 ruling 5).
+        #[arg(long, default_value = DEFAULT_SECRETS)]
+        secrets_file: PathBuf,
     },
     /// Validate a bundle and print its pinned manifest and digest.
     Compile {
@@ -1519,8 +1531,12 @@ fn run_with(
             };
             run_tui(hearths, run, tab)
         }
-        Cmd::Doctor { bundle, db } => {
-            let report = doctor::doctor(bundle.as_deref(), &db);
+        Cmd::Doctor {
+            bundle,
+            db,
+            secrets_file,
+        } => {
+            let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file);
             println!("{}", report.render());
             Ok(if report.healthy {
                 ExitCode::SUCCESS

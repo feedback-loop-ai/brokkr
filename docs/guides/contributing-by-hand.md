@@ -599,7 +599,28 @@ the driver protocol, and from an existing file in `adapters/` for the
 declaration shape. An adapter declares a provider's `trust_tier`, and a
 gate seat's authorisation reads it (decision
 [0021](../decisions/0021-model-policy.md)) — so an adapter change is a
-change to who is allowed to judge, and it will be reviewed as one.
+change to who is allowed to judge, and it will be reviewed as one. It
+also declares where its traffic goes: an `egress` class for its own
+destination, and a `routes` map from route name (the prefix of a
+concrete model id) to class, for a binary that fronts several
+(decision [0036](../decisions/0036-egress-is-a-property-of-the-route.md)).
+The `egress` class answers for that one destination and no other: a
+model id whose prefix the `routes` map does not name is uncontracted,
+whatever the adapter declares for itself, so ruling one endpoint
+acceptable never clears the others the same binary can reach. Those
+classes decide which seats may put a secret in front of the driver, so
+an adapter change is a change to what may be sent as well as to who may
+judge. A `credentials` map names, per route, the environment
+variable that route needs — a name only, so `brokkr doctor` can say when
+the value is coming from the ambient environment rather than the
+bindings store.
+
+The shipped adapter files still carry the superseded `binding_grant`
+boolean, which reads for one more release — `true` as `contracted`,
+`false` or absent as `uncontracted`. If you copy one of them as your
+starting shape, replace that key rather than adding `egress` beside it:
+an adapter declaring both is refused at load time, because the two could
+disagree and only one of them could win.
 
 ## Contribution licensing
 

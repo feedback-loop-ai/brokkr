@@ -17,7 +17,9 @@ pub mod compose;
 
 use compose::{Ancestor, COMPOSE_PREFIX};
 
-use crate::agents::{Adapters, Availability, Candidate, Library, TrustTier};
+use crate::agents::{
+    resolve_route, Adapters, Availability, Candidate, EgressClass, Library, TrustTier,
+};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -260,6 +262,12 @@ struct AgentContext {
     /// authorised a gate would otherwise sit outside the bundle's
     /// identity — a demotion could not be told from a re-run.
     drivers: Map<String, Value>,
+    /// Decision 0036 ruling 4: the egress class a seat's resolved route
+    /// must MEET before that seat may declare secret bindings. The
+    /// operator rules it into the bundle; absence is `Contracted`, which
+    /// is exactly what `binding_grant: true` meant, so every bundle on
+    /// disk keeps the behaviour it has.
+    egress_minimum: EgressClass,
 }
 
 /// One resolved agent reference, ready to become an ordinary seat body.
@@ -315,11 +323,33 @@ fn built_in_model_driver(raw: &Value) -> Option<&str> {
     }
 }
 
-/// Does this argv state exactly one concrete value for `flag`? Shared by
-/// both pins, because both are the same rule on different axes: named
-/// once, concretely, never as a second flag that could outrank the first
-/// and never as something that reads as a flag itself.
-fn command_pins(raw: &Value, flag: &str, limit: usize) -> bool {
+/// What one inline command's argv says about one pin — the model pin on
+/// `--model`, the effort pin on `--effort` (decision 0035). THREE states,
+/// because decision 0031 and decision 0036 ruling 2 read the same walk
+/// for different facts and only 0031 can collapse the last two: 0031
+/// ruling 2 asks whether there IS a readable pin, while 0036 asks WHERE
+/// the material goes — and "this argv names no model" and "this argv
+/// names a model I cannot read" are different answers to that second
+/// question. Kept apart here so the two rulings cannot drift over what
+/// "the pinned model" means, and so the route resolver never has to
+/// guess which kind of silence it was handed. One walker for both axes,
+/// because both are the same rule: named once, concretely, never as a
+/// second flag that could outrank the first and never as something that
+/// reads as a flag itself.
+enum ModelPin {
+    /// No such flag anywhere in the argv: `exec`, and every driver that
+    /// takes its destination from its own profile.
+    Absent,
+    /// One readable concrete value; for a model, its `<route>/` prefix
+    /// is the route.
+    Concrete(String),
+    /// The flag is present and this compiler cannot read it as one
+    /// concrete value: flag-shaped, empty, over-long, outside the id
+    /// alphabet, dangling at the end of the argv, or pinned twice.
+    Unreadable,
+}
+
+fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
     let concrete = |value: &str| {
         !value.is_empty()
             && !value.starts_with('-')
@@ -330,36 +360,43 @@ fn command_pins(raw: &Value, flag: &str, limit: usize) -> bool {
     };
     let attached = format!("{flag}=");
     let Some(command) = raw.pointer("/driver/command").and_then(Value::as_array) else {
-        return false;
+        return ModelPin::Absent;
     };
     let mut pin = None;
     let mut parts = command.iter().filter_map(Value::as_str);
     while let Some(part) = parts.next() {
         if part == flag {
-            let Some(value) = parts.next().filter(|value| concrete(value)) else {
-                return false;
-            };
-            if pin.replace(value).is_some() {
-                return false;
+            match parts.next().filter(|value| concrete(value)) {
+                Some(value) if pin.replace(value).is_none() => {}
+                _ => return ModelPin::Unreadable,
             }
         }
         if let Some(value) = part.strip_prefix(&attached) {
             if !concrete(value) || pin.replace(value).is_some() {
-                return false;
+                return ModelPin::Unreadable;
             }
         }
     }
-    pin.is_some()
+    match pin {
+        Some(model) => ModelPin::Concrete(model.to_string()),
+        None => ModelPin::Absent,
+    }
+}
+
+/// The model pin as decision 0036 reads it: which route the material
+/// goes to, or which kind of silence the argv holds.
+fn model_pin(raw: &Value) -> ModelPin {
+    command_pin(raw, "--model", 80)
 }
 
 fn command_pins_model(raw: &Value) -> bool {
-    command_pins(raw, "--model", 80)
+    matches!(model_pin(raw), ModelPin::Concrete(_))
 }
 
 /// The effort pin bound, matching `seat-record/v2`'s own: a level is one
 /// bounded word, never a path and never a sentence.
 fn command_pins_effort(raw: &Value) -> bool {
-    command_pins(raw, "--effort", 40)
+    matches!(command_pin(raw, "--effort", 40), ModelPin::Concrete(_))
 }
 
 /// Every driver-bearing invocation site that states one of the two pins
@@ -511,6 +548,8 @@ impl Bundle {
         enforce_model_pins(&resolved.seats)?;
         let machine = Machine::from_table(&table)?;
 
+        let egress_minimum = parse_egress_minimum(config)?;
+
         let protected_phase = config
             .get("protected_phase")
             .and_then(Value::as_str)
@@ -550,6 +589,7 @@ impl Bundle {
                 })?,
                 records: Map::new(),
                 drivers: Map::new(),
+                egress_minimum,
             }),
         };
 
@@ -955,6 +995,31 @@ fn parse_class(what: &str, raw: &Value) -> Result<SeatClass, CompileError> {
     })
 }
 
+/// The bundle's egress minimum (decision 0036 ruling 4): the class a
+/// seat's resolved route must MEET before that seat may declare secret
+/// bindings. It is the operator's bar, ruled per bundle, and an absent
+/// one is `contracted` — exactly what the superseded `binding_grant:
+/// true` meant — so every bundle on disk keeps its present behaviour and
+/// its present digest. Read whether or not this bundle turns out to need
+/// the adapters: a bar written in a vocabulary this engine does not
+/// speak is a refusal wherever it is written, never a silent default.
+fn parse_egress_minimum(config: &Value) -> Result<EgressClass, CompileError> {
+    let Some(declared) = config.get("egress_minimum") else {
+        return Ok(EgressClass::Contracted);
+    };
+    declared
+        .as_str()
+        .and_then(EgressClass::parse)
+        .ok_or_else(|| {
+            CompileError::Invalid(format!(
+                "bundle 'egress_minimum' is {declared}; the egress vocabulary is \
+                 closed — {} — and an absent minimum is \"contracted\" \
+                 (decision 0036 ruling 4)",
+                EgressClass::VOCABULARY
+            ))
+        })
+}
+
 /// The keys a SEAT may write. Closed, like the class vocabulary itself
 /// and for the same reason — see [`refuse_unknown_keys`].
 const SEAT_KEYS: &[&str] = &[
@@ -1049,22 +1114,40 @@ fn dispatch_driver(parts: &[String]) -> Option<String> {
     }
 }
 
+/// A resolved route, as a refusal says it out loud. One phrase for the
+/// unrouted case, written once: an adapter that named no route for this
+/// id answers on its own declared destination, and a driver no adapter
+/// declares has only that destination to be judged on either.
+fn destination((route, egress): (Option<&str>, EgressClass)) -> (String, EgressClass) {
+    match route {
+        Some(route) => (format!("on route '{route}'"), egress),
+        None => ("on its own declared destination".to_string(), egress),
+    }
+}
+
 /// Decision 0021's two compile-time prohibitions, at one driver-bearing
 /// site. Both are a lookup and a comparison — deterministic code with an
 /// exit status (decision 0025 ruling 6), refusing before any prompt
 /// exists to leak, in the manner of a digest mismatch:
 ///
 /// - a GATE-class site whose driver lacks the trusted tier (ruling 2);
-/// - a site under a seat that declares secret bindings, whose driver
-///   holds no binding grant (ruling 4).
+/// - a site under a seat that declares secret bindings, whose resolved
+///   ROUTE does not meet the bundle's egress minimum (ruling 4, as
+///   enacted by decision 0036 ruling 4).
+///
+/// The two axes stay separate all the way down: the gate refusal reads
+/// `trust_tier` and nothing else, because decision 0036 ruling 3 holds
+/// that local is structural and confers no standing to judge — a model
+/// on the operator's own hardware may be the most private worker in the
+/// fleet and remain the least qualified to be the check.
 ///
 /// Both fail closed on ABSENCE — an undeclared tier is untrusted, an
-/// undeclared grant is none, and a driver no adapter declares has
-/// neither. `candidates` is the resolved fallback chain of an agent site
-/// and empty for an inline one; EVERY link is checked, because ruling 5
-/// says an unavailable driver parks rather than substitutes, and a chain
-/// that could fall back to an untrusted judge at run time would have
-/// defeated the gate at compile time.
+/// undeclared class is uncontracted, and a driver no adapter declares
+/// has neither. `candidates` is the resolved fallback chain of an agent
+/// site and empty for an inline one; EVERY link is checked, because
+/// ruling 5 says an unavailable driver parks rather than substitutes,
+/// and a chain that could fall back to an untrusted judge at run time
+/// would have defeated the gate at compile time.
 ///
 /// A site that SURVIVES both is witnessed when it is inline: the adapter
 /// whose declaration authorised it is pinned into the manifest, so the
@@ -1088,19 +1171,32 @@ fn enforce_model_policy(
     let AgentContext {
         adapters,
         drivers: witnessed,
+        egress_minimum,
         ..
     } = agents
         .as_mut()
         .expect("a gate-class or secret-binding seat opens the adapters");
+    let minimum = *egress_minimum;
     let mut authorised = Map::new();
-    let drivers: Vec<Option<String>> = match candidates.is_empty() {
-        true => vec![dispatch_driver(&command_parts(raw))],
+    // Each site as (driver, concrete model id): the id is what carries
+    // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
+    // name becomes concrete through the adapter that maps it.
+    let drivers: Vec<(Option<String>, ModelPin)> = match candidates.is_empty() {
+        true => vec![(dispatch_driver(&command_parts(raw)), model_pin(raw))],
         false => candidates
             .iter()
-            .map(|candidate| Some(candidate.provider.clone()))
+            .map(|candidate| {
+                let (_, concrete) = adapters
+                    .serving(&candidate.model)
+                    .expect("resolution mapped every link of the chain");
+                (
+                    Some(candidate.provider.clone()),
+                    ModelPin::Concrete(concrete.to_string()),
+                )
+            })
             .collect(),
     };
-    for driver in drivers {
+    for (driver, pin) in drivers {
         let adapter = driver
             .as_deref()
             .and_then(|provider| adapters.adapter(provider));
@@ -1116,12 +1212,52 @@ fn enforce_model_policy(
                  undeclared tier is untrusted)"
             )));
         }
-        if !secrets.is_empty() && adapter.map(|a| a.binding_grant) != Some(true) {
+        // Where this site's material actually goes. Two kinds of
+        // not-knowing land on the floor for the one ruling-1 reason —
+        // an absent declaration is uncontracted — but a refusal has to
+        // tell them apart, so each names itself:
+        //
+        // - a driver NO adapter declares: the operator has said nothing
+        //   about this binary's endpoint at all;
+        // - a `--model` this compiler cannot READ as one concrete id.
+        //   Ruling 2 gives an unprefixed id the adapter's own class
+        //   because an unprefixed id genuinely arrives at the
+        //   destination that class is the operator's word about. A site
+        //   that writes a `--model` has declined that default for
+        //   somewhere the machine cannot name, so the adapter's word no
+        //   longer covers it — reading the adapter's class here would
+        //   clear an unnameable route on the strength of a ruling about
+        //   a different one, the same fail-open ruling 2's asymmetry
+        //   exists to prevent. `enforce_model_pins` refuses this shape
+        //   first for the four model-bearing built-ins; an adapter the
+        //   operator ADDS is not on that list, and this is the only
+        //   thing standing between it and its adapter's clearance.
+        let (reached, egress) = match (adapter, &pin) {
+            (Some(adapter), ModelPin::Concrete(model)) => {
+                destination(resolve_route(adapter, model))
+            }
+            // An argv naming no model leaves the binary on whatever its
+            // profile resolves, which carries no prefix — so it is
+            // literally the unprefixed case, and `resolve_route` stays
+            // the one place ruling 2's rule is written.
+            (Some(adapter), ModelPin::Absent) => destination(resolve_route(adapter, "")),
+            (Some(_), ModelPin::Unreadable) => (
+                "on a destination it does not name (its '--model' pin is not one \
+                 readable concrete model id, so no route can be read off it)"
+                    .to_string(),
+                EgressClass::Uncontracted,
+            ),
+            (None, _) => destination((None, EgressClass::Uncontracted)),
+        };
+        if !secrets.is_empty() && egress < minimum {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' declares secret bindings {secrets:?} but seats \
-                 {named}, which holds no binding grant; trust to judge and \
-                 clearance to receive are different grants (decision 0021 \
-                 ruling 4 — an undeclared grant is none)"
+                 {named} {reached}, whose egress class is {}; this bundle binds \
+                 no secret below {} (decision 0021 ruling 4 as enacted by 0036 \
+                 ruling 4 — an undeclared class is uncontracted, and \
+                 'egress_minimum' is where the operator rules the bar)",
+                egress.name(),
+                minimum.name(),
             )));
         }
         // Both prohibitions passed, so an adapter answered for this

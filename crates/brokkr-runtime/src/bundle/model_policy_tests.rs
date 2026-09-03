@@ -118,11 +118,23 @@ impl Fixture {
     }
 
     fn compile_against(&self, work: Value, adapters: &Path) -> Result<Bundle, CompileError> {
+        self.compile_under(work, None, adapters)
+    }
+
+    /// The same bundle with the operator's egress bar written into it
+    /// (decision 0036 ruling 4). `None` writes no key at all, which is
+    /// what every bundle on disk looks like.
+    fn compile_under(
+        &self,
+        work: Value,
+        minimum: Option<Value>,
+        adapters: &Path,
+    ) -> Result<Bundle, CompileError> {
         let bundle = self.dir.path().join("bundle");
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
         std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-        let config = json!({
+        let mut config = json!({
             "name": "model-policy",
             "policy": "policy.json",
             "seats": {
@@ -134,6 +146,9 @@ impl Fixture {
                 },
             }
         });
+        if let Some(minimum) = minimum {
+            config["egress_minimum"] = minimum;
+        }
         std::fs::write(
             bundle.join("bundle.json"),
             serde_json::to_string_pretty(&config).unwrap(),
@@ -468,8 +483,43 @@ fn a_seat_declaring_bindings_refuses_an_ungranted_driver() {
     let refusal = fixture.refusal(seat("newcomer", None, Some(json!(["GH_TOKEN"]))));
     assert!(refusal.contains("seat 'work'"), "{refusal}");
     assert!(refusal.contains("driver 'newcomer'"), "{refusal}");
-    assert!(refusal.contains("holds no binding grant"), "{refusal}");
+    assert!(
+        refusal.contains("on its own declared destination"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("binds no secret below contracted"),
+        "{refusal}"
+    );
     assert!(refusal.contains("0021 ruling 4"), "{refusal}");
+    assert!(refusal.contains("0036"), "{refusal}");
+}
+
+/// A driver no adapter declares reaches an endpoint the operator has
+/// said nothing about — which IS the definition of uncontracted, and so
+/// refuses on the same comparison rather than on a special case.
+#[test]
+fn a_seat_declaring_bindings_refuses_a_driver_no_adapter_declares() {
+    let fixture = Fixture::new();
+    let refusal = fixture.refusal(seat("stranger", None, Some(json!(["GH_TOKEN"]))));
+    assert!(refusal.contains("driver 'stranger'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    let mut work = seat("judge", None, Some(json!(["GH_TOKEN"])));
+    work["driver"] = json!({"command": ["bash", "-c", "true"]});
+    let refusal = fixture.refusal(work);
+    assert!(refusal.contains("an unnamed driver"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
 }
 
 #[test]
@@ -486,7 +536,10 @@ fn a_seat_declaring_bindings_refuses_a_driver_with_no_grant_key() {
     let fixture = Fixture::new();
     let refusal = fixture.refusal(seat("silent", None, Some(json!(["GH_TOKEN"]))));
     assert!(refusal.contains("driver 'silent'"), "{refusal}");
-    assert!(refusal.contains("undeclared grant is none"), "{refusal}");
+    assert!(
+        refusal.contains("an undeclared class is uncontracted"),
+        "{refusal}"
+    );
 }
 
 #[test]
@@ -520,7 +573,357 @@ fn the_two_axes_are_independent() {
         .expect("a trusted driver judges");
     assert!(fixture
         .refusal(seat("ascetic", None, Some(json!(["GH_TOKEN"]))))
-        .contains("holds no binding grant"));
+        .contains("whose egress class is uncontracted"));
+}
+
+// ------------------- decision 0036: the class belongs to the route
+
+/// One provider fronting three destinations, which is the shape the
+/// whole decision exists for: the operator's own hardware, a third party
+/// they have ruled acceptable, and one nobody has ruled anything about —
+/// all behind a single CLI, and so a single adapter.
+fn many_routes() -> Value {
+    json!({
+        "provider": "many",
+        "efforts": [],
+        "effort_flag": "unsupported",
+        "binary": "many",
+        "driver": ["{brokkr}", "driver", "many", "--"],
+        "trust_tier": "untrusted",
+        "egress": "uncontracted",
+        "routes": {"nearby": "local", "partner": "contracted"},
+        "models": {"near": "nearby/small-1", "far": "partner/large-1"},
+        "model_flag": "--model",
+        "tool_permissions": "unsupported",
+        "mcp": "unsupported",
+    })
+}
+
+/// A seat on the `many` provider, pinning one concrete model id.
+fn routed_seat(model: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
+    let mut value = json!({
+        "role": "roles/role.md",
+        "results": ["pass", "fail"],
+        "driver": {"command":
+            ["{brokkr}", "driver", "many", "--", "--model", model, "true"]},
+    });
+    if let Some(class) = class {
+        value["class"] = json!(class);
+    }
+    if let Some(secrets) = secrets {
+        value["secrets"] = secrets;
+    }
+    value
+}
+
+#[test]
+fn one_adapter_binds_on_its_local_route_and_refuses_on_the_cloud_one_beside_it() {
+    // The consequence, made mechanical: the operator's own hardware can
+    // hold a binding without clearing the cloud route that shares its
+    // CLI. Before decision 0036 the declaration site was the binary, so
+    // both of these answered to one word.
+    let fixture = Fixture::new();
+    fixture.write_adapter(many_routes());
+    fixture
+        .compile(routed_seat("nearby/small-1", None, Some(json!(["TOKEN"]))))
+        .expect("a local route may receive a binding");
+    fixture
+        .compile(routed_seat("partner/large-1", None, Some(json!(["TOKEN"]))))
+        .expect("a contracted route meets the default minimum");
+
+    // A route this adapter does not name is uncontracted: silence about
+    // a route is not a promotion, and it is not an inheritance either.
+    let refusal = fixture.refusal(routed_seat(
+        "elsewhere/large-1",
+        None,
+        Some(json!(["TOKEN"])),
+    ));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // And an UNPREFIXED id gets the adapter's own class and no better:
+    // it reaches whatever default the harness profile resolves, and a
+    // `local` route on the same adapter lends it nothing.
+    let refusal = fixture.refusal(routed_seat("small-1", None, Some(json!(["TOKEN"]))));
+    assert!(
+        refusal.contains("on its own declared destination"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+}
+
+#[test]
+fn a_ruling_on_one_destination_clears_no_other_the_same_binary_reaches() {
+    // The decision's first rejected alternative, held shut at the
+    // compile: "granting `dsh` the binding grant clears the Alibaba and
+    // DeepSeek routes at the same stroke" is fail-open on the axis that
+    // exists to fail closed, and moving the declaration from the boolean
+    // to the routes map only closes it if a class declared for the
+    // endpoint the file NAMES stops short of the endpoints it does not.
+    //
+    // Every other fixture here is uncontracted at the adapter, where the
+    // two readings agree; this one is not, so it is the only place the
+    // difference is visible.
+    let fixture = Fixture::new();
+    let mut ruled = many_routes();
+    ruled["egress"] = json!("contracted");
+    fixture.write_adapter(ruled);
+
+    // The destination the operator ruled acceptable: it binds, on the
+    // adapter's own word about its own default.
+    fixture
+        .compile(routed_seat("small-1", None, Some(json!(["TOKEN"]))))
+        .expect("the adapter's own destination is the one it declared for");
+
+    // The destination nobody ruled anything about, behind the very same
+    // binary and the very same declaration: refused, at the floor.
+    let refusal = fixture.refusal(routed_seat(
+        "elsewhere/large-1",
+        None,
+        Some(json!(["TOKEN"])),
+    ));
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("an undeclared class is uncontracted"),
+        "{refusal}"
+    );
+
+    // And the route the file DOES name still stands on its own word,
+    // which is the whole reason the declaration moved to the route.
+    fixture
+        .compile(routed_seat("nearby/small-1", None, Some(json!(["TOKEN"]))))
+        .expect("a declared local route clears a contracted bar");
+}
+
+#[test]
+fn a_pin_this_compiler_cannot_read_inherits_no_clearance_from_its_adapter() {
+    // The gap between "this argv names NO model" and "this argv names a
+    // model I cannot read". Ruling 2 gives the first the adapter's own
+    // class, because an unprefixed id genuinely arrives at the
+    // destination that class is the operator's word about. The second is
+    // a site steering the binary somewhere and saying so illegibly — the
+    // adapter's word does not reach it, so it falls to the floor with
+    // every other route the file never named.
+    //
+    // `enforce_model_pins` catches this shape first for the four
+    // model-bearing built-ins, so it is only observable on a provider
+    // the operator ADDED, which is exactly the case that has no other
+    // guard. `many` is contracted at the adapter here for the same
+    // reason as the test above: it is the only fixture shape where
+    // inheriting would be visible rather than a coincidence of the
+    // floor.
+    let fixture = Fixture::new();
+    let mut ruled = many_routes();
+    ruled["egress"] = json!("contracted");
+    fixture.write_adapter(ruled);
+
+    // The control: no `--model` at all, and the adapter's own class
+    // carries the seat, as it does for `exec` on the shipped tree.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}", "driver", "many", "--", "true"
+        ])))
+        .expect("an argv naming no model rides its adapter's own destination");
+
+    // Four ways to write a pin this compiler will not read: outside the
+    // id alphabet, over-long, pinned twice, and dangling. Each one has
+    // an endpoint behind it that nobody ruled on.
+    for command in [
+        json!(["{brokkr}", "driver", "many", "--", "--model", "partner/qwen@2024"]),
+        json!([
+            "{brokkr}", "driver", "many", "--",
+            "--model",
+            "partner/arn:aws:bedrock:eu-central-1:000000000000:inference-profile/eu.anthropic.claude"
+        ]),
+        json!([
+            "{brokkr}", "driver", "many", "--",
+            "--model", "nearby/small-1", "--model", "elsewhere/large-1"
+        ]),
+        json!(["{brokkr}", "driver", "many", "--", "--model"]),
+    ] {
+        let refusal = fixture.refusal(unpinned_seat(command.clone()));
+        assert!(refusal.contains("driver 'many'"), "{command}: {refusal}");
+        assert!(
+            refusal.contains("on a destination it does not name"),
+            "{command}: {refusal}"
+        );
+        assert!(
+            refusal.contains("whose egress class is uncontracted"),
+            "{command}: {refusal}"
+        );
+    }
+}
+
+/// A `many` seat whose argv is written out in full, so a test can say
+/// what the `--model` looks like rather than only what it resolves to.
+fn unpinned_seat(command: Value) -> Value {
+    json!({
+        "role": "roles/role.md",
+        "results": ["pass", "fail"],
+        "secrets": ["TOKEN"],
+        "driver": {"command": command},
+    })
+}
+
+#[test]
+fn the_operator_rules_the_minimum_into_the_bundle() {
+    // Ruling 4's bar is the operator's, not the engine's. Raised, the
+    // contracted route that just compiled refuses; lowered, the
+    // uncontracted one that just refused compiles. Nothing about the
+    // adapter data moved between these two compilations.
+    let fixture = Fixture::new();
+    fixture.write_adapter(many_routes());
+    let adapters = fixture.dir.path().join("adapters");
+
+    fixture
+        .compile_under(
+            routed_seat("nearby/small-1", None, Some(json!(["TOKEN"]))),
+            Some(json!("local")),
+            &adapters,
+        )
+        .expect("the local route meets a local bar");
+    let refusal = fixture
+        .compile_under(
+            routed_seat("partner/large-1", None, Some(json!(["TOKEN"]))),
+            Some(json!("local")),
+            &adapters,
+        )
+        .expect_err("a contracted route does not meet a local bar")
+        .to_string();
+    assert!(
+        refusal.contains("whose egress class is contracted"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("binds no secret below local"), "{refusal}");
+
+    fixture
+        .compile_under(
+            routed_seat("elsewhere/large-1", None, Some(json!(["TOKEN"]))),
+            Some(json!("uncontracted")),
+            &adapters,
+        )
+        .expect("an operator may rule the floor as the bar");
+}
+
+#[test]
+fn a_minimum_outside_the_vocabulary_refuses() {
+    // Closed vocabulary, in the manner of every other declaration here:
+    // a misspelled bar must never read as the default, or a bundle would
+    // bind under a rule nobody wrote.
+    let fixture = Fixture::new();
+    let adapters = fixture.dir.path().join("adapters");
+    for written in [json!("contracted-ish"), json!(2)] {
+        let refusal = fixture
+            .compile_under(seat("judge", None, None), Some(written), &adapters)
+            .expect_err("an unreadable bar is not a bar")
+            .to_string();
+        assert!(refusal.contains("'egress_minimum' is"), "{refusal}");
+        assert!(
+            refusal.contains("the egress vocabulary is closed"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("0036 ruling 4"), "{refusal}");
+    }
+}
+
+#[test]
+fn a_local_route_earns_no_gate_seat() {
+    // Ruling 3, as law: local is STRUCTURAL — it is a fact about where
+    // an endpoint runs, not a track record — so it confers nothing on
+    // the judging axis. The gate refusal reads `trust_tier` and nothing
+    // else, and a model on the operator's own hardware may be the most
+    // private worker in the fleet and remain the least qualified to be
+    // the check.
+    let fixture = Fixture::new();
+    fixture.write_adapter(many_routes());
+    let refusal = fixture.refusal(routed_seat("nearby/small-1", Some("gate"), None));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(
+        refusal.contains("does not hold the trusted tier"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("0021 ruling 2"), "{refusal}");
+    // And nothing about egress appears in that refusal: the two axes
+    // never braid, in either direction.
+    assert!(!refusal.contains("egress"), "{refusal}");
+}
+
+#[test]
+fn an_agent_chains_route_resolves_through_the_adapter_that_maps_it() {
+    // An agent site names an ABSTRACT model; the route is the prefix of
+    // the CONCRETE id the adapter maps it to. Every link of the chain is
+    // resolved, for the same reason the tier is: a chain that could fall
+    // back onto an uncontracted route at run time would have cleared the
+    // binding at compile time.
+    let fixture = Fixture::new();
+    let mut local_only = many_routes();
+    local_only["models"] = json!({"near": "nearby/small-1"});
+    fixture.write_adapter(local_only);
+    std::fs::write(
+        fixture.dir.path().join("agents/charters/homely.md"),
+        "# charter\n",
+    )
+    .unwrap();
+    let write_agent = |chain: Value| {
+        std::fs::write(
+            fixture.dir.path().join("agents/homely.json"),
+            serde_json::to_string(&json!({
+                "description": "a fixture agent",
+                "charter": "charters/homely.md",
+                "models": chain,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    };
+    let bound = json!({
+        "results": ["pass", "fail"],
+        "secrets": ["TOKEN"],
+        "agent": "homely",
+    });
+
+    write_agent(json!(["near"]));
+    fixture
+        .compile_under(
+            bound.clone(),
+            Some(json!("local")),
+            &fixture.dir.path().join("adapters"),
+        )
+        .expect("the whole chain sits on the local route");
+
+    // A second link on the adapter's own destination — an UNPREFIXED
+    // id, which is the case that reads the adapter's own class — and the
+    // same seat refuses, naming the link that would have carried the
+    // value out.
+    let mut serving = adapter("elsewhere", Some("untrusted"), Some(true));
+    serving["models"] = json!({"faraway": "large-1"});
+    serving["model_flag"] = json!("--model");
+    fixture.write_adapter(serving);
+    write_agent(json!(["near", "faraway"]));
+    let refusal = fixture
+        .compile_under(
+            bound,
+            Some(json!("local")),
+            &fixture.dir.path().join("adapters"),
+        )
+        .expect_err("a fallback onto a contracted route is a compile-time fact")
+        .to_string();
+    assert!(refusal.contains("driver 'elsewhere'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is contracted"),
+        "{refusal}"
+    );
 }
 
 // ------------------------------------------------- the class itself
@@ -707,7 +1110,10 @@ fn a_seats_bindings_reach_every_site_beneath_it() {
         },
     }));
     assert!(refusal.contains("seat 'work:ungranted'"), "{refusal}");
-    assert!(refusal.contains("holds no binding grant"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
 }
 
 // ------------------------------------------------ agents and their chains
@@ -792,27 +1198,43 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     // rests on this shop's journaled runs (ruling 8's disclosure), the
     // newcomers start symmetric (ruling 7), and `exec` is untrusted but
     // cleared — it is the driver decision 0012 put secret resolution in.
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .join("adapters");
-    let adapters = Adapters::load(&root).expect("the shipped adapters load");
-    for (provider, tier, grant) in [
-        ("claude", TrustTier::Trusted, true),
+    //
+    // Decision 0036 ruling 4's MIGRATION test, and the reason it sits
+    // here rather than in a new file: the clearances are the same five
+    // facts, re-read through the class vocabulary. `binding_grant: true`
+    // reads as `contracted`, and a `false` or absent grant as
+    // `uncontracted`, so every adapter as it stands today resolves to
+    // exactly the clearance it had the day before this decision landed.
+    let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    for (provider, tier, egress) in [
+        ("claude", TrustTier::Trusted, EgressClass::Contracted),
         // 0021 addendum, operator ruled 2026-09-02: trusted for every
-        // seat class; the binding grant stays a separate, unruled bar.
-        ("codex", TrustTier::Trusted, false),
-        ("dsh", TrustTier::Untrusted, false),
-        ("exec", TrustTier::Untrusted, true),
+        // seat class; the clearance to RECEIVE stays a separate bar.
+        ("codex", TrustTier::Trusted, EgressClass::Uncontracted),
+        ("dsh", TrustTier::Untrusted, EgressClass::Uncontracted),
+        ("exec", TrustTier::Untrusted, EgressClass::Contracted),
         // Not named by this slice's scope, and so left undeclared:
         // fail-closed defaults are the correct reading of silence.
-        ("lanetally", TrustTier::Untrusted, false),
+        ("lanetally", TrustTier::Untrusted, EgressClass::Uncontracted),
     ] {
         let adapter = adapters.adapter(provider).expect("a shipped adapter");
         assert_eq!(adapter.trust_tier, tier, "{provider} tier");
-        assert_eq!(adapter.binding_grant, grant, "{provider} grant");
+        assert_eq!(adapter.egress, egress, "{provider} egress");
+        // 0036's ruling assigns NO route to a class, so every model
+        // these adapters map resolves to exactly where it stood the day
+        // before: an unprefixed id to the adapter's own class, and
+        // `dsh`'s prefixed `spark/*` and `dashscope/*` fronts to
+        // uncontracted — which for `dsh` IS its own class, the floor it
+        // has always been held to. The place to say otherwise now
+        // exists; nobody has.
+        assert!(adapter.routes.is_empty(), "{provider} declares no route");
+        for model in adapter.models.values() {
+            assert_eq!(
+                resolve_route(adapter, model).1,
+                egress,
+                "{provider} model '{model}' stays where it stood"
+            );
+        }
     }
     assert!(adapters.adapter("nobody").is_none());
 }
@@ -845,10 +1267,11 @@ fn the_shipped_codex_adapter_may_now_hold_a_gate() {
 #[test]
 fn the_shipped_codex_adapter_still_binds_no_secrets() {
     // The other half of the addendum, and the half that did NOT move:
-    // `binding_grant` stays `false` and stays unruled, so the ruling 4
-    // refusal must still fire for codex on the shipped adapter. A
-    // future edit that grants the tier a second axis by accident trips
-    // here, naming what it took.
+    // codex's clearance to receive stays unruled — `binding_grant:
+    // false`, which decision 0036 ruling 4 reads as `uncontracted` — so
+    // the ruling 4 refusal must still fire for codex on the shipped
+    // adapter. A future edit that grants the tier a second axis by
+    // accident trips here, naming what it took.
     let fixture = Fixture::new();
     let refusal = match fixture.compile_against(
         seat("codex", None, Some(json!(["GH_TOKEN"]))),
@@ -859,7 +1282,10 @@ fn the_shipped_codex_adapter_still_binds_no_secrets() {
     };
     assert!(refusal.contains("seat 'work'"), "{refusal}");
     assert!(refusal.contains("driver 'codex'"), "{refusal}");
-    assert!(refusal.contains("holds no binding grant"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
     assert!(refusal.contains("0021 ruling 4"), "{refusal}");
 }
 

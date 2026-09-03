@@ -10,8 +10,8 @@ pub mod keep_refs;
 pub mod realms;
 
 pub use agents::{
-    report as report_agent, resolve as resolve_agent, Adapters, Availability, Candidate, Library,
-    LibraryError, Presence, ResolveError, TrustTier,
+    report as report_agent, resolve as resolve_agent, resolve_route, Adapters, Availability,
+    Candidate, EgressClass, Library, LibraryError, Presence, ResolveError, TrustTier,
 };
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
 pub use bundle::compose::Ancestor;
