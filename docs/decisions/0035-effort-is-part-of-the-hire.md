@@ -95,9 +95,10 @@ ruling 3 is not a nicety beside ruling 4 but the check that makes ruling
 Three alternatives were weighed and rejected. Filling `effort` from the
 pin repeats exactly the move decision 0031 refused for the model:
 internally tidy, evidentially false, and silent when a thread changes
-effort mid-run. Waiting for codex to put effort on the `--json` stream
-leaves the fact unrecorded for as long as that takes, and the journal is
-append-only — the window cannot be repaired afterwards. Amending v1 in
+effort mid-run. Waiting for the harnesses to put effort on the streams
+their adapters fold leaves the fact unrecorded for as long as that
+takes, and the journal is append-only — the window cannot be repaired
+afterwards. Amending v1 in
 place is not available at all: contracts are frozen by construction,
 which is why ruling 6 adds a file rather than a field.
 
@@ -191,7 +192,7 @@ reasoning — that is core to our ledger and modus operandi."
 A reader of any seat record can tell who worked: the model, the effort
 it worked at, the reasoning it spent, and what that cost. The wager
 becomes a comparison between stated hires rather than between names
-that may hide a tenfold difference in effort.
+that say nothing about the effort behind them.
 
 Bundle and recipe digests move where effort pins are added, and
 descendants whose base changed move with them. Frozen evaluator
