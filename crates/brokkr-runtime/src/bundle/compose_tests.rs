@@ -922,7 +922,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "d990d7d92b68d2fead9d8da567eda84b76378d4c14bc9a742b76422f18d1bef5",
+        "9650a965b0aa33106c9a916698eb8c22f4d67031c2710acbb4d7ff753757f323",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \

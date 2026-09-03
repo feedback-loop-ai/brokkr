@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use brokkr_runtime::Bundle;
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -128,15 +129,14 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         let efforts = agent["efforts"].as_object().unwrap();
         let first = models[0].as_str().unwrap();
         let first_rank = rank(efforts[first].as_str().unwrap());
+        // Triage is not seated by a shipped recipe in this slice and its
+        // ruling-6 office is explicitly pinned fable/xhigh then opus/max
+        // by the commission.
+        if entry.file_name() == "triage.json" {
+            continue;
+        }
         for later in &models[1..] {
             let later = later.as_str().unwrap();
-            // Triage is not seated by a shipped recipe in this slice and
-            // its ruling-6 office is explicitly pinned fable/xhigh then
-            // opus/max by the commission. The shipped chains below it obey
-            // ruling 2's non-rising fallback invariant.
-            if entry.file_name() == "triage.json" {
-                continue;
-            }
             assert!(
                 first_rank >= rank(efforts[later].as_str().unwrap()),
                 "{} hires {first} below fallback {later}",
@@ -159,6 +159,12 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
             let Some(panel) = value.get("panel").and_then(Value::as_object) else {
                 return;
             };
+            assert!(
+                panel.len() >= 2,
+                "panel {} in {} has fewer than two members",
+                path.join("."),
+                bundle_path.display()
+            );
             let mut families: BTreeSet<String> = BTreeSet::new();
             for member in panel.values() {
                 if let Some(agent) = member.get("agent").and_then(Value::as_str) {
@@ -187,6 +193,13 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
                     }
                 }
             }
+            // The accepted table deliberately gives both sdd-paranoid
+            // members the reviewer row (fable → opus → sol), while ruling
+            // 7's per-site `select` does not exist yet. In this slice a
+            // panel therefore seats the full fallback chains, not distinct
+            // selected heads; this test requires two members and at least
+            // two abstract families across those seated chains. Ruling 7
+            // will make distinct head selection expressible.
             assert!(
                 families.len() >= 2,
                 "panel {} in {} seats fewer than two model families",
@@ -194,5 +207,22 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
                 bundle_path.display()
             );
         });
+    }
+}
+
+#[test]
+fn night_shift_keeps_one_attempt_on_every_roster_gate() {
+    let root = workspace();
+    let bundle = Bundle::compile_with(
+        &root.join("recipes/night-shift"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .expect("night-shift compiles");
+    for gate in ["verify", "review", "ship"] {
+        assert_eq!(
+            bundle.seats[gate].limits.max_attempts, 1,
+            "night-shift's {gate} gate must park after its first failed attempt"
+        );
     }
 }

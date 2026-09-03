@@ -44,6 +44,10 @@
     "verify": {
       "agent": "verifier",
       "class": "gate",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 3600
+      },
       "results": [
         "pass",
         "fail"
@@ -52,6 +56,10 @@
     "review": {
       "agent": "reviewer",
       "class": "gate",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 3600
+      },
       "results": [
         "clean",
         "residual",
@@ -61,6 +69,10 @@
     "ship": {
       "agent": "shipper",
       "class": "gate",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 1800
+      },
       "results": [
         "ready",
         "shipped"

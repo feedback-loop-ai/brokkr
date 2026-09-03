@@ -7,9 +7,9 @@ work that makes up most days.
 | Phase | Agent | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `intake` | `intake` | 2 | 1800 | work |
-| `implement` | `implementer` | 2 | 3600 | work |
-| `verify` | `verifier` | 2 | 1800 | gate |
-| `review` | `reviewer` | 2 | 1800 | gate |
+| `implement` | `implementer` | 2 | 5400 | work |
+| `verify` | `verifier` | 2 | 3600 | gate |
+| `review` | `reviewer` | 2 | 3600 | gate |
 | `ship` | `shipper` | 2 | 1800 | gate |
 
 ## When to use it
@@ -35,10 +35,6 @@ no cost figure here that any evidence supports, and one will not be
 invented. What can be stated as fact is the *structure* the cost
 follows:
 
-- Timeouts are cut roughly in half against `fast` (`implement` 3600 vs
-  5400; every other seat 1800 vs 3600/1800). A timeout is a bound, not a
-  spend: cutting it does not make a run cheaper, it makes a runaway seat
-  stop sooner.
 - The intake phase is an added seat, so ember runs *one more* session
   than `fast` does. It buys a framing the implementer would otherwise
   re-derive, which is a bet, not a certainty.
@@ -67,7 +63,7 @@ turned into a procedure.
 ## How the roster is seated
 
 Every phase names the agent shown in the table above. The library owns each
-office's charter, fallback chain, effort, tools, and limits; this recipe owns
+office's charter, fallback chain, effort, tools, and default limits; this recipe owns
 only its phase shape and result vocabularies.
 
 ## Composition mechanics
@@ -87,7 +83,7 @@ scalars the base already sets, so replacing them requires saying so:
 Without the `table` marker, compilation refuses the bundle naming the
 collision (decision 0017). All four of `fast`'s seats are listed under
 `override.seats` because all four are redefined — each one seats a roster
-agent and re-cuts its limits.
+agent.
 
 ## Running it
 

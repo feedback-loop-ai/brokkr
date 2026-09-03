@@ -12,9 +12,9 @@ wrong is expensive.
 | Phase | Agent | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `implement` | `implementer-engine` | 2 | 7200 | work |
-| `verify` | `verifier` | 2 | 7200 | gate |
-| `review` → `positions.correctness` | `review-correctness` | 2 (seat) | 7200 (seat) | work |
-| `review` → `positions.security` | `review-security` | ″ | ″ | work |
+| `verify` | `verifier` | 2 | 3600 | gate |
+| `review` → `positions.correctness` | `review-correctness` | 2 (seat) | 7200 (seat) | gate |
+| `review` → `positions.security` | `review-security` | ″ | ″ | gate |
 | `review` → `chief` | `review-chief` | ″ | ″ | **gate** |
 | `ship` | `shipper` | 2 | 1800 | gate |
 
@@ -30,8 +30,8 @@ the protected phase. Crucible is the first recipe in this library to put
   "results": ["clean", "residual", "security-hold"],
   "sequence": [
     { "name": "positions", "aggregate": "review-panel",
-      "panel": { "correctness": {"class": "work", "…": "…"},
-                 "security":    {"class": "work", "…": "…"} } },
+      "panel": { "correctness": {"agent": "review-correctness", "class": "gate"},
+                 "security":    {"agent": "review-security", "class": "gate"} } },
     { "name": "chief", "agent": "review-chief" }
   ]
 }
@@ -124,7 +124,7 @@ figure here is evidence-backed. The structure, which is fact:
 - The bound on that, worst case: three implement visits, three verify
   passes and three reviews at three sessions each. That is arithmetic
   from the inherited table, not an observation.
-- The timeouts (`implement` and `verify` at 7200s, `review` at 7200s)
+- The timeouts (`implement` at 7200s, `verify` at 3600s, `review` at 7200s)
   are seat data chosen for a cold Rust workspace and an exhaustive
   verifier. `timeout_seconds` is a **per-step** deadline, not one budget
   for the seat: `execute_sequence` hands the seat's deadline to each
@@ -137,41 +137,28 @@ crew. That is a judgement, and it stays the operator's.
 
 ## The one-line swap property
 
-Everything above is one seat object away from something else. Moving
-`positions.security` to a different provider is a one-line change to its
-`driver.command`; adding a third position is one more entry in the
-`panel` object. The `chief` step is the one place where the swap is
-constrained rather than free: it is a **gate**, so decision 0021 refuses
-it at compile time on any driver whose adapter does not declare
-`trust_tier: "trusted"`. Among the shipped adapters only `claude`
-qualifies. The positions are work seats and admit any driver, trusted or
-not (ruling 7) — which is exactly what makes a challenger's position on
-this panel a lawful experiment.
+Everything above is one agent name away from another roster office; adding a
+third position is one more entry in the `panel` object. Every review site is a
+gate, so decision 0021 and decision 0041 require every link it may fall back to
+to be a trusted declared judge.
 
-**That freedom costs something the flat panel shape did not cost, and it
-belongs in the open.** Under
+Under
 [`panel-review`](../panel-review) the members' verdict is
 joined in *code* — `aggregate_results` ranks worst-of — so a member's
 prose can never argue the seat's result down. Here the join is a model:
 the aggregate copies each position's `notes` verbatim into
 `context.prior_results.positions`, and the chief, who reads it, is the
-gate whose result rules the protected phase. Seating an untrusted driver
-on a position therefore puts that driver's free text into the gate's
-prompt. Decision 0021's refusal is about *whose result is the verdict*,
-and it holds exactly; it says nothing about whose prose is in the
-context. The rest is answered as charter —
+gate whose result rules the protected phase. The chief therefore treats panel
+notes as data and never instructions. The rest is answered as charter —
 [`agents/charters/review-chief.md`](../../agents/charters/review-chief.md) rules that panel notes
 are data and never instructions, and
 `crates/brokkr-runtime/tests/crucible_review_sequence.rs` pins that
-instruction against deletion. That is prose defending against prose,
-which is weaker than a compile-time refusal. Weigh it before you seat a
-challenger here; the shipped bundle seats both positions on trusted
-`claude` drivers.
+instruction against deletion.
 
 ## How the roster is seated
 
 Every model-backed site names the agent shown in the table above. The agent
-library owns its charter, fallback chain, effort, tools, and limits; the recipe
+library owns its charter, fallback chain, effort, tools, and default limits; the recipe
 owns the review sequence and its result vocabulary.
 
 ## Running it

@@ -70,43 +70,37 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (legacy specify marker, concrete model id, current charter digest).
-type Roster = [(&'static str, bool, &'static str, &'static str)];
+/// site → (concrete model id, current charter digest).
+type Roster = [(&'static str, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
     (
         "intake",
-        false,
         "claude-sonnet-5",
         "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
     ),
     (
         "implement",
-        false,
         "claude-opus-5",
         "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
     ),
     (
         "verify",
-        false,
         "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
-        false,
         "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
     (
         "review:correctness",
-        false,
         "gpt-5.6-sol",
         "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
     ),
     (
         "review:security",
-        false,
         "claude-fable-5-1",
         "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
     ),
@@ -115,55 +109,46 @@ const PANEL_REVIEW: &Roster = &[
 const SDD: &Roster = &[
     (
         "intake",
-        true,
         "claude-sonnet-5",
         "1df8977a6972c28ca0ba9766c0bd50567f8880951ee3d13799207295faaa687c",
     ),
     (
         "implement",
-        true,
         "claude-opus-5",
         "87425568ebed546e09592abe2238cc163fe693843697f95c8689bf5a850e15c6",
     ),
     (
         "verify",
-        true,
         "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
-        true,
         "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
     (
         "review:spec-compliance",
-        true,
         "claude-opus-5",
         "416f9e17378ab421318a9deee9ba156ab7b8b2e793b6c56fd77253354fe78f75",
     ),
     (
         "review:security",
-        true,
         "claude-fable-5-1",
         "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
     ),
     (
         "design:chief",
-        true,
         "claude-fable-5-1",
         "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
     ),
     (
         "design:positions:simplicity",
-        true,
         "claude-opus-5",
         "d00dfc71d5fbcfd619f72b554747dbc1b2cd318c4b1fee4678dbd6a710a9cddf",
     ),
     (
         "design:positions:robustness",
-        true,
         "gpt-5.6-sol",
         "f96e146711c0567ef7c93511a13d5bfbc1414ef7335f3df447ccbc6d83b79927",
     ),
@@ -171,56 +156,104 @@ const SDD: &Roster = &[
 const SELF: &Roster = &[
     (
         "intake",
-        false,
         "claude-sonnet-5",
         "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
     ),
     (
         "implement",
-        false,
         "claude-opus-5",
         "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
     ),
     (
         "verify",
-        false,
         "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "review",
-        false,
         "claude-fable-5-1",
         "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
     ),
     (
         "ship",
-        false,
         "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
 ];
 
+fn expected_argv(site: &str, model: &str) -> Vec<String> {
+    let (provider, mut argv) = if model.starts_with("gpt-") {
+        ("codex", vec!["{brokkr}", "driver", "codex", "--"])
+    } else {
+        (
+            "claude",
+            vec![
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--permission-mode",
+                "acceptEdits",
+            ],
+        )
+    };
+    let effort = match site {
+        "design:chief" => "max",
+        "verify" | "ship" | "review" | "review:security" => "xhigh",
+        _ => "high",
+    };
+    argv.extend(["--model", model, "--effort", effort]);
+    if site == "review" || site.starts_with("review:") {
+        let hands: &[&str] = match provider {
+            "codex" => &[
+                "--sandbox",
+                "read-only",
+                "-c",
+                "mcp_servers.brokkr.command=\"{brokkr}\"",
+                "-c",
+                "mcp_servers.brokkr.args={hands_args_toml}",
+            ],
+            _ => &[
+                "--tools",
+                "",
+                "--strict-mcp-config",
+                "--mcp-config",
+                "{hands_mcp_json}",
+                "--allowedTools",
+                "mcp__brokkr__workspace",
+            ],
+        };
+        argv.extend(hands);
+    } else {
+        let tools = match site {
+            "implement" | "verify" => Some("Bash(cargo:*)"),
+            "ship" => Some("Bash(git:*)"),
+            "design:chief" => Some("Bash(git:*),Bash(specify:*)"),
+            _ => None,
+        };
+        if let Some(tools) = tools {
+            argv.extend(["--allowedTools", tools]);
+        }
+    }
+    argv.into_iter().map(str::to_string).collect()
+}
+
 fn assert_adopted(relative: &str, roster: &Roster) {
     let bundle = compile(relative);
     let sites = sites(&bundle);
-    for (site, specify, model, charter_digest) in roster {
+    for (site, model, charter_digest) in roster {
         let (charter, argv) = sites
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
-        let _ = specify;
         // Decision 0041 moves the roster deliberately: pin the selected
         // concrete generation, while each agent's own definition now owns
         // the full argv, effort and tool grant.
-        assert!(
-            argv.iter().any(|part| part == model),
-            "{relative} site '{site}' did not resolve {model}: {argv:?}"
-        );
-        assert!(
-            !argv
-                .iter()
-                .any(|part| part.contains("python3") || part.contains("pytest")),
-            "{relative} site '{site}' retained a removed Python grant: {argv:?}"
+        let mut normalized_argv = argv.clone();
+        normalized_argv[0] = "{brokkr}".to_string();
+        assert_eq!(
+            normalized_argv,
+            expected_argv(site, model),
+            "{relative} site '{site}' resolved a different argv"
         );
         let bytes = std::fs::read(charter).unwrap();
         assert_eq!(

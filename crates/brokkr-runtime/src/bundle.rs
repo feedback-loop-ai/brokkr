@@ -848,12 +848,16 @@ impl Bundle {
                 }
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
-            let limits = match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
-                // An agent's 0006 bounds ARE the seat's bounds: `limits`
-                // is forbidden beside `agent:`, so there is nothing to
-                // reconcile and nothing silently overridden.
-                Some(limits) => limits,
-                None => parse_limits(phase, raw)?,
+            // Decision 0006 bounds belong to the strategy seat, not the
+            // office it hires. A roster entry supplies the default, while
+            // an explicit seat limit (night-shift's one-attempt gates) wins.
+            let limits = if raw.get("limits").is_some() {
+                parse_limits(phase, raw)?
+            } else {
+                match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
+                    Some(limits) => limits,
+                    None => parse_limits(phase, raw)?,
+                }
             };
             // Input provenance (decision 0007): every input the phase's
             // rules reference must be engine-computed or supplied by
@@ -1030,10 +1034,11 @@ enum Site {
 /// it. `results`, `secrets`, `class` and `driver.confine` stay legal
 /// beside it, because they are bindings the SEAT provides rather than
 /// statements about what the agent is, and `brokkr agents show` never
-/// claims to show them. `class` in particular is the seat's authority,
-/// never the agent's: one charter may sit in a work seat here and a gate
-/// seat there, which is why decision 0021 ruling 1 puts the division in
-/// bundle data.
+/// claims to show them. `limits` is likewise a strategy bound on the
+/// invocation, not part of the office. `class` in particular is the
+/// seat's authority, never the agent's: one charter may sit in a work
+/// seat here and a gate seat there, which is why decision 0021 ruling 1
+/// puts the division in bundle data.
 fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
     let refuse = |key: &str| {
         Err(CompileError::Invalid(format!(
@@ -1042,7 +1047,7 @@ fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
              amend it would make `brokkr agents show` a lie for that seat"
         )))
     };
-    for key in ["role", "limits", "inputs", "hands"] {
+    for key in ["role", "inputs", "hands"] {
         if raw.get(key).is_some() {
             return refuse(key);
         }
@@ -1433,12 +1438,15 @@ fn enforce_model_policy(
         // `judges` authorises the particular abstract hire. Both must
         // hold on every fallback link. A missing declaration is the
         // empty set, just like an absent tier is untrusted.
-        if class == SeatClass::Gate && !boxed_exec && !matches!(pin, ModelPin::Absent) {
+        if class == SeatClass::Gate && !boxed_exec {
             let admitted = adapter
                 .zip(abstract_model.as_deref())
                 .is_some_and(|(adapter, model)| adapter.judges.iter().any(|judge| judge == model));
             if !admitted {
-                let model = abstract_model.as_deref().unwrap_or("<unmapped>");
+                let model = abstract_model.as_deref().unwrap_or(match pin {
+                    ModelPin::Absent => "<unpinned>",
+                    _ => "<unmapped>",
+                });
                 return Err(CompileError::Invalid(format!(
                     "seat '{what}' gate link {link} names model '{model}', which {named} does not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
                 )));

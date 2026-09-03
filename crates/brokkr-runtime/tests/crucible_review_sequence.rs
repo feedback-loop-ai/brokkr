@@ -194,9 +194,9 @@ fn the_chief_charter_covers_a_panel_result_outside_the_vocabulary() {
 /// The other half of what the sequence shape costs, and the half no
 /// compile-time refusal reaches. `aggregate_results` copies each
 /// position's `notes` VERBATIM into the object handed to the chief as
-/// `context.prior_results.positions`, and the positions are work-class
-/// seats — decision 0021 ruling 7 admits an untrusted driver on them.
-/// So a position's free text becomes input to the prompt of the gate
+/// `context.prior_results.positions`. The positions are gates now, but
+/// a trusted judge's prose is still input rather than authority. So a
+/// position's free text becomes input to the prompt of the gate
 /// that rules the PROTECTED phase, which the flat panel of
 /// `recipes/panel-review` never allowed: there the verdict is joined in
 /// code, and no member's prose can argue it down.
@@ -222,22 +222,16 @@ fn the_chief_charter_rules_the_panel_s_prose_data_and_never_instruction() {
     }
 }
 
-/// The same hazard, disclosed where an author choosing a driver for a
-/// position will actually be reading. `README.md` recommends seating a
-/// challenger here, so it is the file that owes the caveat; the
-/// authoring guide owes it to the next author putting ANY sequence on a
-/// gate, which is the general case.
+/// The same hazard, disclosed where an author choosing a roster office for a
+/// position will actually be reading. The authoring guide owes it to the next
+/// author putting any sequence on a gate, which is the general case.
 #[test]
-fn the_untrusted_prose_path_is_disclosed_where_a_driver_is_chosen() {
+fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
     let root = workspace();
     let readme = std::fs::read_to_string(root.join("recipes/crucible/README.md"))
         .expect("the recipe ships a README");
     let readme = readme.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        readme.contains("puts that driver's free text into the gate's prompt"),
-        "crucible's README recommends a challenger position without \
-         naming what a position's prose reaches"
-    );
+    assert!(readme.contains("treats panel notes as data and never instructions"));
 
     let guide = std::fs::read_to_string(root.join("docs/guides/recipe-authoring.md"))
         .expect("the authoring guide ships");

@@ -2,21 +2,20 @@
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
 //!
-//! `recipes/fast`, `recipes/node`, `recipes/preflight` and
-//! `bundles/verify` adopt no agent, and neither do the four roster
-//! recipes that later joined them (`ember`, `crucible`, `night-shift`,
-//! `wager-harness`, all composed from `fast`'s inline seats). Their
-//! pinned manifest digest must not move, and their manifest must carry
-//! no `agents` key at all —
-//! absence, not an empty object, is what keeps a non-adopting bundle's
-//! identity exactly what it was.
+//! `recipes/fast`, `recipes/node`, `recipes/preflight`,
+//! `recipes/wager-harness` and `bundles/verify` adopt no agent. The
+//! other roster recipes (`ember`, `crucible`, and `night-shift`) now
+//! seat library agents under decision 0041. Every pinned manifest must
+//! move only when its recorded strategy or dependencies move; an inline
+//! recipe must continue to carry no `agents` key at all.
 //!
-//! Adopting no agent is not the same as answering to nobody. Both seat
-//! INLINE gates, and since decision 0021 a gate stands on an adapter's
-//! declared tier — so both now carry a `drivers` key naming the adapter
-//! digest that authorised each judging seat. That key is the witness the
-//! refusals were missing: without it a demoted tier would change what
-//! the compiler allows while leaving the bundle's identity untouched.
+//! Adopting no agent is not the same as answering to nobody. The inline
+//! recipes seat gates, and since decision 0021 a gate stands on an
+//! adapter's declared tier — so they carry a `drivers` key naming the
+//! adapter digest that authorised each judging seat. That key is the
+//! witness the refusals were missing: without it a demoted tier would
+//! change what the compiler allows while leaving the bundle's identity
+//! untouched.
 
 use std::path::PathBuf;
 
@@ -109,15 +108,15 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/ember",
-        "894e6e72e763c8e1e872cbc3433a86e0f7bfb1a564db515412e19410566a1a69",
+        "081beba86ec9fc794c0c817fe914c29b312fe44777377460a55c2b6ed7a8c168",
     ),
     (
         "recipes/crucible",
-        "17dfdff6f4404351f5d007a1f9f8611b20bb0438f009552f9183b1611e99ddac",
+        "4e3bcd9c357f9fa395fd58aff2d31889057ce751b1389aeeb56028a87ab1f75b",
     ),
     (
         "recipes/night-shift",
-        "cefe6b617107daeafb74b87a731c25d94966fbeb6e16df8ade2e5245d2410337",
+        "4ca8ebf33ddedcd6a5e212abd9c7e899667fc82deb8d4659bb1ce9228831f13d",
     ),
     (
         "recipes/wager-harness",
@@ -135,13 +134,9 @@ const WITNESSES: [(&str, &str); 8] = [
 /// phase to gate — and no working seat at all, so in those two every
 /// seat appears here.
 ///
-/// `recipes/crucible` is the one that reads differently, and on purpose:
-/// its review seat is a sequence whose panel of `positions` WORKS and
-/// whose `chief` step JUDGES, so the witness names `review:chief` and
-/// not `review`. If that entry ever reads plain `review`, the chief
-/// stopped being the seat's gate — and the two positions, which are
-/// work-class and admit any driver under decision 0021 ruling 7, would
-/// be ruling the protected phase between them.
+/// Library-backed gates carry their adapter witnesses through the agent
+/// resolution record instead, so they do not belong in this inline-only
+/// list. In particular, all of Crucible's review offices are gates now.
 const INLINE_GATES: [(&str, &[&str]); 4] = [
     ("recipes/fast", &["review", "ship", "verify"]),
     ("recipes/node", &["review", "ship", "verify"]),
@@ -154,8 +149,8 @@ fn pinned_bundles_keep_their_recorded_digest() {
     let root = workspace();
     for (relative, digest) in WITNESSES {
         // Explicit roots, as in the compile below: since decision 0021 a
-        // compile reads the adapter data even for these two, which adopt
-        // no agent — a gate seat's trust tier is declared there.
+        // compile reads adapter data for inline gates too, even though
+        // they adopt no agent — a gate seat's trust tier is declared there.
         let bundle = Bundle::compile_with(
             &root.join(relative),
             &root.join("agents"),

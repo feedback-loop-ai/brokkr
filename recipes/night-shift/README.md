@@ -120,7 +120,8 @@ this seat will need.
 
 The dsh implement lane remains inline by the lane exception. The three gates
 name `verifier`, `reviewer`, and `shipper`; their charters, fallback chains,
-effort, tools, and limits come from the agent library.
+effort, tools, and default limits come from the agent library. This strategy
+narrows each gate's attempt bound to one.
 
 ## Running it
 

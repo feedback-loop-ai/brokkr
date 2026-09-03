@@ -55,10 +55,10 @@ verify	162fef593349	4 phases	review, verify			./bundles/verify
 | [`sdd`](../../recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
 | [`sdd-paranoid`](../../recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
 
-Seven of the entries above carry pinned manifest digests in
+Eight of the entries above carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
-four roster recipes, and `bundles/verify`; the rest are covered by the
-tree-wide compile test but not pinned. The `low` through `very high`
+four roster recipes, `preflight`, and `bundles/verify`; the rest are
+covered by the tree-wide compile test but not pinned. The `low` through `very high`
 bands printed by the library are relative strategy labels for the
 sixty-second contributor choice, never price quotes. Dollar figures
 remain absent unless a run backs them — economics is LaneTally's ledger,
