@@ -345,7 +345,11 @@ enum ModelPin {
     Concrete(String),
     /// The flag is present and this compiler cannot read it as one
     /// concrete value: flag-shaped, empty, over-long, outside the id
-    /// alphabet, dangling at the end of the argv, or pinned twice.
+    /// alphabet, dangling at the end of the argv, pinned twice, or
+    /// written in a spelling this walker does not read — a word that
+    /// begins with the flag and is neither the flag alone nor
+    /// `flag=value`, which is how a short flag's value is usually
+    /// attached (`-mmodel`).
     Unreadable,
 }
 
@@ -370,11 +374,31 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
                 Some(value) if pin.replace(value).is_none() => {}
                 _ => return ModelPin::Unreadable,
             }
-        }
-        if let Some(value) = part.strip_prefix(&attached) {
+        } else if let Some(value) = part.strip_prefix(&attached) {
             if !concrete(value) || pin.replace(value).is_some() {
                 return ModelPin::Unreadable;
             }
+        } else if part.starts_with(flag) {
+            // A word carrying the flag in a spelling this walker does
+            // not read. The two it reads are `FLAG VALUE` and
+            // `FLAG=VALUE`; a SHORT flag's value is conventionally
+            // attached to it bare (`-mmodel`), which is neither. Read
+            // as `Absent` — the old answer — such an argv is a site
+            // that named a destination being told it named none, and
+            // ruling 2 then hands it the adapter's own class: the
+            // fail-open the route resolver's flag fix closed for the
+            // key, reopened for the spelling.
+            //
+            // Unreadable, not Concrete: this does NOT rule that the
+            // attached form pins the word behind it. Which spellings a
+            // declared flag legally covers is grammar, it is a
+            // separate ruling, and guessing it here would invent pins
+            // out of unrelated words (`-march=native` under `-m`).
+            // Refusing to read is the answer the compiler can honestly
+            // give, and it is the fail-closed one: it costs a
+            // secret-binding seat a refusal naming the flag, and both
+            // legible spellings stay open beside it.
+            return ModelPin::Unreadable;
         }
     }
     match pin {
@@ -1269,7 +1293,11 @@ fn enforce_model_policy(
         //   above is read on that adapter's OWN declared `model_flag`:
         //   the flag the provider is actually told is the flag this
         //   reads, so an adapter taking `-m` has no second door to walk
-        //   an unruled route through.
+        //   an unruled route through. Nor a third by spelling it
+        //   differently — a word carrying that flag in a form the
+        //   walker does not read arrives here as `Unreadable` and is
+        //   refused, rather than as the silence of an argv that never
+        //   named a destination at all.
         let (reached, egress) = match (adapter, &pin) {
             (Some(adapter), ModelPin::Concrete(model)) => {
                 destination(resolve_route(adapter, model))

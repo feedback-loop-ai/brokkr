@@ -867,6 +867,138 @@ fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
 }
 
 #[test]
+fn a_value_written_onto_the_flag_itself_is_unread_and_never_unpinned() {
+    // The same door as the test above, one spelling narrower, and the
+    // residual its reviewer proved. This walker reads two spellings:
+    // `FLAG VALUE` and `FLAG=VALUE`. For a SHORT flag the standard
+    // getopt form is neither — `-melsewhere/large-1` attaches the value
+    // to the flag with nothing between. The read found no flag, called
+    // the site unpinned, and an unpinned site takes its adapter's own
+    // class: the identical fail-open, in the identical function, for
+    // the identical population (an adapter the operator ADDS), reached
+    // by a spelling rather than by a key.
+    //
+    // What is ruled here is the FAIL-OPEN, not the grammar. This
+    // compiler does not decide that `-melsewhere/large-1` PINS
+    // `elsewhere/large-1` — which spellings a declared flag legally
+    // covers is the flag/route-prefix grammar question, and that waits
+    // for its own ruling. It decides only that the two silences stay
+    // apart, as `ModelPin`'s own doc says they must: an argv that never
+    // wrote the flag is `Absent` and rides the adapter's word, while an
+    // argv carrying the flag in a spelling this compiler cannot read is
+    // `Unreadable` and falls to the floor with every route nobody
+    // named. A seat binding a secret does not get the benefit of a
+    // doubt the machine genuinely has.
+    let fixture = Fixture::new();
+    let mut takes_dash_m = many_routes();
+    takes_dash_m["egress"] = json!("contracted");
+    takes_dash_m["model_flag"] = json!("-m");
+    fixture.write_adapter(takes_dash_m);
+
+    // The probe: the attached spelling, naming a route nobody ruled on,
+    // under a seat that binds a secret. Refused as illegible, NOT as
+    // route 'elsewhere' — the refusal says what is true, which is that
+    // no route can be read off this argv at all.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-melsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(
+        refusal.contains("on a destination it does not name"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // Refusing to guess cuts both ways, which is how you tell a fix
+    // from a grammar. The same spelling over a route this adapter
+    // declares LOCAL is refused too: the compiler is not reading the
+    // word, so the word earns nothing. A reading that let this one
+    // through would be the grammar ruling, taken quietly.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-mnearby/small-1",
+        "true"
+    ])));
+    assert!(
+        refusal.contains("on a destination it does not name"),
+        "{refusal}"
+    );
+
+    // The cost, stated rather than hidden: any word beginning with the
+    // declared flag is illegible on the same terms, including one meant
+    // for something else entirely. It costs a secret-binding seat a
+    // refusal that names the flag it tripped on, and the legible
+    // spellings below are always available. Fail-closed is the whole
+    // point of the axis.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-march=native",
+        "true"
+    ])));
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+
+    // The two spellings this compiler does read are untouched, on both
+    // sides of the bar: the declared local route still clears it, and
+    // the route nobody named is still refused BY NAME, because there it
+    // genuinely read one.
+    for command in [
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m",
+            "nearby/small-1",
+            "true"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m=nearby/small-1",
+            "true"
+        ]),
+    ] {
+        fixture
+            .compile(unpinned_seat(command.clone()))
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m=elsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+
+    // And an argv that never writes the flag at all is still the other
+    // silence: unpinned, riding the adapter's own contracted word.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}", "driver", "many", "--", "true"
+        ])))
+        .expect("an argv naming no model rides its adapter's own destination");
+}
+
+#[test]
 fn an_adapter_that_cannot_be_told_a_model_rides_its_own_class_and_no_better() {
     // `model_flag: "unsupported"` is a measured fact about a CLI: there
     // is no flag to carry a pin, so no argv on it can name a route.
