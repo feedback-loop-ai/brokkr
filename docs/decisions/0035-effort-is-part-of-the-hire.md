@@ -1,4 +1,4 @@
-# 0035 — Effort is part of the hire: every model pin carries one, and the record reports it
+# 0035 — Effort is part of the hire: every model pin carries one, and the record carries it
 
 Status: proposed
 Date: 2026-09-03
@@ -38,7 +38,7 @@ than assumed:
 |---|---|---|---|
 | input | `input_tokens` | `input_tokens` | `inputTokens` |
 | output | `output_tokens` | `output_tokens` | `outputTokens` |
-| cache read | `cached_input_tokens` | `cache_read_input_tokens` | **dropped** |
+| cache read | `cached_input_tokens` | `cache_read_input_tokens` | `cacheReadTokens` |
 | cache write | `cache_write_input_tokens`, **dropped by the fold** | `cache_creation_input_tokens` | **dropped** |
 | reasoning | `reasoning_output_tokens`, per turn | `output_tokens_details.thinking_tokens`, **result only** | **dropped** |
 | cost | none | `total_cost_usd` | none |
@@ -61,8 +61,9 @@ to `deepseek-v4-flash` returns `completion_tokens_details.reasoning_tokens`,
 `prompt_tokens_details.cached_tokens`, and DeepSeek's own
 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`; `qwen3.8-flash`
 through Model Studio returns reasoning and cached counts too. The dsh
-session record this seat wrote keeps `inputTokens` and `outputTokens`
-and discards the rest before brokkr can see any of it.
+session record this seat wrote keeps `inputTokens`, `outputTokens` and
+`cacheReadTokens`, and discards the rest before brokkr can see any of
+it.
 
 That narrowing is the profile's, not the harness's, and the distinction
 decides who fixes it. Dsh is plugin-based: a profile is an ordered stack
@@ -113,12 +114,12 @@ reasoning — that is core to our ledger and modus operandi."
 ## Rulings
 
 1. **Explicit over implicit is the ledger's rule, stated once.**
-   Brokkr pins what it depends on and records what it was served:
-   release versions and their digests, bundle and recipe digests, the
-   concrete model, and — by this decision — the effort and the
-   reasoning the model spent. A fact that decides an outcome or a price
-   is named in the plan and reported in the evidence. Nothing that
-   moves a bill is left to a default.
+   Brokkr pins what it depends on and records what came back: release
+   versions and their digests, bundle and recipe digests, the concrete
+   model, and — by this decision — the effort and the reasoning the
+   model spent. A fact that decides an outcome or a price is named in
+   the plan and carried in the record, whether the record holds it as
+   claim or as meter. Nothing that moves a bill is left to a default.
 
    **Enforcement binding:** this decision is the general rule the
    specific bindings below implement; it supersedes nothing and is
