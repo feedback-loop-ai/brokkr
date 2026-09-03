@@ -50,6 +50,7 @@ initialised in another and a change created, inspected and validated.
 | validator | `check-prerequisites.sh` checks the directory, `plan.md`, `tasks.md` and the branch name exist; `specify check` probes tools; content consistency is a skill, `/speckit-analyze` | `openspec validate <id> --strict`, JSON on request, `--archived` for a completed change's tasks |
 | close-out | none; the directory is the record | `openspec archive <id> --yes` folds the deltas into the truth; `--skip-specs` for a change without spec deltas |
 | workflow runner | `specify workflow run` drives a harness through specify, plan, tasks, implement with approve-or-reject gates | slash skills, `/opsx:*` |
+| what a script can count | `[NEEDS CLARIFICATION: …]` markers in the spec; `check-prerequisites.sh` knows which files exist | `validate --strict` names the requirement that lacks a scenario; `show --json --deltas-only` parses every delta into capability, operation, requirement text and scenarios; `status --change --json` reports each artifact's completion; the proposal template's Capabilities section is, in the tool's own words, the contract with the specs phase; the design template has a Decisions section and no open-questions section; the tasks template is numbered groups with no requirement references |
 | clarify and analyze | both, as skills: `speckit-clarify` scans a taxonomy, asks at most five questions a session and encodes the answers into the spec; `speckit-analyze` is strictly read-only, treats the constitution as non-negotiable, reports six dimensions with four severities | neither. `explore` is a thinking partner for a human before proposing; `update` is an author revising a change's artifacts to keep them coherent; `validate --strict` is structural — at least one delta, delta headers, a scenario per requirement. No read-only judge, no zero exit, no constitution |
 
 **The frameworks are machines.** The operator's observation the same
@@ -75,7 +76,13 @@ clarify skill scans a taxonomy, asks at most five questions a session
 and encodes the answers into the spec; its analyze skill is strictly
 read-only, treats the constitution as non-negotiable, and reports six
 dimensions with four severities. Ruling 2 makes both generic states of
-the machine.
+the machine. The operator then asked whether that is generic at all,
+and what the design would do for OpenSpec, which ships neither skill.
+The honest answer: the offices, the zero exit and the bound are
+generic; the teeth are the dialect's, and a first draft gave OpenSpec
+none, which decision 0025 ruling 6 forbids where a count is possible.
+OpenSpec, measured, gives a script more to count than spec-kit does,
+and ruling 3 now spends it.
 
 The first draft of this decision flattened all of that into one
 `design` phase whose chief wrote every artifact in a single pass and one
@@ -185,9 +192,24 @@ Alternatives weighed:
    assumed and why. `analyze` seats a read-only judge that reads the
    three artifacts and the realm's house file and reports drift —
    duplication, ambiguity, underspecification, constitution alignment,
-   coverage gaps and inconsistency, the six dimensions spec-kit's skill
-   names, with its severities — and reports `consistent` only at zero
-   findings. Otherwise it reports `drift`, with a declared enumerated
+   coverage gaps and inconsistency: Brokkr's six dimensions, as
+   spec-kit's analyze skill first wrote them down, with its severities
+   — and reports `consistent` only at zero findings. Each loop has a
+   deterministic half and a judged half, in that order: a boxed `check`
+   step counts what the framework's own data lets a script count
+   (ruling 3), and the judge rules only on what no script can. The back
+   edge carries the judge's finding — result, inputs and notes — as
+   `returned_from`, the way decision 0022 hands a review's finding to
+   the returning smith; the forward handoff of ruling 5 stays typed
+   facts only. The returning author answers every item inside the
+   artifact, at the place the dialect names for decisions: an answer
+   becomes the artifact's own text — under OpenSpec a scenario, because
+   an ambiguity there is a missing scenario — and a refusal is recorded
+   with its reason. The next judge, fresh and blind by design, reads
+   the refutation as part of the artifact instead of raising the
+   finding again; a judge that re-raises a recorded refutation without
+   new evidence has made a finding about the record, not the artifact,
+   and says so. Otherwise it reports `drift`, with a declared enumerated
    input `drift_in` naming the earliest artifact at fault, and the
    table returns the run to that phase; a return to `specify` re-runs
    the whole chain. Both loops are bounded by their own visits the way
@@ -232,13 +254,16 @@ Alternatives weighed:
    `specify`, `design` and `tasks`: its `steps`, an ordered list in
    which each step names the artifacts one session writes, the office
    that holds it (`chief`, `council`, `smith`, or `check` for a
-   read-only judge), whether it is optional, and the instructions the
-   seat is rendered; and the phase's `validate` argv or `unsupported`
-   with the reason; for `clarify` and `analyze`, the taxonomy rendered
-   to the judge and a `check` argv — the framework's own deterministic
-   count where it has one, `unsupported` where the judge's list is the
-   count; `order` (the framework's own dependency edges between
-   artifacts); `verify` and `archive` (argv with `{change}`, or
+   read-only judge), whether it is optional, the instructions the seat
+   is rendered, and the instructions it is rendered when a judge
+   returns it; and the phase's `validate` argv or `unsupported` with
+   the reason; for `clarify` and `analyze`, the taxonomy rendered to the
+   judge and a `check` argv — the deterministic half of the loop, the
+   framework's own count where it has one and Brokkr's boxed script
+   over the framework's data where it does not, `unsupported` only
+   where nothing can be counted; `decisions` (where the artifacts record
+   the loops' answers and refutations); `order` (the framework's own
+   dependency edges between artifacts); `verify` and `archive` (argv with `{change}`, or
    `unsupported`); and `house` (the dialect's own constitution path, or
    `unsupported`). Every artifact is assigned to exactly one step of
    exactly one phase, every phase has at least one required step, and
@@ -254,10 +279,13 @@ Alternatives weighed:
    | `change` | `openspec/changes/{change}` | `specs/{change}`, `{change}` being `NNN-slug` |
    | `truth` | `openspec/specs` | `unsupported`: the feature directory is the record |
    | `specify` steps | `propose` — chief: `proposal.md`, then the `specs/<capability>/spec.md` deltas it declares, one session | `specify` — chief: `spec.md`, with the template's `[NEEDS CLARIFICATION: …]` marker wherever the commission leaves a decision open |
-   | `clarify` check | `unsupported`: the judge's list is the count | the marker count over the feature directory must be zero — the framework's own marker, counted deterministically beside the judge's list |
+   | `clarify` check | Brokkr's boxed script over the tool's own data: `openspec validate --strict` (a scenario per requirement, refused by name); the proposal's Capabilities section against the delta files (every named capability has a delta, every delta is named); requirements with a single scenario listed as candidates for the judge, not as findings | the marker count over the feature directory must be zero — the framework's own marker, counted deterministically beside the judge's list |
    | `design` steps | `design` — council: positions, then the chief writes `design.md` | `plan` — council: positions, then the chief writes `plan.md` with the research, data model, contracts and quickstart the template asks for; `checklist`, optional — chief: `checklists/*.md` |
-   | `tasks` steps | `tasks` — smith: `tasks.md` | `tasks` — smith: `tasks.md` |
-   | `analyze` taxonomy | Brokkr's six dimensions; `openspec validate --strict` has already required a scenario per requirement | the `speckit-analyze` skill's six dimensions and its CRITICAL, HIGH, MEDIUM and LOW severities, rendered to the judge; its coverage table maps every requirement to a task |
+   | `tasks` steps | `tasks` — smith: `tasks.md`, every task citing the requirement it serves by name, since the template carries no references | `tasks` — smith: `tasks.md` |
+   | `analyze` check | Brokkr's boxed script: modified, removed and renamed requirements exist in the truth and an added one does not already exist by name (`openspec show --json --deltas-only` against `openspec spec show`); every delta requirement is cited by at least one task; `openspec status --change --json` shows the artifacts complete | `check-prerequisites.sh --require-tasks`; the `speckit-analyze` skill's coverage table, every requirement mapped to a task |
+   | `analyze` taxonomy | Brokkr's six dimensions; the judge rules on near-duplicates, ambiguity inside a requirement's text, terminology drift, design-to-tasks semantics, and alignment with the house file, which stands in for the constitution the framework lacks | the `speckit-analyze` skill's six dimensions and its CRITICAL, HIGH, MEDIUM and LOW severities, rendered to the judge; `.specify/memory/constitution.md` as the constitution |
+   | `decisions` | `design.md`, `## Decisions`, which the template already has; an answered ambiguity becomes a scenario in the delta | `spec.md`, `## Clarifications`, which the clarify skill writes with dated answers |
+   | return instructions | the `openspec-update-change` skill: revise the artifacts and keep them coherent | the clarify skill's encoding rules: a functional ambiguity becomes a requirement, the obsolete statement is replaced, no contradiction is left |
    | after implement | `archive` — the smith's fold (`archive`, below) | none: the directory is the record |
    | `order` | proposal → specs, proposal → design, specs → tasks, design → tasks | spec → plan → tasks |
    | `validate`, per phase | `openspec validate {change} --strict --no-interactive`, and `openspec status --change {change} --json` must show the phase's artifacts complete | `check-prerequisites.sh` for the files it knows, and Brokkr's own check of the template headings, declared as Brokkr's |
@@ -351,9 +379,13 @@ Alternatives weighed:
    the diff to the change's artifacts as the dialect shapes them,
    scenarios or success criteria, and may rule `spec_defect` (0041
    ruling 5c); no gate touches an artifact (0041 ruling 4). Two gate
-   offices join the library for the loops, `clarifier` and `analyst`,
-   hired as judges under 0041's roster — fable-5-1 at xhigh, then opus-5
-   at xhigh — and read-only like every judge. The charters carry none of
+   offices join the library for the loops, read-only like every judge:
+   `analyst`, hired at the frontier — fable-5-1 at xhigh, then opus-5 at
+   xhigh — because a drift it misses goes straight into code; and
+   `clarifier`, one tier cheaper — opus-5 at xhigh, then sol at xhigh —
+   because an ambiguity it misses surfaces at analyze or at implement,
+   where the machine still has a way back. That is 0041's rule applied:
+   spend where the error is invisible downstream. The charters carry none of
    this: the dialect's per-phase instructions do, rendered by the engine
    under `## Spec dialect` into the seat that holds the phase and into
    the review panel.
@@ -403,10 +435,13 @@ Alternatives weighed:
   chief's pass on `specify`, the council on `design`, the smith's pass
   on `tasks`, each with a boxed validate step. Each is smaller than the
   single pass it replaces and each is bounded, journaled and returnable
-  on its own, which is what the extra sessions buy. Each pass of a
-  loop costs a judge session plus the artifact phase it returns to,
-  and the bound caps a loop at three passes; a clean chain costs
-  exactly two judge sessions. Spec-kit's checklist stays optional and
+  on its own, which is what the extra sessions buy. A clean
+  design-class chain is seven sessions before a line of code: the chief
+  on specify, the clarifier, two positions and the chief on design, the
+  smith on tasks, the analyst. Each pass of a loop adds a judge session
+  plus the artifact phase it returns to, and the bound caps a loop at
+  three passes; the deterministic checks cost nothing but a boxed
+  script. Spec-kit's checklist stays optional and
   costs a session only when a recipe asks. The tool must be
   installed on the machine that runs an artifact phase — Node for
   OpenSpec — and `doctor` says so before a run does. A dialect's version
