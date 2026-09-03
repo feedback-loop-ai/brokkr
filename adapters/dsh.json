@@ -2,6 +2,12 @@
   "provider": "dsh",
   "trust_tier": "untrusted",
   "binding_grant": false,
+  "routes": {
+    "spark": "local"
+  },
+  "credentials": {
+    "spark": "SPARK_API_KEY"
+  },
   "binary": "dsh",
   "driver": [
     "{brokkr}",

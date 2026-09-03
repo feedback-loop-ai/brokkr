@@ -1363,8 +1363,11 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     // here rather than in a new file: the clearances are the same five
     // facts, re-read through the class vocabulary. `binding_grant: true`
     // reads as `contracted`, and a `false` or absent grant as
-    // `uncontracted`, so every adapter as it stands today resolves to
-    // exactly the clearance it had the day before this decision landed.
+    // `uncontracted`, so every adapter carried its old clearance across
+    // the enactment unchanged. What has moved since is one operator
+    // RULING, not a migration: `dsh`'s `spark` route is `local` as of
+    // 2026-09-03. The adapter-level clearances below are still the five
+    // the migration pinned — a route class changes no adapter's own.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     for (provider, tier, egress) in [
         ("claude", TrustTier::Trusted, EgressClass::Contracted),
@@ -1380,13 +1383,14 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         let adapter = adapters.adapter(provider).expect("a shipped adapter");
         assert_eq!(adapter.trust_tier, tier, "{provider} tier");
         assert_eq!(adapter.egress, egress, "{provider} egress");
-        // 0036's ruling assigns NO route to a class, so every model
-        // these adapters map resolves to exactly where it stood the day
-        // before: an unprefixed id to the adapter's own class, and
-        // `dsh`'s prefixed `spark/*` and `dashscope/*` fronts to
-        // uncontracted — which for `dsh` IS its own class, the floor it
-        // has always been held to. The place to say otherwise now
-        // exists; nobody has.
+        // Four of the five front one destination each, so they declare
+        // one class at the adapter and no routes (ruling 2), and every
+        // model they map resolves to exactly where it stood the day
+        // before this decision landed. `dsh` is the exception the
+        // operator has since ruled on, and it is pinned in full below.
+        if provider == "dsh" {
+            continue;
+        }
         assert!(adapter.routes.is_empty(), "{provider} declares no route");
         for model in adapter.models.values() {
             assert_eq!(
@@ -1397,6 +1401,56 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         }
     }
     assert!(adapters.adapter("nobody").is_none());
+
+    // The operator ruled on 2026-09-03 that `dsh`'s `spark` route — the
+    // DGX Spark in their own building — is `local`. That ruling is the
+    // whole of what they classed, so this states all three of `dsh`'s
+    // fronts rather than dropping the assertion that used to cover
+    // them: `uncontracted` now means two different things behind this
+    // one binary, and a test that said only "the floor" would stop
+    // telling the adapter's own word apart from nobody's word.
+    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
+    assert_eq!(dsh.routes.len(), 1, "dsh classes exactly one route");
+    assert_eq!(
+        dsh.routes.get("spark"),
+        Some(&EgressClass::Local),
+        "the operator's own hardware, ruled 2026-09-03"
+    );
+    for (model, expected, ground) in [
+        (
+            "deepseek-v4-pro",
+            EgressClass::Uncontracted,
+            "unprefixed: dsh's own adapter class, because the id reaches \
+             whatever the harness profile resolves",
+        ),
+        (
+            "dashscope/qwen3.8-max",
+            EgressClass::Uncontracted,
+            "a route this file does not name: the floor by ruling 1, and \
+             no longer by the adapter declaring no routes at all",
+        ),
+        (
+            "spark/qwen3.8-flash",
+            EgressClass::Local,
+            "the route the operator ruled: local, and the Alibaba front \
+             beside it is not carried along",
+        ),
+    ] {
+        assert_eq!(
+            resolve_route(dsh, model).1,
+            expected,
+            "dsh '{model}' — {ground}"
+        );
+    }
+    // And completely, over every model `dsh` maps: local exactly where
+    // the id is a `spark/` one, uncontracted everywhere else.
+    for model in dsh.models.values() {
+        let expected = match model.starts_with("spark/") {
+            true => EgressClass::Local,
+            false => EgressClass::Uncontracted,
+        };
+        assert_eq!(resolve_route(dsh, model).1, expected, "dsh '{model}'");
+    }
 }
 
 /// The path to the adapters this repository actually ships.
