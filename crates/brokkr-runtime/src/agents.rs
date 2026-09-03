@@ -110,6 +110,12 @@ pub struct Agent {
     pub charter_digest: String,
     /// Ordered preference chain of abstract model names.
     pub models: Vec<String>,
+    /// The effort hired with each candidate (decision 0035 ruling 5),
+    /// keyed by the candidate's abstract model name. A candidate served
+    /// by an effortless provider needs no entry; every other candidate
+    /// without one is refused at resolution, where the provider — and
+    /// therefore the vocabulary — is known.
+    pub efforts: BTreeMap<String, String>,
     /// `None` declares NO tool restriction; `Some` is ordered, and that
     /// order is the provider flag's order.
     pub allow: Option<Vec<String>>,
@@ -185,6 +191,13 @@ pub struct Adapter {
     /// Abstract model name → concrete provider model id.
     pub models: BTreeMap<String, String>,
     pub model_flag: Option<String>,
+    /// The effort levels this provider's harness names, as measured
+    /// against its CLI. Empty for a provider with no effort control.
+    pub efforts: Vec<String>,
+    /// How this provider is TOLD an effort, or `None` where it declares
+    /// `effort_flag` unsupported — the same shape, and the same meaning,
+    /// as `model_flag`.
+    pub effort_flag: Option<String>,
     pub tool_permissions: Option<ToolPermissions>,
     /// Why `tool_permissions` is absent, when the operator MEASURED the
     /// provider's CLI and found no per-tool allow-list to map onto.
@@ -207,6 +220,11 @@ pub struct Adapter {
 pub struct Candidate {
     pub agent: String,
     pub model: String,
+    /// The effort hired with this model, `None` only where the provider
+    /// declares no effort control at all. It is the PIN — what the plan
+    /// asked for — and never what a harness reports it applied; the two
+    /// stay separate facts (decision 0035 ruling 6).
+    pub effort: Option<String>,
     pub provider: String,
     pub argv: Vec<String>,
 }
@@ -278,6 +296,9 @@ pub enum ResolveError {
 #[derive(Debug, Clone)]
 pub struct ChainEntry {
     pub model: String,
+    /// The effort pinned with this candidate, `None` when the entry is
+    /// unmapped, blocked, or served by a provider with no effort control.
+    pub effort: Option<String>,
     /// `None` when no adapter maps this name.
     pub provider: Option<String>,
     pub presence: Presence,
@@ -340,7 +361,7 @@ fn compose(
     model: &str,
     concrete: &str,
     notices: &mut Vec<Notice>,
-) -> Result<Vec<String>, ResolveError> {
+) -> Result<(Vec<String>, Option<String>), ResolveError> {
     let mut argv = adapter.driver.clone();
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
@@ -357,6 +378,57 @@ fn compose(
     })?;
     argv.push(flag.clone());
     argv.push(concrete.to_string());
+
+    // The other half of the hire (decision 0035 ruling 5). A model pin
+    // without an effort pin is half a hire, and the half it withholds is
+    // the half that moves the bill — so an effort-bearing provider that
+    // this candidate names no effort for is refused here, exactly as a
+    // provider that cannot be told its model is.
+    let effort = match (&adapter.effort_flag, agent.efforts.get(model)) {
+        (None, None) => None,
+        (None, Some(effort)) => {
+            return Err(capability_gap(
+                agent,
+                adapter,
+                model,
+                format!(
+                    "the provider declares effort_flag unsupported, so the agent's \
+                     effort '{effort}' could not be pinned and the provider's own \
+                     default would run"
+                ),
+            ))
+        }
+        (Some(_), None) => {
+            return Err(capability_gap(
+                agent,
+                adapter,
+                model,
+                format!(
+                    "the provider takes an effort and this candidate pins none; add \
+                     \"efforts\": {{\"{model}\": \"<one of: {}>\"}} to the agent \
+                     (decision 0035 ruling 5)",
+                    adapter.efforts.join(", ")
+                ),
+            ))
+        }
+        (Some(effort_flag), Some(effort)) => {
+            if !adapter.efforts.iter().any(|known| known == effort) {
+                return Err(capability_gap(
+                    agent,
+                    adapter,
+                    model,
+                    format!(
+                        "the provider declares no effort '{effort}'; its vocabulary \
+                         is {}",
+                        adapter.efforts.join(", ")
+                    ),
+                ));
+            }
+            argv.push(effort_flag.clone());
+            argv.push(effort.clone());
+            Some(effort.clone())
+        }
+    };
 
     if let Some(allow) = &agent.allow {
         let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
@@ -434,7 +506,7 @@ fn compose(
             }
         }
     }
-    Ok(argv)
+    Ok((argv, effort))
 }
 
 fn entry_for(
@@ -446,6 +518,7 @@ fn entry_for(
     let Some((adapter, concrete)) = adapters.serving(model) else {
         return ChainEntry {
             model: model.to_string(),
+            effort: None,
             provider: None,
             presence: Presence::Unknown,
             argv: Vec::new(),
@@ -455,14 +528,15 @@ fn entry_for(
     };
     let presence = availability.presence(&adapter.provider);
     let mut notices = Vec::new();
-    let (argv, gap) = match compose(agent, adapter, model, concrete, &mut notices) {
-        Ok(argv) => (argv, None),
+    let (argv, effort, gap) = match compose(agent, adapter, model, concrete, &mut notices) {
+        Ok((argv, effort)) => (argv, effort, None),
         // A blocked entry contributes no notices: it contributes an
         // error, and reporting both would double-count one gap.
-        Err(gap) => (Vec::new(), Some(gap)),
+        Err(gap) => (Vec::new(), None, Some(gap)),
     };
     ChainEntry {
         model: model.to_string(),
+        effort,
         provider: Some(adapter.provider.clone()),
         presence,
         argv,
@@ -535,6 +609,7 @@ pub fn resolve(
         .map(|entry| Candidate {
             agent: agent.name.clone(),
             model: entry.model.clone(),
+            effort: entry.effort.clone(),
             provider: entry.provider.clone().expect("mapped above"),
             argv: entry.argv.clone(),
         })

@@ -71,7 +71,7 @@ use time::OffsetDateTime;
 
 mod seat_record;
 
-pub use seat_record::{validate_seat_record, SeatRecordError};
+pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 
 pub const DATABASE_SCHEMA: u32 = 1;
 

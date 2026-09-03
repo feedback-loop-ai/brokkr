@@ -44,6 +44,8 @@ fn adapter(name: &str, tier: &str) -> Value {
         "driver": ["{brokkr}", "driver", name, "--"],
         "models": {},
         "model_flag": "unsupported",
+        "efforts": [],
+        "effort_flag": "unsupported",
         "tool_permissions": "unsupported",
         "mcp": "unsupported",
     })

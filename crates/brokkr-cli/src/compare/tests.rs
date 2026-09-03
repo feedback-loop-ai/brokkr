@@ -48,6 +48,35 @@ fn seat_costs_ignore_unjoined_and_malformed_effect_evidence() {
     assert_eq!(total, 0.0);
 }
 
+/// A seat whose ONLY accounting is what it spent thinking still reports
+/// it. The reasoning count is a subset of an output this harness did not
+/// report, so there is no total to carry it — and a record that dropped
+/// it because nothing else came with it would lose a meter the harness
+/// did report (decision 0035 ruling 4).
+#[test]
+fn a_seat_reporting_only_reasoning_still_reports_it() {
+    let events = vec![
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"fx"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"turn-completed", "turn":1,
+                "reasoning_output_tokens":9}}),
+        ),
+    ];
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["implement"]["reasoning_output_tokens"], 9);
+    assert!(costs["implement"].get("output_tokens").is_none());
+    // No model and no effort were reported, so both say so with the
+    // sentinel rather than borrowing an answer from the plan.
+    assert_eq!(costs["implement"]["model"], "not reported");
+    assert_eq!(costs["implement"]["effort"], "not reported");
+}
+
 #[test]
 fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
     // The lanetally driver's session-finished checkpoint carries an
@@ -75,18 +104,31 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
             json!({"effect_id":"fx-2", "seat":"implement"}),
         ),
         event(EventType::EffectStarted, json!({"effect_id":"fx-2"})),
+        // The finishing result is where claude reports what it spent
+        // thinking, and where a seat with no turn checkpoints names its
+        // effort. Both are read here, and the reasoning is a subset of
+        // the output it rides beside — never a second addend.
         event(
             EventType::EffectSucceeded,
-            json!({"effect_id":"fx-2", "result":{"model":"claude-sonnet-5"}}),
+            json!({"effect_id":"fx-2", "result":{
+                "model":"claude-sonnet-5", "effort":"xhigh",
+                "input_tokens":7, "output_tokens":3,
+                "reasoning_output_tokens":2}}),
         ),
     ];
     let (costs, total) = seat_costs(&events);
     assert_eq!(
         costs["implement"],
+        // One effect named an effort and the other did not, so the seat
+        // reports the level it has rather than a sentinel (decision 0035
+        // ruling 3, reusing 0031's sentinels rather than inventing a
+        // second pair). The reasoning count is summed on its own key.
         json!({"attempts": 2, "turns": 2, "cost_usd": 0.125,
                "model": "claude-fable-5-1, claude-sonnet-5",
-               "input_tokens":28, "output_tokens":5,
-               "cache_read_tokens":13, "cache_write_tokens":4})
+               "effort": "xhigh",
+               "input_tokens":35, "output_tokens":8,
+               "cache_read_tokens":13, "cache_write_tokens":4,
+               "reasoning_output_tokens":2})
     );
     assert_eq!(total, 0.125);
 }

@@ -30,6 +30,8 @@ fn write_adapters(dir: &std::path::Path) -> std::path::PathBuf {
             "driver": ["{brokkr}", "driver", "granted", "--"],
             "models": {},
             "model_flag": "unsupported",
+            "efforts": [],
+            "effort_flag": "unsupported",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }))

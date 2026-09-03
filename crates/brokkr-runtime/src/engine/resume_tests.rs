@@ -253,6 +253,7 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
     let candidate = |model: &str, command: Vec<String>| Candidate {
         agent: "implementer".into(),
         model: model.into(),
+        effort: Some("medium".into()),
         provider: "codex".into(),
         argv: command,
     };

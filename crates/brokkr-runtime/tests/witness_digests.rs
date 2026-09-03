@@ -67,38 +67,47 @@ fn workspace() -> PathBuf {
 /// Decision 0033 deliberately moved the seven recipe witnesses: each
 /// bundle now carries the description and relative cost rendered in the
 /// sixty-second contributing guide. `bundles/verify` did not move.
+///
+/// Decision 0035 ruling 5 moved all eight, and that movement IS the
+/// ruling rather than a side effect of it: every model pin now carries
+/// an effort pin, so every one of these bundles states in its argv the
+/// effort it hires as well as the model. A hire that changed is a
+/// bundle whose identity changed, and this is where that is said out
+/// loud. Nothing else moved them — no charter, no policy, no role
+/// prose; the diff on each is `--effort <level>` beside `--model`, and
+/// each level is the driver's own default rather than a tuned choice.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "b419e5dcd10357a57342c82cbcafcef56eaa6ac83c9863d1c98b89a93d9eb3f4",
+        "99bd67392c4f4fbf156951b4503752788c4f2583e0ef8db8538a2668d68c267a",
     ),
     (
         "recipes/node",
-        "a14175426c8b6352b81ae36a1e0735e1fe7271ebcddccaabb871b58522520921",
+        "5dfb00c762b627ce87046d1bf89665bdaabe07cf270bddc23d4baa9682d27a97",
     ),
     (
         "recipes/preflight",
-        "87773abd7a61da53dac7cff01440c633913489345ce807bdda48ec99fa923278",
+        "97c8cfe8482cb0d1950cfda2bc79343f9ace875189074a32d3b17e731cfc8757",
     ),
     (
         "recipes/ember",
-        "950cec672adf660aa48f6f94e365fb6690fb8c3b4cbbf11f3e68dc90a62b177b",
+        "ec945799b48eb3c45b0e368769fa2b24023e42a43ffaaa840097490737fac4d5",
     ),
     (
         "recipes/crucible",
-        "4e231cb7bd7511904ec72740b27b32f064b1cf46739c75ba7973549893e3c219",
+        "f89d5ecb5bd6cf9cff0bbb8b001a388c32851de5f2c2d5ed8b727cc44b34afb6",
     ),
     (
         "recipes/night-shift",
-        "a3edb65a00c2fb1b0e94e1505bf67e314412e1de33db1f48ae217f1f7d5114e0",
+        "bf1e9b4fa8e1bff8cc73cbc5619b9ec4c7229063098310c31262803173faccba",
     ),
     (
         "recipes/wager-harness",
-        "7d63d500985b91385bad328f285b609960a8314024cfd55f22534c5bb3fd78b7",
+        "69cce347313752cb564f1cd98bcdeb2f4c0c4f13c69051c13caf3aca9f478a10",
     ),
     (
         "bundles/verify",
-        "57a5c5f179a144e8a054ab9952ce2688a4dedd675c899ec7a8651cf9e8ddc584",
+        "a2d666c728946f4eb8d0834ae5371f07b459e8fa795994658d144e7088475c2c",
     ),
 ];
 

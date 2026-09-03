@@ -15,12 +15,22 @@ fn start(seat: &str) -> Body {
 }
 
 fn session(script: &Value, input: &str, hang: impl FnMut()) -> String {
-    session_with_model(script, None, input, hang)
+    session_with_pins(script, None, None, input, hang)
 }
 
 fn session_with_model(
     script: &Value,
     model: Option<&str>,
+    input: &str,
+    hang: impl FnMut(),
+) -> String {
+    session_with_pins(script, model, None, input, hang)
+}
+
+fn session_with_pins(
+    script: &Value,
+    model: Option<&str>,
+    effort: Option<&str>,
     input: &str,
     hang: impl FnMut(),
 ) -> String {
@@ -30,6 +40,7 @@ fn session_with_model(
         script,
         dir.path(),
         model,
+        effort,
         input.as_bytes(),
         &mut output,
         hang,
@@ -50,6 +61,33 @@ fn a_pinned_model_is_echoed_and_its_absence_changes_nothing() {
     assert!(pinned.contains("\"step\":\"model-pinned\""), "{pinned}");
     assert!(pinned.contains("model-x"), "{pinned}");
     assert!(!session(&script, &input, || {}).contains("model-pinned"));
+}
+
+/// The effort pin travels and echoes exactly as the model pin does
+/// (decision 0035 ruling 5), and it is its OWN checkpoint: a proof can
+/// assert either half of the hire reached the driver without the other.
+/// With no pin the session is byte-identical to what it always was.
+#[test]
+fn a_pinned_effort_is_echoed_beside_the_model_and_its_absence_changes_nothing() {
+    let script = json!({"seats": {
+        "success": [{"behavior": "succeed", "result": {"result": "complete"}}],
+    }});
+    let input = wire(start("success"));
+    let pinned = session_with_pins(&script, Some("model-x"), Some("xhigh"), &input, || {});
+    assert!(pinned.contains("\"step\":\"model-pinned\""), "{pinned}");
+    assert!(pinned.contains("\"step\":\"effort-pinned\""), "{pinned}");
+    assert!(pinned.contains("xhigh"), "{pinned}");
+    // Each half stands alone: a model pin alone says nothing about an
+    // effort, and an effort pin alone says nothing about a model.
+    let model_only = session_with_model(&script, Some("model-x"), &input, || {});
+    assert!(!model_only.contains("effort-pinned"), "{model_only}");
+    let effort_only = session_with_pins(&script, None, Some("low"), &input, || {});
+    assert!(!effort_only.contains("model-pinned"), "{effort_only}");
+    assert!(
+        effort_only.contains("\"step\":\"effort-pinned\""),
+        "{effort_only}"
+    );
+    assert!(!session(&script, &input, || {}).contains("effort-pinned"));
 }
 
 #[test]

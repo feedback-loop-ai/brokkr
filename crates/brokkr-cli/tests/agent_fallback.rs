@@ -18,6 +18,27 @@ fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
 
+/// The companion effort every fixture candidate is hired at (decision
+/// 0035 ruling 5). These providers all declare the same three-level
+/// vocabulary, so the middle one stands for "the plainest reading of
+/// what this seat does": the point under test here is fallback, and an
+/// effort that varied per candidate would only add noise to it.
+fn efforts_for(models: &Value) -> Value {
+    Value::Object(
+        models
+            .as_array()
+            .expect("a fixture chain is an array of candidate names")
+            .iter()
+            .map(|model| {
+                (
+                    model.as_str().expect("a candidate name").to_string(),
+                    json!("medium"),
+                )
+            })
+            .collect(),
+    )
+}
+
 const POLICY: &str = r#"{
   "phases": ["implement", "review", "done", "stop"],
   "initial": "implement",
@@ -59,6 +80,8 @@ impl Workspace {
                 "driver": ["brokkr-absent-driver-that-is-not-installed"],
                 "models": {"first": "absent/first"},
                 "model_flag": "--model",
+                "efforts": ["low", "medium", "high"],
+                "effort_flag": "--effort",
                 "tool_permissions": "unsupported",
                 "mcp": "unsupported",
             }),
@@ -98,6 +121,8 @@ impl Workspace {
             ],
             "models": {model: format!("{provider}/{model}")},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         })
@@ -111,6 +136,7 @@ impl Workspace {
         let mut body = json!({
             "description": "a test agent",
             "charter": "charters/work.md",
+            "efforts": efforts_for(&models),
             "models": models,
         });
         if let Some(limits) = limits {
@@ -276,6 +302,8 @@ fn exhausting_the_bound_parks_with_the_last_error() {
             "driver": ["brokkr-absent-driver-that-is-not-installed-either"],
             "models": {"third": "absent2/third"},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         });
@@ -457,6 +485,8 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
             "driver": ["sh", "-c", "read -r line; printf '%s\n' 'not a protocol message'"],
             "models": {"rude-model": "rude/1"},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }),

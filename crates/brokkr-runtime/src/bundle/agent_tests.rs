@@ -46,6 +46,7 @@ impl AgentFixture {
                 "description": "the worker",
                 "charter": "charters/work.md",
                 "models": ["opus"],
+                "efforts": {"opus": "high"},
                 "tools": {"allow": ["cargo"]},
                 "limits": {"max_attempts": 3, "timeout_seconds": 77},
             }),
@@ -118,6 +119,8 @@ fn claude() -> Value {
         "driver": ["{brokkr}", "driver", "claude", "--"],
         "models": {"opus": "claude-opus-5"},
         "model_flag": "--model",
+        "efforts": ["low", "medium", "high"],
+        "effort_flag": "--effort",
         "tool_permissions": {
             "flag": "--allowedTools",
             "separator": ",",
@@ -156,6 +159,8 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
             "--",
             "--model",
             "claude-opus-5",
+            "--effort",
+            "high",
             "--allowedTools",
             "Bash(cargo:*)"
         ]
@@ -163,6 +168,7 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
     assert!(!command[0].contains('{'), "the legacy token is expanded");
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].model, "opus");
+    assert_eq!(candidates[0].effort.as_deref(), Some("high"));
 
     let record = &bundle.manifest["agents"]["work"];
     assert_eq!(record["agent"], "worker");
@@ -188,6 +194,7 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
         "driver": {"command": [
             "{brokkr}", "driver", "claude", "--",
             "--model", "claude-opus-5",
+            "--effort", "high",
             "--allowedTools", "Bash(cargo:*)",
         ]},
     });
@@ -281,6 +288,7 @@ fn panel_members_and_sequence_steps_may_name_agents() {
             "description": "a member",
             "charter": "charters/work.md",
             "models": ["opus"],
+            "efforts": {"opus": "high"},
             "tools": {"allow": ["cargo"]},
         }),
     );
@@ -331,6 +339,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
             "description": "declares inputs",
             "charter": "charters/work.md",
             "models": ["opus"],
+            "efforts": {"opus": "high"},
             "tools": {"allow": ["cargo"]},
             "inputs": ["fixes_applied"],
         }),
@@ -388,6 +397,8 @@ fn a_brand_new_provider_and_model_arrive_as_data() {
             "driver": ["invented-cli", "run"],
             "models": {"newmodel": "invented/new-1"},
             "model_flag": "-m",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": {
                 "flag": "--tools",
                 "separator": " ",
@@ -402,6 +413,7 @@ fn a_brand_new_provider_and_model_arrive_as_data() {
             "description": "the worker",
             "charter": "charters/work.md",
             "models": ["newmodel"],
+            "efforts": {"newmodel": "medium"},
             "tools": {"allow": ["cargo"]},
         }),
     );
@@ -416,6 +428,8 @@ fn a_brand_new_provider_and_model_arrive_as_data() {
             "run".to_string(),
             "-m".to_string(),
             "invented/new-1".to_string(),
+            "--effort".to_string(),
+            "medium".to_string(),
             "--tools".to_string(),
             "cargo-everything".to_string(),
         ]
@@ -447,6 +461,7 @@ fn a_resolved_seat_faces_every_existing_lint() {
             "description": "declares too little",
             "charter": "charters/work.md",
             "models": ["opus"],
+            "efforts": {"opus": "high"},
             "tools": {"allow": ["cargo"]},
             "inputs": ["fixes_applied"],
             "limits": {"max_attempts": 1},

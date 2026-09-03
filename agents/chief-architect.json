@@ -6,6 +6,11 @@
     "opus",
     "sonnet"
   ],
+  "efforts": {
+    "fable": "high",
+    "opus": "high",
+    "sonnet": "high"
+  },
   "tools": {
     "allow": [
       "cargo",

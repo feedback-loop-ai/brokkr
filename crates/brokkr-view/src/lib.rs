@@ -43,7 +43,12 @@ use serde_json::Value;
 /// transcript shape and its rendered cell.
 /// Bumped to 6 by decision 0034: seat accounting gained one structured
 /// token record and one rendered cell, including cache writes.
-pub const VIEW_VERSION: u32 = 6;
+/// Bumped to 7 by decision 0035: the hire gained its second half.
+/// Participants and checkpoints carry the effort, the token record
+/// carries the reasoning subset, and the pin the plan asked for stands
+/// beside the effort the harness says it applied — two cells, because
+/// ruling 6 keeps them two facts.
+pub const VIEW_VERSION: u32 = 7;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -185,6 +190,11 @@ pub struct CheckpointRow {
     pub turn: Cell,
     pub step: String,
     pub model: Cell,
+    /// The effort this turn was configured with, as the harness echoed
+    /// it. Per-turn because both codex and claude write it per turn, so
+    /// a thread that changed effort mid-seat says so row by row rather
+    /// than averaging into one seat-level answer.
+    pub effort: Cell,
     pub usage: Cell,
     pub target: Cell,
     pub target_full: Option<String>,
@@ -200,6 +210,12 @@ pub struct CheckpointRow {
 pub struct Provenance {
     pub agent: String,
     pub model: String,
+    /// The effort PINNED with that model (decision 0035 ruling 5): what
+    /// the plan asked for, never what a harness says it applied. `None`
+    /// for a run journaled before this decision, and for a candidate an
+    /// effortless provider serves — the two are told apart by the cell's
+    /// note, never by substituting one for the other.
+    pub effort: Option<String>,
     pub provider: String,
     pub chain_index: u64,
     /// Brokkr never claims the second choice equals the first.
@@ -218,14 +234,23 @@ pub struct Transcript {
 
 /// Harness-reported token accounting under the seat-record vocabulary.
 /// `total_tokens` is exactly input + output. Cache reads are already a
-/// subset of input and cache writes stay separately visible, so neither
-/// is silently added a second time.
+/// subset of input, reasoning output is already a subset of output, and
+/// cache writes stay separately visible, so none of the three is
+/// silently added a second time.
+///
+/// `reasoning_output_tokens` is decision 0035 ruling 4's field and the
+/// only figure in this record that METERS what a model did — the effort
+/// beside it is what was configured, and the model name is a claim. It
+/// is absent, never zero, wherever the harness reported none: claude
+/// meters its thinking only in its result, codex meters it per turn,
+/// and this record admits both without inventing the missing one.
 #[derive(Serialize, Clone, Default, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
+    pub reasoning_output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
 }
 
@@ -262,6 +287,17 @@ pub struct Participant {
     /// The provider-reported model. No adapter default or abstract agent
     /// choice is substituted when the journal carries no such report.
     pub model: Cell,
+    /// The effort the harness echoed as APPLIED, after every profile and
+    /// plugin layer (decision 0035 ruling 3). CONFIGURATION, not a
+    /// measurement of what the model did — `usage.reasoning_output_tokens`
+    /// is the only meter here, and on at least one live lane the two
+    /// disagree. Never filled from `effort_pin`: ruling 6 keeps the two
+    /// apart, and a journal written before this decision stays visibly
+    /// absent rather than borrowing the plan's answer.
+    pub effort: Cell,
+    /// The effort the PLAN pinned, read from this invocation's agent
+    /// resolution. Also configuration, and the other half of the pair.
+    pub effort_pin: Cell,
     pub activity: Activity,
     pub member_count: usize,
     pub transcript: Option<Transcript>,
@@ -775,6 +811,10 @@ struct Build {
     provenance: Option<Value>,
     /// Last provider-reported model for this invocation site.
     model: Option<String>,
+    /// Last harness-echoed effort for this invocation site, on exactly
+    /// the terms of the model beside it: last write wins, because both
+    /// harnesses that echo one write it per turn.
+    effort: Option<String>,
     turns: Option<u64>,
     last_turn: Option<Value>,
     session: Option<Value>,
@@ -812,6 +852,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         member: member.map(str::to_string),
         provenance: None,
         model: None,
+        effort: None,
         turns: None,
         last_turn: None,
         session: None,
@@ -898,6 +939,11 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                         let part = ensure(&mut scan, slot, effect_id, None);
                         scan.parts[part].model = Some(model.to_string());
                     }
+                    if let Some(effort) = payload.pointer("/result/effort").and_then(Value::as_str)
+                    {
+                        let part = ensure(&mut scan, slot, effect_id, None);
+                        scan.parts[part].effort = Some(effort.to_string());
+                    }
                     let effect = &mut scan.effects[slot];
                     effect.open = None;
                     effect.terminal = terminal_status(event.event_type);
@@ -916,6 +962,9 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                 let part = ensure(&mut scan, slot, effect_id, member.as_deref());
                 if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                     scan.parts[part].model = Some(model.to_string());
+                }
+                if let Some(effort) = checkpoint.get("effort").and_then(Value::as_str) {
+                    scan.parts[part].effort = Some(effort.to_string());
                 }
                 if let Some(transcript) = checkpoint.get("transcript").and_then(transcript_of) {
                     // ALWAYS replace: a retry's live transcript follows the
@@ -1170,6 +1219,13 @@ fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
                     .map(str::to_string),
                 Some("no served model recorded for this checkpoint"),
             ),
+            effort: cell_of(
+                checkpoint
+                    .get("effort")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                Some("no applied effort recorded for this checkpoint"),
+            ),
             usage: cell_of(
                 token_usage(std::iter::once(checkpoint))
                     .as_ref()
@@ -1259,9 +1315,14 @@ fn finish_usage(mut usage: TokenUsage) -> Option<TokenUsage> {
                 .saturating_add(output.unwrap_or_default()),
         ),
     };
+    // Reasoning never enters `total_tokens` — it is already inside
+    // `output_tokens` (decision 0035 ruling 4), exactly as a cache read
+    // is already inside `input_tokens`. It counts only towards whether
+    // this record has anything to say at all.
     if usage.total_tokens.is_some()
         || usage.cache_read_tokens.is_some()
         || usage.cache_write_tokens.is_some()
+        || usage.reasoning_output_tokens.is_some()
     {
         Some(usage)
     } else {
@@ -1288,6 +1349,12 @@ fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsag
             &mut usage.cache_write_tokens,
             record.get("cache_write_tokens").and_then(Value::as_u64),
         );
+        add_token(
+            &mut usage.reasoning_output_tokens,
+            record
+                .get("reasoning_output_tokens")
+                .and_then(Value::as_u64),
+        );
     }
     finish_usage(usage)
 }
@@ -1306,6 +1373,7 @@ fn session_usage(part: &Build) -> Option<TokenUsage> {
                     "output_tokens",
                     "cache_read_tokens",
                     "cache_write_tokens",
+                    "reasoning_output_tokens",
                 ]
                 .iter()
                 .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
@@ -1321,6 +1389,9 @@ fn usage_text(usage: &TokenUsage, prefix: &str) -> String {
         ("out", usage.output_tokens),
         ("cache read", usage.cache_read_tokens),
         ("cache write", usage.cache_write_tokens),
+        // Last, and outside the total above it, so the cell reads as
+        // what it is: a part of `out`, shown rather than summed.
+        ("reasoning", usage.reasoning_output_tokens),
     ] {
         if let Some(count) = count {
             fields.push(format!("{label} {}", fmt_tokens(count)));
@@ -1399,6 +1470,10 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                     add_token(&mut total.output_tokens, member.output_tokens);
                     add_token(&mut total.cache_read_tokens, member.cache_read_tokens);
                     add_token(&mut total.cache_write_tokens, member.cache_write_tokens);
+                    add_token(
+                        &mut total.reasoning_output_tokens,
+                        member.reasoning_output_tokens,
+                    );
                 }
                 usage = finish_usage(total);
                 usage_aggregated = true;
@@ -1451,6 +1526,27 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             }
             None => None,
         };
+        // The applied effort, aggregated across a panel's members
+        // exactly as the served model above it is: a panel whose members
+        // ran at different levels says both rather than picking one.
+        let effort = match &part.effort {
+            Some(effort) => Some(effort.clone()),
+            None if !members.is_empty() => {
+                let mut reported: Vec<&str> = members
+                    .iter()
+                    .filter_map(|member| member.effort.as_deref())
+                    .collect();
+                reported.sort_unstable();
+                reported.dedup();
+                match reported.as_slice() {
+                    [] => None,
+                    [only] => Some((*only).to_string()),
+                    _ => Some(reported.join(", ")),
+                }
+            }
+            None => None,
+        };
+        let provenance = part.provenance.as_ref().map(provenance_of);
         let transcript = part.transcript.clone();
         let session_id = transcript
             .as_ref()
@@ -1488,6 +1584,20 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             usage,
             usage_aggregated,
             model: cell_of(model, Some("no served model recorded")),
+            // Two cells, never one filled from the other (decision 0035
+            // ruling 6). A journal written before this decision carries
+            // neither, and each says so in its own words rather than the
+            // applied cell quietly showing the plan's pin.
+            effort: cell_of(
+                effort,
+                Some("no applied effort recorded — configuration, not a measurement"),
+            ),
+            effort_pin: cell_of(
+                provenance
+                    .as_ref()
+                    .and_then(|provenance| provenance.effort.clone()),
+                Some("no effort pinned by this run's resolution"),
+            ),
             activity: activity_for(events, scan, part, members.len()),
             member_count: members.len(),
             transcript_cell: transcript_cell(transcript.as_ref()),
@@ -1495,7 +1605,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             session_id,
             terminal_line: terminal_line(events, scan, part),
             checkpoints: checkpoint_rows(part),
-            provenance: part.provenance.as_ref().map(provenance_of),
+            provenance,
         });
     }
     out
@@ -1522,6 +1632,12 @@ fn provenance_of(entry: &Value) -> Provenance {
     Provenance {
         agent,
         model,
+        // Read, never defaulted: an absent pin is a pre-0035 journal or
+        // an effortless provider, and `None` is the honest answer to
+        // both. The sentence above stays about the model and its
+        // fallback — ruling 6 asks for a separate cell, not a reworded
+        // line that an old journal would have to be excused from.
+        effort: field(entry, "effort").map(str::to_string),
         provider,
         chain_index,
         fallback: chain_index > 0,

@@ -27,6 +27,7 @@ fn candidate(agent: &str, model: &str) -> Candidate {
     Candidate {
         agent: agent.into(),
         model: model.into(),
+        effort: Some("high".into()),
         provider: "provider".into(),
         argv: vec!["driver".into(), "--model".into(), model.into()],
     }
@@ -159,8 +160,12 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
     let (selection, provenance) = select_candidates(&events, "effect", &resolved);
     assert_eq!(
         provenance.unwrap(),
+        // The effort pin is journaled beside the model it was hired
+        // with (decision 0035 ruling 5), so the view can carry the plan's
+        // ask and the harness's echo as two separate facts.
         json!([{
             "member": null, "agent": "worker", "model": "sonnet",
+            "effort": "high",
             "provider": "provider", "chain_index": 1,
         }])
     );

@@ -114,6 +114,15 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/seat-record.v1.schema.json",
             "Forge seat record v1",
         ),
+        // Decision 0035 ruling 7: the hire's effort and the reasoning it
+        // spent arrive as a NEW file beside v1, never as a field added to
+        // it. v1's own bytes are pinned by the embedded-copy test in
+        // `brokkr-store`, and this pins that v2 landed as its own
+        // published contract rather than as bytes changed under v1's name.
+        (
+            "contracts/seat-record.v2.schema.json",
+            "Forge seat record v2",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

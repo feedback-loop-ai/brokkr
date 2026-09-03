@@ -1147,6 +1147,88 @@ fn panel_and_terminal_rows_aggregate_one_or_several_served_models() {
     );
 }
 
+/// The applied effort aggregates across a panel exactly as the served
+/// model does: a panel whose members ran at one level says that level,
+/// and one whose members disagreed says both rather than picking a
+/// winner. Two seats hired at different efforts are not comparable, and
+/// a parent row that hid the difference would be the thing decision 0035
+/// exists to stop.
+#[test]
+fn a_panel_parent_reports_one_effort_or_every_effort_its_members_applied() {
+    let with_efforts = |second: &str| {
+        let mut events = panel_journal();
+        for event in &mut events {
+            let member = event
+                .payload
+                .pointer("/checkpoint/member")
+                .and_then(Value::as_str);
+            let effort = match member {
+                Some("simplicity") => Some("high"),
+                Some("robustness") => Some(second),
+                _ => None,
+            };
+            if let Some(effort) = effort {
+                event.payload["checkpoint"]["effort"] = json!(effort);
+            }
+        }
+        events
+    };
+
+    let one = run_view(&with_efforts("high"), None);
+    assert_eq!(one.participants[0].effort.text, "high");
+
+    let several = run_view(&with_efforts("low"), None);
+    assert_eq!(several.participants[0].effort.text, "high, low");
+
+    // A panel whose members reported no effort at all leaves the parent
+    // absent rather than inventing agreement between silences.
+    let silent = run_view(&panel_journal(), None);
+    assert!(silent.participants[0].effort.absent);
+}
+
+/// A record whose only accounting is its reasoning still says so. The
+/// figure is a subset of an output the harness did not report, so there
+/// is no total to carry it — and dropping it would lose a meter the
+/// harness did report, which is the one thing this record must not do.
+#[test]
+fn a_record_carrying_only_reasoning_is_kept_rather_than_dropped() {
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a1", "checkpoint": {
+                "step": "turn-completed", "turn": 1,
+                "reasoning_output_tokens": 9
+            }}),
+            T1,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let usage = view.participants[0].usage.as_ref().unwrap();
+    assert_eq!(usage.reasoning_output_tokens, Some(9));
+    assert_eq!(usage.total_tokens, None);
+    let cell = &view.participants[0].usage_cell.text;
+    assert_eq!(cell, "reasoning 9 tok");
+}
+
 #[test]
 fn a_parent_with_its_own_telemetry_does_not_aggregate() {
     let mut events = panel_journal();
@@ -2303,6 +2385,185 @@ fn old_journals_keep_model_absent_instead_of_borrowing_the_selected_pin() {
     assert!(participant.model.absent);
     assert_eq!(participant.model.text, ABSENT);
     assert_eq!(participant.provenance.as_ref().unwrap().model, "opus");
+}
+
+/// Decision 0035 ruling 6: the pin and the applied effort are two facts
+/// and stay two cells. The plan's pin comes from this run's resolution,
+/// the applied value from the harness's own echo, and NEITHER is ever
+/// filled from the other — which is the move ruling 3 refused for the
+/// model and refuses again here.
+#[test]
+fn the_pinned_effort_and_the_applied_effort_are_two_separate_cells() {
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1", "provenance": [{
+                "member": null, "agent": "implementer", "model": "opus",
+                "effort": "high", "provider": "claude", "chain_index": 0
+            }]}),
+            T0,
+        ),
+        // The harness echoes a DIFFERENT level than the plan pinned —
+        // the case that makes the two cells worth having, and exactly
+        // what a profile or plugin layer can do to a pin on the way
+        // down.
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a1", "checkpoint": {
+                "step": "seat-turn", "turn": 1, "tool": "Read",
+                "model": "claude-opus-5", "effort": "medium"
+            }}),
+            T1,
+        ),
+        ev(
+            5,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "fx", "attempt_id": "a1", "result": {
+                "result": "complete", "model": "claude-opus-5", "effort": "medium"
+            }}),
+            T2,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let participant = &view.participants[0];
+    assert_eq!(participant.effort_pin.text, "high");
+    assert_eq!(participant.effort.text, "medium");
+    assert!(!participant.effort_pin.absent);
+    assert!(!participant.effort.absent);
+    assert_eq!(
+        participant.provenance.as_ref().unwrap().effort.as_deref(),
+        Some("high")
+    );
+    // Per turn, because both harnesses that echo an effort write it per
+    // turn: a thread that changed level mid-seat says so row by row.
+    assert_eq!(participant.checkpoints[0].effort.text, "medium");
+}
+
+/// A journal written before decision 0035 carries neither effort, and
+/// each cell says so in its own words. The applied cell never borrows
+/// the plan's pin, and the pin cell never borrows the harness's echo —
+/// ruling 6 asks for visible absence, not a plausible answer.
+#[test]
+fn old_journals_keep_both_efforts_absent_with_no_fallback_between_them() {
+    let view = run_view(&adopting_journal(), None);
+    let participant = &view.participants[0];
+    // The resolution is there and names a model, so this is a journal
+    // that HAD a pin recorded — it simply predates the effort half.
+    assert_eq!(participant.provenance.as_ref().unwrap().model, "opus");
+    assert!(participant.provenance.as_ref().unwrap().effort.is_none());
+    assert!(participant.effort_pin.absent);
+    assert_eq!(participant.effort_pin.text, ABSENT);
+    assert!(participant.effort.absent);
+    assert_eq!(participant.effort.text, ABSENT);
+}
+
+/// Decision 0035 ruling 4: reasoning is a reported SUBSET of the output
+/// it is already inside, on exactly the terms `cache_read_tokens` has
+/// inside `input_tokens`. It is shown and never summed a second time, so
+/// the total stays input + output however much of the output was
+/// reasoning.
+#[test]
+fn reasoning_output_is_shown_beside_the_total_and_never_added_to_it() {
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a1", "checkpoint": {
+                "step": "turn-completed", "turn": 1,
+                "input_tokens": 100, "output_tokens": 40,
+                "cache_read_tokens": 30, "reasoning_output_tokens": 25
+            }}),
+            T1,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let usage = view.participants[0].usage.as_ref().unwrap();
+    assert_eq!(usage.reasoning_output_tokens, Some(25));
+    // 100 + 40. Not 165, and not 195: neither the cache read inside the
+    // input nor the reasoning inside the output is a second addend.
+    assert_eq!(usage.total_tokens, Some(140));
+    let cell = &view.participants[0].usage_cell.text;
+    assert!(cell.contains("reasoning 25 tok"), "{cell}");
+    assert!(cell.contains("140 tok"), "{cell}");
+}
+
+/// A harness that reports no reasoning figure for a record leaves the
+/// field absent — never zero, and never back-filled from a run total.
+/// Claude is this case exactly: it meters its thinking only in its
+/// result, so its per-turn rows stay silent rather than each claiming a
+/// share nobody measured.
+#[test]
+fn a_turn_with_no_reported_reasoning_stays_absent_rather_than_zero() {
+    let events = vec![
+        ev(
+            1,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+        ev(
+            2,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement", "phase": "implement"}),
+            T0,
+        ),
+        ev(
+            3,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a1", "checkpoint": {
+                "step": "turn-completed", "turn": 1,
+                "input_tokens": 100, "output_tokens": 40
+            }}),
+            T1,
+        ),
+    ];
+    let view = run_view(&events, None);
+    let usage = view.participants[0].usage.as_ref().unwrap();
+    assert_eq!(usage.reasoning_output_tokens, None);
+    assert_eq!(usage.total_tokens, Some(140));
+    assert!(
+        !view.participants[0].usage_cell.text.contains("reasoning"),
+        "{}",
+        view.participants[0].usage_cell.text
+    );
 }
 
 /// A first-choice selection reads as a plain statement — the machine does

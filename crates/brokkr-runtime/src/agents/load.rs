@@ -230,13 +230,20 @@ fn binding_grant(map: &Map<String, Value>, what: &str) -> Result<bool, LibraryEr
     }
 }
 
-/// A provider's model flag: a flag string, or `"unsupported"`.
-fn model_flag(map: &Map<String, Value>, what: &str) -> Result<Option<String>, LibraryError> {
-    match map.get("model_flag").and_then(Value::as_str) {
+/// A provider's pinning flag: a flag string, or `"unsupported"`. One
+/// reader for both axes a pin travels on — `model_flag` since decision
+/// 0016, `effort_flag` since decision 0035 — so a provider that cannot
+/// be told one of them declares that in the same words.
+fn pin_flag(
+    map: &Map<String, Value>,
+    key: &str,
+    what: &str,
+) -> Result<Option<String>, LibraryError> {
+    match map.get(key).and_then(Value::as_str) {
         Some("unsupported") => Ok(None),
         Some(flag) if !flag.is_empty() => Ok(Some(flag.to_string())),
         _ => invalid(format!(
-            "{what} needs 'model_flag': the flag this provider takes, or the \
+            "{what} needs '{key}': the flag this provider takes, or the \
              explicit string \"unsupported\""
         )),
     }
@@ -310,6 +317,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             "description",
             "charter",
             "models",
+            "efforts",
             "tools",
             "limits",
             "inputs",
@@ -327,6 +335,26 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         ));
     }
     named(&models, "models", &what)?;
+    // A charter names the effort it hires exactly as it names the model
+    // (decision 0035 ruling 5), keyed by the candidate it belongs to
+    // rather than positionally: a chain reordered in review must not
+    // silently re-hire every seat at a different level. Whether a
+    // candidate NEEDS one is not knowable here — it depends on the
+    // adapter that ends up serving it — so this only refuses an effort
+    // named for a candidate that is not in the chain at all.
+    let efforts = match map.get("efforts") {
+        None => BTreeMap::new(),
+        Some(_) => name_map(map, "efforts", &what)?,
+    };
+    for candidate in efforts.keys() {
+        if !models.contains(candidate) {
+            return invalid(format!(
+                "{what} 'efforts' names an effort for '{candidate}', which is not \
+                 in its 'models' chain [{}]",
+                models.join(", ")
+            ));
+        }
+    }
     let (allow, mcp) = parse_tools(map, &what)?;
     let limits = parse_limits(map, &what)?;
     let inputs = match map.get("inputs") {
@@ -339,6 +367,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         charter,
         charter_digest,
         models,
+        efforts,
         allow,
         mcp,
         limits,
@@ -537,6 +566,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "driver",
             "models",
             "model_flag",
+            "efforts",
+            "effort_flag",
             "tool_permissions",
             "mcp",
         ],
@@ -607,6 +638,15 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         None => None,
         Some(_) => Some(string(map, "hint", &what)?),
     };
+    let model_flag = pin_flag(map, "model_flag", &what)?;
+    // The effort vocabulary this provider declares (decision 0035
+    // ruling 5), read beside the flag that expresses it. Required, and
+    // required even when empty, for the reason `model_flag` is: an
+    // absent declaration would read as "effortless" and quietly excuse
+    // every seat this provider serves from the pin — which is the
+    // implicit default ruling 1 exists to refuse.
+    let efforts = string_array(map, "efforts", &what)?;
+    named(&efforts, "efforts", &what)?;
     Ok(Adapter {
         provider,
         trust_tier: trust_tier(map, &what)?,
@@ -615,7 +655,9 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hint,
         driver,
         models,
-        model_flag: model_flag(map, &what)?,
+        model_flag,
+        efforts,
+        effort_flag: pin_flag(map, "effort_flag", &what)?,
         tool_permissions,
         tool_permissions_gap,
         mcp,

@@ -17,6 +17,27 @@ fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
 
+/// The companion effort every fixture candidate is hired at (decision
+/// 0035 ruling 5). One level across the chain on purpose: what these
+/// readouts are asked to explain is a fallback between MODELS, and an
+/// effort that moved with it would make the assertions ambiguous about
+/// which fact the surface was reporting.
+fn efforts_for(models: &Value) -> Value {
+    Value::Object(
+        models
+            .as_array()
+            .expect("a fixture chain is an array of candidate names")
+            .iter()
+            .map(|model| {
+                (
+                    model.as_str().expect("a candidate name").to_string(),
+                    json!("medium"),
+                )
+            })
+            .collect(),
+    )
+}
+
 const POLICY: &str = r#"{
   "phases": ["implement", "review", "done", "stop"],
   "initial": "implement",
@@ -54,6 +75,8 @@ impl Workspace {
                 "driver": ["brokkr-absent-driver-that-is-not-installed"],
                 "models": {"first": "absent/first"},
                 "model_flag": "--model",
+                "efforts": ["low", "medium", "high"],
+                "effort_flag": "--effort",
                 "tool_permissions": "unsupported",
                 "mcp": "unsupported",
             }),
@@ -71,6 +94,8 @@ impl Workspace {
                     ],
                     "models": {model: format!("{provider}/{model}")},
                     "model_flag": "--model",
+                    "efforts": ["low", "medium", "high"],
+                    "effort_flag": "--effort",
                     "tool_permissions": "unsupported",
                     "mcp": "unsupported",
                 }),
@@ -88,6 +113,7 @@ impl Workspace {
             json!({
                 "description": "the worker",
                 "charter": "charters/work.md",
+                "efforts": efforts_for(&models),
                 "models": models,
                 "limits": {"max_attempts": 2, "timeout_seconds": 60},
             }),
@@ -263,6 +289,8 @@ fn compare_reports_a_resolution_divergence_even_when_the_recipe_matches() {
             ],
             "models": {"first": "absent/first"},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }),
