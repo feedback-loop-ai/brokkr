@@ -170,7 +170,11 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
     std::fs::write(dir.path().join("src/lib.txt"), "one\ntwo\n").unwrap();
     let head = commit(dir.path(), "docs/page.md", "# page\n", "the slice");
 
-    let mut store = empty_store(dir.path(), "first");
+    // The journal lives beside the repository, not in it: `add -A` in the
+    // fixture commits would otherwise sweep the SQLite files into main and
+    // block the rebase (Windows keeps its -wal and -shm files open).
+    let side = tempfile::tempdir().unwrap();
+    let mut store = empty_store(side.path(), "first");
     vouch(&mut store, "first", &head);
     let first = anchored_message(dir.path(), &anchor(&store, dir.path(), "first").unwrap());
     assert_eq!(first["anchor"], "forge.journal-anchor/v3");
@@ -251,6 +255,14 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
 /// that is its sibling's too.
 #[test]
 fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
+    // The colon is pathspec magic and the point of the test; NTFS reads it
+    // as a stream separator, so Windows keeps the glob and the non-ASCII
+    // byte and drops the colon.
+    let odd = if cfg!(windows) {
+        "docs/a[1]ð.md"
+    } else {
+        "docs/:a[1]ð.md"
+    };
     let dir = repo();
     git(
         dir.path(),
@@ -261,17 +273,18 @@ fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
     commit(dir.path(), "docs/a1.md", "a\n", "base");
     git(dir.path(), &["checkout", "-q", "-b", "slice"], None).unwrap();
     std::fs::write(dir.path().join("docs/a1.md"), "a\nb\n").unwrap();
-    let head = commit(dir.path(), "docs/:a[1]ð.md", "x\n", "the slice");
+    let head = commit(dir.path(), odd, "x\n", "the slice");
 
-    let mut store = empty_store(dir.path(), "first");
+    // The journal lives beside the repository, not in it: `add -A` in the
+    // fixture commits would otherwise sweep the SQLite files into main and
+    // block the rebase (Windows keeps its -wal and -shm files open).
+    let side = tempfile::tempdir().unwrap();
+    let mut store = empty_store(side.path(), "first");
     vouch(&mut store, "first", &head);
     let first = anchored_message(dir.path(), &anchor(&store, dir.path(), "first").unwrap());
     let patch = first["patch"].as_object().expect("a map, not null");
-    assert_eq!(
-        patch.keys().collect::<Vec<_>>(),
-        ["docs/:a[1]ð.md", "docs/a1.md"]
-    );
-    assert_eq!(patch["docs/:a[1]ð.md"].as_str().unwrap().len(), 40);
+    assert_eq!(patch.keys().collect::<Vec<_>>(), [odd, "docs/a1.md"]);
+    assert_eq!(patch[odd].as_str().unwrap().len(), 40);
 
     // The sibling the glob would have paired moves; the named path's id
     // does not.
@@ -281,28 +294,17 @@ fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
         .unwrap();
     vouch(&mut store, "second", &edited);
     let second = anchored_message(dir.path(), &anchor(&store, dir.path(), "second").unwrap());
-    assert_eq!(
-        second["patch"]["docs/:a[1]ð.md"],
-        first["patch"]["docs/:a[1]ð.md"]
-    );
+    assert_eq!(second["patch"][odd], first["patch"][odd]);
     assert_ne!(second["patch"]["docs/a1.md"], first["patch"]["docs/a1.md"]);
 
     // The named path itself moves; so does its id, and only its id.
-    let named = commit(
-        dir.path(),
-        "docs/:a[1]ð.md",
-        "x\ny\n",
-        "edit the named path",
-    );
+    let named = commit(dir.path(), odd, "x\ny\n", "edit the named path");
     store
         .create_run("third", "feature", "bundle", &json!({"files": {}}))
         .unwrap();
     vouch(&mut store, "third", &named);
     let third = anchored_message(dir.path(), &anchor(&store, dir.path(), "third").unwrap());
-    assert_ne!(
-        third["patch"]["docs/:a[1]ð.md"],
-        first["patch"]["docs/:a[1]ð.md"]
-    );
+    assert_ne!(third["patch"][odd], first["patch"][odd]);
     assert_eq!(third["patch"]["docs/a1.md"], second["patch"]["docs/a1.md"]);
 }
 

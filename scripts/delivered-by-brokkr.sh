@@ -48,7 +48,9 @@ case ",${LABELS}," in *,by-hand,*) by_hand=1 ;; esac
 # absent; a refusal when it is malformed or repeated.
 declaration() {
   local key="$1"
-  mapfile -t lines < <(printf '%s\n' "$PR_BODY" | sed -n "/^${key}:/p")
+  # A read loop, not mapfile: macOS still ships bash 3.2.
+  local lines=() line
+  while IFS= read -r line; do lines+=("$line"); done < <(printf '%s\n' "$PR_BODY" | sed -n "/^${key}:/p")
   (( ${#lines[@]} <= 1 )) || fail "expected at most one ${key}: line in the pull request body"
   (( ${#lines[@]} == 1 )) || return 0
   local line="${lines[0]%$'\r'}"
