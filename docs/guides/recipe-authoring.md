@@ -200,8 +200,10 @@ candidate argv. Exec is model-free and needs no pin.
 **Engine-owned inputs are never seat-declarable.** `drift_detected`,
 `dirty_worktrees`, `reviewed_heads`, `realm_facts`, `fixes_docs_only`
 (decision 0039: whether every commit the review itself added lies in the
-repository's `.github/delivery-classes.json` docs class — absent when the
-repository declares no class), the `consecutive_failures` counter and the
+docs class of the repository's `.github/delivery-classes.json` as it was
+committed at the head the review was entered at, never the working tree's
+copy — absent when the repository declared no class there), the
+`consecutive_failures` counter and the
 whole `visits_<phase>` family are computed by the engine from the journal
 and the tree. A seat that claims one has the
 claim dropped; a bundle that declares one fails compilation.

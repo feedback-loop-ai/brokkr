@@ -165,20 +165,30 @@ const PATCH_DIFF: [&str; 6] = [
     "--no-renames",
 ];
 
+/// Every path the tree at `to` differs from the tree at `from` in, under
+/// `PATCH_DIFF`: renames unpaired, names unquoted, no reader config. The
+/// one reader for both the anchor's patch map and the docs tier inside
+/// the run (decision 0039) — a second diff, taken through porcelain,
+/// would quote a non-ASCII name into one no class pattern matches.
+/// `None` when git cannot take the diff (a commit it does not have).
+pub(crate) fn changed_paths(repo: &Path, from: &str, to: &str) -> Option<Vec<String>> {
+    let mut list = PATCH_DIFF.to_vec();
+    list.extend(["--name-only", from, to]);
+    let listed = git(repo, &list, None).ok()?;
+    Some(listed.lines().map(str::to_string).collect())
+}
+
 fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>)> {
     let branch = default_branch(repo)?;
     let base = git(repo, &["merge-base", &branch, head], None).ok()?;
-    let mut list = PATCH_DIFF.to_vec();
-    list.extend(["--name-only", &base, head]);
-    let listed = git(repo, &list, None).ok()?;
     let mut patch = Map::new();
-    for path in listed.lines() {
+    for path in changed_paths(repo, &base, head)? {
         let mut one = PATCH_DIFF.to_vec();
-        one.extend(["-p", &base, head, "--", path]);
+        one.extend(["-p", &base, head, "--", &path]);
         let diff = git_raw(repo, &one, None).ok()?;
         let id = git(repo, &["patch-id", "--verbatim"], Some(&diff)).ok()?;
         let id = id.split_whitespace().next()?.to_string();
-        patch.insert(path.to_string(), Value::String(id));
+        patch.insert(path, Value::String(id));
     }
     Some((base, patch))
 }

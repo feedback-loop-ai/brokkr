@@ -53,32 +53,55 @@ Alternatives weighed:
    repository carries none.
 
 2. **`fixes_docs_only` is an engine-owned boolean.** At the protected
-   phase's ruling the engine diffs the recorded entry head to the
-   current head, renames unpaired, and answers `true` when every path
-   lies in the repository's docs class and `false` otherwise. It is in
-   the closed condition vocabulary and in the engine-owned list: a seat
-   that claims it has the claim dropped, a bundle that declares it fails
-   compilation.
+   phase's ruling the engine diffs the head recorded on the phase's
+   latest entry to the current head and answers `true` when every path
+   lies in the repository's docs class and `false` otherwise. The diff
+   is the anchor's (0038 ruling 1) and the gate's: plumbing, renames
+   unpaired, paths unquoted, so a non-ASCII prose name is looked up as
+   itself and a code file moved under a docs name stays a code
+   deletion. The entry head is taken as the contract's shape or not at
+   all — forty hex digits, checked before git is spawned — because the
+   journal chain is unkeyed and a row in it is not an argument list.
+   The input is in the closed condition vocabulary and in the
+   engine-owned list: a seat that claims it has the claim dropped, a
+   bundle that declares it fails compilation.
 
    **Enforcement binding:** `BOOLEAN_INPUTS` in `brokkr-core`,
    `ENGINE_OWNED_INPUTS` in `brokkr-runtime`, the engine's
-   `fixes_docs_only`; tests for the true case, the false case, the
-   overwritten claim, and a code file moved under a docs name, which
-   reads false because the rename is unpaired.
+   `fixes_docs_only` over the anchor's `changed_paths`; tests for the
+   true case, the false case, the overwritten claim, a code file moved
+   under a docs name, a non-ASCII docs name, and an entry head shaped
+   as an option, which reaches no git and writes no file.
 
-3. **The docs class is the repository's, read as the gate reads it.**
-   The engine reads `.github/delivery-classes.json` from the repository
-   the run works in — `classes.docs.paths`, regular expressions over the
-   repository-relative path — so one file governs both the pull request
-   gate (0038 ruling 3) and the tier inside the run. When the question
-   has no honest answer — no entry head recorded, no readable head, the
-   same head, an empty diff, a diff git cannot take, or no class declared
-   or parseable — the input is absent, and an absent input never
-   satisfies a rule (decision 0004). A repository that declares no class
-   therefore keeps exactly the behaviour it had.
+3. **The docs class is the repository's, read at the entry head.** The
+   engine reads `.github/delivery-classes.json` — `classes.docs.paths`,
+   regular expressions over the repository-relative path — as committed
+   at the head the phase was entered at, never from the working tree,
+   so one file governs both the pull request gate (0038 ruling 3) and
+   the tier inside the run. The gate reads the base branch's copy so
+   the judged delta cannot move its own classifier; the run reads the
+   entry head's copy for the same reason: the tree at ruling is the
+   judged phase's own, and a phase that could widen the class its fixes
+   are judged by has been handed the gate — the first rejected
+   alternative, re-entering through a data file. A change to the class
+   file is therefore a path like any other, classified by the class it
+   was entered under, and `.github/` is code under any honest class; it
+   buys the verify and the review that judge it, and only then governs
+   a later entry. When the question has no honest answer — the phase's
+   latest entry recorded no head or one that is not a commit id, no
+   readable head, the same head, an empty diff, a diff git cannot take,
+   or no class committed or parseable at the entry head — the input is
+   absent, and an absent input never satisfies a rule (decision 0004).
+   A repository that declares no class therefore keeps exactly the
+   behaviour it had; one that declares an empty class has said nothing
+   of it is prose, and reads `false`. The patterns are compiled by the
+   `regex` crate here and joined into jq's dialect by the gate: a
+   pattern only one accepts is refused here and reads as no class,
+   fail-closed.
 
-   **Enforcement binding:** the engine's `docs_class`; a test for each
-   absence.
+   **Enforcement binding:** the engine's `docs_class`; a test that the
+   tree is not consulted and that a widening committed by the phase
+   reads false; a test for each absence, and for the empty class.
 
 4. **`fast` ships a clean review whose fixes were docs-only.** The rule
    `REVIEW-CLEAN-DOCS-FIXES` — `clean`, `fixes_applied: true`,

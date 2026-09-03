@@ -2877,33 +2877,36 @@ impl Engine {
 
     /// Decision 0039: whether every commit the protected phase added
     /// between the head it was entered at and `head`, the repository's
-    /// head now, lies in the repository's declared docs class. `None`
-    /// whenever the question has no honest answer — no entry head
-    /// recorded, the same head, nothing committed, a diff git cannot
-    /// take, or no class declared — and an absent input never satisfies
-    /// a rule (decision 0004). A repository whose head cannot be read
-    /// never reaches here: the caller records no head and asks nothing.
+    /// head now, lies in the docs class the repository declared AT THAT
+    /// ENTRY HEAD. `None` whenever the question has no honest answer —
+    /// the phase's latest entry recorded no head or one that is not a
+    /// commit id, the same head, nothing committed, a diff git cannot
+    /// take, or no class declared at the entry head — and an absent
+    /// input never satisfies a rule (decision 0004). A repository whose
+    /// head cannot be read never reaches here: the caller records no
+    /// head and asks nothing.
+    ///
+    /// The entry head is the LATEST entry's, taken as recorded: an older
+    /// visit's head is never borrowed, because the phase's own commits
+    /// are exactly the ones since it was last entered. The head is
+    /// checked against the contract's shape before git sees it — the
+    /// chain is unkeyed, and a journal row is not an argument list.
     fn fixes_docs_only(&self, repo: &std::path::Path, phase: &str, head: &str) -> Option<bool> {
         let events = self.store.load(&self.run_id).ok()?;
-        let entered = events.iter().rev().find_map(|event| {
-            (event.event_type == EventType::PhaseEntered && event.payload["phase"] == phase)
-                .then(|| event.payload["head"].as_str().map(str::to_string))
-                .flatten()
-        })?;
+        let entered = events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.event_type == EventType::PhaseEntered && event.payload["phase"] == phase
+            })?
+            .payload["head"]
+            .as_str()
+            .filter(|entered| is_commit_id(entered))?;
         if entered == head {
             return None;
         }
-        let class = docs_class(repo)?;
-        let out = Command::new("git")
-            .args(["diff", "--no-renames", "--name-only", &entered, head])
-            .current_dir(repo)
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            return None;
-        }
-        let listed = String::from_utf8_lossy(&out.stdout);
-        let paths: Vec<&str> = listed.lines().collect();
+        let class = docs_class(repo, entered)?;
+        let paths = crate::anchor::changed_paths(repo, entered, head)?;
         if paths.is_empty() {
             return None;
         }
@@ -2915,14 +2918,41 @@ impl Engine {
     }
 }
 
-/// The docs class the repository declares for itself, exactly as the
-/// contribution gate reads it (decision 0038 ruling 3):
-/// `.github/delivery-classes.json`, `classes.docs.paths`, regular
-/// expressions over the repository-relative path. Absent, unreadable or
-/// malformed means no class — and therefore no answer, never a guess.
-fn docs_class(repo: &std::path::Path) -> Option<Vec<regex::Regex>> {
-    let raw = std::fs::read_to_string(repo.join(".github/delivery-classes.json")).ok()?;
-    let value: Value = serde_json::from_str(&raw).ok()?;
+/// The shape `contracts/phase-entered-head.v1.schema.json` promises:
+/// forty lowercase hex digits, and nothing that could read as an option.
+fn is_commit_id(candidate: &str) -> bool {
+    candidate.len() == 40
+        && candidate
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Where the repository declares its own delivery classes (decision 0038
+/// ruling 3) — the same file the contribution gate reads.
+const DELIVERY_CLASSES: &str = ".github/delivery-classes.json";
+
+/// The docs class the repository declared at `head`: `classes.docs.paths`
+/// of `.github/delivery-classes.json` as committed there, regular
+/// expressions over the repository-relative path. Read from the commit
+/// and never from the working tree, for the reason the gate reads the
+/// base branch's copy: the tree at ruling is the judged phase's own, and
+/// a phase that could widen the class its fixes are judged by has been
+/// handed the gate. A change to the class file is then a path like any
+/// other, classified by the class it was entered under. Absent at that
+/// head, or malformed, means no class — and therefore no answer, never a
+/// guess. The patterns are compiled here by the `regex` crate and joined
+/// by the gate into jq's; a pattern only one dialect accepts is refused
+/// here, and refusal reads as no class.
+fn docs_class(repo: &std::path::Path, head: &str) -> Option<Vec<regex::Regex>> {
+    let out = Command::new("git")
+        .args(["cat-file", "blob", &format!("{head}:{DELIVERY_CLASSES}")])
+        .current_dir(repo)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let value: Value = serde_json::from_slice(&out.stdout).ok()?;
     value["classes"]["docs"]["paths"]
         .as_array()?
         .iter()
