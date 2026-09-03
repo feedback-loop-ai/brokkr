@@ -1,6 +1,6 @@
 # 0042 — The council is Brokkr's, the dialect is the realm's: spec-driven delivery speaks OpenSpec or spec-kit, and the tool validates
 
-Status: proposed (drafted at the operator's direction in chat, 2026-09-04: "draft 0042 for the SDD dialects too")
+Status: proposed (drafted at the operator's direction in chat, 2026-09-04: "draft 0042 for the SDD dialects too"; amended the same day on the operator's observation that the frameworks are machines)
 Date: 2026-09-04
 
 ## Context
@@ -51,18 +51,40 @@ initialised in another and a change created, inspected and validated.
 | close-out | none; the directory is the record | `openspec archive <id> --yes` folds the deltas into the truth; `--skip-specs` for a change without spec deltas |
 | workflow runner | `specify workflow run` drives a harness through specify, plan, tasks, implement with approve-or-reject gates | slash skills, `/opsx:*` |
 
-Three things fall out of the table. Both tools are artifact conventions
-plus prompts for a harness, and a Brokkr seat is a harness: the seat can
-read the templates or ask the tool for its instructions, and neither
-tool's own runner belongs inside a run that already has typed gates.
-Only OpenSpec ships a validator worth the name; spec-kit's checks are
-existence checks, and its consistency check is a prompt. And the two
-have different shapes of truth: OpenSpec keeps a living specification a
-change amends and archives into — the shape of this repository's own
-decision record, which deliberates, rules, encodes, enforces and amends
-— while spec-kit keeps one directory per feature with a constitution
-above them, the shape of greenfield feature work and of the artifacts
-the layer above this machine produces.
+**The frameworks are machines.** The operator's observation the same
+day, and the measurement bears it out: "those two spec frameworks are
+FSMs on their own, and there is a generic SDD FSM as well." OpenSpec
+says so in its own vocabulary. Its `spec-driven` workflow is a
+*schema* — `openspec schemas` lists it, `openspec schema` manages them —
+a graph of artifacts with dependencies, and `openspec status --change`
+reports the state: proposal open, specs and design blocked by proposal,
+tasks blocked by specs and design. Spec-kit's `workflow.yml` is a step
+list with gates: `specify`, a review gate that approves or rejects,
+`plan`, a second gate, `tasks`, `implement`. Above both sits the
+machine every framework instantiates: state the what, then the how,
+then the work, then build, verify, review, ship.
+
+The first draft of this decision flattened all of that into one
+`design` phase whose chief wrote every artifact in a single pass and one
+validator at the end. That hides a framework's machine inside a
+charter, which is the one thing this repository refuses to do with its
+own: policy is data (0004), a phase is a journaled fact with its own
+bounds (0006), and a machine hidden in prose cannot be replayed, bounded
+or returned to. The rulings below put the machine in the table and make
+the dialect a map from the framework's graph onto it.
+
+Three things fall out of the measurements. Both tools are artifact
+conventions plus prompts for a harness, and a Brokkr seat is a harness:
+the seat can read the templates or ask the tool for its instructions,
+and neither tool's own runner belongs inside a run that already has
+typed gates. Only OpenSpec ships a validator worth the name; spec-kit's
+checks are existence checks, and its consistency check is a prompt. And
+the two have different shapes of truth: OpenSpec keeps a living
+specification a change amends and archives into — the shape of this
+repository's own decision record, which deliberates, rules, encodes,
+enforces and amends — while spec-kit keeps one directory per feature
+with a constitution above them, the shape of greenfield feature work
+and of the artifacts the layer above this machine produces.
 
 **Where the choice belongs.** A recipe is a strategy: how a delivery
 advances. A dialect is a convention of the repository being delivered
@@ -81,6 +103,11 @@ Alternatives weighed:
   for the reason above: the choice would sit in the wrong object, the
   operator would pick it by hand every run, and it dissolves the moment
   0041 ruling 7 lands.
+- **One design phase, every artifact in a pass.** The first draft.
+  Rejected on the operator's observation: it hides the framework's
+  machine, so a crash while writing tasks re-authors the spec, a wrong
+  spec cannot be returned to without re-doing the design, and the
+  journal records one effect where the framework has three states.
 - **Keep the hybrid, validate harder.** Rejected: a layout that is
   neither dialect can be validated by neither tool, so the validator
   stays a grep, and the repository's own `openspec/` tree stays a set of
@@ -101,9 +128,9 @@ Alternatives weighed:
    opens for `house` — gains one more optional field per realm,
    `dialect`: the name of a dialect in Brokkr's `dialects/` library, or
    a repository-relative path to a dialect file of the same shape. A
-   bundle whose table has a `design` phase compiles only against a
-   realm that declares one; the refusal names the realm and says a
-   design phase needs a dialect. The resolved dialect is pinned by
+   bundle whose table has an artifact phase (ruling 2) compiles only
+   against a realm that declares one; the refusal names the realm and
+   says the phase needs a dialect. The resolved dialect is pinned by
    content digest in the run manifest beside the adapters, so a change
    to a dialect moves the digest of every run that designs under it.
 
@@ -111,16 +138,50 @@ Alternatives weighed:
    frozen-contracts test; the dialect loader in `brokkr-runtime`; the
    compile refusal and its test; the manifest pin.
 
-2. **A dialect is one data file, and a capability it lacks is
-   `unsupported` with the measured reason.** `contracts/dialect.v1.schema.json`
-   closes the vocabulary: `tool` (binary and the version measured);
-   `requires` (repository files that must exist before a design phase
-   may run); `change` (the change's path with `{change}`); `truth` (the
-   living specification tree, or `unsupported`); `artifacts` (the files
-   a change comprises); `new`, `validate`, `verify` and `archive` (argv
-   with `{change}`, or `unsupported`); `house` (the dialect's own
-   constitution path, or `unsupported`); and `fragments` (`design`,
-   `implement`, `review`: Markdown the engine renders). Two ship:
+2. **The SDD machine is a table, and it has three artifact phases.**
+   `recipes/sdd`'s table carries `specify` (the what), `design` (the
+   how) and `tasks` (the work breakdown) ahead of implement, each a
+   phase of its own: its own seat, attempts and deadline, a typed result,
+   and a dialect-supplied validate step as its final step (ruling 4).
+   `specify` seats the chief alone. `design` seats the council —
+   positions in parallel, then the chief. `tasks` seats the smith: the
+   implementer plans its own work, and the dialect checks the plan before
+   a line is built. Each phase reports `drafted`, `fail`, or `upstream`
+   — the artifact above is at fault — and the table routes them:
+   `drafted` advances; `fail` re-enters the phase once, then stops;
+   `upstream` returns to the previous artifact phase under a visits
+   bound, and from `specify` it parks, because the commission itself is
+   at fault and that is triage's office (0041 ruling 6). Decision 0041
+   ruling 5c's edge — the spec-compliance judge's `spec_defect` — lands
+   on `specify`, the earliest artifact, and the chain re-runs under the
+   same bound. A framework's human gates are table rules: a gated
+   variant may park after `specify` and after `design`; the unattended
+   variant parks nowhere.
+
+   **Enforcement binding:** `recipes/sdd/policy.json`;
+   `crates/brokkr-runtime/tests/sdd_shape.rs` (new): three artifact
+   phases precede implement, each ends in a boxed validate step, each
+   `upstream` edge lands one phase earlier and is bounded, the
+   protected review gate is unchanged; a table test per arm in
+   `brokkr-core`.
+
+3. **A dialect maps its framework's graph onto the table, and the
+   compiler checks the map.** `contracts/dialect.v1.schema.json` closes
+   the vocabulary: `tool` (binary and the version measured); `requires`
+   (repository files that must exist before an artifact phase may run);
+   `change` (the change's path with `{change}`); `truth` (the living
+   specification tree, or `unsupported`); `phases` — for each of
+   `specify`, `design` and `tasks`: the artifacts it comprises, the
+   instructions the seat is rendered, and the phase's `validate` argv or
+   `unsupported` with the reason; `order` (the framework's own
+   dependency edges between artifacts); `verify` and `archive` (argv
+   with `{change}`, or `unsupported`); and `house` (the dialect's own
+   constitution path, or `unsupported`). Every artifact is assigned to
+   exactly one phase, every phase is filled, and the table's phase
+   order must be a linear extension of `order`: a map that places an
+   artifact before one it depends on is refused at compile time, naming
+   both. A framework that cannot fill a phase is refused rather than
+   served a no-op. Two ship:
 
    | | `dialects/openspec.json` | `dialects/speckit.json` |
    |---|---|---|
@@ -128,45 +189,61 @@ Alternatives weighed:
    | `requires` | `openspec/config.yaml` | `.specify/templates/spec-template.md`, `.specify/scripts/bash/check-prerequisites.sh` |
    | `change` | `openspec/changes/{change}` | `specs/{change}`, `{change}` being `NNN-slug` |
    | `truth` | `openspec/specs` | `unsupported`: the feature directory is the record |
-   | `new` | `openspec new change {change}` | `unsupported`: `create-new-feature.sh` also creates a branch, and a run already stands on one; the chief numbers and creates the directory from the templates |
-   | `validate` | `openspec validate {change} --strict --no-interactive` | `check-prerequisites.sh --require-tasks` and Brokkr's own check of the template headings, declared as Brokkr's |
+   | `specify` | `proposal.md`, then `specs/<capability>/spec.md` deltas | `spec.md` |
+   | `design` | `design.md` | `plan.md`, with research, data model, contracts and quickstart as the template asks |
+   | `tasks` | `tasks.md` | `tasks.md` |
+   | `order` | proposal → specs, proposal → design, specs → tasks, design → tasks | spec → plan → tasks |
+   | `validate`, per phase | `openspec validate {change} --strict --no-interactive`, and `openspec status --change {change} --json` must show the phase's artifacts complete | `check-prerequisites.sh` for the files it knows, and Brokkr's own check of the template headings, declared as Brokkr's |
    | `verify` | `openspec validate --archived --strict --no-interactive` | `unsupported` |
    | `archive` | `openspec archive {change} --yes` | `unsupported`: spec-kit has no close-out |
    | `house` | `unsupported`: the realm's `house` file is the constitution | `.specify/memory/constitution.md` |
 
-   **Enforcement binding:** the two dialect files; the schema; loader
-   tests that refuse an unknown field and accept `unsupported` where
-   the schema allows it; `brokkr doctor` reports the tool, its version
-   against the pin, and each `requires` file.
+   OpenSpec's graph lets specs and design proceed in parallel after the
+   proposal; the table linearises them, specify then design, which the
+   graph permits. Creating the change is the `specify` seat's first act
+   — `openspec new change {change}` where the tool has it; the numbered
+   directory from the templates where it does not, because spec-kit's
+   `create-new-feature.sh` also creates a git branch and a run already
+   stands on one.
 
-3. **The validator is the tool's, run as a boxed exec step; where the
-   tool has none, the check is Brokkr's and says so.** The design
-   sequence's final step is dialect-supplied — `{"name": "validate",
-   "dialect": "validate"}` — and resolves to the dialect's `validate`
-   argv, boxed under decision 0040 ruling 3, class gate, its typed
-   result `designed` or `fail` with the tool's findings as notes. Where
-   a dialect declares `verify`, the verify seat's boxed exec runs it
-   after the suite, so a folded change with an unticked task fails
-   verify rather than review. The mtime search is deleted.
+   **Enforcement binding:** the two dialect files; the schema; loader
+   tests that refuse an unknown field, an unfilled phase and an order
+   the table violates, and accept `unsupported` where the schema allows
+   it; `brokkr doctor` reports the tool, its version against the pin,
+   and each `requires` file.
+
+4. **The validator is the tool's, per phase, run as a boxed exec step;
+   where the tool has none, the check is Brokkr's and says so; and the
+   framework's own state is evidence.** Each artifact phase's final
+   step is `{"name": "validate", "dialect": "validate"}` and resolves to
+   that phase's argv from the dialect, boxed under decision 0040 ruling
+   3, class gate, its typed result `drafted` or `fail` with the tool's
+   findings as notes — and, where the tool reports state, that state
+   recorded verbatim beside them, so the journal carries the framework's
+   view of the change next to Brokkr's. Where a dialect declares
+   `verify`, the verify seat's boxed exec runs it after the suite, so a
+   folded change with an unticked task fails verify rather than review.
+   The mtime search is deleted.
 
    **Enforcement binding:** the `dialect:` site form in
    `crates/brokkr-runtime/src/bundle.rs`; the engine's argv expansion;
-   `crates/brokkr-runtime/tests/sdd_shape.rs` (new): the design
-   sequence ends in a dialect-supplied validate step, the step is boxed
-   and a gate, `speckit_check.sh` is gone.
+   `sdd_shape.rs`: every validate step is boxed and a gate,
+   `speckit_check.sh` is gone; a test that a validate step's notes
+   carry the tool's status output when the dialect declares one.
 
-4. **The handoff is typed and journaled.** `change` joins the input
+5. **The handoff is typed and journaled.** `change` joins the input
    vocabulary as an identifier kind — a string matching
    `^[a-z0-9][a-z0-9._-]*$` — that a seat may declare and a rule may
-   never test. The chief's result carries it, the validator echoes it,
-   and the design seat's result carries it into the journal. The engine
-   exposes to every seat `context.results.<phase>`: the `result` and
-   declared `inputs` of the last successful effect of each earlier
-   phase — typed facts, never `notes`, which stay in the journal where
-   prose belongs. A `{change}` token in a dialect argv expands from the
-   nearest preceding result that carries the input, the previous step
-   inside a sequence before the latest phase. No seat discovers a change
-   by modification time or by reading a directory listing.
+   never test. The `specify` seat's result carries it, every validate
+   step echoes it, and each artifact phase's result carries it into the
+   journal. The engine exposes to every seat `context.results.<phase>`:
+   the `result` and declared `inputs` of the last successful effect of
+   each earlier phase — typed facts, never `notes`, which stay in the
+   journal where prose belongs. A `{change}` token in a dialect argv
+   expands from the nearest preceding result that carries the input, the
+   previous step inside a sequence before the latest phase. No seat
+   discovers a change by modification time or by reading a directory
+   listing.
 
    **Enforcement binding:** `IDENTIFIER_INPUTS` in
    `crates/brokkr-core/src/policy.rs` and the decision 0007 lint in
@@ -175,35 +252,36 @@ Alternatives weighed:
    carries no notes, and that the token refuses to expand when nothing
    carries the input.
 
-5. **Under a dialect the offices keep their walls.** The chief authors
-   every artifact the dialect names for the change and commits exactly
-   those, reading the dialect's own instructions through its hands —
-   `openspec instructions <artifact> --change {change}` or the
-   templates under `.specify/templates/` — never the tool's runner. A
-   commission that names an existing change is adopted, not re-authored:
-   the positions argue against what was handed in, the chief amends with
-   reasons or leaves it, and the validator runs regardless. The smith
-   works the tasks and ticks them, and where the dialect declares
-   `archive`, folds the change into the truth as its last task, so the
-   pull request carries the code and the truth it changes in one head; a
-   smith returned under 0041 ruling 5 reopens the archived change with
-   `git mv` before amending and folds it again. A change that alters no
-   specified behaviour says so in the dialect's own words — OpenSpec's
-   `skip_specs` — rather than inventing a requirement to pass
-   validation. The spec-compliance judge compares the diff to the
-   change's artifacts as the dialect shapes them, scenarios or success
-   criteria, and may rule `spec_defect` (0041 ruling 5c); no gate touches
-   an artifact (0041 ruling 4). The charters carry none of this: the
-   dialect's `fragments` do, rendered by the engine under `## Spec
-   dialect` into the design, implement and review seats.
+6. **Under a dialect the offices keep their walls.** The chief authors
+   the `specify` and `design` artifacts and commits exactly those,
+   reading the dialect's own instructions through its hands —
+   `openspec instructions <artifact> --change {change}` or the templates
+   under `.specify/templates/` — never the tool's runner. A commission
+   that names an existing change is adopted, not re-authored: the
+   `specify` seat validates what was handed in and amends with reasons
+   or leaves it, the positions argue against it, and every validator
+   runs regardless. The smith writes `tasks`, works them and ticks them,
+   and where the dialect declares `archive`, folds the change into the
+   truth as its last task, so the pull request carries the code and the
+   truth it changes in one head; a smith returned under 0041 ruling 5
+   reopens the archived change with `git mv` before amending and folds
+   it again. A change that alters no specified behaviour says so in the
+   dialect's own words — OpenSpec's `skip_specs` — rather than inventing
+   a requirement to pass validation. The spec-compliance judge compares
+   the diff to the change's artifacts as the dialect shapes them,
+   scenarios or success criteria, and may rule `spec_defect` (0041
+   ruling 5c); no gate touches an artifact (0041 ruling 4). The charters
+   carry none of this: the dialect's per-phase instructions do, rendered
+   by the engine under `## Spec dialect` into the seat that holds the
+   phase and into the review panel.
 
-   **Enforcement binding:** the fragments; `implementer-speckit` and
-   `intake-speckit` renamed `implementer-sdd` and `intake-sdd` and
-   made dialect-free; the `specify` tool grant leaves every agent; the
-   roster test of 0041 refuses a library charter naming `specs/`,
-   `openspec/` or `.specify/`.
+   **Enforcement binding:** the dialect instructions;
+   `implementer-speckit` and `intake-speckit` renamed `implementer-sdd`
+   and `intake-sdd` and made dialect-free; the `specify` tool grant
+   leaves every agent; the roster test of 0041 refuses a library charter
+   naming `specs/`, `openspec/` or `.specify/`.
 
-6. **This repository's realm speaks OpenSpec, and the hybrid retires.**
+7. **This repository's realm speaks OpenSpec, and the hybrid retires.**
    `realms.json` declares `"dialect": "openspec"`; `openspec init`
    scaffolds `openspec/config.yaml` and `openspec/specs/`. The eight
    change directories under `openspec/changes/` and the eight feature
@@ -221,10 +299,10 @@ Alternatives weighed:
    **Enforcement binding:** `realms.json`; the moves; the sdd witness
    pin; `brokkr doctor` green on this realm.
 
-7. **`brokkr init` detects the dialect and `doctor` reports it.** A
+8. **`brokkr init` detects the dialect and `doctor` reports it.** A
    `.specify/` directory declares spec-kit; `openspec/config.yaml`
    declares OpenSpec; both present, init refuses to guess and asks;
-   neither, init writes no dialect and says a design phase will need
+   neither, init writes no dialect and says an artifact phase will need
    one. `doctor` prints the realm's dialect, the tool it found and the
    version it measured against the pin.
 
@@ -233,32 +311,44 @@ Alternatives weighed:
 
 ## Consequences
 
-- **What dies.** `speckit_check.sh` and its role file; discovery by
-  modification time; the chief's four hard-coded paths; the two
-  `-speckit` agent names and the `specify` grant; the hybrid layout, into
-  the evidence tree with its history.
-- **What it costs.** Nothing at run time beyond one boxed exec step the
-  design seat already has. The tool must be installed on the machine
-  that runs a design phase — Node for OpenSpec — and `doctor` says so
-  before a run does. A dialect's version is a pin: bumping it moves the
-  digest of every bundle that designs, which is the point.
+- **What dies.** The single design pass and its four hard-coded paths;
+  `speckit_check.sh` and its role file; discovery by modification time;
+  the two `-speckit` agent names and the `specify` grant; the hybrid
+  layout, into the evidence tree with its history.
+- **What it costs.** Three artifact seats where there was one: a
+  chief's pass on `specify`, the council on `design`, the smith's pass
+  on `tasks`, each with a boxed validate step. Each is smaller than the
+  single pass it replaces and each is bounded, journaled and returnable
+  on its own, which is what the extra sessions buy. The tool must be
+  installed on the machine that runs an artifact phase — Node for
+  OpenSpec — and `doctor` says so before a run does. A dialect's version
+  is a pin: bumping it moves the digest of every bundle that designs,
+  which is the point.
 - **How the two decisions compose.** Under 0041 ruling 6 a `chore`
-  never enters design, so a chore creates no change under either
-  dialect, which is exactly what OpenSpec's `skip_specs` and spec-kit's
-  absence of a chore artifact both say. Under 0041 ruling 7 the sdd
-  recipes become the `design` and `engine` cases of `recipes/triage`,
-  and the dialect they write in comes from the realm, so one bundle
-  designs correctly in two repositories that speak different dialects.
-  Until ruling 7 lands, `recipes/sdd` stays a recipe and is dialect-free.
+  never enters an artifact phase, so a chore creates no change under
+  either dialect, which is exactly what OpenSpec's `skip_specs` and
+  spec-kit's absence of a chore artifact both say. Under 0041 ruling 7
+  the sdd recipes become the `design` and `engine` cases of
+  `recipes/triage`, and the dialect they write in comes from the realm,
+  so one bundle designs correctly in two repositories that speak
+  different dialects. Until ruling 7 lands, `recipes/sdd` stays a recipe
+  and is dialect-free.
 - **Enactment, in order, after 0041's first slice moves the agent
   files.** (i) The dialect schema and library, the realm field, the
-  loader, the `dialect:` site form, the identifier input and the typed
-  handoff — one engine slice; `forge.realms/v3` is opened by whichever
-  of 0041 ruling 8 and this ruling 1 lands first and carries both
-  fields. (ii) The fragments, the charters, the renames, and this
-  repository's own migration under ruling 6. (iii) `init` and `doctor`.
-- **Deliberately unruled.** Custom OpenSpec schemas (`openspec schema`,
-  experimental) and stores; a realm that speaks two dialects; a
-  dialect wager — the same commission designed under both, compared by
-  artifacts — which the wager harness could run once ruling 1 lands
-  and which would be the evidence for changing ruling 6's default.
+  loader and its map check, the `dialect:` site form, the identifier
+  input and the typed handoff — one engine slice; `forge.realms/v3` is
+  opened by whichever of 0041 ruling 8 and this ruling 1 lands first and
+  carries both fields. (ii) The three-phase table, the per-phase
+  instructions, the charters, the renames, and this repository's own
+  migration under ruling 7. (iii) `init` and `doctor`.
+- **Deliberately unruled.** The gated variant's parks are approvals,
+  and the operator command vocabulary has `retry` and `stop` but no
+  `proceed`; a variant that waits for approval wants that command, and
+  its own ruling. Which phase the council sits on is data — moving the
+  positions from `design` to `specify` is a seat edit — and the default
+  here is a judgment, not a measurement. Custom OpenSpec schemas
+  (`openspec schema`, experimental) and stores; a realm that speaks two
+  dialects; a dialect wager — the same commission designed under both,
+  compared by artifacts — which the wager harness could run once ruling
+  1 lands and which would be the evidence for changing ruling 7's
+  default.
