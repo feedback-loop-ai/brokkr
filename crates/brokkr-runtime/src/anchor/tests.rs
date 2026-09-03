@@ -283,7 +283,11 @@ fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
     vouch(&mut store, "first", &head);
     let first = anchored_message(dir.path(), &anchor(&store, dir.path(), "first").unwrap());
     let patch = first["patch"].as_object().expect("a map, not null");
-    assert_eq!(patch.keys().collect::<Vec<_>>(), [odd, "docs/a1.md"]);
+    // The map is keyed by path in byte order: the colon sorts before the
+    // digit on Unix, and its absence sorts after it on Windows.
+    let mut expected = [odd, "docs/a1.md"];
+    expected.sort_unstable();
+    assert_eq!(patch.keys().collect::<Vec<_>>(), expected);
     assert_eq!(patch[odd].as_str().unwrap().len(), 40);
 
     // The sibling the glob would have paired moves; the named path's id
