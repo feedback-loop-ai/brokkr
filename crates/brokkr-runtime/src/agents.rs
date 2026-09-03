@@ -120,7 +120,7 @@ pub struct Agent {
     /// order is the provider flag's order.
     pub allow: Option<Vec<String>>,
     pub mcp: Vec<McpNeed>,
-    /// Decision 0040: the agent's hands are one boxed tool. When set, the
+    /// Decision 0042: the agent's hands are one boxed tool. When set, the
     /// tool allow-list is not consulted — the box bounds what running
     /// anything can touch — and the adapter must say how it replaces the
     /// harness's own tools with that one.
@@ -266,7 +266,7 @@ pub struct Adapter {
     /// as `model_flag`.
     pub effort_flag: Option<String>,
     pub tool_permissions: Option<ToolPermissions>,
-    /// Decision 0040: how this provider is told to put its hands in the
+    /// Decision 0042: how this provider is told to put its hands in the
     /// box — the argv fragment that disables its own tools and reaches
     /// the `brokkr hands serve` MCP server, with `{hands_mcp_json}` and
     /// `{hands_args_toml}` expanded by the engine at spawn. `None` where
@@ -411,7 +411,7 @@ pub struct Resolution {
     /// dependent.
     pub record: Value,
     pub notices: Vec<Notice>,
-    /// Decision 0040: the agent's hands, carried to the site that hires it.
+    /// Decision 0042: the agent's hands, carried to the site that hires it.
     pub hands: Option<brokkr_protocol::hands::HandsSpec>,
 }
 
@@ -508,7 +508,7 @@ fn compose(
     };
 
     if agent.hands.is_some() {
-        // Decision 0040 ruling 2: the box expresses the restriction. The
+        // Decision 0042 ruling 2: the box expresses the restriction. The
         // tool list is not consulted; what the provider must be able to
         // say is how its own tools are replaced by the one boxed tool.
         let fragment = adapter.hands.as_ref().ok_or_else(|| {

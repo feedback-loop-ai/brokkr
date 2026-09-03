@@ -231,7 +231,7 @@ fn doctor_with_probe(
             "required for worktree, drift, and dirty gates".into(),
         ),
     }
-    // Decision 0040: a bundle whose seats box their hands cannot run
+    // Decision 0042: a bundle whose seats box their hands cannot run
     // without bubblewrap, and the boundary is never simulated.
     match probe("bwrap") {
         Some(v) => report.ok("hands", format!("{v} · boxed seats can run")),

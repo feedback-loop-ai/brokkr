@@ -728,7 +728,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0039 moved `recipes/fast` here as it moved it in the witness
 /// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
 /// rules differently is a different bundle. Nothing else in this list moved.
-/// Decision 0040 moved every pinned bundle at once, and for one reason:
+/// Decision 0042 moved every pinned bundle at once, and for one reason:
 /// every adapter file gained `hands` — how the provider puts its hands in
 /// the box, or the measured reason it cannot — and a bundle whose inline
 /// gate pins the adapter declaration that authorised it (decision 0021)
@@ -772,7 +772,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "f0c9ae33fea90f68f8b6ff5568660f86d7a7fa36ff5ce6ef19611018bc20ed59",
+        "36c369e4cd5e30a87c83702ad937426245dd3d34d53dd3b4c0b2468e8029ded3",
     ),
     (
         "recipes/panel-review",

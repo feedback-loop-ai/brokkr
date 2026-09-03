@@ -1,5 +1,5 @@
 //! The model's hands are one tool, and the tool runs in an empty root
-//! (decision 0040).
+//! (decision 0042).
 //!
 //! A harness keeps its credential and its network to the provider
 //! OUTSIDE the box. What the model asks to RUN goes through one tool,
@@ -199,7 +199,7 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
 }
 
 /// What the host knows about the worktree's git that the box must be
-/// told, gathered OUTSIDE the box before it is built (decision 0040
+/// told, gathered OUTSIDE the box before it is built (decision 0042
 /// ruling 6): where the git directory is, and who the seat commits as.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitFacts {

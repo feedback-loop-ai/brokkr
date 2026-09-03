@@ -174,7 +174,7 @@ above:
 |---|---|---|
 | Phase-machine table with the rule-driven park | `phase-machine.v2.schema.json` | brokkr-core, every bundle that parks by rule |
 
-Decision 0040 adds one more manifest version and changes none of the bytes
+Decision 0042 adds one more manifest version and changes none of the bytes
 above:
 
 | Contract | File | Consumers |

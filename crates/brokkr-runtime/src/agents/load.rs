@@ -506,7 +506,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         }
     }
     let (allow, mcp) = parse_tools(map, &what)?;
-    // Decision 0040: one boxed tool instead of a list. Refused at the
+    // Decision 0042: one boxed tool instead of a list. Refused at the
     // same place a malformed tool list is, naming the agent.
     let hands = match map.get("hands") {
         None => None,
@@ -811,11 +811,11 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // implicit default ruling 1 exists to refuse.
     let efforts = string_array(map, "efforts", &what)?;
     named(&efforts, "efforts", &what)?;
-    // Decision 0040: how the provider puts its hands in the box, or the
+    // Decision 0042: how the provider puts its hands in the box, or the
     // measured reason it cannot. The same three legal shapes as
     // `tool_permissions`, for the same reason.
     // Absent is legal here, unlike `tool_permissions`: the key arrived
-    // with decision 0040, and an adapter written before it — including
+    // with decision 0042, and an adapter written before it — including
     // every `brokkr init` scaffold in the field — must keep compiling.
     // Absent reads as unsupported with no reason, fail-closed.
     let (hands, hands_gap) = match map.get("hands").map(|_| capability(map, "hands", &what)) {

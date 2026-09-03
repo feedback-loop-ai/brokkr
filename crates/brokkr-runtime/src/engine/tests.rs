@@ -3326,7 +3326,9 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     std::fs::remove_dir_all(repo.join(".git")).unwrap();
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
-// ── decision 0040: the hands go in the box at spawn ─────────────────
+}
+
+// ── // ── decision 0042: the hands go in the box at spawn ─────────────────
 
 #[test]
 fn a_site_without_hands_spawns_its_command_untouched() {

@@ -2989,7 +2989,7 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     assert_eq!(CONTENDED_EXIT, 4);
 }
 
-/// Decision 0040 through the in-process verb: a boxed command runs whole
+/// Decision 0042 through the in-process verb: a boxed command runs whole
 /// and returns its own code, and a spec that does not parse is refused
 /// before anything spawns. Linux only, like the boundary.
 #[cfg(target_os = "linux")]
@@ -3053,7 +3053,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     assert!(refused.contains("--spec"), "{refused}");
 }
 
-/// Decision 0040 ruling 7: a bundle that boxes hands refuses to start
+/// Decision 0042 ruling 7: a bundle that boxes hands refuses to start
 /// without bubblewrap, naming the seats; a bundle that boxes nothing is
 /// untouched by the check.
 #[test]

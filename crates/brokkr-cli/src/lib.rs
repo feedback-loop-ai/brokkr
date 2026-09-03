@@ -453,7 +453,7 @@ enum Cmd {
         args: Vec<String>,
     },
     /// The model's hands are one tool, and the tool runs in an empty root
-    /// (decision 0040): serve the `workspace` tool over MCP on stdio, or
+    /// (decision 0042): serve the `workspace` tool over MCP on stdio, or
     /// run one command whole inside the same box.
     Hands {
         #[command(subcommand)]
@@ -921,7 +921,7 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Decision 0040 ruling 7: a bundle whose seats box their hands refuses
+/// Decision 0042 ruling 7: a bundle whose seats box their hands refuses
 /// to start without bubblewrap, naming the seats — before any journal is
 /// opened or seat spawned. The boundary is Linux's and is never simulated.
 fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> anyhow::Result<()> {
@@ -932,7 +932,7 @@ fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> 
         Ok(_) => Ok(()),
         Err(reason) => anyhow::bail!(
             "{reason}; the seats {:?} declare hands and cannot run on this machine \
-             (decision 0040 ruling 7 — hands are a Linux boundary)",
+             (decision 0042 ruling 7 — hands are a Linux boundary)",
             bundle.hands.keys().collect::<Vec<_>>()
         ),
     }

@@ -1,4 +1,4 @@
-//! Decision 0040 through the binary: `brokkr hands serve` speaks MCP on
+//! Decision 0042 through the binary: `brokkr hands serve` speaks MCP on
 //! stdio and `brokkr hands exec` runs a command whole inside the box.
 //! Linux only, like the boundary.
 
