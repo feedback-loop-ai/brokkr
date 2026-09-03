@@ -217,6 +217,30 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
         third["patch"]["docs/page.md"],
         first["patch"]["docs/page.md"]
     );
+
+    // A file moved whole: a rename is never paired, so the map carries
+    // the deletion and the addition as two paths, and the old path does
+    // not vanish from the record by being moved.
+    git(dir.path(), &["mv", "src/lib.txt", "src/moved.txt"], None).unwrap();
+    git(dir.path(), &["commit", "-q", "-m", "move the file"], None).unwrap();
+    let moved = git(dir.path(), &["rev-parse", "HEAD"], None).unwrap();
+    store
+        .create_run("fourth", "feature", "bundle", &json!({"files": {}}))
+        .unwrap();
+    vouch(&mut store, "fourth", &moved);
+    let fourth = anchored_message(dir.path(), &anchor(&store, dir.path(), "fourth").unwrap());
+    assert_eq!(
+        fourth["patch"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["docs/page.md", "src/lib.txt", "src/moved.txt"]
+    );
+    assert_ne!(
+        fourth["patch"]["src/lib.txt"],
+        first["patch"]["src/lib.txt"]
+    );
 }
 
 #[test]

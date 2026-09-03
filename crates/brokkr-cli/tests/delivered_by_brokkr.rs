@@ -303,6 +303,23 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
         "{log}"
     );
 
+    // A code file moved under a docs name after the judgment: a rename is
+    // never paired, so the deletion stays in the delta and cuts the tier
+    // to code. Paired, the delta would read as two pages.
+    git(&repo, &["checkout", "-q", "-b", "moved", &docs_delta]);
+    git(&repo, &["mv", "src/lib.txt", "docs/lib.md"]);
+    git(&repo, &["commit", "-q", "-m", "move the code under docs"]);
+    let moved = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["checkout", "-q", "slice"]);
+    let (code, log) = gate.judge(&with_preflight, &moved, "");
+    assert_eq!(code, 1, "{log}");
+    assert!(
+        log.contains(
+            "tier code · delta since the judgment: [\"docs/lib.md\",\"docs/page.md\",\"src/lib.txt\"]"
+        ),
+        "{log}"
+    );
+
     // Code changes after the judgment: a new run, or the label. The
     // delta is everything since the judgment, the pages included — one
     // code path in it is enough to cut the tier.

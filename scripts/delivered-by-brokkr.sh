@@ -85,12 +85,14 @@ verify_evidence() {
 
 # Decision 0038 ruling 1's map, computed for the head under judgment
 # exactly as the engine computes it at ship: per path, the stable patch
-# id of that file's diff from the merge-base.
+# id of that file's diff from the merge-base. Renames are never paired,
+# so a moved file is a deletion and an addition and no path leaves the
+# map by being moved.
 patch_map() {
   local base="$1" head="$2" path id
   {
-    git -C "$REPO" diff --name-only "$base" "$head" | while IFS= read -r path; do
-      id="$(git -C "$REPO" diff "$base" "$head" -- "$path" | git patch-id --stable | cut -d' ' -f1)"
+    git -C "$REPO" diff --no-renames --name-only "$base" "$head" | while IFS= read -r path; do
+      id="$(git -C "$REPO" diff --no-renames "$base" "$head" -- "$path" | git patch-id --stable | cut -d' ' -f1)"
       jq -n --arg path "$path" --arg id "$id" '{($path): $id}'
     done
   } | jq -s 'add // {}'
@@ -121,11 +123,13 @@ else
     if [[ "$delta" == "[]" ]]; then
       tier=vouched
     else
+      # One jq ruling, not a pipeline: a path that matches no docs
+      # pattern makes the whole delta code (ruling 3).
       docs_pattern="$(jq -r '.classes.docs.paths | join("|")' "$CLASSES")"
-      if jq -r '.[]' <<<"$delta" | grep -Evq -- "$docs_pattern"; then
-        tier=code
-      else
+      if jq -e --arg docs "$docs_pattern" 'all(.[]; test($docs))' <<<"$delta" >/dev/null; then
         tier=docs
+      else
+        tier=code
       fi
     fi
   else

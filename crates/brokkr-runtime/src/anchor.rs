@@ -133,15 +133,27 @@ fn default_branch(repo: &Path) -> Option<String> {
 /// merge-base of the vouched head with the default branch, and for every
 /// path the diff from that base touches, the stable patch id of that
 /// file's diff. Ancestry is not in the id, so a clean rebase keeps every
-/// entry; a changed hunk moves exactly the entry it lives in. `None`
-/// when there is no branch to measure against.
+/// entry; a changed hunk moves exactly the entry it lives in. Renames are
+/// never paired: a moved file is a deletion and an addition, each a path
+/// like any other, so no path leaves the map by being moved. `None` when
+/// there is no branch to measure against.
 fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>)> {
     let branch = default_branch(repo)?;
     let base = git(repo, &["merge-base", &branch, head], None).ok()?;
-    let listed = git(repo, &["diff", "--name-only", &base, head], None).ok()?;
+    let listed = git(
+        repo,
+        &["diff", "--no-renames", "--name-only", &base, head],
+        None,
+    )
+    .ok()?;
     let mut patch = Map::new();
     for path in listed.lines() {
-        let diff = git(repo, &["diff", &base, head, "--", path], None).ok()?;
+        let diff = git(
+            repo,
+            &["diff", "--no-renames", &base, head, "--", path],
+            None,
+        )
+        .ok()?;
         let id = git(repo, &["patch-id", "--stable"], Some(&diff)).ok()?;
         let id = id.split_whitespace().next()?.to_string();
         patch.insert(path.to_string(), Value::String(id));
