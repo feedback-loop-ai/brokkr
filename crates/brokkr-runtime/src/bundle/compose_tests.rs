@@ -728,7 +728,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0039 moved `recipes/fast` here as it moved it in the witness
 /// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
 /// rules differently is a different bundle. Nothing else in this list moved.
-/// Decision 0042 moved every pinned bundle at once, and for one reason:
+/// Decision 0043 moved every pinned bundle at once, and for one reason:
 /// every adapter file gained `hands` — how the provider puts its hands in
 /// the box, or the measured reason it cannot — and a bundle whose inline
 /// gate pins the adapter declaration that authorised it (decision 0021)

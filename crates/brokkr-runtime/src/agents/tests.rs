@@ -1400,7 +1400,7 @@ fn selection_skips_an_unmapped_first_entry() {
     assert!(refusal(&tree, "tester").contains("model 'nowhere'"));
 }
 
-// ------------------------------------------------ decision 0042: hands
+// ------------------------------------------------ decision 0043: hands
 
 fn boxed_agent() -> Value {
     let mut body = agent_body();

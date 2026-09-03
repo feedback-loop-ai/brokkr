@@ -76,7 +76,7 @@ in play" has stopped being a bound.
 ## Hands
 
 An agent may declare `"hands"` instead of relying on its `tools.allow`
-list (decision 0042). The harness keeps its credential and its network;
+list (decision 0043). The harness keeps its credential and its network;
 what the model asks to run goes through one MCP tool, `workspace`, served
 by `brokkr hands serve`, and every call executes inside an empty-root
 bubblewrap namespace holding the worktree read-write and the host

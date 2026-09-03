@@ -237,7 +237,7 @@ pub struct Bundle {
     pub machine: Machine,
     pub seats: BTreeMap<String, Seat>,
     pub manifest: Value,
-    /// Decision 0042: the sites whose hands are one boxed tool, keyed as
+    /// Decision 0043: the sites whose hands are one boxed tool, keyed as
     /// the manifest's `hands` key is — seat, `seat:member`, `seat:step`,
     /// `seat:step:member` — and as the engine labels the driver seat.
     pub hands: BTreeMap<String, HandsSpec>,
@@ -286,7 +286,7 @@ struct ResolvedSeat {
     candidates: Vec<Candidate>,
     limits: Option<Limits>,
     inputs: Option<Vec<String>>,
-    /// Decision 0042: the agent's hands, when it declared them.
+    /// Decision 0043: the agent's hands, when it declared them.
     hands: Option<HandsSpec>,
 }
 
@@ -1356,7 +1356,7 @@ fn enforce_model_policy(
             Some(provider) => format!("driver '{provider}'"),
             None => "an unnamed driver (the command is no driver dispatch)".to_string(),
         };
-        // Decision 0042 ruling 3: a deterministic `exec` command whose
+        // Decision 0043 ruling 3: a deterministic `exec` command whose
         // hands are boxed has no stochastic axis to distrust, and its
         // blast radius is the box. It may hold a gate.
         let boxed_exec = driver.as_deref() == Some("exec") && raw.get("hands").is_some();
@@ -1448,7 +1448,7 @@ fn enforce_model_policy(
     Ok(())
 }
 
-/// Decision 0042: record one site's hands — the agent's when the site
+/// Decision 0043: record one site's hands — the agent's when the site
 /// names an agent, the site's own `hands` value when it is inline. A
 /// site with hands and secret bindings is refused: the box clears the
 /// environment, and a binding that cannot reach its seat is a binding
@@ -1463,7 +1463,7 @@ fn record_hands(
     let spec = match (from_agent, raw.get("hands")) {
         (Some(spec), _) => spec,
         (None, Some(declared)) => HandsSpec::parse(declared).map_err(|problem| {
-            CompileError::Invalid(format!("seat '{what}' hands: {problem} (decision 0042)"))
+            CompileError::Invalid(format!("seat '{what}' hands: {problem} (decision 0043)"))
         })?,
         (None, None) => return Ok(()),
     };
@@ -1471,7 +1471,7 @@ fn record_hands(
         return Err(CompileError::Invalid(format!(
             "seat '{what}' declares hands and secret bindings {secrets:?}; the box \
              clears the environment, so a boxed seat cannot receive a binding \
-             (decision 0042)"
+             (decision 0043)"
         )));
     }
     hands.insert(what.to_string(), spec);
@@ -2015,7 +2015,7 @@ fn manifest_for(
     if let Some(records) = drivers.filter(|records| !records.is_empty()) {
         manifest["drivers"] = Value::Object(records.clone());
     }
-    // ABSENT on the same terms once more (decision 0042): a bundle that
+    // ABSENT on the same terms once more (decision 0043): a bundle that
     // boxes no hands keeps its v5 shape and identity byte for byte.
     if !hands.is_empty() {
         manifest["hands"] = Value::Object(

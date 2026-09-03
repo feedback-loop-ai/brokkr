@@ -2796,7 +2796,7 @@ pub fn confined_command(
     wrapped
 }
 
-/// Decision 0042: put a site's hands in the box. A model seat's argv has
+/// Decision 0043: put a site's hands in the box. A model seat's argv has
 /// the adapter's fragment already; its two tokens are expanded here,
 /// where the workdir and this binary's path are known — the MCP server a
 /// harness spawns is `brokkr hands serve` on this very executable. An

@@ -3328,7 +3328,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
 }
 
-// ── // ── decision 0042: the hands go in the box at spawn ─────────────────
+// ── // ── decision 0043: the hands go in the box at spawn ─────────────────
 
 #[test]
 fn a_site_without_hands_spawns_its_command_untouched() {

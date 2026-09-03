@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v6.json",
   "title": "Forge run manifest v6",
-  "description": "v5's bytes plus one optional 'hands' property (decision 0042): the sites whose hands are one boxed tool, each with the box's spec — kind, network, binds (mode ro, rw, or overlay: the host path as a read-only lower layer with writes kept in a per-seat upper layer). Keyed as the manifest's 'drivers' key is keyed: the seat, or seat:member, seat:step, seat:step:member. Absent when no site declares hands, so a bundle that boxes nothing keeps the exact v5 shape and identity. Present, it is part of the bundle's identity: a bind added to a reviewer's box moves the digest of every bundle that hires that reviewer, which is the point.",
+  "description": "v5's bytes plus one optional 'hands' property (decision 0043): the sites whose hands are one boxed tool, each with the box's spec — kind, network, binds (mode ro, rw, or overlay: the host path as a read-only lower layer with writes kept in a per-seat upper layer). Keyed as the manifest's 'drivers' key is keyed: the seat, or seat:member, seat:step, seat:step:member. Absent when no site declares hands, so a bundle that boxes nothing keeps the exact v5 shape and identity. Present, it is part of the bundle's identity: a bind added to a reviewer's box moves the digest of every bundle that hires that reviewer, which is the point.",
   "type": "object",
   "required": ["engine", "event_schema", "database_schema", "driver_protocol", "bundle_name", "files"],
   "additionalProperties": false,

@@ -1872,7 +1872,7 @@ fn an_agent_gate_is_witnessed_by_its_resolution_not_a_second_time() {
     assert!(bundle.manifest.get("drivers").is_none());
 }
 
-// ---------------------------------------------- decision 0042: boxed hands
+// ---------------------------------------------- decision 0043: boxed hands
 
 fn exec_gate(hands: Option<Value>, secrets: Option<Value>) -> Value {
     let mut value = json!({

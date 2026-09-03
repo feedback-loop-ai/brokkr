@@ -1,4 +1,4 @@
-# 0042 — The model's hands are one tool, and the tool runs in an empty root (a Linux boundary)
+# 0043 — The model's hands are one tool, and the tool runs in an empty root (a Linux boundary)
 
 Status: accepted (operator ruled in chat, 2026-09-03)
 Date: 2026-09-03

@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Decision 0042: the hands tests build a real bubblewrap namespace on
+      # Decision 0043: the hands tests build a real bubblewrap namespace on
       # Linux; the boundary is never simulated, so the tool is installed.
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'

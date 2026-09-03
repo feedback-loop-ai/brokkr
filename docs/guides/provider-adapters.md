@@ -51,7 +51,7 @@ from a command-line value or the journal.
 
 ## Hands
 
-`hands` (decision 0042) is the adapter's answer to a site that boxes its
+`hands` (decision 0043) is the adapter's answer to a site that boxes its
 hands: the argv fragment that disables the harness's own tools and reaches
 `brokkr hands serve` over MCP. Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,

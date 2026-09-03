@@ -32,7 +32,7 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// Decision 0042 moved every pinned bundle at once, and for one reason:
+/// Decision 0043 moved every pinned bundle at once, and for one reason:
 /// every adapter file gained `hands` — how the provider puts its hands in
 /// the box, or the measured reason it cannot — and a bundle whose inline
 /// gate pins the adapter declaration that authorised it (decision 0021)

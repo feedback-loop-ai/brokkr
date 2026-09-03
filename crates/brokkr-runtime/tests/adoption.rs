@@ -88,7 +88,7 @@ fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
     argv
 }
 
-/// The review agents' argv under decision 0042: no `--allowedTools` list,
+/// The review agents' argv under decision 0043: no `--allowedTools` list,
 /// the box fragment the claude adapter declares instead.
 fn expected_boxed(specify: bool, model: &str) -> Vec<String> {
     let mut argv = historic(specify);
@@ -306,7 +306,7 @@ fn assert_adopted(relative: &str, roster: &Roster) {
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
         let hands = site.starts_with("implement");
-        // Decision 0042: a review agent's hands are one boxed tool, so its
+        // Decision 0043: a review agent's hands are one boxed tool, so its
         // argv is the inline argv WITHOUT the tool list, plus its model
         // and effort, plus the adapter's box fragment; and the operator's
         // chain now leads with fable.
