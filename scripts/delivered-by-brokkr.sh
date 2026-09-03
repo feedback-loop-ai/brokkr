@@ -14,7 +14,9 @@
 #                 operator's by-hand label skips the gate
 #
 # The by-hand label skips the gate at every tier, and the tier it would
-# have applied is logged so the label's use is countable (ruling 6).
+# have applied is logged so the label's use is countable (ruling 6). It
+# skips a refusal too — no evidence, a journal that does not verify — as
+# 0033 ruling 5 holds: with the label, the job succeeds without evidence.
 #
 # Inputs, all environment:
 #   PR_BODY    the pull request body
@@ -89,56 +91,84 @@ verify_evidence() {
 # (`--verbatim`: `--stable` alone strips whitespace, and a space is
 # semantic in shell, YAML and Python). Renames are never paired, so a
 # moved file is a deletion and an addition and no path leaves the map by
-# being moved.
+# being moved. The diff is plumbing (`diff-tree`), so no `diff.*`
+# configuration on either machine moves the id; the pathspec is literal,
+# so `:`, `*` and `[` in a path name that path and nothing else; the path
+# is unquoted, so a non-ASCII name is looked up as itself. The engine
+# (`brokkr-runtime::anchor`) takes the same diff.
+patch_diff() {
+  git -C "$REPO" --literal-pathspecs -c core.quotePath=false diff-tree -r --no-renames "$@"
+}
 patch_map() {
   local base="$1" head="$2" path id
   {
-    git -C "$REPO" diff --no-renames --name-only "$base" "$head" | while IFS= read -r path; do
-      id="$(git -C "$REPO" diff --no-renames "$base" "$head" -- "$path" | git patch-id --verbatim | cut -d' ' -f1)"
+    patch_diff --name-only "$base" "$head" | while IFS= read -r path; do
+      id="$(patch_diff -p "$base" "$head" -- "$path" | git patch-id --verbatim | cut -d' ' -f1)"
       jq -n --arg path "$path" --arg id "$id" '{($path): $id}'
     done
   } | jq -s 'add // {}'
 }
 
-run_id="$(declaration Brokkr-Run)"
-tier=unknown
-delta='[]'
-if [[ -z "$run_id" ]]; then
-  (( by_hand )) || fail "expected exactly one Brokkr-Run: line in the pull request body"
-else
-  fetch_evidence "$run_id"
-  verify_evidence "$run_id"
-  jq -s -e 'any(.[]; .type == "transition/decided" and
-    .payload.from == "ship" and .payload.result == "shipped")' "$work/${run_id}.ndjson" >/dev/null \
-    || fail "run ${run_id} never ruled shipped"
-  anchor="$work/${run_id}.anchor.json"
-  vouched_head="$(jq -r '.repo_head // ""' "$anchor")"
-  if [[ "$vouched_head" == "$PR_HEAD" ]]; then
-    tier=vouched
-  elif jq -e '.anchor == "forge.journal-anchor/v3" and (.patch | type) == "object"' "$anchor" >/dev/null; then
-    base="$(git -C "$REPO" merge-base "$PR_BASE" "$PR_HEAD")"
-    patch_map "$base" "$PR_HEAD" > "$work/head.patch.json"
-    jq '.patch' "$anchor" > "$work/vouched.patch.json"
-    delta="$(jq -c -n --slurpfile vouched "$work/vouched.patch.json" --slurpfile head "$work/head.patch.json" \
-      '[ ((($vouched[0] | keys) + ($head[0] | keys)) | unique[]) as $path
-         | select($vouched[0][$path] != $head[0][$path]) | $path ]')"
-    if [[ "$delta" == "[]" ]]; then
-      tier=vouched
-    else
-      # One jq ruling, not a pipeline: a path that matches no docs
-      # pattern makes the whole delta code (ruling 3).
-      docs_pattern="$(jq -r '.classes.docs.paths | join("|")' "$CLASSES")"
-      if jq -e --arg docs "$docs_pattern" 'all(.[]; test($docs))' <<<"$delta" >/dev/null; then
-        tier=docs
-      else
-        tier=code
-      fi
-    fi
+# From the declaration to the tier. Runs in a subshell below, so a refusal
+# on the way — no published evidence, a journal that does not verify, a
+# run that never shipped — is a fact the operator's label may override
+# (0033 ruling 5: with the label, the job succeeds without evidence) and
+# never a pass without it. Prints the run id, the tier and the delta, one
+# per line.
+cut_tier() {
+  local run_id tier=unknown delta='[]' anchor vouched_head base docs_pattern
+  run_id="$(declaration Brokkr-Run)"
+  if [[ -z "$run_id" ]]; then
+    (( by_hand )) || fail "expected exactly one Brokkr-Run: line in the pull request body"
   else
-    # A v2 anchor carries no patch identity: the head must be the one it names.
-    tier=code
+    fetch_evidence "$run_id"
+    verify_evidence "$run_id"
+    jq -s -e 'any(.[]; .type == "transition/decided" and
+      .payload.from == "ship" and .payload.result == "shipped")' "$work/${run_id}.ndjson" >/dev/null \
+      || fail "run ${run_id} never ruled shipped"
+    anchor="$work/${run_id}.anchor.json"
+    vouched_head="$(jq -r '.repo_head // ""' "$anchor")"
+    if [[ "$vouched_head" == "$PR_HEAD" ]]; then
+      tier=vouched
+    elif jq -e '.anchor == "forge.journal-anchor/v3" and (.patch | type) == "object"' "$anchor" >/dev/null; then
+      base="$(git -C "$REPO" merge-base "$PR_BASE" "$PR_HEAD")"
+      patch_map "$base" "$PR_HEAD" > "$work/head.patch.json"
+      jq '.patch' "$anchor" > "$work/vouched.patch.json"
+      delta="$(jq -c -n --slurpfile vouched "$work/vouched.patch.json" --slurpfile head "$work/head.patch.json" \
+        '[ ((($vouched[0] | keys) + ($head[0] | keys)) | unique[]) as $path
+           | select($vouched[0][$path] != $head[0][$path]) | $path ]')"
+      if [[ "$delta" == "[]" ]]; then
+        tier=vouched
+      else
+        # One jq ruling, not a pipeline: a path that matches no docs
+        # pattern makes the whole delta code (ruling 3).
+        docs_pattern="$(jq -r '.classes.docs.paths | join("|")' "$CLASSES")"
+        if jq -e --arg docs "$docs_pattern" 'all(.[]; test($docs))' <<<"$delta" >/dev/null; then
+          tier=docs
+        else
+          tier=code
+        fi
+      fi
+    else
+      # A v2 anchor carries no patch identity: the head must be the one it names.
+      tier=code
+    fi
   fi
+  printf '%s\n%s\n%s\n' "$run_id" "$tier" "$delta"
+}
+
+# Not an `if` condition: bash ignores errexit inside one, subshells
+# included, and the refusals above lean on it.
+set +e
+verdict="$(set -e; cut_tier)"
+cut=$?
+set -e
+if (( cut != 0 )); then
+  (( by_hand )) || exit "$cut"
+  say "skipped — operator applied the by-hand label (the tier could not be cut; the refusal is logged above)"
+  exit 0
 fi
+{ read -r run_id; read -r tier; read -r delta; } <<<"$verdict"
 
 say "tier ${tier} · delta since the judgment: ${delta}"
 if (( by_hand )); then

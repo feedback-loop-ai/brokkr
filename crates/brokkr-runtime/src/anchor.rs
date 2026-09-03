@@ -148,23 +148,34 @@ fn default_branch(repo: &Path) -> Option<String> {
 /// file is a deletion and an addition, each a path like any other, so no
 /// path leaves the map by being moved. `None` when there is no branch to
 /// measure against.
+///
+/// The diff is plumbing (`diff-tree`), so no reader's `diff.*`
+/// configuration — `noprefix`, `external`, `algorithm` — moves the id
+/// between the machine that anchored and the machine that judges; the
+/// pathspec is literal, so `:`, `*` and `[` in a path name that path and
+/// nothing else; the path is unquoted, so a non-ASCII name is looked up as
+/// itself. The gate (`scripts/delivered-by-brokkr.sh`) takes the same
+/// diff, and a test holds the two invocations equal.
+const PATCH_DIFF: [&str; 6] = [
+    "--literal-pathspecs",
+    "-c",
+    "core.quotePath=false",
+    "diff-tree",
+    "-r",
+    "--no-renames",
+];
+
 fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>)> {
     let branch = default_branch(repo)?;
     let base = git(repo, &["merge-base", &branch, head], None).ok()?;
-    let listed = git(
-        repo,
-        &["diff", "--no-renames", "--name-only", &base, head],
-        None,
-    )
-    .ok()?;
+    let mut list = PATCH_DIFF.to_vec();
+    list.extend(["--name-only", &base, head]);
+    let listed = git(repo, &list, None).ok()?;
     let mut patch = Map::new();
     for path in listed.lines() {
-        let diff = git_raw(
-            repo,
-            &["diff", "--no-renames", &base, head, "--", path],
-            None,
-        )
-        .ok()?;
+        let mut one = PATCH_DIFF.to_vec();
+        one.extend(["-p", &base, head, "--", path]);
+        let diff = git_raw(repo, &one, None).ok()?;
         let id = git(repo, &["patch-id", "--verbatim"], Some(&diff)).ok()?;
         let id = id.split_whitespace().next()?.to_string();
         patch.insert(path.to_string(), Value::String(id));

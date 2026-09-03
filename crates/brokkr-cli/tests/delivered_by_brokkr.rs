@@ -220,9 +220,13 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     commit(&repo, "src/lib.txt", "one\n", "base code");
     commit(&repo, "README.md", "# app\n", "base readme");
 
-    // The slice: one code hunk, one new page.
+    // The slice: one code hunk, one new page, and one page whose name
+    // carries pathspec magic, a glob and a non-ASCII byte — the engine
+    // and the gate must give it the same id, or the rebase below costs a
+    // new run.
     git(&repo, &["checkout", "-q", "-b", "slice"]);
     std::fs::write(repo.join("src/lib.txt"), "one\ntwo\n").unwrap();
+    commit(&repo, "docs/:[hliðskjálf].md", "# seen\n", "a named page");
     let judged = commit(&repo, "docs/page.md", "# page\n", "the slice");
 
     let run = deliver(
@@ -355,6 +359,24 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     let (code, log) = gate.judge("## What changed\n", &code_delta, "by-hand");
     assert_eq!(code, 0, "{log}");
     assert!(log.contains("the tier would have been unknown"), "{log}");
+
+    // A declaration the gate refuses — here, a run with no published
+    // evidence — is a refusal without the label and a logged skip with it
+    // (0033 ruling 5: with the label, the job succeeds without evidence).
+    let unpublished = "## What changed\n\nBrokkr-Run: never-ran-00000000\n";
+    let (code, log) = gate.judge(unpublished, &code_delta, "");
+    assert_eq!(code, 1, "{log}");
+    assert!(
+        log.contains("no published evidence for run never-ran-00000000"),
+        "{log}"
+    );
+    let (code, log) = gate.judge(unpublished, &code_delta, "by-hand");
+    assert_eq!(code, 0, "{log}");
+    assert!(
+        log.contains("no published evidence for run never-ran-00000000"),
+        "{log}"
+    );
+    assert!(log.contains("the tier could not be cut"), "{log}");
 }
 
 /// A v2 anchor carries no patch identity, so it vouches only for the head

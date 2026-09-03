@@ -243,6 +243,69 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
     );
 }
 
+/// Decision 0038 ruling 1 says "per file", and a path is a name, not a
+/// pattern: a leading `:` is not pathspec magic, `[1]` is not a glob
+/// that also names its sibling, and a non-ASCII byte does not quote the
+/// path into one that matches nothing. Each of those would otherwise
+/// give the file an id that is empty (and null the whole map) or one
+/// that is its sibling's too.
+#[test]
+fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
+    let dir = repo();
+    git(
+        dir.path(),
+        &["symbolic-ref", "HEAD", "refs/heads/main"],
+        None,
+    )
+    .unwrap();
+    commit(dir.path(), "docs/a1.md", "a\n", "base");
+    git(dir.path(), &["checkout", "-q", "-b", "slice"], None).unwrap();
+    std::fs::write(dir.path().join("docs/a1.md"), "a\nb\n").unwrap();
+    let head = commit(dir.path(), "docs/:a[1]ð.md", "x\n", "the slice");
+
+    let mut store = empty_store(dir.path(), "first");
+    vouch(&mut store, "first", &head);
+    let first = anchored_message(dir.path(), &anchor(&store, dir.path(), "first").unwrap());
+    let patch = first["patch"].as_object().expect("a map, not null");
+    assert_eq!(
+        patch.keys().collect::<Vec<_>>(),
+        ["docs/:a[1]ð.md", "docs/a1.md"]
+    );
+    assert_eq!(patch["docs/:a[1]ð.md"].as_str().unwrap().len(), 40);
+
+    // The sibling the glob would have paired moves; the named path's id
+    // does not.
+    let edited = commit(dir.path(), "docs/a1.md", "a\nb\nc\n", "edit the sibling");
+    store
+        .create_run("second", "feature", "bundle", &json!({"files": {}}))
+        .unwrap();
+    vouch(&mut store, "second", &edited);
+    let second = anchored_message(dir.path(), &anchor(&store, dir.path(), "second").unwrap());
+    assert_eq!(
+        second["patch"]["docs/:a[1]ð.md"],
+        first["patch"]["docs/:a[1]ð.md"]
+    );
+    assert_ne!(second["patch"]["docs/a1.md"], first["patch"]["docs/a1.md"]);
+
+    // The named path itself moves; so does its id, and only its id.
+    let named = commit(
+        dir.path(),
+        "docs/:a[1]ð.md",
+        "x\ny\n",
+        "edit the named path",
+    );
+    store
+        .create_run("third", "feature", "bundle", &json!({"files": {}}))
+        .unwrap();
+    vouch(&mut store, "third", &named);
+    let third = anchored_message(dir.path(), &anchor(&store, dir.path(), "third").unwrap());
+    assert_ne!(
+        third["patch"]["docs/:a[1]ð.md"],
+        first["patch"]["docs/:a[1]ð.md"]
+    );
+    assert_eq!(third["patch"]["docs/a1.md"], second["patch"]["docs/a1.md"]);
+}
+
 #[test]
 fn an_unknown_anchor_version_is_refused_not_guessed() {
     let dir = repo();
