@@ -96,6 +96,8 @@ fn home_expands_only_the_tilde_prefix() {
     assert_eq!(expand_home("~tilde", home), PathBuf::from("~tilde"));
 }
 
+/// Unix only: the argv it checks names Unix paths, and the box is Linux's.
+#[cfg(unix)]
 #[test]
 fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();

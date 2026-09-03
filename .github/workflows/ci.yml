@@ -115,7 +115,15 @@ jobs:
       # Linux; the boundary is never simulated, so the tool is installed.
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+        # The runner image restricts unprivileged user namespaces through
+        # AppArmor, which leaves a new network namespace unable to raise
+        # its own loopback ("loopback: Failed RTM_NEWADDR"). That is a
+        # runner setting, not a product requirement: an operator's Linux
+        # box needs bubblewrap and nothing else.
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: cargo test --workspace --all-features --locked
       - name: self and verify bundles compile under the constitutional lint
         run: |
@@ -134,7 +142,10 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - name: bubblewrap for the hands tests
-        run: sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
       - uses: actions/upload-artifact@v4
