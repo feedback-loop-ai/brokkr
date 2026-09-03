@@ -37,10 +37,32 @@ A key taken from the launching environment is the one channel that
 moves no digest and reaches no journal row. It is not forbidden, but an
 adapter may name it — `"credentials": {"<route>": "<VARIABLE>"}`, a
 name only — and then `brokkr doctor` warns, by route, whenever that
-variable is satisfied from the process environment rather than the
-bindings store (decision
+variable is satisfied from the process environment rather than bound by
+a seat (decision
 [0036](../decisions/0036-egress-is-a-property-of-the-route.md) ruling
-5).
+5). `brokkr doctor --bundle <dir>` asks whether any seat of that bundle
+declares the name in its `secrets`, because a name sitting in the
+bindings store that no seat binds is handed to no driver and the
+launching shell's copy is what the provider reads. Store membership is
+still necessary — a name a seat declares and the store cannot answer for
+is bound to nothing either, and doctor says which of the two halves is
+the one missing. Without a bundle to inspect it falls back to store
+membership alone and says so in the line, naming whether you passed no
+bundle or one that would not compile (decision
+[0040](../decisions/0040-the-flag-is-always-read.md) ruling 4).
+
+The route names in `routes` and `credentials` are whatever a concrete
+model id may begin with — ASCII letters of either case, digits, `-`,
+`_`, `.` and `:`, never `/` — so `us.east` and `openai_compat` are
+routes an operator can rule on (decision 0040 ruling 5). And the route a
+seat's argv names is read on the flag the adapter declares in
+`model_flag` AND on `--model`: the same string is one read, a concrete
+pin on either names the route, and two pins naming different ids are
+refused naming both flags (ruling 1). A short declared flag (`-m`)
+carries its value attached in the getopt way, so `-mspark/x` is a pin
+whose value is `spark/x`; a long one has only `--model x` and
+`--model=x`, and `--model-fallback` is a different flag every reader
+walks past (ruling 2).
 
 Looper-bound runs start with `brokkr run --dispatch <forge-dispatch-v2.json>`.
 The immutable dispatch is sealed into the v2 run manifest and therefore travels

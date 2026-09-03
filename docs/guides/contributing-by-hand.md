@@ -612,8 +612,11 @@ classes decide which seats may put a secret in front of the driver, so
 an adapter change is a change to what may be sent as well as to who may
 judge. A `credentials` map names, per route, the environment
 variable that route needs — a name only, so `brokkr doctor` can say when
-the value is coming from the ambient environment rather than the
-bindings store.
+the value is coming from the ambient environment rather than from a seat
+that binds it (decision
+[0040](../decisions/0040-the-flag-is-always-read.md) ruling 4; the route
+name's own grammar is in
+[`provider-adapters.md`](provider-adapters.md)).
 
 The shipped adapter files still carry the superseded `binding_grant`
 boolean, which reads for one more release — `true` as `contracted`,

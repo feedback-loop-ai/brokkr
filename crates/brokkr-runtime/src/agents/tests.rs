@@ -1038,8 +1038,18 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "models": {}, "tool_permissions": "unsupported",
                    "mcp": "unsupported", "model_flag": "-m",
                    "efforts": [], "effort_flag": "unsupported",
-                   "routes": {"Spark": "local"}}),
-            "'routes' names 'Spark'",
+                   "routes": {"us/east": "local"}}),
+            "'routes' names 'us/east', which does not match ^[A-Za-z0-9._:-]+$",
+        ),
+        // A route with no name at all names no prefix `resolve_route`
+        // can produce either.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "routes": {"": "local"}}),
+            "'routes' names '', which does not match ^[A-Za-z0-9._:-]+$",
         ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
@@ -1062,8 +1072,9 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "models": {}, "tool_permissions": "unsupported",
                    "mcp": "unsupported", "model_flag": "-m",
                    "efforts": [], "effort_flag": "unsupported",
-                   "credentials": {"Spark": "SPARK_API_KEY"}}),
-            "'credentials' names 'Spark'",
+                   "credentials": {"us/east": "SPARK_API_KEY"}}),
+            "'credentials' names 'us/east', which does not match \
+             ^[A-Za-z0-9._:-]+$",
         ),
         // A credential is a NAME. A value-shaped one is refused where it
         // is written, beside the store refusal that guards the tree.
@@ -1247,6 +1258,83 @@ fn a_contracted_adapter_clears_no_route_it_does_not_name() {
         resolve_route(many, "partner/large-1").1,
         EgressClass::Contracted
     );
+}
+
+/// Decision 0040 ruling 5: a route name is whatever a model id may begin
+/// with. `resolve_route` splits a concrete id on its first `/`, and the
+/// id alphabet admits `.`, `_`, `:` and upper case in that prefix — so
+/// under the agent-name grammar a provider fronting `us.east` or
+/// `openai_compat` had routes no operator could declare, which resolved
+/// uncontracted forever with no data able to say otherwise. Ruling 1 of
+/// decision 0036 makes class assignment operator DATA, and data that
+/// cannot be written is not data.
+#[test]
+fn a_route_name_is_whatever_a_model_id_may_begin_with() {
+    let tree = Tree::new();
+    let mut regions = many_routes();
+    regions["routes"] = json!({
+        "us.east": "contracted",
+        "openai_compat": "local",
+        "eu:west-1": "contracted",
+    });
+    regions["credentials"] = json!({
+        "us.east": "US_EAST_API_KEY",
+        "openai_compat": "COMPAT_API_KEY",
+    });
+    regions["models"] = json!({"near": "openai_compat/small-1"});
+    tree.write("adapters/many.json", &regions);
+    let adapters = tree.adapters();
+    let many = adapters.adapter("many").expect("the fixture provider");
+
+    // Each declared route resolves through a prefixed pin, on its own
+    // declared class — the thing that was unstatable before.
+    assert_eq!(
+        resolve_route(many, "us.east/large-1"),
+        (Some("us.east"), EgressClass::Contracted)
+    );
+    assert_eq!(
+        resolve_route(many, "openai_compat/small-1"),
+        (Some("openai_compat"), EgressClass::Local)
+    );
+    assert_eq!(
+        resolve_route(many, "eu:west-1/large-1"),
+        (Some("eu:west-1"), EgressClass::Contracted)
+    );
+    assert_eq!(many.credentials["us.east"], "US_EAST_API_KEY");
+    assert_eq!(many.credentials["openai_compat"], "COMPAT_API_KEY");
+
+    // And a route the file still does not name is still the floor: the
+    // alphabet widened, the asymmetry did not move.
+    assert_eq!(
+        resolve_route(many, "us.west/large-1"),
+        (Some("us.west"), EgressClass::Uncontracted)
+    );
+
+    // The `/` is the one character a route may never hold, because it is
+    // what separates the prefix from the rest of the id: a key carrying
+    // one names a route `resolve_route` could never produce, and is
+    // refused on both maps rather than sitting there matching nothing.
+    for map in ["routes", "credentials"] {
+        let tree = Tree::new();
+        let mut split = many_routes();
+        split[map] = match map {
+            "routes" => json!({"us/east": "contracted"}),
+            _ => json!({"us/east": "US_EAST_API_KEY"}),
+        };
+        tree.write("adapters/many.json", &split);
+        let message = tree.adapters_error();
+        assert!(
+            message.contains(&format!("'{map}' names 'us/east'")),
+            "{message}"
+        );
+        assert!(message.contains("^[A-Za-z0-9._:-]+$"), "{message}");
+    }
+
+    // The agent-name grammar is untouched, and still governs everything
+    // it governed: agents, adapters and abstract model names.
+    assert_eq!(NAME_GRAMMAR, "^[a-z][a-z0-9-]*$");
+    assert!(!valid_name("us.east"));
+    assert!(!valid_name("openai_compat"));
 }
 
 /// The migration, at the loader: the superseded `binding_grant` still

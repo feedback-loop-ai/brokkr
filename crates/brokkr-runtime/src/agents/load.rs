@@ -276,9 +276,9 @@ fn routes(
     };
     let mut out = BTreeMap::new();
     for (route, value) in entries {
-        if !valid_name(route) {
+        if !route_name(route) {
             return invalid(format!(
-                "{what} 'routes' names '{route}', which does not match {NAME_GRAMMAR}"
+                "{what} 'routes' names '{route}', which does not match {ROUTE_GRAMMAR}"
             ));
         }
         out.insert(
@@ -308,10 +308,10 @@ fn credentials(
     };
     let mut out = BTreeMap::new();
     for (route, value) in entries {
-        if !valid_name(route) {
+        if !route_name(route) {
             return invalid(format!(
                 "{what} 'credentials' names '{route}', which does not match \
-                 {NAME_GRAMMAR}"
+                 {ROUTE_GRAMMAR}"
             ));
         }
         match value.as_str().filter(|name| secret_name(name)) {
@@ -326,6 +326,30 @@ fn credentials(
         };
     }
     Ok(out)
+}
+
+/// The grammar decision 0040 ruling 5 gives a route name, quoted
+/// verbatim in both refusals above: a route is the PREFIX
+/// `resolve_route` splits off a concrete model id, so it must be able to
+/// name every prefix that split can produce — the id's own alphabet
+/// (ASCII letters of either case, digits, `-`, `_`, `.` and `:`) minus
+/// the `/` that separates the prefix from the rest.
+///
+/// The agent-name grammar cannot do that job: it is lower case and
+/// hyphens only, so `us.east` and `openai_compat` were routes no
+/// operator could write, and therefore routes that resolved
+/// `Uncontracted` forever with no data able to say otherwise. Ruling 1
+/// of decision 0036 makes class assignment operator DATA, and data that
+/// cannot be written is not data. [`NAME_GRAMMAR`] stays exactly what it
+/// is for agents, adapters and abstract model names.
+pub const ROUTE_GRAMMAR: &str = "^[A-Za-z0-9._:-]+$";
+
+/// `true` when `name` matches [`ROUTE_GRAMMAR`].
+fn route_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
 }
 
 /// The grammar decision 0012 gives a bindable name, quoted verbatim in
