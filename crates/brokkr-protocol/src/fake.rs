@@ -54,6 +54,7 @@ pub fn run_fake_driver(
     script_path: &Path,
     state_dir: &Path,
     model: Option<&str>,
+    effort: Option<&str>,
 ) -> std::io::Result<()> {
     let script: Value = serde_json::from_str(&std::fs::read_to_string(script_path)?)?;
     std::fs::create_dir_all(state_dir)?;
@@ -62,6 +63,7 @@ pub fn run_fake_driver(
         &script,
         state_dir,
         model,
+        effort,
         stdin.lock(),
         std::io::stdout(),
         std::thread::park,
@@ -72,6 +74,7 @@ fn run_fake_session(
     script: &Value,
     state_dir: &Path,
     model: Option<&str>,
+    effort: Option<&str>,
     input: impl BufRead,
     mut output: impl Write,
     mut hang: impl FnMut(),
@@ -137,6 +140,20 @@ fn run_fake_session(
                         effect_id: effect_id.clone(),
                         attempt_id: attempt_id.clone(),
                         data: serde_json::json!({"step": "model-pinned", "model": model}),
+                    })?;
+                }
+
+                // The pinned effort, on the same terms (decision 0035
+                // ruling 5). Its own checkpoint rather than a second key
+                // on the model's: the two are separate facts, and a
+                // journal written before this pin existed stays
+                // byte-identical because the step is absent unless an
+                // adapter pinned one.
+                if let Some(effort) = effort {
+                    send(Body::Checkpoint {
+                        effect_id: effect_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        data: serde_json::json!({"step": "effort-pinned", "effort": effort}),
                     })?;
                 }
 

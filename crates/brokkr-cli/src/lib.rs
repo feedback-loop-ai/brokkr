@@ -452,6 +452,13 @@ enum Cmd {
         /// reached the driver rather than trusting the composed argv.
         #[arg(long)]
         model: Option<String>,
+        /// The concrete effort an adapter pinned (decision 0035 ruling
+        /// 5), taken and echoed on exactly the terms `--model` is: the
+        /// other half of the hire travels the same argv, so a fake seat
+        /// that could not be told its effort would prove the pin
+        /// reached the composed command and nothing further.
+        #[arg(long)]
+        effort: Option<String>,
     },
 }
 
@@ -2145,8 +2152,14 @@ fn run_with(
             script,
             state,
             model,
+            effort,
         } => {
-            brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref())?;
+            brokkr_protocol::fake::run_fake_driver(
+                &script,
+                &state,
+                model.as_deref(),
+                effort.as_deref(),
+            )?;
             Ok(ExitCode::SUCCESS)
         }
     }

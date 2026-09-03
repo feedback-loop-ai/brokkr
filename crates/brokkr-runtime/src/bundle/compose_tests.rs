@@ -746,6 +746,12 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0033 moved the three recipe entries once more by adding the
 /// descriptions and relative costs rendered in the contributing guide;
 /// the two system bundles did not move.
+/// Decision 0035 ruling 5 moved all five: every model pin now carries an
+/// effort pin, whether the pin lives in an inline argv (`recipes/fast`,
+/// `bundles/verify`) or in the agent library a bundle resolves against
+/// (`recipes/panel-review`, `recipes/sdd`, `bundles/self`, whose agents
+/// now name the effort they hire beside the model). A hire that gained
+/// half its terms is a different hire, and therefore a different bundle.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -754,23 +760,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "b419e5dcd10357a57342c82cbcafcef56eaa6ac83c9863d1c98b89a93d9eb3f4",
+        "99bd67392c4f4fbf156951b4503752788c4f2583e0ef8db8538a2668d68c267a",
     ),
     (
         "recipes/panel-review",
-        "80ec8a26b02588a832dd015d00ff76e644b3361009d2e84e3f45be12e6dedeef",
+        "39c32ddc18c4a391b7b199d51d9350670e4aace60534798fb1f65c8494085546",
     ),
     (
         "recipes/sdd",
-        "07435f9fc2b2086c8699af12ea7a3e021e02354f1e685a97969577a5a32c8990",
+        "1a99fd11b0bcfe34b801c6e65ec5134a421c5660596000bf44d0be4acfa1b8bc",
     ),
     (
         "bundles/self",
-        "960b99d6f5c84a6943704132c94853034f0cc467947846549d41e0b66b411aae",
+        "b54df630e7d4286d4ee8f96f215ed746d828dafb8c4183da6cd538a2b90a5b6c",
     ),
     (
         "bundles/verify",
-        "57a5c5f179a144e8a054ab9952ce2688a4dedd675c899ec7a8651cf9e8ddc584",
+        "a2d666c728946f4eb8d0834ae5371f07b459e8fa795994658d144e7088475c2c",
     ),
 ];
 
@@ -901,15 +907,18 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "3084d0d0996530a51291be9ff6250f3b1906ccb413c22bfed0a45cb5b836b997",
+        "3eaa47b682878a8868b7d2de530f53b157fa3ad4e5652322ffcec544b00c0f9e",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
          (decision 0019), again when its inline review panel began \
          pinning the adapter declarations that authorise it to judge, \
          (decision 0021), then when the closing 0019 sweep changed the \
-         base charters, and finally when decision 0033 gave both layers \
-         contributor-facing description and cost data, which is this test's own principle: changing a \
+         base charters, then when decision 0033 gave both layers \
+         contributor-facing description and cost data, and now that \
+         decision 0035 ruling 5 makes every model pin carry an effort \
+         pin — in this layer's own argv and in the agents its base \
+         resolves — which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }

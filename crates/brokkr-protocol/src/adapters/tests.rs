@@ -110,8 +110,10 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         json!({"type": "system", "subtype": "init", "session_id": "session"}),
         json!({"type": "system", "subtype": "other"}),
         json!({"type": "system", "subtype": "init"}),
-        json!({"type": "result", "model": "claude-served", "num_turns": 2,
-               "total_cost_usd": 1.5}),
+        // A shim that names its effort only on `result` is read there
+        // too, on the same terms as the model beside it.
+        json!({"type": "result", "model": "claude-served", "effort": "xhigh",
+               "num_turns": 2, "total_cost_usd": 1.5}),
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
@@ -126,10 +128,15 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert_eq!(meta["transcript"]["locator"], "session");
     assert_eq!(meta["num_turns"], 2);
     assert_eq!(meta["model"], "claude-served");
+    assert_eq!(meta["effort"], "xhigh");
 
     let mut codex_transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    let mut echo = CodexThreadEcho::default();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread"}),
+        // An empty thread id locates nothing rather than walking the
+        // whole harness home looking for a file named after nothing.
+        json!({"type": "thread.started", "thread_id": ""}),
         json!({"type": "thread.started"}),
         json!({"type": "turn.started"}),
         json!({"type": "item.started", "item": {"type": "command"}}),
@@ -139,6 +146,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         }}),
         json!({"type": "turn.completed"}),
         json!({"type": "result", "model": "codex-served", "session_id": "final",
+               "turn_context": {"effort": "medium"},
                "num_turns": 1, "total_cost_usd": 0.25}),
         json!({"type": "result"}),
         json!({"type": "ignored"}),
@@ -148,11 +156,13 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             &mut turns,
             &mut meta,
             &mut codex_transcript,
+            &mut echo,
             &mut |value| emitted.push(value.clone()),
         );
     }
     assert_eq!(meta["transcript"]["locator"], "final");
     assert_eq!(meta["model"], "codex-served");
+    assert_eq!(meta["effort"], "medium");
     assert_eq!(meta["cache_read_tokens"], 2);
     // A shim reporting money on `result` is the only codex path that
     // carries cost at all; a zero or absent report stays absent.
@@ -807,6 +817,214 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         );
     }
     assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), root).is_ok());
+}
+
+/// The one fact codex does NOT put on the stream its adapter folds, read
+/// from the thread record through decision 0032's retained locator. The
+/// file is found by the thread id codex itself announced — never by "the
+/// newest file" under the home, so a concurrent seat's thread cannot lend
+/// this one its effort — and the LAST `turn_context` wins, because codex
+/// writes one per turn and a thread may change effort mid-seat.
+#[test]
+fn the_codex_thread_echo_reads_the_last_effort_by_thread_id_and_never_by_scan() {
+    let home = tempfile::tempdir().unwrap();
+    let dated = home.path().join("sessions/2026/09/03");
+    std::fs::create_dir_all(&dated).unwrap();
+    // A concurrent seat's thread, filed first and named differently.
+    std::fs::write(
+        dated.join("rollout-0199other.jsonl"),
+        "{\"turn_context\":{\"effort\":\"minimal\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dated.join("rollout-0199mine.jsonl"),
+        // Two turns: the thread was opened at `low` and raised to
+        // `xhigh`, and the record must say the level that ended up
+        // applying rather than the one it started under.
+        "{\"thread_settings_applied\":{\"reasoning_effort\":\"low\"}}\n\
+         {\"turn_context\":{\"effort\":\"xhigh\"}}\n\
+         not json at all\n",
+    )
+    .unwrap();
+
+    let mut echo = CodexThreadEcho::default();
+    echo.locate(home.path(), "0199mine");
+    assert_eq!(echo.effort().as_deref(), Some("xhigh"));
+
+    // The other seat's thread is reachable by ITS id, and only by it.
+    let mut other = CodexThreadEcho::default();
+    other.locate(home.path(), "0199other");
+    assert_eq!(other.effort().as_deref(), Some("minimal"));
+
+    // An id nobody filed, an empty id, and a home with no sessions tree
+    // at all each leave the record saying nothing rather than guessing.
+    let mut missing = CodexThreadEcho::default();
+    missing.locate(home.path(), "0199absent");
+    assert_eq!(missing.effort(), None);
+    let mut empty = CodexThreadEcho::default();
+    empty.locate(home.path(), "");
+    assert_eq!(empty.effort(), None);
+    let mut homeless = CodexThreadEcho::default();
+    homeless.locate(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
+    assert_eq!(homeless.effort(), None);
+
+    // The walk is BOUNDED: a thread filed deeper than the depth allows
+    // is not found, so a large harness home cannot turn one turn into a
+    // full filesystem scan.
+    let deep = home.path().join("sessions/a/b/c/d/e/f/g");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(
+        deep.join("rollout-0199deep.jsonl"),
+        "{\"turn_context\":{\"effort\":\"high\"}}\n",
+    )
+    .unwrap();
+    let mut too_deep = CodexThreadEcho::default();
+    too_deep.locate(home.path(), "0199deep");
+    assert_eq!(too_deep.effort(), None);
+
+    // A file that is not a thread record does not answer for one.
+    std::fs::write(dated.join("rollout-0199plain.txt"), "effort: high\n").unwrap();
+    let mut wrong_suffix = CodexThreadEcho::default();
+    wrong_suffix.locate(home.path(), "0199plain");
+    assert_eq!(wrong_suffix.effort(), None);
+
+    // A thread record that names no effort at all reports none rather
+    // than the level of whatever else it could find.
+    std::fs::write(dated.join("rollout-0199quiet.jsonl"), "{\"turn\":1}\n").unwrap();
+    let mut quiet = CodexThreadEcho::default();
+    quiet.locate(home.path(), "0199quiet");
+    assert_eq!(quiet.effort(), None);
+}
+
+/// The effort clamp, at both edges. A level crosses the driver boundary
+/// into an append-only journal, so it is bounded exactly as a model id
+/// is and tighter: an effort is a level, never a path, an id, or a
+/// sentence (decision 0035 ruling 3).
+#[test]
+fn an_effort_token_is_one_bounded_word_or_nothing() {
+    assert_eq!(effort_token("xhigh").as_deref(), Some("xhigh"));
+    assert_eq!(effort_token("  medium\n").as_deref(), Some("medium"));
+    // The vocabularies actually measured spell levels with these.
+    assert_eq!(
+        effort_token("gpt-5.6:max_1").as_deref(),
+        Some("gpt-5.6:max_1")
+    );
+    assert_eq!(
+        effort_token(&"a".repeat(40)).as_deref(),
+        Some("a".repeat(40)).as_deref()
+    );
+    for refused in [
+        "",
+        "   ",
+        // A sentence, a path, and a shell fragment are none of them a level.
+        "think very hard",
+        "levels/high",
+        "high; rm -rf /",
+        "hıgh",
+    ] {
+        assert_eq!(effort_token(refused), None, "{refused:?} must be refused");
+    }
+    assert_eq!(effort_token(&"a".repeat(41)), None, "41 is over the clamp");
+}
+
+/// `--effort <level>` is the pinning grammar every adapter declares, and
+/// this is where an arm whose harness spells it differently takes it out
+/// of the argv. Both spellings are read; anything that is not one
+/// bounded level stays in the argv so the HARNESS refuses it loudly
+/// rather than this adapter dropping a pin in silence.
+#[test]
+fn the_effort_pin_is_split_out_in_both_spellings_and_never_dropped_silently() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    let (effort, rest) = split_effort(&s(&["--x", "--effort", "high", "y"]));
+    assert_eq!(effort.as_deref(), Some("high"));
+    assert_eq!(rest, s(&["--x", "y"]));
+
+    // The attached spelling carries its level inside the one part.
+    let (effort, rest) = split_effort(&s(&["--effort=low", "--x"]));
+    assert_eq!(effort.as_deref(), Some("low"));
+    assert_eq!(rest, s(&["--x"]));
+
+    // A bare `--effort` at the end of the argv carries no level, so the
+    // flag travels on and codex says so itself.
+    let (effort, rest) = split_effort(&s(&["--x", "--effort"]));
+    assert_eq!(effort, None);
+    assert_eq!(rest, s(&["--x", "--effort"]));
+
+    // A level that is not one bounded word is not a pin: BOTH parts stay,
+    // in order, so nothing is lost on the way to the harness.
+    let (effort, rest) = split_effort(&s(&["--effort", "think hard", "--x"]));
+    assert_eq!(effort, None);
+    assert_eq!(rest, s(&["--effort", "think hard", "--x"]));
+    let (effort, rest) = split_effort(&s(&["--effort=", "--x"]));
+    assert_eq!(effort, None);
+    assert_eq!(rest, s(&["--effort=", "--x"]));
+
+    // The first pin wins and a second one travels on rather than
+    // silently outranking it.
+    let (effort, rest) = split_effort(&s(&["--effort", "high", "--effort", "low"]));
+    assert_eq!(effort.as_deref(), Some("high"));
+    assert_eq!(rest, s(&["--effort", "low"]));
+
+    // Nothing to split is not an error, and changes nothing.
+    let (effort, rest) = split_effort(&s(&["--x", "y"]));
+    assert_eq!(effort, None);
+    assert_eq!(rest, s(&["--x", "y"]));
+}
+
+/// `codex exec` takes no effort FLAG — the level is the
+/// `model_reasoning_effort` config key — so the shared `--effort` pin
+/// becomes the `-c key=value` override codex actually reads, cold and on
+/// a resume alike. A resume that dropped it would rejoin the thread at
+/// the provider's default, which is the silent-substitution case the
+/// whole decision refuses.
+#[test]
+fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
+    assert_eq!(
+        codex_effort_config("xhigh"),
+        "model_reasoning_effort=\"xhigh\""
+    );
+
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let cold = codex_cold("codex", &s(&["--effort", "high", "--x"]), "/w");
+    assert_eq!(
+        cold,
+        s(&[
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--x"
+        ])
+    );
+    // No pin, no override: an unpinned seat's argv is what it always was.
+    assert_eq!(
+        codex_cold("codex", &s(&["--x"]), "/w"),
+        s(&["codex", "exec", "--json", "-C", "/w", "--x"])
+    );
+
+    // The resume re-expresses the pin, exactly as it re-expresses the
+    // sandbox class, because `codex exec resume` inherits neither.
+    let launch = codex_launch(
+        "codex",
+        &s(&["--effort", "high", "-s", "workspace-write"]),
+        "/w",
+        Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+    );
+    assert!(
+        launch
+            .command
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"high\""),
+        "{:?}",
+        launch.command
+    );
+    // And the pin does not read as an argv a resume cannot carry: a
+    // dropped session over its own effort pin would be a regression.
+    assert!(launch.resume_refusal.is_none(), "{:?}", launch.command);
 }
 
 #[test]
@@ -1781,6 +1999,7 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    let mut echo = CodexThreadEcho::default();
     for event in [
         json!({"type": "thread.started", "thread_id": "thread-1"}),
         json!({"type": "turn.started"}),
@@ -1797,6 +2016,7 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
             &mut turn,
             &mut meta,
             &mut transcript,
+            &mut echo,
             &mut |value| emitted.push(value.clone()),
         );
     }
@@ -1901,6 +2121,7 @@ fn a_thread_id_too_long_for_the_journal_is_clamped_in_both_places() {
         &mut turn,
         &mut meta,
         &mut transcript,
+        &mut CodexThreadEcho::default(),
         &mut |value| emitted.push(value.clone()),
     );
     assert_eq!(

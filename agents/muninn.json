@@ -5,6 +5,10 @@
     "opus",
     "sonnet"
   ],
+  "efforts": {
+    "opus": "high",
+    "sonnet": "high"
+  },
   "limits": {
     "max_attempts": 1,
     "timeout_seconds": 900

@@ -73,6 +73,8 @@ impl Workspace {
                 ],
                 "models": {"work": "fake/work"},
                 "model_flag": "--model",
+                "efforts": ["low", "medium", "high"],
+                "effort_flag": "--effort",
                 "tool_permissions": "unsupported",
                 "mcp": "unsupported",
             }),
@@ -83,6 +85,7 @@ impl Workspace {
                 "description": "does the work",
                 "charter": "charters/work.md",
                 "models": ["work"],
+                "efforts": {"work": "medium"},
                 "limits": {"max_attempts": 1, "timeout_seconds": 60},
             }),
         );
@@ -141,6 +144,7 @@ impl Workspace {
                 "description": "reads the fleet and proposes",
                 "charter": "charters/muninn.md",
                 "models": ["overseer"],
+                "efforts": {"overseer": "medium"},
                 "limits": {
                     "max_attempts": max_attempts,
                     "timeout_seconds": timeout_seconds,
@@ -159,6 +163,8 @@ impl Workspace {
                 ],
                 "models": {"overseer": "overseer/one"},
                 "model_flag": "--model",
+                "efforts": ["low", "medium", "high"],
+                "effort_flag": "--effort",
                 "tool_permissions": "unsupported",
                 "mcp": "unsupported",
             }),

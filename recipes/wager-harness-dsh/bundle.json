@@ -32,7 +32,9 @@
           "dsh",
           "--",
           "--model",
-          "deepseek/deepseek-v4-flash"
+          "deepseek/deepseek-v4-flash",
+          "--effort",
+          "medium"
         ]
       }
     }

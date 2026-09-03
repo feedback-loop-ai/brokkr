@@ -23,6 +23,12 @@
     "studio-pro": "dashscope/deepseek-v4-pro"
   },
   "model_flag": "--model",
+  "efforts": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "effort_flag": "--effort",
   "tool_permissions": "unsupported",
   "mcp": "unsupported"
 }

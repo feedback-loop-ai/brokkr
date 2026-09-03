@@ -62,6 +62,7 @@ fn agent_body() -> Value {
         "description": "a test agent",
         "charter": "charters/c.md",
         "models": ["opus", "sonnet"],
+        "efforts": {"opus": "high", "sonnet": "medium"},
         "tools": {"allow": ["cargo", "git"], "mcp": []},
         "limits": {"max_attempts": 2, "timeout_seconds": 60},
     })
@@ -74,6 +75,8 @@ fn claude_body() -> Value {
         "driver": ["{brokkr}", "driver", "claude", "--"],
         "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5"},
         "model_flag": "--model",
+        "efforts": ["low", "medium", "high"],
+        "effort_flag": "--effort",
         "tool_permissions": {
             "flag": "--allowedTools",
             "separator": ",",
@@ -188,11 +191,19 @@ fn composition_is_a_lookup_and_a_join() {
             "--",
             "--model",
             "claude-opus-5",
+            // The other half of the hire, composed from the same data by
+            // the same lookup: decision 0035 ruling 5.
+            "--effort",
+            "high",
             "--allowedTools",
             "Bash(cargo:*),Bash(git:*)",
         ]
     );
     assert_eq!(resolution.candidates[0].model, "opus");
+    assert_eq!(resolution.candidates[0].effort.as_deref(), Some("high"));
+    // Per candidate, not per agent: the chain's second link is hired at
+    // its own level and the record of it says so.
+    assert_eq!(resolution.candidates[1].effort.as_deref(), Some("medium"));
     assert_eq!(resolution.candidates[0].provider, "claude");
     assert_eq!(resolution.candidates.len(), 2, "the whole chain, in order");
     assert_eq!(resolution.limits.unwrap().max_attempts, 2);
@@ -218,7 +229,9 @@ fn an_agent_without_tools_allow_declares_no_restriction() {
             "claude",
             "--",
             "--model",
-            "claude-opus-5"
+            "claude-opus-5",
+            "--effort",
+            "high"
         ]
     );
 }
@@ -424,6 +437,8 @@ fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
             "driver": ["{brokkr}", "driver", "codex", "--"],
             "models": {"sonnet": "gpt-x"},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }),
@@ -431,6 +446,89 @@ fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
     let message = refusal(&tree, "tester");
     assert!(message.contains("provider 'codex'"), "{message}");
     assert!(message.contains("model 'sonnet'"), "{message}");
+}
+
+/// Decision 0035 ruling 5's three refusals, each tripped on its own. A
+/// model pin without an effort pin is half a hire, and the half it
+/// withholds is the half that moves the bill — so the resolver refuses
+/// where the provider, and therefore the vocabulary, is known, and every
+/// refusal names the repair rather than the rule alone.
+#[test]
+fn an_effort_that_cannot_be_pinned_as_asked_is_refused_with_its_vocabulary() {
+    // 1. The provider takes an effort and this candidate pins none.
+    let unpinned = Tree::new();
+    let mut body = agent_body();
+    body["models"] = json!(["sonnet"]);
+    body["efforts"] = json!({});
+    unpinned.write("agents/tester.json", &body);
+    let mut claude = claude_body();
+    claude["models"] = json!({"sonnet": "claude-sonnet-5"});
+    unpinned.write("adapters/claude.json", &claude);
+    let message = refusal(&unpinned, "tester");
+    assert!(
+        message.contains("takes an effort and this candidate pins none"),
+        "{message}"
+    );
+    // The repair, in the vocabulary this driver's adapter declares.
+    assert!(message.contains(r#""efforts": {"sonnet""#), "{message}");
+    assert!(message.contains("low, medium, high"), "{message}");
+
+    // 2. A level outside the vocabulary the provider declares. A pin the
+    //    harness would reject at 2am is a design-time error here.
+    let unknown = Tree::new();
+    let mut body = agent_body();
+    body["models"] = json!(["opus"]);
+    body["efforts"] = json!({"opus": "xhigh"});
+    unknown.write("agents/tester.json", &body);
+    let mut claude = claude_body();
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    unknown.write("adapters/claude.json", &claude);
+    let message = refusal(&unknown, "tester");
+    assert!(message.contains("declares no effort 'xhigh'"), "{message}");
+    assert!(message.contains("low, medium, high"), "{message}");
+
+    // 3. The mirror image: the agent names an effort the provider has no
+    //    way to be TOLD, so the provider's own default would run. That is
+    //    the silent-substitution case ruling 1 exists to refuse, and it
+    //    fails compilation rather than degrading quietly.
+    let effortless = Tree::new();
+    let mut body = agent_body();
+    body["models"] = json!(["opus"]);
+    body["efforts"] = json!({"opus": "high"});
+    effortless.write("agents/tester.json", &body);
+    let mut claude = claude_body();
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    claude["efforts"] = json!([]);
+    claude["effort_flag"] = json!("unsupported");
+    effortless.write("adapters/claude.json", &claude);
+    let message = refusal(&effortless, "tester");
+    assert!(
+        message.contains("declares effort_flag unsupported"),
+        "{message}"
+    );
+    assert!(
+        message.contains("provider's own default would run"),
+        "{message}"
+    );
+}
+
+/// An effort named for a candidate the chain does not contain is a
+/// typo the loader catches, where the whole chain is in view. Keyed by
+/// candidate rather than positionally on purpose: a chain reordered in
+/// review must not silently re-hire every seat at a different level.
+#[test]
+fn an_effort_for_a_candidate_outside_the_chain_is_refused_by_name() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["efforts"] = json!({"opus": "high", "haiku": "low"});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let message = tree.library_error();
+    assert!(
+        message.contains("'efforts' names an effort for 'haiku'"),
+        "{message}"
+    );
+    assert!(message.contains("opus, sonnet"), "{message}");
 }
 
 /// The operator's own example, run: a tool-restricted agent whose chain
@@ -441,6 +539,7 @@ fn the_operators_literal_chain_fails_for_a_tool_restricted_agent() {
     let tree = Tree::new();
     let mut body = agent_body();
     body["models"] = json!(["fable", "qwen-max", "gpt-sol"]);
+    body["efforts"] = json!({"fable": "high", "qwen-max": "high", "gpt-sol": "high"});
     tree.write("agents/chief-architect.json", &body);
     let mut claude = claude_body();
     claude["models"] = json!({"fable": "claude-fable-5"});
@@ -453,6 +552,8 @@ fn the_operators_literal_chain_fails_for_a_tool_restricted_agent() {
             "driver": ["{brokkr}", "driver", "dsh", "--"],
             "models": {"qwen-max": "qwen-max"},
             "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }),
@@ -880,6 +981,30 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "mcp": "unsupported", "model_flag": ""}),
             "needs 'model_flag'",
         ),
+        // Decision 0035 ruling 5's half of the same rule: a provider
+        // that declares no effort vocabulary would silently excuse every
+        // seat it serves from the pin, so the declaration is required —
+        // empty for an effortless provider, never absent.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model"}),
+            "needs 'efforts' as an array of strings",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model",
+                   "efforts": ["Xhigh"]}),
+            "'efforts' names 'Xhigh'",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model",
+                   "efforts": ["high"]}),
+            "needs 'effort_flag'",
+        ),
     ];
     for (body, expected) in cases {
         let tree = Tree::new();
@@ -907,6 +1032,8 @@ fn a_provider_may_declare_every_capability_unsupported() {
             "driver": ["{brokkr}", "driver", "exec", "--"],
             "models": {},
             "model_flag": "unsupported",
+            "efforts": [],
+            "effort_flag": "unsupported",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }),
@@ -992,6 +1119,7 @@ fn selection_skips_an_unmapped_first_entry() {
     let tree = Tree::new();
     let mut body = agent_body();
     body["models"] = json!(["nowhere", "opus"]);
+    body["efforts"] = json!({"nowhere": "high", "opus": "high"});
     tree.write("agents/tester.json", &body);
     tree.write("adapters/claude.json", &claude_body());
     let walked = report(

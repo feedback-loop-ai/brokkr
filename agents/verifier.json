@@ -5,6 +5,10 @@
     "sonnet",
     "opus"
   ],
+  "efforts": {
+    "sonnet": "high",
+    "opus": "high"
+  },
   "tools": {
     "allow": [
       "cargo",

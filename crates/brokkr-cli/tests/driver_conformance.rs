@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use brokkr_store::validate_seat_record;
+use brokkr_store::{validate_seat_record, SeatRecordVersion};
 use serde_json::{json, Value};
 
 fn brokkr_bin() -> &'static str {
@@ -36,26 +36,41 @@ printf 'session id: deadbeef1234\n'
 // tool-using assistant turns (the second carrying two tool_use blocks in
 // one message), a noise line the adapter must drop, and a final result
 // with the session totals — while still honoring the result-file contract.
+//
+// Each assistant record carries the harness's own top-level `effort`
+// echo, and the RESULT — and only the result — carries the thinking
+// tokens: that granularity is the measurement decision 0035 ruling 4
+// records, and it is why a claude turn checkpoint has no reasoning count
+// to report.
 const CLAUDE_STREAM_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 printf '{"type":"system","subtype":"init","session_id":"stream-1"}\n'
-printf '{"type":"assistant","message":{"model":"claude-fable-5-1","usage":{"input_tokens":10,"cache_creation_input_tokens":4,"cache_read_input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
+printf '{"type":"assistant","effort":"xhigh","message":{"model":"claude-fable-5-1","usage":{"input_tokens":10,"cache_creation_input_tokens":4,"cache_read_input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
 printf 'not json, ignorable noise\n'
-printf '{"type":"assistant","message":{"model":"claude-fable-5-1","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":3},"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
-printf '{"type":"result","num_turns":2,"total_cost_usd":0.125,"usage":{"input_tokens":15,"cache_creation_input_tokens":4,"cache_read_input_tokens":13,"output_tokens":5}}\n'
+printf '{"type":"assistant","effort":"high","message":{"model":"claude-fable-5-1","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":3},"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
+printf '{"type":"result","num_turns":2,"total_cost_usd":0.125,"usage":{"input_tokens":15,"cache_creation_input_tokens":4,"cache_read_input_tokens":13,"output_tokens":5,"output_tokens_details":{"thinking_tokens":4}}}\n'
 "#;
 
+// Codex meters its reasoning per turn and reports its cache creation as
+// `cache_write_input_tokens`; it puts its effort NOT on this stream but
+// in the thread record decision 0032's locator names, which this shim
+// writes where a real codex files one — under `$CODEX_HOME/sessions`, in
+// a dated directory, named for the thread it announced.
 const CODEX_JSON_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
+thread="$CODEX_HOME/sessions/2026/09/03"
+mkdir -p "$thread"
+printf '{"type":"turn_context","payload":{"turn_context":{"effort":"xhigh"}}}\n' \
+  > "$thread/rollout-2026-09-03T00-00-00-codex-thread-1.jsonl"
 printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
 printf '{"type":"turn.started"}\n'
 printf '{"type":"item.started","item":{"type":"command_execution","command":"secret command"}}\n'
 printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"private output"}}\n'
-printf '{"type":"turn.completed","usage":{"model":"gpt-5.6-sol","input_tokens":21,"cached_input_tokens":8,"output_tokens":5}}\n'
+printf '{"type":"turn.completed","usage":{"model":"gpt-5.6-sol","input_tokens":21,"cached_input_tokens":8,"output_tokens":5,"cache_write_input_tokens":6,"reasoning_output_tokens":3}}\n'
 "#;
 
 /// A dsh that behaves like the installed one: it prints nothing the
@@ -234,22 +249,33 @@ fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     ]
 }
 
+/// This engine writes seat-record v2, so conformance judges what it
+/// writes against v2 — the version its own runs declare (decision 0035
+/// ruling 7). A driver whose records only satisfied v1 would still pass
+/// v2; the assertions below are what make the new fields non-optional
+/// for a BUILT-IN, which is where ruling 3's completeness lives.
 fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
     for message in messages {
         if message["type"] == "checkpoint" {
             let record = &message["data"];
-            validate_seat_record(record, 0)
+            validate_seat_record(record, 0, SeatRecordVersion::V2)
                 .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
             assert!(
                 record.get("model").and_then(Value::as_str).is_some(),
                 "{label}/{case}: every current checkpoint carries decision 0031 model evidence: {record}"
             );
+            assert!(
+                record.get("effort").and_then(Value::as_str).is_some(),
+                "{label}/{case}: every current checkpoint carries decision 0035 \
+                 effort configuration, sentinel included: {record}"
+            );
         }
         if message["type"] == "result" && message["status"] == "succeeded" {
             let record = &message["result"];
-            validate_seat_record(record, 0)
+            validate_seat_record(record, 0, SeatRecordVersion::V2)
                 .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
             assert!(record.get("model").and_then(Value::as_str).is_some());
+            assert!(record.get("effort").and_then(Value::as_str).is_some());
             assert!(record
                 .get("transcript")
                 .and_then(Value::as_object)
@@ -422,6 +448,7 @@ fn conformance_across_all_builtin_adapters() {
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
+                           "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
@@ -431,6 +458,7 @@ fn conformance_across_all_builtin_adapters() {
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
+                           "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
@@ -439,7 +467,8 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/out.rs", "model": "claude-fable-5-1",
+                           "effort": "high"}),
                     "{label}: {}",
                     out[5]
                 );
@@ -450,10 +479,22 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
                 assert_eq!(finished["model"], "claude-fable-5-1", "{label}");
+                assert_eq!(finished["effort"], "high", "{label}");
                 assert_eq!(finished["input_tokens"], 28, "{label}");
                 assert_eq!(finished["output_tokens"], 5, "{label}");
                 assert_eq!(finished["cache_read_tokens"], 13, "{label}");
                 assert_eq!(finished["cache_write_tokens"], 4, "{label}");
+                // Claude reports its thinking ONLY in the result, so the
+                // session record carries it and not one turn does. That
+                // absence is decision 0035 ruling 4 in the journal, not
+                // an omission: never zero, never back-filled per turn.
+                assert_eq!(finished["reasoning_output_tokens"], 4, "{label}");
+                for turn in &out[3..6] {
+                    assert!(
+                        turn["data"].get("reasoning_output_tokens").is_none(),
+                        "{label}: a claude turn invents no reasoning count: {turn}"
+                    );
+                }
                 // The capture guard is kind-scoped: only lanetally's
                 // finished checkpoint ever carries the marker.
                 assert!(finished.get("capture").is_none(), "{label}: {finished}");
@@ -466,6 +507,7 @@ fn conformance_across_all_builtin_adapters() {
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
+                           "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
@@ -475,6 +517,7 @@ fn conformance_across_all_builtin_adapters() {
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
+                           "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
@@ -483,7 +526,8 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
-                           "target": "src/out.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/out.rs", "model": "claude-fable-5-1",
+                           "effort": "high"}),
                     "{label}: {}",
                     out[5]
                 );
@@ -492,6 +536,8 @@ fn conformance_across_all_builtin_adapters() {
                     finished["step"], "claude-lanetally-session-finished",
                     "{label}"
                 );
+                assert_eq!(finished["effort"], "high", "{label}");
+                assert_eq!(finished["reasoning_output_tokens"], 4, "{label}");
                 assert_eq!(finished["capture"], "lanetally", "{label}: {finished}");
                 assert_eq!(finished["transcript"], *transcript, "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
@@ -509,30 +555,42 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[2]["data"],
                     json!({"step":"harness-started", "harness":"codex", "launch":"cold",
-                           "model":"not reported"}),
+                           "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[2]
                 );
                 assert_eq!(
                     out[3]["data"],
                     json!({"step":"transcript", "transcript": transcript,
-                           "model":"not reported"}),
+                           "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step":"turn-started", "turn":1, "harness":"codex",
-                           "model":"not reported"})
+                           "model":"not reported", "effort":"not reported"})
                 );
                 assert_eq!(out[5]["data"]["tool"], "command_execution");
                 assert!(out[5]["data"].get("command").is_none());
                 assert_eq!(out[7]["data"]["input_tokens"], 21);
                 assert_eq!(out[7]["data"]["cache_read_tokens"], 8);
                 assert_eq!(out[7]["data"]["model"], "gpt-5.6-sol");
+                // Read from the thread record, not from the stream and
+                // not from the pin the seat was launched with: the argv
+                // above says `--model gpt-5.6-sol` and no effort at all,
+                // and the record says what the harness echoed.
+                assert_eq!(out[7]["data"]["effort"], "xhigh");
+                // The two counts codex reported all along and the fold
+                // dropped until decision 0035 ruling 4 asked for them.
+                assert_eq!(out[7]["data"]["cache_write_tokens"], 6);
+                assert_eq!(out[7]["data"]["reasoning_output_tokens"], 3);
                 assert_eq!(out[8]["data"]["transcript"], *transcript);
                 assert_eq!(out[8]["data"]["output_tokens"], 5);
                 assert_eq!(out[8]["data"]["model"], "gpt-5.6-sol");
+                assert_eq!(out[8]["data"]["effort"], "xhigh");
+                assert_eq!(out[8]["data"]["cache_write_tokens"], 6);
+                assert_eq!(out[8]["data"]["reasoning_output_tokens"], 3);
             } else if dsh {
                 assert_eq!(out[2]["data"]["step"], "transcript");
                 assert_eq!(out[3]["data"]["step"], "harness-started");
@@ -558,6 +616,18 @@ fn conformance_across_all_builtin_adapters() {
                         "not reported"
                     }
                 );
+                // Decision 0035 ruling 3's dsh arm, on every row: the
+                // lanes carry a real effort control and neither dsh nor
+                // the providers behind it echo any value, so the record
+                // says so rather than repeating the pin back.
+                for row in out.iter().filter(|m| m["type"] == "checkpoint") {
+                    assert_eq!(row["data"]["effort"], "not reported", "{label}: {row}");
+                }
+                assert!(
+                    out.iter()
+                        .all(|m| m.pointer("/data/reasoning_output_tokens").is_none()),
+                    "{label}: the headless dsh profile reports no reasoning at all"
+                );
             } else if exec {
                 // Exec has no model usage or transcript. Its command is
                 // deliberately not a seat-record target: targets are
@@ -567,6 +637,12 @@ fn conformance_across_all_builtin_adapters() {
                 assert!(out[3]["data"].get("target").is_none(), "{label}");
                 assert_eq!(out[out.len() - 2]["data"]["transcript"], *transcript);
                 assert_eq!(out[out.len() - 2]["data"]["model"], "not applicable");
+                // No model turn, therefore no effort to configure for
+                // one: the other sentinel, and the distinction between
+                // the two is the one dsh above makes visible.
+                for row in out.iter().filter(|m| m["type"] == "checkpoint") {
+                    assert_eq!(row["data"]["effort"], "not applicable", "{label}: {row}");
+                }
             }
             assert_eq!(
                 out[out.len() - 2]["data"]["transcript"],
@@ -590,11 +666,38 @@ fn conformance_across_all_builtin_adapters() {
                     result["result"]["model"], expected_model,
                     "{label}: {result}"
                 );
+                // The successful result carries the hire's effort beside
+                // the model it claims (decision 0035 ruling 3), each
+                // driver reporting what its own harness gave it.
+                let expected_effort = if claude || lanetally {
+                    "high"
+                } else if codex {
+                    "xhigh"
+                } else if dsh {
+                    "not reported"
+                } else {
+                    "not applicable"
+                };
+                assert_eq!(
+                    result["result"]["effort"], expected_effort,
+                    "{label}: {result}"
+                );
                 if claude || lanetally {
                     assert_eq!(result["result"]["input_tokens"], 28, "{label}");
                     assert_eq!(result["result"]["output_tokens"], 5, "{label}");
                     assert_eq!(result["result"]["cache_read_tokens"], 13, "{label}");
                     assert_eq!(result["result"]["cache_write_tokens"], 4, "{label}");
+                    assert_eq!(result["result"]["reasoning_output_tokens"], 4, "{label}");
+                }
+                if codex {
+                    assert_eq!(result["result"]["cache_write_tokens"], 6, "{label}");
+                    assert_eq!(result["result"]["reasoning_output_tokens"], 3, "{label}");
+                }
+                if dsh {
+                    assert!(
+                        result["result"].get("reasoning_output_tokens").is_none(),
+                        "{label}: {result}"
+                    );
                 }
             } else {
                 assert_eq!(result["status"], "failed", "{label}: {result}");

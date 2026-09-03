@@ -40,6 +40,8 @@ fn adapter(name: &str, tier: Option<&str>, grant: Option<bool>) -> Value {
         "driver": ["{brokkr}", "driver", name, "--"],
         "models": {},
         "model_flag": "unsupported",
+        "efforts": [],
+        "effort_flag": "unsupported",
         "tool_permissions": "unsupported",
         "mcp": "unsupported",
     });
@@ -158,6 +160,8 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--",
             "--model",
             "claude-fable-5-1",
+            "--effort",
+            "high",
             "true"
         ]),
         "codex" => json!([
@@ -167,6 +171,8 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--",
             "--model",
             "gpt-5.6-sol",
+            "--effort",
+            "medium",
             "true"
         ]),
         "dsh" => json!([
@@ -176,6 +182,8 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--",
             "--model",
             "deepseek-v4-flash",
+            "--effort",
+            "medium",
             "true"
         ]),
         _ => json!(["{brokkr}", "driver", provider, "--", "true"]),
@@ -232,15 +240,113 @@ fn the_model_pin_refusal_names_every_inline_invocation_site_and_the_fix() {
     }
     assert!(refusal.contains("--model <concrete-model-id>"), "{refusal}");
     assert!(refusal.contains("0031 ruling 2"), "{refusal}");
+    // Decision 0035 ruling 5: the effort refusal stands BESIDE the model
+    // one, in the same message, naming the same complete repair set. A
+    // seat that pins neither must not have to be compiled twice to learn
+    // it was missing two things.
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+    assert!(refusal.contains("--effort <level>"), "{refusal}");
+    assert!(refusal.contains("0035 ruling 5"), "{refusal}");
+    for site in [
+        "'implement'",
+        "'review:codex-step'",
+        "'review:panel:dsh-member'",
+        "'review:panel:lane-member'",
+        "'review:step-3'",
+    ] {
+        assert_eq!(
+            refusal.matches(site).count(),
+            2,
+            "{site} is named once in each half of the one refusal: {refusal}"
+        );
+    }
+}
+
+/// The half of ruling 5 the model rule cannot cover: a seat that names
+/// its model concretely and its effort not at all is still half a hire,
+/// and the compiler says so on its own.
+#[test]
+fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
+    let seats = json!({
+        "implement": {
+            "role": "roles/role.md",
+            "driver": {"command":
+                ["{brokkr}", "driver", "claude", "--", "--model", "claude-opus-5"]},
+        },
+    });
+    let refusal = enforce_model_pins(seats.as_object().unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(!refusal.contains("do not pin a model"), "{refusal}");
+    assert!(
+        refusal.contains("seats 'implement' do not pin an effort"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("0035 ruling 5"), "{refusal}");
+
+    // Every way of naming an effort that is not one concrete level,
+    // named once — the model rule's own list, one axis over.
+    for command in [
+        json!(["{brokkr}", "driver", "claude", "--", "--model", "m", "--effort"]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "m",
+            "--effort",
+            "--verbose"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "m",
+            "--effort="
+        ]),
+        json!([
+            "{brokkr}", "driver", "claude", "--", "--model", "m", "--effort", "low", "--effort",
+            "high"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "m",
+            "--effort",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]),
+    ] {
+        let seats = json!({"work": {"driver": {"command": command}}});
+        assert!(
+            enforce_model_pins(seats.as_object().unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("do not pin an effort"),
+            "{seats}"
+        );
+    }
+
+    // And an exec seat needs neither pin: ruling 5's own exemption.
+    let exec = json!({"work": {"driver": {"command":
+        ["{brokkr}", "driver", "exec", "--", "true"]}}});
+    enforce_model_pins(exec.as_object().unwrap()).expect("exec needs no effort");
 }
 
 #[test]
 fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() {
     let seats = json!({
         "claude": {"driver": {"command":
-            ["{brokkr}", "driver", "claude", "--", "--model", "claude-fable-5-1"]}},
+            ["{brokkr}", "driver", "claude", "--",
+             "--model", "claude-fable-5-1", "--effort", "high"]}},
         "codex": {"driver": {"command":
-            ["{brokkr}", "driver", "codex", "--", "--model=gpt-5.6-sol"]}},
+            ["{brokkr}", "driver", "codex", "--",
+             "--model=gpt-5.6-sol", "--effort=medium"]}},
         "exec": {"driver": {"command":
             ["{brokkr}", "driver", "exec", "--", "true"]}},
         "agent": {"agent": "implementer"},

@@ -16,6 +16,14 @@
     "sonnet-tallied": "claude-sonnet-5"
   },
   "model_flag": "--model",
+  "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "effort_flag": "--effort",
   "tool_permissions": {
     "flag": "--allowedTools",
     "separator": ",",

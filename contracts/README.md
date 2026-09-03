@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store export/verify, every seat readout |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store export/verify, every seat readout (superseded for new runs by `seat-record.v2.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -293,3 +293,31 @@ run unresumable with a diff that blames no file. `build_run_manifest_v2`
 refuses `agents` by name and now refuses EVERY key beyond the six it can
 round-trip — fail closed, so the next witness key added to the local lineage
 is refused loudly on the day it lands rather than dropped quietly.
+
+Decision 0035 adds one more file and changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with the hire's effort and the reasoning it spent | `seat-record.v2.schema.json` | every driver, brokkr-store export/verify, every seat readout |
+
+`seat-record.v2` is `v1`'s vocabulary plus two optional properties on the
+per-turn checkpoint, the finishing checkpoint and the successful result:
+`effort`, the configured effort as the harness echoes it back, and
+`reasoning_output_tokens`, the reasoning subset of `output_tokens`. `v1` is
+not edited — its bytes are pinned by the embedded-copy test in
+`crates/brokkr-store/src/seat_record.rs` and did not move — and it remains
+the contract for every record already written under it.
+
+The two versions are not interchangeable and nothing guesses between them:
+**a record is validated against the version its run's engine wrote**, read
+from the `engine` string in the `run/started` manifest that every lineage
+carries. A run from an engine older than the one v2 landed in is validated
+against v1, so a journal written before this decision stays readable exactly
+as decision 0034 ruling 5 requires, and a v2-only field on such a record is
+refused rather than quietly admitted. `effort` is CONFIGURATION and says so
+in the schema: it is the harness's own echo of the value applied after every
+profile and plugin layer, never the bundle's pin read back, and never a
+measurement of what the model did. `reasoning_output_tokens` is a reported
+subset, on exactly the terms `cache_read_tokens` already had — a view shows
+it and never adds it to a total a second time — and it is absent, never
+zero, where a harness reports no figure for that record.

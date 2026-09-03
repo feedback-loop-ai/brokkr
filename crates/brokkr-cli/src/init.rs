@@ -205,6 +205,11 @@ struct AgentSpec {
     timeout_seconds: u64,
 }
 
+/// The effort every scaffolded agent hires its model at: the level the
+/// claude harness runs unconfigured, so the starter names what it would
+/// have got rather than tuning a stranger's first run.
+const SCAFFOLD_EFFORT: &str = "high";
+
 /// The two classes of decision 0021 ruling 1, as the scaffold seats them.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Class {
@@ -461,6 +466,10 @@ fn adapter_json(grants: &Grants) -> String {
             "haiku": "claude-haiku-4-5-20251001"
         },
         "model_flag": "--model",
+        // The levels the installed CLI names, measured rather than
+        // assumed — `claude --help` spells them out beside `--effort`.
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+        "effort_flag": "--effort",
         "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
         "mcp": {"flag": "--mcp-config", "servers": {}}
     });
@@ -480,6 +489,13 @@ fn agent_json(spec: &AgentSpec, allowance: Option<&[Tool]>) -> String {
         "description": spec.description,
         "charter": format!("charters/{}.md", spec.agent),
         "models": spec.models,
+        // Every model pin carries an effort pin (decision 0035 ruling
+        // 5): the scaffold names the effort it hires beside the model,
+        // at the level the harness runs unconfigured, so a stranger's
+        // first bundle compiles and reads as a complete hire.
+        "efforts": spec.models.iter()
+            .map(|model| (model.to_string(), json!(SCAFFOLD_EFFORT)))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
         "limits": {
             "max_attempts": spec.max_attempts,
             "timeout_seconds": spec.timeout_seconds,

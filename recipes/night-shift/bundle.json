@@ -35,7 +35,9 @@
           "dsh",
           "--",
           "--model",
-          "deepseek/deepseek-v4-flash"
+          "deepseek/deepseek-v4-flash",
+          "--effort",
+          "medium"
         ]
       }
     },
@@ -61,7 +63,9 @@
           "--allowedTools",
           "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
           "--model",
-          "claude-opus-5"
+          "claude-opus-5",
+          "--effort",
+          "high"
         ]
       }
     },
@@ -93,7 +97,9 @@
           "--allowedTools",
           "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
           "--model",
-          "claude-opus-5"
+          "claude-opus-5",
+          "--effort",
+          "high"
         ]
       }
     },
@@ -119,7 +125,9 @@
           "--allowedTools",
           "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
           "--model",
-          "claude-opus-5"
+          "claude-opus-5",
+          "--effort",
+          "high"
         ]
       }
     }

@@ -153,6 +153,8 @@ fn a_sixth_provider_appears_without_a_rebuild_and_an_absent_library_is_not_a_fai
             "driver": ["invented-cli"],
             "models": {"newmodel": "invented/new-1"},
             "model_flag": "-m",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
             "tool_permissions": "unsupported",
             "mcp": "unsupported",
         }))
@@ -211,4 +213,61 @@ fn doctor_still_compiles_a_named_bundle() {
         always_present,
     );
     assert!(report.render().contains("MISSING  bundle"));
+}
+
+/// `brokkr doctor --bundle` exposes the effort-pin refusal, not only the
+/// model-pin one (decision 0035 ruling 5). The operator who runs doctor
+/// before a run must see the same failure the compile would give them,
+/// with the same repair — a bundle that would refuse to compile must not
+/// read as healthy here.
+#[test]
+fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("halfhire");
+    std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::write(
+        bundle.join("policy.json"),
+        serde_json::to_vec_pretty(&json!({
+            "phases": ["implement", "done"],
+            "initial": "implement",
+            "terminal": ["done"],
+            "rules": [{"id": "OK", "from": "implement", "result": "complete",
+                       "next": "done", "reason": "done."}],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(bundle.join("role.md"), "# role\n").unwrap();
+    // A model named concretely and an effort named not at all: half a
+    // hire, and the half it withholds is the half that moves the bill.
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec_pretty(&json!({
+            "name": "halfhire",
+            "policy": "policy.json",
+            "seats": {"implement": {
+                "results": ["complete"],
+                "role": "role.md",
+                "driver": {"command": [
+                    "brokkr", "driver", "claude", "--", "--model", "claude-opus-5",
+                ]},
+            }},
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let report = doctor_with_probe(
+        Some(&bundle),
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        always_present,
+    );
+    let rendered = report.render();
+    assert!(rendered.contains("MISSING  bundle"), "{rendered}");
+    assert!(
+        rendered.contains("seats 'implement' do not pin an effort"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("--effort <level>"), "{rendered}");
 }

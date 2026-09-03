@@ -243,9 +243,14 @@ A checkpoint is a bounded fact about progress. Send as many as you like;
 the engine journals each one as `effect/checkpointed`.
 
 **The journal is evidence, not transcript.** The closed
-[`seat-record/v1`](../../contracts/seat-record.v1.schema.json) vocabulary is
+[`seat-record/v2`](../../contracts/seat-record.v2.schema.json) vocabulary is
 the definition of a seat's per-turn checkpoint, finishing checkpoint, and
-successful result. Checkpoints may carry only:
+successful result. It is `v1`'s vocabulary plus the two fields decision
+0035 added — `effort` and `reasoning_output_tokens`, both below — and
+[`v1`](../../contracts/seat-record.v1.schema.json) is unedited and
+remains the contract for every record written under it: a record is
+validated against the version its run's engine wrote, never against
+whichever is newest. Checkpoints may carry only:
 
 - bounded turn / tool / usage fields — turn counts, token counts, cost,
   exit codes, a step name, a tool name;
@@ -266,6 +271,55 @@ id displayed by every read surface (decision 0031). Put it on every
 turn checkpoint. If the harness cannot report it, write the literal
 `not reported`; never copy the configured pin or adapter default into
 this evidentiary field. A model-free driver writes `not applicable`.
+
+**`model` is the provider's claim, not proof.** No harness discloses
+quantization, hardware routing, or a substitution made at peak load, and
+the same model string comes back whichever of those happened. It is the
+best-attested name available and worth strictly more than a pin — which
+is why decision 0031's rule stands unchanged and nothing may write a
+pin, an adapter default, or an abstract agent name into it — but it is
+testimony from the party being audited, and this ledger does not call
+testimony proof (decision 0035 ruling 2). What survives that scrutiny is
+not a name but a meter: tokens, money and elapsed time are costly to
+fabricate and are what settle a dispute. Label the field accordingly in
+anything you build on it; every built-in readout does.
+
+**`effort` is configuration, and it is a fourth field to put on every
+turn.** It is the effort the model was configured with, as *the harness
+itself echoes it back* — the value that applied after every profile and
+plugin layer, which is strictly better evidence than reading back our
+own bundle's pin, and is the reason this is read rather than copied.
+Both harnesses that report one report it per turn, so a thread that
+changes effort mid-seat says so turn by turn. It is never dressed as a
+report of what the model did: a configured effort is worth recording and
+is not worth trusting, and `deepseek-v4-flash` is the lane that proves
+it — measured on 2026-09-03, it spent roughly a *seventh* as much
+reasoning at `high` as at `low`. The configuration said one thing, the
+meter said another, and only the meter could say so.
+
+The two sentinels are decision 0031's, reused rather than reinvented,
+and the distinction between them is load-bearing:
+
+- `not reported` — the harness's lanes carry a real effort control, but
+  neither it nor the providers behind it echo any value, so there is
+  nothing to read. This is dsh exactly.
+- `not applicable` — the driver has no model turn at all. This is `exec`.
+
+A control that exists but goes unreported is not a control that does not
+exist, and the record must not blur the two.
+
+**`reasoning_output_tokens` is a reported subset of `output_tokens`,**
+in exactly the way `cache_read_tokens` is a subset of `input_tokens`,
+and it is never added to a total a second time. The three built-in
+harnesses meter it at three different granularities and the field admits
+all three without inventing the others: codex reports it per turn (from
+`turn.completed.usage`), claude only in its result (from
+`output_tokens_details.thinking_tokens`), and a dsh lane's providers
+report it per call though the `headless` profile discards it before
+brokkr sees it. **Where a harness reports no figure for a record, the
+field is absent — never zero, and never back-filled from the run
+total.** Zero is a measurement, and a harness that stayed silent did not
+make it.
 
 **Every driver speaks per turn, not only at exit.** This is the standard
 each built-in driver meets and the one a new driver is held to: every
@@ -310,6 +364,32 @@ separately and is not part of the input-plus-output total.
 `output_tokens` only; adding the cache read would double-count it. One
 journal key means one thing across every driver, not whatever its
 harness happened to mean.
+
+**The sum rules, stated once and in full.** Every read surface derives
+the same way, and a driver that journals under these names gets that
+derivation for free:
+
+| Field | Relationship | Summed into the total? |
+|---|---|---|
+| `input_tokens` | Inclusive of `cache_read_tokens` | **Yes** |
+| `output_tokens` | Inclusive of `reasoning_output_tokens` | **Yes** |
+| `cache_read_tokens` | A reported subset of `input_tokens` | No — shown beside it |
+| `reasoning_output_tokens` | A reported subset of `output_tokens` | No — shown beside it |
+| `cache_write_tokens` | Neither an input nor an output; its own axis | No — shown beside it |
+
+So `total_tokens` is exactly `input_tokens + output_tokens`, and the
+three subset/adjacent fields are displayed and never re-added. A surface
+that summed a subset a second time would inflate the figure the wager
+compares seats on, which is why the rule lives here rather than in each
+surface.
+
+The efforts are not summed at all: `effort` is one configured value per
+record, and a seat whose members ran at different levels reports all of
+them rather than reducing to one. The view carries the plan's **pin** and
+the harness's **applied** value as two separate cells, labels both as
+configuration, and fills neither from the other — a run journaled before
+decision 0035 shows two visible absences rather than one borrowed answer
+(ruling 6).
 
 **Every transcript is the operator's, and it stays.** Every driver sends
 a `checkpoint` whose `data.step` is `transcript`, and repeats the same
@@ -362,7 +442,9 @@ has its own shape:
 | `result` | **Required string**, and it must be one of the seat's declared `results`. Anything else — a non-object payload, a missing `result` string, or a string outside the vocabulary — fails schema validation and **parks** the run with the raw evidence attached. It is never repaired, coerced, or handed to a model to fix. |
 | `inputs` | Optional typed facts for the table. Only the seat's **declared** inputs survive; engine-owned keys and undeclared claims are dropped before evaluation and never enter the journal record (decision 0007). |
 | `notes` | Optional human summary. Display and evidence only. |
-| `model` | The provider-reported served model, under the same rules as checkpoint `model`; required of new driver results by decision 0031 even though the v1 result object remains extensible for wire compatibility. |
+| `model` | The provider-reported served model, under the same rules as checkpoint `model` — the provider's claim, not proof; required of new driver results by decision 0031 even though the result object remains extensible for wire compatibility. |
+| `effort` | The effort configured for that model, as the harness echoed it, under the same rules and the same two sentinels as checkpoint `effort`. Configuration, never a report (decision 0035 ruling 3). |
+| `reasoning_output_tokens` | The reasoning subset of `output_tokens` for the whole session. This is the only place claude can report one; absent, never zero, where the harness reported none. |
 
 Your driver does not decide the next phase and should not try to. It
 reports a typed result; the pinned policy table rules.

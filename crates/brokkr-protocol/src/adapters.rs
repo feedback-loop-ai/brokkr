@@ -27,19 +27,29 @@ const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
 pub const MODEL_NOT_APPLICABLE: &str = "not applicable";
 
-const USAGE_FIELDS: [&str; 4] = [
+/// Decision 0035 ruling 3 reuses decision 0031's two sentinels for the
+/// configured effort rather than inventing a second pair, and the
+/// distinction between them is the one dsh makes visible: a control that
+/// exists but goes unreported (`not reported`) is not a control that
+/// does not exist (`not applicable`).
+pub const EFFORT_NOT_REPORTED: &str = MODEL_NOT_REPORTED;
+pub const EFFORT_NOT_APPLICABLE: &str = MODEL_NOT_APPLICABLE;
+
+const USAGE_FIELDS: [&str; 5] = [
     "input_tokens",
     "output_tokens",
     "cache_read_tokens",
     "cache_write_tokens",
+    "reasoning_output_tokens",
 ];
 
-const RESULT_RECORD_FIELDS: [&str; 8] = [
+const RESULT_RECORD_FIELDS: [&str; 9] = [
     "num_turns",
     "input_tokens",
     "output_tokens",
     "cache_read_tokens",
     "cache_write_tokens",
+    "reasoning_output_tokens",
     "total_cost_usd",
     "session_id",
     "transcript",
@@ -174,6 +184,48 @@ fn model_in_json(event: &Value) -> Option<String> {
     .into_iter()
     .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
     .and_then(model_token)
+}
+
+/// A configured effort as the journal records it: one bounded word of
+/// the vocabulary a harness names its levels with. Clamped for the same
+/// reason a model id is — the value crosses the driver boundary into an
+/// append-only journal — and tighter, because an effort is a level and
+/// never a path, an id, or a sentence.
+fn effort_token(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty()
+        || raw.chars().count() > 40
+        || !raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+    {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
+/// The harness's own echo of the effort it applied (decision 0035
+/// ruling 3), in each of the envelopes a built-in writes it in: claude
+/// puts a top-level `effort` beside every assistant record, codex writes
+/// `turn_context.effort` — and, once per thread,
+/// `thread_settings_applied.reasoning_effort` — into the thread record
+/// decision 0032's locator names.
+///
+/// This reads only a string in a named effort field. It never scans
+/// prose, and it never substitutes the configured pin: the pin is what a
+/// bundle ASKED for, and the whole point of reading the echo is that it
+/// is the value that survived every profile and plugin layer.
+fn effort_in_json(event: &Value) -> Option<String> {
+    [
+        "/effort",
+        "/turn_context/effort",
+        "/payload/turn_context/effort",
+        "/thread_settings_applied/reasoning_effort",
+        "/payload/thread_settings_applied/reasoning_effort",
+    ]
+    .into_iter()
+    .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+    .and_then(effort_token)
 }
 
 /// Codex releases which omit the model from JSONL name it in the
@@ -317,6 +369,14 @@ fn fold_stream_event(
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
+            // The harness's own echo, beside this assistant record and
+            // not from our pin (decision 0035 ruling 3). Claude writes it
+            // per record, so a thread that changes effort mid-seat says
+            // so turn by turn; the last one seen is the seat's.
+            let effort = effort_in_json(event);
+            if let Some(effort) = &effort {
+                session_meta.insert("effort".into(), Value::String(effort.clone()));
+            }
             let usage = claude_usage(event.pointer("/message/usage"));
             for (key, value) in &usage {
                 add_usage(
@@ -336,6 +396,20 @@ fn fold_stream_event(
                         .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
                 ),
             );
+            base.insert(
+                "effort".into(),
+                Value::String(
+                    effort
+                        .clone()
+                        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string()),
+                ),
+            );
+            // No `reasoning_output_tokens` here, and that absence is the
+            // ruling: claude reports its thinking tokens ONLY in the
+            // result (`output_tokens_details.thinking_tokens`), so a
+            // per-turn figure would have to be invented. Decision 0035
+            // ruling 4 says absent, never zero and never back-filled
+            // from the run total.
             base.extend(usage);
             let blocks = event.pointer("/message/content").and_then(Value::as_array);
             let tool_uses = blocks
@@ -379,6 +453,9 @@ fn fold_stream_event(
             if let Some(model) = model_in_json(event) {
                 session_meta.insert("model".into(), Value::String(model));
             }
+            if let Some(effort) = effort_in_json(event) {
+                session_meta.insert("effort".into(), Value::String(effort));
+            }
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
                 transcript.record(session_id, session_meta, emit);
             }
@@ -393,9 +470,99 @@ fn fold_stream_event(
             for (key, value) in claude_usage(event.get("usage")) {
                 session_meta.insert(key, value);
             }
+            // The one place claude reports what it spent thinking. It is
+            // a session figure, so it lands on the session record only —
+            // the turns above stay silent about it rather than each
+            // claiming a share nobody measured (decision 0035 ruling 4).
+            if let Some(value) =
+                positive_count(event.pointer("/usage/output_tokens_details/thinking_tokens"))
+            {
+                session_meta.insert("reasoning_output_tokens".into(), Value::from(value));
+            }
         }
         _ => {}
     }
+}
+
+/// How deep below `<codex home>/sessions` the thread record may sit.
+/// Codex files a rollout under a dated `YYYY/MM/DD` path today; the
+/// walk is bounded rather than pinned to that shape so a re-filing does
+/// not silently stop reporting effort, and bounded rather than
+/// unlimited so a large harness home cannot turn one turn into a full
+/// filesystem scan.
+const CODEX_THREAD_DEPTH: usize = 6;
+
+/// The codex thread record, followed to read the one fact codex does
+/// NOT put on the stream its adapter folds: the effort it applied.
+///
+/// Decision 0032 already retains the locator that reaches this file, so
+/// decision 0035 needed no new mechanism — only for something to open
+/// it. The file is found by the thread id codex itself announced, never
+/// by "the newest file" under the home: a concurrent seat's thread must
+/// not be able to lend this one its effort.
+///
+/// Same trust boundary as the dsh tail, and answered the same way: the
+/// value taken is one clamped word, nothing executable is derived from
+/// it, and a file that cannot be read or does not name an effort leaves
+/// the record saying `not reported` rather than guessing.
+#[derive(Default)]
+struct CodexThreadEcho {
+    path: Option<std::path::PathBuf>,
+}
+
+impl CodexThreadEcho {
+    fn locate(&mut self, home: &std::path::Path, thread_id: &str) {
+        if thread_id.is_empty() {
+            return;
+        }
+        self.path = find_codex_thread(&home.join("sessions"), thread_id, CODEX_THREAD_DEPTH);
+    }
+
+    /// The LAST effort the thread record names. Codex writes a
+    /// `turn_context` per turn, so re-reading here is what makes a
+    /// thread that changed effort mid-seat say so turn by turn.
+    fn effort(&self) -> Option<String> {
+        let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
+        body.lines().rev().find_map(|line| {
+            serde_json::from_str::<Value>(line)
+                .ok()
+                .as_ref()
+                .and_then(effort_in_json)
+        })
+    }
+}
+
+/// The thread record whose file name carries `thread_id`, anywhere in a
+/// bounded walk below `root`.
+fn find_codex_thread(
+    root: &std::path::Path,
+    thread_id: &str,
+    depth: usize,
+) -> Option<std::path::PathBuf> {
+    let mut directories = Vec::new();
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            directories.push(path);
+            continue;
+        }
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".jsonl") && name.contains(thread_id));
+        if named {
+            return Some(path);
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    // Deterministic order: two seats under one home must not disagree
+    // about which file a shared prefix names.
+    directories.sort();
+    directories
+        .into_iter()
+        .find_map(|dir| find_codex_thread(&dir, thread_id, depth - 1))
 }
 
 /// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
@@ -407,11 +574,13 @@ fn fold_codex_event(
     turn: &mut u64,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
+    echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Value),
 ) {
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
+                echo.locate(transcript.home(), thread_id);
                 // Journaled NOW, as the claude fold journals its own —
                 // and for a second reason here: the thread id is what a
                 // retry resumes (decision 0030), and an attempt killed
@@ -443,6 +612,13 @@ fn fold_codex_event(
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
+            // Not on this stream, and not from our pin: read from the
+            // thread record codex writes it into (decision 0035 ruling
+            // 3), through decision 0032's retained locator.
+            let effort = echo.effort();
+            if let Some(effort) = &effort {
+                session_meta.insert("effort".into(), Value::String(effort.clone()));
+            }
             let mut checkpoint = Map::new();
             checkpoint.insert("step".into(), Value::String("turn-completed".into()));
             checkpoint.insert("turn".into(), Value::from(*turn));
@@ -451,10 +627,22 @@ fn fold_codex_event(
                 "model".into(),
                 Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
             );
+            checkpoint.insert(
+                "effort".into(),
+                Value::String(effort.unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())),
+            );
             for (source, target) in [
                 ("input_tokens", "input_tokens"),
                 ("cached_input_tokens", "cache_read_tokens"),
                 ("output_tokens", "output_tokens"),
+                // Received all along and dropped until decision 0035
+                // ruling 4 asked for it; `cache_write_tokens` is a v1
+                // field no codex record has ever filled.
+                ("cache_write_input_tokens", "cache_write_tokens"),
+                // Codex is the one built-in that meters its reasoning
+                // per turn. It is a SUBSET of output_tokens above, so it
+                // rides its own key and is never added to a total again.
+                ("reasoning_output_tokens", "reasoning_output_tokens"),
             ] {
                 if let Some(value) = positive_count(usage.get(source)) {
                     checkpoint.insert(target.into(), Value::from(value));
@@ -476,6 +664,9 @@ fn fold_codex_event(
         Some("result") => {
             if let Some(model) = model_in_json(event) {
                 session_meta.insert("model".into(), Value::String(model));
+            }
+            if let Some(effort) = effort_in_json(event) {
+                session_meta.insert("effort".into(), Value::String(effort));
             }
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
                 transcript.record(session_id, session_meta, emit);
@@ -924,9 +1115,65 @@ struct CodexLaunch {
     resume_refusal: Option<&'static str>,
 }
 
-/// The cold argv, exactly as it has always been: `codex exec --json -C
-/// <workdir>` plus the seat's own passthrough.
+/// `codex exec` takes no effort FLAG: the level is a configuration key
+/// (`model_reasoning_effort`, verified against codex-cli 0.153.0, whose
+/// own error names the vocabulary), and `-c key=value` is the channel
+/// for one. So the adapter data says `effort_flag: "--effort"` — the
+/// pinning grammar every provider shares, and decision 0035's own
+/// spelling — and this driver is where `--effort <level>` becomes the
+/// override codex actually reads. The pair is the analogue of the dsh
+/// arm's `--model` → overlay translation, for the same reason.
+fn codex_effort_config(effort: &str) -> String {
+    format!("model_reasoning_effort=\"{effort}\"")
+}
+
+/// The seat's pinned effort, taken out of its own passthrough. Shared,
+/// because `--effort <level>` is the pinning grammar every provider's
+/// adapter data declares (decision 0035 ruling 5) while only one built-in
+/// takes it as a flag under that name: `claude --effort <level>` is
+/// native (verified against the installed CLI, which names its levels
+/// low, medium, high, xhigh, max), so the claude arm passes the pin
+/// straight through and never calls this. The arms whose harness spells
+/// it differently split it out here first.
+///
+/// A flag with nothing after it, or a level that is not one bounded
+/// word, stays in the argv, so the harness refuses it loudly rather
+/// than this adapter dropping a pin in silence.
+fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
+    let mut effort = None;
+    let mut passthrough = Vec::with_capacity(extra.len());
+    let mut parts = extra.iter();
+    while let Some(part) = parts.next() {
+        // `--effort <level>` and `--effort=<level>`: the value is
+        // whichever spelling carried it, and a bare `--effort` at the
+        // end of the argv carries none.
+        let level = match part.strip_prefix("--effort=") {
+            Some(value) => Some(value.to_string()),
+            None if part == "--effort" => parts.next().cloned(),
+            None => None,
+        };
+        match level.as_deref().and_then(effort_token) {
+            Some(level) if effort.is_none() => effort = Some(level),
+            _ => {
+                passthrough.push(part.clone());
+                // Only a value that arrived as its OWN argv part goes
+                // back as one; an `--effort=…` spelling already carries
+                // its level inside the part just pushed.
+                if part == "--effort" {
+                    if let Some(level) = level {
+                        passthrough.push(level);
+                    }
+                }
+            }
+        }
+    }
+    (effort, passthrough)
+}
+
+/// The cold argv: `codex exec --json -C <workdir>`, the pinned effort as
+/// the config override codex reads, then the seat's own passthrough.
 fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
+    let (effort, passthrough) = split_effort(extra);
     let mut command = vec![
         bin.to_string(),
         "exec".into(),
@@ -934,7 +1181,11 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
         "-C".into(),
         workdir.to_string(),
     ];
-    command.extend(extra.iter().cloned());
+    if let Some(effort) = &effort {
+        command.push("-c".into());
+        command.push(codex_effort_config(effort));
+    }
+    command.extend(passthrough);
     command
 }
 
@@ -1059,7 +1310,14 @@ fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str
     if !plain_thread_id(session) {
         return cold(Some("invalid-session-id"));
     }
-    let (class, passthrough) = split_codex_sandbox(extra);
+    // The effort pin leaves the argv FIRST, for the same reason the
+    // sandbox class does: `codex exec resume` takes neither as a flag,
+    // and both go back in as `-c key=value`. Splitting it here also
+    // keeps it out of the allow-list check below, which would otherwise
+    // read a pin the engine placed as an incompatible argv and drop the
+    // whole session over it.
+    let (effort, extra) = split_effort(extra);
+    let (class, passthrough) = split_codex_sandbox(&extra);
     let Some(class) = class else {
         return cold(Some("sandbox-unavailable"));
     };
@@ -1081,6 +1339,13 @@ fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str
         "-c".into(),
         format!("sandbox_mode=\"{class}\""),
     ];
+    // The rejoined thread carries the effort it was opened under only
+    // because it is re-expressed here: a resume drops what it was given,
+    // exactly as it drops the sandbox class.
+    if let Some(effort) = &effort {
+        command.push("-c".into());
+        command.push(codex_effort_config(effort));
+    }
     command.extend(passthrough);
     command.push(session.to_string());
     // The prompt still arrives on stdin, which `codex exec resume` reads
@@ -1148,10 +1413,18 @@ fn invoke_codex(
     });
     let mut session_meta = Map::new();
     let mut turn = 0;
+    let mut echo = CodexThreadEcho::default();
     for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
         let Ok(line) = line else { break };
         if let Ok(event) = serde_json::from_str::<Value>(&line) {
-            fold_codex_event(&event, &mut turn, &mut session_meta, &mut transcript, emit);
+            fold_codex_event(
+                &event,
+                &mut turn,
+                &mut session_meta,
+                &mut transcript,
+                &mut echo,
+                emit,
+            );
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -1210,6 +1483,18 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
+    // The effort pin leaves the argv here and goes nowhere else, and
+    // that is the honest state of this lane rather than an oversight.
+    // `dsh --help` (0.1.0-rc.6) lists no effort control at all, and the
+    // one place a level could be imposed is the provider row of the
+    // composed profile — which is the `headless` profile finding
+    // decision 0035 deliberately leaves unruled. Forwarding it would
+    // fail the spawn; inventing an overlay key would be this adapter
+    // guessing at somebody else's config grammar. So the pin does its
+    // work where it can be checked — it is in the bundle, and therefore
+    // in the bundle's digest — and the record says `not reported`,
+    // which is precisely what ruling 3 rules for dsh.
+    let (_effort, passthrough) = split_effort(&passthrough);
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     // The seat's own root under the operator's harness home. Nothing
     // here removes it: the transcript is the operator's (see
@@ -1707,6 +1992,22 @@ fn run_seat(
                     .to_string(),
                 )
             });
+            // The same default, one field over (decision 0035 ruling 3).
+            // A fold that read its harness's echo has already written
+            // the level; this is what every other row says — `not
+            // applicable` for exec, which has no model turn, and `not
+            // reported` for a harness whose lanes carry a real effort
+            // control that nothing echoes back, which is dsh exactly.
+            checkpoint.entry("effort").or_insert_with(|| {
+                Value::String(
+                    if kind == AdapterKind::Exec {
+                        EFFORT_NOT_APPLICABLE
+                    } else {
+                        EFFORT_NOT_REPORTED
+                    }
+                    .to_string(),
+                )
+            });
             send(Body::Checkpoint {
                 effect_id: effect_id.clone(),
                 attempt_id: attempt_id.clone(),
@@ -1740,6 +2041,21 @@ fn run_seat(
             .and_then(model_token)
             .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())
     };
+    // The effort the harness echoed, on the same terms and with the same
+    // sentinels — the last level a fold read for this seat, or the
+    // absence spelled out. Never the pin: a bundle's `--effort` says what
+    // was ASKED for, and this field says what a layer of profiles,
+    // plugins and provider routes actually applied (decision 0035
+    // rulings 3 and 6, which keep the two apart deliberately).
+    let applied_effort = if kind == AdapterKind::Exec {
+        EFFORT_NOT_APPLICABLE.to_string()
+    } else {
+        session_meta
+            .get("effort")
+            .and_then(Value::as_str)
+            .and_then(effort_token)
+            .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
+    };
     let stderr_tail_start = stderr_tail_start(&stderr);
     eprint!("{}", &stderr[stderr_tail_start..]);
     let mut checkpoint = Map::new();
@@ -1753,6 +2069,7 @@ fn run_seat(
     // Inserted after driver metadata: this field is always the normalized
     // provider report, never a configured default supplied by the seat.
     checkpoint.insert("model".into(), Value::String(served_model.clone()));
+    checkpoint.insert("effort".into(), Value::String(applied_effort.clone()));
     // Ledger-capture marker: a source-literal CONSTANT, never
     // data-derived, inserted AFTER the session_meta extend so
     // last-write-wins guarantees no stream-derived key can ever shadow
@@ -1805,6 +2122,7 @@ fn run_seat(
     // neither forge nor suppress the model in the final result.
     if let Some(result) = seat_result.as_object_mut() {
         result.insert("model".into(), Value::String(served_model));
+        result.insert("effort".into(), Value::String(applied_effort));
         for key in RESULT_RECORD_FIELDS {
             if let Some(value) = result_record.get(key) {
                 result.insert(key.into(), value.clone());

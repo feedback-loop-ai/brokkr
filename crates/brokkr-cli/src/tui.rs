@@ -2872,7 +2872,20 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
             },
             plain(),
         ),
-        line(&format!("model     {}", part.model.text), plain()),
+        // `model` is the provider's CLAIM, not proof (decision 0035
+        // ruling 2), and the two efforts beside it are CONFIGURATION —
+        // what the plan pinned and what the harness echoed as applied,
+        // kept apart because ruling 6 keeps them apart. None of the
+        // three measures what the model did; the reasoning count in the
+        // tokens line below is the only figure here that does.
+        line(&format!("model     {} (claimed)", part.model.text), plain()),
+        line(
+            &format!(
+                "effort    pinned {} · applied {} (configuration)",
+                part.effort_pin.text, part.effort.text
+            ),
+            plain(),
+        ),
         line(
             &format!(
                 "attempts {} · turns {} · cost {} · tokens {}",
@@ -2889,10 +2902,11 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         .map(|row| {
             line(
                 &format!(
-                    "{}  {}  model {}  tokens {}  {}  {}",
+                    "{}  {}  model {}  effort {}  tokens {}  {}  {}",
                     row.turn.text,
                     row.step,
                     row.model.text,
+                    row.effort.text,
                     row.usage.text,
                     row.target.text,
                     row.recorded_at

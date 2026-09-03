@@ -2376,6 +2376,13 @@ fn select_candidates(
             "member": site,
             "agent": candidate.agent,
             "model": candidate.model,
+            // The other half of the hire, journaled beside the model it
+            // was pinned with (decision 0035 ruling 5). Additive, like
+            // `model` before it: a candidate an effortless provider
+            // serves carries `null`, and a run journaled before this
+            // decision carries no key at all — which is exactly what
+            // ruling 6 wants the view to show as absent.
+            "effort": candidate.effort,
             "provider": candidate.provider,
             "chain_index": index,
         }));

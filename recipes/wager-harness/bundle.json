@@ -33,6 +33,8 @@
           "--",
           "--model",
           "gpt-5.6-sol",
+          "--effort",
+          "medium",
           "--sandbox",
           "danger-full-access"
         ]

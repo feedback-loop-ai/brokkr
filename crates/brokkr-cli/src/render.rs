@@ -410,6 +410,11 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     if seats.is_empty() {
         return String::new();
     }
+    // `model` is the provider's claim; `effort` is the level it was
+    // configured with, as the harness echoed it back — configuration,
+    // never a measurement of what the model did (decision 0035 rulings
+    // 2 and 3). The pin the plan asked for is the seat's own detail
+    // view, one fact per column here.
     let header = [
         "participant",
         "status",
@@ -418,8 +423,9 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
         "cost",
         "tokens",
         "model",
+        "effort",
     ];
-    let mut rows: Vec<[Safe; 8]> = Vec::new();
+    let mut rows: Vec<[Safe; 9]> = Vec::new();
     for part in &seats {
         rows.push([
             Safe::new(&part.label),
@@ -429,10 +435,11 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.cost_cell.text),
             Safe::new(&part.usage_cell.text),
             Safe::new(&part.model.text),
+            Safe::new(&part.effort.text),
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 7];
+    let mut widths = [0usize; 8];
     for (index, name) in header.iter().enumerate() {
         widths[index] = name.chars().count();
     }
@@ -462,7 +469,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             });
             line.push(' ');
         }
-        line.push_str(&brokkr_view::clamp(row[7].as_str(), remaining));
+        line.push_str(&brokkr_view::clamp(row[8].as_str(), remaining));
         push_line(&mut out, &line);
         push_line(
             &mut out,
@@ -478,6 +485,19 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             push_line(
                 &mut out,
                 &format!("    {}", Safe::new(&provenance.line).as_str()),
+            );
+            // The pin the plan asked for, beside the applied level in
+            // the row above (decision 0035 ruling 6). Both are
+            // configuration; neither is filled from the other, so an
+            // old journal shows two absences rather than one borrowed
+            // answer.
+            push_line(
+                &mut out,
+                &format!(
+                    "    effort pinned {} · applied {} (configuration)",
+                    Safe::new(&part.effort_pin.text).as_str(),
+                    Safe::new(&part.effort.text).as_str()
+                ),
             );
         }
     }

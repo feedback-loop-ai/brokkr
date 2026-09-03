@@ -662,10 +662,12 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
 /// The recorded regression, pinned whole: the two stacks the adoption
 /// run (issue #211) was reported against, node/bun and rust/cargo. The
 /// implement seat's resolved argv ends in exactly the stack's
-/// `--allowedTools` list — the driver prefix, the pinned model, and the
-/// list, in the order the work allowance names them — and the verify
-/// seat's ends in the gate subset. A grant that reached the adapter map
-/// and the agent file but never the argv would fail here.
+/// `--allowedTools` list — the driver prefix, the pinned model, the
+/// pinned effort, and the list, in the order the work allowance names
+/// them — and the verify seat's ends in the gate subset. A grant that
+/// reached the adapter map and the agent file but never the argv would
+/// fail here, and so would a hire that named a model without the effort
+/// decision 0035 ruling 5 pairs with it.
 #[test]
 fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
     for (fixture, binary) in [("node-bun", "bun"), ("rust", "cargo")] {
@@ -677,6 +679,8 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         implement.extend([
             "--model".to_string(),
             "claude-opus-5".to_string(),
+            "--effort".to_string(),
+            "high".to_string(),
             "--allowedTools".to_string(),
             format!("Bash({binary}:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"),
         ]);
@@ -686,6 +690,8 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         verify.extend([
             "--model".to_string(),
             "claude-sonnet-5".to_string(),
+            "--effort".to_string(),
+            "high".to_string(),
             "--allowedTools".to_string(),
             format!("Bash({binary}:*),Bash(git:*),Bash(ls:*),Bash(rg:*)"),
         ]);

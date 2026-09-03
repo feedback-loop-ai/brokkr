@@ -315,31 +315,36 @@ fn built_in_model_driver(raw: &Value) -> Option<&str> {
     }
 }
 
-fn command_pins_model(raw: &Value) -> bool {
-    let concrete = |model: &str| {
-        !model.is_empty()
-            && !model.starts_with('-')
-            && model.chars().count() <= 80
-            && model
+/// Does this argv state exactly one concrete value for `flag`? Shared by
+/// both pins, because both are the same rule on different axes: named
+/// once, concretely, never as a second flag that could outrank the first
+/// and never as something that reads as a flag itself.
+fn command_pins(raw: &Value, flag: &str, limit: usize) -> bool {
+    let concrete = |value: &str| {
+        !value.is_empty()
+            && !value.starts_with('-')
+            && value.chars().count() <= limit
+            && value
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'))
     };
+    let attached = format!("{flag}=");
     let Some(command) = raw.pointer("/driver/command").and_then(Value::as_array) else {
         return false;
     };
     let mut pin = None;
     let mut parts = command.iter().filter_map(Value::as_str);
     while let Some(part) = parts.next() {
-        if part == "--model" {
-            let Some(model) = parts.next().filter(|model| concrete(model)) else {
+        if part == flag {
+            let Some(value) = parts.next().filter(|value| concrete(value)) else {
                 return false;
             };
-            if pin.replace(model).is_some() {
+            if pin.replace(value).is_some() {
                 return false;
             }
         }
-        if let Some(model) = part.strip_prefix("--model=") {
-            if !concrete(model) || pin.replace(model).is_some() {
+        if let Some(value) = part.strip_prefix(&attached) {
+            if !concrete(value) || pin.replace(value).is_some() {
                 return false;
             }
         }
@@ -347,15 +352,44 @@ fn command_pins_model(raw: &Value) -> bool {
     pin.is_some()
 }
 
+fn command_pins_model(raw: &Value) -> bool {
+    command_pins(raw, "--model", 80)
+}
+
+/// The effort pin bound, matching `seat-record/v2`'s own: a level is one
+/// bounded word, never a path and never a sentence.
+fn command_pins_effort(raw: &Value) -> bool {
+    command_pins(raw, "--effort", 40)
+}
+
+/// Every driver-bearing invocation site that states one of the two pins
+/// and not the other, or neither.
+#[derive(Default)]
+struct Unpinned {
+    model: Vec<String>,
+    effort: Vec<String>,
+}
+
 /// Inspect every driver-bearing invocation site in the already composed
 /// bundle. Agent references are pinned by their resolved candidate
-/// chains; inline built-ins must state the concrete pin in their argv.
-fn collect_unpinned(what: &str, raw: &Value, out: &mut Vec<String>) {
+/// chains — a chain that names no effort for an effort-bearing provider
+/// is refused where the vocabulary is known, in the resolver — while
+/// inline built-ins must state both concrete pins in their argv.
+fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
     if raw.get("agent").is_some() {
         return;
     }
-    if built_in_model_driver(raw).is_some() && !command_pins_model(raw) {
-        out.push(what.to_string());
+    // Both built-in lists are the same list: exec has neither a model to
+    // pin nor an effort to pin, and a custom driver owns its own
+    // contract. So a site is asked for both pins or for neither, and a
+    // seat missing both is named in both halves of one refusal.
+    if built_in_model_driver(raw).is_some() {
+        if !command_pins_model(raw) {
+            out.model.push(what.to_string());
+        }
+        if !command_pins_effort(raw) {
+            out.effort.push(what.to_string());
+        }
         return;
     }
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
@@ -375,23 +409,43 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Vec<String>) {
     }
 }
 
-fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
-    let mut unpinned = Vec::new();
-    for (phase, raw) in seats {
-        collect_unpinned(phase, raw, &mut unpinned);
-    }
-    if unpinned.is_empty() {
-        return Ok(());
-    }
-    let labels = unpinned
+fn labels(sites: &[String]) -> String {
+    sites
         .iter()
         .map(|site| format!("'{site}'"))
         .collect::<Vec<_>>()
-        .join(", ");
-    Err(CompileError::Invalid(format!(
-        "seats {labels} do not pin a model; add '--model <concrete-model-id>' to each \
-         driver.command (decision 0031 ruling 2)"
-    )))
+        .join(", ")
+}
+
+/// One refusal names the complete repair set, on BOTH axes. A model pin
+/// without an effort pin is half a hire (decision 0035 ruling 5), so the
+/// two clauses stand beside each other rather than the first hiding the
+/// second behind a second compile.
+fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
+    let mut unpinned = Unpinned::default();
+    for (phase, raw) in seats {
+        collect_unpinned(phase, raw, &mut unpinned);
+    }
+    let mut refusals = Vec::new();
+    if !unpinned.model.is_empty() {
+        refusals.push(format!(
+            "seats {} do not pin a model; add '--model <concrete-model-id>' to each \
+             driver.command (decision 0031 ruling 2)",
+            labels(&unpinned.model)
+        ));
+    }
+    if !unpinned.effort.is_empty() {
+        refusals.push(format!(
+            "seats {} do not pin an effort; add '--effort <level>' — one of the \
+             levels that driver's adapter declares — to each driver.command \
+             (decision 0035 ruling 5)",
+            labels(&unpinned.effort)
+        ));
+    }
+    if refusals.is_empty() {
+        return Ok(());
+    }
+    Err(CompileError::Invalid(refusals.join("; ")))
 }
 
 impl Bundle {
@@ -866,6 +920,7 @@ fn resolve_reference(
         candidates.push(Candidate {
             agent: candidate.agent.clone(),
             model: candidate.model.clone(),
+            effort: candidate.effort.clone(),
             provider: candidate.provider.clone(),
             argv: expand_command(dir, &candidate.argv),
         });

@@ -700,6 +700,7 @@ impl Staged {
                 "description": "reads the fleet and proposes",
                 "charter": "charters/muninn.md",
                 "models": ["opus", "sonnet"],
+                "efforts": {"opus": "medium", "sonnet": "medium"},
                 "limits": limits,
             }))
             .unwrap(),
@@ -713,6 +714,8 @@ impl Staged {
                 "driver": ["{brokkr}", "driver", "claude", "--"],
                 "models": {"opus": "test/opus", "sonnet": "test/sonnet"},
                 "model_flag": "--model",
+                "efforts": ["low", "medium", "high"],
+                "effort_flag": "--effort",
                 "tool_permissions": "unsupported",
                 "mcp": "unsupported",
             }))
@@ -740,7 +743,18 @@ fn the_seat_resolves_through_the_agent_library_and_pins_its_deadline() {
     assert!(resolved.charter.ends_with("charters/muninn.md"));
     assert_eq!(
         resolved.command[1..],
-        ["driver", "claude", "--", "--model", "test/opus"],
+        [
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "test/opus",
+            // The other half of the hire, composed from the agent's own
+            // `efforts` map (decision 0035 ruling 5) — the overseer is
+            // hired at a stated level like any other seat.
+            "--effort",
+            "medium"
+        ],
         "the token expands to this executable and the rest is the adapter's"
     );
     assert_ne!(resolved.command[0], "{brokkr}");

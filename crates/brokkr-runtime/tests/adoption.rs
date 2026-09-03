@@ -60,8 +60,15 @@ fn historic(specify: bool) -> Vec<String> {
     .collect()
 }
 
-/// The same argv with the model pinned: `--model <id>` inserted where
-/// the adapter composes it, immediately before the tool permissions.
+/// The effort every shipped agent hires its model at: the claude
+/// harness's own default level, which is what these seats ran at before
+/// decision 0035 asked them to say so.
+const EFFORT: &str = "high";
+
+/// The same argv with the hire pinned: `--model <id> --effort <level>`
+/// inserted where the adapter composes them, immediately before the tool
+/// permissions. The effort follows the model because both halves of the
+/// hire are named together (decision 0035 ruling 5).
 fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
     let mut argv = historic(specify);
     if hands {
@@ -69,7 +76,15 @@ fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
         tools.push_str(DRIVER_HANDS);
     }
     let at = argv.len() - 2;
-    argv.splice(at..at, ["--model".to_string(), model.to_string()]);
+    argv.splice(
+        at..at,
+        [
+            "--model".to_string(),
+            model.to_string(),
+            "--effort".to_string(),
+            EFFORT.to_string(),
+        ],
+    );
     argv
 }
 

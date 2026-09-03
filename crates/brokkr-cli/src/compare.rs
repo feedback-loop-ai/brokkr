@@ -26,6 +26,10 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         output: Option<u64>,
         cache_read: Option<u64>,
         cache_write: Option<u64>,
+        /// A reported subset of `output`, summed on its own key and
+        /// never folded into it a second time (decision 0035 ruling 4)
+        /// — the same treatment `cache_read` gets inside `input`.
+        reasoning: Option<u64>,
     }
     impl Usage {
         fn add_record(&mut self, record: &Value) {
@@ -34,6 +38,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                 (&mut self.output, "output_tokens"),
                 (&mut self.cache_read, "cache_read_tokens"),
                 (&mut self.cache_write, "cache_write_tokens"),
+                (&mut self.reasoning, "reasoning_output_tokens"),
             ] {
                 if let Some(value) = record.get(key).and_then(Value::as_u64) {
                     *total = Some(total.unwrap_or_default().saturating_add(value));
@@ -41,11 +46,21 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
             }
         }
 
+        /// One list, as `add_record` and `merge` below already read one:
+        /// every counter this record can hold, asked the same question.
+        /// A `||` chain would make each counter its own branch and claim
+        /// a harness shape nobody reports — "cache writes and nothing
+        /// else" — as a case worth proving.
         fn has_any(&self) -> bool {
-            self.input.is_some()
-                || self.output.is_some()
-                || self.cache_read.is_some()
-                || self.cache_write.is_some()
+            [
+                self.input,
+                self.output,
+                self.cache_read,
+                self.cache_write,
+                self.reasoning,
+            ]
+            .iter()
+            .any(Option::is_some)
         }
 
         fn merge(&mut self, other: &Self) {
@@ -54,6 +69,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                 (&mut self.output, other.output),
                 (&mut self.cache_read, other.cache_read),
                 (&mut self.cache_write, other.cache_write),
+                (&mut self.reasoning, other.reasoning),
             ] {
                 if let Some(value) = value {
                     *total = Some(total.unwrap_or_default().saturating_add(value));
@@ -68,6 +84,11 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         turns: u64,
         cost: f64,
         models: BTreeSet<String>,
+        /// The efforts this effect was CONFIGURED with, gathered exactly
+        /// as the models beside them are: both harnesses that echo one
+        /// write it per turn, so an effect that changed level mid-thread
+        /// reports both rather than the last.
+        efforts: BTreeSet<String>,
         turns_usage: Usage,
         finishing_usage: Usage,
     }
@@ -78,6 +99,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         turns: u64,
         cost: f64,
         models: BTreeSet<String>,
+        efforts: BTreeSet<String>,
         usage: Usage,
     }
 
@@ -121,6 +143,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
                     }
+                    if let Some(effort) = checkpoint.get("effort").and_then(Value::as_str) {
+                        accounting.efforts.insert(effort.to_string());
+                    }
                     if matches!(
                         checkpoint.get("step").and_then(Value::as_str),
                         Some("seat-turn" | "turn-completed")
@@ -131,6 +156,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                         "output_tokens",
                         "cache_read_tokens",
                         "cache_write_tokens",
+                        "reasoning_output_tokens",
                     ]
                     .iter()
                     .any(|key| checkpoint.get(*key).is_some())
@@ -150,6 +176,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     let result = &payload["result"];
                     if let Some(model) = result.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
+                    }
+                    if let Some(effort) = result.get("effort").and_then(Value::as_str) {
+                        accounting.efforts.insert(effort.to_string());
                     }
                     if !accounting.finishing_usage.has_any() {
                         accounting.finishing_usage.add_record(result);
@@ -182,6 +211,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         entry.turns += effect.turns;
         entry.cost += effect.cost;
         entry.models.extend(effect.models.iter().cloned());
+        entry.efforts.extend(effect.efforts.iter().cloned());
         entry.usage.merge(if effect.turns_usage.has_any() {
             &effect.turns_usage
         } else {
@@ -196,29 +226,43 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
             // when it names no model. A seat that also served a real
             // model reports that one alone; a seat that only ever
             // reported a sentinel keeps the sentinel.
-            let mut models = accounting.models;
-            let mut named = models.clone();
-            named.remove("not reported");
-            named.remove("not applicable");
-            if !named.is_empty() {
-                models = named;
-            }
-            let model = match models.len() {
-                0 => "not reported".to_string(),
-                1 => models.into_iter().next().expect("one model"),
-                _ => models.into_iter().collect::<Vec<_>>().join(", "),
+            // The same reduction serves both axes: decision 0035 reuses
+            // 0031's two sentinels for the effort rather than inventing
+            // a second pair, so "a real value outranks a sentinel, and a
+            // seat that only ever reported a sentinel keeps it" is one
+            // rule stated once.
+            let reduce = |mut values: BTreeSet<String>| {
+                let mut named = values.clone();
+                named.remove("not reported");
+                named.remove("not applicable");
+                if !named.is_empty() {
+                    values = named;
+                }
+                match values.len() {
+                    0 => "not reported".to_string(),
+                    1 => values.into_iter().next().expect("one value"),
+                    _ => values.into_iter().collect::<Vec<_>>().join(", "),
+                }
             };
+            let model = reduce(accounting.models);
+            let effort = reduce(accounting.efforts);
             let mut record = Map::from_iter([
                 ("attempts".to_string(), Value::from(accounting.attempts)),
                 ("turns".to_string(), Value::from(accounting.turns)),
                 ("cost_usd".to_string(), Value::from(accounting.cost)),
+                // `model` is the provider's claim, not proof (decision
+                // 0035 ruling 2); `effort` beside it is configuration,
+                // never a report of what the model did. The one figure
+                // here that meters that is `reasoning_output_tokens`.
                 ("model".to_string(), Value::from(model)),
+                ("effort".to_string(), Value::from(effort)),
             ]);
             for (key, value) in [
                 ("input_tokens", accounting.usage.input),
                 ("output_tokens", accounting.usage.output),
                 ("cache_read_tokens", accounting.usage.cache_read),
                 ("cache_write_tokens", accounting.usage.cache_write),
+                ("reasoning_output_tokens", accounting.usage.reasoning),
             ] {
                 if let Some(value) = value {
                     record.insert(key.to_string(), Value::from(value));
