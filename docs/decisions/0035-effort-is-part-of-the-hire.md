@@ -58,9 +58,20 @@ to `deepseek-v4-flash` returns `completion_tokens_details.reasoning_tokens`,
 `prompt_tokens_details.cached_tokens`, and DeepSeek's own
 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`; `qwen3.8-flash`
 through Model Studio returns reasoning and cached counts too. The dsh
-session record keeps `inputTokens` and `outputTokens` and discards the
-rest before brokkr can see any of it. So a dsh seat's thin record is the
-harness narrowing its providers, not the providers being silent.
+session record this seat wrote keeps `inputTokens` and `outputTokens`
+and discards the rest before brokkr can see any of it.
+
+That narrowing is the profile's, not the harness's, and the distinction
+decides who fixes it. Dsh is plugin-based: a profile is an ordered stack
+of cordis plugin bundles, and the ecosystem already covers this ground —
+`@deepseek-ai/dsh-session-telemetry` is a first-party seam for
+"session-event capture, projection, redaction, and handoff to a
+reporting backend", and community plugins such as
+`@laoyuehanni/dsh-token-usage` persist per-request model token usage
+from a live hook. The `headless` profile brokkr boots simply loads none
+of them. So the thin dsh record is a profile brokkr controls, not a
+limit dsh imposes, and widening it is a change to our own profile rather
+than a request to somebody else's harness.
 
 Effort on those same dsh lanes is a real control that nothing reports
 back. `qwen3.8-flash` honours it exactly — `enable_thinking: false`
@@ -190,12 +201,14 @@ The wire protocol does not change: `effort` and
 `reasoning_output_tokens` are additive payload facts under
 `forge-driver/v1`, like `model` before them.
 
-One finding here is left deliberately unruled. Dsh discards the
-reasoning and cache counts its own providers return, so a dsh seat's
-record will stay thinner than a codex or claude seat's even after v2,
-for a reason that lives in the harness rather than in this contract.
-Naming it is not fixing it: that is its own change, against dsh, and
-wants its own ruling.
+One finding here is left deliberately unruled. A dsh seat's record will
+stay thinner than a codex or claude seat's even after v2, because the
+`headless` profile loads no plugin that captures what its providers
+return. That is a profile change of ours — dsh already ships the seam
+and the ecosystem already ships the plugins — and it is a different
+question from what this contract admits. Naming it is not fixing it: it
+wants its own ruling, and this decision deliberately declines to make
+that ruling here.
 
 The cost of this ruling arriving late is one version. Decision 0034's
 v1 was frozen on 2026-09-03 knowing effort was missing, because the
