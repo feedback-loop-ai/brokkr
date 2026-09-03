@@ -80,15 +80,16 @@ list (decision 0040). The harness keeps its credential and its network;
 what the model asks to run goes through one MCP tool, `workspace`, served
 by `brokkr hands serve`, and every call executes inside an empty-root
 bubblewrap namespace holding the worktree read-write and the host
-toolchain read-only. `binds` add host paths — the Rust toolchain cache,
-read-write, its credentials masked:
+toolchain read-only. `binds` add host paths — the Rust toolchain cache as an
+overlay (the box may write to it, the host never sees the writes), its
+credentials masked, rustup read-only:
 
 ```json
 "hands": {
   "kind": "workspace",
   "network": false,
   "binds": [
-    {"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml", "credentials"]},
+    {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
     {"path": "~/.rustup", "mode": "ro"}
   ]
 }

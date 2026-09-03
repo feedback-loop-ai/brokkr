@@ -1948,3 +1948,55 @@ fn hands_are_refused_where_they_cannot_be_honest() {
     assert!(refusal.contains("hands"), "{refusal}");
     assert!(refusal.contains("agent"), "{refusal}");
 }
+
+/// The manifest's `hands` keys are the sites as the engine labels its
+/// driver seats — `seat:member` for a panel member, `seat:step` for a
+/// sequence step — so the spawn-side lookup finds what compile recorded.
+#[test]
+fn hands_are_recorded_under_the_sites_the_engine_labels() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    let exec = |name: &str| {
+        json!({
+            "name": name,
+            "role": "roles/role.md",
+            "class": "gate",
+            "hands": "workspace",
+            "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "check.sh", "{prompt_file}"]},
+        })
+    };
+    let panel = json!({
+        "results": ["pass", "fail"],
+        "panel": {
+            "left": {
+                "role": "roles/role.md",
+                "class": "gate",
+                "hands": {"kind": "workspace", "network": true},
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "check.sh", "{prompt_file}"]},
+            },
+            "right": {
+                "role": "roles/role.md",
+                "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]},
+            }
+        },
+        "aggregate": "unanimous-pass",
+    });
+    let bundle = fixture.compile(panel).unwrap();
+    assert_eq!(
+        bundle.hands.keys().collect::<Vec<_>>(),
+        ["work:left"],
+        "one boxed member, keyed as the engine labels it"
+    );
+    assert!(bundle.hands["work:left"].network);
+
+    let sequence = json!({
+        "results": ["pass", "fail"],
+        "sequence": [exec("first"), exec("second")],
+    });
+    let bundle = fixture.compile(sequence).unwrap();
+    assert_eq!(
+        bundle.hands.keys().collect::<Vec<_>>(),
+        ["work:first", "work:second"]
+    );
+    assert_eq!(bundle.manifest["hands"]["work:second"]["kind"], "workspace");
+}

@@ -885,14 +885,19 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
     match command {
         HandsCommand::Serve { workdir, spec } => {
             let spec = parse_spec(&spec)?;
+            // The session outlives every call: overlay upper layers live
+            // here until the harness closes the server's stdin.
+            let session = hands::session_dir("serve").map_err(anyhow::Error::msg)?;
             let stdin = std::io::stdin();
             let served = hands::serve(
                 stdin.lock(),
                 std::io::stdout(),
                 &workdir,
+                &session,
                 &spec,
                 &hands::execute,
             );
+            let _ = std::fs::remove_dir_all(&session);
             served?;
             Ok(ExitCode::SUCCESS)
         }
@@ -902,12 +907,34 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
             command,
         } => {
             let spec = parse_spec(&spec)?;
-            let command: Vec<String> = command.into_iter().filter(|part| part != "--").collect();
+            // Only the leading separator is ours; a command may carry
+            // its own `--`.
+            let command: Vec<String> = match command.first().map(String::as_str) {
+                Some("--") => command[1..].to_vec(),
+                _ => command,
+            };
             let code = hands::run_boxed(&spec, &workdir, &command).map_err(anyhow::Error::msg)?;
             Ok(ExitCode::from(
                 u8::try_from(code.clamp(0, 255)).unwrap_or(1),
             ))
         }
+    }
+}
+
+/// Decision 0040 ruling 7: a bundle whose seats box their hands refuses
+/// to start without bubblewrap, naming the seats — before any journal is
+/// opened or seat spawned. The boundary is Linux's and is never simulated.
+fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> anyhow::Result<()> {
+    if bundle.hands.is_empty() {
+        return Ok(());
+    }
+    match brokkr_protocol::hands::bwrap_on(path) {
+        Ok(_) => Ok(()),
+        Err(reason) => anyhow::bail!(
+            "{reason}; the seats {:?} declare hands and cannot run on this machine \
+             (decision 0040 ruling 7 — hands are a Linux boundary)",
+            bundle.hands.keys().collect::<Vec<_>>()
+        ),
     }
 }
 
@@ -1652,6 +1679,7 @@ fn run_with(
                  jointly agreed v2-lineage manifest version exists"
             );
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
                 // A map merely lying in the workspace is a different
@@ -1690,6 +1718,7 @@ fn run_with(
             secrets_file,
         } => {
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             engine.secrets_file = secrets_file;
@@ -1719,6 +1748,7 @@ fn run_with(
                 })?
                 .to_string();
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::start(store, bundle, &feature, repo)?;
             engine.secrets_file = secrets_file;
             eprintln!(

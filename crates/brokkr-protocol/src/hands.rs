@@ -35,14 +35,38 @@ const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 
+/// How a bound host path may be touched from inside the box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindMode {
+    /// Read-only.
+    Ro,
+    /// Read-write: writes land on the host. For the worktree and for
+    /// nothing a hostile command could turn into a program you run.
+    Rw,
+    /// An overlay: the host path is the read-only lower layer and every
+    /// write goes to an upper layer that lives for the seat and never
+    /// touches the host. A toolchain cache is bound this way.
+    Overlay,
+}
+
+impl BindMode {
+    fn name(self) -> &'static str {
+        match self {
+            BindMode::Ro => "ro",
+            BindMode::Rw => "rw",
+            BindMode::Overlay => "overlay",
+        }
+    }
+}
+
 /// One extra bind into the box. `path` may start with `~/`, resolved
 /// against the host home at spawn; `mask` names files UNDER the bind
 /// that are hidden behind `/dev/null` — a credentials file inside a
-/// toolchain directory that must otherwise be writable.
+/// toolchain directory that must otherwise be readable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bind {
     pub path: String,
-    pub writable: bool,
+    pub mode: BindMode,
     pub mask: Vec<String>,
 }
 
@@ -109,7 +133,7 @@ impl HandsSpec {
             "network": self.network,
             "binds": self.binds.iter().map(|bind| json!({
                 "path": bind.path,
-                "mode": if bind.writable { "rw" } else { "ro" },
+                "mode": bind.mode.name(),
                 "mask": bind.mask,
             })).collect::<Vec<_>>(),
         })
@@ -134,12 +158,13 @@ impl Bind {
             .filter(|path| !path.is_empty())
             .ok_or_else(|| "hands.binds entry needs a non-empty 'path'".to_string())?
             .to_string();
-        let writable = match object.get("mode").and_then(Value::as_str) {
-            Some("ro") => false,
-            Some("rw") => true,
+        let mode = match object.get("mode").and_then(Value::as_str) {
+            Some("ro") => BindMode::Ro,
+            Some("rw") => BindMode::Rw,
+            Some("overlay") => BindMode::Overlay,
             _ => {
                 return Err(format!(
-                    "hands.binds entry '{path}' needs mode \"ro\" or \"rw\""
+                    "hands.binds entry '{path}' needs mode \"ro\", \"rw\" or \"overlay\""
                 ))
             }
         };
@@ -161,11 +186,7 @@ impl Bind {
                 mask.push(name.to_string());
             }
         }
-        Ok(Bind {
-            path,
-            writable,
-            mask,
-        })
+        Ok(Bind { path, mode, mask })
     }
 }
 
@@ -177,15 +198,60 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
     }
 }
 
+/// What the host knows about the worktree's git that the box must be
+/// told, gathered OUTSIDE the box before it is built (decision 0040
+/// ruling 6): where the git directory is, and who the seat commits as.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitFacts {
+    /// The git directory's absolute path — inside the worktree for a
+    /// primary checkout, elsewhere for a `git worktree`. `None` when the
+    /// workdir is not a git repository.
+    pub git_dir: Option<PathBuf>,
+    /// `user.name` and `user.email` as the host resolves them, as the
+    /// environment entries git reads them from.
+    pub identity: Vec<(String, String)>,
+}
+
+/// Read the git facts from the host. Never errors: a workdir that is not
+/// a repository simply carries none, and the box then has no git to
+/// mask.
+pub fn git_facts(workdir: &Path) -> GitFacts {
+    let git = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(workdir)
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .filter(|text| !text.is_empty())
+    };
+    let git_dir =
+        git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from);
+    let mut identity = Vec::new();
+    for (env, key) in [("NAME", "user.name"), ("EMAIL", "user.email")] {
+        if let Some(value) = git(&["config", key]) {
+            identity.push((format!("GIT_AUTHOR_{env}"), value.clone()));
+            identity.push((format!("GIT_COMMITTER_{env}"), value));
+        }
+    }
+    GitFacts { git_dir, identity }
+}
+
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
-/// the environment, then `--` and the command. `scratch` holds the
-/// generated identity files and the private home and tmp for this one
-/// call; the caller removes it after the process exits.
+/// the environment, then `--` and the command. `scratch` holds this
+/// call's generated identity files and private home and tmp; `session`
+/// holds what outlives a call — the upper layers of overlay binds — and
+/// is the seat's to remove when it ends.
+#[allow(clippy::too_many_arguments)]
 pub fn box_argv(
     spec: &HandsSpec,
     workdir: &Path,
     home: &Path,
     scratch: &Path,
+    session: &Path,
+    git: &GitFacts,
     command: &[String],
 ) -> std::io::Result<Vec<String>> {
     let etc = scratch.join("etc");
@@ -211,6 +277,7 @@ pub fn box_argv(
     }
 
     let s = |text: &str| text.to_string();
+    let text = |path: &Path| path.to_string_lossy().into_owned();
     let mut argv = vec![
         s("bwrap"),
         s("--die-with-parent"),
@@ -267,7 +334,6 @@ pub fn box_argv(
     ] {
         argv.extend([s("--ro-bind-try"), s(host), s(host)]);
     }
-    let text = |path: &Path| path.to_string_lossy().into_owned();
     for (name, target) in [
         ("passwd", "/etc/passwd"),
         ("group", "/etc/group"),
@@ -290,14 +356,40 @@ pub fn box_argv(
         text(workdir),
         text(workdir),
     ]);
-    for bind in &spec.binds {
+    // Ruling 6: the git directory. A `git worktree`'s lives outside the
+    // worktree and is bound so git works at all; either way its `hooks`
+    // are hidden behind an empty tmpfs and its `config` is read-only, so
+    // nothing a boxed command writes can become a program the host runs
+    // on its next git invocation.
+    if let Some(git_dir) = &git.git_dir {
+        if !git_dir.starts_with(workdir) {
+            argv.extend([s("--bind"), text(git_dir), text(git_dir)]);
+        }
+        argv.extend([s("--tmpfs"), text(&git_dir.join("hooks"))]);
+        let config = git_dir.join("config");
+        argv.extend([s("--ro-bind-try"), text(&config), text(&config)]);
+    }
+    for (index, bind) in spec.binds.iter().enumerate() {
         let host = expand_home(&bind.path, home);
-        let flag = if bind.writable {
-            "--bind-try"
-        } else {
-            "--ro-bind-try"
-        };
-        argv.extend([s(flag), text(&host), text(&host)]);
+        match bind.mode {
+            BindMode::Ro => argv.extend([s("--ro-bind-try"), text(&host), text(&host)]),
+            BindMode::Rw => argv.extend([s("--bind-try"), text(&host), text(&host)]),
+            BindMode::Overlay => {
+                let layer = session.join("overlay").join(index.to_string());
+                let upper = layer.join("upper");
+                let work = layer.join("work");
+                std::fs::create_dir_all(&upper)?;
+                std::fs::create_dir_all(&work)?;
+                argv.extend([
+                    s("--overlay-src"),
+                    text(&host),
+                    s("--overlay"),
+                    text(&upper),
+                    text(&work),
+                    text(&host),
+                ]);
+            }
+        }
         for name in &bind.mask {
             let masked = host.join(name);
             // A mask over a file that is not there would make bwrap
@@ -319,7 +411,16 @@ pub fn box_argv(
         ("CI", "true"),
         ("DISABLE_AUTOUPDATER", "1"),
         ("DISABLE_TELEMETRY", "1"),
+        // Seat commits are unsigned (CONTRIBUTING); the signing wrapper
+        // and its key are not in the box, and the repository config that
+        // names them is outranked by this environment entry.
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+        ("GIT_CONFIG_VALUE_0", "false"),
     ] {
+        argv.extend([s("--setenv"), s(key), s(value)]);
+    }
+    for (key, value) in &git.identity {
         argv.extend([s("--setenv"), s(key), s(value)]);
     }
     argv.extend([s("--chdir"), text(workdir), s("--")]);
@@ -377,7 +478,7 @@ pub fn io_context<T>(result: std::io::Result<T>, doing: &str) -> Result<T, Strin
 
 /// The executor the server calls per tool invocation: production hands
 /// it [`execute`]; a test hands it a stub.
-pub type Executor = dyn Fn(&HandsSpec, &Path, &str, Duration) -> Result<Executed, String>;
+pub type Executor = dyn Fn(&HandsSpec, &Path, &Path, &str, Duration) -> Result<Executed, String>;
 
 /// One executed command, as the tool reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,49 +508,78 @@ impl Executed {
     }
 }
 
-fn bounded(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    if text.len() <= OUTPUT_BYTES {
-        return text.into_owned();
+/// Drain a pipe to its end, keeping at most `OUTPUT_BYTES` and noting
+/// when more arrived: the bound is on host memory, not only on what the
+/// model reads back.
+pub fn drain_bounded<R: Read>(mut pipe: R) -> (Vec<u8>, bool) {
+    let mut kept = Vec::new();
+    let mut truncated = false;
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let read = match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        let room = OUTPUT_BYTES.saturating_sub(kept.len());
+        if read > room {
+            truncated = true;
+        }
+        kept.extend_from_slice(&chunk[..read.min(room)]);
     }
-    let mut cut = OUTPUT_BYTES;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
+    (kept, truncated)
+}
+
+fn rendered(bytes: &[u8], truncated: bool) -> String {
+    let mut text = String::from_utf8_lossy(bytes).into_owned();
+    if truncated {
+        text.push_str(&format!("\n[output truncated at {OUTPUT_BYTES} bytes]"));
     }
-    format!(
-        "{}\n[output truncated at {OUTPUT_BYTES} bytes]",
-        &text[..cut]
-    )
+    text
+}
+
+/// A session directory for what outlives one call — overlay upper
+/// layers — created for the server's or the exec verb's lifetime.
+pub fn session_dir(label: &str) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join(format!(
+        "brokkr-hands-{label}-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    io_context(std::fs::create_dir_all(&dir), "session")?;
+    Ok(dir)
 }
 
 /// Run one `bash -lc <command>` inside the box, bounded in time and
-/// output. The scratch directory lives beside the workdir's own
-/// `.forge` state and is removed afterwards.
+/// output. This call's scratch is removed afterwards; `session` is the
+/// caller's.
 pub fn execute(
     spec: &HandsSpec,
     workdir: &Path,
+    session: &Path,
     command: &str,
     timeout: Duration,
 ) -> Result<Executed, String> {
     let bwrap = require_bwrap()?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let scratch = std::env::temp_dir().join(format!(
-        "brokkr-hands-{}-{}",
-        std::process::id(),
-        uuid::Uuid::new_v4()
-    ));
+    let scratch = session.join(format!("call-{}", uuid::Uuid::new_v4()));
     io_context(std::fs::create_dir_all(&scratch), "scratch")?;
-    let result = execute_in(&bwrap, spec, workdir, &home, &scratch, command, timeout);
+    let git = git_facts(workdir);
+    let result = execute_in(
+        &bwrap, spec, workdir, &home, &scratch, session, &git, command, timeout,
+    );
     let _ = std::fs::remove_dir_all(&scratch);
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_in(
     bwrap: &Path,
     spec: &HandsSpec,
     workdir: &Path,
     home: &Path,
     scratch: &Path,
+    session: &Path,
+    git: &GitFacts,
     command: &str,
     timeout: Duration,
 ) -> Result<Executed, String> {
@@ -458,7 +588,8 @@ pub fn execute_in(
         "-lc".to_string(),
         command.to_string(),
     ];
-    let argv = io_context(box_argv(spec, workdir, home, scratch, &inner), "namespace")?;
+    let built = box_argv(spec, workdir, home, scratch, session, git, &inner);
+    let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
         .args(&argv[1..])
         .current_dir("/")
@@ -469,18 +600,10 @@ pub fn execute_in(
         .stderr(Stdio::piped())
         .spawn();
     let mut child = io_context(spawned, "could not spawn bwrap")?;
-    let mut stdout_pipe = child.stdout.take().expect("piped");
-    let mut stderr_pipe = child.stderr.take().expect("piped");
-    let stdout_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let _ = stdout_pipe.read_to_end(&mut captured);
-        captured
-    });
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut captured);
-        captured
-    });
+    let stdout_pipe = child.stdout.take().expect("piped");
+    let stderr_pipe = child.stderr.take().expect("piped");
+    let stdout_thread = std::thread::spawn(move || drain_bounded(stdout_pipe));
+    let stderr_thread = std::thread::spawn(move || drain_bounded(stderr_pipe));
     let started = Instant::now();
     let mut timed_out = false;
     let status = loop {
@@ -496,11 +619,11 @@ pub fn execute_in(
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let stdout = stdout_thread.join().unwrap_or_default();
-    let stderr = stderr_thread.join().unwrap_or_default();
+    let (stdout, stdout_cut) = stdout_thread.join().unwrap_or_default();
+    let (stderr, stderr_cut) = stderr_thread.join().unwrap_or_default();
     Ok(Executed {
-        stdout: bounded(&stdout),
-        stderr: bounded(&stderr),
+        stdout: rendered(&stdout, stdout_cut),
+        stderr: rendered(&stderr, stderr_cut),
         exit_code: status.code().unwrap_or(if timed_out { 124 } else { -1 }),
         timed_out,
     })
@@ -513,14 +636,10 @@ pub fn execute_in(
 pub fn run_boxed(spec: &HandsSpec, workdir: &Path, command: &[String]) -> Result<i32, String> {
     let bwrap = require_bwrap()?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let scratch = std::env::temp_dir().join(format!(
-        "brokkr-hands-exec-{}-{}",
-        std::process::id(),
-        uuid::Uuid::new_v4()
-    ));
-    io_context(std::fs::create_dir_all(&scratch), "scratch")?;
-    let result = run_boxed_in(&bwrap, spec, workdir, &home, &scratch, command);
-    let _ = std::fs::remove_dir_all(&scratch);
+    let session = session_dir("exec")?;
+    let git = git_facts(workdir);
+    let result = run_boxed_in(&bwrap, spec, workdir, &home, &session, &git, command);
+    let _ = std::fs::remove_dir_all(&session);
     result
 }
 
@@ -529,7 +648,8 @@ pub fn run_boxed_in(
     spec: &HandsSpec,
     workdir: &Path,
     home: &Path,
-    scratch: &Path,
+    session: &Path,
+    git: &GitFacts,
     command: &[String],
 ) -> Result<i32, String> {
     let mut with_self = spec.clone();
@@ -537,10 +657,11 @@ pub fn run_boxed_in(
         .binds
         .extend(std::env::current_exe().ok().map(|exe| Bind {
             path: exe.to_string_lossy().into_owned(),
-            writable: false,
+            mode: BindMode::Ro,
             mask: Vec::new(),
         }));
-    let built = box_argv(&with_self, workdir, home, scratch, command);
+    let scratch = session.join("call");
+    let built = box_argv(&with_self, workdir, home, &scratch, session, git, command);
     let argv = io_context(built, "namespace")?;
     let ran = Command::new(bwrap)
         .args(&argv[1..])
@@ -608,6 +729,7 @@ pub fn serve<R: BufRead, W: Write>(
     input: R,
     mut output: W,
     workdir: &Path,
+    session: &Path,
     spec: &HandsSpec,
     run: &Executor,
 ) -> std::io::Result<()> {
@@ -616,7 +738,7 @@ pub fn serve<R: BufRead, W: Write>(
         if line.trim().is_empty() {
             continue;
         }
-        let Some(reply) = handle(&line, workdir, spec, run) else {
+        let Some(reply) = handle(&line, workdir, session, spec, run) else {
             continue;
         };
         output.write_all(reply.to_string().as_bytes())?;
@@ -635,7 +757,13 @@ fn rpc_result(id: Value, result: Value) -> Value {
 }
 
 /// One message in, at most one message out.
-pub fn handle(line: &str, workdir: &Path, spec: &HandsSpec, run: &Executor) -> Option<Value> {
+pub fn handle(
+    line: &str,
+    workdir: &Path,
+    session: &Path,
+    spec: &HandsSpec,
+    run: &Executor,
+) -> Option<Value> {
     let message: Value = match serde_json::from_str(line) {
         Ok(message) => message,
         Err(error) => {
@@ -669,7 +797,7 @@ pub fn handle(line: &str, workdir: &Path, spec: &HandsSpec, run: &Executor) -> O
         "tools/list" => rpc_result(id, json!({"tools": [tool_definition()]})),
         "tools/call" => match call_arguments(&params) {
             Err(problem) => rpc_error(id, -32602, problem),
-            Ok((command, timeout)) => match run(spec, workdir, &command, timeout) {
+            Ok((command, timeout)) => match run(spec, workdir, session, &command, timeout) {
                 Ok(executed) => rpc_result(
                     id,
                     json!({

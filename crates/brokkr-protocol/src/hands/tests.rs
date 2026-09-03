@@ -5,6 +5,10 @@ fn spec_of(raw: Value) -> HandsSpec {
     HandsSpec::parse(&raw).unwrap()
 }
 
+fn one(text: &str) -> Vec<String> {
+    vec![text.to_string()]
+}
+
 #[test]
 fn the_spec_vocabulary_is_closed_and_the_string_is_the_default() {
     assert_eq!(spec_of(json!("workspace")), HandsSpec::default());
@@ -13,14 +17,16 @@ fn the_spec_vocabulary_is_closed_and_the_string_is_the_default() {
         "network": true,
         "binds": [
             {"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml"]},
-            {"path": "/opt/toolchain", "mode": "ro"}
+            {"path": "/opt/toolchain", "mode": "ro"},
+            {"path": "~/.cache", "mode": "overlay"}
         ]
     }));
     assert!(full.network);
-    assert_eq!(full.binds.len(), 2);
-    assert!(full.binds[0].writable);
+    assert_eq!(full.binds.len(), 3);
+    assert_eq!(full.binds[0].mode, BindMode::Rw);
     assert_eq!(full.binds[0].mask, ["credentials.toml"]);
-    assert!(!full.binds[1].writable);
+    assert_eq!(full.binds[1].mode, BindMode::Ro);
+    assert_eq!(full.binds[2].mode, BindMode::Overlay);
     assert_eq!(HandsSpec::parse(&full.to_value()).unwrap(), full);
     assert_eq!(spec_of(json!({"kind": "workspace"})), HandsSpec::default());
 
@@ -100,21 +106,47 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let workdir = dir.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     let scratch = dir.path().join("scratch");
+    let session = dir.path().join("session");
     let spec = spec_of(json!({
         "kind": "workspace",
         "binds": [
-            {"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml", "absent.toml"]},
-            {"path": "~/.rustup", "mode": "ro"}
+            {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "absent.toml"]},
+            {"path": "~/.rustup", "mode": "ro"},
+            {"path": "/opt/scratchpad", "mode": "rw"}
         ]
     }));
-    let argv = box_argv(&spec, &workdir, &home, &scratch, &["true".to_string()]).unwrap();
+    let none = GitFacts::default();
+    let argv = box_argv(
+        &spec,
+        &workdir,
+        &home,
+        &scratch,
+        &session,
+        &none,
+        &one("true"),
+    )
+    .unwrap();
     let text = argv.join(" ");
     assert_eq!(argv[0], "bwrap");
     assert!(text.contains("--unshare-net"), "no network by default");
     assert!(text.contains("--clearenv"));
     assert!(!text.contains("--bind / /"), "never the host root");
     assert!(text.contains(&format!("--bind {w} {w}", w = workdir.display())));
-    assert!(text.contains(&format!("--bind-try {c} {c}", c = cargo.display())));
+    let upper = session.join("overlay/0/upper");
+    let work = session.join("overlay/0/work");
+    assert!(
+        text.contains(&format!(
+            "--overlay-src {c} --overlay {u} {k} {c}",
+            c = cargo.display(),
+            u = upper.display(),
+            k = work.display()
+        )),
+        "{text}"
+    );
+    assert!(
+        upper.is_dir() && work.is_dir(),
+        "the upper layer lives in the session"
+    );
     assert!(text.contains(&format!(
         "--ro-bind /dev/null {}",
         cargo.join("credentials.toml").display()
@@ -127,15 +159,78 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         "--ro-bind-try {r} {r}",
         r = home.join(".rustup").display()
     )));
+    assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
+    assert!(
+        text.contains("--setenv GIT_CONFIG_KEY_0 commit.gpgsign --setenv GIT_CONFIG_VALUE_0 false")
+    );
+    assert!(!text.contains("--tmpfs"), "no git, nothing to mask");
     assert!(text.ends_with(&format!("--chdir {} -- true", workdir.display())));
     assert!(scratch.join("etc/passwd").is_file());
     assert!(scratch.join("home").is_dir());
 
+    // A primary checkout: the git dir sits inside the worktree, so it is
+    // not bound again, but its hooks are hidden and its config read-only.
+    let inside = GitFacts {
+        git_dir: Some(workdir.join(".git")),
+        identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
+    };
+    let argv = box_argv(
+        &spec,
+        &workdir,
+        &home,
+        &scratch,
+        &session,
+        &inside,
+        &one("true"),
+    )
+    .unwrap();
+    let text = argv.join(" ");
+    assert!(!text.contains(&format!(
+        "--bind {g} {g}",
+        g = workdir.join(".git").display()
+    )));
+    assert!(text.contains(&format!("--tmpfs {}", workdir.join(".git/hooks").display())));
+    assert!(text.contains(&format!(
+        "--ro-bind-try {c} {c}",
+        c = workdir.join(".git/config").display()
+    )));
+    assert!(text.contains("--setenv GIT_AUTHOR_NAME Seat"));
+
+    // A `git worktree`: the common dir is elsewhere and must be bound.
+    let common = dir.path().join("main/.git");
+    let outside = GitFacts {
+        git_dir: Some(common.clone()),
+        identity: Vec::new(),
+    };
+    let argv = box_argv(
+        &spec,
+        &workdir,
+        &home,
+        &scratch,
+        &session,
+        &outside,
+        &one("true"),
+    )
+    .unwrap();
+    let text = argv.join(" ");
+    assert!(text.contains(&format!("--bind {g} {g}", g = common.display())));
+    assert!(text.contains(&format!("--tmpfs {}", common.join("hooks").display())));
+
     let open = spec_of(json!({"kind": "workspace", "network": true}));
-    let argv = box_argv(&open, &workdir, &home, &scratch, &["true".to_string()]).unwrap();
+    let argv = box_argv(
+        &open,
+        &workdir,
+        &home,
+        &scratch,
+        &session,
+        &none,
+        &one("true"),
+    )
+    .unwrap();
     assert!(!argv.iter().any(|part| part == "--unshare-net"));
 
-    // A scratch that cannot be created is an error, never a half box.
+    // A scratch that cannot be created is an error, never a half box;
+    // and so is an overlay layer that cannot be made.
     let blocked = dir.path().join("file");
     std::fs::write(&blocked, "").unwrap();
     assert!(box_argv(
@@ -143,7 +238,21 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &workdir,
         &home,
         &blocked.join("etc"),
-        &["true".to_string()]
+        &session,
+        &none,
+        &one("true")
+    )
+    .is_err());
+    let overlay_only =
+        spec_of(json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}));
+    assert!(box_argv(
+        &overlay_only,
+        &workdir,
+        &home,
+        &scratch,
+        &blocked.join("session"),
+        &none,
+        &one("true")
     )
     .is_err());
 }
@@ -161,10 +270,13 @@ fn bwrap_is_required_not_simulated() {
         Err("hands doing: boom".to_string())
     );
     assert_eq!(io_context(Ok(1), "doing"), Ok(1));
+    let session = session_dir("test").unwrap();
+    assert!(session.is_dir());
+    let _ = std::fs::remove_dir_all(&session);
 }
 
 #[test]
-fn the_rendering_labels_every_section() {
+fn the_rendering_labels_every_section_and_output_is_bounded_while_draining() {
     let full = Executed {
         stdout: "out".into(),
         stderr: "err".into(),
@@ -182,14 +294,24 @@ fn the_rendering_labels_every_section() {
         timed_out: false,
     };
     assert_eq!(quiet.render(), "[exit code: 0]");
-    assert_eq!(bounded(b"small"), "small");
-    let big = format!("a{}", "é".repeat(OUTPUT_BYTES));
-    let cut = bounded(big.as_bytes());
-    assert!(cut.ends_with(&format!("[output truncated at {OUTPUT_BYTES} bytes]")));
-    assert!(cut.len() < big.len());
+    assert_eq!(rendered(b"small", false), "small");
+    let big = vec![b'a'; OUTPUT_BYTES + 10];
+    let (kept, truncated) = drain_bounded(Cursor::new(big));
+    assert_eq!(kept.len(), OUTPUT_BYTES);
+    assert!(truncated);
+    assert!(rendered(&kept, truncated)
+        .ends_with(&format!("[output truncated at {OUTPUT_BYTES} bytes]")));
+    let (kept, truncated) = drain_bounded(Cursor::new(b"tiny".to_vec()));
+    assert_eq!((kept.as_slice(), truncated), (&b"tiny"[..], false));
 }
 
-fn fake_run(_: &HandsSpec, _: &Path, command: &str, timeout: Duration) -> Result<Executed, String> {
+fn fake_run(
+    _: &HandsSpec,
+    _: &Path,
+    _: &Path,
+    command: &str,
+    timeout: Duration,
+) -> Result<Executed, String> {
     if command == "explode" {
         return Err("the box refused".to_string());
     }
@@ -227,7 +349,15 @@ fn the_server_speaks_mcp_over_newline_delimited_json_rpc() {
         "\n",
     );
     let mut output = Vec::new();
-    serve(Cursor::new(input), &mut output, workdir, &spec, &fake_run).unwrap();
+    serve(
+        Cursor::new(input),
+        &mut output,
+        workdir,
+        workdir,
+        &spec,
+        &fake_run,
+    )
+    .unwrap();
     let replies: Vec<Value> = String::from_utf8(output)
         .unwrap()
         .lines()
@@ -260,6 +390,7 @@ fn the_server_speaks_mcp_over_newline_delimited_json_rpc() {
     // The default protocol version when the client names none.
     let reply = handle(
         r#"{"jsonrpc":"2.0","id":9,"method":"initialize"}"#,
+        workdir,
         workdir,
         &spec,
         &fake_run,
@@ -301,7 +432,7 @@ fn tool_arguments_are_exactly_the_two_the_schema_names() {
     ] {
         let line = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params})
             .to_string();
-        let reply = handle(&line, workdir, &spec, &fake_run).unwrap();
+        let reply = handle(&line, workdir, workdir, &spec, &fake_run).unwrap();
         assert_eq!(reply["error"]["code"], -32602, "{params}");
         assert!(
             reply["error"]["message"].as_str().unwrap().contains(names),
@@ -329,25 +460,12 @@ impl Write for FailingWriter {
 #[test]
 fn transport_errors_surface_instead_of_being_swallowed() {
     let spec = HandsSpec::default();
+    let w = Path::new("/w");
     let request = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
-    assert!(serve(
-        Cursor::new(request),
-        FailingWriter,
-        Path::new("/w"),
-        &spec,
-        &fake_run
-    )
-    .is_err());
+    assert!(serve(Cursor::new(request), FailingWriter, w, w, &spec, &fake_run).is_err());
     let invalid: &[u8] = &[0xff, b'\n'];
     let mut sink = Vec::new();
-    assert!(serve(
-        Cursor::new(invalid),
-        &mut sink,
-        Path::new("/w"),
-        &spec,
-        &fake_run
-    )
-    .is_err());
+    assert!(serve(Cursor::new(invalid), &mut sink, w, w, &spec, &fake_run).is_err());
 }
 
 #[test]
@@ -387,12 +505,15 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     let host_secret = dir.path().join("host-secret");
     std::fs::write(&host_secret, "never\n").unwrap();
     let spec = HandsSpec::default();
+    let session = session_dir("test").unwrap();
+    let long = Duration::from_secs(30);
 
     let seen = execute(
         &spec,
         &workdir,
+        &session,
         "cat note.txt && echo $HOME && pwd",
-        Duration::from_secs(30),
+        long,
     )
     .unwrap();
     assert_eq!(seen.exit_code, 0, "{}", seen.render());
@@ -403,42 +524,86 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     let hidden = execute(
         &spec,
         &workdir,
+        &session,
         &format!("cat {}", host_secret.display()),
-        Duration::from_secs(30),
+        long,
     )
     .unwrap();
     assert_ne!(hidden.exit_code, 0, "the host file must be unreachable");
     assert!(!hidden.stdout.contains("never"));
 
-    let wrote = execute(
-        &spec,
-        &workdir,
-        "echo written > made.txt",
-        Duration::from_secs(30),
-    )
-    .unwrap();
+    let wrote = execute(&spec, &workdir, &session, "echo written > made.txt", long).unwrap();
     assert_eq!(wrote.exit_code, 0, "{}", wrote.render());
     assert_eq!(
         std::fs::read_to_string(workdir.join("made.txt")).unwrap(),
         "written\n"
     );
 
-    let killed = execute(&spec, &workdir, "kill -9 $$", Duration::from_secs(30)).unwrap();
+    let killed = execute(&spec, &workdir, &session, "kill -9 $$", long).unwrap();
     assert!(!killed.timed_out);
     // bwrap reports a child killed by a signal as 128 + the signal.
     assert_eq!(killed.exit_code, 137, "{}", killed.render());
 
-    let slow = execute(&spec, &workdir, "sleep 5", Duration::from_millis(300)).unwrap();
+    let slow = execute(
+        &spec,
+        &workdir,
+        &session,
+        "sleep 5",
+        Duration::from_millis(300),
+    )
+    .unwrap();
     assert!(slow.timed_out);
     assert!(slow.render().contains("[timed out]"));
 
+    // Overlay: a write lands in the session's upper layer, never on the
+    // host, and it is still there on the next call of the same session.
+    let tool = dir.path().join("toolchain");
+    std::fs::create_dir_all(tool.join("bin")).unwrap();
+    std::fs::write(tool.join("bin/cargo"), "#!/bin/sh\necho host cargo\n").unwrap();
+    let overlaid = spec_of(json!({
+        "kind": "workspace",
+        "binds": [{"path": tool.to_string_lossy(), "mode": "overlay"}]
+    }));
+    let bin = tool.join("bin/cargo");
+    let wrote = execute(
+        &overlaid,
+        &workdir,
+        &session,
+        &format!("echo evil > {b} && cat {b}", b = bin.display()),
+        long,
+    )
+    .unwrap();
+    assert_eq!(wrote.exit_code, 0, "{}", wrote.render());
+    assert!(wrote.stdout.contains("evil"), "the box sees its own write");
+    assert!(
+        std::fs::read_to_string(&bin)
+            .unwrap()
+            .contains("host cargo"),
+        "the host does not"
+    );
+    let again = execute(
+        &overlaid,
+        &workdir,
+        &session,
+        &format!("cat {}", bin.display()),
+        long,
+    )
+    .unwrap();
+    assert!(
+        again.stdout.contains("evil"),
+        "the upper layer lives for the session"
+    );
+
     // A bwrap that is not there, and a scratch that cannot be made.
+    let none = GitFacts::default();
     let missing = execute_in(
         &dir.path().join("no-bwrap"),
         &spec,
         &workdir,
         dir.path(),
         &dir.path().join("scratch"),
+        &session,
+        &none,
         "true",
         Duration::from_secs(1),
     )
@@ -452,9 +617,142 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
         &workdir,
         dir.path(),
         &file.join("scratch"),
+        &session,
+        &none,
         "true",
         Duration::from_secs(1),
     )
     .unwrap_err();
     assert!(blocked.contains("namespace"), "{blocked}");
+    let _ = std::fs::remove_dir_all(&session);
+}
+
+/// Ruling 6, for real: git works inside the box for a `git worktree`,
+/// the seat commits unsigned under the host's identity, and neither
+/// hooks nor config can be written from inside.
+#[cfg(target_os = "linux")]
+#[test]
+fn git_works_in_the_box_and_cannot_plant_a_hook() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "user.name", "Host Operator"]);
+    git(&main, &["config", "user.email", "host@example.invalid"]);
+    git(&main, &["config", "commit.gpgsign", "true"]);
+    git(&main, &["config", "gpg.program", "/nonexistent/gpg"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+    let worktree = dir.path().join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "slice",
+        ],
+    );
+    let hooks = main.join(".git/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
+
+    let facts = git_facts(&worktree);
+    assert_eq!(facts.git_dir.as_deref(), Some(main.join(".git").as_path()));
+    assert!(facts
+        .identity
+        .iter()
+        .any(|(k, v)| k == "GIT_COMMITTER_EMAIL" && v == "host@example.invalid"));
+    // Not a repository: no git dir to mask (the identity is the host's
+    // global one either way).
+    assert_eq!(git_facts(dir.path()).git_dir, None);
+
+    let spec = HandsSpec::default();
+    let session = session_dir("git").unwrap();
+    let long = Duration::from_secs(30);
+    let status = execute(
+        &spec,
+        &worktree,
+        &session,
+        "git status --porcelain && echo ok",
+        long,
+    )
+    .unwrap();
+    assert_eq!(status.exit_code, 0, "{}", status.render());
+    let committed = execute(
+        &spec,
+        &worktree,
+        &session,
+        "echo b > b.txt && git add b.txt && git commit -q -m boxed && git log -1 --format='%an <%ae> %G?'",
+        long,
+    )
+    .unwrap();
+    assert_eq!(committed.exit_code, 0, "{}", committed.render());
+    assert!(
+        committed
+            .stdout
+            .contains("Host Operator <host@example.invalid> N"),
+        "unsigned, as the host: {}",
+        committed.render()
+    );
+    assert_eq!(
+        git(&worktree, &["log", "-1", "--format=%s"]),
+        "boxed",
+        "the commit reached the host's common dir"
+    );
+    let common = main.join(".git");
+    let hooked = execute(
+        &spec,
+        &worktree,
+        &session,
+        &format!(
+            "ls {c}/hooks | wc -l; echo evil > {c}/hooks/post-checkout",
+            c = common.display()
+        ),
+        long,
+    )
+    .unwrap();
+    assert!(
+        hooked.stdout.starts_with('0'),
+        "hooks are an empty tmpfs: {}",
+        hooked.render()
+    );
+    assert!(
+        !hooks.join("post-checkout").exists(),
+        "nothing written to a hook reaches the host"
+    );
+    let config = execute(
+        &spec,
+        &worktree,
+        &session,
+        "git config --local core.hooksPath /evil",
+        long,
+    )
+    .unwrap();
+    assert_ne!(
+        config.exit_code,
+        0,
+        "config is read-only: {}",
+        config.render()
+    );
+    assert!(!std::fs::read_to_string(common.join("config"))
+        .unwrap()
+        .contains("evil"));
+    let _ = std::fs::remove_dir_all(&session);
 }

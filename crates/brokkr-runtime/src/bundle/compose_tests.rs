@@ -776,15 +776,15 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "recipes/panel-review",
-        "3be1e229d665242e712343f1e12d0a7638de2578b47066ef334f09a179aaa406",
+        "1607d7a82b948a2b71bb146cc88b2ebbacf543e2ae1f2c06db4079e757bf252d",
     ),
     (
         "recipes/sdd",
-        "671c1c8abb4dd61e0a442131c4e0caeb647012131cee5121265e1877ce918c8a",
+        "a43ac28ab9cddf115aa15bc1d9d96c83e1c730028cc64881481e98483f4b8f40",
     ),
     (
         "bundles/self",
-        "3e0955869b1736ec62b76653f5a9aa6367dad7820e8ab662c29754b94140e4fc",
+        "48ca9166e77c5745a7b2b2869d82157cf73c106c41d2453bf45c0fd1645ffcdb",
     ),
     (
         "bundles/verify",

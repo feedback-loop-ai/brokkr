@@ -1,4 +1,4 @@
-# 0040 — The model's hands are one tool, and the tool runs in an empty root
+# 0040 — The model's hands are one tool, and the tool runs in an empty root (a Linux boundary)
 
 Status: accepted (operator ruled in chat, 2026-09-03)
 Date: 2026-09-03
@@ -70,9 +70,14 @@ Alternatives weighed:
    their siblings) read-only where present; a generated identity and a
    files-only resolver; a private `HOME` and `/tmp` per call; pid, ipc,
    uts and cgroup unshared; every capability dropped; the environment
-   cleared to `PATH`, `HOME`, `TMPDIR` and a locale. Network is unshared
-   unless the spec grants it. Output and time are bounded. The
-   boundary is never simulated: no `bwrap`, no tool.
+   cleared to exactly: `PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`, the
+   locale (`LANG`, `LC_ALL`), `CI`, the two harness updater and
+   telemetry switches, and the git entries ruling 6 names. Network is
+   unshared unless the spec grants it. Output is bounded while it is
+   drained, so a runaway command cannot grow the server's memory; time
+   is bounded by the call. The boundary is never simulated: no `bwrap`,
+   no tool. It is Linux's: bubblewrap has no port, and this decision
+   claims nothing for another operating system.
 
    **Enforcement binding:** `brokkr-protocol::hands`; unit tests over the
    namespace argv and the JSON-RPC loop, and an integration test on Linux
@@ -82,9 +87,14 @@ Alternatives weighed:
 2. **A site declares `hands` instead of a tool list.** An agent or an
    inline seat, panel member or sequence step may declare
    `"hands": "workspace"` or `{"kind": "workspace", "network": bool,
-   "binds": [{path, mode, mask}]}`. Binds add host paths to the box —
-   a toolchain cache, read-write, with its credentials file masked behind
-   `/dev/null`. When a site has hands, its tool allow-list is not
+   "binds": [{path, mode, mask}]}`. Binds add host paths to the box in
+   one of three modes: `ro`; `rw`, for nothing a hostile command could
+   turn into a program the operator runs; and `overlay`, the host path as
+   a read-only lower layer with every write kept in an upper layer that
+   lives for the seat and never touches the host. A toolchain cache is
+   bound `overlay`, with its credentials file masked behind `/dev/null`:
+   cargo extracts and builds as it likes, and `~/.cargo/bin` on the host
+   is what it was. When a site has hands, its tool allow-list is not
    consulted: the box expresses the restriction. Each adapter says how it
    replaces the harness's own tools with the one boxed tool — Claude
    Code disables its built-in tools and loads only this MCP server; Codex
@@ -122,18 +132,62 @@ Alternatives weighed:
    `review-correctness`, `review-security`, `review-security-speckit`
    and `review-spec-compliance` chain `fable@high → opus@xhigh →
    sol@xhigh`, keep their tool grants for the record, and declare hands
-   with the Rust toolchain bound and its credentials masked. The bundles
-   that hire them move, and both digest pins say why.
+   with `~/.cargo` bound `overlay`, its credentials masked, and
+   `~/.rustup` read-only. The bundles that hire them move, and both
+   digest pins say why. These agents are therefore Linux-only; `fast`
+   and the recipes on its table keep their inline reviewer and stay
+   portable.
 
    **Enforcement binding:** the five agent files; `bundles/self`,
    `recipes/panel-review`, `recipes/sdd` and `recipes/sdd-paranoid`
    compile with sol as the third link; the witness and compose pins.
+
+6. **Git works in the box, and the box cannot plant a hook.** Before a
+   box is built, the host reads the worktree's git directory and the
+   seat's identity. A `git worktree`'s directory lives outside the
+   worktree and is bound so git works at all; either way its `hooks`
+   are hidden behind an empty tmpfs and its `config` is read-only, so
+   nothing a boxed command writes can become a program the host runs
+   on its next git invocation. The seat's identity reaches git through
+   the environment, and `commit.gpgsign` is forced off the same way:
+   seat commits are unsigned, as CONTRIBUTING already reads, and the
+   signing wrapper and its key are never in the box.
+
+   **Enforcement binding:** `git_facts` and the git block of `box_argv`
+   in `brokkr-protocol::hands`; a test that boxes a `git worktree`,
+   commits from inside it unsigned under the host's identity, finds the
+   hooks directory empty, and fails to write the config.
+
+7. **A run that boxes hands refuses to start without bubblewrap.**
+   Compile is pure and consults no machine, so the refusal comes at
+   `run`, `resume` and `rerun`, before a journal is opened or a seat
+   spawned, naming the seats that declare hands. `brokkr doctor` says
+   the same thing one step earlier.
+
+   **Enforcement binding:** `refuse_unboxable` in `brokkr-cli`, called
+   by the three verbs; a test that refuses a boxed bundle on an empty
+   PATH and passes a plain one.
 
 ## Consequences
 
 - What is *not* bounded by the box is egress: a boxed reviewer on codex
   still sends the worktree's contents to the provider, and what may be
   serialized toward a destination remains decision 0036's axis.
+- Codex's native shell is not governed by the box. Its adapter fragment
+  sets that shell `--sandbox read-only` and adds the boxed tool beside
+  it, but codex offers no switch that removes the native shell, so on
+  the sol link the model keeps a read-only view of the whole host,
+  credential files included, while its writes go through the box. The
+  claim "cannot see host files" holds for Claude Code and for exec; for
+  codex it holds for writes only, until codex grows the switch.
+- This is a Linux boundary and the document says so in its title.
+  macOS and Windows compile a boxed bundle fine and refuse it at run
+  start (ruling 7). A macOS box could follow as a second kind on that
+  system's own sandbox; Windows has nothing comparable and gets none.
+- The first run of this decision hard-stopped on its own review: the
+  review found the `~/.cargo` read-write bind to be a persistence path
+  out of the box, and git unusable in a worktree. Rulings 2 and 6 as
+  written are that review's remedy.
 - The dsh adapter declares hands unsupported, honestly: its tool surface
   is replaced only through a profile plugin, and that plugin is the next
   slice. Until then dsh seats keep the tool-list path. The lanetally

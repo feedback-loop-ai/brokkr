@@ -17,7 +17,7 @@
     "binds": [
       {
         "path": "~/.cargo",
-        "mode": "rw",
+        "mode": "overlay",
         "mask": [
           "credentials.toml",
           "credentials"

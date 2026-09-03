@@ -3028,3 +3028,56 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     .to_string();
     assert!(refused.contains("--spec"), "{refused}");
 }
+
+/// Decision 0040 ruling 7: a bundle that boxes hands refuses to start
+/// without bubblewrap, naming the seats; a bundle that boxes nothing is
+/// untouched by the check.
+#[test]
+fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle_dir = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle_dir.join("roles")).unwrap();
+    std::fs::write(bundle_dir.join("roles/role.md"), "# role\n").unwrap();
+    std::fs::write(
+        bundle_dir.join("policy.json"),
+        r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"},{"id":"NO","from":"review","result":"security-hold","next":"stop","severity":"hard","reason":"r"}]}"#,
+    )
+    .unwrap();
+    let write_bundle = |hands: bool| {
+        let exec = |results: Value| {
+            json!({
+                "role": "roles/role.md",
+                "results": results,
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]},
+            })
+        };
+        let mut work = exec(json!(["complete"]));
+        if hands {
+            work["hands"] = json!("workspace");
+        }
+        let review = exec(json!(["clean", "security-hold"]));
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            json!({"name": "boxed", "policy": "policy.json", "seats": {"work": work, "review": review}})
+                .to_string(),
+        )
+        .unwrap();
+    };
+    let empty_path = std::ffi::OsString::new();
+    write_bundle(false);
+    let plain = Bundle::compile(&bundle_dir).unwrap();
+    assert!(refuse_unboxable(&plain, &empty_path).is_ok());
+
+    write_bundle(true);
+    let boxed = Bundle::compile(&bundle_dir).unwrap();
+    let refusal = refuse_unboxable(&boxed, &empty_path)
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("never simulated"), "{refusal}");
+    assert!(refusal.contains("[\"work\"]"), "{refusal}");
+    assert!(refusal.contains("ruling 7"), "{refusal}");
+    let with_bwrap = dir.path().join("bin");
+    std::fs::create_dir_all(&with_bwrap).unwrap();
+    std::fs::write(with_bwrap.join("bwrap"), "").unwrap();
+    assert!(refuse_unboxable(&boxed, with_bwrap.as_os_str()).is_ok());
+}
