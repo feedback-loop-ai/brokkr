@@ -260,6 +260,38 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
 }
 
 #[test]
+fn overlays_need_a_bubblewrap_that_has_them() {
+    assert_eq!(parse_version("bubblewrap 0.11.0"), Some((0, 11, 0)));
+    assert_eq!(parse_version("bubblewrap 0.9.0"), Some((0, 9, 0)));
+    assert_eq!(parse_version("bubblewrap 1.2"), Some((1, 2, 0)));
+    assert_eq!(parse_version("bubblewrap"), None);
+    assert_eq!(parse_version(""), None);
+    assert_eq!(parse_version("bubblewrap x.y"), None);
+
+    let plain = HandsSpec::default();
+    let overlaid =
+        spec_of(json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}));
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("no-bwrap");
+    assert!(
+        overlay_supported(&plain, &missing).is_ok(),
+        "no overlay, no question"
+    );
+    let refusal = overlay_supported(&overlaid, &missing).unwrap_err();
+    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for (version, ok) in [("0.9.0", false), ("0.10.0", true), ("0.11.0", true)] {
+            let fake = dir.path().join(format!("bwrap-{version}"));
+            std::fs::write(&fake, format!("#!/bin/sh\necho bubblewrap {version}\n")).unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(overlay_supported(&overlaid, &fake).is_ok(), ok, "{version}");
+        }
+    }
+}
+
+#[test]
 fn bwrap_is_required_not_simulated() {
     let dir = tempfile::tempdir().unwrap();
     let error = bwrap_on(dir.path().as_os_str()).unwrap_err();

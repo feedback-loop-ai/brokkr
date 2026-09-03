@@ -120,8 +120,13 @@ jobs:
         # its own loopback ("loopback: Failed RTM_NEWADDR"). That is a
         # runner setting, not a product requirement: an operator's Linux
         # box needs bubblewrap and nothing else.
+        # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so
+        # the release is built from its tarball.
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: cargo test --workspace --all-features --locked
@@ -142,8 +147,13 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - name: bubblewrap for the hands tests
+        # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so
+        # the release is built from its tarball.
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - name: prove literal nonzero 100% source-line/branch/function coverage

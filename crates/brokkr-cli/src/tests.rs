@@ -3104,4 +3104,36 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
     std::fs::create_dir_all(&with_bwrap).unwrap();
     std::fs::write(with_bwrap.join("bwrap"), "").unwrap();
     assert!(refuse_unboxable(&boxed, with_bwrap.as_os_str()).is_ok());
+
+    // An overlay bind asks more of bwrap: a binary that cannot state a
+    // version of 0.10 or newer refuses the seat by name.
+    write_bundle_with(
+        &bundle_dir,
+        json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}),
+    );
+    let overlaid = Bundle::compile(&bundle_dir).unwrap();
+    let refusal = refuse_unboxable(&overlaid, with_bwrap.as_os_str())
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+}
+
+fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
+    let exec = |results: Value| {
+        json!({
+            "role": "roles/role.md",
+            "results": results,
+            "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]},
+        })
+    };
+    let mut work = exec(json!(["complete"]));
+    work["hands"] = hands;
+    let review = exec(json!(["clean", "security-hold"]));
+    std::fs::write(
+        bundle_dir.join("bundle.json"),
+        json!({"name": "boxed", "policy": "policy.json", "seats": {"work": work, "review": review}})
+            .to_string(),
+    )
+    .unwrap();
 }

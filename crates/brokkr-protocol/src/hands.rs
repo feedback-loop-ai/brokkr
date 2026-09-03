@@ -453,6 +453,47 @@ pub fn require_bwrap() -> Result<PathBuf, String> {
     bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
 }
 
+/// The bwrap binary able to build THIS spec: overlays need bubblewrap
+/// 0.10 or newer (Ubuntu 24.04 ships 0.9), and a spec that binds one is
+/// refused on an older bwrap rather than degraded to a writable bind.
+pub fn require_bwrap_for(spec: &HandsSpec) -> Result<PathBuf, String> {
+    let bwrap = require_bwrap()?;
+    overlay_supported(spec, &bwrap)?;
+    Ok(bwrap)
+}
+
+/// Refuse a spec with overlay binds on a bwrap older than 0.10.
+pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
+    if !spec.binds.iter().any(|bind| bind.mode == BindMode::Overlay) {
+        return Ok(());
+    }
+    let reported = Command::new(bwrap)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    match parse_version(&reported) {
+        Some(version) if version >= (0, 10, 0) => Ok(()),
+        _ => Err(format!(
+            "hands bind mode 'overlay' needs bubblewrap 0.10 or newer; {} reports {:?}",
+            bwrap.display(),
+            reported
+        )),
+    }
+}
+
+/// `bubblewrap 0.11.0` → `(0, 11, 0)`; anything else is unknown.
+pub fn parse_version(reported: &str) -> Option<(u32, u32, u32)> {
+    let digits = reported.split_whitespace().last()?;
+    let mut parts = digits.split('.').map(|part| part.parse::<u32>().ok());
+    Some((
+        parts.next()??,
+        parts.next()??,
+        parts.next().flatten().unwrap_or(0),
+    ))
+}
+
 /// `bwrap` on a given search path — the testable half of the refusal.
 pub fn bwrap_on(path: &std::ffi::OsStr) -> Result<PathBuf, String> {
     match std::env::split_paths(path)
@@ -559,7 +600,7 @@ pub fn execute(
     command: &str,
     timeout: Duration,
 ) -> Result<Executed, String> {
-    let bwrap = require_bwrap()?;
+    let bwrap = require_bwrap_for(spec)?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let scratch = session.join(format!("call-{}", uuid::Uuid::new_v4()));
     io_context(std::fs::create_dir_all(&scratch), "scratch")?;
@@ -634,7 +675,7 @@ pub fn execute_in(
 /// binary is bound read-only so the command may be a `brokkr driver …`
 /// dispatch. Returns the child's exit code.
 pub fn run_boxed(spec: &HandsSpec, workdir: &Path, command: &[String]) -> Result<i32, String> {
-    let bwrap = require_bwrap()?;
+    let bwrap = require_bwrap_for(spec)?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let session = session_dir("exec")?;
     let git = git_facts(workdir);

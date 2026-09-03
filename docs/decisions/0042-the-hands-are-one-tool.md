@@ -94,7 +94,10 @@ Alternatives weighed:
    lives for the seat and never touches the host. A toolchain cache is
    bound `overlay`, with its credentials file masked behind `/dev/null`:
    cargo extracts and builds as it likes, and `~/.cargo/bin` on the host
-   is what it was. When a site has hands, its tool allow-list is not
+   is what it was. Overlays need bubblewrap 0.10 or newer; a spec that
+   binds one is refused on an older bwrap, at run start and at the box,
+   never degraded to a writable bind. When a site has hands, its tool
+   allow-list is not
    consulted: the box expresses the restriction. Each adapter says how it
    replaces the harness's own tools with the one boxed tool — Claude
    Code disables its built-in tools and loads only this MCP server; Codex
@@ -180,6 +183,10 @@ Alternatives weighed:
   credential files included, while its writes go through the box. The
   claim "cannot see host files" holds for Claude Code and for exec; for
   codex it holds for writes only, until codex grows the switch.
+- Ubuntu 24.04 LTS packages bubblewrap 0.9, which has no overlays. A
+  machine on it runs boxed seats without overlay binds and refuses the
+  review agents as shipped until a 0.10+ bwrap is installed; CI builds
+  0.11 from its release tarball for exactly this reason.
 - This is a Linux boundary and the document says so in its title.
   macOS and Windows compile a boxed bundle fine and refuse it at run
   start (ruling 7). A macOS box could follow as a second kind on that

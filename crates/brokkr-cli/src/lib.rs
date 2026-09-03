@@ -929,7 +929,13 @@ fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> 
         return Ok(());
     }
     match brokkr_protocol::hands::bwrap_on(path) {
-        Ok(_) => Ok(()),
+        Ok(bwrap) => {
+            for (site, spec) in &bundle.hands {
+                brokkr_protocol::hands::overlay_supported(spec, &bwrap)
+                    .map_err(|reason| anyhow::anyhow!("seat '{site}': {reason}"))?;
+            }
+            Ok(())
+        }
         Err(reason) => anyhow::bail!(
             "{reason}; the seats {:?} declare hands and cannot run on this machine \
              (decision 0042 ruling 7 — hands are a Linux boundary)",
