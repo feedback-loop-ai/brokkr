@@ -21,11 +21,19 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// No variable is ever set: the shipped adapters declare no credential,
-/// so the ambient report has nothing to say and the rest of doctor reads
-/// exactly as it did.
+/// No variable is ever set, so nothing is satisfied ambiently and the
+/// ambient report has nothing to say — which keeps every test below
+/// about the surface it is actually asserting. The shipped tree does
+/// declare a credential now (`dsh`'s `spark` route, since the operator
+/// ruled it local on 2026-09-03); that line is pinned on its own, in
+/// `doctor_names_the_shipped_spark_route_when_its_key_is_ambient`.
 fn never_ambient(_: &str) -> bool {
     false
+}
+
+/// The one variable the shipped adapter tree names.
+fn spark_key_is_set(name: &str) -> bool {
+    name == "SPARK_API_KEY"
 }
 
 fn shipped(dir: &Path, probe: fn(&str) -> Option<String>) -> Report {
@@ -202,6 +210,51 @@ fn a_sixth_provider_appears_without_a_rebuild_and_an_absent_library_is_not_a_fai
         never_ambient,
     );
     assert!(report.render().contains("warn     adapters:"));
+}
+
+/// The same ruling over the tree this repository actually ships, which
+/// is where it was earned: the run that parked at seq 14 on
+/// `MISSING_CREDENTIAL` for `spark` was reaching for a value the
+/// launching shell either had or did not, and neither answer was
+/// visible anywhere. Now that `adapters/dsh.json` names the route's
+/// variable, doctor says which channel it came from — a data change
+/// producing a report line, with no doctor code behind it.
+#[test]
+fn doctor_names_the_shipped_spark_route_when_its_key_is_ambient() {
+    let dir = tempfile::tempdir().unwrap();
+    let rendered = doctor_with_probe(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_missing,
+        spark_key_is_set,
+    )
+    .render();
+    assert!(
+        rendered.contains(
+            "warn     route spark: credential 'SPARK_API_KEY' is satisfied \
+             from the process environment"
+        ),
+        "{rendered}"
+    );
+
+    // Bound in the store instead, the channel this line exists to make
+    // visible is not in use, and the shipped tree goes quiet again.
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "SPARK_API_KEY", "long-enough").unwrap();
+    let rendered = doctor_with_probe(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &store,
+        always_missing,
+        spark_key_is_set,
+    )
+    .render();
+    assert!(!rendered.contains("route spark"), "{rendered}");
 }
 
 /// Decision 0036 ruling 5: the ambient channel stops being invisible.

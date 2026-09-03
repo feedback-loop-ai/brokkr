@@ -75,6 +75,14 @@ keeps the clearance ruling 4's migration gives it. The routes map
 arrives as the place for that data, and the operator fills it by a
 separate ruling — class assignment is operator data, as ruling 1 says.
 
+2026-09-03, separately: the operator ruled the `dsh` route `spark` —
+`http://spark:30000/v1`, the SGLang server on their own DGX Spark — is
+class `local`, written into `adapters/dsh.json` as ruling 1 prescribes.
+No other route is classed by that ruling: `dsh`'s own adapter clearance
+is untouched, so unprefixed ids and the `dashscope/*` front stay
+uncontracted, and every other adapter stands where ruling 4's migration
+left it.
+
 ## Rulings
 
 1. **Egress is a named class, and the vocabulary is closed and ordered.**

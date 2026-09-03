@@ -400,6 +400,63 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
     }
 }
 
+/// A neighbouring flag is a different flag, not an illegible spelling
+/// of this one — and 0036's route read may not rewrite 0031's question
+/// on its way past.
+#[test]
+fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
+    // The residual of the fix above it. 0036 ruling 2 reads the pin on
+    // the flag the ADAPTER declares, which for a provider the operator
+    // adds is typically SHORT, and a short flag's value is
+    // conventionally attached to it bare (`-mmodel`) — so that read
+    // calls a word beginning with its flag `Unreadable` rather than
+    // walking past a destination it can see being named. 0031 and 0035
+    // ask a different question of the same walk, on the two LONG flags
+    // this engine composes itself, where a longer word beginning with
+    // one is simply the next flag along: `--model-fallback` is not a
+    // way of writing `--model`, and `--effort-cap` is not a way of
+    // writing `--effort`.
+    //
+    // Sharing the strict reading across both would refuse a seat that
+    // states BOTH pins concretely, in a message telling it to add the
+    // pin it already wrote — a refusal naming the wrong problem, and a
+    // change to two rulings the egress axis does not touch.
+    let seats = json!({
+        "implement": {"driver": {"command": [
+            "{brokkr}", "driver", "claude", "--",
+            "--model", "claude-opus-5", "--model-fallback", "claude-sonnet-5",
+            "--effort", "high", "--effort-cap", "medium"
+        ]}},
+        // The attached spelling of the value itself still reads, on
+        // both axes: this is about the word AFTER the pin, not the pin.
+        "review": {"driver": {"command": [
+            "{brokkr}", "driver", "codex", "--",
+            "--model=gpt-5.6-sol", "--model-fallback=gpt-5.6-thinking",
+            "--effort=medium", "--effort-cap=medium"
+        ]}},
+    });
+    enforce_model_pins(seats.as_object().unwrap())
+        .expect("a seat that states both pins has stated them, whatever stands beside them");
+    for site in seats.as_object().unwrap().values() {
+        assert!(command_pins_model(site));
+    }
+
+    // And the rule the strict reading is there for is unchanged: two
+    // spellings of the SAME flag are still a pin named twice.
+    let twice = json!({"work": {"driver": {"command": [
+        "{brokkr}", "driver", "claude", "--",
+        "--model", "one", "--model-fallback", "two", "--model", "three",
+        "--effort", "high"
+    ]}}});
+    assert!(
+        enforce_model_pins(twice.as_object().unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("do not pin a model"),
+        "a model pinned twice is unreadable however many other flags surround it"
+    );
+}
+
 // ------------------------------------------------- ruling 2: the gate
 
 #[test]
@@ -774,6 +831,309 @@ fn unpinned_seat(command: Value) -> Value {
         "secrets": ["TOKEN"],
         "driver": {"command": command},
     })
+}
+
+#[test]
+fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
+    // The second door, held shut. `model_flag` is per-adapter data: a
+    // provider the operator ADDS may take `-m`, and it is told its
+    // model on `-m`, so that is where the route is written. A resolver
+    // reading a hardcoded `--model` finds nothing on such an argv,
+    // calls the site unpinned, and hands it the adapter's own class —
+    // clearing a route nobody ruled on because the pin naming it was
+    // read with the wrong key. That is decision 0036's first rejected
+    // alternative ("granting the grant clears every route at the same
+    // stroke") arriving by a different route than the one ruling 2's
+    // asymmetry watches.
+    //
+    // `many` is contracted at the adapter here for the same reason as
+    // the two tests above: it is the only shape where inheriting the
+    // adapter's word is visible rather than a coincidence of the floor.
+    let fixture = Fixture::new();
+    let mut takes_dash_m = many_routes();
+    takes_dash_m["egress"] = json!("contracted");
+    takes_dash_m["model_flag"] = json!("-m");
+    fixture.write_adapter(takes_dash_m);
+
+    // The probe: a route this adapter never named, pinned on the flag
+    // this adapter actually takes, under a seat that binds a secret.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m",
+        "elsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // The same flag reads the declared routes too — the fix moves which
+    // key is read, not which rule is applied. `nearby` is local and
+    // clears the bar; the adapter's own contracted word still carries
+    // an argv that pins nothing at all.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m",
+            "nearby/small-1",
+            "true"
+        ])))
+        .expect("a declared local route, named on the flag the adapter takes");
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}", "driver", "many", "--", "true"
+        ])))
+        .expect("an argv naming no model rides its adapter's own destination");
+
+    // And a `--model` on this adapter is no longer a pin at all: the
+    // provider is never told that flag, so the argv reaches whatever
+    // the profile resolves — the unprefixed case, on the adapter's own
+    // word, which is exactly what such an argv does at run time.
+    //
+    // This shape is the QUEUED question, recorded here rather than
+    // decided: `model_flag` is the flag this engine COMPOSES with, and
+    // a real CLI taking `-m` may honour `--model` as well, in which
+    // case the material goes to `elsewhere` on a clearance ruled for
+    // somewhere else. Reading it as a pin anyway would mean ruling
+    // that `--model` is a universal alias every adapter answers to —
+    // which spellings and aliases a declared flag covers is the flag
+    // grammar, it is the operator's to rule, and this compiler will
+    // not take it quietly. What the machine can say today is what the
+    // operator declared: this adapter is told its model on `-m`.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "elsewhere/large-1",
+            "true"
+        ])))
+        .expect("a flag this provider does not take pins nothing");
+
+    // An unreadable pin names the flag it was read on, not a constant.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m",
+        "partner/qwen@2024",
+        "true"
+    ])));
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+}
+
+#[test]
+fn a_value_written_onto_the_flag_itself_is_unread_and_never_unpinned() {
+    // The same door as the test above, one spelling narrower, and the
+    // residual its reviewer proved. This walker reads two spellings:
+    // `FLAG VALUE` and `FLAG=VALUE`. For a SHORT flag the standard
+    // getopt form is neither — `-melsewhere/large-1` attaches the value
+    // to the flag with nothing between. The read found no flag, called
+    // the site unpinned, and an unpinned site takes its adapter's own
+    // class: the identical fail-open, in the identical function, for
+    // the identical population (an adapter the operator ADDS), reached
+    // by a spelling rather than by a key.
+    //
+    // What is ruled here is the FAIL-OPEN, not the grammar. This
+    // compiler does not decide that `-melsewhere/large-1` PINS
+    // `elsewhere/large-1` — which spellings a declared flag legally
+    // covers is the flag/route-prefix grammar question, and that waits
+    // for its own ruling. It decides only that the two silences stay
+    // apart, as `ModelPin`'s own doc says they must: an argv that never
+    // wrote the flag is `Absent` and rides the adapter's word, while an
+    // argv carrying the flag in a spelling this compiler cannot read is
+    // `Unreadable` and falls to the floor with every route nobody
+    // named. A seat binding a secret does not get the benefit of a
+    // doubt the machine genuinely has.
+    let fixture = Fixture::new();
+    let mut takes_dash_m = many_routes();
+    takes_dash_m["egress"] = json!("contracted");
+    takes_dash_m["model_flag"] = json!("-m");
+    fixture.write_adapter(takes_dash_m);
+
+    // The probe: the attached spelling, naming a route nobody ruled on,
+    // under a seat that binds a secret. Refused as illegible, NOT as
+    // route 'elsewhere' — the refusal says what is true, which is that
+    // no route can be read off this argv at all.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-melsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("driver 'many'"), "{refusal}");
+    assert!(
+        refusal.contains("on a destination it does not name"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // Refusing to guess cuts both ways, which is how you tell a fix
+    // from a grammar. The same spelling over a route this adapter
+    // declares LOCAL is refused too: the compiler is not reading the
+    // word, so the word earns nothing. A reading that let this one
+    // through would be the grammar ruling, taken quietly.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-mnearby/small-1",
+        "true"
+    ])));
+    assert!(
+        refusal.contains("on a destination it does not name"),
+        "{refusal}"
+    );
+
+    // The cost, stated rather than hidden: any word beginning with the
+    // declared flag is illegible on the same terms, including one meant
+    // for something else entirely. It costs a secret-binding seat a
+    // refusal that names the flag it tripped on, and the legible
+    // spellings below are always available. Fail-closed is the whole
+    // point of the axis.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-march=native",
+        "true"
+    ])));
+    assert!(refusal.contains("its '-m' pin is not one"), "{refusal}");
+
+    // The two spellings this compiler does read are untouched, on both
+    // sides of the bar: the declared local route still clears it, and
+    // the route nobody named is still refused BY NAME, because there it
+    // genuinely read one.
+    for command in [
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m",
+            "nearby/small-1",
+            "true"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "-m=nearby/small-1",
+            "true"
+        ]),
+    ] {
+        fixture
+            .compile(unpinned_seat(command.clone()))
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "-m=elsewhere/large-1",
+        "true"
+    ])));
+    assert!(refusal.contains("on route 'elsewhere'"), "{refusal}");
+
+    // And an argv that never writes the flag at all is still the other
+    // silence: unpinned, riding the adapter's own contracted word.
+    fixture
+        .compile(unpinned_seat(json!([
+            "{brokkr}", "driver", "many", "--", "true"
+        ])))
+        .expect("an argv naming no model rides its adapter's own destination");
+}
+
+#[test]
+fn an_adapter_that_cannot_be_told_a_model_rides_its_own_class_and_no_better() {
+    // `model_flag: "unsupported"` is a measured fact about a CLI: there
+    // is no flag to carry a pin, so no argv on it can name a route.
+    // A route-shaped word in such an argv is a word, not a pin — the
+    // site reaches whatever the provider's own profile resolves, which
+    // is the unprefixed case, on the adapter's own class.
+    let fixture = Fixture::new();
+    let mut untellable = many_routes();
+    untellable["model_flag"] = json!("unsupported");
+    fixture.write_adapter(untellable);
+
+    // NO BETTER: the adapter is uncontracted, and a `nearby/` word in
+    // the argv — a route this adapter declares LOCAL — lends the site
+    // nothing. A resolver that read the word anyway would let an
+    // untellable provider pick its own clearance out of the models map.
+    let refusal = fixture.refusal(unpinned_seat(json!([
+        "{brokkr}",
+        "driver",
+        "many",
+        "--",
+        "--model",
+        "nearby/small-1",
+        "true"
+    ])));
+    assert!(
+        refusal.contains("on its own declared destination"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("whose egress class is uncontracted"),
+        "{refusal}"
+    );
+
+    // And no worse, and no refusal for illegibility either: the same
+    // argv on a contracted adapter compiles, because `Absent` is what
+    // an unreadable-flag read HAS to be — there is no pin to fail to
+    // read, and nothing to disambiguate.
+    let fixture = Fixture::new();
+    let mut ruled = many_routes();
+    ruled["egress"] = json!("contracted");
+    ruled["model_flag"] = json!("unsupported");
+    fixture.write_adapter(ruled);
+    for command in [
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "elsewhere/large-1",
+            "true"
+        ]),
+        json!([
+            "{brokkr}",
+            "driver",
+            "many",
+            "--",
+            "--model",
+            "partner/qwen@2024",
+            "true"
+        ]),
+        json!(["{brokkr}", "driver", "many", "--", "--model"]),
+    ] {
+        fixture
+            .compile(unpinned_seat(command.clone()))
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+    }
 }
 
 #[test]
@@ -1203,8 +1563,11 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     // here rather than in a new file: the clearances are the same five
     // facts, re-read through the class vocabulary. `binding_grant: true`
     // reads as `contracted`, and a `false` or absent grant as
-    // `uncontracted`, so every adapter as it stands today resolves to
-    // exactly the clearance it had the day before this decision landed.
+    // `uncontracted`, so every adapter carried its old clearance across
+    // the enactment unchanged. What has moved since is one operator
+    // RULING, not a migration: `dsh`'s `spark` route is `local` as of
+    // 2026-09-03. The adapter-level clearances below are still the five
+    // the migration pinned — a route class changes no adapter's own.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     for (provider, tier, egress) in [
         ("claude", TrustTier::Trusted, EgressClass::Contracted),
@@ -1220,13 +1583,14 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         let adapter = adapters.adapter(provider).expect("a shipped adapter");
         assert_eq!(adapter.trust_tier, tier, "{provider} tier");
         assert_eq!(adapter.egress, egress, "{provider} egress");
-        // 0036's ruling assigns NO route to a class, so every model
-        // these adapters map resolves to exactly where it stood the day
-        // before: an unprefixed id to the adapter's own class, and
-        // `dsh`'s prefixed `spark/*` and `dashscope/*` fronts to
-        // uncontracted — which for `dsh` IS its own class, the floor it
-        // has always been held to. The place to say otherwise now
-        // exists; nobody has.
+        // Four of the five front one destination each, so they declare
+        // one class at the adapter and no routes (ruling 2), and every
+        // model they map resolves to exactly where it stood the day
+        // before this decision landed. `dsh` is the exception the
+        // operator has since ruled on, and it is pinned in full below.
+        if provider == "dsh" {
+            continue;
+        }
         assert!(adapter.routes.is_empty(), "{provider} declares no route");
         for model in adapter.models.values() {
             assert_eq!(
@@ -1237,6 +1601,56 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         }
     }
     assert!(adapters.adapter("nobody").is_none());
+
+    // The operator ruled on 2026-09-03 that `dsh`'s `spark` route — the
+    // DGX Spark in their own building — is `local`. That ruling is the
+    // whole of what they classed, so this states all three of `dsh`'s
+    // fronts rather than dropping the assertion that used to cover
+    // them: `uncontracted` now means two different things behind this
+    // one binary, and a test that said only "the floor" would stop
+    // telling the adapter's own word apart from nobody's word.
+    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
+    assert_eq!(dsh.routes.len(), 1, "dsh classes exactly one route");
+    assert_eq!(
+        dsh.routes.get("spark"),
+        Some(&EgressClass::Local),
+        "the operator's own hardware, ruled 2026-09-03"
+    );
+    for (model, expected, ground) in [
+        (
+            "deepseek-v4-pro",
+            EgressClass::Uncontracted,
+            "unprefixed: dsh's own adapter class, because the id reaches \
+             whatever the harness profile resolves",
+        ),
+        (
+            "dashscope/qwen3.8-max",
+            EgressClass::Uncontracted,
+            "a route this file does not name: the floor by ruling 1, and \
+             no longer by the adapter declaring no routes at all",
+        ),
+        (
+            "spark/qwen3.8-flash",
+            EgressClass::Local,
+            "the route the operator ruled: local, and the Alibaba front \
+             beside it is not carried along",
+        ),
+    ] {
+        assert_eq!(
+            resolve_route(dsh, model).1,
+            expected,
+            "dsh '{model}' — {ground}"
+        );
+    }
+    // And completely, over every model `dsh` maps: local exactly where
+    // the id is a `spark/` one, uncontracted everywhere else.
+    for model in dsh.models.values() {
+        let expected = match model.starts_with("spark/") {
+            true => EgressClass::Local,
+            false => EgressClass::Uncontracted,
+        };
+        assert_eq!(resolve_route(dsh, model).1, expected, "dsh '{model}'");
+    }
 }
 
 /// The path to the adapters this repository actually ships.
