@@ -86,8 +86,14 @@ Alternatives weighed:
    alternative, re-entering through a data file. A change to the class
    file is therefore a path like any other, classified by the class it
    was entered under, and `.github/` is code under any honest class; it
-   buys the verify and the review that judge it, and only then governs
-   a later entry. When the question has no honest answer — the phase's
+   buys the verify and the review that judge it as the code change it
+   is. A widening the protected phase commits itself governs no entry
+   before a later visit; one committed before the phase was entered
+   governs that entry and lies in the delta the same review reads, so
+   the reviewer who lets it pass is the failure, as for any other code.
+   The pull request gate reads the base branch's copy in every case, so
+   no widening a run let through moves the gate's tier. When the
+   question has no honest answer — the phase's
    latest entry recorded no head or one that is not a commit id, no
    readable head, the same head, an empty diff, a diff git cannot take,
    or no class committed or parseable at the entry head — the input is
