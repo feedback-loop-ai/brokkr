@@ -158,6 +158,29 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
+      # cargo-audit is pinned by version AND digest and installed from
+      # rustsec's own release, never built from source on the runner.
+      # Left to itself, audit-check runs `cargo install cargo-audit`
+      # (latest, unlocked) whenever the binary is absent — and on
+      # 2026-09-03 that pulled a freshly published dependency that
+      # failed to compile, so the required check went red on main with
+      # no advisory involved (#164, #166 merged past it by ruling). A
+      # prebuilt binary whose digest is recorded here fails only when
+      # the pinned release itself changes, which is a fact worth
+      # failing on. Bumping the version means bumping the digest.
+      - name: install cargo-audit 0.22.2, pinned by digest
+        env:
+          CARGO_AUDIT_VERSION: 0.22.2
+          CARGO_AUDIT_SHA256: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+        run: |
+          set -euo pipefail
+          asset="cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}.tgz"
+          curl -sSfL --retry 3 -o "$asset" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/${asset}"
+          echo "${CARGO_AUDIT_SHA256}  ${asset}" | sha256sum -c -
+          tar xzf "$asset"
+          install -m 0755 "cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" "$HOME/.cargo/bin/cargo-audit"
+          cargo audit --version
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
