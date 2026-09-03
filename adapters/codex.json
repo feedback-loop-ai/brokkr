@@ -28,5 +28,15 @@
   "tool_permissions": {
     "unsupported": "codex-cli 0.148.0 restricts by sandbox CLASS, not by tool name: `codex exec -s|--sandbox` takes read-only|workspace-write|danger-full-access and there is no per-tool allow-list flag (no --allowedTools analogue) to map a seat's declared tools onto; --ask-for-approval exists on the interactive `codex` but not on `codex exec`"
   },
-  "mcp": "unsupported"
+  "mcp": "unsupported",
+  "hands": {
+    "workspace": [
+      "--sandbox",
+      "read-only",
+      "-c",
+      "mcp_servers.brokkr.command=\"{brokkr}\"",
+      "-c",
+      "mcp_servers.brokkr.args={hands_args_toml}"
+    ]
+  }
 }

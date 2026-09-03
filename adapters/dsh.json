@@ -36,5 +36,8 @@
   ],
   "effort_flag": "--effort",
   "tool_permissions": "unsupported",
-  "mcp": "unsupported"
+  "mcp": "unsupported",
+  "hands": {
+    "unsupported": "dsh 0.1.0-rc.6 replaces its tool surface only through a profile plugin (presentAs/restrict/guard/register on the scoped tools service); no CLI flag disables its shell and file tools or adds an MCP server, so the one boxed tool cannot be expressed without a plugin. The plugin is the next slice."
+  }
 }

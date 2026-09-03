@@ -144,6 +144,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
             "files":{"bundle.json":"b".repeat(64)}
         }),
         protected_phase: "review".into(),
+        hands: std::collections::BTreeMap::new(),
     }
 }
 

@@ -32,6 +32,14 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
+/// Decision 0040 moved every pinned bundle at once, and for one reason:
+/// every adapter file gained `hands` — how the provider puts its hands in
+/// the box, or the measured reason it cannot — and a bundle whose inline
+/// gate pins the adapter declaration that authorised it (decision 0021)
+/// carries that file's digest in its identity. The bundles hiring the
+/// review agents moved further: those agents now chain fable@high →
+/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
+/// records and the manifest's `hands` key changed. Nothing else moved.
 /// Recorded from this tree at the commit that introduced this test. A
 /// move here is either an intended engine-version bump, an intended
 /// policy change re-pinned as the identity change it is (decision 0022
@@ -90,11 +98,11 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/node",
-        "5dfb00c762b627ce87046d1bf89665bdaabe07cf270bddc23d4baa9682d27a97",
+        "6bbf77c48e4ef23673aca575e3dd3702b6bcdbfc1c4a680605498c552ef5f7c6",
     ),
     (
         "recipes/preflight",
-        "97c8cfe8482cb0d1950cfda2bc79343f9ace875189074a32d3b17e731cfc8757",
+        "6ed32431fbd45b26b5a7941f3b9f6823c4f486950391ec1a35b01e4d0f811990",
     ),
     (
         "recipes/ember",
@@ -114,7 +122,7 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "bundles/verify",
-        "a2d666c728946f4eb8d0834ae5371f07b459e8fa795994658d144e7088475c2c",
+        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
     ),
 ];
 

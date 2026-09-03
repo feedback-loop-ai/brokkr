@@ -1871,3 +1871,80 @@ fn an_agent_gate_is_witnessed_by_its_resolution_not_a_second_time() {
     assert!(bundle.manifest["agents"]["work"]["adapter_digest"].is_string());
     assert!(bundle.manifest.get("drivers").is_none());
 }
+
+// ---------------------------------------------- decision 0040: boxed hands
+
+fn exec_gate(hands: Option<Value>, secrets: Option<Value>) -> Value {
+    let mut value = json!({
+        "role": "roles/role.md",
+        "results": ["pass", "fail"],
+        "class": "gate",
+        "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "check.sh", "{prompt_file}"]},
+    });
+    if let Some(hands) = hands {
+        value["hands"] = hands;
+    }
+    if let Some(secrets) = secrets {
+        value["secrets"] = secrets;
+    }
+    value
+}
+
+/// Ruling 3: a boxed exec command may hold a gate; an unboxed one stays
+/// refused as 0021 reads. Ruling 4: the box is in the manifest, and
+/// absent when nothing is boxed.
+#[test]
+fn a_boxed_exec_command_may_hold_a_gate_and_the_box_is_pinned() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+
+    let refusal = fixture.refusal(exec_gate(None, None));
+    assert!(refusal.contains("gate class"), "{refusal}");
+    assert!(
+        refusal.contains("does not hold the trusted tier"),
+        "{refusal}"
+    );
+
+    let bundle = fixture
+        .compile(exec_gate(Some(json!("workspace")), None))
+        .unwrap();
+    let hands = bundle.manifest["hands"]
+        .as_object()
+        .expect("the box is pinned");
+    assert_eq!(hands["work"]["kind"], "workspace");
+    assert_eq!(hands["work"]["network"], false);
+    assert_eq!(hands["work"]["binds"], json!([]));
+    assert_eq!(bundle.hands.len(), 1);
+
+    let plain = fixture.compile(seat("judge", Some("gate"), None)).unwrap();
+    assert!(
+        plain.manifest.get("hands").is_none(),
+        "nothing boxed, nothing pinned"
+    );
+}
+
+/// Ruling 2's refusals: a malformed spec names the site; hands beside
+/// secret bindings are refused together; a seat that names an agent
+/// cannot amend the agent's hands.
+#[test]
+fn hands_are_refused_where_they_cannot_be_honest() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+
+    let refusal = fixture.refusal(exec_gate(Some(json!({"kind": "mitten"})), None));
+    assert!(refusal.contains("seat 'work' hands"), "{refusal}");
+    assert!(refusal.contains("kind must be"), "{refusal}");
+
+    let refusal = fixture.refusal(exec_gate(Some(json!("workspace")), Some(json!(["TOKEN"]))));
+    assert!(refusal.contains("hands and secret bindings"), "{refusal}");
+    assert!(refusal.contains("clears the environment"), "{refusal}");
+
+    fixture.write_agent("boxed", &[("fable", "claude", "trusted")]);
+    let refusal = fixture.refusal(json!({
+        "agent": "boxed",
+        "results": ["pass", "fail"],
+        "hands": "workspace",
+    }));
+    assert!(refusal.contains("hands"), "{refusal}");
+    assert!(refusal.contains("agent"), "{refusal}");
+}

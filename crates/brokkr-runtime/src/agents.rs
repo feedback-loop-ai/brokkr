@@ -120,6 +120,11 @@ pub struct Agent {
     /// order is the provider flag's order.
     pub allow: Option<Vec<String>>,
     pub mcp: Vec<McpNeed>,
+    /// Decision 0040: the agent's hands are one boxed tool. When set, the
+    /// tool allow-list is not consulted — the box bounds what running
+    /// anything can touch — and the adapter must say how it replaces the
+    /// harness's own tools with that one.
+    pub hands: Option<brokkr_protocol::hands::HandsSpec>,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
     /// sha256 over the canonical definition JSON.
@@ -261,6 +266,14 @@ pub struct Adapter {
     /// as `model_flag`.
     pub effort_flag: Option<String>,
     pub tool_permissions: Option<ToolPermissions>,
+    /// Decision 0040: how this provider is told to put its hands in the
+    /// box — the argv fragment that disables its own tools and reaches
+    /// the `brokkr hands serve` MCP server, with `{hands_mcp_json}` and
+    /// `{hands_args_toml}` expanded by the engine at spawn. `None` where
+    /// the provider declares `hands` unsupported; the reason, if measured,
+    /// is `hands_gap`.
+    pub hands: Option<Vec<String>>,
+    pub hands_gap: Option<String>,
     /// Why `tool_permissions` is absent, when the operator MEASURED the
     /// provider's CLI and found no per-tool allow-list to map onto.
     /// Never a capability: a declared gap refuses exactly as a bare
@@ -398,6 +411,8 @@ pub struct Resolution {
     /// dependent.
     pub record: Value,
     pub notices: Vec<Notice>,
+    /// Decision 0040: the agent's hands, carried to the site that hires it.
+    pub hands: Option<brokkr_protocol::hands::HandsSpec>,
 }
 
 fn capability_gap(
@@ -492,7 +507,27 @@ fn compose(
         }
     };
 
-    if let Some(allow) = &agent.allow {
+    if agent.hands.is_some() {
+        // Decision 0040 ruling 2: the box expresses the restriction. The
+        // tool list is not consulted; what the provider must be able to
+        // say is how its own tools are replaced by the one boxed tool.
+        let fragment = adapter.hands.as_ref().ok_or_else(|| {
+            let declared = match &adapter.hands_gap {
+                Some(reason) => format!("the provider declares hands unsupported ({reason})"),
+                None => "the provider declares hands unsupported".to_string(),
+            };
+            capability_gap(
+                agent,
+                adapter,
+                model,
+                format!(
+                    "{declared}, so the agent's hands cannot be put in the box and \
+                     the agent would run with the harness's own tools"
+                ),
+            )
+        })?;
+        argv.extend(fragment.iter().cloned());
+    } else if let Some(allow) = &agent.allow {
         let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
             // A measured gap names the axis the provider DOES have; a
             // bare `"unsupported"` names nothing, because nothing was
@@ -710,6 +745,7 @@ pub fn resolve(
         "notices": notices.iter().map(Notice::value).collect::<Vec<_>>(),
     });
     Ok(Resolution {
+        hands: agent.hands.clone(),
         agent: agent.name.clone(),
         charter: agent.charter.clone(),
         limits: agent.limits,

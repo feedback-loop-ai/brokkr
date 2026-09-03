@@ -123,6 +123,12 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/seat-record.v2.schema.json",
             "Forge seat record v2",
         ),
+        // Decision 0040's boxed hands: the manifest's `hands` key arrives
+        // as v6 beside v5, whose bytes are pinned above and did not move.
+        (
+            "contracts/run-manifest.v6.schema.json",
+            "Forge run manifest v6",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

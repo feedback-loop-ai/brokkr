@@ -72,3 +72,30 @@ unreachable by construction rather than by convention.
    provider's pre-session model rejection as a determinate failure — not
 at the engine, because a bound that applies "unless a new feature is
 in play" has stopped being a bound.
+
+## Hands
+
+An agent may declare `"hands"` instead of relying on its `tools.allow`
+list (decision 0040). The harness keeps its credential and its network;
+what the model asks to run goes through one MCP tool, `workspace`, served
+by `brokkr hands serve`, and every call executes inside an empty-root
+bubblewrap namespace holding the worktree read-write and the host
+toolchain read-only. `binds` add host paths — the Rust toolchain cache,
+read-write, its credentials masked:
+
+```json
+"hands": {
+  "kind": "workspace",
+  "network": false,
+  "binds": [
+    {"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml", "credentials"]},
+    {"path": "~/.rustup", "mode": "ro"}
+  ]
+}
+```
+
+With hands, the adapter's per-tool map is not consulted; what the adapter
+must express is how its harness's own tools are replaced by the one boxed
+tool (`hands` in the adapter file, or `"unsupported"` with the reason).
+The review agents declare hands, which is what lets `sol` on codex be
+their third link.

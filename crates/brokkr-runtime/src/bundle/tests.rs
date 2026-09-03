@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn error<T>(result: Result<T, CompileError>) -> String {
     match result {
@@ -135,7 +136,16 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         json!({"panel": {"a": {}, "b": {}}}),
         json!({"panel": {"a": {}, "b": {}}, "aggregate": "invented"}),
     ] {
-        assert!(parse_panel(dir, "review", &raw, Some(&results), &[], &mut None).is_err());
+        assert!(parse_panel(
+            dir,
+            "review",
+            &raw,
+            Some(&results),
+            &[],
+            &mut None,
+            &mut BTreeMap::new()
+        )
+        .is_err());
     }
     let panel = json!({
         "panel": {
@@ -150,14 +160,23 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         &panel,
         Some(&[]),
         &[],
-        &mut None
+        &mut None,
+        &mut BTreeMap::new()
     ))
     .contains("does not declare"));
     assert_eq!(
-        parse_panel(dir, "review", &panel, Some(&results), &[], &mut None)
-            .unwrap()
-            .0
-            .len(),
+        parse_panel(
+            dir,
+            "review",
+            &panel,
+            Some(&results),
+            &[],
+            &mut None,
+            &mut BTreeMap::new()
+        )
+        .unwrap()
+        .0
+        .len(),
         2
     );
 
@@ -174,7 +193,16 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             {"name":"two", "role":"roles/role.md", "driver":{"command":["driver"]}},
         ]}),
     ] {
-        assert!(parse_sequence(dir, "review", &raw, &results, &[], &mut None).is_err());
+        assert!(parse_sequence(
+            dir,
+            "review",
+            &raw,
+            &results,
+            &[],
+            &mut None,
+            &mut BTreeMap::new()
+        )
+        .is_err());
     }
 }
 
@@ -295,6 +323,14 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             fixture.dir.path().join("dangling"),
         )
         .unwrap();
-        assert!(manifest_for(fixture.dir.path(), "fixture", &[], None, None).is_ok());
+        assert!(manifest_for(
+            fixture.dir.path(),
+            "fixture",
+            &[],
+            None,
+            None,
+            &BTreeMap::new()
+        )
+        .is_ok());
     }
 }

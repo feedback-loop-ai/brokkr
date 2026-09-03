@@ -1399,3 +1399,84 @@ fn selection_skips_an_unmapped_first_entry() {
     // refusal there, because 0016 validates that a mapping EXISTS.
     assert!(refusal(&tree, "tester").contains("model 'nowhere'"));
 }
+
+// ------------------------------------------------ decision 0040: hands
+
+fn boxed_agent() -> Value {
+    let mut body = agent_body();
+    body["hands"] = json!({"kind": "workspace", "network": false,
+        "binds": [{"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml"]}]});
+    body
+}
+
+/// Ruling 2: with hands, the tool list is not consulted and the adapter's
+/// hands fragment is appended instead; without a fragment the provider
+/// cannot serve the agent, and the refusal says why.
+#[test]
+fn hands_replace_the_tool_list_with_the_adapters_fragment() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &boxed_agent());
+    let mut claude = claude_body();
+    claude["tool_permissions"] = json!("unsupported");
+    claude["hands"] = json!({"workspace": ["--tools", "", "--mcp-config", "{hands_mcp_json}"]});
+    tree.write("adapters/claude.json", &claude);
+    let resolution = resolved(&tree, &Availability::unspecified());
+    let argv = &resolution.candidates[0].argv;
+    assert!(
+        argv.iter().any(|part| part == "{hands_mcp_json}"),
+        "{argv:?}"
+    );
+    assert!(
+        !argv.iter().any(|part| part == "--allowedTools"),
+        "{argv:?}"
+    );
+    assert_eq!(
+        resolution.hands.as_ref().map(|hands| hands.binds.len()),
+        Some(1)
+    );
+
+    let bare = Tree::new();
+    bare.write("agents/tester.json", &boxed_agent());
+    bare.write("adapters/claude.json", &claude_body());
+    let refusal = refusal(&bare, "tester");
+    assert!(refusal.contains("declares hands unsupported"), "{refusal}");
+    assert!(refusal.contains("harness's own tools"), "{refusal}");
+
+    let measured = Tree::new();
+    measured.write("agents/tester.json", &boxed_agent());
+    let mut reasoned = claude_body();
+    reasoned["hands"] = json!({"unsupported": "no flag swaps the tool surface"});
+    measured.write("adapters/claude.json", &reasoned);
+    let refusal = self::refusal(&measured, "tester");
+    assert!(
+        refusal.contains("no flag swaps the tool surface"),
+        "{refusal}"
+    );
+}
+
+#[test]
+fn hands_declarations_are_refused_where_malformed_and_named_where_refused() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["hands"] = json!({"kind": "mitten"});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let error = tree.library_error();
+    assert!(
+        error.contains("'hands'") && error.contains("kind must be"),
+        "{error}"
+    );
+
+    let adapters = Tree::new();
+    adapters.write("agents/tester.json", &agent_body());
+    let mut claude = claude_body();
+    claude["hands"] = json!({"workspace": ["--tools", ""], "extra": 1});
+    adapters.write("adapters/claude.json", &claude);
+    let error = adapters.adapters_error();
+    assert!(error.contains("'hands'"), "{error}");
+    let mut claude = claude_body();
+    claude["hands"] = json!("sometimes");
+    adapters.write("adapters/claude.json", &claude);
+    let error = adapters.adapters_error();
+    assert!(error.contains("unsupported"), "{error}");
+}

@@ -2,12 +2,32 @@
   "description": "Security reviewer for spec-driven delivery: the adversarial read, carrying the spec-kit CLI permission.",
   "charter": "charters/review-security-speckit.md",
   "models": [
+    "fable",
     "opus",
-    "sonnet"
+    "sol"
   ],
   "efforts": {
-    "opus": "high",
-    "sonnet": "high"
+    "fable": "high",
+    "opus": "xhigh",
+    "sol": "xhigh"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "rw",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
   },
   "tools": {
     "allow": [

@@ -739,11 +739,15 @@ impl Engine {
         let single = match &seat.body {
             SeatBody::Single {
                 command, confine, ..
-            } => Some(confined_command(
-                argv_for(&selection, &None, command),
-                confine.as_ref(),
+            } => Some(hands_command(
+                confined_command(
+                    argv_for(&selection, &None, command),
+                    confine.as_ref(),
+                    &workdir,
+                    &self.bundle.roots,
+                ),
+                self.bundle.hands.get(seat_name),
                 &workdir,
-                &self.bundle.roots,
             )),
             _ => None,
         };
@@ -1068,11 +1072,17 @@ impl Engine {
                 MemberRun {
                     name: member.name.clone(),
                     driver_seat: format!("{driver_seat_prefix}:{}", member.name),
-                    command: confined_command(
-                        argv_for(selection, &site, &member.command),
-                        member.confine.as_ref(),
+                    command: hands_command(
+                        confined_command(
+                            argv_for(selection, &site, &member.command),
+                            member.confine.as_ref(),
+                            &workdir,
+                            &self.bundle.roots,
+                        ),
+                        self.bundle
+                            .hands
+                            .get(&format!("{driver_seat_prefix}:{}", member.name)),
                         &workdir,
-                        &self.bundle.roots,
                     ),
                     input,
                 }
@@ -1283,11 +1293,15 @@ impl Engine {
                         "context": context,
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
-                    let command = confined_command(
-                        argv_for(selection, &site, command),
-                        confine.as_ref(),
+                    let command = hands_command(
+                        confined_command(
+                            argv_for(selection, &site, command),
+                            confine.as_ref(),
+                            &self.workdir(),
+                            &self.bundle.roots,
+                        ),
+                        self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
                         &self.workdir(),
-                        &self.bundle.roots,
                     );
                     // A sequence step is not a seat: decision 0030 hands
                     // a session back to the same SEAT of the same run,
@@ -2780,6 +2794,56 @@ pub fn confined_command(
     wrapped.push(confine.image.clone());
     wrapped.extend(command.iter().cloned());
     wrapped
+}
+
+/// Decision 0040: put a site's hands in the box. A model seat's argv has
+/// the adapter's fragment already; its two tokens are expanded here,
+/// where the workdir and this binary's path are known — the MCP server a
+/// harness spawns is `brokkr hands serve` on this very executable. An
+/// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
+/// namespace at run time and passes the driver's stdio straight through.
+/// A site without hands gets its command back untouched.
+pub fn hands_command(
+    command: Vec<String>,
+    hands: Option<&brokkr_protocol::hands::HandsSpec>,
+    workdir: &std::path::Path,
+) -> Vec<String> {
+    let Some(spec) = hands else {
+        return command;
+    };
+    let brokkr = std::env::current_exe().unwrap_or_default();
+    let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
+    if is_exec {
+        let mut boxed = vec![
+            brokkr.to_string_lossy().into_owned(),
+            "hands".to_string(),
+            "exec".to_string(),
+            "--workdir".to_string(),
+            workdir.to_string_lossy().into_owned(),
+            "--spec".to_string(),
+            spec.to_value().to_string(),
+            "--".to_string(),
+        ];
+        boxed.extend(command);
+        return boxed;
+    }
+    let mcp_json = brokkr_protocol::hands::mcp_config(&brokkr, workdir, spec).to_string();
+    let args_toml = format!(
+        "[{}]",
+        brokkr_protocol::hands::serve_args(workdir, spec)
+            .iter()
+            .map(|arg| format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    command
+        .into_iter()
+        .map(|part| {
+            part.replace("{hands_mcp_json}", &mcp_json)
+                .replace("{hands_args_toml}", &args_toml)
+                .replace("{brokkr}", &brokkr.to_string_lossy())
+        })
+        .collect()
 }
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {

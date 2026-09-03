@@ -2988,3 +2988,43 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     assert_eq!(report(&defect), ExitCode::from(1));
     assert_eq!(CONTENDED_EXIT, 4);
 }
+
+/// Decision 0040 through the in-process verb: a boxed command runs whole
+/// and returns its own code, and a spec that does not parse is refused
+/// before anything spawns. Linux only, like the boundary.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let code = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work.clone(),
+            spec: "\"workspace\"".into(),
+            command: vec![
+                "--".into(),
+                "bash".into(),
+                "-c".into(),
+                "echo boxed > out.txt; exit 3".into(),
+            ],
+        },
+    }))
+    .unwrap();
+    assert_eq!(code, ExitCode::from(3));
+    assert_eq!(
+        std::fs::read_to_string(work.join("out.txt")).unwrap(),
+        "boxed\n"
+    );
+
+    let refused = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work,
+            spec: "{\"kind\":\"mitten\"}".into(),
+            command: vec!["true".into()],
+        },
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refused.contains("--spec"), "{refused}");
+}

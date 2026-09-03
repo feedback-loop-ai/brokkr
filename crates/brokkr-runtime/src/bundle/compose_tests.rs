@@ -2,6 +2,7 @@
 //! over recipe sources, so every test here is a library of small JSON
 //! documents on disk and an assertion about the ONE flat bundle they
 //! resolve to — or about the refusal that names the file and the key.
+use std::collections::BTreeMap;
 
 use super::compose::{resolve, Ancestor};
 use super::*;
@@ -727,6 +728,14 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0039 moved `recipes/fast` here as it moved it in the witness
 /// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
 /// rules differently is a different bundle. Nothing else in this list moved.
+/// Decision 0040 moved every pinned bundle at once, and for one reason:
+/// every adapter file gained `hands` — how the provider puts its hands in
+/// the box, or the measured reason it cannot — and a bundle whose inline
+/// gate pins the adapter declaration that authorised it (decision 0021)
+/// carries that file's digest in its identity. The bundles hiring the
+/// review agents moved further: those agents now chain fable@high →
+/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
+/// records and the manifest's `hands` key changed. Nothing else moved.
 /// The five bundles that declare no `extends`. Their digests are pinned
 /// to what MAIN produces without composition — three of them moved when
 /// those recipes adopted agents (decision 0016), and four moved again
@@ -767,19 +776,19 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "recipes/panel-review",
-        "39c32ddc18c4a391b7b199d51d9350670e4aace60534798fb1f65c8494085546",
+        "3be1e229d665242e712343f1e12d0a7638de2578b47066ef334f09a179aaa406",
     ),
     (
         "recipes/sdd",
-        "1a99fd11b0bcfe34b801c6e65ec5134a421c5660596000bf44d0be4acfa1b8bc",
+        "671c1c8abb4dd61e0a442131c4e0caeb647012131cee5121265e1877ce918c8a",
     ),
     (
         "bundles/self",
-        "b54df630e7d4286d4ee8f96f215ed746d828dafb8c4183da6cd538a2b90a5b6c",
+        "3e0955869b1736ec62b76653f5a9aa6367dad7820e8ab662c29754b94140e4fc",
     ),
     (
         "bundles/verify",
-        "a2d666c728946f4eb8d0834ae5371f07b459e8fa795994658d144e7088475c2c",
+        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
     ),
 ];
 
@@ -891,7 +900,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     // resolution, which belongs to the composed bundle rather than to
     // any layer of it.
     let layer_digest = brokkr_core::canonical::sha256_hex(
-        &super::manifest_for(&sdd.dir, "sdd", &[], None, None).unwrap(),
+        &super::manifest_for(&sdd.dir, "sdd", &[], None, None, &BTreeMap::new()).unwrap(),
     );
     assert_eq!(
         bundle.chain,
@@ -910,7 +919,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "3eaa47b682878a8868b7d2de530f53b157fa3ad4e5652322ffcec544b00c0f9e",
+        "0a6c14473bd7b608ace293cdd8d325a53a03a4007e4ef7fd55c29b7720fad4c9",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \

@@ -111,6 +111,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Decision 0040: the hands tests build a real bubblewrap namespace on
+      # Linux; the boundary is never simulated, so the tool is installed.
+      - name: bubblewrap for the hands tests
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
       - run: cargo test --workspace --all-features --locked
       - name: self and verify bundles compile under the constitutional lint
         run: |
@@ -128,6 +133,8 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      - name: bubblewrap for the hands tests
+        run: sudo apt-get update -q && sudo apt-get install -y -q bubblewrap
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
       - uses: actions/upload-artifact@v4

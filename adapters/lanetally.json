@@ -41,5 +41,8 @@
   "mcp": {
     "flag": "--mcp-config",
     "servers": {}
+  },
+  "hands": {
+    "unsupported": "the LaneTally session-capture wrapper passes flags through to claude, but the pass-through of --mcp-config, --tools and --strict-mcp-config has not been measured; unsupported until it is."
   }
 }

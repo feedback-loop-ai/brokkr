@@ -48,3 +48,14 @@ with `brokkr export`. `brokkr bridge --run <id> --looper-url <url>` tails only t
 verified public store API and synchronizes ordered evidence plus fenced commands;
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
+
+## Hands
+
+`hands` (decision 0040) is the adapter's answer to a site that boxes its
+hands: the argv fragment that disables the harness's own tools and reaches
+`brokkr hands serve` over MCP. Two tokens are expanded by the engine at
+spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,
+and `{hands_args_toml}`, the server's arguments as a TOML array for
+`codex -c`. `{"unsupported": "<measured reason>"}` declares that the
+harness cannot swap its tool surface, and a site with hands then refuses
+to compile against it, exactly as an unexpressible tool list does.

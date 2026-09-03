@@ -452,6 +452,13 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// The model's hands are one tool, and the tool runs in an empty root
+    /// (decision 0040): serve the `workspace` tool over MCP on stdio, or
+    /// run one command whole inside the same box.
+    Hands {
+        #[command(subcommand)]
+        command: HandsCommand,
+    },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
     FakeDriver {
@@ -842,6 +849,66 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HandsCommand {
+    /// Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC
+    /// on stdio); every call runs `bash -lc <command>` inside the box.
+    Serve {
+        /// The worktree, bound read-write at its own path.
+        #[arg(long)]
+        workdir: PathBuf,
+        /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
+        #[arg(long, default_value = "\"workspace\"")]
+        spec: String,
+    },
+    /// Run one command whole inside the box with stdio passed through —
+    /// how a deterministic `exec` seat holds a gate. Exits with the
+    /// command's own code.
+    Exec {
+        #[arg(long)]
+        workdir: PathBuf,
+        #[arg(long, default_value = "\"workspace\"")]
+        spec: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+}
+
+fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
+    use brokkr_protocol::hands;
+    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
+        let raw: serde_json::Value = serde_json::from_str(spec)?;
+        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
+    };
+    match command {
+        HandsCommand::Serve { workdir, spec } => {
+            let spec = parse_spec(&spec)?;
+            let stdin = std::io::stdin();
+            let served = hands::serve(
+                stdin.lock(),
+                std::io::stdout(),
+                &workdir,
+                &spec,
+                &hands::execute,
+            );
+            served?;
+            Ok(ExitCode::SUCCESS)
+        }
+        HandsCommand::Exec {
+            workdir,
+            spec,
+            command,
+        } => {
+            let spec = parse_spec(&spec)?;
+            let command: Vec<String> = command.into_iter().filter(|part| part != "--").collect();
+            let code = hands::run_boxed(&spec, &workdir, &command).map_err(anyhow::Error::msg)?;
+            Ok(ExitCode::from(
+                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
+            ))
+        }
+    }
 }
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
@@ -2069,6 +2136,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Hands { command } => hands(command),
         Cmd::Driver { kind, args } => {
             let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
                 anyhow::anyhow!(

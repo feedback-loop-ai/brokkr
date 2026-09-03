@@ -88,6 +88,32 @@ fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
     argv
 }
 
+/// The review agents' argv under decision 0040: no `--allowedTools` list,
+/// the box fragment the claude adapter declares instead.
+fn expected_boxed(specify: bool, model: &str) -> Vec<String> {
+    let mut argv = historic(specify);
+    argv.truncate(argv.len() - 2);
+    argv.extend(
+        ["--model", model, "--effort", EFFORT]
+            .into_iter()
+            .map(str::to_string),
+    );
+    argv.extend(
+        [
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{hands_mcp_json}",
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+    argv
+}
+
 fn compile(relative: &str) -> Bundle {
     let root = workspace();
     Bundle::compile_with(
@@ -172,13 +198,13 @@ const PANEL_REVIEW: &Roster = &[
     (
         "review:correctness",
         false,
-        "claude-opus-5",
+        "claude-fable-5",
         "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
     ),
     (
         "review:security",
         false,
-        "claude-opus-5",
+        "claude-fable-5",
         "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
     ),
 ];
@@ -211,13 +237,13 @@ const SDD: &Roster = &[
     (
         "review:spec-compliance",
         true,
-        "claude-opus-5",
+        "claude-fable-5",
         "416f9e17378ab421318a9deee9ba156ab7b8b2e793b6c56fd77253354fe78f75",
     ),
     (
         "review:security",
         true,
-        "claude-opus-5",
+        "claude-fable-5",
         "de00a51d25e0a4fc77b12bdb6c0793ec5e6601ebeb05459c6f44e082705e176a",
     ),
     (
@@ -261,7 +287,7 @@ const SELF: &Roster = &[
     (
         "review",
         false,
-        "claude-opus-5",
+        "claude-fable-5",
         "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
     ),
     (
@@ -280,11 +306,20 @@ fn assert_adopted(relative: &str, roster: &Roster) {
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
         let hands = site.starts_with("implement");
+        // Decision 0040: a review agent's hands are one boxed tool, so its
+        // argv is the inline argv WITHOUT the tool list, plus its model
+        // and effort, plus the adapter's box fragment; and the operator's
+        // chain now leads with fable.
+        let want = if site.starts_with("review") {
+            expected_boxed(*specify, model)
+        } else {
+            expected(*specify, hands, model)
+        };
         assert_eq!(
             &argv[1..],
-            expected(*specify, hands, model).as_slice(),
+            want.as_slice(),
             "{relative} site '{site}' argv is not the inline argv plus its model \
-             (plus the driver hands, on an implement seat)"
+             (plus the driver hands, on an implement seat; boxed, on a review seat)"
         );
         let bytes = std::fs::read(charter).unwrap();
         assert_eq!(
