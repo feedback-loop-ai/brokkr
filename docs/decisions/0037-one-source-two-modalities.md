@@ -7,7 +7,7 @@ Date: 2026-09-03
 
 On 2026-09-03 the operator read `ARCHITECTURE.md` — 2,606 words and
 not one diagram — and ruled the direction: more pictures, fewer words.
-The page was rewritten the same day: nine diagrams, under 1,900 words.
+The page was rewritten the same day: eight diagrams, under 1,900 words.
 The operator then asked for the principle behind the rewrite to be
 captured, and stated it as: *humans and LLMs operate better in
 different modalities — humans with visual artifacts, LLMs with text and
@@ -108,7 +108,7 @@ the same fact stated twice is the drift already described).
 
 ## Consequences
 
-- `ARCHITECTURE.md` is the first page held to this: nine diagrams, the
+- `ARCHITECTURE.md` is the first page held to this: eight diagrams, the
   crate graph and the phase graph tested against the workspace and the
   recipe, prose under budget. The front page carries the bootstrap as a
   picture with the two measured budgets on it.

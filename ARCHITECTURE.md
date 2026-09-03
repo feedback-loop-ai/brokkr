@@ -27,7 +27,7 @@ flowchart TB
     cli --> runtime & view & bridge
     runtime --> core & store & protocol
     view --> core
-    bridge --> store
+    bridge --> store & runtime
     store --> core
   end
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · exec<br/>capability, as leaf effects])
