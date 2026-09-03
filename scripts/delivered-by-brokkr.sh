@@ -85,14 +85,16 @@ verify_evidence() {
 
 # Decision 0038 ruling 1's map, computed for the head under judgment
 # exactly as the engine computes it at ship: per path, the stable patch
-# id of that file's diff from the merge-base. Renames are never paired,
-# so a moved file is a deletion and an addition and no path leaves the
-# map by being moved.
+# id of that file's diff from the merge-base, whitespace included
+# (`--verbatim`: `--stable` alone strips whitespace, and a space is
+# semantic in shell, YAML and Python). Renames are never paired, so a
+# moved file is a deletion and an addition and no path leaves the map by
+# being moved.
 patch_map() {
   local base="$1" head="$2" path id
   {
     git -C "$REPO" diff --no-renames --name-only "$base" "$head" | while IFS= read -r path; do
-      id="$(git -C "$REPO" diff --no-renames "$base" "$head" -- "$path" | git patch-id --stable | cut -d' ' -f1)"
+      id="$(git -C "$REPO" diff --no-renames "$base" "$head" -- "$path" | git patch-id --verbatim | cut -d' ' -f1)"
       jq -n --arg path "$path" --arg id "$id" '{($path): $id}'
     done
   } | jq -s 'add // {}'

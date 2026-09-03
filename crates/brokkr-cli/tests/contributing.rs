@@ -147,7 +147,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
         "verify-run \"$work/${run}.ndjson\"",
         ".payload.from == \"ship\" and .payload.result == \"shipped\"",
         ".seq == $seq and .journal_head_hash == $journal",
-        "patch-id --stable",
+        "patch-id --verbatim",
         ".repo_head == $head",
         "Brokkr-Preflight",
         ".payload.from == \"review\" and .payload.next == \"done\"",

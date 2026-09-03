@@ -34,9 +34,13 @@ jobs:
           fetch-depth: 0
           path: pr
       - name: the base branch, for the merge-base
+        # Event data reaches the shell through the environment, never by
+        # interpolation into the command line.
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPO: https://github.com/${{ github.repository }}.git
         run: |
-          git -C pr fetch --no-tags "https://github.com/${{ github.repository }}.git" \
-            "${{ github.event.pull_request.base.ref }}:refs/remotes/base/${{ github.event.pull_request.base.ref }}"
+          git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}"
       - uses: dtolnay/rust-toolchain@stable
       - name: build the base branch's offline verifier
         run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli

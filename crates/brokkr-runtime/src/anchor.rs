@@ -50,7 +50,15 @@ fn git_io<T>(result: std::io::Result<T>, verb: &'static str) -> Result<T, Anchor
     }
 }
 
+/// Run git and return its stdout trimmed: a sha, a ref name, a message.
 fn git(repo: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, AnchorError> {
+    git_raw(repo, args, stdin).map(|out| out.trim().to_string())
+}
+
+/// Run git and return its stdout byte for byte. A diff fed to `patch-id
+/// --verbatim` must keep its final newline and any trailing space, or the
+/// id here and the id the gate computes from a pipe disagree.
+fn git_raw(repo: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, AnchorError> {
     use std::io::Write;
     let mut command = Command::new("git");
     command.args(args).current_dir(repo);
@@ -77,7 +85,7 @@ fn git(repo: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, Anchor
             detail: format!("{args:?}: {}", String::from_utf8_lossy(&out.stderr).trim()),
         });
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn ref_name(run_id: &str) -> String {
@@ -133,10 +141,13 @@ fn default_branch(repo: &Path) -> Option<String> {
 /// merge-base of the vouched head with the default branch, and for every
 /// path the diff from that base touches, the stable patch id of that
 /// file's diff. Ancestry is not in the id, so a clean rebase keeps every
-/// entry; a changed hunk moves exactly the entry it lives in. Renames are
-/// never paired: a moved file is a deletion and an addition, each a path
-/// like any other, so no path leaves the map by being moved. `None` when
-/// there is no branch to measure against.
+/// entry; a changed hunk moves exactly the entry it lives in. Whitespace
+/// IS in the id (`--verbatim`): a space is semantic in shell, YAML and
+/// Python, and `--stable` alone strips it, so a re-indented hunk would
+/// keep a vouch it no longer earns. Renames are never paired: a moved
+/// file is a deletion and an addition, each a path like any other, so no
+/// path leaves the map by being moved. `None` when there is no branch to
+/// measure against.
 fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>)> {
     let branch = default_branch(repo)?;
     let base = git(repo, &["merge-base", &branch, head], None).ok()?;
@@ -148,13 +159,13 @@ fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>
     .ok()?;
     let mut patch = Map::new();
     for path in listed.lines() {
-        let diff = git(
+        let diff = git_raw(
             repo,
             &["diff", "--no-renames", &base, head, "--", path],
             None,
         )
         .ok()?;
-        let id = git(repo, &["patch-id", "--stable"], Some(&diff)).ok()?;
+        let id = git(repo, &["patch-id", "--verbatim"], Some(&diff)).ok()?;
         let id = id.split_whitespace().next()?.to_string();
         patch.insert(path.to_string(), Value::String(id));
     }

@@ -62,8 +62,12 @@ reason to forge again. Four shapes were weighed.
 
    **Enforcement binding:** `brokkr-runtime::anchor` writes v3;
    `brokkr anchor --check` and the offline verifier read v2 and v3, and
-   refuse an unknown version. A workspace test pins the map against
-   `git diff` of a fixture repository.
+   refuse an unknown version. The id is `git patch-id --verbatim`:
+   per-file and order-independent like `--stable`, with whitespace kept,
+   because a space is semantic in shell, YAML and Python and `--stable`
+   alone strips it — a re-indented hunk must not keep the vouch. A
+   workspace test pins the map against `git diff` of a fixture
+   repository, and the gate test pins that one added space cuts the tier.
 
 2. **A head whose patch equals the vouched patch is vouched.** The gate
    computes the pull request head's per-file patch map against its

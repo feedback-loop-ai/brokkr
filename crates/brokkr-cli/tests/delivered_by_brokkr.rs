@@ -261,6 +261,20 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
         "{log}"
     );
 
+    // Whitespace is content: one space added inside the judged hunk is a
+    // different patch, and a code one. A space is semantic in shell, YAML
+    // and Python; `patch-id --stable` alone would have stripped it and
+    // kept the vouch.
+    git(&repo, &["checkout", "-q", "-b", "respaced"]);
+    let respaced = commit(&repo, "src/lib.txt", "one\n two\n", "one space");
+    git(&repo, &["checkout", "-q", "slice"]);
+    let (code, log) = gate.judge(&body, &respaced, "");
+    assert_eq!(code, 1, "{log}");
+    assert!(
+        log.contains("tier code · delta since the judgment: [\"src/lib.txt\"]"),
+        "{log}"
+    );
+
     // A page changes after the judgment: docs tier, and it wants a preflight.
     let docs_delta = commit(&repo, "docs/page.md", "# page\n\nmore\n", "edit the page");
     let (code, log) = gate.judge(&body, &docs_delta, "");
