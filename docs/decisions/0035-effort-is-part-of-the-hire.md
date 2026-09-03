@@ -7,9 +7,12 @@ Date: 2026-09-03
 
 Decision 0031 ruled that the served model is evidence and that every
 model seat is pinned. It closed the gap between the plan ("which model
-did we ask for") and the evidence ("which model answered"). It left a
-second gap open, and decision 0034 froze the seat record without
-closing it: the model name alone does not identify the worker.
+did we ask for") and the report ("which model the provider says
+answered"). It left two things open. The smaller one is that its word
+"evidence" claimed more than a provider's self-report can carry, which
+ruling 2 below refines. The larger one is that decision 0034 then froze
+the seat record around that word without closing the gap underneath it:
+the model name alone does not identify the worker.
 
 A reasoning model is not one worker. `gpt-5.6-sol` at minimal effort
 and `gpt-5.6-sol` at xhigh differ in latency, in price, and in what
@@ -89,8 +92,8 @@ reading `--effort high` on a deepseek lane would conclude the seat
 thought harder; the meter says it thought roughly a seventh as hard. A
 pin is a request, and on at least one live lane the request does not
 mean what it says. Only a reported number settles it, which is why
-ruling 3 is not a nicety beside ruling 4 but the check that makes ruling
-4 auditable.
+ruling 4 is not a nicety beside ruling 5 but the check that makes ruling
+5 auditable.
 
 Three alternatives were weighed and rejected. Filling `effort` from the
 pin repeats exactly the move decision 0031 refused for the model:
@@ -100,7 +103,7 @@ their adapters fold leaves the fact unrecorded for as long as that
 takes, and the journal is append-only — the window cannot be repaired
 afterwards. Amending v1 in
 place is not available at all: contracts are frozen by construction,
-which is why ruling 6 adds a file rather than a field.
+which is why ruling 7 adds a file rather than a field.
 
 The operator ruled in chat on 2026-09-03: "the information is
 meaningless without effort", "if we have a model, we need effort as
@@ -121,27 +124,64 @@ reasoning — that is core to our ledger and modus operandi."
    specific bindings below implement; it supersedes nothing and is
    cited where an implicit default would otherwise be argued for.
 
-2. **The record carries the served effort.** A new
-   `contracts/seat-record.v2.schema.json` adds `effort` to the per-turn
-   checkpoint, the finishing checkpoint and the successful result. The
-   value is the harness's own report, never the pin. Codex and claude
-   both read it from their transcript via the decision 0032 locator,
-   where each writes it per turn and either may change mid-thread. Dsh
-   reports `not reported`: its lanes carry a real effort control, but
-   neither the harness nor the providers behind it echo the served
-   value, so there is nothing to read — an absence the operator ruled
-   on 2026-09-03 after it was measured, not one assumed from a thin
-   record. Exec reports `not applicable`. The two sentinels are
-   decision 0031's, reused rather than reinvented, and the distinction
-   between them is exactly the distinction dsh makes visible: a control
-   that exists but goes unreported is not a control that does not
-   exist.
+2. **A served value is the provider's claim, not a proof — decision
+   0031's word "evidence" is refined here.** No harness discloses
+   quantization, hardware routing, or a substitution made at peak load,
+   and the same model string comes back whichever of those happened.
+   `model` is the best-attested name available and remains worth more
+   than a pin, so 0031's rule stands untouched: a pin, an adapter
+   default, or an abstract agent model is never written into it. What
+   changes is only what the field may be claimed to be. It is testimony
+   from the party being audited, and this ledger does not call testimony
+   proof.
+
+   What survives that scrutiny is not a name but a meter. Tokens, money
+   and elapsed time are costly to fabricate and are what settle a
+   dispute; a label is free to assert. Decision 0034 froze the meters
+   the record already had, and rulings 4 and 5 add the two it lacked.
+   That is why they are load-bearing here rather than decorative.
+
+   **Enforcement binding:** no code changes for this ruling. It governs
+   how the `model` field is described in `docs/guides/driver-authoring.md`
+   and in every readout that labels it, and it is the ruling cited when
+   a future decision is tempted to treat a provider's self-report as
+   settled fact.
+
+3. **The record carries the configured effort, labelled as
+   configuration.** A new `contracts/seat-record.v2.schema.json` adds
+   `effort` to the per-turn checkpoint, the finishing checkpoint and the
+   successful result. There is no served effort anywhere to carry
+   instead: what codex writes as `turn_context.effort`, and claude
+   beside each assistant record, is each harness echoing its own
+   setting, not a measurement of what the model did. The field is
+   therefore a configured fact, named as one and never dressed as a
+   report — the way decision 0016 labels a model selection a selection.
+
+   It is read from the harness's own echo where one exists, through the
+   decision 0032 locator, because that echo is the effective value after
+   every profile and plugin layer has applied — strictly better than
+   reading back our own bundle, which is the move 0031 refused. Each
+   writes it per turn, so either may change mid-thread. Dsh reports
+   `not reported`: its lanes carry a real effort control, but neither
+   the harness nor the providers behind it echo any value at all, so
+   there is nothing to read — an absence the operator ruled on
+   2026-09-03 after it was measured, not one assumed from a thin record.
+   Exec reports `not applicable`. The two sentinels are decision 0031's,
+   reused rather than reinvented, and the distinction between them is
+   exactly the one dsh makes visible: a control that exists but goes
+   unreported is not a control that does not exist.
+
+   A configured effort is worth recording and is not worth trusting.
+   `deepseek-v4-flash` is the lane that proves it, spending roughly a
+   seventh as much reasoning at `high` as at `low`: the configuration
+   said one thing and the meter said another, and only the meter could
+   say so.
 
    **Enforcement binding:** the built-in folds in
    `brokkr-protocol::adapters`, driver conformance, the `brokkr-store`
    validator, and the shared `brokkr-view` derivation.
 
-3. **The record carries the reasoning it paid for.** v2 adds
+4. **The record carries the reasoning it paid for.** v2 adds
    `reasoning_output_tokens`, a reported subset of `output_tokens` in
    the way `cache_read_tokens` is a subset of `input_tokens`, and is
    never added to a total a second time. The three harnesses report it
@@ -158,7 +198,7 @@ reasoning — that is core to our ledger and modus operandi."
    the view sums exactly as documented in
    `docs/guides/driver-authoring.md`.
 
-4. **Every model pin carries an effort pin.** Where decision 0031
+5. **Every model pin carries an effort pin.** Where decision 0031
    ruling 2 requires a concrete `--model`, an effort-bearing driver
    also requires a concrete effort. In the agent library (decision
    0016) an agent's `models` chain gains a companion effort per
@@ -170,16 +210,20 @@ reasoning — that is core to our ledger and modus operandi."
    alongside the existing model refusal, and gives the repair.
    `brokkr doctor --bundle` exposes the same refusal.
 
-5. **Configured and served effort remain separate facts,** exactly as
-   decision 0031 ruling 3 separates the selected model from the served
-   one. The pin is the plan; `effort` is evidence. Existing journal
-   rows are not rewritten and their absence stays visibly absent.
+6. **The pin and the effective configuration remain separate facts,**
+   as decision 0031 ruling 3 separates the selected model from the
+   served one. The pin is what a bundle asked for; `effort` is what the
+   harness reports it actually applied, after every layer. Both are
+   configuration — neither is a measurement of what the model did, and
+   ruling 4's reasoning count is the only figure in the record that is.
+   Existing journal rows are not rewritten and their absence stays
+   visibly absent.
 
-   **Enforcement binding:** the view carries the pin and the served
-   effort as separate cells and derives old-journal absence without
-   fallback.
+   **Enforcement binding:** the view carries the pin and the applied
+   effort as separate cells, labels both as configuration, and derives
+   old-journal absence without fallback.
 
-6. **v1 is not edited.** Contracts are frozen: v2 is a new file beside
+7. **v1 is not edited.** Contracts are frozen: v2 is a new file beside
    v1, and v1 remains the contract for every record already written
    under it. Records are validated against the version their run's
    engine wrote.
@@ -189,8 +233,10 @@ reasoning — that is core to our ledger and modus operandi."
 
 ## Consequences
 
-A reader of any seat record can tell who worked: the model, the effort
-it worked at, the reasoning it spent, and what that cost. The wager
+A reader of any seat record can tell who was hired and what the work
+cost: the model claimed, the effort asked of it, the reasoning it
+actually spent, and the money. The first two are claims and the last two
+are meters, and the record now says which is which. The wager
 becomes a comparison between stated hires rather than between names
 that say nothing about the effort behind them.
 
