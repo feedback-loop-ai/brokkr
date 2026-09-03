@@ -146,7 +146,8 @@ reason to forge again. Four shapes were weighed.
 
 - 0033 rulings 3 and 4 are amended by rulings 1 to 3 above: the anchor
   gains a version, and the gate compares patches before heads. 0033
-  rulings 1, 2, 5 and 6 stand.
+  rulings 1, 2, 5 and 6 stand; ruling 4 above retires the
+  close-and-reopen step 0033 ruling 5 prescribed after labelling.
 - Today's sequence under these rulings: rebase 1 changed one file in
   the delta, `docs/decisions/README.md`, a docs path — a `preflight` run
   over the rebased head, roughly a third of the `ember` run's cost,
