@@ -1,6 +1,6 @@
 # 0036 — Egress is a class, and it belongs to the route, not the binary
 
-Status: proposed
+Status: accepted (ruled 2026-09-03)
 Date: 2026-09-03
 
 ## Context
@@ -64,6 +64,16 @@ adapter is: a provider is a CLI, and this CLI genuinely has one. And
 promoting the Spark to the `trusted` tier buys the grant by conflating
 the judging axis with the receiving one — the precise braid 0021's
 context says it untangled from the heritage DeepSeek rule.
+
+## Ruling — 2026-09-03, operator: accepted as proposed
+
+Accepted the day it was proposed, without amendment. The five rulings
+and their enforcement bindings stand as written and are the commission
+of the enactment slice, fired on acceptance. This ruling assigns no
+route to a class: `spark` is not ruled `local` here, and every adapter
+keeps the clearance ruling 4's migration gives it. The routes map
+arrives as the place for that data, and the operator fills it by a
+separate ruling — class assignment is operator data, as ruling 1 says.
 
 ## Rulings
 

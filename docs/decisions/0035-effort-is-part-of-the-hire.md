@@ -1,6 +1,6 @@
 # 0035 — Effort is part of the hire: every model pin carries one, and the record carries it
 
-Status: proposed
+Status: accepted (ruled 2026-09-03)
 Date: 2026-09-03
 
 ## Context
@@ -110,6 +110,15 @@ The operator ruled in chat on 2026-09-03: "the information is
 meaningless without effort", "if we have a model, we need effort as
 well", and "we do version / SHA pinning, explicit model, effort,
 reasoning — that is core to our ledger and modus operandi."
+
+## Ruling — 2026-09-03, operator: accepted as proposed
+
+Accepted the day it was proposed, without amendment. The seven rulings
+and their enforcement bindings stand as written and are the commission
+of the enactment slice, fired on acceptance. The finding the
+consequences leave unruled — that the dsh `headless` profile loads no
+plugin capturing what its providers return — stays unruled here; it
+wants its own decision.
 
 ## Rulings
 
