@@ -452,6 +452,13 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// The model's hands are one tool, and the tool runs in an empty root
+    /// (decision 0043): serve the `workspace` tool over MCP on stdio, or
+    /// run one command whole inside the same box.
+    Hands {
+        #[command(subcommand)]
+        command: HandsCommand,
+    },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
     FakeDriver {
@@ -842,6 +849,99 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HandsCommand {
+    /// Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC
+    /// on stdio); every call runs `bash -lc <command>` inside the box.
+    Serve {
+        /// The worktree, bound read-write at its own path.
+        #[arg(long)]
+        workdir: PathBuf,
+        /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
+        #[arg(long, default_value = "\"workspace\"")]
+        spec: String,
+    },
+    /// Run one command whole inside the box with stdio passed through —
+    /// how a deterministic `exec` seat holds a gate. Exits with the
+    /// command's own code.
+    Exec {
+        #[arg(long)]
+        workdir: PathBuf,
+        #[arg(long, default_value = "\"workspace\"")]
+        spec: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+}
+
+fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
+    use brokkr_protocol::hands;
+    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
+        let raw: serde_json::Value = serde_json::from_str(spec)?;
+        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
+    };
+    match command {
+        HandsCommand::Serve { workdir, spec } => {
+            let spec = parse_spec(&spec)?;
+            // The session outlives every call: overlay upper layers live
+            // here until the harness closes the server's stdin.
+            let session = hands::session_dir("serve").map_err(anyhow::Error::msg)?;
+            let stdin = std::io::stdin();
+            let served = hands::serve(
+                stdin.lock(),
+                std::io::stdout(),
+                &workdir,
+                &session,
+                &spec,
+                &hands::execute,
+            );
+            let _ = std::fs::remove_dir_all(&session);
+            served?;
+            Ok(ExitCode::SUCCESS)
+        }
+        HandsCommand::Exec {
+            workdir,
+            spec,
+            command,
+        } => {
+            let spec = parse_spec(&spec)?;
+            // Only the leading separator is ours; a command may carry
+            // its own `--`.
+            let command: Vec<String> = match command.first().map(String::as_str) {
+                Some("--") => command[1..].to_vec(),
+                _ => command,
+            };
+            let code = hands::run_boxed(&spec, &workdir, &command).map_err(anyhow::Error::msg)?;
+            Ok(ExitCode::from(
+                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
+            ))
+        }
+    }
+}
+
+/// Decision 0043 ruling 7: a bundle whose seats box their hands refuses
+/// to start without bubblewrap, naming the seats — before any journal is
+/// opened or seat spawned. The boundary is Linux's and is never simulated.
+fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> anyhow::Result<()> {
+    if bundle.hands.is_empty() {
+        return Ok(());
+    }
+    match brokkr_protocol::hands::bwrap_on(path) {
+        Ok(bwrap) => {
+            for (site, spec) in &bundle.hands {
+                brokkr_protocol::hands::overlay_supported(spec, &bwrap)
+                    .map_err(|reason| anyhow::anyhow!("seat '{site}': {reason}"))?;
+            }
+            Ok(())
+        }
+        Err(reason) => anyhow::bail!(
+            "{reason}; the seats {:?} declare hands and cannot run on this machine \
+             (decision 0043 ruling 7 — hands are a Linux boundary)",
+            bundle.hands.keys().collect::<Vec<_>>()
+        ),
+    }
 }
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
@@ -1585,6 +1685,7 @@ fn run_with(
                  jointly agreed v2-lineage manifest version exists"
             );
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
                 // A map merely lying in the workspace is a different
@@ -1623,6 +1724,7 @@ fn run_with(
             secrets_file,
         } => {
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             engine.secrets_file = secrets_file;
@@ -1652,6 +1754,7 @@ fn run_with(
                 })?
                 .to_string();
             let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::start(store, bundle, &feature, repo)?;
             engine.secrets_file = secrets_file;
             eprintln!(
@@ -2069,6 +2172,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Hands { command } => hands(command),
         Cmd::Driver { kind, args } => {
             let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
                 anyhow::anyhow!(

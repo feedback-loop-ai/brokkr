@@ -45,5 +45,16 @@
   "mcp": {
     "flag": "--mcp-config",
     "servers": {}
+  },
+  "hands": {
+    "workspace": [
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{hands_mcp_json}",
+      "--allowedTools",
+      "mcp__brokkr__workspace"
+    ]
   }
 }

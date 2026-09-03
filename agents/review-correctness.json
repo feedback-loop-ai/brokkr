@@ -2,12 +2,32 @@
   "description": "Review panel member: does the change do what it claims, and does the evidence support it?",
   "charter": "charters/review-correctness.md",
   "models": [
+    "fable",
     "opus",
-    "sonnet"
+    "sol"
   ],
   "efforts": {
-    "opus": "high",
-    "sonnet": "high"
+    "fable": "high",
+    "opus": "xhigh",
+    "sol": "xhigh"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
   },
   "tools": {
     "allow": [

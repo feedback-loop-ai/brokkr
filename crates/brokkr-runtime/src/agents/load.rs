@@ -468,6 +468,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             "models",
             "efforts",
             "tools",
+            "hands",
             "limits",
             "inputs",
         ],
@@ -505,6 +506,15 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         }
     }
     let (allow, mcp) = parse_tools(map, &what)?;
+    // Decision 0043: one boxed tool instead of a list. Refused at the
+    // same place a malformed tool list is, naming the agent.
+    let hands = match map.get("hands") {
+        None => None,
+        Some(raw) => Some(
+            brokkr_protocol::hands::HandsSpec::parse(raw)
+                .map_err(|problem| LibraryError::Invalid(format!("{what} 'hands': {problem}")))?,
+        ),
+    };
     let limits = parse_limits(map, &what)?;
     let inputs = match map.get("inputs") {
         None => None,
@@ -519,6 +529,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         efforts,
         allow,
         mcp,
+        hands,
         limits,
         inputs,
         digest: sha256_hex(&source),
@@ -722,6 +733,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "effort_flag",
             "tool_permissions",
             "mcp",
+            "hands",
         ],
         &what,
     )?;
@@ -799,6 +811,33 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // implicit default ruling 1 exists to refuse.
     let efforts = string_array(map, "efforts", &what)?;
     named(&efforts, "efforts", &what)?;
+    // Decision 0043: how the provider puts its hands in the box, or the
+    // measured reason it cannot. The same three legal shapes as
+    // `tool_permissions`, for the same reason.
+    // Absent is legal here, unlike `tool_permissions`: the key arrived
+    // with decision 0043, and an adapter written before it — including
+    // every `brokkr init` scaffold in the field — must keep compiling.
+    // Absent reads as unsupported with no reason, fail-closed.
+    let (hands, hands_gap) = match map.get("hands").map(|_| capability(map, "hands", &what)) {
+        None | Some(Ok(None)) => (None, None),
+        Some(Err(error)) => return Err(error),
+        Some(Ok(Some(value))) => {
+            let raw = object(value, &format!("{what} 'hands'"))?;
+            if raw.contains_key("unsupported") {
+                only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
+                (
+                    None,
+                    Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
+                )
+            } else {
+                only_keys(raw, &["workspace"], &format!("{what} 'hands'"))?;
+                (
+                    Some(string_array(raw, "workspace", &format!("{what} 'hands'"))?),
+                    None,
+                )
+            }
+        }
+    };
     Ok(Adapter {
         provider,
         trust_tier: trust_tier(map, &what)?,
@@ -814,6 +853,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         effort_flag: pin_flag(map, "effort_flag", &what)?,
         tool_permissions,
         tool_permissions_gap,
+        hands,
+        hands_gap,
         mcp,
         digest: sha256_bytes(&std::fs::read(path)?),
     })

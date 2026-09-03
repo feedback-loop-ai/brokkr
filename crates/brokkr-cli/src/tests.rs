@@ -2988,3 +2988,152 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     assert_eq!(report(&defect), ExitCode::from(1));
     assert_eq!(CONTENDED_EXIT, 4);
 }
+
+/// Decision 0043 through the in-process verb: a boxed command runs whole
+/// and returns its own code, and a spec that does not parse is refused
+/// before anything spawns. Linux only, like the boundary.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let code = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work.clone(),
+            spec: "\"workspace\"".into(),
+            command: vec![
+                "--".into(),
+                "bash".into(),
+                "-c".into(),
+                "echo boxed > out.txt; exit 3".into(),
+            ],
+        },
+    }))
+    .unwrap();
+    assert_eq!(code, ExitCode::from(3));
+    assert_eq!(
+        std::fs::read_to_string(work.join("out.txt")).unwrap(),
+        "boxed\n"
+    );
+
+    // Only the leading separator is the verb's: a command that carries
+    // its own `--` keeps it, where the first pass stripped every one.
+    let code = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work.clone(),
+            spec: "\"workspace\"".into(),
+            command: vec![
+                "--".into(),
+                "bash".into(),
+                "-c".into(),
+                "printf '%s\\n' \"$@\" > args.txt".into(),
+                "sh".into(),
+                "--".into(),
+                "kept".into(),
+            ],
+        },
+    }))
+    .unwrap();
+    assert_eq!(code, ExitCode::SUCCESS);
+    assert_eq!(
+        std::fs::read_to_string(work.join("args.txt")).unwrap(),
+        "--\nkept\n"
+    );
+
+    let refused = run(cli(Cmd::Hands {
+        command: HandsCommand::Exec {
+            workdir: work,
+            spec: "{\"kind\":\"mitten\"}".into(),
+            command: vec!["true".into()],
+        },
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(refused.contains("--spec"), "{refused}");
+}
+
+/// Decision 0043 ruling 7: a bundle that boxes hands refuses to start
+/// without bubblewrap, naming the seats; a bundle that boxes nothing is
+/// untouched by the check.
+#[test]
+fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle_dir = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle_dir.join("roles")).unwrap();
+    std::fs::write(bundle_dir.join("roles/role.md"), "# role\n").unwrap();
+    std::fs::write(
+        bundle_dir.join("policy.json"),
+        r#"{"schema":"forge.phase-machine/v1","phases":["work","review","done","stop"],"initial":"work","terminal":["done","stop"],"rules":[{"id":"W","from":"work","result":"complete","next":"review","reason":"r"},{"id":"OK","from":"review","result":"clean","next":"done","reason":"r"},{"id":"NO","from":"review","result":"security-hold","next":"stop","severity":"hard","reason":"r"}]}"#,
+    )
+    .unwrap();
+    let write_bundle = |hands: bool| {
+        let exec = |results: Value| {
+            json!({
+                "role": "roles/role.md",
+                "results": results,
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]},
+            })
+        };
+        let mut work = exec(json!(["complete"]));
+        if hands {
+            work["hands"] = json!("workspace");
+        }
+        let review = exec(json!(["clean", "security-hold"]));
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            json!({"name": "boxed", "policy": "policy.json", "seats": {"work": work, "review": review}})
+                .to_string(),
+        )
+        .unwrap();
+    };
+    let empty_path = std::ffi::OsString::new();
+    write_bundle(false);
+    let plain = Bundle::compile(&bundle_dir).unwrap();
+    assert!(refuse_unboxable(&plain, &empty_path).is_ok());
+
+    write_bundle(true);
+    let boxed = Bundle::compile(&bundle_dir).unwrap();
+    let refusal = refuse_unboxable(&boxed, &empty_path)
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("never simulated"), "{refusal}");
+    assert!(refusal.contains("[\"work\"]"), "{refusal}");
+    assert!(refusal.contains("ruling 7"), "{refusal}");
+    let with_bwrap = dir.path().join("bin");
+    std::fs::create_dir_all(&with_bwrap).unwrap();
+    std::fs::write(with_bwrap.join("bwrap"), "").unwrap();
+    assert!(refuse_unboxable(&boxed, with_bwrap.as_os_str()).is_ok());
+
+    // An overlay bind asks more of bwrap: a binary that cannot state a
+    // version of 0.10 or newer refuses the seat by name.
+    write_bundle_with(
+        &bundle_dir,
+        json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}),
+    );
+    let overlaid = Bundle::compile(&bundle_dir).unwrap();
+    let refusal = refuse_unboxable(&overlaid, with_bwrap.as_os_str())
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("0.10 or newer"), "{refusal}");
+}
+
+fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
+    let exec = |results: Value| {
+        json!({
+            "role": "roles/role.md",
+            "results": results,
+            "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]},
+        })
+    };
+    let mut work = exec(json!(["complete"]));
+    work["hands"] = hands;
+    let review = exec(json!(["clean", "security-hold"]));
+    std::fs::write(
+        bundle_dir.join("bundle.json"),
+        json!({"name": "boxed", "policy": "policy.json", "seats": {"work": work, "review": review}})
+            .to_string(),
+    )
+    .unwrap();
+}

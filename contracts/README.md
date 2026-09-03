@@ -174,6 +174,13 @@ above:
 |---|---|---|
 | Phase-machine table with the rule-driven park | `phase-machine.v2.schema.json` | brokkr-core, every bundle that parks by rule |
 
+Decision 0043 adds one more manifest version and changes none of the bytes
+above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with the boxed-hands sites | `run-manifest.v6.schema.json` | brokkr-runtime, every bundle whose seats declare `hands` |
+
 `forge.phase-machine/v2` is `v1` plus exactly one thing: a rule may rule a
 PARK instead of naming a `next` phase. The event vocabulary needs nothing —
 a `transition/decided` with the matched `rule_id`, a null `next`, a null

@@ -2,12 +2,32 @@
   "description": "Review panel member: the adversarial security read of the change.",
   "charter": "charters/review-security.md",
   "models": [
+    "fable",
     "opus",
-    "sonnet"
+    "sol"
   ],
   "efforts": {
-    "opus": "high",
-    "sonnet": "high"
+    "fable": "high",
+    "opus": "xhigh",
+    "sol": "xhigh"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
   },
   "tools": {
     "allow": [

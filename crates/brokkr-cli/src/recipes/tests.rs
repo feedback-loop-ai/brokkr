@@ -58,6 +58,7 @@ fn bundle_with_sequence() -> Bundle {
         seats,
         manifest: serde_json::json!({}),
         protected_phase: "review".into(),
+        hands: std::collections::BTreeMap::new(),
     }
 }
 

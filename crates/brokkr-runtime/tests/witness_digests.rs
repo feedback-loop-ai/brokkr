@@ -32,6 +32,14 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
+/// Decision 0043 moved every pinned bundle at once, and for one reason:
+/// every adapter file gained `hands` — how the provider puts its hands in
+/// the box, or the measured reason it cannot — and a bundle whose inline
+/// gate pins the adapter declaration that authorised it (decision 0021)
+/// carries that file's digest in its identity. The bundles hiring the
+/// review agents moved further: those agents now chain fable@high →
+/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
+/// records and the manifest's `hands` key changed. Nothing else moved.
 /// Recorded from this tree at the commit that introduced this test. A
 /// move here is either an intended engine-version bump, an intended
 /// policy change re-pinned as the identity change it is (decision 0022
@@ -86,35 +94,35 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "f0c9ae33fea90f68f8b6ff5568660f86d7a7fa36ff5ce6ef19611018bc20ed59",
+        "36c369e4cd5e30a87c83702ad937426245dd3d34d53dd3b4c0b2468e8029ded3",
     ),
     (
         "recipes/node",
-        "5dfb00c762b627ce87046d1bf89665bdaabe07cf270bddc23d4baa9682d27a97",
+        "6bbf77c48e4ef23673aca575e3dd3702b6bcdbfc1c4a680605498c552ef5f7c6",
     ),
     (
         "recipes/preflight",
-        "97c8cfe8482cb0d1950cfda2bc79343f9ace875189074a32d3b17e731cfc8757",
+        "6ed32431fbd45b26b5a7941f3b9f6823c4f486950391ec1a35b01e4d0f811990",
     ),
     (
         "recipes/ember",
-        "720264b6847ba9e9051b6be7501f04613fc4f71f756044f9e8c56f7d6af4fc4e",
+        "ec871aaa7746d477c712ecc2ad59f1b1a8b224d3c81c5930f6583d2e80cf9b5b",
     ),
     (
         "recipes/crucible",
-        "988f0f6e452e4473bb28161b04be43f716bab8cf706c2a1f1ec60d24627532f4",
+        "b1ee158eb288e24506255bc6bb710fa59d43ae2280d6ccc70a367375150d9018",
     ),
     (
         "recipes/night-shift",
-        "20e82883c0949b8d6ee143ad91bc3c28a80d30cb3f7fc45f723813d569c992d8",
+        "24194a7384e5c6fa2df3341ffaea646b05f94a1a58e5b1e5269f764746700a15",
     ),
     (
         "recipes/wager-harness",
-        "dbca158da1f52954204654dffbf43b4e4d2878f077544cc6e623e7a183a83eba",
+        "340874e1dcea2533ca5a410a616519c4b04fbc023812203b0cd934cc03a39c95",
     ),
     (
         "bundles/verify",
-        "a2d666c728946f4eb8d0834ae5371f07b459e8fa795994658d144e7088475c2c",
+        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
     ),
 ];
 

@@ -72,6 +72,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
             "files":{"bundle.json":"a".repeat(64)}
         }),
         protected_phase: "review".into(),
+        hands: BTreeMap::new(),
     }
 }
 
@@ -3325,4 +3326,98 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     std::fs::remove_dir_all(repo.join(".git")).unwrap();
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+}
+
+// ── // ── decision 0043: the hands go in the box at spawn ─────────────────
+
+#[test]
+fn a_site_without_hands_spawns_its_command_untouched() {
+    let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
+    assert_eq!(
+        hands_command(command.clone(), None, Path::new("/work")),
+        command
+    );
+}
+
+#[test]
+fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
+    let spec = brokkr_protocol::hands::HandsSpec::parse(&json!({
+        "kind": "workspace", "network": true,
+        "binds": [{"path": "~/.cargo", "mode": "rw", "mask": ["credentials.toml"]}]
+    }))
+    .unwrap();
+    let argv = hands_command(
+        vec![
+            "{brokkr}".to_string(),
+            "driver".to_string(),
+            "claude".to_string(),
+            "--mcp-config".to_string(),
+            "{hands_mcp_json}".to_string(),
+            "-c".to_string(),
+            "mcp_servers.brokkr.args={hands_args_toml}".to_string(),
+        ],
+        Some(&spec),
+        Path::new("/work"),
+    );
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(argv[0], exe, "the {{brokkr}} token names this binary");
+    let config: Value = serde_json::from_str(&argv[4]).unwrap();
+    assert_eq!(config["mcpServers"]["brokkr"]["command"], exe);
+    assert_eq!(config["mcpServers"]["brokkr"]["args"][3], "/work");
+    let toml = argv[6].strip_prefix("mcp_servers.brokkr.args=").unwrap();
+    assert!(
+        toml.starts_with("[\"hands\",\"serve\",\"--workdir\",\"/work\",\"--spec\",\""),
+        "{toml}"
+    );
+    assert!(
+        toml.contains("\\\"network\\\":true"),
+        "quotes inside the spec are TOML-escaped: {toml}"
+    );
+}
+
+#[test]
+fn only_an_exec_dispatch_is_boxed_whole() {
+    let spec = brokkr_protocol::hands::HandsSpec::default();
+    let short = vec!["true".to_string()];
+    assert_eq!(
+        hands_command(short.clone(), Some(&spec), Path::new("/w")),
+        short
+    );
+    let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
+    assert_eq!(
+        hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w")),
+        not_a_dispatch
+    );
+    let other_driver = vec!["x".to_string(), "driver".to_string(), "claude".to_string()];
+    assert_eq!(
+        hands_command(other_driver.clone(), Some(&spec), Path::new("/w")),
+        other_driver
+    );
+}
+
+#[test]
+fn an_exec_seat_with_hands_is_boxed_whole() {
+    let spec = brokkr_protocol::hands::HandsSpec::default();
+    let inner = vec![
+        "/usr/local/bin/brokkr".to_string(),
+        "driver".to_string(),
+        "exec".to_string(),
+        "--".to_string(),
+        "bash".to_string(),
+        "verify.sh".to_string(),
+        "{prompt_file}".to_string(),
+    ];
+    let argv = hands_command(inner.clone(), Some(&spec), Path::new("/work"));
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(&argv[..3], [exe.as_str(), "hands", "exec"]);
+    assert_eq!(&argv[3..5], ["--workdir", "/work"]);
+    assert_eq!(argv[5], "--spec");
+    assert_eq!(argv[7], "--");
+    assert_eq!(&argv[8..], &inner[..]);
 }

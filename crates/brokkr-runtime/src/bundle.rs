@@ -5,6 +5,7 @@
 //! protected review phase, name a result no rule covers, or reference a
 //! missing role never loads at all.
 
+use brokkr_protocol::hands::HandsSpec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -236,6 +237,10 @@ pub struct Bundle {
     pub machine: Machine,
     pub seats: BTreeMap<String, Seat>,
     pub manifest: Value,
+    /// Decision 0043: the sites whose hands are one boxed tool, keyed as
+    /// the manifest's `hands` key is — seat, `seat:member`, `seat:step`,
+    /// `seat:step:member` — and as the engine labels the driver seat.
+    pub hands: BTreeMap<String, HandsSpec>,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
 }
@@ -281,6 +286,8 @@ struct ResolvedSeat {
     candidates: Vec<Candidate>,
     limits: Option<Limits>,
     inputs: Option<Vec<String>>,
+    /// Decision 0043: the agent's hands, when it declared them.
+    hands: Option<HandsSpec>,
 }
 
 /// Does this bundle reference an agent anywhere? A bundle that does not
@@ -675,6 +682,7 @@ impl Bundle {
         };
 
         let mut seats = BTreeMap::new();
+        let mut hands: BTreeMap<String, HandsSpec> = BTreeMap::new();
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
             // against the layer that WROTE them, found by name — the
@@ -751,12 +759,27 @@ impl Bundle {
                     candidates: agent_seat.candidates.clone(),
                 }
             } else if has_panel {
-                let (members, aggregate) =
-                    parse_panel(dir, phase, raw, Some(&results), &secrets, &mut agents)?;
+                let (members, aggregate) = parse_panel(
+                    dir,
+                    phase,
+                    raw,
+                    Some(&results),
+                    &secrets,
+                    &mut agents,
+                    &mut hands,
+                )?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
-                    steps: parse_sequence(dir, phase, raw, &results, &secrets, &mut agents)?,
+                    steps: parse_sequence(
+                        dir,
+                        phase,
+                        raw,
+                        &results,
+                        &secrets,
+                        &mut agents,
+                        &mut hands,
+                    )?,
                 }
             } else {
                 SeatBody::Single {
@@ -771,7 +794,14 @@ impl Bundle {
             // each checked where they were built.
             match &body {
                 SeatBody::Single { candidates, .. } => {
-                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?
+                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?;
+                    record_hands(
+                        phase,
+                        raw,
+                        agent_seat.as_ref().and_then(|seat| seat.hands.clone()),
+                        &secrets,
+                        &mut hands,
+                    )?;
                 }
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
@@ -867,8 +897,10 @@ impl Bundle {
             &resolved.chain,
             agents.as_ref().map(|a| &a.records),
             agents.as_ref().map(|a| &a.drivers),
+            &hands,
         )?;
         Ok(Bundle {
+            hands,
             name,
             description,
             cost,
@@ -967,7 +999,7 @@ fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
              amend it would make `brokkr agents show` a lie for that seat"
         )))
     };
-    for key in ["role", "limits", "inputs"] {
+    for key in ["role", "limits", "inputs", "hands"] {
         if raw.get(key).is_some() {
             return refuse(key);
         }
@@ -1055,6 +1087,7 @@ fn resolve_reference(
         candidates,
         limits: resolution.limits,
         inputs: resolution.inputs.clone(),
+        hands: resolution.hands.clone(),
     })
 }
 
@@ -1112,6 +1145,7 @@ const SEAT_KEYS: &[&str] = &[
     "agent",
     "role",
     "driver",
+    "hands",
     "panel",
     "aggregate",
     "sequence",
@@ -1121,7 +1155,7 @@ const SEAT_KEYS: &[&str] = &[
 /// has no `results`, `limits`, `inputs` or `secrets` of its own — the
 /// seat above it does — which is why an agent declaring them at a member
 /// site is already refused rather than silently discarded.
-const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver"];
+const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands"];
 
 /// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
 /// the two a step needs to be a panel of its own.
@@ -1131,6 +1165,7 @@ const STEP_KEYS: &[&str] = &[
     "agent",
     "role",
     "driver",
+    "hands",
     "panel",
     "aggregate",
 ];
@@ -1321,7 +1356,14 @@ fn enforce_model_policy(
             Some(provider) => format!("driver '{provider}'"),
             None => "an unnamed driver (the command is no driver dispatch)".to_string(),
         };
-        if class == SeatClass::Gate && adapter.map(|a| a.trust_tier) != Some(TrustTier::Trusted) {
+        // Decision 0043 ruling 3: a deterministic `exec` command whose
+        // hands are boxed has no stochastic axis to distrust, and its
+        // blast radius is the box. It may hold a gate.
+        let boxed_exec = driver.as_deref() == Some("exec") && raw.get("hands").is_some();
+        if class == SeatClass::Gate
+            && !boxed_exec
+            && adapter.map(|a| a.trust_tier) != Some(TrustTier::Trusted)
+        {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' is gate class but seats {named}, which does not \
                  hold the trusted tier; a gate seat IS the check, and nobody \
@@ -1406,6 +1448,36 @@ fn enforce_model_policy(
     Ok(())
 }
 
+/// Decision 0043: record one site's hands — the agent's when the site
+/// names an agent, the site's own `hands` value when it is inline. A
+/// site with hands and secret bindings is refused: the box clears the
+/// environment, and a binding that cannot reach its seat is a binding
+/// silently dropped.
+fn record_hands(
+    what: &str,
+    raw: &Value,
+    from_agent: Option<HandsSpec>,
+    secrets: &[String],
+    hands: &mut BTreeMap<String, HandsSpec>,
+) -> Result<(), CompileError> {
+    let spec = match (from_agent, raw.get("hands")) {
+        (Some(spec), _) => spec,
+        (None, Some(declared)) => HandsSpec::parse(declared).map_err(|problem| {
+            CompileError::Invalid(format!("seat '{what}' hands: {problem} (decision 0043)"))
+        })?,
+        (None, None) => return Ok(()),
+    };
+    if !secrets.is_empty() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' declares hands and secret bindings {secrets:?}; the box \
+             clears the environment, so a boxed seat cannot receive a binding \
+             (decision 0043)"
+        )));
+    }
+    hands.insert(what.to_string(), spec);
+    Ok(())
+}
+
 /// A seat's decision-0006 bounds, as written inline.
 fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
     let Some(raw_limits) = raw.get("limits") else {
@@ -1441,6 +1513,7 @@ fn parse_panel(
     declared_results: Option<&[String]>,
     secrets: &[String],
     agents: &mut Option<AgentContext>,
+    hands: &mut BTreeMap<String, HandsSpec>,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -1479,11 +1552,12 @@ fn parse_panel(
             refuse_amendments(&site, member_raw)?;
         }
         refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
-        let (role_path, command, candidates) = match member_raw.get("agent") {
+        let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
             None => (
                 parse_role(dir, &site, member_raw)?,
                 parse_command(dir, &site, member_raw, secrets)?,
                 Vec::new(),
+                None,
             ),
             Some(_) => {
                 let resolved = resolve_reference(
@@ -1495,10 +1569,16 @@ fn parse_panel(
                     secrets,
                     Site::Member,
                 )?;
-                (resolved.role_path, resolved.command, resolved.candidates)
+                (
+                    resolved.role_path,
+                    resolved.command,
+                    resolved.candidates,
+                    resolved.hands,
+                )
             }
         };
         enforce_model_policy(&site, member_raw, &candidates, secrets, agents)?;
+        record_hands(&site, member_raw, agent_hands, secrets, hands)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
@@ -1520,6 +1600,7 @@ fn parse_sequence(
     results: &[String],
     secrets: &[String],
     agents: &mut Option<AgentContext>,
+    hands: &mut BTreeMap<String, HandsSpec>,
 ) -> Result<Vec<SequenceStep>, CompileError> {
     let steps_raw = raw
         .get("sequence")
@@ -1570,9 +1651,11 @@ fn parse_sequence(
             )));
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
+        let mut agent_hands = None;
         let body = if has_agent {
             let resolved =
                 resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;
+            agent_hands = resolved.hands;
             StepBody::Single {
                 role_path: resolved.role_path,
                 command: resolved.command,
@@ -1588,6 +1671,7 @@ fn parse_sequence(
                 final_step.then_some(results),
                 secrets,
                 agents,
+                hands,
             )?;
             StepBody::Panel { members, aggregate }
         } else {
@@ -1600,7 +1684,8 @@ fn parse_sequence(
         };
         match &body {
             StepBody::Single { candidates, .. } => {
-                enforce_model_policy(&what, step_raw, candidates, secrets, agents)?
+                enforce_model_policy(&what, step_raw, candidates, secrets, agents)?;
+                record_hands(&what, step_raw, agent_hands, secrets, hands)?;
             }
             StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
         }
@@ -1842,6 +1927,7 @@ fn manifest_for(
     chain: &[Ancestor],
     agents: Option<&Map<String, Value>>,
     drivers: Option<&Map<String, Value>>,
+    hands: &BTreeMap<String, HandsSpec>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -1928,6 +2014,16 @@ fn manifest_for(
     // the digest of every bundle whose gates it was standing behind.
     if let Some(records) = drivers.filter(|records| !records.is_empty()) {
         manifest["drivers"] = Value::Object(records.clone());
+    }
+    // ABSENT on the same terms once more (decision 0043): a bundle that
+    // boxes no hands keeps its v5 shape and identity byte for byte.
+    if !hands.is_empty() {
+        manifest["hands"] = Value::Object(
+            hands
+                .iter()
+                .map(|(site, spec)| (site.clone(), spec.to_value()))
+                .collect(),
+        );
     }
     Ok(manifest)
 }

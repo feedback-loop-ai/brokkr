@@ -8,6 +8,7 @@
 
 pub mod adapters;
 pub mod fake;
+pub mod hands;
 pub mod legacy;
 pub mod oneshot;
 pub mod process;

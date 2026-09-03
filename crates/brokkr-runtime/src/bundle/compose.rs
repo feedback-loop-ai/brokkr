@@ -681,7 +681,8 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         // ancestors — never the leaf's agent resolution or the adapter
         // declarations that authorised its gates, both of which belong
         // to the composed bundle rather than to any layer.
-        let manifest = super::manifest_for(&layer.dir, &layer.name, &chain, None, None)?;
+        let no_hands = BTreeMap::new();
+        let manifest = super::manifest_for(&layer.dir, &layer.name, &chain, None, None, &no_hands)?;
         chain.insert(
             0,
             Ancestor {
