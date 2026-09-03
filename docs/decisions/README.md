@@ -64,6 +64,7 @@ in the PR record, not in this directory.
 | [0032](0032-the-transcript-is-the-operators.md) | The transcript is the operator's: one law for every driver | Every driver records one retained, harness-owned transcript reference in `session_meta`; local readouts use the same shape and label, while journal payloads keep paths or ids only. | accepted |
 | [0033](0033-contributing-through-brokkr.md) | Contributing goes through Brokkr | Every pull request to `main` names a completed Brokkr run whose published anchor carries an offline-verifiable journal and vouches for the proposed head; only the operator's visible `by-hand` label may skip the check. | accepted |
 | [0034](0034-the-seat-record.md) | The seat record is a contract | One frozen, privacy-bounded record for per-turn and finishing model, usage, cost, session, transcript, tool, and target evidence; export and verification refuse violations. | accepted |
+| [0036](0036-egress-is-a-property-of-the-route.md) | Egress is a class, and it belongs to the route, not the binary | Decision 0021 named egress an axis with classes; the engine shipped one boolean on the provider binary. `local`/`contracted`/`uncontracted` declared per route (the prefix of the concrete model id), so a local endpoint may hold a secret binding without clearing the cloud routes that share its CLI. Local is structural, earns no gate seat, and supersedes `binding_grant` without changing any adapter's present clearance. | proposed |
 
 ## How a decision is made
 
