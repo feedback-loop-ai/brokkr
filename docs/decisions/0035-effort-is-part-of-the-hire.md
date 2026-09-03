@@ -26,21 +26,60 @@ compares seats by cost and outcome; two wager runs at different efforts
 are not comparable, and nothing in the journal would tell a reader
 which one they were reading.
 
-What the harnesses report, measured against codex-cli 0.153.0 on
-2026-09-03 rather than assumed:
+What the three model harnesses report, measured on 2026-09-03 against
+codex-cli 0.153.0, `claude -p --output-format stream-json`, a real dsh
+seat session, and live calls to the dsh routes' own providers — rather
+than assumed:
 
-| Fact | Where codex puts it |
-|---|---|
-| `input_tokens`, `cached_input_tokens`, `output_tokens` | `turn.completed.usage`, read by the fold today |
-| `cache_write_input_tokens` | `turn.completed.usage`, **dropped** — though 0034 defines `cache_write_tokens` |
-| `reasoning_output_tokens` | `turn.completed.usage`, **dropped** — 0034 has no field for it |
-| reasoning effort | **not on the `--json` stream at all**; in the thread record as `turn_context.effort` and `thread_settings_applied.reasoning_effort`, written per turn |
+| Fact | codex | claude | dsh |
+|---|---|---|---|
+| input | `input_tokens` | `input_tokens` | `inputTokens` |
+| output | `output_tokens` | `output_tokens` | `outputTokens` |
+| cache read | `cached_input_tokens` | `cache_read_input_tokens` | **dropped** |
+| cache write | `cache_write_input_tokens`, **dropped by the fold** | `cache_creation_input_tokens` | **dropped** |
+| reasoning | `reasoning_output_tokens`, per turn | `output_tokens_details.thinking_tokens`, **result only** | **dropped** |
+| cost | none | `total_cost_usd` | none |
+| **effort** | **transcript only** | **transcript only** | **nowhere** |
 
-Two consequences follow from that table. Codex already reports two
-accounting facts the record either defines and ignores or does not
-define. And effort is reported by the harness, but in the thread, not
-the stream — which decision 0032 already makes addressable, since the
-adapter holds the transcript locator.
+Read that table as three separate findings, because they need three
+different remedies.
+
+Neither codex nor claude puts effort on the stream its adapter folds.
+Both record it in the transcript instead — codex as `turn_context.effort`
+and `thread_settings_applied.reasoning_effort`, claude as a top-level
+`effort` beside each assistant record, both written per turn, so effort
+can change inside one seat. Decision 0032 already retains the locator
+that reaches either file, so the fact is addressable today without a new
+mechanism.
+
+Dsh is different in kind, and the difference is not the harness's models
+being simple. Its providers report *more* than codex does: a live call
+to `deepseek-v4-flash` returns `completion_tokens_details.reasoning_tokens`,
+`prompt_tokens_details.cached_tokens`, and DeepSeek's own
+`prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`; `qwen3.8-flash`
+through Model Studio returns reasoning and cached counts too. The dsh
+session record keeps `inputTokens` and `outputTokens` and discards the
+rest before brokkr can see any of it. So a dsh seat's thin record is the
+harness narrowing its providers, not the providers being silent.
+
+Effort on those same dsh lanes is a real control that nothing reports
+back. `qwen3.8-flash` honours it exactly — `enable_thinking: false`
+returns no reasoning tokens at all, and `thinking_budget: 32` returns
+precisely 32. `deepseek-v4-flash` accepts `reasoning_effort` and
+consistently acts on it, but not in the direction its name implies:
+over four samples of one prompt, `high` spent 24, 14, 14 and 18
+reasoning tokens while `low` spent 160, 56, 100 and 167 — a sevenfold
+inversion, reproducible, and unexplained here on purpose, because this
+decision records measurements rather than theories about them. Neither
+provider echoes the effort back in its response, and neither does dsh.
+
+That inversion is the sharpest argument in this document. An operator
+reading `--effort high` on a deepseek lane would conclude the seat
+thought harder; the meter says it thought roughly a seventh as hard. A
+pin is a request, and on at least one live lane the request does not
+mean what it says. Only a reported number settles it, which is why
+ruling 3 is not a nicety beside ruling 4 but the check that makes ruling
+4 auditable.
 
 Three alternatives were weighed and rejected. Filling `effort` from the
 pin repeats exactly the move decision 0031 refused for the model:
@@ -73,12 +112,18 @@ reasoning — that is core to our ledger and modus operandi."
 2. **The record carries the served effort.** A new
    `contracts/seat-record.v2.schema.json` adds `effort` to the per-turn
    checkpoint, the finishing checkpoint and the successful result. The
-   value is the harness's own report, never the pin: codex reads it
-   from its thread record via the decision 0032 locator, where it is
-   written per turn and may change mid-thread. A harness with an effort
-   control that does not report one reports `not reported`; a harness
-   with no such control, and exec, report `not applicable` — the two
-   sentinels of decision 0031, reused rather than reinvented.
+   value is the harness's own report, never the pin. Codex and claude
+   both read it from their transcript via the decision 0032 locator,
+   where each writes it per turn and either may change mid-thread. Dsh
+   reports `not reported`: its lanes carry a real effort control, but
+   neither the harness nor the providers behind it echo the served
+   value, so there is nothing to read — an absence the operator ruled
+   on 2026-09-03 after it was measured, not one assumed from a thin
+   record. Exec reports `not applicable`. The two sentinels are
+   decision 0031's, reused rather than reinvented, and the distinction
+   between them is exactly the distinction dsh makes visible: a control
+   that exists but goes unreported is not a control that does not
+   exist.
 
    **Enforcement binding:** the built-in folds in
    `brokkr-protocol::adapters`, driver conformance, the `brokkr-store`
@@ -87,8 +132,14 @@ reasoning — that is core to our ledger and modus operandi."
 3. **The record carries the reasoning it paid for.** v2 adds
    `reasoning_output_tokens`, a reported subset of `output_tokens` in
    the way `cache_read_tokens` is a subset of `input_tokens`, and is
-   never added to a total a second time. The codex fold additionally
-   maps the `cache_write_input_tokens` it already receives onto the
+   never added to a total a second time. The three harnesses report it
+   at different granularities and the field admits all three without
+   inventing the others: codex reports it per turn, claude only in its
+   result, and a dsh lane's providers report it per call though the
+   harness discards it. Where a harness reports no per-turn figure the
+   turn's value is absent, never zero and never back-filled from the
+   run total. The codex fold additionally maps the
+   `cache_write_input_tokens` it already receives onto the
    `cache_write_tokens` v1 defines and does not fill.
 
    **Enforcement binding:** the codex fold and its conformance shim;
@@ -138,6 +189,13 @@ fixtures and historical journals do not.
 The wire protocol does not change: `effort` and
 `reasoning_output_tokens` are additive payload facts under
 `forge-driver/v1`, like `model` before them.
+
+One finding here is left deliberately unruled. Dsh discards the
+reasoning and cache counts its own providers return, so a dsh seat's
+record will stay thinner than a codex or claude seat's even after v2,
+for a reason that lives in the harness rather than in this contract.
+Naming it is not fixing it: that is its own change, against dsh, and
+wants its own ruling.
 
 The cost of this ruling arriving late is one version. Decision 0034's
 v1 was frozen on 2026-09-03 knowing effort was missing, because the
