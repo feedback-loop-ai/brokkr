@@ -116,11 +116,11 @@ reasoning — that is core to our ledger and modus operandi."
 1. **Explicit over implicit is the ledger's rule, stated once.**
    Brokkr pins what it depends on and records what came back: release
    versions and their digests, bundle and recipe digests, the concrete
-   model, and — by this decision — the effort asked of it and the
+   model, and — by this decision — the effort configured for it and the
    reasoning it spent. A fact that decides an outcome or a price is
    named in the plan and carried in the record, whether the record
-   holds it as claim or as meter. Nothing that moves a bill is left to
-   a default.
+   holds it as claim, as configuration, or as meter. Nothing that moves
+   a bill is left to a default.
 
    **Enforcement binding:** none of its own — this ruling is
    judgment-guidance, the general rule the specific bindings below
@@ -171,11 +171,11 @@ reasoning — that is core to our ledger and modus operandi."
    `not reported`: its lanes carry a real effort control, but neither
    the harness nor the providers behind it echo any value at all, so
    there is nothing to read — an absence the operator ruled on
-   2026-09-03 after it was measured, not one assumed from a thin record.
-   Exec reports `not applicable`. The two sentinels are decision 0031's,
-   reused rather than reinvented, and the distinction between them is
-   exactly the one dsh makes visible: a control that exists but goes
-   unreported is not a control that does not exist.
+   2026-09-03 after those lanes were measured, not one assumed from a
+   thin record. Exec reports `not applicable`. The two sentinels are
+   decision 0031's, reused rather than reinvented, and the distinction
+   between them is exactly the one dsh makes visible: a control that
+   exists but goes unreported is not a control that does not exist.
 
    A configured effort is worth recording and is not worth trusting.
    `deepseek-v4-flash` is the lane that proves it, spending roughly a
@@ -241,10 +241,11 @@ reasoning — that is core to our ledger and modus operandi."
 
 A reader of a seat record can tell who was hired and, as far as its
 harness reports, what the work cost: the model claimed, the effort
-asked of it, the reasoning actually spent, and the money. The first two
-are claims and the last two are meters, and the record now says which
-is which. The wager becomes a comparison between stated hires rather
-than between names that say nothing about the effort behind them.
+configured for it, the reasoning actually spent, and the money. The
+first is a claim and the second a configuration; the last two are
+meters, and the record now says which is which. The wager becomes a
+comparison between stated hires rather than between names that say
+nothing about the effort behind them.
 
 Bundle and recipe digests move where effort pins are added, and
 descendants whose base changed move with them. Frozen evaluator
