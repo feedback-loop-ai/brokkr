@@ -62,7 +62,10 @@ tasks blocked by specs and design. Spec-kit's `workflow.yml` is a step
 list with gates: `specify`, a review gate that approves or rejects,
 `plan`, a second gate, `tasks`, `implement`. Above both sits the
 machine every framework instantiates: state the what, then the how,
-then the work, then build, verify, review, ship.
+then the work, then build, verify, review, ship. The operator named the
+mapping the same day: "specify (the what), design (the high-level how)
+and task breakdown (the low-level how)" — and asked where the
+frameworks' own sub-machines go, which ruling 3 answers with steps.
 
 The first draft of this decision flattened all of that into one
 `design` phase whose chief wrote every artifact in a single pass and one
@@ -140,10 +143,12 @@ Alternatives weighed:
 
 2. **The SDD machine is a table, and it has three artifact phases.**
    `recipes/sdd`'s table carries `specify` (the what), `design` (the
-   how) and `tasks` (the work breakdown) ahead of implement, each a
-   phase of its own: its own seat, attempts and deadline, a typed result,
-   and a dialect-supplied validate step as its final step (ruling 4).
-   `specify` seats the chief alone. `design` seats the council —
+   high-level how) and `tasks` (the low-level how: the work breakdown)
+   ahead of implement, each a phase of its own: its own seat, attempts
+   and deadline, a typed result, and a dialect-supplied validate step as
+   its final step (ruling 4). Each phase's seat is a sequence the engine
+   composes from the dialect's steps for that phase (ruling 3), the
+   validate step last. `specify` seats the chief alone. `design` seats the council —
    positions in parallel, then the chief. `tasks` seats the smith: the
    implementer plans its own work, and the dialect checks the plan before
    a line is built. Each phase reports `drafted`, `fail`, or `upstream`
@@ -171,17 +176,20 @@ Alternatives weighed:
    (repository files that must exist before an artifact phase may run);
    `change` (the change's path with `{change}`); `truth` (the living
    specification tree, or `unsupported`); `phases` — for each of
-   `specify`, `design` and `tasks`: the artifacts it comprises, the
-   instructions the seat is rendered, and the phase's `validate` argv or
-   `unsupported` with the reason; `order` (the framework's own
-   dependency edges between artifacts); `verify` and `archive` (argv
-   with `{change}`, or `unsupported`); and `house` (the dialect's own
-   constitution path, or `unsupported`). Every artifact is assigned to
-   exactly one phase, every phase is filled, and the table's phase
-   order must be a linear extension of `order`: a map that places an
-   artifact before one it depends on is refused at compile time, naming
-   both. A framework that cannot fill a phase is refused rather than
-   served a no-op. Two ship:
+   `specify`, `design` and `tasks`: its `steps`, an ordered list in
+   which each step names the artifacts one session writes, the office
+   that holds it (`chief`, `council`, `smith`, or `check` for a
+   read-only judge), whether it is optional, and the instructions the
+   seat is rendered; and the phase's `validate` argv or `unsupported`
+   with the reason; `order` (the framework's own dependency edges
+   between artifacts); `verify` and `archive` (argv with `{change}`, or
+   `unsupported`); and `house` (the dialect's own constitution path, or
+   `unsupported`). Every artifact is assigned to exactly one step of
+   exactly one phase, every phase has at least one required step, and
+   the order of steps across the three phases must be a linear extension
+   of `order`: a map that places an artifact before one it depends on
+   is refused at compile time, naming both. A framework that cannot fill
+   a phase is refused rather than served a no-op. Two ship:
 
    | | `dialects/openspec.json` | `dialects/speckit.json` |
    |---|---|---|
@@ -189,18 +197,33 @@ Alternatives weighed:
    | `requires` | `openspec/config.yaml` | `.specify/templates/spec-template.md`, `.specify/scripts/bash/check-prerequisites.sh` |
    | `change` | `openspec/changes/{change}` | `specs/{change}`, `{change}` being `NNN-slug` |
    | `truth` | `openspec/specs` | `unsupported`: the feature directory is the record |
-   | `specify` | `proposal.md`, then `specs/<capability>/spec.md` deltas | `spec.md` |
-   | `design` | `design.md` | `plan.md`, with research, data model, contracts and quickstart as the template asks |
-   | `tasks` | `tasks.md` | `tasks.md` |
+   | `specify` steps | `propose` — chief: `proposal.md`, then the `specs/<capability>/spec.md` deltas it declares, one session | `specify` — chief: `spec.md`; `clarify` is `unsupported` inside a run: the questions it would ask become the template's Assumptions section, recorded |
+   | `design` steps | `design` — council: positions, then the chief writes `design.md` | `plan` — council: positions, then the chief writes `plan.md` with the research, data model, contracts and quickstart the template asks for; `checklist`, optional — chief: `checklists/*.md` |
+   | `tasks` steps | `tasks` — smith: `tasks.md` | `tasks` — smith: `tasks.md`; `analyze`, optional — check: a read-only cross-artifact consistency judge, spec-kit's `/speckit-analyze` held by a gate seat |
+   | after implement | `archive` — the smith's fold (`archive`, below) | none: the directory is the record |
    | `order` | proposal → specs, proposal → design, specs → tasks, design → tasks | spec → plan → tasks |
    | `validate`, per phase | `openspec validate {change} --strict --no-interactive`, and `openspec status --change {change} --json` must show the phase's artifacts complete | `check-prerequisites.sh` for the files it knows, and Brokkr's own check of the template headings, declared as Brokkr's |
    | `verify` | `openspec validate --archived --strict --no-interactive` | `unsupported` |
    | `archive` | `openspec archive {change} --yes` | `unsupported`: spec-kit has no close-out |
    | `house` | `unsupported`: the realm's `house` file is the constitution | `.specify/memory/constitution.md` |
 
-   OpenSpec's graph lets specs and design proceed in parallel after the
-   proposal; the table linearises them, specify then design, which the
-   graph permits. Creating the change is the `specify` seat's first act
+   Two granularities, both data, both journaled. The table holds the
+   generic machine — phases, rules, returns, bounds — as transitions.
+   The dialect's steps hold the framework's own sub-machine — composed
+   into each phase's sequence, journaled as checkpoints, checked against
+   the framework's `order` across the whole run. A step is the unit of a
+   session: a dialect groups artifacts into one step where one session
+   should write them in order, as OpenSpec's proposal and the spec
+   deltas it declares, because the validator checks per artifact
+   regardless. An optional step runs only when a recipe asks for it —
+   `"steps": "full"` on the phase's seat; `sdd-paranoid` asks — so the
+   framework's optional states cost a session only where they are
+   wanted. A return lands on a phase, never inside one, because that is
+   the framework's own granularity of truth: `openspec status` knows
+   artifacts, not half-written ones. OpenSpec's graph lets specs and
+   design proceed in parallel after the proposal; the table linearises
+   them, specify then design, which the graph permits. Creating the
+   change is the `specify` seat's first act
    — `openspec new change {change}` where the tool has it; the numbered
    directory from the templates where it does not, because spec-kit's
    `create-new-feature.sh` also creates a git branch and a run already
@@ -319,7 +342,9 @@ Alternatives weighed:
   chief's pass on `specify`, the council on `design`, the smith's pass
   on `tasks`, each with a boxed validate step. Each is smaller than the
   single pass it replaces and each is bounded, journaled and returnable
-  on its own, which is what the extra sessions buy. The tool must be
+  on its own, which is what the extra sessions buy. A framework's
+  optional states — spec-kit's checklist and analyze — cost a session
+  each and run only when a recipe asks. The tool must be
   installed on the machine that runs an artifact phase — Node for
   OpenSpec — and `doctor` says so before a run does. A dialect's version
   is a pin: bumping it moves the digest of every bundle that designs,
