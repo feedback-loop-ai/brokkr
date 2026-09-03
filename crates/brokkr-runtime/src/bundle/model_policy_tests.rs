@@ -400,6 +400,63 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
     }
 }
 
+/// A neighbouring flag is a different flag, not an illegible spelling
+/// of this one — and 0036's route read may not rewrite 0031's question
+/// on its way past.
+#[test]
+fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
+    // The residual of the fix above it. 0036 ruling 2 reads the pin on
+    // the flag the ADAPTER declares, which for a provider the operator
+    // adds is typically SHORT, and a short flag's value is
+    // conventionally attached to it bare (`-mmodel`) — so that read
+    // calls a word beginning with its flag `Unreadable` rather than
+    // walking past a destination it can see being named. 0031 and 0035
+    // ask a different question of the same walk, on the two LONG flags
+    // this engine composes itself, where a longer word beginning with
+    // one is simply the next flag along: `--model-fallback` is not a
+    // way of writing `--model`, and `--effort-cap` is not a way of
+    // writing `--effort`.
+    //
+    // Sharing the strict reading across both would refuse a seat that
+    // states BOTH pins concretely, in a message telling it to add the
+    // pin it already wrote — a refusal naming the wrong problem, and a
+    // change to two rulings the egress axis does not touch.
+    let seats = json!({
+        "implement": {"driver": {"command": [
+            "{brokkr}", "driver", "claude", "--",
+            "--model", "claude-opus-5", "--model-fallback", "claude-sonnet-5",
+            "--effort", "high", "--effort-cap", "medium"
+        ]}},
+        // The attached spelling of the value itself still reads, on
+        // both axes: this is about the word AFTER the pin, not the pin.
+        "review": {"driver": {"command": [
+            "{brokkr}", "driver", "codex", "--",
+            "--model=gpt-5.6-sol", "--model-fallback=gpt-5.6-thinking",
+            "--effort=medium", "--effort-cap=medium"
+        ]}},
+    });
+    enforce_model_pins(seats.as_object().unwrap())
+        .expect("a seat that states both pins has stated them, whatever stands beside them");
+    for site in seats.as_object().unwrap().values() {
+        assert!(command_pins_model(site));
+    }
+
+    // And the rule the strict reading is there for is unchanged: two
+    // spellings of the SAME flag are still a pin named twice.
+    let twice = json!({"work": {"driver": {"command": [
+        "{brokkr}", "driver", "claude", "--",
+        "--model", "one", "--model-fallback", "two", "--model", "three",
+        "--effort", "high"
+    ]}}});
+    assert!(
+        enforce_model_pins(twice.as_object().unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("do not pin a model"),
+        "a model pinned twice is unreadable however many other flags surround it"
+    );
+}
+
 // ------------------------------------------------- ruling 2: the gate
 
 #[test]
@@ -841,6 +898,17 @@ fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
     // provider is never told that flag, so the argv reaches whatever
     // the profile resolves — the unprefixed case, on the adapter's own
     // word, which is exactly what such an argv does at run time.
+    //
+    // This shape is the QUEUED question, recorded here rather than
+    // decided: `model_flag` is the flag this engine COMPOSES with, and
+    // a real CLI taking `-m` may honour `--model` as well, in which
+    // case the material goes to `elsewhere` on a clearance ruled for
+    // somewhere else. Reading it as a pin anyway would mean ruling
+    // that `--model` is a universal alias every adapter answers to —
+    // which spellings and aliases a declared flag covers is the flag
+    // grammar, it is the operator's to rule, and this compiler will
+    // not take it quietly. What the machine can say today is what the
+    // operator declared: this adapter is told its model on `-m`.
     fixture
         .compile(unpinned_seat(json!([
             "{brokkr}",

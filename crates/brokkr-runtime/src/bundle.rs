@@ -345,15 +345,46 @@ enum ModelPin {
     Concrete(String),
     /// The flag is present and this compiler cannot read it as one
     /// concrete value: flag-shaped, empty, over-long, outside the id
-    /// alphabet, dangling at the end of the argv, pinned twice, or
-    /// written in a spelling this walker does not read — a word that
-    /// begins with the flag and is neither the flag alone nor
-    /// `flag=value`, which is how a short flag's value is usually
-    /// attached (`-mmodel`).
+    /// alphabet, dangling at the end of the argv, pinned twice, or —
+    /// where the caller asks for it, see `UnreadSpelling` — written in a
+    /// spelling this walker does not read.
     Unreadable,
 }
 
-fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
+/// What a word that BEGINS with the flag and is neither the flag alone
+/// nor `flag=value` means to the caller. The two readings are two
+/// different rulings' questions, and they need opposite answers:
+///
+/// - Decision 0036 ruling 2 asks WHERE the material goes, and reads the
+///   flag the adapter itself declares — typically a short one. For a
+///   short flag the standard getopt form is exactly this shape
+///   (`-melsewhere/large-1`), so walking past it would call a site that
+///   named a destination unpinned and hand it the adapter's own class:
+///   the fail-open ruling 2's asymmetry exists to prevent. It answers
+///   `Unreadable`, which is fail-closed and costs only a refusal naming
+///   the flag.
+/// - Decisions 0031 and 0035 ask whether a pin IS there, on the two
+///   flags this engine itself composes (`--model`, `--effort`) for the
+///   four model-bearing built-ins. Those are LONG flags, and a longer
+///   word beginning with one is an unrelated flag of the same family,
+///   not an unreadable spelling: `--model-fallback` is not a way of
+///   writing `--model`. Answering `Unreadable` there would refuse a
+///   seat that DOES pin a concrete model, in a message naming the wrong
+///   problem, and would rewrite two rulings this axis does not touch.
+///   It walks past.
+///
+/// Which spellings a declared flag legally covers is grammar and waits
+/// for its own ruling; neither reading decides it. This enum only keeps
+/// the two questions from answering each other's.
+#[derive(Clone, Copy)]
+enum UnreadSpelling {
+    /// A different flag: walk past it (0031, 0035).
+    NotThisFlag,
+    /// This flag, written illegibly: `Unreadable` (0036 ruling 2).
+    Unreadable,
+}
+
+fn command_pin(raw: &Value, flag: &str, limit: usize, unread: UnreadSpelling) -> ModelPin {
     let concrete = |value: &str| {
         !value.is_empty()
             && !value.starts_with('-')
@@ -398,7 +429,15 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
             // give, and it is the fail-closed one: it costs a
             // secret-binding seat a refusal naming the flag, and both
             // legible spellings stay open beside it.
-            return ModelPin::Unreadable;
+            //
+            // Only where the caller asked for that reading, though: on
+            // the two long flags this engine composes itself, the same
+            // shape is a neighbouring flag rather than a spelling, and
+            // 0031's question is not this one. See `UnreadSpelling`.
+            match unread {
+                UnreadSpelling::Unreadable => return ModelPin::Unreadable,
+                UnreadSpelling::NotThisFlag => {}
+            }
         }
     }
     match pin {
@@ -407,10 +446,21 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
     }
 }
 
-/// The model pin as decision 0036 reads it: which route the material
-/// goes to, or which kind of silence the argv holds.
+/// The model pin on the flag this engine composes for the four
+/// model-bearing built-ins: decision 0031 ruling 2's read, which asks
+/// only whether one concrete id is stated. A neighbouring `--model…`
+/// flag is a different flag to it, not an illegible spelling of this
+/// one.
 fn model_pin(raw: &Value) -> ModelPin {
-    command_pin(raw, "--model", 80)
+    command_pin(raw, "--model", 80, UnreadSpelling::NotThisFlag)
+}
+
+/// The model pin as decision 0036 ruling 2 reads it: which route the
+/// material goes to, or which kind of silence the argv holds — read on
+/// the flag the ADAPTER declares, since that is the flag the provider
+/// is actually told (decision 0016's `model_flag`).
+fn route_pin(raw: &Value, flag: &str) -> ModelPin {
+    command_pin(raw, flag, 80, UnreadSpelling::Unreadable)
 }
 
 fn command_pins_model(raw: &Value) -> bool {
@@ -420,7 +470,10 @@ fn command_pins_model(raw: &Value) -> bool {
 /// The effort pin bound, matching `seat-record/v2`'s own: a level is one
 /// bounded word, never a path and never a sentence.
 fn command_pins_effort(raw: &Value) -> bool {
-    matches!(command_pin(raw, "--effort", 40), ModelPin::Concrete(_))
+    matches!(
+        command_pin(raw, "--effort", 40, UnreadSpelling::NotThisFlag),
+        ModelPin::Concrete(_)
+    )
 }
 
 /// Every driver-bearing invocation site that states one of the two pins
@@ -1227,7 +1280,7 @@ fn enforce_model_policy(
                 // unprefixed case below is the honest one. A provider
                 // that cannot be told a model cannot name a route.
                 Some(adapter) => match adapter.model_flag.as_deref() {
-                    Some(flag) => command_pin(raw, flag, 80),
+                    Some(flag) => route_pin(raw, flag),
                     None => ModelPin::Absent,
                 },
                 // No adapter answers for this driver, so none declares
@@ -1236,7 +1289,10 @@ fn enforce_model_policy(
                 // `Uncontracted` — the flag guessed here cannot change
                 // that, and guessing the commonest one keeps the
                 // no-adapter path written where every other rule is.
-                None => model_pin(raw),
+                // Still 0036's reader, not 0031's: the two ask
+                // different questions of the same walk, and this is
+                // 0036's question even where the answer is foregone.
+                None => route_pin(raw, "--model"),
             };
             vec![(driver, pin)]
         }
