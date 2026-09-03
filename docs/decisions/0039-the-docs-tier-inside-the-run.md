@@ -62,8 +62,9 @@ Alternatives weighed:
 
    **Enforcement binding:** `BOOLEAN_INPUTS` in `brokkr-core`,
    `ENGINE_OWNED_INPUTS` in `brokkr-runtime`, the engine's
-   `fixes_docs_only`; tests for the true case, the false case, and the
-   overwritten claim.
+   `fixes_docs_only`; tests for the true case, the false case, the
+   overwritten claim, and a code file moved under a docs name, which
+   reads false because the rename is unpaired.
 
 3. **The docs class is the repository's, read as the gate reads it.**
    The engine reads `.github/delivery-classes.json` from the repository

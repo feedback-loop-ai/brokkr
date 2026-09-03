@@ -3132,6 +3132,17 @@ fn docs_only_review_commits_are_classified_and_never_claimed() {
     commit_file(&repo, "src/lib.rs", "fn f() {}\n", "and code");
     let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": true}));
     assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
+
+    // Renames are unpaired: a code file moved under a docs name is a
+    // deletion in `src/` and an addition in `docs/`, and the deletion is
+    // code. Paired, git would report one docs path and the answer would
+    // be a lie — the same trap the contribution gate closes (0038).
+    let entered = git_head(&repo).unwrap();
+    enter_review_at(&mut engine, &entered);
+    git(&repo, &["mv", "src/lib.rs", "docs/lib.md"]);
+    git(&repo, &["commit", "-q", "-m", "move the code under docs"]);
+    let inputs = review_inputs(&mut engine, json!({"fixes_docs_only": true}));
+    assert_eq!(inputs["fixes_docs_only"], json!(false), "{inputs:?}");
 }
 
 /// Ruling 3's absences: the input is left out whenever the question has
@@ -3171,6 +3182,13 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
     std::fs::write(&classes, r#"{"classes":{"docs":{"paths":["("]}}}"#).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    // Parses, but declares no docs class — or a pattern that is not one.
+    std::fs::write(&classes, r#"{"classes":{}}"#).unwrap();
+    let inputs = review_inputs(&mut engine, json!({}));
+    assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
+    std::fs::write(&classes, r#"{"classes":{"docs":{"paths":[7]}}}"#).unwrap();
     let inputs = review_inputs(&mut engine, json!({}));
     assert!(inputs.get("fixes_docs_only").is_none(), "{inputs:?}");
     std::fs::remove_file(&classes).unwrap();
