@@ -27,6 +27,24 @@ const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
 pub const MODEL_NOT_APPLICABLE: &str = "not applicable";
 
+const USAGE_FIELDS: [&str; 4] = [
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+];
+
+const RESULT_RECORD_FIELDS: [&str; 8] = [
+    "num_turns",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "total_cost_usd",
+    "session_id",
+    "transcript",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterKind {
     Claude,
@@ -168,6 +186,40 @@ fn model_in_header(stderr: &str) -> Option<String> {
         .find_map(|line| line.trim().strip_prefix("model:").and_then(model_token))
 }
 
+fn positive_count(value: Option<&Value>) -> Option<u64> {
+    value.and_then(Value::as_u64).filter(|value| *value > 0)
+}
+
+fn positive_cost(value: Option<&Value>) -> Option<f64> {
+    value.and_then(Value::as_f64).filter(|value| *value > 0.0)
+}
+
+/// Claude reports cache reads and cache creations beside its uncached
+/// input count. The seat record's input count is inclusive of reads,
+/// while cache creations retain their own `cache_write_tokens` name.
+fn claude_usage(usage: Option<&Value>) -> Map<String, Value> {
+    let usage = usage.unwrap_or(&Value::Null);
+    let input = positive_count(usage.get("input_tokens"));
+    let cache_read = positive_count(usage.get("cache_read_input_tokens"));
+    let mut record = Map::new();
+    let inclusive = input
+        .unwrap_or_default()
+        .saturating_add(cache_read.unwrap_or_default());
+    if inclusive > 0 {
+        record.insert("input_tokens".into(), Value::from(inclusive));
+    }
+    for (source, target) in [
+        ("output_tokens", "output_tokens"),
+        ("cache_read_input_tokens", "cache_read_tokens"),
+        ("cache_creation_input_tokens", "cache_write_tokens"),
+    ] {
+        if let Some(value) = positive_count(usage.get(source)) {
+            record.insert(target.into(), Value::from(value));
+        }
+    }
+    record
+}
+
 fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
     match result {
         Ok(value) => Ok(value),
@@ -233,7 +285,10 @@ fn run_cli(
 /// One parsed claude stream-json line folded into the seat's telemetry:
 /// `system`/`init` and `result` feed `session_meta`; each `tool_use`
 /// block of an `assistant` message becomes one seat-turn checkpoint,
-/// in block order, all carrying the message's turn number.
+/// in block order, all carrying the message's turn number. The first
+/// checkpoint for a message carries that message's usage; a text-only
+/// message still emits one checkpoint, so usage and progress never
+/// disappear merely because the model called no tool.
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
@@ -257,32 +312,51 @@ fn fold_stream_event(
         }
         Some("assistant") => {
             *assistant_turns += 1;
+            session_meta.insert("num_turns".into(), Value::from(*assistant_turns));
             let model = model_in_json(event);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
+            let usage = claude_usage(event.pointer("/message/usage"));
+            for (key, value) in &usage {
+                add_usage(
+                    session_meta,
+                    key,
+                    value.as_u64().expect("claude usage is a positive integer"),
+                );
+            }
+            let mut base = Map::new();
+            base.insert("step".into(), Value::String("seat-turn".into()));
+            base.insert("turn".into(), Value::from(*assistant_turns));
+            base.insert(
+                "model".into(),
+                Value::String(
+                    model
+                        .clone()
+                        .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
+                ),
+            );
+            base.extend(usage);
             let blocks = event.pointer("/message/content").and_then(Value::as_array);
             let tool_uses = blocks
                 .into_iter()
                 .flatten()
                 .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_use"));
+            let mut emitted = false;
             for tool_use in tool_uses {
-                let mut checkpoint = Map::new();
-                checkpoint.insert("step".into(), Value::String("seat-turn".into()));
-                checkpoint.insert("turn".into(), Value::from(*assistant_turns));
-                checkpoint.insert(
-                    "model".into(),
-                    Value::String(
-                        model
-                            .clone()
-                            .unwrap_or_else(|| MODEL_NOT_REPORTED.to_string()),
-                    ),
-                );
+                let mut checkpoint = base.clone();
+                if emitted {
+                    for key in USAGE_FIELDS {
+                        checkpoint.remove(key);
+                    }
+                }
                 let tool = tool_use.get("name").and_then(Value::as_str).unwrap_or("");
-                checkpoint.insert(
-                    "tool".into(),
-                    Value::String(tool.chars().take(80).collect()),
-                );
+                if !tool.is_empty() {
+                    checkpoint.insert(
+                        "tool".into(),
+                        Value::String(tool.chars().take(80).collect()),
+                    );
+                }
                 // file_path ONLY: commands and URLs can embed inline secrets,
                 // and the journal is append-only — the verification review
                 // hard-stopped on exactly this (run verify-…-917996f5). Full
@@ -295,16 +369,29 @@ fn fold_stream_event(
                     );
                 }
                 emit(&Value::Object(checkpoint));
+                emitted = true;
+            }
+            if !emitted {
+                emit(&Value::Object(base));
             }
         }
         Some("result") => {
             if let Some(model) = model_in_json(event) {
                 session_meta.insert("model".into(), Value::String(model));
             }
-            for key in ["num_turns", "total_cost_usd"] {
-                if let Some(value) = event.get(key) {
-                    session_meta.insert(key.to_string(), value.clone());
-                }
+            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
+                transcript.record(session_id, session_meta, emit);
+            }
+            if let Some(value) = positive_count(event.get("num_turns")) {
+                session_meta.insert("num_turns".into(), Value::from(value));
+            }
+            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
+                session_meta.insert("total_cost_usd".into(), Value::from(value));
+            }
+            // Claude's result usage is the harness's session aggregate,
+            // so it replaces the live sum rather than being added to it.
+            for (key, value) in claude_usage(event.get("usage")) {
+                session_meta.insert(key, value);
             }
         }
         _ => {}
@@ -369,7 +456,7 @@ fn fold_codex_event(
                 ("cached_input_tokens", "cache_read_tokens"),
                 ("output_tokens", "output_tokens"),
             ] {
-                if let Some(value) = usage.get(source).and_then(Value::as_u64) {
+                if let Some(value) = positive_count(usage.get(source)) {
                     checkpoint.insert(target.into(), Value::from(value));
                     add_usage(session_meta, target, value);
                 }
@@ -393,10 +480,11 @@ fn fold_codex_event(
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
                 transcript.record(session_id, session_meta, emit);
             }
-            for key in ["num_turns", "total_cost_usd"] {
-                if let Some(value) = event.get(key) {
-                    session_meta.insert(key.into(), value.clone());
-                }
+            if let Some(value) = positive_count(event.get("num_turns")) {
+                session_meta.insert("num_turns".into(), Value::from(value));
+            }
+            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
+                session_meta.insert("total_cost_usd".into(), Value::from(value));
             }
         }
         _ => {}
@@ -521,7 +609,7 @@ fn fold_dsh_event(
                 .and_then(Value::as_u64)
                 .unwrap_or(0);
             for (source, target) in DSH_USAGE {
-                if let Some(mut value) = usage.get(source).and_then(Value::as_u64) {
+                if let Some(mut value) = positive_count(usage.get(source)) {
                     // The one place dsh's disjoint accounting is
                     // reconciled with the journal's inclusive
                     // `input_tokens` — see DSH_USAGE.
@@ -535,14 +623,25 @@ fn fold_dsh_event(
             emit(&Value::Object(checkpoint));
         }
         Some("tool/call") => {
-            let tool = event
+            let Some(tool) = event
                 .pointer("/data/name")
                 .and_then(Value::as_str)
-                .unwrap_or("");
+                .filter(|tool| !tool.is_empty())
+            else {
+                return;
+            };
+            if *turns == 0 {
+                return;
+            }
+            let model = session_meta
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(MODEL_NOT_REPORTED);
             emit(&json!({
                 "step":"seat-turn",
                 "turn": *turns,
                 "harness":"deepseek",
+                "model": model,
                 "tool": tool.chars().take(80).collect::<String>(),
             }));
         }
@@ -822,7 +921,7 @@ struct CodexResume {
 struct CodexLaunch {
     command: Vec<String>,
     resumed: Option<CodexResume>,
-    cold_reason: Option<String>,
+    resume_refusal: Option<&'static str>,
 }
 
 /// The cold argv, exactly as it has always been: `codex exec --json -C
@@ -949,42 +1048,30 @@ fn plain_thread_id(id: &str) -> bool {
 /// cannot be re-expressed is a cold spawn with the reason journaled,
 /// never a quiet escalation (decision 0030 ruling 2).
 fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str>) -> CodexLaunch {
-    let cold = |cold_reason: Option<String>| CodexLaunch {
+    let cold = |resume_refusal: Option<&'static str>| CodexLaunch {
         command: codex_cold(bin, extra, workdir),
         resumed: None,
-        cold_reason,
+        resume_refusal,
     };
     let Some(session) = session else {
         return cold(None);
     };
     if !plain_thread_id(session) {
-        return cold(Some(
-            "the offered session id is not a plain thread id".into(),
-        ));
+        return cold(Some("invalid-session-id"));
     }
     let (class, passthrough) = split_codex_sandbox(extra);
     let Some(class) = class else {
-        return cold(Some(
-            "the seat declares no sandbox class, and a codex resume does not \
-             inherit the class its thread was opened under"
-                .into(),
-        ));
+        return cold(Some("sandbox-unavailable"));
     };
     if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
-        return cold(Some(format!(
-            "sandbox class {class:?} is not one codex exec resume can be handed"
-        )));
+        return cold(Some("unsupported-sandbox"));
     }
     // The rest of the seat's argv has to be safe to carry across, part
     // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
-    if let Some(part) = codex_resume_blocker(&passthrough) {
-        return cold(Some(format!(
-            "the seat's argv carries {part:?}, which cannot travel to a codex \
-             resume: it could outrank the re-imposed class, redirect the \
-             session, or be refused outright"
-        )));
+    if codex_resume_blocker(&passthrough).is_some() {
+        return cold(Some("incompatible-argv"));
     }
     let mut command = vec![
         bin.to_string(),
@@ -1002,7 +1089,7 @@ fn codex_launch(bin: &str, extra: &[String], workdir: &str, session: Option<&str
     CodexLaunch {
         command,
         resumed: Some(CodexResume { sandbox: class }),
-        cold_reason: None,
+        resume_refusal: None,
     }
 }
 
@@ -1021,8 +1108,8 @@ fn codex_started(launch: &CodexLaunch) -> Value {
             checkpoint.insert("launch".into(), Value::String("cold".into()));
         }
     }
-    if let Some(reason) = &launch.cold_reason {
-        checkpoint.insert("reason".into(), Value::String(reason.clone()));
+    if let Some(refusal) = launch.resume_refusal {
+        checkpoint.insert("resume_refusal".into(), Value::String(refusal.into()));
     }
     Value::Object(checkpoint)
 }
@@ -1274,7 +1361,7 @@ fn invoke_with_stager(
             {
                 emit(&json!({
                     "step":"harness-started", "harness":"codex", "launch":"cold",
-                    "reason":"codex refused the offered thread",
+                    "resume_refusal":"harness-refused",
                 }));
                 return invoke_codex(&codex_cold(&bin, extra, &workdir), prompt, &workdir, emit);
             }
@@ -1285,16 +1372,12 @@ fn invoke_with_stager(
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
             }
-            // Checkpoint-target amendment (decision 0012): the
-            // UNRESOLVED template — the exact artifact the compile lint
-            // proved value-free — is journalable within the 80-char
-            // clamp. Resolved command lines, URLs, and prose never are.
+            // Exec has no model turn and therefore no tool target in the
+            // seat record. Its unresolved command remains pinned in the
+            // bundle manifest; no command-shaped prose enters a checkpoint.
             let mut session_meta = Map::new();
             Transcript::resolve(TranscriptKind::None)?.finish(&mut session_meta, emit);
-            emit(&json!({
-                "step": "exec-started",
-                "target": extra.join(" ").chars().take(80).collect::<String>(),
-            }));
+            emit(&json!({"step": "exec-started"}));
             let mut prompt_file: Option<tempfile::NamedTempFile> = None;
             if extra.iter().any(|part| part.contains("{prompt_file}")) {
                 prompt_file = Some(stage(prompt)?);
@@ -1607,10 +1690,27 @@ fn run_seat(
         session,
         &bindings,
         &mut |data: &Value| {
+            let mut data = data.clone();
+            // Every fold emits a JSON object and the seat record (0034)
+            // is defined on objects, so there is no non-object
+            // checkpoint to branch on.
+            let checkpoint = data
+                .as_object_mut()
+                .expect("driver checkpoints are JSON objects");
+            checkpoint.entry("model").or_insert_with(|| {
+                Value::String(
+                    if kind == AdapterKind::Exec {
+                        MODEL_NOT_APPLICABLE
+                    } else {
+                        MODEL_NOT_REPORTED
+                    }
+                    .to_string(),
+                )
+            });
             send(Body::Checkpoint {
                 effect_id: effect_id.clone(),
                 attempt_id: attempt_id.clone(),
-                data: data.clone(),
+                data,
             });
         },
     ) {
@@ -1648,6 +1748,7 @@ fn run_seat(
         Value::String(format!("{}-session-finished", kind.driver_name())),
     );
     checkpoint.insert("exit_code".into(), Value::from(exit_code));
+    let result_record = session_meta.clone();
     checkpoint.extend(session_meta);
     // Inserted after driver metadata: this field is always the normalized
     // provider report, never a configured default supplied by the seat.
@@ -1704,6 +1805,11 @@ fn run_seat(
     // neither forge nor suppress the model in the final result.
     if let Some(result) = seat_result.as_object_mut() {
         result.insert("model".into(), Value::String(served_model));
+        for key in RESULT_RECORD_FIELDS {
+            if let Some(value) = result_record.get(key) {
+                result.insert(key.into(), value.clone());
+            }
+        }
     }
     send(Body::Result {
         effect_id,

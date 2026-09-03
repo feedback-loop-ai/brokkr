@@ -413,6 +413,50 @@ fn export_verifies_offline() {
 }
 
 #[test]
+fn export_and_offline_verify_refuse_a_nonconforming_seat_record() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"seat-turn", "turn":1, "content":"private prose"
+            }}),
+        ),
+    ] {
+        store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap();
+    }
+
+    let export_error = store.export_ndjson("r1").unwrap_err();
+    assert!(matches!(export_error, StoreError::SeatRecord(_)));
+    assert!(!export_error.to_string().contains("private prose"));
+
+    // Serialize the sealed source rows directly: export correctly
+    // refuses to produce these bytes, while verify must independently
+    // refuse the same intact hash chain if handed it by another writer.
+    let mut ndjson = String::new();
+    for event in store.load("r1").unwrap() {
+        ndjson.push_str(&serde_json::to_string(&event).unwrap());
+        ndjson.push('\n');
+    }
+    let verify_error = verify_export(&ndjson).unwrap_err();
+    assert!(matches!(verify_error, VerifyError::SeatRecord(_)));
+    assert!(!verify_error.to_string().contains("private prose"));
+}
+
+#[test]
 fn schema_head_listing_and_append_conflict_fail_closed() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");

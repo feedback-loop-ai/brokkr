@@ -281,6 +281,7 @@ fn safe_checkpoint(checkpoint: &Value) -> Value {
         "input_tokens",
         "output_tokens",
         "cache_read_tokens",
+        "cache_write_tokens",
         "inner_checkpoints",
         "exit_code",
     ] {
@@ -433,6 +434,7 @@ fn observed_usage(payload: &Value) -> Value {
         "input_tokens",
         "output_tokens",
         "cache_read_tokens",
+        "cache_write_tokens",
         "forge_observed_cost_usd",
     ] {
         if let Some(value) = checkpoint.get(key) {

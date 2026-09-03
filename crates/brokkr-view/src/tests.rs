@@ -507,9 +507,8 @@ fn a_seat_participant_carries_its_attempts_turns_cost_and_activity() {
 /// marginal price and the adapter invents none.
 ///
 /// Each element is one turn's `turn-completed` usage. The finished
-/// checkpoint is built the way the adapter builds it: its session meta
-/// is an insert, not an accumulate, so it ends up carrying the LAST
-/// turn's counts while calling them the session's.
+/// checkpoint repeats aggregate usage; the view must prefer the turns
+/// and never count that repetition again.
 fn codex_journal(turns: Vec<Value>) -> Vec<EventEnvelope> {
     let mut events = vec![
         ev(
@@ -541,9 +540,14 @@ fn codex_journal(turns: Vec<Value>) -> Vec<EventEnvelope> {
         checkpoint["harness"] = json!("codex");
         checkpoint["step"] = json!("turn-completed");
         checkpoint["turn"] = json!(turn);
-        for key in ["input_tokens", "cache_read_tokens", "output_tokens"] {
-            if let Some(value) = checkpoint.get(key) {
-                session[key] = value.clone();
+        for key in [
+            "input_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "output_tokens",
+        ] {
+            if let Some(value) = checkpoint.get(key).and_then(Value::as_u64) {
+                session[key] = json!(session[key].as_u64().unwrap_or_default() + value);
             }
         }
         let seq = events.len() as u64 + 1;
@@ -630,6 +634,15 @@ fn a_codex_seat_shows_its_tokens_where_a_price_would_be() {
         !part.cost_cell.text.contains('$'),
         "a token count is never money"
     );
+    assert_eq!(part.usage.as_ref().unwrap().input_tokens, Some(3_975_322));
+    assert_eq!(part.usage.as_ref().unwrap().output_tokens, Some(14_051));
+    assert_eq!(part.usage.as_ref().unwrap().total_tokens, Some(3_989_373));
+    assert_eq!(
+        part.usage.as_ref().unwrap().cache_read_tokens,
+        Some(3_830_272)
+    );
+    assert!(part.usage.as_ref().unwrap().cache_write_tokens.is_none());
+    assert_eq!(part.checkpoints[1].usage.text, part.usage_cell.text);
     // The turns gap: not one `seat-turn` in this journal, and the seat
     // shows the turn it took rather than an absence mark.
     assert_eq!(part.turns, Some(1));
@@ -649,9 +662,8 @@ fn a_multi_turn_codex_seat_sums_its_turns_rather_than_its_last_one() {
     ]);
     let view = run_view(&events, None);
     let part = &view.participants[0];
-    // 205,000 + 107,000. The finished checkpoint carries only turn two's
-    // 107,000: reading the tokens off the session the way the cost is
-    // read would print `107k tok` and lose the first turn entirely.
+    // 205,000 + 107,000. The finished checkpoint repeats that aggregate;
+    // reading it as well as the turns would print `624k tok`.
     assert_eq!(part.cost_cell.text, "312k tok");
     assert_eq!(
         part.turns,
@@ -683,9 +695,10 @@ fn a_codex_seat_with_no_usage_journaled_keeps_the_absence_mark() {
 }
 
 #[test]
-fn a_priced_seat_shows_dollars_even_when_tokens_are_journaled_too() {
+fn a_priced_claude_seat_shows_dollars_and_its_token_record_in_separate_cells() {
     let mut events = codex_journal(vec![json!({
-        "input_tokens": 300_000, "cache_read_tokens": 250_000, "output_tokens": 12_000
+        "input_tokens": 300_000, "cache_read_tokens": 250_000,
+        "cache_write_tokens": 42_000, "output_tokens": 12_000
     })]);
     // The same seat on a harness that DOES report a price. The price is
     // the answer; the token count is what fills the cell in its absence,
@@ -702,6 +715,14 @@ fn a_priced_seat_shows_dollars_even_when_tokens_are_journaled_too() {
     assert!(
         !part.cost_cell.text.contains("tok"),
         "dollars and tokens never share a cell"
+    );
+    assert_eq!(
+        part.usage_cell.text,
+        "312k tok · in 300k tok · out 12k tok · cache read 250k tok · cache write 42k tok"
+    );
+    assert_eq!(
+        part.usage.as_ref().unwrap().cache_write_tokens,
+        Some(42_000)
     );
 }
 
@@ -2615,4 +2636,31 @@ fn residual_findings_come_from_the_structured_rule_inputs_only() {
         "r2 seq 1 · review · REVIEW-RESIDUAL-OK · high_risk_uncovered: true"
     );
     assert!(residual_findings("r3", &[]).is_empty());
+}
+
+#[test]
+fn a_cache_only_record_is_usage_without_a_total() {
+    // A harness can report a cache read or a cache write and nothing
+    // else. That is still usage worth showing, and it has no total:
+    // the total is input + output, and neither was reported.
+    let read_only = finish_usage(TokenUsage {
+        cache_read_tokens: Some(5),
+        ..TokenUsage::default()
+    })
+    .expect("a cache read alone is usage");
+    assert!(read_only.total_tokens.is_none());
+    assert_eq!(usage_text(&read_only, ""), "cache read 5 tok");
+
+    let write_only = finish_usage(TokenUsage {
+        cache_write_tokens: Some(2),
+        ..TokenUsage::default()
+    })
+    .expect("a cache write alone is usage");
+    assert!(write_only.total_tokens.is_none());
+    assert_eq!(usage_text(&write_only, "· "), "· cache write 2 tok");
+
+    assert!(
+        finish_usage(TokenUsage::default()).is_none(),
+        "a record reporting nothing is not usage"
+    );
 }

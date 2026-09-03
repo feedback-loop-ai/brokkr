@@ -2498,9 +2498,9 @@ mod journal_invariant {
             "argv carried the env reference, never the value"
         );
 
-        // Checkpoint-target amendment: the UNRESOLVED template is the
-        // exec effect's journaled target, within the 80-char clamp; the
-        // resolved command line appears in no envelope.
+        // The seat-record contract admits no command prose. The pinned
+        // bundle still carries the template; neither unresolved nor
+        // resolved command text appears in a checkpoint.
         let events: Vec<Value> = text
             .lines()
             .map(|l| serde_json::from_str::<Value>(l).unwrap())
@@ -2509,9 +2509,7 @@ mod journal_invariant {
             .iter()
             .find(|e| e["payload"]["checkpoint"]["step"] == "exec-started")
             .expect("exec-started checkpoint in journal");
-        let target = started["payload"]["checkpoint"]["target"].as_str().unwrap();
-        assert_eq!(target, template.chars().take(80).collect::<String>());
-        assert!(target.chars().count() <= 80);
+        assert!(started["payload"]["checkpoint"].get("target").is_none());
         let resolved = template.replace("{{secret:API_TOKEN}}", "$API_TOKEN");
         assert!(
             !contains(&journal, resolved.as_bytes()),

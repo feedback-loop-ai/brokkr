@@ -713,7 +713,7 @@ function checkpointTable(part) {
   const stream = el('table');
   stream.appendChild(row([
     el('th', null, 'turn'), el('th', null, 'tool'),
-    el('th', null, 'model'), el('th', null, 'target'),
+    el('th', null, 'model'), el('th', null, 'tokens'), el('th', null, 'target'),
     el('th', null, 'recorded'),
   ]));
   for (const item of part.checkpoints) {
@@ -727,6 +727,7 @@ function checkpointTable(part) {
       cell(item.turn),
       el('td', null, item.step),
       cell(item.model),
+      cell(item.usage),
       target,
       el('td', null, item.recorded_at),
     ]));
@@ -882,7 +883,7 @@ function renderDetail(id, view) {
     seats.appendChild(row([
       el('th', null, 'participant'), el('th', null, 'status'),
       el('th', null, 'attempts'), el('th', null, 'turns'),
-      el('th', null, 'cost'), el('th', null, 'model'),
+      el('th', null, 'cost'), el('th', null, 'tokens'), el('th', null, 'model'),
       el('th', null, 'activity'),
     ]));
     for (const part of shownParts) {
@@ -918,6 +919,7 @@ function renderDetail(id, view) {
         el('td', null, part.attempts),
         cell(part.turns_cell),
         cell(part.cost_cell),
+        cell(part.usage_cell),
         cell(part.model),
         activity,
       ]);
@@ -960,6 +962,7 @@ function renderDetail(id, view) {
     }
     detail.appendChild(header);
     detail.appendChild(el('p', 'cause', 'model ' + part.model.text));
+    detail.appendChild(el('p', 'cause', 'tokens ' + part.usage_cell.text));
     if (part.provenance) {
       detail.appendChild(el('p', 'cause', 'selected by ' + part.provenance.line));
     }

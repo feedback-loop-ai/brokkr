@@ -139,7 +139,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         }}),
         json!({"type": "turn.completed"}),
         json!({"type": "result", "model": "codex-served", "session_id": "final",
-               "num_turns": 1}),
+               "num_turns": 1, "total_cost_usd": 0.25}),
         json!({"type": "result"}),
         json!({"type": "ignored"}),
     ] {
@@ -154,6 +154,9 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert_eq!(meta["transcript"]["locator"], "final");
     assert_eq!(meta["model"], "codex-served");
     assert_eq!(meta["cache_read_tokens"], 2);
+    // A shim reporting money on `result` is the only codex path that
+    // carries cost at all; a zero or absent report stays absent.
+    assert_eq!(meta["total_cost_usd"], 0.25);
     assert!(emitted.iter().any(|event| event["step"] == "item-started"));
     assert!(emitted.iter().any(|event| event["tool"] == "unknown"));
 }
@@ -1004,18 +1007,14 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let cases: [(&str, Vec<&str>, &str); 9] = [
         // Nothing declared: a codex resume does not inherit the class
         // its thread was opened under, so there is nothing to re-impose.
-        (
-            "undeclared",
-            vec!["--model", "sol"],
-            "declares no sandbox class",
-        ),
+        ("undeclared", vec!["--model", "sol"], "sandbox-unavailable"),
         // A flag with nothing after it declares nothing either.
-        ("dangling", vec!["--sandbox"], "declares no sandbox class"),
+        ("dangling", vec!["--sandbox"], "sandbox-unavailable"),
         // A class this driver cannot spell as a config override.
         (
             "invented",
             vec!["--sandbox", "invented"],
-            "is not one codex exec resume",
+            "unsupported-sandbox",
         ),
         // A second expression that could outrank the re-imposed one.
         (
@@ -1026,7 +1025,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
                 "-c",
                 "sandbox_mode=\"danger-full-access\"",
             ],
-            "\"-c\"",
+            "incompatible-argv",
         ),
         // A bypass flag beside a declared class: the class is not the
         // only way to spend the sandbox.
@@ -1037,7 +1036,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
                 "read-only",
                 "--dangerously-bypass-approvals-and-sandbox",
             ],
-            "bypass-approvals-and-sandbox",
+            "incompatible-argv",
         ),
         // A flag that never says "sandbox" and sets one anyway: a config
         // profile may carry `sandbox_mode`, and a profile outranks a `-c`
@@ -1047,14 +1046,14 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         (
             "profiled",
             vec!["--sandbox", "read-only", "--profile", "loose"],
-            "\"--profile\"",
+            "incompatible-argv",
         ),
         // `--last` picks the newest recorded session instead of the one
         // on offer. The seat's argv never redirects the engine's offer.
         (
             "redirected",
             vec!["--sandbox", "read-only", "--last"],
-            "\"--last\"",
+            "incompatible-argv",
         ),
         // A bare word lands positionally, where `codex exec resume
         // [SESSION_ID] [PROMPT]` reads it as the session — ahead of the
@@ -1062,16 +1061,16 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         (
             "positional",
             vec!["--sandbox", "read-only", "some-other-thread"],
-            "\"some-other-thread\"",
+            "incompatible-argv",
         ),
         // An id that is not a plain thread id never reaches an argv.
         (
             "forged",
             vec!["--sandbox", "read-only"],
-            "not a plain thread id",
+            "invalid-session-id",
         ),
     ];
-    for (case, extra, reason) in cases {
+    for (case, extra, refusal) in cases {
         let argv = dir.path().join(format!("argv-{case}"));
         let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
         let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
@@ -1102,8 +1101,8 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         cold.extend(extra.iter().cloned());
         assert_eq!(recorded(&argv), cold, "{case}: the cold argv, unchanged");
         assert_eq!(emitted[0]["launch"], "cold", "{case}: {}", emitted[0]);
-        assert!(
-            emitted[0]["reason"].as_str().unwrap().contains(reason),
+        assert_eq!(
+            emitted[0]["resume_refusal"], refusal,
             "{case}: {}",
             emitted[0]
         );
@@ -1165,7 +1164,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     assert_eq!(
         *launches[1],
         json!({"step":"harness-started", "harness":"codex", "launch":"cold",
-               "reason":"codex refused the offered thread"})
+               "resume_refusal":"harness-refused"})
     );
     // What the seat gets is the COLD session, not the refusal: exit 0,
     // and the thread the cold spawn opened.
@@ -1564,11 +1563,10 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
             emitted.push(value.clone())
         });
     }
-    assert_eq!(emitted.len(), 2, "{emitted:?}");
+    assert_eq!(emitted.len(), 1, "{emitted:?}");
     assert!(meta.get("session_id").is_none());
     assert_eq!(emitted[0]["turn"], 1);
     assert!(emitted[0].get("input_tokens").is_none());
-    assert_eq!(emitted[1]["tool"], "");
     assert_eq!(meta["num_turns"], 1);
     assert!(meta.get("input_tokens").is_none());
 }
@@ -1921,8 +1919,8 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
     // dsh 0.1.0-rc.6 always writes the `assistant/message` that asked
     // for a tool before the `tool/call` itself, so this is the shape of
     // a log that got cut short or reordered. The fold reports turn 0
-    // rather than claiming a turn dsh never assembled; the turn cell is
-    // a maximum over the seat's checkpoints, so a zero never lowers it.
+    // without claiming a turn dsh never assembled. A zero-valued turn
+    // is not a measurement under the seat-record contract.
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
@@ -1932,8 +1930,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
         &mut meta,
         &mut |value| emitted.push(value.clone()),
     );
-    assert_eq!(emitted[0]["turn"], 0);
-    assert_eq!(emitted[0]["tool"], "fs_read");
+    assert!(emitted.is_empty());
     assert!(meta.get("num_turns").is_none());
 }
 
@@ -2001,4 +1998,45 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     // and never come back.
     assert_eq!(emitted[0]["step"], "transcript");
     assert_eq!(emitted[1]["step"], "harness-started");
+}
+
+#[test]
+fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
+    // Two shapes the stream really produces: an assistant turn that
+    // calls nothing, and a tool_use whose name the harness omitted.
+    // The first must still journal its turn exactly once, from the
+    // base record; the second keeps its target and gains no empty tool.
+    let mut turns = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
+
+    let event = json!({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "reasoning the operator never sees"},
+    ]}});
+    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
+        emitted.push(c.clone())
+    });
+    assert_eq!(emitted.len(), 1, "the toolless turn is journaled once");
+    assert!(emitted[0].get("tool").is_none());
+    assert!(
+        !serde_json::to_string(&emitted[0])
+            .unwrap()
+            .contains("reasoning the operator never sees"),
+        "prose never reaches the record"
+    );
+
+    emitted.clear();
+    let event = json!({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "input": {"file_path": "src/main.rs"}},
+    ]}});
+    fold_stream_event(&event, &mut turns, &mut meta, &mut transcript, &mut |c| {
+        emitted.push(c.clone())
+    });
+    assert_eq!(emitted.len(), 1);
+    assert!(
+        emitted[0].get("tool").is_none(),
+        "an unnamed tool is absent, never the empty string"
+    );
+    assert_eq!(emitted[0]["target"], "src/main.rs");
 }

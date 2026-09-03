@@ -63,6 +63,7 @@ in the PR record, not in this directory.
 | [0031](0031-seat-model-pin.md) | The served model is evidence; every model seat is pinned | Drivers record the provider-reported served model, never a configured guess; every model-backed invocation is compile-refused unless explicitly pinned. | accepted |
 | [0032](0032-the-transcript-is-the-operators.md) | The transcript is the operator's: one law for every driver | Every driver records one retained, harness-owned transcript reference in `session_meta`; local readouts use the same shape and label, while journal payloads keep paths or ids only. | accepted |
 | [0033](0033-contributing-through-brokkr.md) | Contributing goes through Brokkr | Every pull request to `main` names a completed Brokkr run whose published anchor carries an offline-verifiable journal and vouches for the proposed head; only the operator's visible `by-hand` label may skip the check. | accepted |
+| [0034](0034-the-seat-record.md) | The seat record is a contract | One frozen, privacy-bounded record for per-turn and finishing model, usage, cost, session, transcript, tool, and target evidence; export and verification refuse violations. | accepted |
 
 ## How a decision is made
 

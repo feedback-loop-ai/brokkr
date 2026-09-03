@@ -8,7 +8,9 @@ language, that speaks `forge-driver/v1` over stdio.
 This guide is that contract, written for someone outside this
 repository. The normative sources are
 [`contracts/driver-protocol.v1.schema.json`](../../contracts/driver-protocol.v1.schema.json)
-and the protocol section of
+for transport and
+[`contracts/seat-record.v1.schema.json`](../../contracts/seat-record.v1.schema.json)
+for the checkpoint and successful-result record, and the protocol section of
 [`contracts/README.md`](../../contracts/README.md); where the shipped
 engine is narrower than the schema, this guide says so.
 
@@ -240,7 +242,10 @@ predicate reads. Send it.
 A checkpoint is a bounded fact about progress. Send as many as you like;
 the engine journals each one as `effect/checkpointed`.
 
-**The journal is evidence, not transcript.** Checkpoints must carry only:
+**The journal is evidence, not transcript.** The closed
+[`seat-record/v1`](../../contracts/seat-record.v1.schema.json) vocabulary is
+the definition of a seat's per-turn checkpoint, finishing checkpoint, and
+successful result. Checkpoints may carry only:
 
 - bounded turn / tool / usage fields — turn counts, token counts, cost,
   exit codes, a step name, a tool name;
@@ -248,7 +253,9 @@ the engine journals each one as `effect/checkpointed`.
 
 They must **not** carry prose, commands, or reasoning. A model's output,
 a shell command line, a diff, a rationale: none of these belong in a
-checkpoint. Before export the Looper bridge hashes targets and withholds
+seat record. Numeric accounting is absent when a harness does not report it;
+zero and string sentinels are not measurements and must not be written.
+Before export the Looper bridge hashes targets and withholds
 transcript locators outright (only `observed-redacted` leaves), and the
 full session transcript stays wherever your harness put it.
 
@@ -265,7 +272,7 @@ each built-in driver meets and the one a new driver is held to: every
 assistant turn becomes at least one checkpoint while the process is
 still running; the turn count and the harness's usage ride in
 `num_turns` and `total_cost_usd` (token counts in `input_tokens`,
-`output_tokens`, `cache_read_tokens`) accumulated across the whole
+`output_tokens`, `cache_read_tokens`, `cache_write_tokens`) accumulated across the whole
 session, not overwritten per turn; and the harness's transcript locator
 lands in `session_meta` the moment the harness reveals it, not at exit.
 `brokkr watch`, the tui and the seat cost surfaces all read
@@ -296,7 +303,9 @@ that count both ways — codex reports `input_tokens: 14830` beside
 `cached_input_tokens: 11264`, dsh reports the same step as `inputTokens:
 94, cacheReadTokens: 7` from a `prompt_tokens: 101` — so a driver
 normalizes to the inclusive form before journaling, and reports the
-cache read separately in `cache_read_tokens` as the subset it is.
+cache read separately in `cache_read_tokens` as the subset it is. A harness
+that reports cache creation writes it as `cache_write_tokens`; it is shown
+separately and is not part of the input-plus-output total.
 `brokkr costs` and the seat surfaces sum `input_tokens` and
 `output_tokens` only; adding the cache read would double-count it. One
 journal key means one thing across every driver, not whatever its

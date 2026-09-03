@@ -108,6 +108,12 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         // `forge.realms/v2`, a new file beside v1 — whose bytes are
         // pinned below and did not move.
         ("contracts/realms.v2.schema.json", "Forge realms map v2"),
+        // Decision 0034 freezes the previously conventional accounting
+        // record as its own v1 contract; no older frozen file moves.
+        (
+            "contracts/seat-record.v1.schema.json",
+            "Forge seat record v1",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

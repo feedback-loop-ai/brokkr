@@ -416,9 +416,10 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
         "attempts",
         "turns",
         "cost",
+        "tokens",
         "model",
     ];
-    let mut rows: Vec<[Safe; 7]> = Vec::new();
+    let mut rows: Vec<[Safe; 8]> = Vec::new();
     for part in &seats {
         rows.push([
             Safe::new(&part.label),
@@ -426,11 +427,12 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.attempts.to_string()),
             Safe::new(&part.turns_cell.text),
             Safe::new(&part.cost_cell.text),
+            Safe::new(&part.usage_cell.text),
             Safe::new(&part.model.text),
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 6];
+    let mut widths = [0usize; 7];
     for (index, name) in header.iter().enumerate() {
         widths[index] = name.chars().count();
     }
@@ -460,7 +462,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             });
             line.push(' ');
         }
-        line.push_str(&brokkr_view::clamp(row[6].as_str(), remaining));
+        line.push_str(&brokkr_view::clamp(row[7].as_str(), remaining));
         push_line(&mut out, &line);
         push_line(
             &mut out,
