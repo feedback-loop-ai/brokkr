@@ -991,6 +991,18 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "mcp": "unsupported", "model_flag": "--model"}),
             "needs 'efforts' as an array of strings",
         ),
+        // Decision 0036's data, refused in the same style and for the
+        // same reason: a misspelled class must never read as
+        // `uncontracted` by accident, or a route the operator believes
+        // they placed would silently not have been placed.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "egress": "lokal"}),
+            "'egress' is \"lokal\"; the egress vocabulary is closed",
+        ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
                    "models": {}, "tool_permissions": "unsupported",
@@ -1001,9 +1013,83 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
                    "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "egress": "local", "binding_grant": true}),
+            "declares both 'egress' and the superseded 'binding_grant'",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
                    "mcp": "unsupported", "model_flag": "--model",
                    "efforts": ["high"]}),
             "needs 'effort_flag'",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "routes": ["spark"]}),
+            "'routes' must be an object of route name → egress class",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "routes": {"Spark": "local"}}),
+            "'routes' names 'Spark'",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "routes": {"spark": "trusted"}}),
+            "'routes.spark' is \"trusted\"",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "credentials": "SPARK_API_KEY"}),
+            "'credentials' must be an object of route name → environment",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "credentials": {"Spark": "SPARK_API_KEY"}}),
+            "'credentials' names 'Spark'",
+        ),
+        // A credential is a NAME. A value-shaped one is refused where it
+        // is written, beside the store refusal that guards the tree.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "credentials": {"spark": "sk-live-not-a-name"}}),
+            "'credentials.spark' is \"sk-live-not-a-name\"",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "credentials": {"spark": "SPARK-API-KEY"}}),
+            "'credentials.spark' is \"SPARK-API-KEY\"",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "credentials": {"spark": 7}}),
+            "^[A-Z][A-Z0-9_]*$",
         ),
     ];
     for (body, expected) in cases {
@@ -1016,6 +1102,184 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
         );
         assert!(message.contains("claude.json"), "{message}");
     }
+}
+
+// ------------------------------------------------- decision 0036: routes
+
+/// One provider fronting three destinations — the `dsh` shape, written
+/// as a fixture so no vendor's name is load-bearing. The adapter's own
+/// class is `uncontracted`, one route is ruled `local` and one
+/// `contracted`, and a third route is mapped but never declared.
+fn many_routes() -> Value {
+    json!({
+        "provider": "many",
+        "efforts": [],
+        "effort_flag": "unsupported",
+        "binary": "many",
+        "driver": ["{brokkr}", "driver", "many", "--"],
+        "egress": "uncontracted",
+        "routes": {"nearby": "local", "partner": "contracted"},
+        "credentials": {"nearby": "SPARK2_API_KEY"},
+        "models": {
+            "near": "nearby/small-1",
+            "far": "partner/large-1",
+            "unruled": "elsewhere/large-1",
+            "bare": "large-1",
+        },
+        "model_flag": "--model",
+        "tool_permissions": "unsupported",
+        "mcp": "unsupported",
+    })
+}
+
+/// Ruling 2, case by case: a PREFIXED id resolves to its route's
+/// declared class; an UNDECLARED route falls to `uncontracted`, because
+/// ruling 1 makes an absent declaration uncontracted; an UNPREFIXED id
+/// resolves to the adapter's own and NO BETTER, because it reaches
+/// whatever default the harness profile resolves and the machine cannot
+/// know where that is.
+#[test]
+fn a_route_prefix_resolves_a_class_and_an_unprefixed_id_inherits_nothing_better() {
+    let tree = Tree::new();
+    tree.write("adapters/many.json", &many_routes());
+    let adapters = tree.adapters();
+    let many = adapters.adapter("many").expect("the fixture provider");
+
+    // Prefixed, declared: the route's own class, better AND worse than
+    // the adapter's — the whole point of moving the declaration site.
+    assert_eq!(
+        resolve_route(many, "nearby/small-1"),
+        (Some("nearby"), EgressClass::Local)
+    );
+    assert_eq!(
+        resolve_route(many, "partner/large-1"),
+        (Some("partner"), EgressClass::Contracted)
+    );
+
+    // Prefixed, undeclared: named as a route this file never places, so
+    // uncontracted — ruling 1's "everything else, and the value of an
+    // absent declaration". Silence about a route is not a promotion, and
+    // it is not an inheritance either.
+    assert_eq!(
+        resolve_route(many, "elsewhere/large-1"),
+        (Some("elsewhere"), EgressClass::Uncontracted)
+    );
+
+    // Unprefixed: the adapter's own class, and no better. A `local`
+    // route on the same adapter lends it nothing.
+    assert_eq!(resolve_route(many, "large-1"), (None, many.egress));
+    let (_, bare) = resolve_route(many, "large-1");
+    let (_, best) = resolve_route(many, "nearby/small-1");
+    assert!(
+        bare < best,
+        "an unprefixed id must not inherit a better class than the adapter's own"
+    );
+    assert_eq!(bare, EgressClass::Uncontracted);
+
+    // The vocabulary is closed and ordered, and the order is what
+    // "meets a minimum" reads.
+    assert_eq!(EgressClass::parse("local"), Some(EgressClass::Local));
+    assert_eq!(
+        EgressClass::parse("contracted"),
+        Some(EgressClass::Contracted)
+    );
+    assert_eq!(
+        EgressClass::parse("uncontracted"),
+        Some(EgressClass::Uncontracted)
+    );
+    assert_eq!(EgressClass::parse("trusted"), None);
+    assert!(EgressClass::Local > EgressClass::Contracted);
+    assert!(EgressClass::Contracted > EgressClass::Uncontracted);
+    for class in [
+        EgressClass::Local,
+        EgressClass::Contracted,
+        EgressClass::Uncontracted,
+    ] {
+        assert_eq!(EgressClass::parse(class.name()), Some(class));
+    }
+    assert_eq!(many.credentials["nearby"], "SPARK2_API_KEY");
+}
+
+/// Ruling 2's undeclared-route case, proved where it can actually be
+/// wrong: an adapter whose OWN destination the operator has ruled
+/// acceptable. Every other test's fixture is uncontracted at the
+/// adapter, so a fail-open there is invisible — the two readings agree
+/// on the floor.
+///
+/// This is the shape of the decision's first rejected alternative,
+/// verbatim: one binary, one ruling, three destinations. If a class
+/// declared for the endpoint the file names leaked onto endpoints it
+/// does not name, then "granting `dsh` the binding grant clears the
+/// Alibaba and DeepSeek routes at the same stroke" would be true again
+/// through the routes map instead of through the boolean, and the
+/// decision would have moved the fail-open rather than closed it.
+#[test]
+fn a_contracted_adapter_clears_no_route_it_does_not_name() {
+    let tree = Tree::new();
+    let mut ruled = many_routes();
+    // The operator has ruled THIS adapter's own default destination
+    // acceptable, and said nothing whatever about `elsewhere`.
+    ruled["egress"] = json!("contracted");
+    tree.write("adapters/many.json", &ruled);
+    let adapters = tree.adapters();
+    let many = adapters.adapter("many").expect("the fixture provider");
+
+    // The destination the operator ruled: contracted, as ruled.
+    assert_eq!(
+        resolve_route(many, "large-1"),
+        (None, EgressClass::Contracted)
+    );
+    // A destination they did not rule, reached by the same binary: the
+    // floor, and not one step of the adapter's own clearance.
+    assert_eq!(
+        resolve_route(many, "elsewhere/large-1"),
+        (Some("elsewhere"), EgressClass::Uncontracted)
+    );
+    let (_, unruled) = resolve_route(many, "elsewhere/large-1");
+    assert!(
+        unruled < many.egress,
+        "a route the adapter does not name must not inherit its clearance"
+    );
+    // And the routes it DOES name still stand on their own words, above
+    // and below the adapter's — the reason the declaration moved here.
+    assert_eq!(resolve_route(many, "nearby/small-1").1, EgressClass::Local);
+    assert_eq!(
+        resolve_route(many, "partner/large-1").1,
+        EgressClass::Contracted
+    );
+}
+
+/// The migration, at the loader: the superseded `binding_grant` still
+/// READS, and reads as exactly what decision 0036 ruling 4 says it does,
+/// so no adapter file on disk is forced to change this release.
+#[test]
+fn the_superseded_grant_still_reads_as_a_class() {
+    let tree = Tree::new();
+    let mut granted = claude_body();
+    granted["binding_grant"] = json!(true);
+    tree.write("adapters/claude.json", &granted);
+    assert_eq!(
+        tree.adapters().adapter("claude").unwrap().egress,
+        EgressClass::Contracted
+    );
+
+    let mut refused = claude_body();
+    refused["binding_grant"] = json!(false);
+    tree.write("adapters/claude.json", &refused);
+    assert_eq!(
+        tree.adapters().adapter("claude").unwrap().egress,
+        EgressClass::Uncontracted
+    );
+
+    // Absent on both keys: uncontracted, and no routes at all — the
+    // shape of an adapter that fronts a single destination.
+    tree.write("adapters/claude.json", &claude_body());
+    let adapters = tree.adapters();
+    let claude = adapters.adapter("claude").unwrap();
+    assert_eq!(claude.egress, EgressClass::Uncontracted);
+    assert!(claude.routes.is_empty());
+    assert!(claude.credentials.is_empty());
+    assert_eq!(resolve_route(claude, "claude-opus-5").1, claude.egress);
 }
 
 /// AC-9's data half: the degenerate honest adapter. `exec` declares all

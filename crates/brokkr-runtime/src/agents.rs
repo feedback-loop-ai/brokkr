@@ -47,7 +47,7 @@ use crate::bundle::Limits;
 
 mod load;
 
-pub use load::{Adapters, Library, LibraryError};
+pub use load::{resolve_route, Adapters, Library, LibraryError};
 
 /// The grammar every agent, model, provider and MCP server name obeys.
 /// Quoted verbatim in rejection messages so a reader can act on them.
@@ -167,6 +167,53 @@ impl TrustTier {
     }
 }
 
+/// Where a route's endpoint stands (decision 0036 ruling 1). A closed,
+/// ORDERED vocabulary: the order is how much of the material's journey
+/// the operator owns, so "meets a minimum" is a comparison rather than a
+/// table of pairs. `Local` means the endpoint runs on hardware the
+/// operator controls and the serialized material crosses no network
+/// boundary they do not own; `Contracted` means a third party they have
+/// ruled acceptable in a recorded ruling; `Uncontracted` is everything
+/// else, and is the value of an absent declaration. No vendor and no
+/// route name sits in an arm here: the vocabulary is the engine's, and
+/// the assignment of a route to a class is operator data, exactly as
+/// ruling 2 of decision 0021 holds for tiers.
+///
+/// Ordering is NOT a judging axis (ruling 3): `Local` outranks
+/// `Contracted` for what may be SENT to it and confers nothing at all on
+/// what may be believed from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EgressClass {
+    Uncontracted,
+    Contracted,
+    Local,
+}
+
+impl EgressClass {
+    pub fn parse(name: &str) -> Option<EgressClass> {
+        match name {
+            "local" => Some(EgressClass::Local),
+            "contracted" => Some(EgressClass::Contracted),
+            "uncontracted" => Some(EgressClass::Uncontracted),
+            _ => None,
+        }
+    }
+
+    /// The word the operator writes, quoted back in every refusal so a
+    /// reader can act on the message without opening this file.
+    pub fn name(&self) -> &'static str {
+        match self {
+            EgressClass::Local => "local",
+            EgressClass::Contracted => "contracted",
+            EgressClass::Uncontracted => "uncontracted",
+        }
+    }
+
+    /// The vocabulary, in message order — one source for every refusal
+    /// that has to spell the closed set out.
+    pub const VOCABULARY: &'static str = "\"local\", \"contracted\" or \"uncontracted\"";
+}
+
 /// One provider adapter: data, never a Rust match arm. Adding a provider
 /// or a model is a file, not a release.
 #[derive(Debug, Clone)]
@@ -175,10 +222,25 @@ pub struct Adapter {
     /// Decision 0021 ruling 2: what this driver is trusted to be. Gate
     /// seats require `Trusted`; absence is `Untrusted`.
     pub trust_tier: TrustTier,
-    /// Decision 0021 ruling 4: clearance to RECEIVE, the other axis. A
-    /// driver without the grant may not appear in a seat that declares
-    /// secret bindings; absence is no grant.
-    pub binding_grant: bool,
+    /// Decision 0036 ruling 2: the class of this adapter's OWN
+    /// destination, and what an unprefixed model id resolves to. It
+    /// answers for that destination ONLY — a route this file does not
+    /// name falls to `Uncontracted`, not to this value, because ruling 1
+    /// makes an absent declaration uncontracted (see `resolve_route`).
+    /// It is also where the superseded `binding_grant` lands: a `true`
+    /// grant reads as `Contracted`, a `false` or absent grant as
+    /// `Uncontracted`.
+    pub egress: EgressClass,
+    /// Decision 0036 ruling 2: route name → declared class, where a
+    /// route is the prefix of a concrete model id. An adapter fronting a
+    /// single destination declares one class at the adapter and no
+    /// routes.
+    pub routes: BTreeMap<String, EgressClass>,
+    /// Decision 0036 ruling 5: route name → the credential variable that
+    /// route needs. Declared so `brokkr doctor` can say when the value
+    /// comes from the process environment rather than the bindings
+    /// store; the engine never reads the value, here or anywhere.
+    pub credentials: BTreeMap<String, String>,
     /// The binary `brokkr doctor` probes for on this machine.
     pub binary: String,
     /// Optional operator-written advice `brokkr doctor` prints when the

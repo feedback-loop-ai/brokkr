@@ -191,8 +191,8 @@ flowchart LR
   leaf --> compose{{"compose — pure, leaf-first"}} --> flat["ONE flat bundle<br/>policy · seats · charters"]
   flat --> resolve{{"resolve"}}
   agents["agents/‹name›.json<br/>charter · model chain · limits · inputs · tools"] --> resolve
-  adapters["adapters/‹provider›.json<br/>model ids · permissions · trust_tier · binding_grant"] --> resolve
-  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → grant?<br/>every restriction expressible?"}
+  adapters["adapters/‹provider›.json<br/>model ids · permissions · trust_tier · egress class per route"] --> resolve
+  resolve --> checks{"gate site → trusted tier?<br/>secret bindings → route class ≥ minimum?<br/>every restriction expressible?"}
   checks -- "no" --> refuse["compile refuses, naming agent · provider · capability"]
   checks -- "yes" --> manifest["run manifest<br/>digest pins recipe, chain and adapters<br/>resume uses exactly this or refuses"]
 ```
@@ -215,8 +215,17 @@ provider cannot express is declared as the explicit string
 `"unsupported"`. Model policy is data with two compile-time refusals
 behind it (decision 0021): every driver-bearing site declares a `class`
 (`work` produces output the machine checks, `gate` is the check), every
-adapter declares a `trust_tier` and a `binding_grant`, and both read
-closed on absence. Fallback along an agent's model chain is bounded to
+adapter declares a `trust_tier`, and clearance to RECEIVE belongs to
+the route, not the binary (decision 0036): an adapter declares an
+egress class (`local`/`contracted`/`uncontracted`) for its own
+destination and a `routes` map for the several one CLI may front, a
+route being the prefix of a concrete model id, and a seat with secret
+bindings compiles only if its resolved route meets the bundle's
+`egress_minimum`. Both axes read closed on absence: an undeclared tier
+is untrusted, an undeclared class is uncontracted, and a route the
+adapter does not name inherits nothing — a ruling on one destination
+clears no other the same binary reaches. Local is structural, not
+earned: it says where an endpoint runs and confers no gate seat. Fallback along an agent's model chain is bounded to
 `Failed` before `Accepted`, so a mid-session switch is unreachable by
 construction. What allowed a site is pinned into the manifest, so
 demoting a tier in `adapters/` moves the digest of every bundle standing

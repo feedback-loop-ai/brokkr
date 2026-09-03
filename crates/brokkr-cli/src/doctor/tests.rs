@@ -21,13 +21,22 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
+/// No variable is ever set: the shipped adapters declare no credential,
+/// so the ambient report has nothing to say and the rest of doctor reads
+/// exactly as it did.
+fn never_ambient(_: &str) -> bool {
+    false
+}
+
 fn shipped(dir: &Path, probe: fn(&str) -> Option<String>) -> Report {
     doctor_with_probe(
         None,
         dir,
         &workspace().join("agents"),
         &workspace().join("adapters"),
+        &dir.join("secrets.env"),
         probe,
+        never_ambient,
     )
 }
 
@@ -166,7 +175,9 @@ fn a_sixth_provider_appears_without_a_rebuild_and_an_absent_library_is_not_a_fai
         dir.path(),
         &dir.path().join("no-such-library"),
         &adapters,
+        &dir.path().join("secrets.env"),
         always_missing,
+        never_ambient,
     );
     let rendered = report.render();
     assert!(
@@ -186,9 +197,101 @@ fn a_sixth_provider_appears_without_a_rebuild_and_an_absent_library_is_not_a_fai
         dir.path(),
         &dir.path().join("no-such-library"),
         &dir.path().join("no-such-adapters"),
+        &dir.path().join("secrets.env"),
         always_missing,
+        never_ambient,
     );
     assert!(report.render().contains("warn     adapters:"));
+}
+
+/// Decision 0036 ruling 5: the ambient channel stops being invisible.
+/// A credential the bindings store holds is silent; one the store does
+/// not hold and the environment does is a `warn` NAMED BY ROUTE; one
+/// nobody has anywhere is not this line's business (a run refuses on it
+/// with `MISSING_CREDENTIAL`, which is a different report).
+#[test]
+fn doctor_names_every_route_taking_its_credential_from_the_ambient_environment() {
+    fn set_but_for_one(name: &str) -> bool {
+        name != "NOWHERE_API_KEY"
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let adapters = dir.path().join("adapters");
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(
+        adapters.join("many.json"),
+        serde_json::to_vec_pretty(&json!({
+            "provider": "many",
+            "efforts": [],
+            "effort_flag": "unsupported",
+            "binary": "many-cli",
+            "driver": ["many-cli"],
+            "egress": "uncontracted",
+            "routes": {"nearby": "local"},
+            "credentials": {
+                "nearby": "NEARBY_API_KEY",
+                "partner": "PARTNER_API_KEY",
+                "nowhere": "NOWHERE_API_KEY",
+            },
+            "models": {"near": "nearby/small-1"},
+            "model_flag": "-m",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "PARTNER_API_KEY", "long-enough").unwrap();
+
+    let rendered = doctor_with_probe(
+        None,
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        set_but_for_one,
+    )
+    .render();
+    assert!(
+        rendered.contains(
+            "warn     route nearby: credential 'NEARBY_API_KEY' is satisfied \
+             from the process environment"
+        ),
+        "{rendered}"
+    );
+    assert!(rendered.contains("0036 ruling 5"), "{rendered}");
+    // Bound in the store: the channel this decision exists to make
+    // visible is not in use, so there is nothing to say.
+    assert!(!rendered.contains("route partner"), "{rendered}");
+    // Set nowhere at all: a missing credential is a run's refusal, not a
+    // report about an ambient one.
+    assert!(!rendered.contains("route nowhere"), "{rendered}");
+
+    // And the store the operator actually names is the one consulted:
+    // pointed at a store that holds nothing, the bound route joins the
+    // ambient ones.
+    let rendered = doctor_with_probe(
+        None,
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &dir.path().join("no-such-secrets.env"),
+        always_missing,
+        set_but_for_one,
+    )
+    .render();
+    assert!(rendered.contains("route partner"), "{rendered}");
+}
+
+/// The real probe behind that report, asserted where the injected one
+/// cannot stand in for it: a BOOLEAN about the process environment,
+/// never the value. `PATH` is set for every test process this suite
+/// already depends on (`tool_version` spawns by name).
+#[test]
+fn the_ambient_probe_answers_whether_a_variable_is_set_never_what_it_says() {
+    assert!(ambient_variable("PATH"));
+    assert!(!ambient_variable("BROKKR_CERTAINLY_UNSET_VARIABLE"));
 }
 
 /// A bundle argument still compiles and reports, and a broken one is
@@ -201,7 +304,9 @@ fn doctor_still_compiles_a_named_bundle() {
         dir.path(),
         &workspace().join("agents"),
         &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
         always_present,
+        never_ambient,
     );
     assert!(report.render().contains("ok       bundle: 'fast' compiles"));
 
@@ -210,7 +315,9 @@ fn doctor_still_compiles_a_named_bundle() {
         dir.path(),
         &workspace().join("agents"),
         &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
         always_present,
+        never_ambient,
     );
     assert!(report.render().contains("MISSING  bundle"));
 }
@@ -261,7 +368,9 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
         dir.path(),
         &workspace().join("agents"),
         &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
         always_present,
+        never_ambient,
     );
     let rendered = report.render();
     assert!(rendered.contains("MISSING  bundle"), "{rendered}");

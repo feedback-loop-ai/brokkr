@@ -97,6 +97,49 @@ fn probe_providers(
     availability
 }
 
+/// Decision 0036 ruling 5: a credential a route declares, which the
+/// bindings store does NOT hold and the process environment DOES, is
+/// reported by route name. The ambient channel is not forbidden here —
+/// that would strand every route whose class the operator has not yet
+/// ruled — but it stops being invisible. It is the one channel the
+/// machine cannot refuse at compile time, cannot record in the journal
+/// and cannot move a digest for, so this line is the only place it can
+/// be seen at all.
+///
+/// Names only, on both sides: `store_names` never reads a value, and the
+/// ambient probe answers "is this variable set", never with what it is
+/// set to.
+fn report_ambient_credentials(
+    report: &mut Report,
+    adapters_root: &Path,
+    secrets_store: &Path,
+    ambient: fn(&str) -> bool,
+) {
+    // An unreadable adapters tree is already a warning of its own from
+    // `probe_providers`; saying it twice would be noise.
+    let Ok(adapters) = Adapters::load(adapters_root) else {
+        return;
+    };
+    let bound = brokkr_protocol::secret::store_names(secrets_store).unwrap_or_default();
+    for adapter in adapters.providers() {
+        for (route, variable) in &adapter.credentials {
+            if bound.iter().any(|name| name == variable) || !ambient(variable) {
+                continue;
+            }
+            report.warn(
+                &format!("route {route}"),
+                format!(
+                    "credential '{variable}' is satisfied from the process \
+                     environment, not the bindings store at {} — an ambient value \
+                     is journaled nowhere and moves no digest (decision 0036 \
+                     ruling 5)",
+                    secrets_store.display()
+                ),
+            );
+        }
+    }
+}
+
 /// Per agent, which model would be chosen HERE — by calling the same
 /// pure `resolve` the compiler calls, with this machine's probed facts.
 /// This is the real consumer of availability's non-`Unknown` arms, and
@@ -135,13 +178,22 @@ fn report_agents(
     }
 }
 
-pub fn doctor(bundle: Option<&Path>, db: &Path) -> Report {
+/// Is this variable set in the process environment? A boolean, never the
+/// value: decision 0012's rule holds for a variable doctor only reports
+/// the EXISTENCE of.
+fn ambient_variable(name: &str) -> bool {
+    std::env::var_os(name).is_some()
+}
+
+pub fn doctor(bundle: Option<&Path>, db: &Path, secrets_store: &Path) -> Report {
     doctor_with_probe(
         bundle,
         db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        secrets_store,
         tool_version,
+        ambient_variable,
     )
 }
 
@@ -150,7 +202,9 @@ fn doctor_with_probe(
     db: &Path,
     library_root: &Path,
     adapters_root: &Path,
+    secrets_store: &Path,
     probe: fn(&str) -> Option<String>,
+    ambient: fn(&str) -> bool,
 ) -> Report {
     let mut report = Report {
         healthy: true,
@@ -195,6 +249,7 @@ fn doctor_with_probe(
         ),
     }
     report_agents(&mut report, library_root, adapters_root, &availability);
+    report_ambient_credentials(&mut report, adapters_root, secrets_store, ambient);
 
     match Store::open(db) {
         Ok(_) => report.ok(

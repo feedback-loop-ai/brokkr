@@ -18,7 +18,8 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::{
-    valid_name, Adapter, Agent, McpNeed, McpSupport, ToolPermissions, TrustTier, NAME_GRAMMAR,
+    valid_name, Adapter, Agent, EgressClass, McpNeed, McpSupport, ToolPermissions, TrustTier,
+    NAME_GRAMMAR,
 };
 use crate::bundle::Limits;
 
@@ -214,19 +215,167 @@ fn trust_tier(map: &Map<String, Value>, what: &str) -> Result<TrustTier, Library
     }
 }
 
-/// A provider's egress grant for secret bindings (decision 0021 ruling
-/// 4). Absent is no grant, and a non-boolean is an error for the same
-/// reason a misspelled tier is.
-fn binding_grant(map: &Map<String, Value>, what: &str) -> Result<bool, LibraryError> {
-    let Some(declared) = map.get("binding_grant") else {
-        return Ok(false);
-    };
-    match declared.as_bool() {
-        Some(granted) => Ok(granted),
+/// One written egress class, in the closed vocabulary of decision 0036
+/// ruling 1. Refused at load time in the style ruling 1 borrows from the
+/// tier: a misspelled `"lokal"` must never read as `uncontracted` by
+/// accident, because then a route the operator believes they placed
+/// would silently not have been placed.
+fn egress_class(declared: &Value, key: &str, what: &str) -> Result<EgressClass, LibraryError> {
+    match declared.as_str().and_then(EgressClass::parse) {
+        Some(class) => Ok(class),
         None => invalid(format!(
-            "{what} 'binding_grant' is {declared}; the grant is a boolean, and \
-             an absent grant is none"
+            "{what} '{key}' is {declared}; the egress vocabulary is closed — {} \
+             — and an absent class is uncontracted (decision 0036 ruling 1)",
+            EgressClass::VOCABULARY
         )),
+    }
+}
+
+/// A provider's own destination class (decision 0036 ruling 2), and the
+/// one migration decision 0036 ruling 4 rules: `binding_grant` is
+/// superseded, a `true` grant READS as `contracted` and a `false` or
+/// absent one as `uncontracted`, so no adapter file on disk is forced to
+/// change and every one of them keeps the clearance it has. The old key
+/// stays readable for one release; declaring BOTH is refused rather than
+/// silently resolved, because the two could then disagree and only one
+/// of them could win.
+fn adapter_egress(map: &Map<String, Value>, what: &str) -> Result<EgressClass, LibraryError> {
+    match (map.get("egress"), map.get("binding_grant")) {
+        (Some(_), Some(_)) => invalid(format!(
+            "{what} declares both 'egress' and the superseded 'binding_grant'; \
+             decision 0036 ruling 4 reads a true grant as \"contracted\" and a \
+             false or absent grant as \"uncontracted\", so keep one of them"
+        )),
+        (Some(declared), None) => egress_class(declared, "egress", what),
+        (None, Some(declared)) => match declared.as_bool() {
+            Some(true) => Ok(EgressClass::Contracted),
+            Some(false) => Ok(EgressClass::Uncontracted),
+            None => invalid(format!(
+                "{what} 'binding_grant' is {declared}; the grant is a boolean, and \
+                 an absent grant is none"
+            )),
+        },
+        (None, None) => Ok(EgressClass::Uncontracted),
+    }
+}
+
+/// A provider's declared routes (decision 0036 ruling 2): route name →
+/// class. Absent is no routes at all, which is the shape of an adapter
+/// that fronts a single destination.
+fn routes(
+    map: &Map<String, Value>,
+    what: &str,
+) -> Result<BTreeMap<String, EgressClass>, LibraryError> {
+    let Some(declared) = map.get("routes") else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(entries) = declared.as_object() else {
+        return invalid(format!(
+            "{what} 'routes' must be an object of route name → egress class"
+        ));
+    };
+    let mut out = BTreeMap::new();
+    for (route, value) in entries {
+        if !valid_name(route) {
+            return invalid(format!(
+                "{what} 'routes' names '{route}', which does not match {NAME_GRAMMAR}"
+            ));
+        }
+        out.insert(
+            route.clone(),
+            egress_class(value, &format!("routes.{route}"), what)?,
+        );
+    }
+    Ok(out)
+}
+
+/// A provider's declared credential variables (decision 0036 ruling 5):
+/// route name → the environment variable that route's endpoint needs.
+/// A NAME, never a value — the same rule the whole tree obeys, enforced
+/// beside it by `refuse_secret_stores`.
+fn credentials(
+    map: &Map<String, Value>,
+    what: &str,
+) -> Result<BTreeMap<String, String>, LibraryError> {
+    let Some(declared) = map.get("credentials") else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(entries) = declared.as_object() else {
+        return invalid(format!(
+            "{what} 'credentials' must be an object of route name → environment \
+             variable name"
+        ));
+    };
+    let mut out = BTreeMap::new();
+    for (route, value) in entries {
+        if !valid_name(route) {
+            return invalid(format!(
+                "{what} 'credentials' names '{route}', which does not match \
+                 {NAME_GRAMMAR}"
+            ));
+        }
+        match value.as_str().filter(|name| secret_name(name)) {
+            Some(variable) => out.insert(route.clone(), variable.to_string()),
+            None => {
+                return invalid(format!(
+                    "{what} 'credentials.{route}' is {value}; a credential is the \
+                     NAME of an environment variable ({SECRET_NAME_GRAMMAR}), \
+                     never a value"
+                ))
+            }
+        };
+    }
+    Ok(out)
+}
+
+/// The grammar decision 0012 gives a bindable name, quoted verbatim in
+/// the refusal above: a credential a route names is the same variable a
+/// binding would carry.
+pub const SECRET_NAME_GRAMMAR: &str = "^[A-Z][A-Z0-9_]*$";
+
+fn secret_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    matches!(characters.next(), Some(first) if first.is_ascii_uppercase())
+        && characters.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Decision 0036 ruling 2's route resolver, and the whole of it. Three
+/// cases, and the asymmetry between the last two is the whole point:
+///
+/// - a concrete model id of the form `<route>/<model>` whose route this
+///   adapter DECLARES resolves to that route's declared class;
+/// - an id whose prefix this adapter does NOT name resolves to
+///   `Uncontracted`, because ruling 1 holds that uncontracted is
+///   everything else and is the value of an absent declaration — and
+///   this file is silent about that route;
+/// - an id with NO prefix resolves to the adapter's own declared class
+///   and NO BETTER, because an unprefixed id reaches whatever default
+///   the harness profile resolves, and the adapter's own class is the
+///   operator's word about exactly that destination.
+///
+/// An unprefixed id genuinely arrives at the adapter's own destination.
+/// A prefixed one names a destination the machine positively knows is
+/// NOT it. Reading the adapter's class onto a route the file never
+/// mentions is the fail-open the decision's first rejected alternative
+/// exists to prevent: ruling one provider acceptable for the endpoint it
+/// declares would clear every other endpoint the same binary can reach,
+/// which is precisely "granting `dsh` the binding grant clears the
+/// Alibaba and DeepSeek routes at the same stroke". Silence about a
+/// route is not a promotion, and it is not an inheritance either.
+///
+/// Returns the route it resolved through, so a refusal and a `doctor`
+/// line can name it.
+pub fn resolve_route<'a>(adapter: &Adapter, model_id: &'a str) -> (Option<&'a str>, EgressClass) {
+    match model_id.split_once('/') {
+        Some((route, _)) => (
+            Some(route),
+            adapter
+                .routes
+                .get(route)
+                .copied()
+                .unwrap_or(EgressClass::Uncontracted),
+        ),
+        None => (None, adapter.egress),
     }
 }
 
@@ -561,6 +710,9 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "provider",
             "trust_tier",
             "binding_grant",
+            "egress",
+            "routes",
+            "credentials",
             "binary",
             "hint",
             "driver",
@@ -650,7 +802,9 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     Ok(Adapter {
         provider,
         trust_tier: trust_tier(map, &what)?,
-        binding_grant: binding_grant(map, &what)?,
+        egress: adapter_egress(map, &what)?,
+        routes: routes(map, &what)?,
+        credentials: credentials(map, &what)?,
         binary,
         hint,
         driver,
