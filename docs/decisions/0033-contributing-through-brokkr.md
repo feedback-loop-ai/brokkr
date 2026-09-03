@@ -3,6 +3,8 @@
 Status: accepted (operator ruled in chat, 2026-09-02)
 Date: 2026-09-02
 
+**Erratum, 2026-09-03 (operator ruling, decision 0038):** rulings 3 and 4 are amended — the anchor gains a version carrying the slice's per-file patch identity, and the gate compares patches before heads and cuts a tier by the delta since the judgment. Rulings 1, 2, 5 and 6 stand. See [0038](0038-evidence-follows-content.md).
+
 ## Context
 
 The contributing guide had become a 610-line second implementation of

@@ -1,0 +1,10 @@
+{
+  "schema": "forge.delivery-classes/v1",
+  "description": "Decision 0038 ruling 3: the path classes the delivered-by-brokkr gate cuts its tiers by. A path in the delta since the vouched judgment that matches none of a class's patterns is code.",
+  "classes": {
+    "docs": {
+      "description": "Prose and pictures: any Markdown file, the docs tree, the brand marks.",
+      "paths": ["(^|/)[^/]+\\.md$", "^docs/", "^assets/"]
+    }
+  }
+}

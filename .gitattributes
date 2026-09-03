@@ -12,3 +12,8 @@
 *.ico binary
 *.gz binary
 *.zip binary
+
+# Decision 0038 ruling 5: the decision index is derived (tests/decisions_index.rs
+# holds it equal to the decision files), so two branches appending rows merge
+# without a conflict; a duplicated or stale row fails the test, never the merge.
+docs/decisions/README.md merge=union

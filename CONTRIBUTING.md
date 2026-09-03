@@ -68,8 +68,11 @@ git push origin refs/forge/<run-id>:refs/heads/brokkr-runs/<run-id>
 
 Open the pull request using the repository template and replace its line
 with `Brokkr-Run: <run-id>`. CI verifies the published journal offline,
-requires a completed run, and requires its vouched commit to equal the
-pull request head. Only the operator may apply the visible `by-hand`
+requires a completed run, and cuts a tier by what changed since it
+judged (decision 0038): a rebase that leaves your slice's patch unchanged
+keeps the vouch; a delta confined to docs needs `brokkr run --recipe
+preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
+delta needs a new run. Only the operator may apply the visible `by-hand`
 escape-hatch label.
 
 Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.

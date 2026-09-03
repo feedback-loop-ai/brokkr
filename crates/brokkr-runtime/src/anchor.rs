@@ -17,8 +17,16 @@ use std::process::Command;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::Store;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use thiserror::Error;
+
+/// Every anchor version this engine has written and still reads. An
+/// anchor naming any other version is refused, never guessed at.
+const KNOWN_ANCHORS: [&str; 3] = [
+    "forge.journal-anchor/v1",
+    "forge.journal-anchor/v2",
+    "forge.journal-anchor/v3",
+];
 
 #[derive(Debug, Error)]
 pub enum AnchorError {
@@ -95,6 +103,52 @@ fn vouched_head(events: &[EventEnvelope]) -> Option<String> {
         .then(|| head.to_ascii_lowercase())
 }
 
+/// The branch a slice is measured against (decision 0038 ruling 1): the
+/// remote's HEAD when the repository names one, else a local `main`,
+/// else a local `master`. A repository with none of them has no branch
+/// to measure against, and says so with `None`.
+fn default_branch(repo: &Path) -> Option<String> {
+    git(
+        repo,
+        &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"],
+        None,
+    )
+    .ok()
+    .or_else(|| {
+        ["main", "master"]
+            .into_iter()
+            .find(|name| {
+                git(
+                    repo,
+                    &["rev-parse", "--verify", "-q", &format!("refs/heads/{name}")],
+                    None,
+                )
+                .is_ok()
+            })
+            .map(str::to_string)
+    })
+}
+
+/// What the slice changed, per file (decision 0038 ruling 1): the
+/// merge-base of the vouched head with the default branch, and for every
+/// path the diff from that base touches, the stable patch id of that
+/// file's diff. Ancestry is not in the id, so a clean rebase keeps every
+/// entry; a changed hunk moves exactly the entry it lives in. `None`
+/// when there is no branch to measure against.
+fn patch_identity(repo: &Path, head: &str) -> Option<(String, Map<String, Value>)> {
+    let branch = default_branch(repo)?;
+    let base = git(repo, &["merge-base", &branch, head], None).ok()?;
+    let listed = git(repo, &["diff", "--name-only", &base, head], None).ok()?;
+    let mut patch = Map::new();
+    for path in listed.lines() {
+        let diff = git(repo, &["diff", &base, head, "--", path], None).ok()?;
+        let id = git(repo, &["patch-id", "--stable"], Some(&diff)).ok()?;
+        let id = id.split_whitespace().next()?.to_string();
+        patch.insert(path.to_string(), Value::String(id));
+    }
+    Some((base, patch))
+}
+
 /// Append an anchor commit for the run's current journal head. Chains to
 /// the previous anchor when one exists. Returns the commit sha.
 pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, AnchorError> {
@@ -111,12 +165,21 @@ pub fn anchor(store: &Store, repo: &Path, run_id: &str) -> Result<String, Anchor
     let blob = git(repo, &["hash-object", "-w", "--stdin"], Some(&journal))?;
     let tree_entry = format!("100644 blob {blob}\t{run_id}.ndjson\n");
     let tree = git(repo, &["mktree"], Some(&tree_entry))?;
+    let (base, patch) = match repo_head
+        .as_deref()
+        .and_then(|head| patch_identity(repo, head))
+    {
+        Some((base, patch)) => (Value::String(base), Value::Object(patch)),
+        None => (Value::Null, Value::Null),
+    };
     let message = json!({
-        "anchor": "forge.journal-anchor/v2",
+        "anchor": "forge.journal-anchor/v3",
         "run_id": run_id,
         "seq": seq,
         "journal_head_hash": head_hash,
         "repo_head": repo_head,
+        "base": base,
+        "patch": patch,
     })
     .to_string();
     let mut args = vec!["commit-tree", &tree];
@@ -142,6 +205,13 @@ pub fn verify(store: &Store, repo: &Path, run_id: &str) -> Result<Value, AnchorE
     let message = git(repo, &["log", "-1", "--format=%B", &tip], None)?;
     let recorded: Value = serde_json::from_str(message.trim())
         .map_err(|e| AnchorError::Mismatch(format!("unreadable anchor message: {e}")))?;
+    let version = recorded["anchor"].as_str().unwrap_or("");
+    if !KNOWN_ANCHORS.contains(&version) {
+        return Err(AnchorError::Mismatch(format!(
+            "unknown anchor version {version:?}; this engine reads {}",
+            KNOWN_ANCHORS.join(", ")
+        )));
+    }
     let (seq, head_hash) = store.head_hash(run_id)?;
     let anchored_seq = recorded["seq"].as_u64().unwrap_or(0);
     let anchored_hash = recorded["journal_head_hash"].as_str().unwrap_or("");
@@ -156,9 +226,12 @@ pub fn verify(store: &Store, repo: &Path, run_id: &str) -> Result<Value, AnchorE
     Ok(json!({
         "ref": reference,
         "tip": tip,
+        "anchor": version,
         "seq": seq,
         "journal_head_hash": head_hash,
         "repo_head": recorded.get("repo_head").cloned().unwrap_or(Value::Null),
+        "base": recorded.get("base").cloned().unwrap_or(Value::Null),
+        "patch": recorded.get("patch").cloned().unwrap_or(Value::Null),
         "chain_length": chain_length.parse::<u64>().unwrap_or(0),
         "verdict": "anchored",
     }))
