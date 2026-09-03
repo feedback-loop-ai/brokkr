@@ -3,6 +3,7 @@
 //! fail the check; optional ones warn. Acceptance criterion: a user can
 //! see what is missing before a run wastes a model session on it.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -97,22 +98,35 @@ fn probe_providers(
     availability
 }
 
-/// Decision 0036 ruling 5: a credential a route declares, which the
-/// bindings store does NOT hold and the process environment DOES, is
-/// reported by route name. The ambient channel is not forbidden here —
-/// that would strand every route whose class the operator has not yet
-/// ruled — but it stops being invisible. It is the one channel the
-/// machine cannot refuse at compile time, cannot record in the journal
-/// and cannot move a digest for, so this line is the only place it can
-/// be seen at all.
+/// Decision 0036 ruling 5: a credential a route declares, which no seat
+/// binds and the process environment DOES hold, is reported by route
+/// name. The ambient channel is not forbidden here — that would strand
+/// every route whose class the operator has not yet ruled — but it stops
+/// being invisible. It is the one channel the machine cannot refuse at
+/// compile time, cannot record in the journal and cannot move a digest
+/// for, so this line is the only place it can be seen at all.
 ///
-/// Names only, on both sides: `store_names` never reads a value, and the
-/// ambient probe answers "is this variable set", never with what it is
-/// set to.
+/// Decision 0040 ruling 4 fixes what "ambient" tests. A name sitting in
+/// the bindings STORE that no seat declares in its `secrets` is never
+/// bound to the driver: the run passes it nothing, so if the launching
+/// shell exports it the driver takes it ambiently and the old reading —
+/// store membership — said nothing. A false negative on exactly the
+/// channel ruling 5 exists to make visible. So the test is now the
+/// inspected bundle's declared names, and store membership is necessary
+/// for a binding but is not one.
+///
+/// `declared` is `None` when there is no bundle to inspect, and doctor
+/// then reports store membership and SAYS that is what it checked: a
+/// weaker question honestly named beats a strong one silently missed.
+///
+/// Names only, on every side: `store_names` never reads a value, a
+/// seat's `secrets` is a list of names, and the ambient probe answers
+/// "is this variable set", never with what it is set to.
 fn report_ambient_credentials(
     report: &mut Report,
     adapters_root: &Path,
     secrets_store: &Path,
+    declared: Option<&BTreeSet<String>>,
     ambient: fn(&str) -> bool,
 ) {
     // An unreadable adapters tree is already a warning of its own from
@@ -123,17 +137,31 @@ fn report_ambient_credentials(
     let bound = brokkr_protocol::secret::store_names(secrets_store).unwrap_or_default();
     for adapter in adapters.providers() {
         for (route, variable) in &adapter.credentials {
-            if bound.iter().any(|name| name == variable) || !ambient(variable) {
+            let covered = match declared {
+                Some(declared) => declared.contains(variable),
+                None => bound.iter().any(|name| name == variable),
+            };
+            if covered || !ambient(variable) {
                 continue;
             }
+            let checked = match declared {
+                Some(_) => "no seat of the inspected bundle binds it (decision \
+                            0040 ruling 4 — a name in the store that no seat \
+                            declares is bound to nothing)"
+                    .to_string(),
+                None => format!(
+                    "no bundle was inspected, so this checked membership of the \
+                     bindings store at {} and not whether any seat binds it \
+                     (decision 0040 ruling 4)",
+                    secrets_store.display()
+                ),
+            };
             report.warn(
                 &format!("route {route}"),
                 format!(
                     "credential '{variable}' is satisfied from the process \
-                     environment, not the bindings store at {} — an ambient value \
-                     is journaled nowhere and moves no digest (decision 0036 \
-                     ruling 5)",
-                    secrets_store.display()
+                     environment — an ambient value is journaled nowhere and \
+                     moves no digest (decision 0036 ruling 5); {checked}"
                 ),
             );
         }
@@ -249,7 +277,37 @@ fn doctor_with_probe(
         ),
     }
     report_agents(&mut report, library_root, adapters_root, &availability);
-    report_ambient_credentials(&mut report, adapters_root, secrets_store, ambient);
+
+    // Compiled before the ambient report and reported after it: decision
+    // 0040 ruling 4 asks whether any SEAT binds a variable, which is a
+    // fact only the composed bundle holds, while the bundle line belongs
+    // at the end of the report where an operator has been reading it.
+    //
+    // Against the roots doctor was ASKED about, not the process's own: a
+    // bundle's compile now reads the adapter data for decision 0021's
+    // refusals as well as for agent resolution, and doctor reporting on
+    // one tree while compiling against another would be the machine
+    // diagnosing itself wrong.
+    let compiled = bundle.map(|dir| (dir, Bundle::compile_with(dir, library_root, adapters_root)));
+    // A bundle that does not compile declares nothing this report can
+    // trust, so it is no bundle to inspect — and the wording below says
+    // so rather than reading an empty set as "no seat binds anything".
+    let declared: Option<BTreeSet<String>> = compiled.as_ref().and_then(|(_, result)| {
+        result.as_ref().ok().map(|bundle| {
+            bundle
+                .seats
+                .values()
+                .flat_map(|seat| seat.secrets.iter().cloned())
+                .collect()
+        })
+    });
+    report_ambient_credentials(
+        &mut report,
+        adapters_root,
+        secrets_store,
+        declared.as_ref(),
+        ambient,
+    );
 
     match Store::open(db) {
         Ok(_) => report.ok(
@@ -259,13 +317,8 @@ fn doctor_with_probe(
         Err(e) => report.missing("database", format!("{}: {e}", db.display())),
     }
 
-    if let Some(dir) = bundle {
-        // Against the roots doctor was ASKED about, not the process's
-        // own: a bundle's compile now reads the adapter data for
-        // decision 0021's refusals as well as for agent resolution, and
-        // doctor reporting on one tree while compiling against another
-        // would be the machine diagnosing itself wrong.
-        match Bundle::compile_with(dir, library_root, adapters_root) {
+    if let Some((dir, result)) = compiled {
+        match result {
             Ok(bundle) => report.ok(
                 "bundle",
                 format!(

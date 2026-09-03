@@ -337,6 +337,229 @@ fn doctor_names_every_route_taking_its_credential_from_the_ambient_environment()
     assert!(rendered.contains("route partner"), "{rendered}");
 }
 
+/// An adapters tree with one provider fronting two routes, each with a
+/// credential of its own: the shape decision 0040 ruling 4 is about.
+fn two_credentialled_routes(adapters: &Path) {
+    std::fs::create_dir_all(adapters).unwrap();
+    std::fs::write(
+        adapters.join("many.json"),
+        serde_json::to_vec_pretty(&json!({
+            "provider": "many",
+            "efforts": [],
+            "effort_flag": "unsupported",
+            "binary": "many-cli",
+            "driver": ["many-cli"],
+            "egress": "uncontracted",
+            "routes": {"nearby": "local", "partner": "local"},
+            "credentials": {
+                "nearby": "NEARBY_API_KEY",
+                "partner": "PARTNER_API_KEY",
+            },
+            "models": {"near": "nearby/small-1"},
+            "model_flag": "-m",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+/// A one-seat bundle on that provider, binding exactly `secrets`.
+fn bundle_binding(dir: &Path, secrets: &[&str]) -> PathBuf {
+    let bundle = dir.join("bound");
+    std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::write(
+        bundle.join("policy.json"),
+        serde_json::to_vec_pretty(&json!({
+            "phases": ["work", "review", "done", "stop"],
+            "initial": "work",
+            "terminal": ["done", "stop"],
+            "shippable_from": ["review"],
+            "rules": [
+                {"id": "W-PASS", "from": "work", "result": "pass", "next": "review",
+                 "reason": "work concluded"},
+                {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
+                 "reason": "review concluded"},
+            ],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(bundle.join("role.md"), "# role\n").unwrap();
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec_pretty(&json!({
+            "name": "bound",
+            "policy": "policy.json",
+            "seats": {
+                "work": {
+                    "results": ["pass"],
+                    "role": "role.md",
+                    "secrets": secrets,
+                    "driver": {"command": [
+                        "{brokkr}", "driver", "many", "--", "-m", "nearby/small-1",
+                    ]},
+                },
+                "review": {
+                    "results": ["clean"],
+                    "role": "role.md",
+                    "driver": {"command": [
+                        "{brokkr}", "driver", "many", "--", "-m", "nearby/small-1",
+                    ]},
+                },
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    bundle
+}
+
+/// Decision 0040 ruling 4: ambient means UNBOUND BY ANY SEAT, not absent
+/// from the store. A name sitting in the bindings store that no seat
+/// declares in its `secrets` is never handed to the driver — so if the
+/// launching shell exports it the driver still takes it ambiently, and
+/// the store-membership reading said nothing at all. A false negative on
+/// exactly the channel decision 0036 ruling 5 exists to make visible.
+#[test]
+fn doctor_reads_ambient_against_the_bundles_own_bindings_not_the_store() {
+    fn everything_is_set(_: &str) -> bool {
+        true
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let adapters = dir.path().join("adapters");
+    two_credentialled_routes(&adapters);
+    // Both names sit in the store; only one of them is bound by a seat.
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "NEARBY_API_KEY", "long-enough").unwrap();
+    brokkr_protocol::secret::store_set(&store, "PARTNER_API_KEY", "long-enough").unwrap();
+    let bundle = bundle_binding(dir.path(), &["NEARBY_API_KEY"]);
+
+    let rendered = doctor_with_probe(
+        Some(&bundle),
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        everything_is_set,
+    )
+    .render();
+    assert!(
+        rendered.contains("ok       bundle: 'bound' compiles"),
+        "{rendered}"
+    );
+    // Held and DECLARED: the seat binds it, so the run hands it over and
+    // there is nothing ambient to report.
+    assert!(!rendered.contains("route nearby"), "{rendered}");
+    // Held and UNDECLARED, with the variable exported: warned by route,
+    // though the store holds it — which is the whole ruling.
+    assert!(
+        rendered.contains(
+            "warn     route partner: credential 'PARTNER_API_KEY' is satisfied \
+             from the process environment"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("no seat of the inspected bundle binds it"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("0040 ruling 4"), "{rendered}");
+
+    // The other way round proves the store is not the test at all: a
+    // bundle binding the OTHER name silences the other route and warns
+    // on this one.
+    let bundle = bundle_binding(dir.path(), &["PARTNER_API_KEY"]);
+    let rendered = doctor_with_probe(
+        Some(&bundle),
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        everything_is_set,
+    )
+    .render();
+    assert!(rendered.contains("route nearby"), "{rendered}");
+    assert!(!rendered.contains("route partner"), "{rendered}");
+
+    // And a variable nobody exports is nobody's ambient value, bound or
+    // not: a missing credential is a run's refusal, not this report.
+    let rendered = doctor_with_probe(
+        Some(&bundle),
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        never_ambient,
+    )
+    .render();
+    assert!(!rendered.contains("route nearby"), "{rendered}");
+}
+
+/// The second half of ruling 4: without a bundle to inspect there are no
+/// seats to ask, so doctor answers the weaker question — store
+/// membership — and SAYS that is the question it answered. A weaker
+/// check honestly named beats a strong one silently missed.
+#[test]
+fn doctor_without_a_bundle_says_it_checked_the_store_and_not_the_seats() {
+    fn everything_is_set(_: &str) -> bool {
+        true
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let adapters = dir.path().join("adapters");
+    two_credentialled_routes(&adapters);
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "NEARBY_API_KEY", "long-enough").unwrap();
+
+    let rendered = doctor_with_probe(
+        None,
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        everything_is_set,
+    )
+    .render();
+    // The name the store holds is silent, as it was before the ruling —
+    // and the name it does not hold is warned with the caveat attached.
+    assert!(!rendered.contains("route nearby"), "{rendered}");
+    assert!(rendered.contains("route partner"), "{rendered}");
+    assert!(
+        rendered.contains(
+            "no bundle was inspected, so this checked membership of the bindings \
+             store at"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("not whether any seat binds it"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("0040 ruling 4"), "{rendered}");
+
+    // A bundle that does not COMPILE is no bundle to inspect either: it
+    // declares nothing this report can trust, so the wording says so
+    // rather than reading an empty set as "no seat binds anything".
+    let rendered = doctor_with_probe(
+        Some(&dir.path().join("absent")),
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        everything_is_set,
+    )
+    .render();
+    assert!(rendered.contains("MISSING  bundle"), "{rendered}");
+    assert!(!rendered.contains("route nearby"), "{rendered}");
+    assert!(rendered.contains("no bundle was inspected"), "{rendered}");
+}
+
 /// The real probe behind that report, asserted where the injected one
 /// cannot stand in for it: a BOOLEAN about the process environment,
 /// never the value. `PATH` is set for every test process this suite
