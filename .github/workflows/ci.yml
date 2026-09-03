@@ -55,8 +55,20 @@ jobs:
           CLASSES: base-verifier/.github/delivery-classes.json
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         # The by-hand label is honoured inside the script, which logs the
-        # tier it would have applied (0038 ruling 6).
-        run: bash base-verifier/scripts/delivered-by-brokkr.sh
+        # tier it would have applied (0038 ruling 6). A base branch that
+        # carries no gate script yet — the one landing that introduces it —
+        # can cut no tier: the label skips, anything else refuses.
+        run: |
+          if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then
+            case ",${LABELS}," in
+              *,by-hand,*)
+                echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet"
+                exit 0 ;;
+            esac
+            echo "delivered by brokkr: the base branch carries no gate script" >&2
+            exit 1
+          fi
+          bash base-verifier/scripts/delivered-by-brokkr.sh
 
   msrv:
     name: MSRV (1.88)
