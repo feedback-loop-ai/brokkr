@@ -1,6 +1,6 @@
 # 0041 — One office per seat: triage rules the strategy, judges never fix, and every finding has a way back
 
-Status: proposed (drafted at the operator's direction in chat, 2026-09-03: "put it in 0041")
+Status: accepted (operator ruled in chat, 2026-09-04; drafted at the operator's direction 2026-09-03: "put it in 0041")
 Date: 2026-09-04
 
 ## Context
@@ -11,6 +11,14 @@ and named two hires the roster lacks: one that rules which strategy a
 commission gets, and a standing operator that runs the shop around the
 clock under a charter it does not compile. The second hire is decision
 0025 and is not re-ruled here. The first, and the roster, are.
+
+A note on one citation. Wherever this decision says "decision 0040" it
+means the boxed-hands decision — the model's hands are one tool, and
+the tool runs in an empty root — which was drafted and accepted under
+that number on 2026-09-03 and was still landing when the flag-grammar
+decision took 0040 on main. The hands decision landed as 0043; its
+rulings are cited here by their own numbers and are unchanged by the
+renumbering.
 
 The review was made against the tree after #160 and against the
 canonical journal. What it found, cited:
@@ -110,6 +118,17 @@ Alternatives weighed:
 - **Max effort everywhere.** Rejected by 0035's own logic: effort is
   part of the hire, and spend belongs where an error is invisible to the
   seats downstream.
+
+## Ruling — 2026-09-04, operator: accepted as proposed
+
+Accepted in chat the day after it was drafted ("accept 0041 and
+0042"), without amendment. The eight rulings and their enforcement
+bindings stand as written and are the commission of the enactment
+slices, in the order the consequences record, after the boxed-hands
+decision lands and moves the agent files it shares with this one. The
+names left open — `triage` or `strategist`, the effort figures, the
+fate of `panel-review`'s flat join — stay open, to be settled by the
+enactment's evidence and the operator's later word.
 
 ## Rulings
 

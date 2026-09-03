@@ -138,3 +138,15 @@ Alternatives weighed:
 - Recipes that do not extend `fast` — `node`, `panel-review`, `sdd`,
   `sdd-paranoid`, `preflight`, `bundles/self`, `bundles/verify` — are
   unchanged and may adopt the rule when their owners choose.
+
+## Addendum — 2026-09-04, amended by decision 0041, accepted
+
+Decision 0041 ruling 4 retires the review that fixes: no gate changes
+the tree, and `fixes_applied` leaves every shipped recipe, so the
+`REVIEW-CLEAN-DOCS-FIXES` arm this decision adds has nothing left to
+price. The engine-owned input survives and moves to the smith's return
+(0041 ruling 5e): a returning implement whose delta lies wholly in the
+repository's docs class re-enters review without verify. The mechanism
+this decision builds — the recorded entry head and the docs class read
+as the gate reads it — is what that edge stands on; only the arm that
+priced a judge's fix retires with the judge's fixes.

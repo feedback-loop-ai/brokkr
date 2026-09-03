@@ -1,6 +1,6 @@
 # 0042 — The council is Brokkr's, the dialect is the realm's: spec-driven delivery speaks OpenSpec or spec-kit, and the tool validates
 
-Status: proposed (drafted at the operator's direction in chat, 2026-09-04: "draft 0042 for the SDD dialects too"; amended the same day on the operator's observation that the frameworks are machines)
+Status: accepted (operator ruled in chat, 2026-09-04; drafted the same day at the operator's direction, "draft 0042 for the SDD dialects too", and amended five times in the same conversation on the operator's observations)
 Date: 2026-09-04
 
 ## Context
@@ -10,7 +10,9 @@ spec-kit, and it is not, seems like OpenSpec. Maybe we need two separate
 flows? Or abstracting the specification with two adapters?" — with the
 standing constraint that spec tools stay leaf effects and the machine
 keeps its modus operandi. Decision 0041 deferred the answer to its own
-number. This is it.
+number. This is it. As in 0041, "decision 0040" here means the
+boxed-hands decision, drafted under that number and landed as 0043
+after the flag-grammar decision took 0040 on main.
 
 **What `recipes/sdd` does today, read from the tree.** Intake, then a
 design sequence — two contrarian positions, a chief that synthesises,
@@ -140,6 +142,22 @@ Alternatives weighed:
 - **A dialect adapter in Rust with a match arm per tool.** Rejected by
   0016's rule: adapters are data, never match arms, and a capability a
   tool lacks is declared as the string `unsupported` with its reason.
+
+## Ruling — 2026-09-04, operator: accepted as proposed
+
+Accepted in chat the day it was drafted ("accept 0041 and 0042"),
+after five amendments the operator drove in the same conversation: the
+frameworks are machines, so the artifact phases are three; their
+sub-machines are the dialect's steps; clarify and analyze are judged
+loops that exit only at zero; OpenSpec ships neither, so under it the
+loops are Brokkr's offices; and each loop has a deterministic half
+counted from the framework's own data before the judge reads. The
+eight rulings and their enforcement bindings stand as written and are
+the commission of the enactment slices in the order the consequences
+record, after 0041's first slice. What the consequences leave unruled
+— a `proceed` operator command, how an answer reaches a returning
+seat, which phase the council sits on, custom schemas, a dialect wager
+— stays unruled here.
 
 ## Rulings
 
