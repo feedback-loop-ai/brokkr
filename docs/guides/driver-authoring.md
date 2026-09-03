@@ -308,6 +308,15 @@ and the distinction between them is load-bearing:
 A control that exists but goes unreported is not a control that does not
 exist, and the record must not blur the two.
 
+A level is one bounded word: up to forty characters of ASCII
+alphanumerics, `-`, `_`, `.` and `:`, starting with an alphanumeric —
+`seat-record.v2`'s `effort` pattern exactly. Clamp what your harness
+echoes against that shape *at the boundary*, as the built-in folds do,
+and record no effort for a turn whose echo fails it. The value crosses
+into an append-only journal: an echo journaled unclamped is refused
+later at export, and the cost of that refusal is not one turn's missing
+field but the whole run's export.
+
 **`reasoning_output_tokens` is a reported subset of `output_tokens`,**
 in exactly the way `cache_read_tokens` is a subset of `input_tokens`,
 and it is never added to a total a second time. The three built-in

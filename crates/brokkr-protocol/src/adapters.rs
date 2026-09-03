@@ -191,10 +191,17 @@ fn model_in_json(event: &Value) -> Option<String> {
 /// reason a model id is — the value crosses the driver boundary into an
 /// append-only journal — and tighter, because an effort is a level and
 /// never a path, an id, or a sentence.
+///
+/// The clamp is exactly `seat-record.v2`'s `effort` pattern, leading
+/// character included: a level must START with an alphanumeric. A
+/// harness echoing `_high` is refused HERE, where the cost is one turn
+/// recording no effort, rather than journaled and refused later at
+/// export — which would cost the whole run its export.
 fn effort_token(raw: &str) -> Option<String> {
     let raw = raw.trim();
     if raw.is_empty()
         || raw.chars().count() > 40
+        || !raw.starts_with(|c: char| c.is_ascii_alphanumeric())
         || !raw
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
@@ -507,21 +514,51 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// the record saying `not reported` rather than guessing.
 #[derive(Default)]
 struct CodexThreadEcho {
+    /// The sessions root and the thread id codex announced, held
+    /// together because neither is ever known without the other.
+    announced: Option<(std::path::PathBuf, String)>,
     path: Option<std::path::PathBuf>,
 }
 
 impl CodexThreadEcho {
+    /// Remember the thread codex announced, and try the walk now. The
+    /// id is held whether or not the file is there yet, because
+    /// announcing a thread and filing its rollout are two writes and
+    /// codex does not promise the order.
     fn locate(&mut self, home: &std::path::Path, thread_id: &str) {
-        if thread_id.is_empty() {
+        // The same clamp the resume argv applies (`plain_thread_id`),
+        // applied on this path too: the id arrives from the harness's
+        // own stream and decides which file is read, so a spelling that
+        // is not an id locates nothing rather than matching whatever it
+        // happens to be a fragment of.
+        if !plain_thread_id(thread_id) {
             return;
         }
-        self.path = find_codex_thread(&home.join("sessions"), thread_id, CODEX_THREAD_DEPTH);
+        self.announced = Some((home.join("sessions"), thread_id.to_string()));
+        self.resolve();
+    }
+
+    /// The walk, retried while it has not yet succeeded. Codex announces
+    /// `thread.started` before it necessarily has the rollout on disk;
+    /// resolving once and caching the miss would leave a codex seat
+    /// saying `not reported` for its whole life — dsh's sentinel, on a
+    /// harness that does echo its effort, which is exactly the
+    /// distinction ruling 3 makes load-bearing.
+    fn resolve(&mut self) {
+        if self.path.is_some() {
+            return;
+        }
+        let Some((sessions, thread_id)) = &self.announced else {
+            return;
+        };
+        self.path = find_codex_thread(sessions, thread_id, CODEX_THREAD_DEPTH);
     }
 
     /// The LAST effort the thread record names. Codex writes a
     /// `turn_context` per turn, so re-reading here is what makes a
     /// thread that changed effort mid-seat say so turn by turn.
-    fn effort(&self) -> Option<String> {
+    fn effort(&mut self) -> Option<String> {
+        self.resolve();
         let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
         body.lines().rev().find_map(|line| {
             serde_json::from_str::<Value>(line)
@@ -530,6 +567,20 @@ impl CodexThreadEcho {
                 .and_then(effort_in_json)
         })
     }
+}
+
+/// `name` carries `thread_id` as a WHOLE token — bounded at both ends by
+/// a non-alphanumeric or by the ends of the name — rather than merely as
+/// a substring. A bare `contains` would let a short or degenerate id
+/// match a longer id's file, which is the "never by the newest file"
+/// rule lost by another route: a fragment is not an announcement.
+fn names_codex_thread(name: &str, thread_id: &str) -> bool {
+    name.match_indices(thread_id).any(|(at, _)| {
+        let before = name[..at].chars().next_back();
+        let after = name[at + thread_id.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_alphanumeric())
+            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+    })
 }
 
 /// The thread record whose file name carries `thread_id`, anywhere in a
@@ -549,7 +600,7 @@ fn find_codex_thread(
         let named = path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".jsonl") && name.contains(thread_id));
+            .is_some_and(|name| name.ends_with(".jsonl") && names_codex_thread(name, thread_id));
         if named {
             return Some(path);
         }

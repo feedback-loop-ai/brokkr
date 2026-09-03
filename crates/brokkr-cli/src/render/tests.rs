@@ -567,6 +567,7 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
+  model is the provider's claim, not proof · effort is configuration
   participant                 status    attempts turns cost    tokens model effort activity
   intake                      succeeded 1        3     $0.0313 —      —     —      intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects
@@ -630,6 +631,7 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
+  model is the provider's claim, not proof · effort is configuration
   participant status    attempts turns cost    tokens model effort activity
   intake      succeeded 1        3     $0.0313 —      —     —      intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects

@@ -451,6 +451,15 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     let used = widths.iter().sum::<usize>() + widths.len() + 2;
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("seats\n");
+    // Ruling 2's sentence, at the human readout that labels the field.
+    // A served model is testimony from the party being audited, so this
+    // surface names it a claim rather than printing it as settled; the
+    // two effort cells beside it are configuration, and the only metered
+    // fact in the row is the token count.
+    push_line(
+        &mut out,
+        "  model is the provider's claim, not proof · effort is configuration",
+    );
     let mut head = String::from("  ");
     for (index, name) in header.iter().enumerate() {
         head.push_str(&Safe::new(name).padded(widths[index]));

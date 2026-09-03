@@ -896,6 +896,73 @@ fn the_codex_thread_echo_reads_the_last_effort_by_thread_id_and_never_by_scan() 
     assert_eq!(quiet.effort(), None);
 }
 
+/// The id decides which file is read, so it is clamped on this path
+/// exactly as it is on the resume argv, and matched as a whole token.
+/// Both halves guard the same rule from the test above — a thread is
+/// found by the id codex announced, and by nothing else.
+#[test]
+fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
+    let home = tempfile::tempdir().unwrap();
+    let dated = home.path().join("sessions/2026/09/03");
+    std::fs::create_dir_all(&dated).unwrap();
+    std::fs::write(
+        dated.join("rollout-0199mine.jsonl"),
+        "{\"turn_context\":{\"effort\":\"xhigh\"}}\n",
+    )
+    .unwrap();
+
+    // A FRAGMENT of the filed id is not the filed id. Left as a bare
+    // `contains`, each of these would read a thread it never opened.
+    for fragment in ["0199", "199mine", "0199min", "99mi"] {
+        let mut borrower = CodexThreadEcho::default();
+        borrower.locate(home.path(), fragment);
+        assert_eq!(
+            borrower.effort(),
+            None,
+            "{fragment:?} is a fragment, not the announced thread"
+        );
+    }
+
+    // A spelling that is not an id at all never reaches the walk: not a
+    // path, not a flag, not an unbounded string.
+    for refused in ["../../etc", "-flag", "thread id", "a/b", &"a".repeat(129)] {
+        let mut clamped = CodexThreadEcho::default();
+        clamped.locate(home.path(), refused);
+        assert_eq!(clamped.effort(), None, "{refused:?} must be refused");
+    }
+
+    // And the id codex actually announced still reads its own file.
+    let mut mine = CodexThreadEcho::default();
+    mine.locate(home.path(), "0199mine");
+    assert_eq!(mine.effort().as_deref(), Some("xhigh"));
+}
+
+/// Codex announces `thread.started` and files the rollout as two
+/// separate writes, in an order it does not promise. A locator that
+/// resolved once and cached the miss would leave the seat reporting
+/// `not reported` — DSH's sentinel — for a harness that does echo its
+/// effort, collapsing the distinction ruling 3 rests on.
+#[test]
+fn a_thread_filed_after_it_was_announced_is_still_found_on_a_later_turn() {
+    let home = tempfile::tempdir().unwrap();
+    let dated = home.path().join("sessions/2026/09/03");
+    std::fs::create_dir_all(&dated).unwrap();
+
+    // Announced with nothing on disk yet: this turn honestly reports no
+    // effort rather than inventing one.
+    let mut echo = CodexThreadEcho::default();
+    echo.locate(home.path(), "0199late");
+    assert_eq!(echo.effort(), None);
+
+    // The rollout lands mid-seat, and the next turn reads it.
+    std::fs::write(
+        dated.join("rollout-0199late.jsonl"),
+        "{\"turn_context\":{\"effort\":\"medium\"}}\n",
+    )
+    .unwrap();
+    assert_eq!(echo.effort().as_deref(), Some("medium"));
+}
+
 /// The effort clamp, at both edges. A level crosses the driver boundary
 /// into an append-only journal, so it is bounded exactly as a model id
 /// is and tighter: an effort is a level, never a path, an id, or a
@@ -921,10 +988,30 @@ fn an_effort_token_is_one_bounded_word_or_nothing() {
         "levels/high",
         "high; rm -rf /",
         "hıgh",
+        // A level STARTS with an alphanumeric, because v2's `effort`
+        // pattern does. Refused here, the cost is one turn with no
+        // effort; journaled and refused at export, the cost is the
+        // run's whole export.
+        "_high",
+        "-high",
+        ".high",
+        ":high",
     ] {
         assert_eq!(effort_token(refused), None, "{refused:?} must be refused");
     }
     assert_eq!(effort_token(&"a".repeat(41)), None, "41 is over the clamp");
+    // Whatever this clamp admits, the contract must admit too.
+    for admitted in ["xhigh", "gpt-5.6:max_1", "0", &"a".repeat(40)] {
+        let level = effort_token(admitted).expect("admitted by the clamp");
+        assert!(
+            level.starts_with(|c: char| c.is_ascii_alphanumeric())
+                && level.len() <= 40
+                && level
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':')),
+            "{level:?} must satisfy seat-record.v2's effort pattern"
+        );
+    }
 }
 
 /// `--effort <level>` is the pinning grammar every adapter declares, and

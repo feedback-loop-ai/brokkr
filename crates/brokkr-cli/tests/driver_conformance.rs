@@ -58,15 +58,22 @@ printf '{"type":"result","num_turns":2,"total_cost_usd":0.125,"usage":{"input_to
 // in the thread record decision 0032's locator names, which this shim
 // writes where a real codex files one — under `$CODEX_HOME/sessions`, in
 // a dated directory, named for the thread it announced.
+//
+// The rollout is filed AFTER the thread is announced, deliberately.
+// Announcing and filing are two writes and codex promises no order
+// between them; a locator that resolved once at `thread.started` and
+// cached the miss would report `not reported` here — dsh's sentinel on
+// a harness that does echo its effort, which is the one distinction
+// ruling 3 rests on. Conformance is where that ordering is held.
 const CODEX_JSON_SHIM: &str = r#"#!/bin/sh
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 thread="$CODEX_HOME/sessions/2026/09/03"
+printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
 mkdir -p "$thread"
 printf '{"type":"turn_context","payload":{"turn_context":{"effort":"xhigh"}}}\n' \
   > "$thread/rollout-2026-09-03T00-00-00-codex-thread-1.jsonl"
-printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
 printf '{"type":"turn.started"}\n'
 printf '{"type":"item.started","item":{"type":"command_execution","command":"secret command"}}\n'
 printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"private output"}}\n'
