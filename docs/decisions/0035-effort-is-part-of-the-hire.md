@@ -139,7 +139,7 @@ reasoning — that is core to our ledger and modus operandi."
    What survives that scrutiny is not a name but a meter. Tokens, money
    and elapsed time are costly to fabricate and are what settle a
    dispute; a label is free to assert. Decision 0034 froze the meters
-   the record already had, and rulings 4 and 5 add the two it lacked.
+   the record already had, and rulings 3 and 4 add the two it lacked.
    That is why they are load-bearing here rather than decorative.
 
    **Enforcement binding:** no code changes for this ruling. It governs
