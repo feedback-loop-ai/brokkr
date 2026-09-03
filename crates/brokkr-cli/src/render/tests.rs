@@ -567,16 +567,16 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
-  participant                 status    attempts turns cost    model activity
-  intake                      succeeded 1        3     $0.0313 —     intook · 2m03s
+  participant                 status    attempts turns cost    tokens model activity
+  intake                      succeeded 1        3     $0.0313 —      —     intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects
-  design                      working   1        Σ 2   —       —     3 members ↓
+  design                      working   1        Σ 2   —       —      —     3 members ↓
     transcript  —
-  design:positions:simplicity succeeded 1        —     —       —     0s
+  design:positions:simplicity succeeded 1        —     —       —      —     0s
     transcript  —
-  design:positions:robustness succeeded 1        —     —       —     0s
+  design:positions:robustness succeeded 1        —     —       —      —     0s
     transcript  —
-  design:chief                working   1        2     —       —     Write
+  design:chief                working   1        2     —       —      —     Write
     transcript  —
 
 trail
@@ -630,8 +630,8 @@ live  design · working
 live  design:chief · turn 2 · Write
 
 seats
-  participant status    attempts turns cost    model activity
-  intake      succeeded 1        3     $0.0313 —     intook · 2m03s
+  participant status    attempts turns cost    tokens model activity
+  intake      succeeded 1        3     $0.0313 —      —     intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects
 
 trail

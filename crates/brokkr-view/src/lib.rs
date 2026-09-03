@@ -41,7 +41,9 @@ use serde_json::Value;
 /// Bumped to 4 by decision 0031: participants gained served-model evidence.
 /// Bumped to 5 by decision 0032: every participant gained the common
 /// transcript shape and its rendered cell.
-pub const VIEW_VERSION: u32 = 5;
+/// Bumped to 6 by decision 0034: seat accounting gained one structured
+/// token record and one rendered cell, including cache writes.
+pub const VIEW_VERSION: u32 = 6;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -183,6 +185,7 @@ pub struct CheckpointRow {
     pub turn: Cell,
     pub step: String,
     pub model: Cell,
+    pub usage: Cell,
     pub target: Cell,
     pub target_full: Option<String>,
     pub recorded_at: String,
@@ -213,6 +216,19 @@ pub struct Transcript {
     pub home: String,
 }
 
+/// Harness-reported token accounting under the seat-record vocabulary.
+/// `total_tokens` is exactly input + output. Cache reads are already a
+/// subset of input and cache writes stay separately visible, so neither
+/// is silently added a second time.
+#[derive(Serialize, Clone, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
 /// A run-level fact an operator must see rather than find: a
 /// compile-time capability gap the agent marked optional, or a fallback
 /// that actually happened. A notice that only lands in JSON nobody reads
@@ -240,6 +256,9 @@ pub struct Participant {
     pub cost: Option<f64>,
     pub cost_aggregated: bool,
     pub cost_cell: Cell,
+    pub usage: Option<TokenUsage>,
+    pub usage_aggregated: bool,
+    pub usage_cell: Cell,
     /// The provider-reported model. No adapter default or abstract agent
     /// choice is substituted when the journal carries no such report.
     pub model: Cell,
@@ -1151,6 +1170,12 @@ fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
                     .map(str::to_string),
                 Some("no served model recorded for this checkpoint"),
             ),
+            usage: cell_of(
+                token_usage(std::iter::once(checkpoint))
+                    .as_ref()
+                    .map(|usage| usage_text(usage, "")),
+                Some("no token usage recorded for this checkpoint"),
+            ),
             target: cell_of(
                 short,
                 Some("no target recorded — the journal carries file targets only"),
@@ -1207,12 +1232,9 @@ fn session_cost(part: &Build) -> Option<f64> {
 
 /// The tokens a seat actually spent, summed across its own turns.
 ///
-/// Deliberately NOT read off `Build.session` the way the cost is. The
-/// codex adapter writes each turn's counts into its session meta with an
-/// insert, which overwrites rather than accumulates, so the finished
-/// checkpoint carries the LAST turn's counts and calls them the
-/// session's. The per-turn `turn-completed` checkpoints are the only
-/// complete record, and they are already collected here.
+/// Per-turn checkpoints are authoritative. The finishing checkpoint is
+/// only the fallback for old or externally-authored records that do not
+/// carry turn accounting; reading both would count the same work twice.
 ///
 /// `cache_read_tokens` is not an addend: a cache read IS an input token,
 /// billed differently, and it arrives inside `input_tokens` already
@@ -1222,19 +1244,92 @@ fn session_cost(part: &Build) -> Option<f64> {
 /// `input_tokens` before journaling, so this sum holds whichever driver
 /// wrote the checkpoint. See "Checkpoints" in
 /// `docs/guides/driver-authoring.md`.
-fn session_tokens(part: &Build) -> Option<u64> {
-    let mut total: Option<u64> = None;
-    for (checkpoint, _) in &part.checkpoints {
-        if checkpoint.get("step").and_then(Value::as_str) != Some("turn-completed") {
-            continue;
-        }
-        for key in ["input_tokens", "output_tokens"] {
-            if let Some(count) = checkpoint.get(key).and_then(Value::as_u64) {
-                total = Some(total.unwrap_or_default().saturating_add(count));
-            }
+fn add_token(total: &mut Option<u64>, count: Option<u64>) {
+    if let Some(count) = count {
+        *total = Some(total.unwrap_or_default().saturating_add(count));
+    }
+}
+
+fn finish_usage(mut usage: TokenUsage) -> Option<TokenUsage> {
+    usage.total_tokens = match (usage.input_tokens, usage.output_tokens) {
+        (None, None) => None,
+        (input, output) => Some(
+            input
+                .unwrap_or_default()
+                .saturating_add(output.unwrap_or_default()),
+        ),
+    };
+    if usage.total_tokens.is_some()
+        || usage.cache_read_tokens.is_some()
+        || usage.cache_write_tokens.is_some()
+    {
+        Some(usage)
+    } else {
+        None
+    }
+}
+
+fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsage> {
+    let mut usage = TokenUsage::default();
+    for record in records {
+        add_token(
+            &mut usage.input_tokens,
+            record.get("input_tokens").and_then(Value::as_u64),
+        );
+        add_token(
+            &mut usage.output_tokens,
+            record.get("output_tokens").and_then(Value::as_u64),
+        );
+        add_token(
+            &mut usage.cache_read_tokens,
+            record.get("cache_read_tokens").and_then(Value::as_u64),
+        );
+        add_token(
+            &mut usage.cache_write_tokens,
+            record.get("cache_write_tokens").and_then(Value::as_u64),
+        );
+    }
+    finish_usage(usage)
+}
+
+fn session_usage(part: &Build) -> Option<TokenUsage> {
+    token_usage(
+        part.checkpoints
+            .iter()
+            .map(|(checkpoint, _)| checkpoint)
+            .filter(|checkpoint| {
+                matches!(
+                    checkpoint.get("step").and_then(Value::as_str),
+                    Some("seat-turn" | "turn-completed")
+                ) && [
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_read_tokens",
+                    "cache_write_tokens",
+                ]
+                .iter()
+                .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
+            }),
+    )
+    .or_else(|| token_usage(part.session.iter()))
+}
+
+fn usage_text(usage: &TokenUsage, prefix: &str) -> String {
+    let mut fields = Vec::new();
+    for (label, count) in [
+        ("in", usage.input_tokens),
+        ("out", usage.output_tokens),
+        ("cache read", usage.cache_read_tokens),
+        ("cache write", usage.cache_write_tokens),
+    ] {
+        if let Some(count) = count {
+            fields.push(format!("{label} {}", fmt_tokens(count)));
         }
     }
-    total
+    match usage.total_tokens {
+        Some(total) => format!("{prefix}{} · {}", fmt_tokens(total), fields.join(" · ")),
+        None => format!("{prefix}{}", fields.join(" · ")),
+    }
 }
 
 /// A token count as a table cell: `842 tok`, `312k tok`, `3.99M tok`.
@@ -1272,19 +1367,19 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .collect()
         };
         let mut cost = session_cost(part);
-        let mut tokens = session_tokens(part);
+        let mut usage = session_usage(part);
         let mut turns = part.turns;
         let mut cost_aggregated = false;
-        let mut tokens_aggregated = false;
+        let mut usage_aggregated = false;
         let mut turns_aggregated = false;
         if !members.is_empty() {
             let costs: Vec<f64> = members
                 .iter()
                 .filter_map(|other| session_cost(other))
                 .collect();
-            let member_tokens: Vec<u64> = members
+            let member_usage: Vec<TokenUsage> = members
                 .iter()
-                .filter_map(|other| session_tokens(other))
+                .filter_map(|other| session_usage(other))
                 .collect();
             let member_turns: Vec<u64> = members.iter().filter_map(|other| other.turns).collect();
             if cost.is_none() && !costs.is_empty() {
@@ -1297,13 +1392,16 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 cost = Some(total);
                 cost_aggregated = true;
             }
-            if tokens.is_none() && !member_tokens.is_empty() {
-                let mut total = 0u64;
-                for value in &member_tokens {
-                    total = total.saturating_add(*value);
+            if usage.is_none() && !member_usage.is_empty() {
+                let mut total = TokenUsage::default();
+                for member in &member_usage {
+                    add_token(&mut total.input_tokens, member.input_tokens);
+                    add_token(&mut total.output_tokens, member.output_tokens);
+                    add_token(&mut total.cache_read_tokens, member.cache_read_tokens);
+                    add_token(&mut total.cache_write_tokens, member.cache_write_tokens);
                 }
-                tokens = Some(total);
-                tokens_aggregated = true;
+                usage = finish_usage(total);
+                usage_aggregated = true;
             }
             if turns.is_none() && !member_turns.is_empty() {
                 let mut total = 0u64;
@@ -1316,7 +1414,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         }
         let turns_prefix = if turns_aggregated { "Σ " } else { "" };
         let cost_prefix = if cost_aggregated { "Σ " } else { "" };
-        let tokens_prefix = if tokens_aggregated { "Σ " } else { "" };
+        let usage_prefix = if usage_aggregated { "Σ " } else { "" };
         // What this seat spent, in the only unit its harness reported.
         // A price when there is one; otherwise the tokens the turns
         // counted; otherwise the absence mark, as before. Never a
@@ -1330,9 +1428,10 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         // right beneath it. Folding tokens into a dollar figure, or
         // printing both in one cell, would be the unit mixing this
         // whole cell exists to refuse.
+        let tokens = usage.as_ref().and_then(|usage| usage.total_tokens);
         let cost_text = match (cost, tokens) {
             (Some(cost), _) => Some(format!("{cost_prefix}${}", js::to_fixed_4(cost))),
-            (None, Some(tokens)) => Some(format!("{tokens_prefix}{}", fmt_tokens(tokens))),
+            (None, Some(tokens)) => Some(format!("{usage_prefix}{}", fmt_tokens(tokens))),
             (None, None) => None,
         };
         let model = match &part.model {
@@ -1382,6 +1481,12 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             cost,
             cost_aggregated,
             cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
+            usage_cell: cell_of(
+                usage.as_ref().map(|usage| usage_text(usage, usage_prefix)),
+                Some("no token usage recorded"),
+            ),
+            usage,
+            usage_aggregated,
             model: cell_of(model, Some("no served model recorded")),
             activity: activity_for(events, scan, part, members.len()),
             member_count: members.len(),

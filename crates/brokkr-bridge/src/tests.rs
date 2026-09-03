@@ -610,10 +610,12 @@ fn normalization_covers_the_closed_event_vocabulary_and_redaction_edges() {
         "turn": 2,
         "target": "/private/path",
         "session_ref": "private-session",
+        "cache_write_tokens": 7,
         "total_cost_usd": 1.25,
     }));
     assert_eq!(checkpoint["step"].as_str().unwrap().chars().count(), 80);
     assert_eq!(checkpoint["turn"], 2);
+    assert_eq!(checkpoint["cache_write_tokens"], 7);
     assert_eq!(checkpoint["target_state"], "withheld-private-path");
     assert_eq!(checkpoint["session_reference_state"], "observed-redacted");
     assert_eq!(checkpoint["forge_observed_cost_usd"], 1.25);

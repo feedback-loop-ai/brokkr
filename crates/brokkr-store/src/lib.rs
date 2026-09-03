@@ -69,6 +69,10 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod seat_record;
+
+pub use seat_record::{validate_seat_record, SeatRecordError};
+
 pub const DATABASE_SCHEMA: u32 = 1;
 
 /// How long any statement waits for a peer's write lock before giving
@@ -115,6 +119,8 @@ pub enum StoreError {
     RunExists(String),
     #[error("chain: {0}")]
     Chain(#[from] ChainError),
+    #[error(transparent)]
+    SeatRecord(#[from] SeatRecordError),
     #[error("database schema {found} unsupported (want {DATABASE_SCHEMA})")]
     SchemaMismatch { found: u32 },
     #[error("append conflict: seq {seq} already written by another writer")]
@@ -929,6 +935,7 @@ impl Store {
     /// Canonical NDJSON export: one sealed envelope per line, in order.
     pub fn export_ndjson(&self, run_id: &str) -> Result<String, StoreError> {
         let events = self.load(run_id)?;
+        seat_record::validate_events(&events)?;
         let mut out = String::new();
         for event in &events {
             out.push_str(&serde_json::to_string(&serde_json::to_value(event)?)?);
@@ -952,13 +959,16 @@ impl Store {
     ///    of one that would not be an adoption of unverifiable content.
     /// 2. The **chain must verify whole**. One broken link refuses the
     ///    import — never a good prefix of it.
-    /// 3. The events must **fold**, and a `FoldError` refuses with the
+    /// 3. Every checkpoint and successful result must satisfy the frozen
+    ///    **seat-record contract**. No malformed record is adopted as
+    ///    evidence merely because its enclosing hash chain is intact.
+    /// 4. The events must **fold**, and a `FoldError` refuses with the
     ///    same citation a quarantined run shows anywhere else.
-    /// 4. The **run_id must be one this journal would carry**. A
+    /// 5. The **run_id must be one this journal would carry**. A
     ///    verified chain proves its bytes were not altered; the hashes
     ///    are unkeyed, so it never proves the sealer was entitled to the
     ///    name. See [`adoptable`].
-    /// 5. The destination must not already carry this **run_id**. The
+    /// 6. The destination must not already carry this **run_id**. The
     ///    run_id is hashed into every envelope, so a collision is
     ///    structurally not a rename-and-retry: it is the operator's to
     ///    rule on. A second import of the same export refuses here for
@@ -1143,12 +1153,12 @@ impl Store {
     }
 }
 
-/// Verify an exported NDJSON journal offline: parse, chain, fold.
+/// Verify an exported NDJSON journal offline: parse, chain, seat record, fold.
 pub fn verify_export(ndjson: &str) -> Result<brokkr_core::RunState, VerifyError> {
     verified_events(ndjson).map(|(_, state)| state)
 }
 
-/// The same three checks as [`verify_export`], handing back the
+/// The same four checks as [`verify_export`], handing back the
 /// envelopes as well as the state they fold to. An adoption needs the
 /// envelopes themselves — it writes their exact bytes — and must make
 /// the checks on the very bytes it adopts, not on a second parse of
@@ -1163,6 +1173,7 @@ pub fn verified_events(
         .collect::<Result<Vec<_>, _>>()
         .map_err(VerifyError::Parse)?;
     verify_chain(&events).map_err(VerifyError::Chain)?;
+    seat_record::validate_events(&events).map_err(VerifyError::SeatRecord)?;
     let state = brokkr_core::fold(&events).map_err(VerifyError::Fold)?;
     Ok((events, state))
 }
@@ -1433,6 +1444,8 @@ pub enum VerifyError {
     Parse(serde_json::Error),
     #[error("chain: {0}")]
     Chain(ChainError),
+    #[error(transparent)]
+    SeatRecord(SeatRecordError),
     #[error("fold: {0}")]
     Fold(brokkr_core::FoldError),
 }

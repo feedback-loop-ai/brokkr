@@ -15,6 +15,11 @@ allow = [
   # Unicode data tables in the TUI dependency tree — a permissive DATA
   # license (Community Data License Agreement), within the ruling.
   "CDLA-Permissive-2.0",
+  # Arrived with the seat-record validator's schema tree (decision
+  # 0034): MIT without even the attribution clause. Strictly more
+  # permissive than the MIT already allowed above, so it imposes less
+  # than anything on this list rather than more.
+  "MIT-0",
 ]
 
 [advisories]

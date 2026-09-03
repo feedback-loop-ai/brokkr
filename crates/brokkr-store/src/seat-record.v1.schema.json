@@ -1,0 +1,332 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/seat-record.v1.json",
+  "title": "Forge seat record v1",
+  "description": "The frozen vocabulary shared by a seat's per-turn checkpoints, finishing checkpoint, and successful result (decision 0034). It is an accounting record, never a transcript: no prompt, response, reasoning, command, tool arguments, tool results, diff, or other prose field is admitted. The phase result's result, inputs, and notes fields remain the separately governed typed report; only the adjacent model, usage, cost, session, transcript, tool, and target fields are this contract's record. input_tokens includes cache reads; cache_read_tokens is its reported subset and must never be added to input_tokens again by a view. A cache creation reported separately by a harness is cache_write_tokens. Numeric accounting is omitted when unreported and, when present, is strictly greater than zero. Historical journals remain readable: model and transcript are optional in the schema because no record-version marker distinguishes rows written before decisions 0031 and 0032; current built-in completeness is enforced by driver conformance.",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/checkpoint"
+    },
+    {
+      "$ref": "#/definitions/result"
+    }
+  ],
+  "definitions": {
+    "positive_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "model": {
+      "description": "The harness-reported served model, never a configured pin. The only non-provider values are the two sentinels ruled by decision 0031.",
+      "oneOf": [
+        {
+          "enum": [
+            "not reported",
+            "not applicable"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        }
+      ]
+    },
+    "transcript": {
+      "description": "Decision 0032's retained, harness-owned locator. It carries an id or path and never transcript content.",
+      "type": "object",
+      "required": [
+        "kind",
+        "locator",
+        "home"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "claude-session",
+            "codex-thread",
+            "dsh-session",
+            "none"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "home": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "const": ""
+              },
+              "home": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    "record_fields": {
+      "model": {
+        "$ref": "#/definitions/model"
+      },
+      "turn": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "num_turns": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "input_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "All reported input tokens, inclusive of cache_read_tokens."
+      },
+      "output_tokens": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "cache_read_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "The cache-read subset of input_tokens; never a second addend."
+      },
+      "cache_write_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "Tokens the harness reports as written to or created in its cache."
+      },
+      "total_cost_usd": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "session_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      },
+      "transcript": {
+        "$ref": "#/definitions/transcript"
+      },
+      "tool": {
+        "description": "A bounded harness tool identifier, never its arguments or command.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      },
+      "target": {
+        "description": "A bounded file-path-only target for the tool call; never a command, URL, tool argument object, or prose.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": [
+        "step"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "turn": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "harness": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "capture": {
+          "enum": [
+            "lanetally"
+          ]
+        },
+        "launch": {
+          "enum": [
+            "cold",
+            "resumed"
+          ]
+        },
+        "resume_refusal": {
+          "enum": [
+            "invalid-session-id",
+            "sandbox-unavailable",
+            "unsupported-sandbox",
+            "incompatible-argv",
+            "harness-refused"
+          ]
+        },
+        "sandbox": {
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "indeterminate"
+          ]
+        },
+        "session_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "inner_checkpoints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "result": {
+          "type": "object"
+        }
+      },
+      "dependencies": {
+        "tool": [
+          "turn"
+        ],
+        "target": [
+          "turn",
+          "tool"
+        ]
+      }
+    },
+    "result": {
+      "description": "A successful typed phase result plus the seat record reported beside it. result, inputs, and notes are phase-machine/report fields, not permission for harness prose in accounting fields.",
+      "type": "object",
+      "required": [
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "notes": {},
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "seat_input": {}
+      }
+    }
+  }
+}

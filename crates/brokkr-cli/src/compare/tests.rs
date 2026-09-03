@@ -66,7 +66,9 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
                 "step":"claude-lanetally-session-finished",
                 "capture":"lanetally",
                 "model":"claude-fable-5-1",
-                "num_turns":2, "total_cost_usd":0.125}}),
+                "num_turns":2, "total_cost_usd":0.125,
+                "input_tokens":28, "output_tokens":5,
+                "cache_read_tokens":13, "cache_write_tokens":4}}),
         ),
         event(
             EventType::EffectRequested,
@@ -82,9 +84,56 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
     assert_eq!(
         costs["implement"],
         json!({"attempts": 2, "turns": 2, "cost_usd": 0.125,
-               "model": "claude-fable-5-1, claude-sonnet-5"})
+               "model": "claude-fable-5-1, claude-sonnet-5",
+               "input_tokens":28, "output_tokens":5,
+               "cache_read_tokens":13, "cache_write_tokens":4})
     );
     assert_eq!(total, 0.125);
+}
+
+#[test]
+fn seat_costs_prefer_turn_usage_over_the_repeated_finishing_totals() {
+    let events = vec![
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"fx", "seat":"implement"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"fx"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"seat-turn", "turn":1, "model":"claude-served",
+                "input_tokens":13, "output_tokens":2,
+                "cache_read_tokens":3, "cache_write_tokens":4}}),
+        ),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"seat-turn", "turn":2, "model":"claude-served",
+                "input_tokens":15, "output_tokens":3, "cache_read_tokens":10}}),
+        ),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"claude-code-session-finished", "model":"claude-served",
+                "num_turns":2, "input_tokens":28, "output_tokens":5,
+                "cache_read_tokens":13, "cache_write_tokens":4}}),
+        ),
+        event(
+            EventType::EffectSucceeded,
+            json!({"effect_id":"fx", "result":{
+                "result":"complete", "model":"claude-served",
+                "input_tokens":28, "output_tokens":5,
+                "cache_read_tokens":13, "cache_write_tokens":4}}),
+        ),
+    ];
+
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["implement"]["input_tokens"], 28);
+    assert_eq!(costs["implement"]["output_tokens"], 5);
+    assert_eq!(costs["implement"]["cache_read_tokens"], 13);
+    assert_eq!(costs["implement"]["cache_write_tokens"], 4);
+    assert!(costs["implement"].get("total_tokens").is_none());
 }
 
 #[test]
@@ -113,4 +162,64 @@ fn run_facts_ignores_missing_display_only_phase_join() {
     let facts = run_facts(&store, "run").unwrap();
     assert_eq!(facts.attempts, 1);
     assert_eq!(facts.summary["phases_visited"], json!({}));
+}
+
+#[test]
+fn seat_costs_read_partial_usage_untracked_results_and_a_second_cost_report() {
+    let events = vec![
+        // Per-turn usage carrying only output: answering "is there any
+        // usage here" has to look past the input count to find it.
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"out", "seat":"scribe"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"out"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"out", "checkpoint":{"step":"seat-turn", "output_tokens":9}}),
+        ),
+        // Only a cache read: past the input and output counts both.
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"cache", "seat":"reader"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"cache"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"cache", "checkpoint":{"step":"seat-turn", "cache_read_tokens":11}}),
+        ),
+        // A start naming no effect at all.
+        event(EventType::EffectStarted, json!({})),
+        // A result for an effect no request ever seated.
+        event(
+            EventType::EffectSucceeded,
+            json!({"effect_id":"ghost", "result":{"total_cost_usd":9.5}}),
+        ),
+        // Cost already counted from the checkpoint: the result repeats
+        // the same money and must not be charged a second time.
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id":"paid", "seat":"implement"}),
+        ),
+        event(EventType::EffectStarted, json!({"effect_id":"paid"})),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"paid", "checkpoint":{
+                "model":"claude-fable-5-1", "num_turns":1, "total_cost_usd":0.5}}),
+        ),
+        event(
+            EventType::EffectSucceeded,
+            json!({"effect_id":"paid", "result":{"num_turns":7, "total_cost_usd":99.0}}),
+        ),
+    ];
+
+    let (costs, total) = seat_costs(&events);
+    assert_eq!(costs["scribe"]["output_tokens"], 9);
+    assert!(costs["scribe"].get("input_tokens").is_none());
+    assert_eq!(costs["reader"]["cache_read_tokens"], 11);
+    assert_eq!(costs["implement"]["cost_usd"], 0.5);
+    assert_eq!(costs["implement"]["turns"], 1);
+    assert_eq!(costs["implement"]["model"], "claude-fable-5-1");
+    assert!(!costs.contains_key("ghost"));
+    assert_eq!(total, 0.5);
 }

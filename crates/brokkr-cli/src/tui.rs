@@ -2733,6 +2733,7 @@ fn draw_seats(
             "attempts",
             "turns",
             "cost",
+            "tokens",
             "model",
             "activity",
         ]
@@ -2762,6 +2763,7 @@ fn draw_seats(
                 cell(&part.attempts.to_string(), plain()),
                 cell(&part.turns_cell.text, plain()),
                 cell(&part.cost_cell.text, plain()),
+                cell(&part.usage_cell.text, plain()),
                 cell(&part.model.text, plain()),
                 cell(&part.activity.text, live),
             ])
@@ -2782,6 +2784,7 @@ fn draw_seats(
                 cell("", plain()),
                 cell("", plain()),
                 cell("", plain()),
+                cell("", plain()),
                 cell(&format!("↳ {}", provenance.line), plain()),
             ]));
         }
@@ -2792,6 +2795,7 @@ fn draw_seats(
         Constraint::Length(8),
         Constraint::Length(6),
         Constraint::Length(10),
+        Constraint::Length(18),
         Constraint::Length(22),
         Constraint::Min(10),
     ];
@@ -2871,8 +2875,8 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         line(&format!("model     {}", part.model.text), plain()),
         line(
             &format!(
-                "attempts {} · turns {} · cost {}",
-                part.attempts, part.turns_cell.text, part.cost_cell.text
+                "attempts {} · turns {} · cost {} · tokens {}",
+                part.attempts, part.turns_cell.text, part.cost_cell.text, part.usage_cell.text
             ),
             plain(),
         ),
@@ -2885,8 +2889,13 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         .map(|row| {
             line(
                 &format!(
-                    "{}  {}  model {}  {}  {}",
-                    row.turn.text, row.step, row.model.text, row.target.text, row.recorded_at
+                    "{}  {}  model {}  tokens {}  {}  {}",
+                    row.turn.text,
+                    row.step,
+                    row.model.text,
+                    row.usage.text,
+                    row.target.text,
+                    row.recorded_at
                 ),
                 plain(),
             )

@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use brokkr_store::validate_seat_record;
 use serde_json::{json, Value};
 
 fn brokkr_bin() -> &'static str {
@@ -40,10 +41,10 @@ prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 printf '{"type":"system","subtype":"init","session_id":"stream-1"}\n'
-printf '{"type":"assistant","message":{"model":"claude-fable-5-1","content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
+printf '{"type":"assistant","message":{"model":"claude-fable-5-1","usage":{"input_tokens":10,"cache_creation_input_tokens":4,"cache_read_input_tokens":3,"output_tokens":2},"content":[{"type":"text","text":"looking"},{"type":"tool_use","name":"Read","input":{"file_path":"src/lib.rs"}}]}}\n'
 printf 'not json, ignorable noise\n'
-printf '{"type":"assistant","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
-printf '{"type":"result","num_turns":2,"total_cost_usd":0.125}\n'
+printf '{"type":"assistant","message":{"model":"claude-fable-5-1","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":3},"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Write","input":{"file_path":"src/out.rs"}}]}}\n'
+printf '{"type":"result","num_turns":2,"total_cost_usd":0.125,"usage":{"input_tokens":15,"cache_creation_input_tokens":4,"cache_read_input_tokens":13,"output_tokens":5}}\n'
 "#;
 
 const CODEX_JSON_SHIM: &str = r#"#!/bin/sh
@@ -233,6 +234,30 @@ fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
     ]
 }
 
+fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
+    for message in messages {
+        if message["type"] == "checkpoint" {
+            let record = &message["data"];
+            validate_seat_record(record, 0)
+                .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
+            assert!(
+                record.get("model").and_then(Value::as_str).is_some(),
+                "{label}/{case}: every current checkpoint carries decision 0031 model evidence: {record}"
+            );
+        }
+        if message["type"] == "result" && message["status"] == "succeeded" {
+            let record = &message["result"];
+            validate_seat_record(record, 0)
+                .unwrap_or_else(|error| panic!("{label}/{case}: {error}: {record}"));
+            assert!(record.get("model").and_then(Value::as_str).is_some());
+            assert!(record
+                .get("transcript")
+                .and_then(Value::as_object)
+                .is_some());
+        }
+    }
+}
+
 #[test]
 fn conformance_across_all_builtin_adapters() {
     for case in ["obedient", "silent"] {
@@ -345,6 +370,7 @@ fn conformance_across_all_builtin_adapters() {
             for message in &out {
                 assert_eq!(message["proto"], "forge-driver/v1", "{label}");
             }
+            assert_seat_records_conform(&out, label, case);
             let transcript_rows: Vec<&Value> = out
                 .iter()
                 .filter(|message| {
@@ -395,14 +421,18 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/lib.rs", "model": "claude-fable-5-1",
+                           "input_tokens":13, "output_tokens":2,
+                           "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/main.rs", "model": "claude-fable-5-1",
+                           "input_tokens":15, "output_tokens":3,
+                           "cache_read_tokens":10}),
                     "{label}: {}",
                     out[4]
                 );
@@ -420,6 +450,10 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
                 assert_eq!(finished["model"], "claude-fable-5-1", "{label}");
+                assert_eq!(finished["input_tokens"], 28, "{label}");
+                assert_eq!(finished["output_tokens"], 5, "{label}");
+                assert_eq!(finished["cache_read_tokens"], 13, "{label}");
+                assert_eq!(finished["cache_write_tokens"], 4, "{label}");
                 // The capture guard is kind-scoped: only lanetally's
                 // finished checkpoint ever carries the marker.
                 assert!(finished.get("capture").is_none(), "{label}: {finished}");
@@ -431,14 +465,18 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(
                     out[3]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
-                           "target": "src/lib.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/lib.rs", "model": "claude-fable-5-1",
+                           "input_tokens":13, "output_tokens":2,
+                           "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
-                           "target": "src/main.rs", "model": "claude-fable-5-1"}),
+                           "target": "src/main.rs", "model": "claude-fable-5-1",
+                           "input_tokens":15, "output_tokens":3,
+                           "cache_read_tokens":10}),
                     "{label}: {}",
                     out[4]
                 );
@@ -460,25 +498,32 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["total_cost_usd"], 0.125, "{label}");
                 assert_eq!(finished["exit_code"], 0, "{label}");
                 assert_eq!(finished["model"], "claude-fable-5-1", "{label}");
+                assert_eq!(finished["input_tokens"], 28, "{label}");
+                assert_eq!(finished["output_tokens"], 5, "{label}");
+                assert_eq!(finished["cache_read_tokens"], 13, "{label}");
+                assert_eq!(finished["cache_write_tokens"], 4, "{label}");
             } else if codex && case == "obedient" {
                 // Nobody offered this attempt a session, so the launch
                 // is cold and says so with no reason to give: a reason
                 // exists only where an offer could not be taken.
                 assert_eq!(
                     out[2]["data"],
-                    json!({"step":"harness-started", "harness":"codex", "launch":"cold"}),
+                    json!({"step":"harness-started", "harness":"codex", "launch":"cold",
+                           "model":"not reported"}),
                     "{label}: {}",
                     out[2]
                 );
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step":"transcript", "transcript": transcript}),
+                    json!({"step":"transcript", "transcript": transcript,
+                           "model":"not reported"}),
                     "{label}: {}",
                     out[3]
                 );
                 assert_eq!(
                     out[4]["data"],
-                    json!({"step":"turn-started", "turn":1, "harness":"codex"})
+                    json!({"step":"turn-started", "turn":1, "harness":"codex",
+                           "model":"not reported"})
                 );
                 assert_eq!(out[5]["data"]["tool"], "command_execution");
                 assert!(out[5]["data"].get("command").is_none());
@@ -514,18 +559,12 @@ fn conformance_across_all_builtin_adapters() {
                     }
                 );
             } else if exec {
-                // The journaled target is the UNRESOLVED template within
-                // the 80-char clamp (decision 0012 amendment).
+                // Exec has no model usage or transcript. Its command is
+                // deliberately not a seat-record target: targets are
+                // file paths belonging to numbered tool turns.
                 assert_eq!(out[2]["data"]["step"], "transcript", "{label}");
                 assert_eq!(out[3]["data"]["step"], "exec-started", "{label}");
-                let target = out[3]["data"]["target"].as_str().unwrap();
-                assert!(target.chars().count() <= 80, "{label}: {target}");
-                let template = args[2..].join(" ");
-                assert_eq!(
-                    target,
-                    template.chars().take(80).collect::<String>(),
-                    "{label}"
-                );
+                assert!(out[3]["data"].get("target").is_none(), "{label}");
                 assert_eq!(out[out.len() - 2]["data"]["transcript"], *transcript);
                 assert_eq!(out[out.len() - 2]["data"]["model"], "not applicable");
             }
@@ -551,6 +590,12 @@ fn conformance_across_all_builtin_adapters() {
                     result["result"]["model"], expected_model,
                     "{label}: {result}"
                 );
+                if claude || lanetally {
+                    assert_eq!(result["result"]["input_tokens"], 28, "{label}");
+                    assert_eq!(result["result"]["output_tokens"], 5, "{label}");
+                    assert_eq!(result["result"]["cache_read_tokens"], 13, "{label}");
+                    assert_eq!(result["result"]["cache_write_tokens"], 4, "{label}");
+                }
             } else {
                 assert_eq!(result["status"], "failed", "{label}: {result}");
                 assert!(
@@ -760,11 +805,13 @@ fn exec_injects_via_env_only_and_masks_the_stderr_reemit() {
         std::fs::read_to_string(dir.path().join("argv.txt")).unwrap(),
         "$API_TOKEN"
     );
-    // The checkpointed target is the unresolved template.
+    // Exec command templates stay in the pinned manifest, never in the
+    // prose-free seat record.
     assert_eq!(out[2]["data"]["step"], "transcript");
-    let target = out[3]["data"]["target"].as_str().unwrap();
-    assert!(target.contains("{{secret:API_TOKEN}}") || target.chars().count() == 80);
-    assert!(!target.contains(SECRET_VALUE));
+    assert!(out[3]["data"].get("target").is_none());
+    assert!(!serde_json::to_string(&out[3])
+        .unwrap()
+        .contains(SECRET_VALUE));
     // The child's stderr leak reaches the driver's re-emit masked.
     assert!(stderr.contains("[secret:API_TOKEN]"), "stderr: {stderr}");
     assert!(!stderr.contains(SECRET_VALUE), "stderr: {stderr}");

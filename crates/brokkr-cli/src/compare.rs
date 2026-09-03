@@ -14,14 +14,75 @@ use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use serde_json::{json, Map, Value};
 
-/// Per-seat attempts/turns/cost from the journal — the aggregation
+/// Per-seat attempts/turns/cost/token usage from the journal — the aggregation
 /// shared by `brokkr costs` and `brokkr compare`: attempts from
 /// `effect/started` joined through `effect/requested.seat`, turns and
 /// cost from `effect/checkpointed` payloads. Returns the per-seat
 /// report map and the total cost.
 pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
+    #[derive(Default)]
+    struct Usage {
+        input: Option<u64>,
+        output: Option<u64>,
+        cache_read: Option<u64>,
+        cache_write: Option<u64>,
+    }
+    impl Usage {
+        fn add_record(&mut self, record: &Value) {
+            for (total, key) in [
+                (&mut self.input, "input_tokens"),
+                (&mut self.output, "output_tokens"),
+                (&mut self.cache_read, "cache_read_tokens"),
+                (&mut self.cache_write, "cache_write_tokens"),
+            ] {
+                if let Some(value) = record.get(key).and_then(Value::as_u64) {
+                    *total = Some(total.unwrap_or_default().saturating_add(value));
+                }
+            }
+        }
+
+        fn has_any(&self) -> bool {
+            self.input.is_some()
+                || self.output.is_some()
+                || self.cache_read.is_some()
+                || self.cache_write.is_some()
+        }
+
+        fn merge(&mut self, other: &Self) {
+            for (total, value) in [
+                (&mut self.input, other.input),
+                (&mut self.output, other.output),
+                (&mut self.cache_read, other.cache_read),
+                (&mut self.cache_write, other.cache_write),
+            ] {
+                if let Some(value) = value {
+                    *total = Some(total.unwrap_or_default().saturating_add(value));
+                }
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct EffectAccounting {
+        attempts: u64,
+        turns: u64,
+        cost: f64,
+        models: BTreeSet<String>,
+        turns_usage: Usage,
+        finishing_usage: Usage,
+    }
+
+    #[derive(Default)]
+    struct SeatAccounting {
+        attempts: u64,
+        turns: u64,
+        cost: f64,
+        models: BTreeSet<String>,
+        usage: Usage,
+    }
+
     let mut effect_seat: BTreeMap<String, String> = BTreeMap::new();
-    let mut seats: BTreeMap<String, (u64, u64, f64, BTreeSet<String>)> = BTreeMap::new();
+    let mut effects: BTreeMap<String, EffectAccounting> = BTreeMap::new();
     for event in events {
         let payload = &event.payload;
         match event.event_type {
@@ -31,68 +92,139 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     payload.get("seat").and_then(Value::as_str),
                 ) {
                     effect_seat.insert(id.to_string(), seat.to_string());
+                    effects.entry(id.to_string()).or_default();
                 }
             }
             EventType::EffectStarted => {
-                if let Some(seat) = payload
-                    .get("effect_id")
-                    .and_then(Value::as_str)
-                    .and_then(|id| effect_seat.get(id))
-                {
-                    seats.entry(seat.clone()).or_default().0 += 1;
+                if let Some(id) = payload.get("effect_id").and_then(Value::as_str) {
+                    if effect_seat.contains_key(id) {
+                        effects.entry(id.to_string()).or_default().attempts += 1;
+                    }
                 }
             }
             EventType::EffectCheckpointed => {
-                let seat = payload
+                if let Some(accounting) = payload
                     .get("effect_id")
                     .and_then(Value::as_str)
-                    .and_then(|id| effect_seat.get(id))
-                    .cloned();
-                if let Some(seat) = seat {
+                    .filter(|id| effect_seat.contains_key(*id))
+                    .and_then(|id| effects.get_mut(id))
+                {
                     let checkpoint = &payload["checkpoint"];
-                    let entry = seats.entry(seat).or_default();
-                    entry.1 += checkpoint
+                    accounting.turns += checkpoint
                         .get("num_turns")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    entry.2 += checkpoint
+                    accounting.cost += checkpoint
                         .get("total_cost_usd")
                         .and_then(Value::as_f64)
                         .unwrap_or(0.0);
                     if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
-                        entry.3.insert(model.to_string());
+                        accounting.models.insert(model.to_string());
+                    }
+                    if matches!(
+                        checkpoint.get("step").and_then(Value::as_str),
+                        Some("seat-turn" | "turn-completed")
+                    ) {
+                        accounting.turns_usage.add_record(checkpoint);
+                    } else if [
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_write_tokens",
+                    ]
+                    .iter()
+                    .any(|key| checkpoint.get(*key).is_some())
+                    {
+                        accounting.finishing_usage = Usage::default();
+                        accounting.finishing_usage.add_record(checkpoint);
                     }
                 }
             }
             EventType::EffectSucceeded => {
-                let seat = payload
+                let accounting = payload
                     .get("effect_id")
                     .and_then(Value::as_str)
-                    .and_then(|id| effect_seat.get(id))
-                    .cloned();
-                if let (Some(seat), Some(model)) = (
-                    seat,
-                    payload.pointer("/result/model").and_then(Value::as_str),
-                ) {
-                    seats.entry(seat).or_default().3.insert(model.to_string());
+                    .filter(|id| effect_seat.contains_key(*id))
+                    .and_then(|id| effects.get_mut(id));
+                if let Some(accounting) = accounting {
+                    let result = &payload["result"];
+                    if let Some(model) = result.get("model").and_then(Value::as_str) {
+                        accounting.models.insert(model.to_string());
+                    }
+                    if !accounting.finishing_usage.has_any() {
+                        accounting.finishing_usage.add_record(result);
+                    }
+                    if accounting.turns == 0 {
+                        accounting.turns =
+                            result.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
+                    }
+                    if accounting.cost == 0.0 {
+                        accounting.cost = result
+                            .get("total_cost_usd")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0);
+                    }
                 }
             }
             _ => {}
         }
     }
-    let total: f64 = seats.values().map(|(_, _, c, _)| c).sum();
+    let mut seats: BTreeMap<String, SeatAccounting> = BTreeMap::new();
+    for (effect_id, seat) in effect_seat {
+        // `effect/requested` writes both maps together, so every seated
+        // effect carries an accounting row: there is no third state here
+        // to branch on.
+        let effect = effects
+            .get(&effect_id)
+            .expect("every seated effect carries accounting");
+        let entry = seats.entry(seat).or_default();
+        entry.attempts += effect.attempts;
+        entry.turns += effect.turns;
+        entry.cost += effect.cost;
+        entry.models.extend(effect.models.iter().cloned());
+        entry.usage.merge(if effect.turns_usage.has_any() {
+            &effect.turns_usage
+        } else {
+            &effect.finishing_usage
+        });
+    }
+    let total: f64 = seats.values().map(|seat| seat.cost).sum();
     let report: Map<String, Value> = seats
         .into_iter()
-        .map(|(seat, (attempts, turns, cost, models))| {
+        .map(|(seat, accounting)| {
+            // The sentinels of decision 0031 are what a harness reports
+            // when it names no model. A seat that also served a real
+            // model reports that one alone; a seat that only ever
+            // reported a sentinel keeps the sentinel.
+            let mut models = accounting.models;
+            let mut named = models.clone();
+            named.remove("not reported");
+            named.remove("not applicable");
+            if !named.is_empty() {
+                models = named;
+            }
             let model = match models.len() {
                 0 => "not reported".to_string(),
                 1 => models.into_iter().next().expect("one model"),
                 _ => models.into_iter().collect::<Vec<_>>().join(", "),
             };
-            (
-                seat,
-                json!({"attempts": attempts, "turns": turns, "cost_usd": cost, "model": model}),
-            )
+            let mut record = Map::from_iter([
+                ("attempts".to_string(), Value::from(accounting.attempts)),
+                ("turns".to_string(), Value::from(accounting.turns)),
+                ("cost_usd".to_string(), Value::from(accounting.cost)),
+                ("model".to_string(), Value::from(model)),
+            ]);
+            for (key, value) in [
+                ("input_tokens", accounting.usage.input),
+                ("output_tokens", accounting.usage.output),
+                ("cache_read_tokens", accounting.usage.cache_read),
+                ("cache_write_tokens", accounting.usage.cache_write),
+            ] {
+                if let Some(value) = value {
+                    record.insert(key.to_string(), Value::from(value));
+                }
+            }
+            (seat, Value::Object(record))
         })
         .collect();
     (report, total)
