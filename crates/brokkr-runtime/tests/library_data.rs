@@ -26,19 +26,19 @@ const CHARTERS: [(&str, &str); 15] = [
     ),
     (
         "implementer-speckit.md",
-        "87425568ebed546e09592abe2238cc163fe693843697f95c8689bf5a850e15c6",
+        "8b4b3b12f0df64a695a412b42288a2c112bbed61e55ae7bdc77c588f080a0564",
     ),
     (
         "implementer.md",
-        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
+        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
     ),
     (
         "intake-speckit.md",
-        "1df8977a6972c28ca0ba9766c0bd50567f8880951ee3d13799207295faaa687c",
+        "2fb2a1685da166fc0c4dc519a711913f81fff451a441f6f3572abac73ddf23d1",
     ),
     (
         "intake.md",
-        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
+        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
     ),
     (
         "position-robustness.md",

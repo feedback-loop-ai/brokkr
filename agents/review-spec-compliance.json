@@ -26,11 +26,5 @@
         "mode": "ro"
       }
     ]
-  },
-  "tools": {
-    "allow": [
-      "git"
-    ],
-    "mcp": []
   }
 }

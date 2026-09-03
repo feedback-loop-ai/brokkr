@@ -29,12 +29,6 @@
       }
     ]
   },
-  "tools": {
-    "allow": [
-      "git"
-    ],
-    "mcp": []
-  },
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 3600

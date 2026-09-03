@@ -77,12 +77,12 @@ const PANEL_REVIEW: &Roster = &[
     (
         "intake",
         "claude-sonnet-5",
-        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
+        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
     ),
     (
         "implement",
         "claude-opus-5",
-        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
+        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
     ),
     (
         "verify",
@@ -110,12 +110,12 @@ const SDD: &Roster = &[
     (
         "intake",
         "claude-sonnet-5",
-        "1df8977a6972c28ca0ba9766c0bd50567f8880951ee3d13799207295faaa687c",
+        "2fb2a1685da166fc0c4dc519a711913f81fff451a441f6f3572abac73ddf23d1",
     ),
     (
         "implement",
         "claude-opus-5",
-        "87425568ebed546e09592abe2238cc163fe693843697f95c8689bf5a850e15c6",
+        "8b4b3b12f0df64a695a412b42288a2c112bbed61e55ae7bdc77c588f080a0564",
     ),
     (
         "verify",
@@ -157,12 +157,12 @@ const SELF: &Roster = &[
     (
         "intake",
         "claude-sonnet-5",
-        "c1025fb03a97615c5af3bd58a9bf8da231b15071523acd03d3ff057cd8779387",
+        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
     ),
     (
         "implement",
         "claude-opus-5",
-        "c18d17c1e6630a99aaae4c66787e8bb3f7bdeb86840123b516f42cac9455a27f",
+        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
     ),
     (
         "verify",
@@ -226,8 +226,9 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
         argv.extend(hands);
     } else {
         let tools = match site {
-            "implement" | "verify" => Some("Bash(cargo:*)"),
-            "ship" => Some("Bash(git:*)"),
+            "implement" => Some("Bash(cargo:*),Bash(git:*)"),
+            "verify" => Some("Bash(cargo:*)"),
+            "intake" | "ship" => Some("Bash(git:*)"),
             "design:chief" => Some("Bash(git:*),Bash(specify:*)"),
             _ => None,
         };
@@ -247,7 +248,9 @@ fn assert_adopted(relative: &str, roster: &Roster) {
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
         // Decision 0041 moves the roster deliberately: pin the selected
         // concrete generation, while each agent's own definition now owns
-        // the full argv, effort and tool grant.
+        // the full argv, effort and tool grant. Keep this element-for-element:
+        // an `iter().any` check let a required grant disappear from the rest
+        // of the resolved Claude allow-list, which is the defect this pin guards.
         let mut normalized_argv = argv.clone();
         normalized_argv[0] = "{brokkr}".to_string();
         assert_eq!(

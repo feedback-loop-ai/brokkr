@@ -767,6 +767,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0041 moves all five again: ruling 1 advances the fable
 /// adapter mapping, ruling 2 reorders and re-efforts the roster, and
 /// ruling 3 adds the judges declaration to every adapter digest.
+/// The ruling-2 review correction moves the three adopters again because
+/// intake and implement now name and receive the Git capability their
+/// charters require, while dead allow-lists no longer sit beside hands.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -779,15 +782,15 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "recipes/panel-review",
-        "5e9b058d5b1ac900ae4673b44886bd40dec24dc82fef6263a7784d3c55fb7b96",
+        "80374e3fc58b6bc43ca28e2b250c7537578dce2e69d50a9af6d51a6673ab8e37",
     ),
     (
         "recipes/sdd",
-        "d3bbfc195ae14e92ca71d5af764c1f11282c1321effa05b6b70df40ed8bc3a3f",
+        "0a1671eef1121cc2ed587adeb8586509f431920370a592b4f781a8b62684aa29",
     ),
     (
         "bundles/self",
-        "f083edddbbd4174f93fd557e0aa7aa6104c25c3e94df8e9e7031d550093cea6a",
+        "ac0fc14129a4e7cee3f44c11c1e1875a0fd4ed8b702fb5be9317391c2b3cb319",
     ),
     (
         "bundles/verify",
@@ -922,7 +925,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "9650a965b0aa33106c9a916698eb8c22f4d67031c2710acbb4d7ff753757f323",
+        "5776aad40cb5df78336945ea90994ae0bb2fbe00a47849f93ff4f628a29f5377",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -935,7 +938,9 @@ fn a_composed_bundles_manifest_is_pinned() {
          pin — in this layer's own argv and in the agents its base \
          resolves — and decision 0041 moves it again because ruling 1 \
          advances fable, ruling 2 moves the roster, and ruling 3 adds \
-         judges to the adapters; which is this test's own principle: changing a \
+         judges to the adapters, then the ruling-2 review correction makes \
+         Git explicit in the intake and implementer charters and grants; \
+         which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }

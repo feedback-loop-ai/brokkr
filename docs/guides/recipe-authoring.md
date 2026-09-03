@@ -26,18 +26,18 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	17dfdff6f440	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing a review panel and chief.	recipes/crucible
-ember	894e6e72e763	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
+crucible	b955888721e0	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing a review panel and chief.	recipes/crucible
+ember	c3572a9a0543	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
 fast	f6f960da0503	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	cefe6b617107	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
+night-shift	e008816de894	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
 node	2ebd5ac5ad6a	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	5e9b058d5b1a	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+panel-review	80374e3fc58b	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
 preflight	ffa8c3a07b99	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-sdd	d3bbfc195ae1	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
-sdd-paranoid	d990d7d92b68	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+sdd	0a1671eef112	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
+sdd-paranoid	5776aad40cb5	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
 wager-harness	6ea8645805e3	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
 wager-harness-dsh	02c227af9917	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-self	f083edddbbd4	7 phases	implement, intake, review, ship, verify			./bundles/self
+self	ac0fc14129a4	7 phases	implement, intake, review, ship, verify			./bundles/self
 verify	162fef593349	4 phases	review, verify			./bundles/verify
 ```
 

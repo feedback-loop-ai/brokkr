@@ -41,7 +41,10 @@ fn workspace() -> PathBuf {
 /// carries that file's digest in its identity. The bundles hiring the
 /// review agents moved further: those agents now chain fable@high →
 /// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
-/// records and the manifest's `hands` key changed. Nothing else moved.
+/// records and the manifest's `hands` key changed. This review correction
+/// moves only bundles that hire an intake or implementer: their Git work is
+/// now named in the charter and expressible in the resolved tool grant;
+/// ignored allow-lists beside boxed hands were removed at the same time.
 /// Recorded from this tree at the commit that introduced this test. A
 /// move here is either an intended engine-version bump, an intended
 /// policy change re-pinned as the identity change it is (decision 0022
@@ -108,15 +111,15 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/ember",
-        "081beba86ec9fc794c0c817fe914c29b312fe44777377460a55c2b6ed7a8c168",
+        "c3572a9a0543b2b23e94bc315d5ecb8c09575060268cc158fe7d9e12532733e2",
     ),
     (
         "recipes/crucible",
-        "4e3bcd9c357f9fa395fd58aff2d31889057ce751b1389aeeb56028a87ab1f75b",
+        "b955888721e096e36a3d3913549de68c3ded0feadd453106762b73b13603dad7",
     ),
     (
         "recipes/night-shift",
-        "4ca8ebf33ddedcd6a5e212abd9c7e899667fc82deb8d4659bb1ce9228831f13d",
+        "e008816de894763365905f1a667ae4528db976d2367bb8ebbc4a30dc38ad275e",
     ),
     (
         "recipes/wager-harness",

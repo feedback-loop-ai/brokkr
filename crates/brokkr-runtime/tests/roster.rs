@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::Bundle;
+use brokkr_runtime::{Bundle, SeatBody};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -17,6 +17,11 @@ fn workspace() -> PathBuf {
 
 fn json(path: &Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+fn names_word(text: &str, word: &str) -> bool {
+    text.split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|candidate| candidate == word)
 }
 
 fn walk<'a>(
@@ -116,10 +121,23 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         let charter =
             std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
                 .unwrap();
+        // Forced readings from the 0041 review: a charter invokes a tool
+        // only when it names that tool as a word in the work it orders; a
+        // substring such as "commit" is not an invocation of `git`.
+        // Decision 0043 ruling 2 makes `hands` replace the allow-list, so
+        // ruling 5's historical grants live in the journal, not a dead
+        // `tools` field beside `hands`.
+        if agent.get("hands").is_some() {
+            assert!(
+                agent.get("tools").is_none(),
+                "{} declares dead tools beside hands",
+                entry.path().display()
+            );
+        }
         if let Some(allow) = agent.pointer("/tools/allow").and_then(Value::as_array) {
             for tool in allow.iter().filter_map(Value::as_str) {
                 assert!(
-                    charter.contains(tool),
+                    names_word(&charter, tool),
                     "{} grants unused tool {tool}",
                     entry.path().display()
                 );
@@ -144,6 +162,29 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
             );
         }
     }
+}
+
+#[test]
+fn shipped_claude_implementer_can_commit() {
+    let root = workspace();
+    let bundle = Bundle::compile_with(
+        &root.join("bundles/self"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .expect("self bundle compiles");
+    let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+        panic!("the library implementer is a single seat")
+    };
+    let allowed_tools = command
+        .windows(2)
+        .find(|pair| pair[0] == "--allowedTools")
+        .map(|pair| pair[1].as_str())
+        .expect("claude implementer resolves an allow-list");
+    assert!(
+        allowed_tools.split(',').any(|tool| tool == "Bash(git:*)"),
+        "the shipped claude implementer must be able to commit with git"
+    );
 }
 
 #[test]

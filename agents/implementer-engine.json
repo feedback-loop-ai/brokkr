@@ -11,7 +11,8 @@
   },
   "tools": {
     "allow": [
-      "cargo"
+      "cargo",
+      "git"
     ],
     "mcp": []
   },
