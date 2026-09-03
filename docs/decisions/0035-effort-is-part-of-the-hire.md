@@ -20,8 +20,8 @@ hire, and the half it withholds is the half that moves the bill.
 This is not hypothetical, and the first instance is already in the
 journal. Run `the-seat-record-is-a-contract-th-fab25c33` — the run that
 built decision 0034's own contract — was served by `gpt-5.6-sol` at
-**xhigh**. Its thread says so nine times. Its seat record cannot say so
-at all, because there is no field for it to say it in. The wager
+**xhigh**. Its thread says so on every turn. Its seat record cannot say
+so at all, because there is no field for it to say it in. The wager
 compares seats by cost and outcome; two wager runs at different efforts
 are not comparable, and nothing in the journal would tell a reader
 which one they were reading.
@@ -41,6 +41,15 @@ accounting facts the record either defines and ignores or does not
 define. And effort is reported by the harness, but in the thread, not
 the stream — which decision 0032 already makes addressable, since the
 adapter holds the transcript locator.
+
+Three alternatives were weighed and rejected. Filling `effort` from the
+pin repeats exactly the move decision 0031 refused for the model:
+internally tidy, evidentially false, and silent when a thread changes
+effort mid-run. Waiting for codex to put effort on the `--json` stream
+leaves the fact unrecorded for as long as that takes, and the journal is
+append-only — the window cannot be repaired afterwards. Amending v1 in
+place is not available at all: contracts are frozen by construction,
+which is why ruling 6 adds a file rather than a field.
 
 The operator ruled in chat on 2026-09-03: "the information is
 meaningless without effort", "if we have a model, we need effort as
