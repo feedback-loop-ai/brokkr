@@ -43,10 +43,13 @@ a seat (decision
 5). `brokkr doctor --bundle <dir>` asks whether any seat of that bundle
 declares the name in its `secrets`, because a name sitting in the
 bindings store that no seat binds is handed to no driver and the
-launching shell's copy is what the provider reads; without a bundle to
-inspect, doctor falls back to store membership and says so in the line
-(decision [0040](../decisions/0040-the-flag-is-always-read.md) ruling
-4).
+launching shell's copy is what the provider reads. Store membership is
+still necessary — a name a seat declares and the store cannot answer for
+is bound to nothing either, and doctor says which of the two halves is
+the one missing. Without a bundle to inspect it falls back to store
+membership alone and says so in the line, naming whether you passed no
+bundle or one that would not compile (decision
+[0040](../decisions/0040-the-flag-is-always-read.md) ruling 4).
 
 The route names in `routes` and `credentials` are whatever a concrete
 model id may begin with — ASCII letters of either case, digits, `-`,

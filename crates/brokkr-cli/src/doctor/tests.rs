@@ -500,6 +500,67 @@ fn doctor_reads_ambient_against_the_bundles_own_bindings_not_the_store() {
     assert!(!rendered.contains("route nearby"), "{rendered}");
 }
 
+/// The other half of ruling 4's same sentence: store membership is
+/// NECESSARY for a binding, so a name a seat declares and the store
+/// cannot answer for is bound to nothing either, and an exported copy of
+/// it is ambient. The declaring seat refuses at spawn — but `declared`
+/// is a union over every seat, and the sibling seat on this route
+/// declares nothing, spawns, and reads the launching shell's value.
+/// Reading declaration alone as coverage silenced exactly that.
+#[test]
+fn doctor_reads_a_declared_name_the_store_cannot_answer_for_as_ambient() {
+    fn everything_is_set(_: &str) -> bool {
+        true
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let adapters = dir.path().join("adapters");
+    two_credentialled_routes(&adapters);
+    // The store holds one of the two names; the bundle declares BOTH.
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "PARTNER_API_KEY", "long-enough").unwrap();
+    let bundle = bundle_binding(dir.path(), &["NEARBY_API_KEY", "PARTNER_API_KEY"]);
+
+    let rendered = doctor_with_probe(
+        Some(&bundle),
+        dir.path(),
+        &dir.path().join("no-such-library"),
+        &adapters,
+        &store,
+        always_missing,
+        everything_is_set,
+    )
+    .render();
+    assert!(
+        rendered.contains("ok       bundle: 'bound' compiles"),
+        "{rendered}"
+    );
+    // Declared AND held by the store: both halves, so it is bound and
+    // this line has nothing to say.
+    assert!(!rendered.contains("route partner"), "{rendered}");
+    // Declared but ABSENT from the store: the seat names it and nothing
+    // can be handed over, so the exported copy is what the driver reads.
+    assert!(
+        rendered.contains(
+            "warn     route nearby: credential 'NEARBY_API_KEY' is satisfied \
+             from the process environment"
+        ),
+        "{rendered}"
+    );
+    // And the line names which half failed, not the other one's reason.
+    assert!(
+        rendered.contains("the seat declaring it can be handed nothing the bindings store at"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("store membership is necessary for a binding"),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("no seat of the inspected bundle binds it"),
+        "{rendered}"
+    );
+}
+
 /// The second half of ruling 4: without a bundle to inspect there are no
 /// seats to ask, so doctor answers the weaker question — store
 /// membership — and SAYS that is the question it answered. A weaker
@@ -531,8 +592,8 @@ fn doctor_without_a_bundle_says_it_checked_the_store_and_not_the_seats() {
     assert!(rendered.contains("route partner"), "{rendered}");
     assert!(
         rendered.contains(
-            "no bundle was inspected, so this checked membership of the bindings \
-             store at"
+            "no bundle was given to inspect, so this checked membership of the \
+             bindings store at"
         ),
         "{rendered}"
     );
@@ -543,8 +604,11 @@ fn doctor_without_a_bundle_says_it_checked_the_store_and_not_the_seats() {
     assert!(rendered.contains("0040 ruling 4"), "{rendered}");
 
     // A bundle that does not COMPILE is no bundle to inspect either: it
-    // declares nothing this report can trust, so the wording says so
-    // rather than reading an empty set as "no seat binds anything".
+    // declares nothing this report can trust, so it falls to the same
+    // weaker question rather than reading an empty set as "no seat binds
+    // anything". But it says so in its OWN words — an operator who
+    // passed `--bundle` and reads `MISSING bundle` two lines away is not
+    // told they passed no bundle.
     let rendered = doctor_with_probe(
         Some(&dir.path().join("absent")),
         dir.path(),
@@ -557,7 +621,17 @@ fn doctor_without_a_bundle_says_it_checked_the_store_and_not_the_seats() {
     .render();
     assert!(rendered.contains("MISSING  bundle"), "{rendered}");
     assert!(!rendered.contains("route nearby"), "{rendered}");
-    assert!(rendered.contains("no bundle was inspected"), "{rendered}");
+    assert!(
+        rendered.contains(
+            "the bundle given does not compile, so it declares no seats to ask \
+             and this checked membership of the bindings store at"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("no bundle was given to inspect"),
+        "{rendered}"
+    );
 }
 
 /// The real probe behind that report, asserted where the injected one
