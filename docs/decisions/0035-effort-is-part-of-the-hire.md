@@ -122,7 +122,7 @@ reasoning — that is core to our ledger and modus operandi."
    holds it as claim or as meter. Nothing that moves a bill is left to
    a default.
 
-   **Enforcement binding:** this decision is the general rule the
+   **Enforcement binding:** this ruling is the general rule the
    specific bindings below implement; it supersedes nothing and is
    cited where an implicit default would otherwise be argued for.
 
@@ -158,7 +158,8 @@ reasoning — that is core to our ledger and modus operandi."
    beside each assistant record, is each harness echoing its own
    setting, not a measurement of what the model did. The field is
    therefore a configured fact, named as one and never dressed as a
-   report — the way decision 0016 labels a model selection a selection.
+   report — the way decision 0031 ruling 3 labels a selected model a
+   selection.
 
    It is read from the harness's own echo where one exists, through the
    decision 0032 locator, because that echo is the effective value after
@@ -216,7 +217,7 @@ reasoning — that is core to our ledger and modus operandi."
 6. **The pin and the effective configuration remain separate facts,**
    as decision 0031 ruling 3 separates the selected model from the
    served one. The pin is what a bundle asked for; `effort` is what the
-   harness reports it actually applied, after every layer. Both are
+   harness echoes as the value applied, after every layer. Both are
    configuration — neither is a measurement of what the model did, and
    ruling 4's reasoning count is the only figure in the record that is.
    Existing journal rows are not rewritten and their absence stays
