@@ -147,7 +147,7 @@ reasoning — that is core to our ledger and modus operandi."
    at different granularities and the field admits all three without
    inventing the others: codex reports it per turn, claude only in its
    result, and a dsh lane's providers report it per call though the
-   harness discards it. Where a harness reports no per-turn figure the
+   profile discards it. Where a harness reports no per-turn figure the
    turn's value is absent, never zero and never back-filled from the
    run total. The codex fold additionally maps the
    `cache_write_input_tokens` it already receives onto the
