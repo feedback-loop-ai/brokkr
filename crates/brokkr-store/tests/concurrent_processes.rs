@@ -67,7 +67,7 @@ fn write_one_run(db: &Path, run_id: &str) {
             ),
             (
                 EventType::EffectSucceeded,
-                json!({"effect_id": effect_id, "result": "complete"}),
+                json!({"effect_id": effect_id, "result": {"result": "complete"}}),
             ),
             (
                 EventType::TransitionDecided,

@@ -166,30 +166,63 @@ impl ProducerTransport for MockTransport {
     }
 }
 
+/// Seal a first row straight into a journal's table, past the append
+/// fence: the checkpoint an engine from before decision 0034's ruling 6
+/// could write, carrying prose the bridge must still withhold on the way
+/// out. The fence refuses this row today; the journals that already hold
+/// one are the reason the bridge's redaction stays tested.
+fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: OffsetDateTime) {
+    let envelope = brokkr_core::EventEnvelope {
+        run_id: run_id.to_string(),
+        seq: 1,
+        event_id: "planted-1".to_string(),
+        event_schema_version: 1,
+        event_type: EventType::EffectCheckpointed,
+        payload,
+        causation_id: None,
+        correlation_id: run_id.to_string(),
+        attempt_id: Some("attempt-1".to_string()),
+        recorded_at: now.format(&Rfc3339).unwrap(),
+        previous_hash: ZERO_HASH.to_string(),
+        event_hash: String::new(),
+    }
+    .sealed();
+    rusqlite::Connection::open(db)
+        .unwrap()
+        .execute(
+            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                run_id,
+                envelope.seq as i64,
+                envelope.event_hash,
+                serde_json::to_string(&envelope).unwrap()
+            ],
+        )
+        .unwrap();
+}
+
 #[test]
 fn sync_replays_from_server_cursor_without_sqlite_or_transcript_exposure() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
     let (manifest, _, now) = fixture();
     store
         .create_run("forge-run-1", "084-f", "fast", &manifest)
         .unwrap();
-    store
-        .append_next(
-            "forge-run-1",
-            EventType::EffectCheckpointed,
-            json!({
-                "effect_id":"effect-1", "attempt_id":"attempt-1",
-                "checkpoint": {
-                    "step":"item-completed", "tool":"command_execution",
-                    "command":"print-secret", "output":"private", "target":"/private/repo/file.rs",
-                    "session_id":"secret-session", "input_tokens":21,
-                }
-            }),
-            None,
-            Some("attempt-1".into()),
-        )
-        .unwrap();
+    plant_unfenced(
+        &db,
+        "forge-run-1",
+        json!({
+            "effect_id":"effect-1", "attempt_id":"attempt-1",
+            "checkpoint": {
+                "step":"item-completed", "tool":"command_execution",
+                "command":"print-secret", "output":"private", "target":"/private/repo/file.rs",
+                "session_id":"secret-session", "input_tokens":21,
+            }
+        }),
+        now,
+    );
     let mut bridge = Bridge::new(MockTransport::default());
     let first = bridge.sync_once(&mut store, "forge-run-1", now, 0).unwrap();
     assert_eq!(first.submitted, 1);

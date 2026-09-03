@@ -274,6 +274,12 @@ They must **not** carry prose, commands, or reasoning. A model's output,
 a shell command line, a diff, a rationale: none of these belong in a
 seat record. Numeric accounting is absent when a harness does not report it;
 zero and string sentinels are not measurements and must not be written.
+The journal enforces this at the write (decision 0034, ruling 6): a
+checkpoint or result outside the vocabulary is refused before it is
+sealed, and the attempt that sent it fails with the refusal as its
+error. A seat's own result file is part of this — a key the contract
+does not name, written beside `result`, `inputs` and `notes`, fails the
+attempt.
 Before export the Looper bridge hashes targets and withholds
 transcript locators outright (only `observed-redacted` leaves), and the
 full session transcript stays wherever your harness put it.

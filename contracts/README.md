@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store export/verify, every seat readout (superseded for new runs by `seat-record.v2.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v2.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,

@@ -83,12 +83,49 @@ historical journals.
    built-in conformance requires them. Missing historical evidence stays
    visibly missing; it is never backfilled from configuration.
 
+6. **The journal refuses a nonconforming record at append** (added
+   2026-09-03, operator ruled). Ruling 1 bound the contract to export and
+   verification, and the first run to test it showed why that is too late:
+   a work seat on the Spark lane wrote a result carrying a `commits` field
+   the contract does not admit, the append took it, and the run concluded
+   normally — then `export` refused the run at that row, and so did
+   `anchor`, and the journal being append-only, nothing could ever put it
+   right. A check that fires only when evidence is wanted cannot refuse the
+   write; it can only discover, later, that the run will never be evidence.
+
+   The fence therefore sits where the row is sealed. A checkpoint or a
+   successful result that violates the contract is refused at the seq it
+   would have taken, and nothing is written. The attempt that produced it
+   does not vanish and is not repaired: the engine journals the refusal as
+   that attempt's failure, in the same words the store used, so the run
+   ends the way a seat that met no other contract ends — a determinate
+   failure, retried and then parked under decision 0006. The raw evidence
+   stays where the seat left it, in its result file and its transcript
+   (decision 0032); the journal records that it was refused and the schema
+   path, never the value.
+
+   Export and verification keep their sweeps. They are the only defence a
+   journal written before this fence has, and a foreign export carries no
+   promise about the engine that wrote it.
+
+   **Enforcement binding:** `brokkr-store` validates every checkpoint and
+   successful result inside the append transaction, before the envelope is
+   sealed, through the same embedded schema and the same
+   `validate_seat_record` that export and `verify-run` use; a refusal rolls
+   the transaction back. `brokkr-runtime` turns a refused result into
+   `effect/failed` and a refused live checkpoint into the attempt's failure
+   once its driver exits, for single seats, panel members and sequence
+   steps alike. Tests cover the refusal writing nothing, and each engine
+   site's failed ending.
+
 ## Consequences
 
-A canonical export cannot carry a malformed seat checkpoint into an evidence
-bundle, and verification refuses one before folding it. Claude usage that was
-already available finally appears beside Codex and DSH usage. Operators see
-cache creation without confusing it with input or adding cache reads twice.
+A malformed seat checkpoint or result never enters the journal: the append
+refuses it and the attempt fails. A canonical export still cannot carry one
+out of a journal written before the fence, and verification still refuses
+one before folding it. Claude usage that was already available finally
+appears beside Codex and DSH usage. Operators see cache creation without
+confusing it with input or adding cache reads twice.
 The driver wire protocol and event envelope remain v1: their existing object
 extension points carry the new, independently versioned seat-record contract.
 

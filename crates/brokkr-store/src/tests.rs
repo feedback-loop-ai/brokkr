@@ -30,7 +30,7 @@ fn one_cycle(store: &mut Store, run_id: &str, turn: usize) {
         ),
         (
             EventType::EffectSucceeded,
-            json!({"effect_id": effect_id, "result": "complete"}),
+            json!({"effect_id": effect_id, "result": {"result": "complete"}}),
         ),
         (
             EventType::TransitionDecided,
@@ -417,6 +417,115 @@ fn export_verifies_offline() {
     ));
 }
 
+/// Seal a row straight into the table, past the append fence: the shape
+/// of a journal written by an engine from before decision 0034's ruling
+/// 6, which export and offline verify must still refuse.
+fn plant_unfenced(store: &mut Store, run_id: &str, event_type: EventType, payload: Value) {
+    let (seq, previous_hash) = store.head_hash(run_id).unwrap();
+    let envelope = EventEnvelope {
+        run_id: run_id.to_string(),
+        seq: seq + 1,
+        event_id: format!("planted-{}", seq + 1),
+        event_schema_version: 1,
+        event_type,
+        payload,
+        causation_id: None,
+        correlation_id: run_id.to_string(),
+        attempt_id: None,
+        recorded_at: now_rfc3339(),
+        previous_hash,
+        event_hash: String::new(),
+    }
+    .sealed();
+    store
+        .conn
+        .execute(
+            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                run_id,
+                envelope.seq as i64,
+                envelope.event_hash,
+                serde_json::to_string(&envelope).unwrap()
+            ],
+        )
+        .unwrap();
+}
+
+#[test]
+fn append_refuses_a_nonconforming_seat_record_and_writes_nothing() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    store
+        .append_next(
+            "r1",
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let head = store.head_hash("r1").unwrap();
+
+    // A checkpoint carrying prose and a result carrying a field the
+    // contract does not admit: each is refused at the seq it would have
+    // taken, echoes no value, and leaves the head where it was.
+    for (event_type, payload) in [
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "checkpoint":{
+                "step":"seat-turn", "turn":1, "content":"private prose"
+            }}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id":"fx", "result":{
+                "result":"complete", "commits":["see the branch"]
+            }}),
+        ),
+    ] {
+        let error = store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap_err();
+        let StoreError::SeatRecord(refusal) = error else {
+            panic!("{error}");
+        };
+        assert_eq!(refusal.seq, 2);
+        assert!(!refusal.to_string().contains("private prose"));
+        assert!(!refusal.to_string().contains("see the branch"));
+        assert_eq!(store.head_hash("r1").unwrap(), head);
+    }
+
+    // The same fence stands behind the compare-and-append verb.
+    let error = store
+        .append_next_if_head(
+            "r1",
+            head.0,
+            &head.1,
+            EventType::EffectSucceeded,
+            json!({"effect_id":"fx", "result":{"result":"complete", "commits":[]}}),
+            None,
+            None,
+        )
+        .unwrap_err();
+    assert!(matches!(error, StoreError::SeatRecord(_)));
+    assert_eq!(store.head_hash("r1").unwrap(), head);
+
+    // A conforming record lands, and the export sweep passes it.
+    store
+        .append_next(
+            "r1",
+            EventType::EffectSucceeded,
+            json!({"effect_id":"fx", "result":{"result":"complete", "model":"not reported"}}),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(store.head_hash("r1").unwrap().0, 2);
+    store.export_ndjson("r1").unwrap();
+}
+
 #[test]
 fn export_and_offline_verify_refuse_a_nonconforming_seat_record() {
     let (_dir, mut store) = store();
@@ -432,17 +541,19 @@ fn export_and_offline_verify_refuse_a_nonconforming_seat_record() {
             EventType::EffectRequested,
             json!({"effect_id":"fx", "seat":"implement"}),
         ),
-        (
-            EventType::EffectCheckpointed,
-            json!({"effect_id":"fx", "checkpoint":{
-                "step":"seat-turn", "turn":1, "content":"private prose"
-            }}),
-        ),
     ] {
         store
             .append_next("r1", event_type, payload, None, None)
             .unwrap();
     }
+    plant_unfenced(
+        &mut store,
+        "r1",
+        EventType::EffectCheckpointed,
+        json!({"effect_id":"fx", "checkpoint":{
+            "step":"seat-turn", "turn":1, "content":"private prose"
+        }}),
+    );
 
     let export_error = store.export_ndjson("r1").unwrap_err();
     assert!(matches!(export_error, StoreError::SeatRecord(_)));

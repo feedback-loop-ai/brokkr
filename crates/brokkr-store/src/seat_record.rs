@@ -173,15 +173,23 @@ fn version_of(events: &[EventEnvelope]) -> SeatRecordVersion {
         .unwrap_or(SeatRecordVersion::V1)
 }
 
+/// The seat record an event carries, if its type carries one: a
+/// checkpoint's `checkpoint`, a successful result's `result`. This is
+/// the one place that knows which events are seat records. The append
+/// fence and the export and verify sweeps all ask it, so they cannot
+/// disagree about what is checked.
+pub(crate) fn record_of(event_type: EventType, payload: &Value) -> Option<&Value> {
+    match event_type {
+        EventType::EffectCheckpointed => payload.get("checkpoint"),
+        EventType::EffectSucceeded => payload.get("result"),
+        _ => None,
+    }
+}
+
 pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecordError> {
     let version = version_of(events);
     for event in events {
-        let record = match event.event_type {
-            EventType::EffectCheckpointed => event.payload.get("checkpoint"),
-            EventType::EffectSucceeded => event.payload.get("result"),
-            _ => None,
-        };
-        if let Some(record) = record {
+        if let Some(record) = record_of(event.event_type, &event.payload) {
             validate_seat_record(record, event.seq, version)?;
         }
     }
