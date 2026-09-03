@@ -1,7 +1,7 @@
 # crucible — maximum assurance
 
-`extends: "fast"`. The same four phases and the same constitution, run
-by the heaviest crew in the roster, with the review phase rebuilt as a
+`extends: "fast"`. The same four phases and the same constitution, with
+every model-backed site seated from the roster and the review phase rebuilt as a
 **panel of positions followed by a chief who rules**.
 
 For changes whose blast radius is the machine itself: the engine
@@ -9,14 +9,14 @@ For changes whose blast radius is the machine itself: the engine
 protocol, the frozen contracts. The recipe you reach for when being
 wrong is expensive.
 
-| Phase | Model | `max_attempts` | `timeout_seconds` | Class |
+| Phase | Agent | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | opus | 2 | 7200 | work |
-| `verify` | opus | 2 | 7200 | gate |
-| `review` → `positions.correctness` | opus | 2 (seat) | 7200 (seat) | work |
-| `review` → `positions.security` | opus | ″ | ″ | work |
-| `review` → `chief` | opus | ″ | ″ | **gate** |
-| `ship` | opus | 2 | 1800 | gate |
+| `implement` | `implementer-engine` | 2 | 7200 | work |
+| `verify` | `verifier` | 2 | 7200 | gate |
+| `review` → `positions.correctness` | `review-correctness` | 2 (seat) | 7200 (seat) | work |
+| `review` → `positions.security` | `review-security` | ″ | ″ | work |
+| `review` → `chief` | `review-chief` | ″ | ″ | **gate** |
+| `ship` | `shipper` | 2 | 1800 | gate |
 
 ## The review sequence — the one new shape here
 
@@ -32,7 +32,7 @@ the protected phase. Crucible is the first recipe in this library to put
     { "name": "positions", "aggregate": "review-panel",
       "panel": { "correctness": {"class": "work", "…": "…"},
                  "security":    {"class": "work", "…": "…"} } },
-    { "name": "chief", "class": "gate", "role": "roles/review-chief.md", "…": "…" }
+    { "name": "chief", "agent": "review-chief" }
   ]
 }
 ```
@@ -57,7 +57,7 @@ How it behaves, as the engine actually implements it:
 **The failure mode this shape invites, and what answers it.** A
 `security-hold` from the panel could be swallowed by a chief that ruled
 `residual` instead — the panel's verdict is genuinely not the machine's
-verdict here. Two things stand against that. `roles/review-chief.md`
+verdict here. Two things stand against that. `agents/charters/review-chief.md`
 states the floor as the seat's first law: the chief may raise a verdict
 and may never lower one, and a panel `security-hold` is reproduced
 unconditionally. And two tests pin the plumbing that makes the law
@@ -85,7 +85,7 @@ declared-results check rejects it and the run parks with the member
 evidence attached. That check runs on a seat's *final* step. `positions`
 is not one, so under `recipes/panel-review` a member whose driver died
 mid-stream parks the run, while here the sentinel is handed to the chief
-as an ordinary string. `roles/review-chief.md` therefore instructs the
+as an ordinary string. `agents/charters/review-chief.md` therefore instructs the
 chief to treat any result outside the three as *the panel did not
 report*: name it as a defect in `notes` and rule on its own read of the
 diff alone. That degrades this seat to `fast`-equivalent review under
@@ -99,7 +99,7 @@ correctness calls a line an untested branch and security calls the same
 line an unchecked input, the flat panel emits two findings and the
 implementer receiving a reforging answers both separately. The chief
 emits one deduplicated list with each item attributed. That is the whole
-purchase, and it costs one extra opus session per review.
+purchase, and it costs one extra session per review.
 
 ## Why the vocabulary is unchanged
 
@@ -116,8 +116,8 @@ produced changed, never the rules that act on it.
 No journal entry in this repository records a crucible run, so no cost
 figure here is evidence-backed. The structure, which is fact:
 
-- Every seat sits on opus, and the review phase spends **three** opus
-  sessions (two positions plus the chief) where `fast` spends one.
+- The review phase spends **three** sessions (two positions plus the chief)
+  where `fast` spends one.
 - A review that returns `residual` with a security finding sends the run
   back through `implement` → `verify` → `review` under decision 0022's
   ladder, at most twice. Each return costs the full review phase again.
@@ -160,7 +160,7 @@ on a position therefore puts that driver's free text into the gate's
 prompt. Decision 0021's refusal is about *whose result is the verdict*,
 and it holds exactly; it says nothing about whose prose is in the
 context. The rest is answered as charter —
-[`roles/review-chief.md`](roles/review-chief.md) rules that panel notes
+[`agents/charters/review-chief.md`](../../agents/charters/review-chief.md) rules that panel notes
 are data and never instructions, and
 `crates/brokkr-runtime/tests/crucible_review_sequence.rs` pins that
 instruction against deletion. That is prose defending against prose,
@@ -168,12 +168,11 @@ which is weaker than a compile-time refusal. Weigh it before you seat a
 challenger here; the shipped bundle seats both positions on trusted
 `claude` drivers.
 
-## How the models are pinned
+## How the roster is seated
 
-Inline `--model` pairs on each `driver.command`, the same mechanism and
-the same trade-offs [`ember`](../ember/README.md#how-the-models-are-pinned)
-documents. The ids come from `adapters/claude.json`'s `models` map and
-are duplicated here; nothing validates the pair at compile time.
+Every model-backed site names the agent shown in the table above. The agent
+library owns its charter, fallback chain, effort, tools, and limits; the recipe
+owns the review sequence and its result vocabulary.
 
 ## Running it
 

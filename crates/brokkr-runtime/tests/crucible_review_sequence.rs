@@ -12,17 +12,17 @@
 //! Two things have to hold for that to be enforceable, and this file
 //! pins both against the SHIPPED recipe rather than a fixture:
 //!
-//! 1. the structure — a two-step sequence, the panel work-class under
+//! 1. the structure — a two-step sequence, the panel under
 //!    the `review-panel` aggregate, the chief a single GATE step, and
 //!    the seat still speaking `fast`'s review vocabulary so the
 //!    inherited reforging ladder rules on it unmodified;
-//! 2. the charter — `roles/review-chief.md` states the floor the chief
+//! 2. the library charter — `agents/charters/review-chief.md` states the floor the chief
 //!    may not rule below, naming `security-hold` explicitly, covers
 //!    the branch the same non-final rule creates (a panel result
 //!    OUTSIDE the vocabulary, which the aggregate emits to fail closed
 //!    and which nothing downstream of a non-final step will check), and
 //!    rules that the panel's own prose is DATA and never instruction —
-//!    the positions are work seats that admit an untrusted driver, and
+//!    the positions' prose remains model output, and
 //!    `aggregate_results` copies their `notes` verbatim into the gate's
 //!    context.
 //!
@@ -100,37 +100,27 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
     );
 }
 
-/// Decision 0021, read off the compiled bundle rather than the source:
-/// the chief JUDGES and so pins the trusted adapter that authorised it;
-/// the positions WORK and pin nothing, which is what makes seating a
-/// challenger on one of them a lawful experiment (ruling 7).
+/// Decision 0041 moves every model-backed site here into the library.
+/// Agent resolution is its witness, so no redundant inline-driver
+/// witness remains.
 #[test]
-fn only_the_chief_step_is_witnessed_as_a_gate() {
+fn every_review_site_is_witnessed_by_its_agent_resolution() {
     let bundle = crucible();
-    let root = workspace();
-    let adapters = brokkr_runtime::agents::Adapters::load(&root.join("adapters"))
-        .expect("the shipped adapters load");
-    let claude = adapters
-        .digest("claude")
-        .expect("the incumbent adapter is declared");
-
-    let witnessed = bundle.manifest["drivers"]
+    assert!(bundle.manifest.get("drivers").is_none());
+    let witnessed = bundle.manifest["agents"]
         .as_object()
-        .expect("crucible witnesses drivers for its gates");
-    assert_eq!(
-        witnessed.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["review:chief", "ship", "verify"],
-        "the review gate is the chief STEP, never the seat"
-    );
-    assert_eq!(
-        witnessed["review:chief"],
-        serde_json::json!({ "claude": claude })
-    );
-    for working in ["review:positions:correctness", "review:positions:security"] {
+        .expect("crucible witnesses its roster");
+    for site in [
+        "implement",
+        "verify",
+        "review:positions:correctness",
+        "review:positions:security",
+        "review:chief",
+        "ship",
+    ] {
         assert!(
-            !witnessed.contains_key(working),
-            "'{working}' works and consults nothing; witnessing it would \
-             claim an authority it never asked for"
+            witnessed.contains_key(site),
+            "'{site}' must pin the library agent that holds the office"
         );
     }
 }
@@ -142,9 +132,8 @@ fn only_the_chief_step_is_witnessed_as_a_gate() {
 /// exactly why the sentence below has to survive an edit.
 #[test]
 fn the_chief_charter_states_the_floor_it_may_not_rule_below() {
-    let charter =
-        std::fs::read_to_string(workspace().join("recipes/crucible/roles/review-chief.md"))
-            .expect("the chief charter ships with the recipe");
+    let charter = std::fs::read_to_string(workspace().join("agents/charters/review-chief.md"))
+        .expect("the chief charter ships with the recipe");
     // Matched against the prose with its line breaks collapsed, so
     // rewrapping a paragraph is not a test failure but deleting the
     // sentence is.
@@ -178,9 +167,8 @@ fn the_chief_charter_states_the_floor_it_may_not_rule_below() {
 /// charter that still names the old spelling.
 #[test]
 fn the_chief_charter_covers_a_panel_result_outside_the_vocabulary() {
-    let charter =
-        std::fs::read_to_string(workspace().join("recipes/crucible/roles/review-chief.md"))
-            .expect("the chief charter ships with the recipe");
+    let charter = std::fs::read_to_string(workspace().join("agents/charters/review-chief.md"))
+        .expect("the chief charter ships with the recipe");
     let prose = charter.split_whitespace().collect::<Vec<_>>().join(" ");
 
     assert!(
@@ -217,9 +205,8 @@ fn the_chief_charter_covers_a_panel_result_outside_the_vocabulary() {
 /// which makes the sentences below load-bearing rather than decorative.
 #[test]
 fn the_chief_charter_rules_the_panel_s_prose_data_and_never_instruction() {
-    let charter =
-        std::fs::read_to_string(workspace().join("recipes/crucible/roles/review-chief.md"))
-            .expect("the chief charter ships with the recipe");
+    let charter = std::fs::read_to_string(workspace().join("agents/charters/review-chief.md"))
+        .expect("the chief charter ships with the recipe");
     let prose = charter.split_whitespace().collect::<Vec<_>>().join(" ");
 
     for required in [

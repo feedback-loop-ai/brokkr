@@ -32,7 +32,10 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// Decision 0043 moved every pinned bundle at once, and for one reason:
+/// Decision 0041 moves every pinned bundle for its three enacted reasons:
+/// ruling 1 advances the fable adapter mapping, ruling 2 moves model sites
+/// onto the roster, and ruling 3 adds each adapter's judges declaration.
+/// Decision 0043 previously moved every pinned bundle at once, and for one reason:
 /// every adapter file gained `hands` — how the provider puts its hands in
 /// the box, or the measured reason it cannot — and a bundle whose inline
 /// gate pins the adapter declaration that authorised it (decision 0021)
@@ -94,35 +97,35 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "36c369e4cd5e30a87c83702ad937426245dd3d34d53dd3b4c0b2468e8029ded3",
+        "f6f960da0503f2130200430bcf5877b5cf128a9b7fe2071c09b4dbc7c505892b",
     ),
     (
         "recipes/node",
-        "6bbf77c48e4ef23673aca575e3dd3702b6bcdbfc1c4a680605498c552ef5f7c6",
+        "2ebd5ac5ad6a11d9e247edc224aca4872ebf5b3959dabfa7aca4d245ed129c2b",
     ),
     (
         "recipes/preflight",
-        "6ed32431fbd45b26b5a7941f3b9f6823c4f486950391ec1a35b01e4d0f811990",
+        "ffa8c3a07b999bf9026edfde9fcf5886c471983a778480ab37bd3dc1c5590111",
     ),
     (
         "recipes/ember",
-        "ec871aaa7746d477c712ecc2ad59f1b1a8b224d3c81c5930f6583d2e80cf9b5b",
+        "894e6e72e763c8e1e872cbc3433a86e0f7bfb1a564db515412e19410566a1a69",
     ),
     (
         "recipes/crucible",
-        "b1ee158eb288e24506255bc6bb710fa59d43ae2280d6ccc70a367375150d9018",
+        "17dfdff6f4404351f5d007a1f9f8611b20bb0438f009552f9183b1611e99ddac",
     ),
     (
         "recipes/night-shift",
-        "24194a7384e5c6fa2df3341ffaea646b05f94a1a58e5b1e5269f764746700a15",
+        "cefe6b617107daeafb74b87a731c25d94966fbeb6e16df8ade2e5245d2410337",
     ),
     (
         "recipes/wager-harness",
-        "340874e1dcea2533ca5a410a616519c4b04fbc023812203b0cd934cc03a39c95",
+        "6ea8645805e3dce76690ac8dbf71e2c9301c07cc40c422d0f3eb9b4e04963998",
     ),
     (
         "bundles/verify",
-        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
+        "162fef593349a481998130acbd082756357028874f2dee6d9949dcfb21982f25",
     ),
 ];
 
@@ -139,19 +142,15 @@ const WITNESSES: [(&str, &str); 8] = [
 /// stopped being the seat's gate — and the two positions, which are
 /// work-class and admit any driver under decision 0021 ruling 7, would
 /// be ruling the protected phase between them.
-const INLINE_GATES: [(&str, &[&str]); 8] = [
+const INLINE_GATES: [(&str, &[&str]); 4] = [
     ("recipes/fast", &["review", "ship", "verify"]),
     ("recipes/node", &["review", "ship", "verify"]),
     ("recipes/preflight", &["review", "verify"]),
-    ("recipes/ember", &["review", "ship", "verify"]),
-    ("recipes/crucible", &["review:chief", "ship", "verify"]),
-    ("recipes/night-shift", &["review", "ship", "verify"]),
     ("recipes/wager-harness", &["review", "ship", "verify"]),
-    ("bundles/verify", &["review", "verify"]),
 ];
 
 #[test]
-fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
+fn pinned_bundles_keep_their_recorded_digest() {
     let root = workspace();
     for (relative, digest) in WITNESSES {
         // Explicit roots, as in the compile below: since decision 0021 a
@@ -167,11 +166,6 @@ fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
             bundle.manifest_digest(),
             digest,
             "{relative} manifest digest moved"
-        );
-        assert!(
-            bundle.manifest.get("agents").is_none(),
-            "{relative} manifest gained an 'agents' key; a non-adopting \
-             bundle carries none"
         );
     }
 }

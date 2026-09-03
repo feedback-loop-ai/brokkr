@@ -90,6 +90,7 @@ impl Fixture {
         for (model, provider, tier) in links {
             let mut serving = adapter(provider, Some(tier), Some(true));
             serving["models"] = json!({ *model: format!("{provider}-1") });
+            serving["judges"] = json!([*model]);
             serving["model_flag"] = json!("--model");
             self.write_adapter(serving);
         }
@@ -1888,6 +1889,24 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     }
 }
 
+#[test]
+fn the_shipped_adapters_declare_exactly_the_decision_0041_judges() {
+    let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    for (provider, judges) in [
+        ("claude", vec!["fable", "opus"]),
+        ("codex", vec!["sol"]),
+        ("dsh", vec![]),
+        ("exec", vec![]),
+        ("lanetally", vec!["fable-tallied", "opus-tallied"]),
+    ] {
+        assert_eq!(
+            adapters.adapter(provider).unwrap().judges,
+            judges,
+            "{provider}"
+        );
+    }
+}
+
 /// The path to the adapters this repository actually ships.
 fn shipped_adapters() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2105,6 +2124,72 @@ fn an_agent_gate_is_witnessed_by_its_resolution_not_a_second_time() {
         .expect("a trusted chain holds a gate");
     assert!(bundle.manifest["agents"]["work"]["adapter_digest"].is_string());
     assert!(bundle.manifest.get("drivers").is_none());
+}
+
+// -------------------------------- decision 0041: gates hire judges only
+
+#[test]
+fn a_gate_on_sonnet_is_refused_and_a_gate_on_opus_is_admitted() {
+    let fixture = Fixture::new();
+    fixture.write_agent("sonnet-seat", &[("sonnet", "claude-sonnet", "trusted")]);
+    let mut sonnet = adapter("claude-sonnet", Some("trusted"), Some(true));
+    sonnet["models"] = json!({"sonnet": "claude-sonnet-5"});
+    sonnet["model_flag"] = json!("--model");
+    sonnet["judges"] = json!([]);
+    fixture.write_adapter(sonnet);
+    let refusal = fixture.refusal(json!({
+        "agent": "sonnet-seat", "class": "gate", "results": ["pass", "fail"]
+    }));
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("link 1"), "{refusal}");
+    assert!(refusal.contains("model 'sonnet'"), "{refusal}");
+
+    fixture.write_agent("opus-seat", &[("opus", "claude-opus", "trusted")]);
+    fixture
+        .compile(json!({
+            "agent": "opus-seat", "class": "gate", "results": ["pass", "fail"]
+        }))
+        .expect("an adapter-declared opus judge may hold a gate");
+}
+
+#[test]
+fn a_gate_chain_refuses_its_third_non_judge_link_by_site_and_link() {
+    let fixture = Fixture::new();
+    fixture.write_agent(
+        "descending",
+        &[
+            ("fable", "first", "trusted"),
+            ("opus", "second", "trusted"),
+            ("sonnet", "third", "trusted"),
+        ],
+    );
+    let mut third = adapter("third", Some("trusted"), Some(true));
+    third["models"] = json!({"sonnet": "claude-sonnet-5"});
+    third["model_flag"] = json!("--model");
+    third["judges"] = json!([]);
+    fixture.write_adapter(third);
+
+    let refusal = fixture.refusal(json!({
+        "agent": "descending", "class": "gate", "results": ["pass", "fail"]
+    }));
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("link 3"), "{refusal}");
+    assert!(refusal.contains("model 'sonnet'"), "{refusal}");
+}
+
+#[test]
+fn a_work_seat_on_sonnet_is_untouched_by_the_judges_declaration() {
+    let fixture = Fixture::new();
+    fixture.write_agent("worker", &[("sonnet", "claude-sonnet", "trusted")]);
+    let mut sonnet = adapter("claude-sonnet", Some("trusted"), Some(true));
+    sonnet["models"] = json!({"sonnet": "claude-sonnet-5"});
+    sonnet["model_flag"] = json!("--model");
+    fixture.write_adapter(sonnet); // no `judges`: the fail-closed default
+    fixture
+        .compile(json!({
+            "agent": "worker", "class": "work", "results": ["pass", "fail"]
+        }))
+        .expect("judges constrains gates, not work seats");
 }
 
 // ---------------------------------------------- decision 0043: boxed hands

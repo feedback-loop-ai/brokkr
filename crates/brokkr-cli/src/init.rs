@@ -241,7 +241,7 @@ const SEATS: &[AgentSpec] = &[
         agent: "verifier",
         class: Class::Gate,
         description: "Runs the suites and gates and reports pass or fail on evidence, never on intent.",
-        models: ["sonnet", "opus"],
+        models: ["fable", "opus"],
         max_attempts: 2,
         timeout_seconds: 3600,
     },
@@ -249,7 +249,7 @@ const SEATS: &[AgentSpec] = &[
         agent: "reviewer",
         class: Class::Gate,
         description: "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
-        models: ["opus", "sonnet"],
+        models: ["fable", "opus"],
         max_attempts: 2,
         timeout_seconds: 3600,
     },
@@ -257,7 +257,7 @@ const SEATS: &[AgentSpec] = &[
         agent: "shipper",
         class: Class::Gate,
         description: "Closes a delivery out: ledger, gates, and the report the operator reads before merging.",
-        models: ["sonnet", "opus"],
+        models: ["fable", "opus"],
         max_attempts: 2,
         timeout_seconds: 1800,
     },
@@ -460,11 +460,12 @@ fn adapter_json(grants: &Grants) -> String {
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
         "models": {
-            "fable": "claude-fable-5",
+            "fable": "claude-fable-5-1",
             "opus": "claude-opus-5",
             "sonnet": "claude-sonnet-5",
             "haiku": "claude-haiku-4-5-20251001"
         },
+        "judges": ["fable", "opus"],
         "model_flag": "--model",
         // The levels the installed CLI names, measured rather than
         // assumed — `claude --help` spells them out beside `--effort`.

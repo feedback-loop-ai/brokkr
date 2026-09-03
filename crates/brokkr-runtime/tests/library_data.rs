@@ -19,7 +19,7 @@ fn workspace() -> PathBuf {
 }
 
 /// The current bytes of every shared charter.
-const CHARTERS: [(&str, &str); 14] = [
+const CHARTERS: [(&str, &str); 15] = [
     (
         "chief-architect.md",
         "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
@@ -53,8 +53,12 @@ const CHARTERS: [(&str, &str); 14] = [
         "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
     ),
     (
-        "review-security-speckit.md",
-        "de00a51d25e0a4fc77b12bdb6c0793ec5e6601ebeb05459c6f44e082705e176a",
+        "review-adversarial.md",
+        "d7182c21454afd5efeade166f3433fc2eeb1e54cac7dc8dbad20a0fec6907a1a",
+    ),
+    (
+        "review-chief.md",
+        "aa2af882e7413b3727e49eb043bd9fdce55bece36d4d5cadab82de74ad65205d",
     ),
     (
         "review-security.md",
@@ -81,30 +85,29 @@ const CHARTERS: [(&str, &str); 14] = [
 /// Charters authored here rather than moved: they have no pre-move
 /// bytes to be compared against, and are listed so the accounting below
 /// stays exact instead of merely permissive.
-const AUTHORED_CHARTERS: [&str; 1] = ["muninn.md"];
+const AUTHORED_CHARTERS: [&str; 2] = ["muninn.md", "triage.md"];
 
-/// The seventeen definitions over fifteen charters. The `-speckit` suffix
-/// is ugly on purpose: it names WHY the variant exists (it carries the
-/// spec-kit CLI permission) and puts the drift on the surface where
-/// `brokkr agents list` shows it every time.
-const AGENTS: [&str; 17] = [
+/// Decision 0041's library roster. `implementer-engine` temporarily shares
+/// the implementer charter until strategy-selected seats land.
+const AGENTS: [&str; 18] = [
     "chief-architect",
     "implementer",
+    "implementer-engine",
     "implementer-speckit",
     "intake",
     "intake-speckit",
     "muninn",
     "position-robustness",
     "position-simplicity",
+    "review-adversarial",
+    "review-chief",
     "review-correctness",
     "review-security",
-    "review-security-speckit",
     "review-spec-compliance",
     "reviewer",
     "shipper",
-    "shipper-speckit",
+    "triage",
     "verifier",
-    "verifier-speckit",
 ];
 
 fn library() -> Library {
@@ -146,21 +149,13 @@ fn the_charter_bytes_match_their_recorded_identities() {
 }
 
 #[test]
-fn the_library_holds_seventeen_agents_over_fifteen_charters() {
+fn the_library_holds_the_decision_0041_roster() {
     let library = library();
     assert_eq!(library.names(), AGENTS.map(str::to_string).to_vec());
-    // Two pairs share a charter file: identical bytes, differing only in
-    // tools. Nothing is copied to make the roster look tidy.
-    for (a, b) in [
-        ("verifier", "verifier-speckit"),
-        ("shipper", "shipper-speckit"),
-    ] {
-        let left = library.agent(a).unwrap();
-        let right = library.agent(b).unwrap();
-        assert_eq!(left.charter, right.charter);
-        assert_eq!(left.charter_digest, right.charter_digest);
-        assert_ne!(left.allow, right.allow, "the tools are what differ");
-    }
+    let implementer = library.agent("implementer").unwrap();
+    let engine = library.agent("implementer-engine").unwrap();
+    assert_eq!(implementer.charter, engine.charter);
+    assert_eq!(implementer.charter_digest, engine.charter_digest);
     // 0007 declarations stay at their default: the phases' rule-referenced
     // inputs already name exactly the right set for all of them.
     for name in AGENTS {
@@ -184,10 +179,14 @@ fn every_shipped_agent_resolves_at_compile_time() {
             resolution.notices.is_empty(),
             "{name} ships with no capability gap"
         );
-        assert!(
-            resolution.candidates.len() >= 2,
-            "{name} ships with a real fallback chain"
-        );
+        if name == "muninn" {
+            assert_eq!(resolution.candidates.len(), 1);
+        } else {
+            assert!(
+                resolution.candidates.len() >= 2,
+                "{name} ships with a real fallback chain"
+            );
+        }
         // The composed argv keeps `{brokkr}` a literal: expansion is the
         // compiler's job, and a machine-local path never reaches a digest.
         assert_eq!(resolution.candidates[0].argv[0], "{brokkr}");

@@ -2888,7 +2888,7 @@ fn capturing_driver_command(
 ///
 /// Both halves are pinned here, including the uncomfortable one: the
 /// chief CAN rule below the panel, and the engine will accept it. That
-/// is why `recipes/crucible/roles/review-chief.md` states the floor as
+/// is why `agents/charters/review-chief.md` states the floor as
 /// the seat's first law, and why this test asserts the mechanism rather
 /// than pretending the engine forbids the lowering.
 #[test]

@@ -74,7 +74,7 @@
         "fail"
       ],
       "class": "gate",
-      "agent": "verifier-speckit"
+      "agent": "verifier"
     },
     "review": {
       "results": [
@@ -98,7 +98,7 @@
           "class": "gate"
         },
         "security": {
-          "agent": "review-security-speckit",
+          "agent": "review-security",
           "class": "gate"
         }
       }
@@ -109,7 +109,7 @@
         "shipped"
       ],
       "class": "gate",
-      "agent": "shipper-speckit"
+      "agent": "shipper"
     }
   }
 }

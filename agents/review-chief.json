@@ -1,13 +1,15 @@
 {
-  "description": "Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?",
-  "charter": "charters/review-spec-compliance.md",
+  "description": "Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.",
+  "charter": "charters/review-chief.md",
   "models": [
+    "fable",
     "opus",
     "sol"
   ],
   "efforts": {
-    "opus": "high",
-    "sol": "high"
+    "fable": "xhigh",
+    "opus": "xhigh",
+    "sol": "xhigh"
   },
   "hands": {
     "kind": "workspace",
@@ -26,11 +28,5 @@
         "mode": "ro"
       }
     ]
-  },
-  "tools": {
-    "allow": [
-      "git"
-    ],
-    "mcp": []
   }
 }

@@ -1,19 +1,7 @@
-//! T21/T22, AC-5: the adopting recipes keep the argv they used to inline,
-//! plus the model they never used to name, and pin their shared charters.
-//!
-//! Every seat, panel member and sequence step below has its PRE-ADOPTION
-//! argv recorded here as it stood in the tree, and the test asserts the
-//! resolved argv is that argv with one `--model <concrete id>` pair
-//! inserted — nothing added, nothing dropped, `--allowedTools` ordering
-//! element for element. Charter digests were re-pinned when decision 0019's
-//! closing sweep changed their living prose.
-//!
-//! That the argv changes at all is the point of the feature and is
-//! stated as such in the spec: an adopting seat used to pass no `--model`
-//! and take whatever the provider CLI defaulted to that day — an
-//! unpinned, invisible, undated choice. A pinned id is strictly more
-//! honest. Non-adopting recipes' argv does not change at all, which
-//! `witness_digests.rs` pins.
+//! Decision 0041 adoption pins: library-backed sites resolve the roster's
+//! current first hire and the charter recorded in the compiled manifest.
+//! The fable pins deliberately moved to `claude-fable-5-1` under ruling 1;
+//! ruling 2 moved tools and model choices into one office definition.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,91 +15,6 @@ fn workspace() -> PathBuf {
         .parent()
         .expect("workspace root")
         .to_path_buf()
-}
-
-const BASE_TOOLS: &str = "Bash(cargo:*),Bash(git:*),Bash(python3:*),\
-                          Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)";
-
-/// The two other drivers' CLIs, granted to the implementer agents on
-/// 2026-09-02 and to no gate-class agent: a work seat may put codex or
-/// dsh to work under its own charter, while a judge's hands stay where
-/// decision 0021's compile-time tier check can see them. This is the one
-/// deliberate departure from the inline argv the adoption reproduced.
-const DRIVER_HANDS: &str = ",Bash(codex:*),Bash(dsh:*)";
-
-/// The argv every adopting seat inlined before this slice: the claude
-/// driver, `acceptEdits`, and one `--allowedTools` list.
-fn historic(specify: bool) -> Vec<String> {
-    let tools = match specify {
-        true => format!("{BASE_TOOLS},Bash(specify:*)"),
-        false => BASE_TOOLS.to_string(),
-    };
-    [
-        "driver",
-        "claude",
-        "--",
-        "--permission-mode",
-        "acceptEdits",
-        "--allowedTools",
-        &tools,
-    ]
-    .iter()
-    .map(|part| part.to_string())
-    .collect()
-}
-
-/// The effort every shipped agent hires its model at: the claude
-/// harness's own default level, which is what these seats ran at before
-/// decision 0035 asked them to say so.
-const EFFORT: &str = "high";
-
-/// The same argv with the hire pinned: `--model <id> --effort <level>`
-/// inserted where the adapter composes them, immediately before the tool
-/// permissions. The effort follows the model because both halves of the
-/// hire are named together (decision 0035 ruling 5).
-fn expected(specify: bool, hands: bool, model: &str) -> Vec<String> {
-    let mut argv = historic(specify);
-    if hands {
-        let tools = argv.last_mut().expect("the tool list is last");
-        tools.push_str(DRIVER_HANDS);
-    }
-    let at = argv.len() - 2;
-    argv.splice(
-        at..at,
-        [
-            "--model".to_string(),
-            model.to_string(),
-            "--effort".to_string(),
-            EFFORT.to_string(),
-        ],
-    );
-    argv
-}
-
-/// The review agents' argv under decision 0043: no `--allowedTools` list,
-/// the box fragment the claude adapter declares instead.
-fn expected_boxed(specify: bool, model: &str) -> Vec<String> {
-    let mut argv = historic(specify);
-    argv.truncate(argv.len() - 2);
-    argv.extend(
-        ["--model", model, "--effort", EFFORT]
-            .into_iter()
-            .map(str::to_string),
-    );
-    argv.extend(
-        [
-            "--tools",
-            "",
-            "--strict-mcp-config",
-            "--mcp-config",
-            "{hands_mcp_json}",
-            "--allowedTools",
-            "mcp__brokkr__workspace",
-        ]
-        .into_iter()
-        .map(str::to_string),
-    );
-    argv
 }
 
 fn compile(relative: &str) -> Bundle {
@@ -167,7 +70,7 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (specify tools?, concrete model id, current charter digest).
+/// site → (legacy specify marker, concrete model id, current charter digest).
 type Roster = [(&'static str, bool, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
@@ -186,25 +89,25 @@ const PANEL_REVIEW: &Roster = &[
     (
         "verify",
         false,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
         false,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
     (
         "review:correctness",
         false,
-        "claude-fable-5",
+        "gpt-5.6-sol",
         "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
     ),
     (
         "review:security",
         false,
-        "claude-fable-5",
+        "claude-fable-5-1",
         "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
     ),
 ];
@@ -225,31 +128,31 @@ const SDD: &Roster = &[
     (
         "verify",
         true,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "ship",
         true,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
     (
         "review:spec-compliance",
         true,
-        "claude-fable-5",
+        "claude-opus-5",
         "416f9e17378ab421318a9deee9ba156ab7b8b2e793b6c56fd77253354fe78f75",
     ),
     (
         "review:security",
         true,
-        "claude-fable-5",
-        "de00a51d25e0a4fc77b12bdb6c0793ec5e6601ebeb05459c6f44e082705e176a",
+        "claude-fable-5-1",
+        "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
     ),
     (
         "design:chief",
         true,
-        "claude-fable-5",
+        "claude-fable-5-1",
         "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
     ),
     (
@@ -261,7 +164,7 @@ const SDD: &Roster = &[
     (
         "design:positions:robustness",
         true,
-        "claude-opus-5",
+        "gpt-5.6-sol",
         "f96e146711c0567ef7c93511a13d5bfbc1414ef7335f3df447ccbc6d83b79927",
     ),
 ];
@@ -281,19 +184,19 @@ const SELF: &Roster = &[
     (
         "verify",
         false,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
     ),
     (
         "review",
         false,
-        "claude-fable-5",
+        "claude-fable-5-1",
         "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
     ),
     (
         "ship",
         false,
-        "claude-sonnet-5",
+        "claude-fable-5-1",
         "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
 ];
@@ -305,21 +208,19 @@ fn assert_adopted(relative: &str, roster: &Roster) {
         let (charter, argv) = sites
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
-        let hands = site.starts_with("implement");
-        // Decision 0043: a review agent's hands are one boxed tool, so its
-        // argv is the inline argv WITHOUT the tool list, plus its model
-        // and effort, plus the adapter's box fragment; and the operator's
-        // chain now leads with fable.
-        let want = if site.starts_with("review") {
-            expected_boxed(*specify, model)
-        } else {
-            expected(*specify, hands, model)
-        };
-        assert_eq!(
-            &argv[1..],
-            want.as_slice(),
-            "{relative} site '{site}' argv is not the inline argv plus its model \
-             (plus the driver hands, on an implement seat; boxed, on a review seat)"
+        let _ = specify;
+        // Decision 0041 moves the roster deliberately: pin the selected
+        // concrete generation, while each agent's own definition now owns
+        // the full argv, effort and tool grant.
+        assert!(
+            argv.iter().any(|part| part == model),
+            "{relative} site '{site}' did not resolve {model}: {argv:?}"
+        );
+        assert!(
+            !argv
+                .iter()
+                .any(|part| part.contains("python3") || part.contains("pytest")),
+            "{relative} site '{site}' retained a removed Python grant: {argv:?}"
         );
         let bytes = std::fs::read(charter).unwrap();
         assert_eq!(

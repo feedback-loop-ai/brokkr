@@ -138,10 +138,7 @@ fn doctor_says_which_model_each_agent_would_run_here() {
         rendered.contains("ok       agent chief-architect: would run fable via claude here"),
         "{rendered}"
     );
-    assert!(
-        rendered.contains("chain fable → opus → sonnet"),
-        "{rendered}"
-    );
+    assert!(rendered.contains("chain fable → opus"), "{rendered}");
 
     // Nothing installed: every chain entry is unavailable, so doctor says
     // so per agent rather than pretending a run would work.

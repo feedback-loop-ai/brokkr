@@ -2,14 +2,12 @@
   "description": "Review panel member: does the change do what it claims, and does the evidence support it?",
   "charter": "charters/review-correctness.md",
   "models": [
-    "fable",
-    "opus",
-    "sol"
+    "sol",
+    "opus"
   ],
   "efforts": {
-    "fable": "high",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "sol": "high",
+    "opus": "high"
   },
   "hands": {
     "kind": "workspace",
@@ -31,13 +29,7 @@
   },
   "tools": {
     "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir"
+      "git"
     ],
     "mcp": []
   }

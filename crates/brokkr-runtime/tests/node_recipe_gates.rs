@@ -36,19 +36,22 @@ fn workspace() -> PathBuf {
 /// An adapter as data, in the shape `Adapters::load` reads: a provider
 /// that declares a tier and nothing else it does not need.
 fn adapter(name: &str, tier: &str) -> Value {
-    json!({
+    let mut value = json!({
         "provider": name,
         "trust_tier": tier,
         "binding_grant": false,
         "binary": name,
         "driver": ["{brokkr}", "driver", name, "--"],
         "models": {},
-        "model_flag": "unsupported",
-        "efforts": [],
-        "effort_flag": "unsupported",
+        "judges": [name],
+        "model_flag": "--model",
+        "efforts": ["high"],
+        "effort_flag": "--effort",
         "tool_permissions": "unsupported",
         "mcp": "unsupported",
-    })
+    });
+    value["models"][name] = json!("claude-fable-5-1");
+    value
 }
 
 /// A copy of `recipes/node` whose seats are driven by fixture providers.

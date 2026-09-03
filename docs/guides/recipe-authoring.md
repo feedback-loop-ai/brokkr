@@ -26,26 +26,26 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	b7a71d6c793b	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing an Opus review sequence.	recipes/crucible
-ember	51aad7cdf6d9	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes with a cheap intake and economical working seats.	recipes/ember
-fast	f4ef75713bc5	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	9c1033b52d2a	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
-node	053a11fc4d70	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	eb111b40d8c1	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	cca4aa030fb4	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-sdd	8c888c71ac33	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
-sdd-paranoid	984296a63b04	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
-wager-harness	bbdd2c114ad2	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
-wager-harness-dsh	2cf7480e1b34	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-self	b5e40fd02203	7 phases	implement, intake, review, ship, verify			./bundles/self
-verify	1ce203798837	4 phases	review, verify			./bundles/verify
+crucible	17dfdff6f440	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing a review panel and chief.	recipes/crucible
+ember	894e6e72e763	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
+fast	f6f960da0503	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+night-shift	cefe6b617107	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
+node	2ebd5ac5ad6a	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	5e9b058d5b1a	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	ffa8c3a07b99	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+sdd	d3bbfc195ae1	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
+sdd-paranoid	d990d7d92b68	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+wager-harness	6ea8645805e3	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	02c227af9917	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+self	f083edddbbd4	7 phases	implement, intake, review, ship, verify			./bundles/self
+verify	162fef593349	4 phases	review, verify			./bundles/verify
 ```
 
 | Recipe | Reach for it when | The difference it states |
 |---|---|---|
 | [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base every recipe below extends |
-| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: a haiku intake seat added, cheap models everywhere except the review gate |
-| [`crucible`](../../recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: opus throughout, and `review` becomes a `security`+`correctness` panel whose verdict a `chief` gate synthesises |
+| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: adds intake and seats the shared roster on all five phases |
+| [`crucible`](../../recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: seats `implementer-engine`, then a correctness+security panel whose verdict `review-chief` synthesises |
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends fast`: `max_attempts: 1` on every seat, so anything unusual parks for morning instead of retrying |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
 | [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
@@ -227,7 +227,7 @@ results into the one typed result the machine sees:
   "aggregate": "review-panel",
   "panel": {
     "spec-compliance": { "agent": "review-spec-compliance" },
-    "security":        { "agent": "review-security-speckit" }
+    "security":        { "agent": "review-security" }
   }
 }
 ```
@@ -330,7 +330,7 @@ and it is sixty lines against SDD's 103:
       "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
       "aggregate": "review-panel",
       "panel": {
-        "adversarial": { "role": "roles/review-adversarial.md", "driver": { "…": "…" } },
+        "adversarial": { "agent": "review-adversarial" },
         "security":    { "role": "roles/review-security.md",    "driver": { "…": "…" } }
       }
     }

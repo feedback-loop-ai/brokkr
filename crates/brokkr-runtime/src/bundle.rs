@@ -1357,42 +1357,56 @@ fn enforce_model_policy(
     // Each site as (driver, concrete model id): the id is what carries
     // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
     // name becomes concrete through the adapter that maps it.
-    let drivers: Vec<(Option<String>, ModelPin)> = match candidates.is_empty() {
-        // An inline site's route is read off its own argv, on the flag
-        // the ADAPTER names (`model_flag`, since decision 0016) AND on
-        // `--model` (decision 0040 ruling 1). A provider the operator
-        // adds that takes `-m` is read on `-m`, so the route named
-        // there is the route this site reaches; and it is read on
-        // `--model` too, because the same CLI commonly honours that as
-        // well, and a pin the engine declined to read there went to an
-        // unruled route on the adapter's own clearance. Both doors,
-        // held shut by one read. Where no adapter answers for the
-        // driver, the `(None, _)` arm below lands the site on
-        // `Uncontracted` whatever this returns.
-        true => {
-            let driver = dispatch_driver(&command_parts(raw));
-            let pin = inline_route_pin(
-                raw,
-                driver
+    let drivers: Vec<(usize, Option<String>, Option<String>, ModelPin)> =
+        match candidates.is_empty() {
+            // An inline site's route is read off its own argv, on the flag
+            // the ADAPTER names (`model_flag`, since decision 0016) AND on
+            // `--model` (decision 0040 ruling 1). A provider the operator
+            // adds that takes `-m` is read on `-m`, so the route named
+            // there is the route this site reaches; and it is read on
+            // `--model` too, because the same CLI commonly honours that as
+            // well, and a pin the engine declined to read there went to an
+            // unruled route on the adapter's own clearance. Both doors,
+            // held shut by one read. Where no adapter answers for the
+            // driver, the `(None, _)` arm below lands the site on
+            // `Uncontracted` whatever this returns.
+            true => {
+                let driver = dispatch_driver(&command_parts(raw));
+                let pin = inline_route_pin(
+                    raw,
+                    driver
+                        .as_deref()
+                        .and_then(|provider| adapters.adapter(provider)),
+                );
+                let abstract_model = driver
                     .as_deref()
-                    .and_then(|provider| adapters.adapter(provider)),
-            );
-            vec![(driver, pin)]
-        }
-        false => candidates
-            .iter()
-            .map(|candidate| {
-                let (_, concrete) = adapters
-                    .serving(&candidate.model)
-                    .expect("resolution mapped every link of the chain");
-                (
-                    Some(candidate.provider.clone()),
-                    ModelPin::Concrete(concrete.to_string()),
-                )
-            })
-            .collect(),
-    };
-    for (driver, pin) in drivers {
+                    .and_then(|provider| adapters.adapter(provider))
+                    .and_then(|adapter| match &pin {
+                        ModelPin::Concrete(concrete) => adapter
+                            .models
+                            .iter()
+                            .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
+                        _ => None,
+                    });
+                vec![(1, driver, abstract_model, pin)]
+            }
+            false => candidates
+                .iter()
+                .enumerate()
+                .map(|(index, candidate)| {
+                    let (_, concrete) = adapters
+                        .serving(&candidate.model)
+                        .expect("resolution mapped every link of the chain");
+                    (
+                        index + 1,
+                        Some(candidate.provider.clone()),
+                        Some(candidate.model.clone()),
+                        ModelPin::Concrete(concrete.to_string()),
+                    )
+                })
+                .collect(),
+        };
+    for (link, driver, abstract_model, pin) in drivers {
         let adapter = driver
             .as_deref()
             .and_then(|provider| adapters.adapter(provider));
@@ -1414,6 +1428,21 @@ fn enforce_model_policy(
                  stands behind the judges (decision 0021 ruling 2 — an \
                  undeclared tier is untrusted)"
             )));
+        }
+        // Decision 0041 ruling 3: trust authorises a provider, while
+        // `judges` authorises the particular abstract hire. Both must
+        // hold on every fallback link. A missing declaration is the
+        // empty set, just like an absent tier is untrusted.
+        if class == SeatClass::Gate && !boxed_exec && !matches!(pin, ModelPin::Absent) {
+            let admitted = adapter
+                .zip(abstract_model.as_deref())
+                .is_some_and(|(adapter, model)| adapter.judges.iter().any(|judge| judge == model));
+            if !admitted {
+                let model = abstract_model.as_deref().unwrap_or("<unmapped>");
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' gate link {link} names model '{model}', which {named} does not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+                )));
+            }
         }
         // Where this site's material actually goes. Two kinds of
         // not-knowing land on the floor for the one ruling-1 reason —

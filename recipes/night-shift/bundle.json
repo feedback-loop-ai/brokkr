@@ -42,94 +42,29 @@
       }
     },
     "verify": {
-      "role": "roles/verifier.md",
+      "agent": "verifier",
+      "class": "gate",
       "results": [
         "pass",
         "fail"
-      ],
-      "class": "gate",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 3600
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
-          "--model",
-          "claude-opus-5",
-          "--effort",
-          "high"
-        ]
-      }
+      ]
     },
     "review": {
-      "role": "roles/reviewer.md",
+      "agent": "reviewer",
+      "class": "gate",
       "results": [
         "clean",
         "residual",
         "security-hold"
-      ],
-      "class": "gate",
-      "inputs": [
-        "fixes_applied",
-        "has_security_residual",
-        "max_residual_severity"
-      ],
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 3600
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
-          "--model",
-          "claude-opus-5",
-          "--effort",
-          "high"
-        ]
-      }
+      ]
     },
     "ship": {
-      "role": "roles/shipper.md",
+      "agent": "shipper",
+      "class": "gate",
       "results": [
         "ready",
         "shipped"
-      ],
-      "class": "gate",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 1800
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "claude",
-          "--",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
-          "--model",
-          "claude-opus-5",
-          "--effort",
-          "high"
-        ]
-      }
+      ]
     }
   }
 }

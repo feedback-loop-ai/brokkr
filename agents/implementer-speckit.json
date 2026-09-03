@@ -11,16 +11,7 @@
   },
   "tools": {
     "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "specify",
-      "codex",
-      "dsh"
+      "cargo"
     ],
     "mcp": []
   },

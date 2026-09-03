@@ -28,6 +28,7 @@
     "studio-flash": "dashscope/deepseek-v4-flash-0731",
     "studio-pro": "dashscope/deepseek-v4-pro"
   },
+  "judges": [],
   "model_flag": "--model",
   "efforts": [
     "low",

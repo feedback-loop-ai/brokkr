@@ -1,0 +1,22 @@
+{
+  "description": "Temporary engine-class implementer: builds the framed task at the engine-class hire until strategy selection lands.",
+  "charter": "charters/implementer.md",
+  "models": [
+    "fable",
+    "opus"
+  ],
+  "efforts": {
+    "fable": "high",
+    "opus": "high"
+  },
+  "tools": {
+    "allow": [
+      "cargo"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 7200
+  }
+}

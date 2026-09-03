@@ -752,6 +752,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "hint",
             "driver",
             "models",
+            "judges",
             "model_flag",
             "efforts",
             "effort_flag",
@@ -774,6 +775,18 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         return invalid(format!("{what} 'driver' is empty; it is the invocation"));
     }
     let models = name_map(map, "models", &what)?;
+    let judges = match map.get("judges") {
+        Some(_) => string_array(map, "judges", &what)?,
+        None => Vec::new(),
+    };
+    named(&judges, "judges", &what)?;
+    for judge in &judges {
+        if !models.contains_key(judge) {
+            return invalid(format!(
+                "{what} declares judge '{judge}' but maps no model with that abstract name"
+            ));
+        }
+    }
     // Three legal shapes, two outcomes. `"unsupported"` and a declared
     // gap BOTH yield `None` — the refusal in `compose` is identical, so
     // no seat gains power by the reason existing. What the reason buys
@@ -872,6 +885,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hint,
         driver,
         models,
+        judges,
         model_flag,
         efforts,
         effort_flag: pin_flag(map, "effort_flag", &what)?,
