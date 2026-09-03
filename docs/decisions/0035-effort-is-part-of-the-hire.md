@@ -116,10 +116,11 @@ reasoning — that is core to our ledger and modus operandi."
 1. **Explicit over implicit is the ledger's rule, stated once.**
    Brokkr pins what it depends on and records what came back: release
    versions and their digests, bundle and recipe digests, the concrete
-   model, and — by this decision — the effort and the reasoning the
-   model spent. A fact that decides an outcome or a price is named in
-   the plan and carried in the record, whether the record holds it as
-   claim or as meter. Nothing that moves a bill is left to a default.
+   model, and — by this decision — the effort asked of it and the
+   reasoning it spent. A fact that decides an outcome or a price is
+   named in the plan and carried in the record, whether the record
+   holds it as claim or as meter. Nothing that moves a bill is left to
+   a default.
 
    **Enforcement binding:** this decision is the general rule the
    specific bindings below implement; it supersedes nothing and is
@@ -139,8 +140,9 @@ reasoning — that is core to our ledger and modus operandi."
    What survives that scrutiny is not a name but a meter. Tokens, money
    and elapsed time are costly to fabricate and are what settle a
    dispute; a label is free to assert. Decision 0034 froze the meters
-   the record already had, and rulings 3 and 4 add the two it lacked.
-   That is why they are load-bearing here rather than decorative.
+   the record already had, ruling 4 adds the one it lacked, and ruling 3
+   records beside it the configuration that meter audits. That is why
+   they are load-bearing here rather than decorative.
 
    **Enforcement binding:** no code changes for this ruling. It governs
    how the `model` field is described in `docs/guides/driver-authoring.md`
