@@ -50,6 +50,7 @@ initialised in another and a change created, inspected and validated.
 | validator | `check-prerequisites.sh` checks the directory, `plan.md`, `tasks.md` and the branch name exist; `specify check` probes tools; content consistency is a skill, `/speckit-analyze` | `openspec validate <id> --strict`, JSON on request, `--archived` for a completed change's tasks |
 | close-out | none; the directory is the record | `openspec archive <id> --yes` folds the deltas into the truth; `--skip-specs` for a change without spec deltas |
 | workflow runner | `specify workflow run` drives a harness through specify, plan, tasks, implement with approve-or-reject gates | slash skills, `/opsx:*` |
+| clarify and analyze | both, as skills: `speckit-clarify` scans a taxonomy, asks at most five questions a session and encodes the answers into the spec; `speckit-analyze` is strictly read-only, treats the constitution as non-negotiable, reports six dimensions with four severities | neither. `explore` is a thinking partner for a human before proposing; `update` is an author revising a change's artifacts to keep them coherent; `validate --strict` is structural — at least one delta, delta headers, a scenario per requirement. No read-only judge, no zero exit, no constitution |
 
 **The frameworks are machines.** The operator's observation the same
 day, and the measurement bears it out: "those two spec frameworks are
@@ -200,7 +201,14 @@ Alternatives weighed:
    the realm's house file. The loops belong to the generic machine, not
    to a dialect: a framework that ships a skill for them contributes its
    taxonomy and its marker count (ruling 3); one that ships none is
-   judged by the same offices on the same terms. A framework's human
+   judged by the same offices on the same terms. OpenSpec ships none,
+   measured: its `explore` is a conversation with a human before
+   proposing, which the park replaces in an unattended run; its `update`
+   is an author keeping artifacts coherent, which is the chief's return
+   to `specify`, not a judge; and its strict validation is structural.
+   Under the OpenSpec dialect the judges therefore work from Brokkr's
+   own taxonomy, the six dimensions spec-kit's skill spells out, and
+   the constitution is the house file because the framework has none. A framework's human
    approval gates are table rules a gated variant may add after
    `specify` and `design`; the unattended variant has none, and the
    parks above are where a human enters it.
