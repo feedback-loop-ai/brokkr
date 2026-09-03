@@ -102,9 +102,9 @@ internally tidy, evidentially false, and silent when a thread changes
 effort mid-run. Waiting for the harnesses to put effort on the streams
 their adapters fold leaves the fact unrecorded for as long as that
 takes, and the journal is append-only — the window cannot be repaired
-afterwards. Amending v1 in
-place is not available at all: contracts are frozen by construction,
-which is why ruling 7 adds a file rather than a field.
+afterwards. Amending v1 in place is not available at all: contracts are
+frozen by construction, which is why ruling 7 adds a file rather than a
+field.
 
 The operator ruled in chat on 2026-09-03: "the information is
 meaningless without effort", "if we have a model, we need effort as
@@ -122,9 +122,10 @@ reasoning — that is core to our ledger and modus operandi."
    holds it as claim or as meter. Nothing that moves a bill is left to
    a default.
 
-   **Enforcement binding:** this ruling is the general rule the
-   specific bindings below implement; it supersedes nothing and is
-   cited where an implicit default would otherwise be argued for.
+   **Enforcement binding:** none of its own — this ruling is
+   judgment-guidance, the general rule the specific bindings below
+   implement. It supersedes nothing and is cited where an implicit
+   default would otherwise be argued for.
 
 2. **A served value is the provider's claim, not a proof — decision
    0031's word "evidence" is refined here.** No harness discloses
@@ -144,11 +145,12 @@ reasoning — that is core to our ledger and modus operandi."
    records beside it the configuration that meter audits. That is why
    they are load-bearing here rather than decorative.
 
-   **Enforcement binding:** no code changes for this ruling. It governs
-   how the `model` field is described in `docs/guides/driver-authoring.md`
-   and in every readout that labels it, and it is the ruling cited when
-   a future decision is tempted to treat a provider's self-report as
-   settled fact.
+   **Enforcement binding:** no code changes for this ruling, and no
+   mechanism can refuse a violation of it: it is judgment-guidance. It
+   governs how the `model` field is described in
+   `docs/guides/driver-authoring.md` and in every readout that labels
+   it, and it is the ruling cited when a future decision is tempted to
+   treat a provider's self-report as settled fact.
 
 3. **The record carries the configured effort, labelled as
    configuration.** A new `contracts/seat-record.v2.schema.json` adds
@@ -196,7 +198,7 @@ reasoning — that is core to our ledger and modus operandi."
    turn's value is absent, never zero and never back-filled from the
    run total. The codex fold additionally maps the
    `cache_write_input_tokens` it already receives onto the
-   `cache_write_tokens` v1 defines and does not fill.
+   `cache_write_tokens` v1 defines and no codex record fills today.
 
    **Enforcement binding:** the codex fold and its conformance shim;
    the view sums exactly as documented in
@@ -237,12 +239,12 @@ reasoning — that is core to our ledger and modus operandi."
 
 ## Consequences
 
-A reader of any seat record can tell who was hired and what the work
-cost: the model claimed, the effort asked of it, the reasoning it
-actually spent, and the money. The first two are claims and the last two
-are meters, and the record now says which is which. The wager
-becomes a comparison between stated hires rather than between names
-that say nothing about the effort behind them.
+A reader of a seat record can tell who was hired and, as far as its
+harness reports, what the work cost: the model claimed, the effort
+asked of it, the reasoning actually spent, and the money. The first two
+are claims and the last two are meters, and the record now says which
+is which. The wager becomes a comparison between stated hires rather
+than between names that say nothing about the effort behind them.
 
 Bundle and recipe digests move where effort pins are added, and
 descendants whose base changed move with them. Frozen evaluator
