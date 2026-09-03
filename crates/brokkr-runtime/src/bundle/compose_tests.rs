@@ -754,23 +754,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "60ac742aa290064c0c0b8826111e614e5453ffa1bbbf5a77babee0b29003e372",
+        "b419e5dcd10357a57342c82cbcafcef56eaa6ac83c9863d1c98b89a93d9eb3f4",
     ),
     (
         "recipes/panel-review",
-        "eb111b40d8c1e4ce03c7d630079d27bc05a1b1dee59246e537f1889efcd98a62",
+        "80ec8a26b02588a832dd015d00ff76e644b3361009d2e84e3f45be12e6dedeef",
     ),
     (
         "recipes/sdd",
-        "8c888c71ac3353803ec7d62ae7872e2b23c94d8ace29cc940a51532ee0841cbb",
+        "07435f9fc2b2086c8699af12ea7a3e021e02354f1e685a97969577a5a32c8990",
     ),
     (
         "bundles/self",
-        "b5e40fd02203c928338aeee9c5a032e44e66e200c138560d0107eed192872362",
+        "960b99d6f5c84a6943704132c94853034f0cc467947846549d41e0b66b411aae",
     ),
     (
         "bundles/verify",
-        "05b40fe006ac31bb5cfeecb8b5c503d28166a8bb79600d481f5b3ed715a8b874",
+        "57a5c5f179a144e8a054ab9952ce2688a4dedd675c899ec7a8651cf9e8ddc584",
     ),
 ];
 
@@ -901,7 +901,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "cce743c6f9b12bdc0bbae184740623cdfa06ec0dc0b875449f2661fcdb766348",
+        "3084d0d0996530a51291be9ff6250f3b1906ccb413c22bfed0a45cb5b836b997",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
