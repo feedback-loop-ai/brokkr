@@ -64,8 +64,17 @@ list with gates: `specify`, a review gate that approves or rejects,
 machine every framework instantiates: state the what, then the how,
 then the work, then build, verify, review, ship. The operator named the
 mapping the same day: "specify (the what), design (the high-level how)
-and task breakdown (the low-level how)" — and asked where the
-frameworks' own sub-machines go, which ruling 3 answers with steps.
+and task breakdown (the low-level how)" — asked where the frameworks'
+own sub-machines go, which ruling 3 answers with steps, and ruled the
+two states a first draft had marked optional: "analyze is not optional,
+analyze to zero is mandatory (analyzing N amount of times until there
+is no constitutional drift), and n amount of clarify until there is no
+more ambiguity." Measured against spec-kit's skills the same day: its
+clarify skill scans a taxonomy, asks at most five questions a session
+and encodes the answers into the spec; its analyze skill is strictly
+read-only, treats the constitution as non-negotiable, and reports six
+dimensions with four severities. Ruling 2 makes both generic states of
+the machine.
 
 The first draft of this decision flattened all of that into one
 `design` phase whose chief wrote every artifact in a single pass and one
@@ -141,12 +150,13 @@ Alternatives weighed:
    frozen-contracts test; the dialect loader in `brokkr-runtime`; the
    compile refusal and its test; the manifest pin.
 
-2. **The SDD machine is a table, and it has three artifact phases.**
-   `recipes/sdd`'s table carries `specify` (the what), `design` (the
-   high-level how) and `tasks` (the low-level how: the work breakdown)
-   ahead of implement, each a phase of its own: its own seat, attempts
-   and deadline, a typed result, and a dialect-supplied validate step as
-   its final step (ruling 4). Each phase's seat is a sequence the engine
+2. **The SDD machine is a table: three artifact phases and two judged
+   loops that exit only at zero.** `recipes/sdd`'s table carries
+   `specify` (the what), `clarify`, `design` (the high-level how),
+   `tasks` (the low-level how: the work breakdown) and `analyze` ahead
+   of implement, each a phase of its own: its own seat, attempts and
+   deadline, a typed result, and — for the three artifact phases — a
+   dialect-supplied validate step as its final step (ruling 4). Each phase's seat is a sequence the engine
    composes from the dialect's steps for that phase (ruling 3), the
    validate step last. `specify` seats the chief alone. `design` seats the council —
    positions in parallel, then the chief. `tasks` seats the smith: the
@@ -159,16 +169,51 @@ Alternatives weighed:
    at fault and that is triage's office (0041 ruling 6). Decision 0041
    ruling 5c's edge — the spec-compliance judge's `spec_defect` — lands
    on `specify`, the earliest artifact, and the chain re-runs under the
-   same bound. A framework's human gates are table rules: a gated
-   variant may park after `specify` and after `design`; the unattended
-   variant parks nowhere.
+   same bound.
+
+   The two loops are the operator's ruling in his own words: "analyze
+   to zero", and "n amount of clarify until there is no more
+   ambiguity". `clarify` seats a read-only judge that scans the
+   specification for ambiguity — the taxonomy spec-kit's skill names:
+   underspecified areas, unquantified adjectives, missing decision
+   points, markers left open — and reports `clear` only when its list
+   is empty. Otherwise it reports `ambiguous`, every open question in
+   its notes with the evidence that would settle it, and the table
+   returns the run to `specify`, where the chief answers from the
+   commission, the house rules and the tree, and records what it
+   assumed and why. `analyze` seats a read-only judge that reads the
+   three artifacts and the realm's house file and reports drift —
+   duplication, ambiguity, underspecification, constitution alignment,
+   coverage gaps and inconsistency, the six dimensions spec-kit's skill
+   names, with its severities — and reports `consistent` only at zero
+   findings. Otherwise it reports `drift`, with a declared enumerated
+   input `drift_in` naming the earliest artifact at fault, and the
+   table returns the run to that phase; a return to `specify` re-runs
+   the whole chain. Both loops are bounded by their own visits the way
+   0022 bounds reforging: three passes, then the run parks with the open
+   questions or the residual drift as its reason, which is the
+   operator's door. A question no evidence can answer parks the same
+   way from `specify`, the questions themselves as the reason, and the
+   operator's answer returns with the resume. Neither judge writes a
+   file (0041 ruling 4). The constitution is non-negotiable within the
+   analysis, as spec-kit's skill puts it, and here the constitution is
+   the realm's house file. The loops belong to the generic machine, not
+   to a dialect: a framework that ships a skill for them contributes its
+   taxonomy and its marker count (ruling 3); one that ships none is
+   judged by the same offices on the same terms. A framework's human
+   approval gates are table rules a gated variant may add after
+   `specify` and `design`; the unattended variant has none, and the
+   parks above are where a human enters it.
 
    **Enforcement binding:** `recipes/sdd/policy.json`;
    `crates/brokkr-runtime/tests/sdd_shape.rs` (new): three artifact
-   phases precede implement, each ends in a boxed validate step, each
-   `upstream` edge lands one phase earlier and is bounded, the
-   protected review gate is unchanged; a table test per arm in
-   `brokkr-core`.
+   phases and two judged loops precede implement, each artifact phase
+   ends in a boxed validate step, each `upstream` edge lands one phase
+   earlier and is bounded, `clarify` advances only on `clear` and
+   `analyze` only on `consistent`, each loop's exhaustion parks, the
+   protected review gate is unchanged; `drift_in` joins the enumerated
+   input kinds as seat-declarable over the artifact phase names; a table
+   test per arm in `brokkr-core`.
 
 3. **A dialect maps its framework's graph onto the table, and the
    compiler checks the map.** `contracts/dialect.v1.schema.json` closes
@@ -181,8 +226,11 @@ Alternatives weighed:
    that holds it (`chief`, `council`, `smith`, or `check` for a
    read-only judge), whether it is optional, and the instructions the
    seat is rendered; and the phase's `validate` argv or `unsupported`
-   with the reason; `order` (the framework's own dependency edges
-   between artifacts); `verify` and `archive` (argv with `{change}`, or
+   with the reason; for `clarify` and `analyze`, the taxonomy rendered
+   to the judge and a `check` argv — the framework's own deterministic
+   count where it has one, `unsupported` where the judge's list is the
+   count; `order` (the framework's own dependency edges between
+   artifacts); `verify` and `archive` (argv with `{change}`, or
    `unsupported`); and `house` (the dialect's own constitution path, or
    `unsupported`). Every artifact is assigned to exactly one step of
    exactly one phase, every phase has at least one required step, and
@@ -197,9 +245,11 @@ Alternatives weighed:
    | `requires` | `openspec/config.yaml` | `.specify/templates/spec-template.md`, `.specify/scripts/bash/check-prerequisites.sh` |
    | `change` | `openspec/changes/{change}` | `specs/{change}`, `{change}` being `NNN-slug` |
    | `truth` | `openspec/specs` | `unsupported`: the feature directory is the record |
-   | `specify` steps | `propose` — chief: `proposal.md`, then the `specs/<capability>/spec.md` deltas it declares, one session | `specify` — chief: `spec.md`; `clarify` is `unsupported` inside a run: the questions it would ask become the template's Assumptions section, recorded |
+   | `specify` steps | `propose` — chief: `proposal.md`, then the `specs/<capability>/spec.md` deltas it declares, one session | `specify` — chief: `spec.md`, with the template's `[NEEDS CLARIFICATION: …]` marker wherever the commission leaves a decision open |
+   | `clarify` check | `unsupported`: the judge's list is the count | the marker count over the feature directory must be zero — the framework's own marker, counted deterministically beside the judge's list |
    | `design` steps | `design` — council: positions, then the chief writes `design.md` | `plan` — council: positions, then the chief writes `plan.md` with the research, data model, contracts and quickstart the template asks for; `checklist`, optional — chief: `checklists/*.md` |
-   | `tasks` steps | `tasks` — smith: `tasks.md` | `tasks` — smith: `tasks.md`; `analyze`, optional — check: a read-only cross-artifact consistency judge, spec-kit's `/speckit-analyze` held by a gate seat |
+   | `tasks` steps | `tasks` — smith: `tasks.md` | `tasks` — smith: `tasks.md` |
+   | `analyze` taxonomy | Brokkr's six dimensions; `openspec validate --strict` has already required a scenario per requirement | the `speckit-analyze` skill's six dimensions and its CRITICAL, HIGH, MEDIUM and LOW severities, rendered to the judge; its coverage table maps every requirement to a task |
    | after implement | `archive` — the smith's fold (`archive`, below) | none: the directory is the record |
    | `order` | proposal → specs, proposal → design, specs → tasks, design → tasks | spec → plan → tasks |
    | `validate`, per phase | `openspec validate {change} --strict --no-interactive`, and `openspec status --change {change} --json` must show the phase's artifacts complete | `check-prerequisites.sh` for the files it knows, and Brokkr's own check of the template headings, declared as Brokkr's |
@@ -215,10 +265,9 @@ Alternatives weighed:
    session: a dialect groups artifacts into one step where one session
    should write them in order, as OpenSpec's proposal and the spec
    deltas it declares, because the validator checks per artifact
-   regardless. An optional step runs only when a recipe asks for it —
-   `"steps": "full"` on the phase's seat; `sdd-paranoid` asks — so the
-   framework's optional states cost a session only where they are
-   wanted. A return lands on a phase, never inside one, because that is
+   regardless. An optional step — spec-kit's checklist — runs only when
+   a recipe asks for it, `"steps": "full"` on the phase's seat, which
+   `sdd-paranoid` does; the loops are never optional. A return lands on a phase, never inside one, because that is
    the framework's own granularity of truth: `openspec status` knows
    artifacts, not half-written ones. OpenSpec's graph lets specs and
    design proceed in parallel after the proposal; the table linearises
@@ -293,10 +342,13 @@ Alternatives weighed:
    a requirement to pass validation. The spec-compliance judge compares
    the diff to the change's artifacts as the dialect shapes them,
    scenarios or success criteria, and may rule `spec_defect` (0041
-   ruling 5c); no gate touches an artifact (0041 ruling 4). The charters
-   carry none of this: the dialect's per-phase instructions do, rendered
-   by the engine under `## Spec dialect` into the seat that holds the
-   phase and into the review panel.
+   ruling 5c); no gate touches an artifact (0041 ruling 4). Two gate
+   offices join the library for the loops, `clarifier` and `analyst`,
+   hired as judges under 0041's roster — fable-5-1 at xhigh, then opus-5
+   at xhigh — and read-only like every judge. The charters carry none of
+   this: the dialect's per-phase instructions do, rendered by the engine
+   under `## Spec dialect` into the seat that holds the phase and into
+   the review panel.
 
    **Enforcement binding:** the dialect instructions;
    `implementer-speckit` and `intake-speckit` renamed `implementer-sdd`
@@ -335,6 +387,7 @@ Alternatives weighed:
 ## Consequences
 
 - **What dies.** The single design pass and its four hard-coded paths;
+  the idea that analysis and clarification are optional;
   `speckit_check.sh` and its role file; discovery by modification time;
   the two `-speckit` agent names and the `specify` grant; the hybrid
   layout, into the evidence tree with its history.
@@ -342,9 +395,11 @@ Alternatives weighed:
   chief's pass on `specify`, the council on `design`, the smith's pass
   on `tasks`, each with a boxed validate step. Each is smaller than the
   single pass it replaces and each is bounded, journaled and returnable
-  on its own, which is what the extra sessions buy. A framework's
-  optional states — spec-kit's checklist and analyze — cost a session
-  each and run only when a recipe asks. The tool must be
+  on its own, which is what the extra sessions buy. Each pass of a
+  loop costs a judge session plus the artifact phase it returns to,
+  and the bound caps a loop at three passes; a clean chain costs
+  exactly two judge sessions. Spec-kit's checklist stays optional and
+  costs a session only when a recipe asks. The tool must be
   installed on the machine that runs an artifact phase — Node for
   OpenSpec — and `doctor` says so before a run does. A dialect's version
   is a pin: bumping it moves the digest of every bundle that designs,
@@ -369,7 +424,11 @@ Alternatives weighed:
 - **Deliberately unruled.** The gated variant's parks are approvals,
   and the operator command vocabulary has `retry` and `stop` but no
   `proceed`; a variant that waits for approval wants that command, and
-  its own ruling. Which phase the council sits on is data — moving the
+  its own ruling. The same vocabulary carries no answer: when `clarify`
+  parks on a question no evidence settles, the operator's answer must
+  reach the returning `specify` seat, and whether that is a note on the
+  resume command or a file the seat is pointed at is the enactment's
+  to decide and record. Which phase the council sits on is data — moving the
   positions from `design` to `specify` is a seat edit — and the default
   here is a judgment, not a measurement. Custom OpenSpec schemas
   (`openspec schema`, experimental) and stores; a realm that speaks two
