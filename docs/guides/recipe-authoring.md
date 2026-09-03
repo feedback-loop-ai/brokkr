@@ -331,7 +331,7 @@ and it is sixty lines against SDD's 103:
       "aggregate": "review-panel",
       "panel": {
         "adversarial": { "agent": "review-adversarial" },
-        "security":    { "role": "roles/review-security.md",    "driver": { "…": "…" } }
+        "security":    { "agent": "review-security" }
       }
     }
   }
