@@ -8,7 +8,7 @@ open the pull request that names the run.
 
 Download the checksum-verified archive from the
 [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
-exactly as the [main README](README.md#60-second-quickstart) shows, or build the
+exactly as the [main README](README.md#60-second-bootstrap) shows, or build the
 binary from your clone after step 2:
 
 ```console

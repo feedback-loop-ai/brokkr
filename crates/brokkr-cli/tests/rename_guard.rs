@@ -262,7 +262,7 @@ fn front_page_is_brief_proof_first_and_points_to_owners() {
 
     let install = readme.find("## Install").expect("install section");
     let quickstart = readme
-        .find("## 60-second quickstart")
+        .find("## 60-second bootstrap")
         .expect("quickstart section");
     let map = readme.find("## Read next").expect("documentation map");
     assert!(install < quickstart && quickstart < map, "{readme}");

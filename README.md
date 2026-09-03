@@ -29,17 +29,33 @@ Pick one channel. Each row is the channel's published command; the availability 
 | Homebrew | `brew install feedback-loop-ai/tap/brokkr` | wired at the bench |
 | Scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | wired at the bench |
 
-## 60-second quickstart
+## 60-second bootstrap
 
-You need a git repository you are willing to let an agent edit and one configured agent CLI on `PATH` (`claude` or `codex`). One shell line lights the run and puts its proof on screen:
+Sixty seconds from a fresh machine to a lit run, then five minutes to the run's first completed effect. Both budgets are measured in CI by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need a git repository you are willing to let an agent edit and one agent CLI on `PATH` (`claude`, `codex` or `dsh`).
 
-```console
-brokkr run --recipe fast --repo . --feature "add one visible improvement" && brokkr inspect --run latest
+```mermaid
+flowchart LR
+  subgraph a["≤ 60 s — measured"]
+    direction LR
+    install["1 · install<br/>the verified tarball above"] --> doctor["2 · brokkr doctor<br/>tools · drivers · models"]
+  end
+  subgraph b["≤ 5 min to the first effect — measured"]
+    direction LR
+    init["3 · brokkr init .<br/>a recipe for your stack"] --> run["4 · brokkr run<br/>implement → verify → review → ship"]
+  end
+  doctor --> init
+  run --> inspect["5 · brokkr inspect<br/>the proof, from the journal"]
 ```
 
-As written, that line runs from a clone of this repository: `--recipe` resolves names under `./recipes`, and `fast` drives a Rust delivery. In your own repository the same line is `brokkr init . && brokkr run --bundle . --repo . --feature "…"`, which scaffolds a recipe for your stack first; the [full quickstart](docs/guides/quickstart.md#step-2--brokkr-init-) shows what it writes.
+```console
+brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
+cd your-repo && brokkr init .       # writes bundle.json, policy.json, agents/, adapters/ — open them
+brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
+```
 
-The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph. The sample below is abridged: a real trail lists every event, and each finished seat carries its duration:
+From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. The run exits `0` at `done`, `2` when it parks for you, `3` when a rule stops it.
+
+The inspection is derived from the journal; it shows the reviewer's verdict, the exact rule that accepted it and the phase graph. The sample is abridged: a real trail lists every event, and each finished seat carries its duration.
 
 ```text
 run  add-one-visible-improvement-8bf6d692
@@ -59,18 +75,10 @@ trail
   31 run/completed      completed
 
 graph
-  implement ×1
-    → implement · finished
-  verify ×1
-    → verify · finished
-  review ×1
-    → review · finished
-  ship ×1
-    → ship · finished
-  done ×1  ←current
+  implement ×1 → verify ×1 → review ×1 → ship ×1 → done ×1  ←current
 ```
 
-The [full quickstart](docs/guides/quickstart.md) covers `init`, stack detection, parks, read surfaces and the evidence commands without making this front page a second guide.
+The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks, the read surfaces and the evidence commands.
 
 ## Read next
 
