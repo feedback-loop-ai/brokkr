@@ -279,15 +279,27 @@ fn overlays_need_a_bubblewrap_that_has_them() {
     );
     let refusal = overlay_supported(&overlaid, &missing).unwrap_err();
     assert!(refusal.contains("0.10 or newer"), "{refusal}");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        for (version, ok) in [("0.9.0", false), ("0.10.0", true), ("0.11.0", true)] {
-            let fake = dir.path().join(format!("bwrap-{version}"));
-            std::fs::write(&fake, format!("#!/bin/sh\necho bubblewrap {version}\n")).unwrap();
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-            assert_eq!(overlay_supported(&overlaid, &fake).is_ok(), ok, "{version}");
-        }
+    // The rule on the reported string: no script is written and executed
+    // here, because another test's fork can hold a fresh file open and
+    // turn its exec into "text file busy".
+    for (reported, ok) in [
+        ("bubblewrap 0.9.0", false),
+        ("bubblewrap 0.10.0", true),
+        ("bubblewrap 0.11.0", true),
+        ("", false),
+    ] {
+        assert_eq!(
+            overlay_supported_by(reported, &missing).is_ok(),
+            ok,
+            "{reported:?}"
+        );
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(real) = require_bwrap() {
+        assert!(
+            overlay_supported(&overlaid, &real).is_ok(),
+            "this machine's bwrap has overlays"
+        );
     }
 }
 

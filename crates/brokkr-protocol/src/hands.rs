@@ -473,7 +473,12 @@ pub fn overlay_supported(spec: &HandsSpec, bwrap: &Path) -> Result<(), String> {
         .ok()
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .unwrap_or_default();
-    match parse_version(&reported) {
+    overlay_supported_by(&reported, bwrap)
+}
+
+/// The version rule on the string bwrap reported — the testable half.
+pub fn overlay_supported_by(reported: &str, bwrap: &Path) -> Result<(), String> {
+    match parse_version(reported) {
         Some(version) if version >= (0, 10, 0) => Ok(()),
         _ => Err(format!(
             "hands bind mode 'overlay' needs bubblewrap 0.10 or newer; {} reports {:?}",
