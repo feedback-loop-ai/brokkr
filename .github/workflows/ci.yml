@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `labeled` and `unlabeled` are decision 0038 ruling 4: applying the
+    # operator's by-hand label re-runs the gate on the same head, with no
+    # close-and-reopen ceremony.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   delivered-by-brokkr:
@@ -15,63 +19,56 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: operator by-hand escape hatch is visible
-        if: contains(github.event.pull_request.labels.*.name, 'by-hand')
-        run: echo "delivered by brokkr skipped — operator applied the by-hand label"
-      # Build the verifier from the trusted base, not from code supplied
-      # by the pull request whose evidence it judges.
+      # The verifier, the gate script and the delivery classes come from
+      # the trusted base, never from the pull request whose evidence they
+      # judge.
       - uses: actions/checkout@v4
-        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base-verifier
+      # The head under judgment, with the history its merge-base needs.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the base branch, for the merge-base
+        # Event data reaches the shell through the environment, never by
+        # interpolation into the command line.
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPO: https://github.com/${{ github.repository }}.git
+        run: |
+          git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}"
       - uses: dtolnay/rust-toolchain@stable
-        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
       - name: build the base branch's offline verifier
-        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
         run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli
-      - name: verify the named run vouches for the pull request head
-        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'by-hand') }}
+      - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_BASE: refs/remotes/base/${{ github.event.pull_request.base.ref }}
+          REPO: pr
+          EVIDENCE: https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
+          VERIFIER: base-verifier/target/debug/brokkr
+          CLASSES: base-verifier/.github/delivery-classes.json
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        # The by-hand label is honoured inside the script, which logs the
+        # tier it would have applied (0038 ruling 6). A base branch that
+        # carries no gate script yet — the one landing that introduces it —
+        # can cut no tier: the label skips, anything else refuses.
         run: |
-          mapfile -t declarations < <(printf '%s\n' "$PR_BODY" | sed -n '/^Brokkr-Run:/p')
-          if (( ${#declarations[@]} != 1 )); then
-            echo "expected exactly one Brokkr-Run: line in the pull request body" >&2
+          if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then
+            case ",${LABELS}," in
+              *,by-hand,*)
+                echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet"
+                exit 0 ;;
+            esac
+            echo "delivered by brokkr: the base branch carries no gate script" >&2
             exit 1
           fi
-          declaration="${declarations[0]%$'\r'}"
-          if [[ ! "$declaration" =~ ^Brokkr-Run:\ ([a-z0-9-]{0,32}-[0-9a-f]{8})$ ]]; then
-            echo "Brokkr-Run must carry a native run id: [a-z0-9-]{0,32}-[0-9a-f]{8}" >&2
-            exit 1
-          fi
-          run_id="${BASH_REMATCH[1]}"
-          evidence_ref="refs/remotes/brokkr-run/${run_id}"
-          git -C "base-verifier" fetch --no-tags --depth=1 \
-            "https://github.com/${PR_HEAD_REPOSITORY}.git" \
-            "refs/heads/brokkr-runs/${run_id}:${evidence_ref}"
-          evidence_dir="base-verifier/target/brokkr-evidence"
-          mkdir -p "$evidence_dir"
-          journal="${evidence_dir}/${run_id}.ndjson"
-          anchor="${evidence_dir}/${run_id}.anchor.json"
-          git -C "base-verifier" show "${evidence_ref}:${run_id}.ndjson" > "$journal"
-          git -C "base-verifier" show -s --format=%B "$evidence_ref" > "$anchor"
-          verified="$("base-verifier/target/debug/brokkr" verify-run "$journal")"
-          printf '%s\n' "$verified"
-          printf '%s\n' "$verified" | jq -e --arg run "$run_id" \
-            '.chain == "verified" and .state.run_id == $run and .state.status == "completed"'
-          journal_head="$(tail -n 1 "$journal" | jq -er '.event_hash')"
-          journal_seq="$(tail -n 1 "$journal" | jq -er '.seq')"
-          jq -s -e 'any(.[]; .type == "transition/decided" and
-            .payload.from == "ship" and .payload.result == "shipped")' "$journal"
-          jq -e --arg run "$run_id" --arg head "$PR_HEAD" --arg journal "$journal_head" \
-            --argjson seq "$journal_seq" \
-            '.anchor == "forge.journal-anchor/v2" and .run_id == $run and
-             .repo_head == $head and .seq == $seq and
-             .journal_head_hash == $journal' "$anchor"
-          echo "Brokkr run ${run_id} is complete and vouches for ${PR_HEAD}"
+          bash base-verifier/scripts/delivered-by-brokkr.sh
 
   msrv:
     name: MSRV (1.88)

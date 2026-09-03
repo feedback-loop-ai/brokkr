@@ -130,16 +130,45 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     for binding in [
         "name: delivered by brokkr",
         "github.event.pull_request.base.sha",
-        "refs/heads/brokkr-runs/${run_id}",
-        "verify-run \"$journal\"",
-        ".repo_head == $head",
-        ".payload.from == \"ship\"",
-        ".seq == $seq",
-        ".journal_head_hash == $journal",
-        "by-hand label",
+        "fetch-depth: 0",
+        "scripts/delivered-by-brokkr.sh",
+        "join(github.event.pull_request.labels.*.name, ',')",
+        // Decision 0038 ruling 4: the label re-runs the gate, no reopen.
+        "types: [opened, synchronize, reopened, labeled, unlabeled]",
     ] {
         assert!(workflow.contains(binding), "CI lost binding: {binding}");
     }
+
+    // The gate itself is repository-owned data too (0033 ruling 4, 0038
+    // rulings 2, 3 and 6): every check the ruling names is in the script.
+    let gate = std::fs::read_to_string(root.join("scripts/delivered-by-brokkr.sh")).unwrap();
+    for binding in [
+        "refs/heads/brokkr-runs/${run}",
+        "verify-run \"$work/${run}.ndjson\"",
+        ".payload.from == \"ship\" and .payload.result == \"shipped\"",
+        ".seq == $seq and .journal_head_hash == $journal",
+        "patch-id --verbatim",
+        ".repo_head == $head",
+        "Brokkr-Preflight",
+        ".payload.from == \"review\" and .payload.next == \"done\"",
+        ".classes.docs.paths",
+        "by-hand label",
+        "the tier would have been",
+    ] {
+        assert!(gate.contains(binding), "the gate lost binding: {binding}");
+    }
+
+    // 0038 ruling 3: the docs class is data, not a pattern in a workflow.
+    let classes: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".github/delivery-classes.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(classes["schema"], "forge.delivery-classes/v1");
+    let docs = classes["classes"]["docs"]["paths"]
+        .as_array()
+        .expect("docs paths");
+    assert!(!docs.is_empty());
+    assert!(template.contains("Brokkr-Preflight: <run id>"));
 
     let manual = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
     assert!(
