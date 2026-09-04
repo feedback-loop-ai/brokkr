@@ -79,6 +79,60 @@ fn resolver_and_sequence_summary_cover_every_shape() {
         seat_summary(&bundle_with_sequence()),
         "review[draft>verify]"
     );
+
+    let mut selected = bundle_with_sequence();
+    let sequence = selected.seats["review"].body.clone();
+    selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: Some(Box::new(sequence.clone())),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    assert_eq!(seat_summary(&selected), "review{default=draft>verify}");
+
+    selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
+        cases: BTreeMap::from([(
+            "nested".into(),
+            SeatBody::Select {
+                cases: BTreeMap::from([("leaf".into(), sequence)]),
+                default: None,
+                case_gates: BTreeMap::new(),
+                default_gate: false,
+            },
+        )]),
+        default: None,
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    assert_eq!(seat_summary(&selected), "review{nested=draft>verify}");
+
+    selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: Some(Box::new(SeatBody::Single {
+            role_path: PathBuf::new(),
+            command: Vec::new(),
+            confine: None,
+            candidates: Vec::new(),
+        })),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    assert_eq!(seat_summary(&selected), "review{default=inline}");
+    selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
+        cases: BTreeMap::from([(
+            "nested".into(),
+            SeatBody::Select {
+                cases: BTreeMap::new(),
+                default: None,
+                case_gates: BTreeMap::new(),
+                default_gate: false,
+            },
+        )]),
+        default: None,
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    assert_eq!(seat_summary(&selected), "review{nested=unresolved}");
 }
 
 #[test]

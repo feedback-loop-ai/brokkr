@@ -589,7 +589,7 @@ To add a recipe, start from
 [`recipe-authoring.md`](recipe-authoring.md) —
 the anatomy of `bundle.json`, the policy grammar, composition and
 digests — and from a worked example: `recipes/fast` (the flat case),
-`recipes/sdd` (panels and sequences), `recipes/sdd-paranoid`
+`recipes/triage` (selected singles, panels, and sequences), `recipes/night-shift`
 (composition through `extends`), `recipes/node` (a different language),
 `recipes/preflight` (a two-seat table that rules and stops).
 

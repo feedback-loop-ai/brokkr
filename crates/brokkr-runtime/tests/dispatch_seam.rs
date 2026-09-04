@@ -127,8 +127,8 @@ fn every_shipped_manifest_round_trips_losslessly_or_is_refused_loudly() {
         "bundles/self",
         "bundles/verify",
         "recipes/fast",
-        "recipes/sdd",
-        "recipes/sdd-paranoid",
+        "recipes/triage",
+        "recipes/night-shift",
         "recipes/panel-review",
     ] {
         let manifest = compile(relative).manifest;

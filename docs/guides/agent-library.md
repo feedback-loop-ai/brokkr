@@ -6,7 +6,7 @@ limits, declared inputs. Decision 0016 lets it name an agent instead.
 ```
 $ brokkr agents list
 chief-architect	fable → opus	Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.
-implementer-engine	fable → opus	Temporary engine-class implementer: builds the framed task at the engine-class hire until strategy selection lands.
+implementer-engine	fable → opus	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-speckit	opus → sonnet	Implementer for spec-driven delivery: builds to the committed spec, ticking tasks.md as it goes.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
@@ -32,7 +32,7 @@ An agent is one file in `agents/`: a description, a charter, an ORDERED
 preference chain of abstract model names, abstract tool and MCP
 configuration, its decision-0006 limits and its decision-0007 declared
 inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
-Inline seats stay first-class — `recipes/sdd`'s `speckit-check` step is
+Inline seats stay first-class — `recipes/triage`'s `speckit-check` step is
 a shell script with no model, and it stays inline.
 
 Verifier and shipper are deliberately absent from the agent library.

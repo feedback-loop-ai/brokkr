@@ -166,6 +166,10 @@ The extension fields defined so far are in
 the repository head the protected phase was entered at, which the engine
 reads back to tell the review's own commits from the ones it judged.
 `fold` reads neither file's fields.
+Decision 0041 ruling 7 adds `phase-entered-case.v1.schema.json` on the same
+additive rule: `phase/entered.case` names the selected strategy case and is
+absent when the seat does not select. The fold does not read it; resume
+recomputes selection from the journal's `strategy` fact.
 
 Reforging (decision 0022) adds one more file and changes none of the bytes
 above:
@@ -180,6 +184,7 @@ above:
 | Contract | File | Consumers |
 |---|---|---|
 | Run manifest with the boxed-hands sites | `run-manifest.v6.schema.json` | brokkr-runtime, every bundle whose seats declare `hands` |
+| Run manifest with strategy-selected cases | `run-manifest.v7.schema.json` | brokkr-runtime, every bundle whose seats declare `select` |
 
 `forge.phase-machine/v2` is `v1` plus exactly one thing: a rule may rule a
 PARK instead of naming a `next` phase. The event vocabulary needs nothing —

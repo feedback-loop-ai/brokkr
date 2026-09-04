@@ -93,7 +93,10 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         confine: None,
         candidates: vec![candidate("worker", "opus")],
     };
-    assert_eq!(invocation_sites(&single)[0].0, None);
+    assert_eq!(
+        invocation_sites(single.selected(None).unwrap().0)[0].0,
+        None
+    );
 
     let panel = SeatBody::Panel {
         members: vec![
@@ -102,7 +105,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         ],
         aggregate: Aggregate::UnanimousPass,
     };
-    let sites = invocation_sites(&panel);
+    let sites = invocation_sites(panel.selected(None).unwrap().0);
     assert_eq!(sites[0].0, Some("a".into()));
     assert_eq!(sites[1].0, Some("b".into()));
     assert!(sites[1].1.is_empty(), "an inline member has no chain");
@@ -129,7 +132,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
             },
         ],
     };
-    let sites = invocation_sites(&sequence);
+    let sites = invocation_sites(sequence.selected(None).unwrap().0);
     assert_eq!(sites[0].0, Some("one".into()));
     assert_eq!(sites[1].0, Some("two:m".into()));
 }
@@ -144,7 +147,8 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         confine: None,
         candidates: Vec::new(),
     };
-    let (selection, provenance) = select_candidates(&[], "effect", &inline);
+    let (selection, provenance) =
+        select_candidates(&[], "effect", inline.selected(None).unwrap().0);
     assert!(selection.is_empty());
     assert!(provenance.is_none());
     assert_eq!(
@@ -159,7 +163,8 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         candidates: vec![candidate("worker", "opus"), candidate("worker", "sonnet")],
     };
     let events = vec![failure("effect", json!([null]))];
-    let (selection, provenance) = select_candidates(&events, "effect", &resolved);
+    let (selection, provenance) =
+        select_candidates(&events, "effect", resolved.selected(None).unwrap().0);
     assert_eq!(
         provenance.unwrap(),
         // The effort pin is journaled beside the model it was hired
@@ -327,9 +332,11 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
         failure("effect", json!([null])),
         failure("effect", json!([null])),
     ];
-    let (before, provenance_before) = select_candidates(&events, "effect", &body);
+    let (before, provenance_before) =
+        select_candidates(&events, "effect", body.selected(None).unwrap().0);
     // A second, wholly independent selection: no memory, no re-probe.
-    let (after, provenance_after) = select_candidates(&events, "effect", &body);
+    let (after, provenance_after) =
+        select_candidates(&events, "effect", body.selected(None).unwrap().0);
     assert_eq!(before, after);
     assert_eq!(provenance_before, provenance_after);
     assert_eq!(before[&None].model, "third");

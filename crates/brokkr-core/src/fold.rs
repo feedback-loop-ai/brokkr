@@ -473,10 +473,15 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 
         RunParked => {
             // Legal at Park, and at ExecuteEffect when the engine has
-            // exhausted the seat's attempt limit (decision 0006).
+            // exhausted the seat's attempt limit (decision 0006). A
+            // selector with no journal strategy and no default also parks
+            // while entering the phase, before an effect can be requested.
             if !matches!(
                 &state.cursor,
-                Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
+                Cursor::Start
+                    | Cursor::EnterPhase { .. }
+                    | Cursor::Park { .. }
+                    | Cursor::ExecuteEffect { .. }
             ) {
                 return Err(out_of_place(state));
             }

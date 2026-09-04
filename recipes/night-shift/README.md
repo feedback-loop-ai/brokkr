@@ -1,16 +1,14 @@
 # night-shift — the unattended queue
 
-`extends: "fast"`. The same four phases and the same constitution, tuned
-for the case where **nobody is awake**: one attempt per seat, a long
-implement deadline, and deterministic verify and ship gates. Anything
-unusual parks or stops for morning triage instead of retrying into the
-dark.
+`extends: "triage"`. It changes only the attempt limits and the dsh
+implement seat. The class routing, design council, selected review crews,
+and deterministic verify and ship gates are inherited unchanged.
 
 | Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `implement` | inline deepseek-v4-flash via `dsh` | **1** | 7200 | work |
 | `verify` | boxed `verify-seat.sh` | **1** | 3600 | gate |
-| `review` | `reviewer` | **1** | 3600 | gate |
+| `review` | triage-selected review crew | **1** | 3600 | gate |
 | `ship` | boxed `ship-seat.sh` | **1** | 1800 | gate |
 
 ## `max_attempts: 1` everywhere — what it does and does not do
@@ -23,7 +21,7 @@ awake to read the first one.
 
 It is **orthogonal to the phase table**. A *valid* `broken` result from
 `implement` is not an effect failure — it is a typed result, and
-`fast`'s inherited `IMPL-BROKEN-RETRY` rule still sends the run back
+the inherited `IMPL-BROKEN-RETRY` rule still sends the run back
 into `implement` once, exactly as it does under every other recipe here.
 Night-shift needs no policy table of its own for this and ships none;
 the intent "anything unusual parks for morning" comes entirely from the
@@ -118,9 +116,10 @@ this seat will need.
 
 ## How the roster is seated
 
-The dsh implement lane remains inline by the lane exception. Review names the
-shared `reviewer`; verify and ship are boxed exec scripts with no model. This
-strategy narrows each gate's attempt bound to one.
+The dsh implement lane remains inline by the lane exception. Review keeps
+triage's selected single, panel, or panel-and-chief office; verify and ship are
+boxed exec scripts with no model. This strategy narrows each gate's attempt
+bound to one.
 
 ## Running it
 

@@ -468,13 +468,13 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
         "stop"
     );
 
-    let sdd = shipped_machine("../../recipes/sdd/policy.json");
+    let sdd = shipped_machine("../../recipes/triage/policy.json");
     assert_eq!(
         ruling(
             &sdd,
             "review",
             "residual",
-            json!({"spec_defect": true, "visits_design": 2,
+            json!({"strategy": "design", "spec_defect": true, "visits_design": 2,
                    "visits_implement": 3, "max_residual_severity": "critical"})
         )
         .1,
@@ -484,7 +484,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
         sdd.evaluate(
             "review",
             "residual",
-            json!({"spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
                 .as_object()
                 .unwrap()
         ),
@@ -495,7 +495,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
             &sdd,
             "review",
             "clean",
-            json!({"spec_defect": true, "visits_design": 2})
+            json!({"strategy": "design", "spec_defect": true, "visits_design": 2})
         ),
         ("REVIEW-CLEAN-SPEC-DEFECT".into(), "design".into())
     );
@@ -503,7 +503,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
         sdd.evaluate(
             "review",
             "clean",
-            json!({"spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
                 .as_object()
                 .unwrap()
         ),

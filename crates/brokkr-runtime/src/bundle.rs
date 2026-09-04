@@ -125,6 +125,88 @@ pub enum SeatBody {
     /// see earlier steps' result objects as context, and the FINAL
     /// step's result is the effect's single typed result.
     Sequence { steps: Vec<SequenceStep> },
+    /// A strategy-selected body (decision 0041 ruling 7). Cases contain
+    /// only the three executable body forms above; selection itself never
+    /// nests, so one journal fact resolves this to one ordinary body.
+    Select {
+        cases: BTreeMap<String, SeatBody>,
+        default: Option<Box<SeatBody>>,
+        case_gates: BTreeMap<String, bool>,
+        default_gate: bool,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub enum ExecutableBody<'a> {
+    Single {
+        role_path: &'a Path,
+        command: &'a [String],
+        confine: Option<&'a Confine>,
+        candidates: &'a [Candidate],
+    },
+    Panel {
+        members: &'a [PanelMember],
+        aggregate: Aggregate,
+    },
+    Sequence {
+        steps: &'a [SequenceStep],
+    },
+}
+
+/// The delivery classes which can reach a selected seat. `escalate` parks
+/// in triage and therefore is not a selectable delivery route.
+pub const SELECT_STRATEGIES: [&str; 4] = ["chore", "feature", "design", "engine"];
+
+impl SeatBody {
+    /// Resolve the body from the folded journal. `None` means the journal
+    /// carries no triage result and this selector has no default.
+    pub fn selected<'a>(
+        &'a self,
+        strategy: Option<&str>,
+    ) -> Option<(ExecutableBody<'a>, Option<&'a str>)> {
+        let (body, case) = match self {
+            SeatBody::Select { cases, default, .. } => {
+                match strategy.and_then(|key| cases.get_key_value(key)) {
+                    Some((key, body)) => (body, Some(key.as_str())),
+                    None => (default.as_deref()?, Some("default")),
+                }
+            }
+            body => (body, None),
+        };
+        let executable = match body {
+            SeatBody::Single {
+                role_path,
+                command,
+                confine,
+                candidates,
+            } => ExecutableBody::Single {
+                role_path,
+                command,
+                confine: confine.as_ref(),
+                candidates,
+            },
+            SeatBody::Panel { members, aggregate } => ExecutableBody::Panel {
+                members,
+                aggregate: *aggregate,
+            },
+            SeatBody::Sequence { steps } => ExecutableBody::Sequence { steps },
+            SeatBody::Select { .. } => return None,
+        };
+        Some((executable, case))
+    }
+
+    pub fn selected_is_gate(&self, strategy: Option<&str>, ordinary: bool) -> bool {
+        match self {
+            SeatBody::Select {
+                case_gates,
+                default_gate,
+                ..
+            } => strategy
+                .and_then(|case| case_gates.get(case).copied())
+                .unwrap_or(*default_gate),
+            _ => ordinary,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -212,6 +294,16 @@ impl SeatClass {
 /// whole-effect fact ruling 4 needs without mistaking a mixed sequence for a
 /// gate: its work steps may move HEAD before its gate step judges them.
 fn is_gate_class(value: &Value) -> bool {
+    if let Some(select) = value.get("select").and_then(Value::as_object) {
+        let cases = select.get("cases").and_then(Value::as_object);
+        let defaults = select.get("default").into_iter();
+        return cases.is_some_and(|cases| {
+            let mut bodies = cases.values().chain(defaults);
+            bodies
+                .next()
+                .is_some_and(|first| is_gate_class(first) && bodies.all(is_gate_class))
+        });
+    }
     if let Some(members) = value.get("panel").and_then(Value::as_object) {
         return !members.is_empty() && members.values().all(is_gate_class);
     }
@@ -596,6 +688,16 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
             collect_unpinned(&format!("{what}:{name}"), step, out);
         }
     }
+    if let Some(select) = raw.get("select").and_then(Value::as_object) {
+        if let Some(cases) = select.get("cases").and_then(Value::as_object) {
+            for (case, body) in cases {
+                collect_unpinned(&format!("{what}:{case}"), body, out);
+            }
+        }
+        if let Some(body) = select.get("default") {
+            collect_unpinned(&format!("{what}:default"), body, out);
+        }
+    }
 }
 
 fn labels(sites: &[String]) -> String {
@@ -799,7 +901,8 @@ impl Bundle {
                 !has_agent && (raw.get("role").is_some() || raw.get("driver").is_some());
             let has_panel = raw.get("panel").is_some();
             let has_sequence = raw.get("sequence").is_some();
-            if [has_single, has_panel, has_sequence, has_agent]
+            let has_select = raw.get("select").is_some();
+            if [has_single, has_panel, has_sequence, has_agent, has_select]
                 .iter()
                 .filter(|f| **f)
                 .count()
@@ -807,7 +910,7 @@ impl Bundle {
             {
                 return Err(CompileError::Invalid(format!(
                     "seat '{phase}' must be exactly one of role+driver, agent, \
-                     panel, or sequence"
+                     panel, sequence, or select"
                 )));
             }
             let secrets = parse_secrets(phase, raw)?;
@@ -853,6 +956,20 @@ impl Bundle {
                         &mut hands,
                     )?,
                 }
+            } else if has_select {
+                parse_select(
+                    dir,
+                    phase,
+                    raw,
+                    &mut agents,
+                    &mut hands,
+                    SelectCompile {
+                        results: &results,
+                        secrets: &secrets,
+                        roots: &resolved.roots,
+                        case_origin: &resolved.case_origin,
+                    },
+                )?
             } else {
                 SeatBody::Single {
                     role_path: parse_role(dir, phase, raw)?,
@@ -875,6 +992,7 @@ impl Bundle {
                         &mut hands,
                     )?;
                 }
+                SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
             // Decision 0006 bounds belong to the strategy seat, not the
@@ -968,6 +1086,13 @@ impl Bundle {
             }
         }
 
+        let select_records: Map<String, Value> = seats
+            .iter()
+            .filter_map(|(site, seat)| match &seat.body {
+                SeatBody::Select { .. } => Some((site.clone(), body_manifest(&seat.body))),
+                _ => None,
+            })
+            .collect();
         let manifest = manifest_for(
             dir,
             &name,
@@ -975,6 +1100,7 @@ impl Bundle {
             agents.as_ref().map(|a| &a.records),
             agents.as_ref().map(|a| &a.drivers),
             &hands,
+            &select_records,
         )?;
         Ok(Bundle {
             hands,
@@ -993,6 +1119,47 @@ impl Bundle {
 
     pub fn manifest_digest(&self) -> String {
         brokkr_core::canonical::sha256_hex(&self.manifest)
+    }
+}
+
+fn body_manifest(body: &SeatBody) -> Value {
+    let single = |candidates: &[Candidate]| {
+        if candidates.is_empty() {
+            json!({"driver": "inline"})
+        } else {
+            json!({"agent": candidates[0].agent, "candidates": candidates.iter().map(|candidate| json!({
+                "provider": candidate.provider,
+                "model": candidate.model,
+                "effort": candidate.effort,
+            })).collect::<Vec<_>>()})
+        }
+    };
+    match body {
+        SeatBody::Single { candidates, .. } => single(candidates),
+        SeatBody::Panel { members, aggregate } => json!({
+            "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
+            "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
+        }),
+        SeatBody::Sequence { steps } => json!({"sequence": steps.iter().map(|step| {
+            let body = match &step.body {
+                StepBody::Single { candidates, .. } => single(candidates),
+                StepBody::Panel { members, aggregate } => json!({
+                    "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
+                    "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
+                }),
+            };
+            json!({"name": step.name, "body": body})
+        }).collect::<Vec<_>>() }),
+        SeatBody::Select { cases, default, .. } => {
+            let mut resolved: Map<String, Value> = cases
+                .iter()
+                .map(|(case, body)| (case.clone(), body_manifest(body)))
+                .collect();
+            if let Some(body) = default {
+                resolved.insert("default".into(), body_manifest(body));
+            }
+            Value::Object(resolved)
+        }
     }
 }
 
@@ -1227,6 +1394,18 @@ const SEAT_KEYS: &[&str] = &[
     "panel",
     "aggregate",
     "sequence",
+    "select",
+];
+
+const BODY_KEYS: &[&str] = &[
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "hands",
+    "panel",
+    "aggregate",
+    "sequence",
 ];
 
 /// The keys a PANEL MEMBER may write. Narrower than a seat's: a member
@@ -1277,7 +1456,7 @@ fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), Co
 }
 
 /// A panel or a sequence has no driver of its own, so it has no class of
-/// its own: `recipes/sdd`'s `design` seat is a panel of work positions,
+/// its own: `recipes/triage`'s `design` seat is a panel of work positions,
 /// a work chief and a gate check, and a single word on the seat could
 /// only be an approximation of all three. Refused rather than averaged.
 fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileError> {
@@ -1609,6 +1788,166 @@ fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
         }
     }
     Ok(limits)
+}
+
+/// Parse one body inside a selector. The label includes the case name, so
+/// every existing refusal identifies both the seat and the bad case.
+fn parse_selected_body(
+    dir: &Path,
+    what: &str,
+    raw: &Value,
+    results: &[String],
+    secrets: &[String],
+    agents: &mut Option<AgentContext>,
+    hands: &mut BTreeMap<String, HandsSpec>,
+) -> Result<SeatBody, CompileError> {
+    refuse_unknown_keys(what, raw, BODY_KEYS)?;
+    let has_agent = raw.get("agent").is_some();
+    if has_agent {
+        refuse_amendments(what, raw)?;
+    }
+    let has_single = !has_agent && (raw.get("role").is_some() || raw.get("driver").is_some());
+    let has_panel = raw.get("panel").is_some();
+    let has_sequence = raw.get("sequence").is_some();
+    if [has_single, has_panel, has_sequence, has_agent]
+        .iter()
+        .filter(|present| **present)
+        .count()
+        != 1
+    {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' must be exactly one of role+driver, agent, panel, or sequence"
+        )));
+    }
+    if has_agent {
+        let resolved = resolve_reference(agents, dir, what, what, raw, secrets, Site::Seat)?;
+        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents)?;
+        record_hands(what, raw, resolved.hands, secrets, hands)?;
+        let body = SeatBody::Single {
+            role_path: resolved.role_path,
+            command: resolved.command,
+            confine: parse_confine(what, raw)?,
+            candidates: resolved.candidates,
+        };
+        Ok(body)
+    } else if has_panel {
+        let (members, aggregate) =
+            parse_panel(dir, what, raw, Some(results), secrets, agents, hands)?;
+        refuse_class_without_a_driver(what, raw)?;
+        Ok(SeatBody::Panel { members, aggregate })
+    } else if has_sequence {
+        let steps = parse_sequence(dir, what, raw, results, secrets, agents, hands)?;
+        refuse_class_without_a_driver(what, raw)?;
+        Ok(SeatBody::Sequence { steps })
+    } else {
+        enforce_model_policy(what, raw, &[], secrets, agents)?;
+        record_hands(what, raw, None, secrets, hands)?;
+        let body = SeatBody::Single {
+            role_path: parse_role(dir, what, raw)?,
+            command: parse_command(dir, what, raw, secrets)?,
+            confine: parse_confine(what, raw)?,
+            candidates: Vec::new(),
+        };
+        Ok(body)
+    }
+}
+
+struct SelectCompile<'a> {
+    results: &'a [String],
+    secrets: &'a [String],
+    roots: &'a [PathBuf],
+    case_origin: &'a BTreeMap<String, usize>,
+}
+
+fn parse_select(
+    dir: &Path,
+    phase: &str,
+    raw: &Value,
+    agents: &mut Option<AgentContext>,
+    hands: &mut BTreeMap<String, HandsSpec>,
+    compile: SelectCompile<'_>,
+) -> Result<SeatBody, CompileError> {
+    let select = raw
+        .get("select")
+        .and_then(Value::as_object)
+        .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' select must be an object")))?;
+    for key in select.keys() {
+        if !["on", "cases", "default"].contains(&key.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{phase}' select has unknown key '{key}'; known: on, cases, default"
+            )));
+        }
+    }
+    match select.get("on").and_then(Value::as_str) {
+        Some("strategy") => {}
+        other => return Err(CompileError::Invalid(format!(
+            "seat '{phase}' select has unknown 'on' {}; known: strategy — the selection vocabulary is closed",
+            other.unwrap_or("<missing>")
+        ))),
+    }
+    let cases_raw = select
+        .get("cases")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            CompileError::Invalid(format!("seat '{phase}' select.cases must be an object"))
+        })?;
+    for case in cases_raw.keys() {
+        if !SELECT_STRATEGIES.contains(&case.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
+                SELECT_STRATEGIES.join(", ")
+            )));
+        }
+    }
+    let has_default = select.get("default").is_some();
+    for strategy in SELECT_STRATEGIES {
+        if !cases_raw.contains_key(strategy) && !has_default {
+            return Err(CompileError::Invalid(format!(
+                "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
+            )));
+        }
+    }
+    let mut cases = BTreeMap::new();
+    let mut case_gates = BTreeMap::new();
+    for (case, body) in cases_raw {
+        let label = format!("{phase}:{case}");
+        case_gates.insert(case.clone(), is_gate_class(body));
+        let case_dir = &compile.roots[compile.case_origin.get(&label).copied().unwrap_or(0)];
+        cases.insert(
+            case.clone(),
+            parse_selected_body(
+                case_dir,
+                &label,
+                body,
+                compile.results,
+                compile.secrets,
+                agents,
+                hands,
+            )?,
+        );
+    }
+    let default = select
+        .get("default")
+        .map(|body| {
+            parse_selected_body(
+                dir,
+                &format!("{phase}:default"),
+                body,
+                compile.results,
+                compile.secrets,
+                agents,
+                hands,
+            )
+            .map(Box::new)
+        })
+        .transpose()?;
+    let default_gate = select.get("default").is_some_and(is_gate_class);
+    Ok(SeatBody::Select {
+        cases,
+        default,
+        case_gates,
+        default_gate,
+    })
 }
 
 fn parse_panel(
@@ -2079,6 +2418,7 @@ fn manifest_for(
     agents: Option<&Map<String, Value>>,
     drivers: Option<&Map<String, Value>>,
     hands: &BTreeMap<String, HandsSpec>,
+    select: &Map<String, Value>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -2175,6 +2515,10 @@ fn manifest_for(
                 .map(|(site, spec)| (site.clone(), spec.to_value()))
                 .collect(),
         );
+    }
+    // Absent for every non-selecting bundle: v6 identity is preserved.
+    if !select.is_empty() {
+        manifest["select"] = Value::Object(select.clone());
     }
     Ok(manifest)
 }

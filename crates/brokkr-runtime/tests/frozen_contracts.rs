@@ -129,6 +129,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/run-manifest.v6.schema.json",
             "Forge run manifest v6",
         ),
+        (
+            "contracts/run-manifest.v7.schema.json",
+            "Forge run manifest v7",
+        ),
+        (
+            "contracts/phase-entered-case.v1.schema.json",
+            "Forge phase-entered selected case v1",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

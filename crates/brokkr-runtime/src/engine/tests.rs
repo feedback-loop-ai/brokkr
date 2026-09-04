@@ -92,6 +92,149 @@ fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
     (dir, engine)
 }
 
+fn selecting(default: bool) -> SeatBody {
+    let cases = [
+        (
+            "chore".to_string(),
+            single_body(vec!["chore-driver".into()]),
+        ),
+        (
+            "feature".to_string(),
+            single_body(vec!["feature-driver".into()]),
+        ),
+        (
+            "design".to_string(),
+            single_body(vec!["design-driver".into()]),
+        ),
+        (
+            "engine".to_string(),
+            single_body(vec!["engine-driver".into()]),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    SeatBody::Select {
+        cases,
+        default: default.then(|| Box::new(single_body(vec!["default-driver".into()]))),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    }
+}
+
+#[test]
+fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
+    let (dir, mut runtime) = engine(selecting(false));
+    let mut ruled = state(None, Cursor::Start);
+    ruled.strategy = Some("engine".into());
+    let payload = runtime.phase_entered_payload("work", &ruled);
+    assert_eq!(payload, json!({"phase":"work", "case":"engine"}));
+    let first = runtime.seat_input(&ruled, "work", "effect").unwrap();
+    let resumed = runtime.seat_input(&ruled, "work", "effect").unwrap();
+    assert_eq!(first, resumed, "resume rebuilds from the same journal fact");
+    assert!(first["role_path"].as_str().unwrap().ends_with("role.md"));
+
+    runtime.drive_once().unwrap();
+    let parked = fold(&runtime.store.load(&runtime.run_id).unwrap()).unwrap();
+    assert_eq!(parked.status, Status::AwaitingOperator);
+    assert!(parked.park_reason.unwrap().contains("SELECT-NO-DEFAULT"));
+
+    let unresolved = state(None, Cursor::Idle);
+    assert!(runtime.seat_input(&unresolved, "work", "effect").is_err());
+
+    let (_kept, with_default) = engine(selecting(true));
+    let state = state(None, Cursor::Start);
+    assert_eq!(
+        with_default.phase_entered_payload("work", &state),
+        json!({"phase":"work", "case":"default"})
+    );
+    drop(dir);
+}
+
+#[test]
+fn process_recovery_resumes_the_case_pinned_by_the_triage_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("work");
+    std::fs::create_dir(&repo).unwrap();
+    let script = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"feature"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+    let mut compiled = bundle(dir.path(), selecting(false));
+    compiled.machine = Machine::from_table(&json!({
+        "phases":["triage", "work", "review", "ship", "done", "stop"],
+        "initial":"triage", "terminal":["done", "stop"],
+        "rules":[
+            {"id":"TRIAGE", "from":"triage", "result":"feature", "next":"work", "reason":"route"},
+            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
+            {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
+        ]
+    }))
+    .unwrap();
+    compiled.seats.insert(
+        "triage".into(),
+        Seat {
+            has_gate: false,
+            results: vec!["feature".into()],
+            limits: Limits::default(),
+            inputs: Vec::new(),
+            secrets: Vec::new(),
+            body: single_body(vec!["sh".into(), "-c".into(), script.into()]),
+        },
+    );
+    let database = dir.path().join("forge.db");
+    let store = Store::open(&database).unwrap();
+    let mut runtime = Engine::start(
+        store,
+        compiled.clone(),
+        "resume selection",
+        Some(repo.clone()),
+    )
+    .unwrap();
+
+    // Stop the process immediately after the selected phase was entered:
+    // no in-memory state survives into the Engine::resume below.
+    for _ in 0..5 {
+        if let Some(end) = runtime.drive_once().unwrap() {
+            panic!("run ended before selected phase entry: {:?}", end.state)
+        }
+    }
+    let run_id = runtime.run_id.clone();
+    let before = fold(&runtime.store.load(&run_id).unwrap()).unwrap();
+    assert_eq!(before.phase.as_deref(), Some("work"));
+    assert_eq!(before.strategy.as_deref(), Some("feature"));
+    assert_eq!(before.cursor, Cursor::RequestEffect);
+    drop(runtime);
+
+    let resumed = Engine::resume(
+        Store::open(&database).unwrap(),
+        compiled,
+        &run_id,
+        Some(repo),
+    )
+    .unwrap();
+    let rebuilt = fold(&resumed.store.load(&run_id).unwrap()).unwrap();
+    assert_eq!(
+        resumed.phase_entered_payload("work", &rebuilt),
+        json!({"phase":"work", "case":"feature"})
+    );
+    let (body, case) = resumed.bundle.seats["work"]
+        .body
+        .selected(rebuilt.strategy.as_deref())
+        .unwrap();
+    assert_eq!(case, Some("feature"));
+    let ExecutableBody::Single { command, .. } = body else {
+        panic!("the feature case must remain a single seat")
+    };
+    assert_eq!(command, &["feature-driver"]);
+}
+
 pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
     RunState {
         run_id: "run".into(),
@@ -508,6 +651,9 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
         },
     );
     assert_eq!(verify_dispatch_bundle_bounds(&base, &sequence), Ok(()));
+
+    let selected = bundle(dir.path(), selecting(true));
+    assert_eq!(verify_dispatch_bundle_bounds(&base, &selected), Ok(()));
 
     let mut too_many_attempts = single.clone();
     too_many_attempts
@@ -2096,6 +2242,12 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
         .append(EventType::PhaseEntered, json!({"phase":"work"}), None)
         .is_err());
 
+    let (kept, mut selected) = engine(selecting(false));
+    fail_event(&kept.path().join("forge.db"), "run/parked");
+    assert!(selected
+        .enter_phase("work", &state(None, Cursor::Start))
+        .is_err());
+
     let (_kept, mut requested) = engine_failing("effect/requested");
     assert!(requested
         .request_or_finish(&state(Some("work"), Cursor::RequestEffect))
@@ -2330,6 +2482,31 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     engine.repo = Some(dir.path().join("not-created"));
     assert_eq!(engine.runtime_hands("ship").unwrap().binds.len(), 1);
     assert!(engine.runtime_hands("missing").is_none());
+}
+
+#[test]
+fn selected_ship_site_receives_the_runtime_journal_bind() {
+    use brokkr_protocol::hands::{BindMode, HandsSpec};
+
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .hands
+        .insert("ship:feature".into(), HandsSpec::default());
+
+    let hands = engine.runtime_hands("ship:feature").unwrap();
+    assert_eq!(hands.binds.len(), 1);
+    assert_eq!(hands.binds[0].mode, BindMode::Ro);
+    assert_eq!(
+        Path::new(&hands.binds[0].path),
+        engine
+            .store
+            .path()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+    );
 }
 
 fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
@@ -3186,7 +3363,7 @@ fn capturing_driver_command(
     ]
 }
 
-/// `recipes/crucible` reviews with a sequence: a `positions` panel, then
+/// Triage's design and engine routes review with a sequence: a positions panel, then
 /// a single `chief` gate step. Because `positions` is NOT the final step
 /// its `review-panel` output never reaches `decide()` — so the shape is
 /// only safe if the panel's verdict arrives at the chief intact and the

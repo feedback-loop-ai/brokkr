@@ -80,13 +80,11 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             if !model_backed {
                 return;
             }
-            // Two ruling-2 readings are deliberately pinned here before
-            // ruling 7 exists. The implement office is hired at fable/high
-            // only under the future engine class, so crucible alone seats
-            // temporary `implementer-engine`. Inline model sites are only
-            // the parity wager harnesses, fast's four-seat quickstart, the
-            // Node-owned charters, preflight's CI gates, and night-shift's
-            // dsh lane; ruling 8 will make the last three portable.
+            // Ruling 7 leaves inline model sites only where a recipe must
+            // force its crew: the parity wagers, fast's quickstart, the
+            // Node reference, preflight's explicit gates, and night-shift's
+            // dsh lane. The retired strategy directories no longer need an
+            // exception because their crews are selected from the roster.
             let allowed = recipe.starts_with("wager-harness")
                 || recipe == "fast"
                 || recipe == "node"
@@ -279,14 +277,14 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
 }
 
 #[test]
-fn shipped_sdd_gate_scope_stops_at_the_judging_sites() {
+fn shipped_triage_gate_scope_stops_at_the_judging_sites() {
     let root = workspace();
     let bundle = Bundle::compile_with(
-        &root.join("recipes/sdd"),
+        &root.join("recipes/triage"),
         &root.join("agents"),
         &root.join("adapters"),
     )
-    .expect("sdd bundle compiles");
+    .expect("triage bundle compiles");
 
     for phase in ["review", "verify", "ship"] {
         assert!(bundle.seats[phase].has_gate, "{phase} must remain a gate");
@@ -299,7 +297,7 @@ fn shipped_sdd_gate_scope_stops_at_the_judging_sites() {
     }
 
     let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
-        panic!("sdd design remains a sequence")
+        panic!("triage design remains a sequence")
     };
     assert_eq!(steps[1].name, "chief");
     assert_eq!(steps[1].class, SeatClass::Work);
@@ -354,13 +352,8 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
                     }
                 }
             }
-            // The accepted table deliberately gives both sdd-paranoid
-            // members the reviewer row (fable → opus → sol), while ruling
-            // 7's per-site `select` does not exist yet. In this slice a
-            // panel therefore seats the full fallback chains, not distinct
-            // selected heads; this test requires two members and at least
-            // two abstract families across those seated chains. Ruling 7
-            // will make distinct head selection expressible.
+            // Ruling 7 keeps every selected panel diverse by construction;
+            // count all of each member's fallback families as the compiler does.
             assert!(
                 families.len() >= 2,
                 "panel {} in {} seats fewer than two model families",

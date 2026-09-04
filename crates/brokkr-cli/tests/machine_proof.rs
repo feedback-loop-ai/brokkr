@@ -250,6 +250,28 @@ impl Workspace {
                 ]}
             })
         };
+        let body = || {
+            json!({
+                "role": "roles/role.md",
+                "driver": {"command": [
+                    brokkr_bin(), "fake-driver", "--script", script_path.to_string_lossy(),
+                    "--state", ws.path().join("state").to_string_lossy()
+                ]}
+            })
+        };
+        let review_panel = |names: &[&str]| {
+            let panel: serde_json::Map<String, Value> = names
+                .iter()
+                .map(|name| ((*name).to_string(), body()))
+                .collect();
+            json!({"aggregate":"review-panel", "panel":panel})
+        };
+        let review_sequence = |names: &[&str]| {
+            json!({"sequence":[
+                {"name":"positions", "aggregate":"review-panel", "panel": names.iter().map(|name| ((*name).to_string(), body())).collect::<serde_json::Map<String, Value>>()},
+                {"name":"chief", "role":"roles/role.md", "driver": body()["driver"].clone()}
+            ]})
+        };
         let config = json!({
             "name": "triage-machine-proof",
             "policy": "policy.json",
@@ -257,9 +279,20 @@ impl Workspace {
             "seats": {
                 "triage": seat(vec!["chore", "feature", "design", "engine", "escalate"]),
                 "design": seat(vec!["designed", "fail"]),
-                "implement": seat(vec!["complete", "broken", "blocked", "oversized"]),
+                "implement": {"results":["complete", "broken", "blocked", "oversized"], "select": {
+                    "on":"strategy", "cases": {
+                        "chore":body(), "feature":body(), "design":body(), "engine":body()
+                    }
+                }},
                 "verify": seat(vec!["pass", "fail"]),
-                "review": seat(vec!["clean", "residual", "security-hold"]),
+                "review": {"results":["clean", "residual", "security-hold"], "select": {
+                    "on":"strategy", "cases": {
+                        "chore":body(),
+                        "feature":review_panel(&["correctness", "security"]),
+                        "design":review_sequence(&["correctness", "security", "spec-compliance"]),
+                        "engine":review_sequence(&["adversarial", "correctness", "security", "spec-compliance"])
+                    }
+                }},
                 "ship": seat(vec!["ready", "shipped"]),
             }
         });
@@ -494,11 +527,11 @@ fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
         "triage": [{"behavior":"succeed", "result": {
             "result":"chore", "notes":"bounded maintenance"
         }}],
-        "implement": [{"behavior":"succeed", "result": {
+        "implement:chore": [{"behavior":"succeed", "result": {
             "result":"complete", "inputs":{"strategy":"escalate"}
         }}],
         "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
-        "review": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:chore": [{"behavior":"succeed", "result":{"result":"clean"}}],
         "ship": [
             {"behavior":"succeed", "result":{"result":"ready"}},
             {"behavior":"succeed", "result":{"result":"shipped"}}
@@ -529,12 +562,13 @@ fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
             {"behavior":"echo", "result":{"result":"feature"}},
             {"behavior":"echo", "result":{"result":"feature"}}
         ],
-        "implement": [
+        "implement:feature": [
             {"behavior":"succeed", "result":{"result":"oversized"}},
             {"behavior":"succeed", "result":{"result":"complete"}}
         ],
         "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
-        "review": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:feature:correctness": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:feature:security": [{"behavior":"succeed", "result":{"result":"clean"}}],
         "ship": [
             {"behavior":"succeed", "result":{"result":"ready"}},
             {"behavior":"succeed", "result":{"result":"shipped"}}
@@ -574,6 +608,51 @@ fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
         reason.ends_with("split the commission at the frozen boundary"),
         "triage's reasoning is the journaled park reason: {reason}"
     );
+}
+
+#[test]
+fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief() {
+    let script = json!({"seats": {
+        "triage": [{"behavior":"succeed", "result":{"result":"engine"}}],
+        "design": [{"behavior":"succeed", "result":{"result":"designed"}}],
+        "implement:engine": [{"behavior":"succeed", "result":{"result":"complete"}}],
+        "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
+        "review:engine:positions:adversarial": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:engine:positions:correctness": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:engine:positions:security": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:engine:positions:spec-compliance": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:engine:chief": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "ship": [
+            {"behavior":"succeed", "result":{"result":"ready"}},
+            {"behavior":"succeed", "result":{"result":"shipped"}}
+        ]
+    }});
+    let ws = Workspace::triage(script);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["strategy"], "engine");
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let entered: Vec<&str> = events
+        .iter()
+        .filter(|event| event["type"] == "phase/entered")
+        .filter_map(|event| event["payload"]["case"].as_str())
+        .collect();
+    assert_eq!(entered, ["engine", "engine"]);
+    let members: Vec<&str> = events
+        .iter()
+        .filter(|event| event["type"] == "effect/checkpointed")
+        .filter_map(|event| event["payload"]["checkpoint"]["member"].as_str())
+        .collect();
+    for member in ["adversarial", "correctness", "security", "spec-compliance"] {
+        assert!(
+            members.iter().any(|served| served.ends_with(member)),
+            "engine review did not serve {member}"
+        );
+    }
+    assert!(events.iter().any(|event| {
+        event["type"] == "effect/checkpointed"
+            && event["payload"]["checkpoint"]["member"] == "chief"
+    }));
 }
 
 #[test]

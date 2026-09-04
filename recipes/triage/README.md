@@ -1,23 +1,23 @@
-# Triage routing
+# Triage
 
-This is the routing form of decision 0041 ruling 6. A fresh, blind
-chief-grade gate reads the commission and named tree, writes the framing in
-`.forge/tasks/<slug>.md`, and rules exactly one class:
+Triage is the routing recipe. Its chief-grade first gate rules the closed
+delivery class, and the engine uses that journal fact to choose the later
+offices. Operators choose this recipe once; they do not choose a crew by hand.
 
-| Class | Route |
-|---|---|
-| `chore` | implement → verify → review → ship |
-| `feature` | implement → verify → review → ship |
-| `design` | design → implement → verify → review → ship |
-| `engine` | design → implement → verify → review → ship |
-| `escalate` | park with triage's reasoning |
+| Class | Route | Implement office | Review office |
+|---|---|---|---|
+| `chore` | implement → verify → review → ship | `implementer` | `reviewer` |
+| `feature` | implement → verify → review → ship | `implementer` | correctness + security panel |
+| `design` | design → implement → verify → review → ship | `implementer` | correctness + security + spec-compliance panel, then `review-chief` |
+| `engine` | design → implement → verify → review → ship | `implementer-engine` | adversarial + correctness + security + spec-compliance panel, then `review-chief` |
+| `escalate` | park with triage's reasoning | — | — |
 
-The closed class vocabulary is `chore`, `feature`, `design`, `engine`, and
-`escalate`. The class is recorded as the run's engine-owned `strategy` fact.
-Below triage, this recipe keeps Fast's bounded verify, review, and ship
-constitution and the current SDD design council. Ruling 7's strategy-selected
-seats come later; until then even a `chore` deliberately runs Fast's crew.
+The `design` council remains positions → chief → deterministic spec-kit check.
+The selected review sequences deliberately expose one trust boundary: the chief
+treats panel notes as data and never instructions. Every selected panel keeps
+at least two model families, and every office is resolved from `agents/`.
 
-Verification and shipping are deterministic boxed exec gates. Cargo runs
-offline inside the verifier's box from the bound registry cache; a cache miss
-fails closed.
+`strategy` is engine-owned. A seat cannot declare or claim it. The compiler
+requires every selectable class to have a case or a default, and the manifest
+pins every resolved case under `select`. A run with no triage result can use an
+explicit default; without one it parks and never guesses.

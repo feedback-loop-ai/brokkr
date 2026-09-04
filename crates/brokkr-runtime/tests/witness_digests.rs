@@ -4,8 +4,8 @@
 //!
 //! `recipes/fast`, `recipes/node`, `recipes/preflight`,
 //! `recipes/wager-harness` and `bundles/verify` adopt no agent. The
-//! other roster recipes (`ember`, `crucible`, and `night-shift`) now
-//! seat library agents under decision 0041. Every pinned manifest must
+//! routing and night-shift recipes seat library agents under decision
+//! 0041. Every pinned manifest must
 //! move only when its recorded strategy or dependencies move; an inline
 //! recipe must continue to carry no `agents` key at all.
 //!
@@ -116,10 +116,10 @@ fn workspace() -> PathBuf {
 /// the verifier and shipper bytes now live inside those bundle roots and
 /// therefore enter the manifest identity. Preflight already owned its
 /// verifier under `roles/`, so it does not move.
-/// Decision 0041 ruling 6 adds the ninth witness: the routing recipe's
+/// Decision 0041 ruling 6 adds the routing witness: the routing recipe's
 /// identity includes the triage office, routing table, current design
 /// council, and Fast as its composed base.
-const WITNESSES: [(&str, &str); 9] = [
+const WITNESSES: [(&str, &str); 7] = [
     (
         "recipes/fast",
         "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
@@ -133,16 +133,8 @@ const WITNESSES: [(&str, &str); 9] = [
         "7ce2538f6db6328d4e73185d8d886a17bdb49d682fe252cbe07eb8fa911f5ea2",
     ),
     (
-        "recipes/ember",
-        "45b7f258775cf3786f0c392e3fceca387fafe146949441d6d60f62419230133c",
-    ),
-    (
-        "recipes/crucible",
-        "19406456be6994db6f49dd9908faec78da28899ad6457586c32f195c0117b0e9",
-    ),
-    (
         "recipes/night-shift",
-        "8c9949dacbf73b40bc0a7c447fd0a602f1df316b6eef123dcd1133fc0850f963",
+        "c729d441611b30c9567f91b5b6ac5ea4657447de7988488e158b577d2c1ff182",
     ),
     (
         "recipes/wager-harness",
@@ -150,7 +142,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "cdf869d85be5eab8dd03e21187c6b11a175b6a58c38dbdc009c22acfd8bd5ce9",
+        "7196ca0d79894058fd613ae64b48daf7e31079c0815f1927a1ce4cfabce8850d",
     ),
     (
         "bundles/verify",

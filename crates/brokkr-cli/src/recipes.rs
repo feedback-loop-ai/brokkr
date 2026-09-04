@@ -50,6 +50,39 @@ pub fn resolve(
 /// Seat names in declared (sorted) order, panels rendered as
 /// `review[correctness+security]`.
 fn seat_summary(bundle: &Bundle) -> String {
+    fn hire(body: &SeatBody) -> String {
+        match body {
+            SeatBody::Single {
+                candidates,
+                command,
+                ..
+            } => candidates
+                .first()
+                .map(|candidate| candidate.agent.clone())
+                .unwrap_or_else(|| command.first().cloned().unwrap_or_else(|| "inline".into())),
+            SeatBody::Panel { members, .. } => members
+                .iter()
+                .map(|member| {
+                    member
+                        .candidates
+                        .first()
+                        .map(|candidate| candidate.agent.as_str())
+                        .unwrap_or(member.name.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join("+"),
+            SeatBody::Sequence { steps } => steps
+                .iter()
+                .map(|step| step.name.as_str())
+                .collect::<Vec<_>>()
+                .join(">"),
+            SeatBody::Select { cases, default, .. } => default
+                .as_deref()
+                .or_else(|| cases.values().next())
+                .map(hire)
+                .unwrap_or_else(|| "unresolved".into()),
+        }
+    }
     bundle
         .seats
         .iter()
@@ -71,6 +104,16 @@ fn seat_summary(bundle: &Bundle) -> String {
                     .collect::<Vec<_>>()
                     .join(">")
             ),
+            SeatBody::Select { cases, default, .. } => {
+                let mut names = cases
+                    .iter()
+                    .map(|(case, body)| format!("{case}={}", hire(body)))
+                    .collect::<Vec<_>>();
+                if let Some(body) = default {
+                    names.push(format!("default={}", hire(body)));
+                }
+                format!("{name}{{{}}}", names.join(";"))
+            }
         })
         .collect::<Vec<_>>()
         .join(", ")
