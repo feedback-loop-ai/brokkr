@@ -20,8 +20,8 @@
           "path": { "type": "string", "minLength": 1 },
           "default_branch": { "type": "string", "minLength": 1 },
           "journal": { "type": "string", "minLength": 1 },
-          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:[/\\\\])(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
-          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:[/\\\\])(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." }
+          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
+          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." }
         }
       }
     },

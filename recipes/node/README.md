@@ -9,14 +9,15 @@ The phase table is `recipes/fast`'s, rule for rule, including decision
 0022's reforging ladder. Nothing about a delivery's *constitution* is
 language-specific, and pretending otherwise would have produced a second
 table to keep in sync. What is Node here is the two things that touch a
-codebase: the seats' driver commands and the model seats' role charters.
+codebase: the seats' driver commands and the reviewer's office. Repository
+commands and conventions belong to the realm's house file.
 
 | | `recipes/fast` | `recipes/node` |
 |---|---|---|
-| Tools the drivers may run | `cargo`, `git`, `python3`, `pytest`, … | `npm`, `npx`, `node`, `git`, … |
+| Tools the drivers may run | `cargo`, `git`, … | `npm`, `npx`, `node`, `git`, … |
 | Verifier runs | `cargo test --workspace` | `npm ci`, `npx tsc --noEmit`, `npm test` |
 | Reviewer reads for | Rust idiom, `crates/` | `package.json` scripts, ESM/CJS, `tsconfig.json` strictness, lockfile provenance |
-| Charter warnings | frozen contracts, `fixtures/` | `node_modules/` never committed, `npm ci` not `npm install`, no `npm publish` |
+| House warnings | frozen contracts, `fixtures/` | `node_modules/` never committed, `npm ci` not `npm install`, no `npm publish` |
 
 ## The package-manager fork — one place, named here
 
@@ -32,10 +33,10 @@ and change these, and only these:
 | Where | npm (shipped) | pnpm | yarn (berry) |
 |---|---|---|---|
 | `bundle.json` — every seat's `--allowedTools` | `Bash(npm:*),Bash(npx:*),Bash(node:*),…` | `Bash(pnpm:*),Bash(node:*),…` | `Bash(yarn:*),Bash(node:*),…` |
-| Charters — install | `npm ci` | `pnpm install --frozen-lockfile` | `yarn install --immutable` |
-| Charters — types | `npx tsc --noEmit` | `pnpm exec tsc --noEmit` | `yarn tsc --noEmit` |
-| Charters — tests | `npm test` | `pnpm test` | `yarn test` |
-| Charters — lockfile named | `package-lock.json` | `pnpm-lock.yaml` | `yarn.lock` |
+| House rules and verifier — install | `npm ci` | `pnpm install --frozen-lockfile` | `yarn install --immutable` |
+| House rules and verifier — types | `npx tsc --noEmit` | `pnpm exec tsc --noEmit` | `yarn tsc --noEmit` |
+| House rules and verifier — tests | `npm test` | `pnpm test` | `yarn test` |
+| House rules and verifier — lockfile named | `package-lock.json` | `pnpm-lock.yaml` | `yarn.lock` |
 
 Two parallel bundles are deliberately not shipped: a fork you can read
 in one table beats two files that drift apart.

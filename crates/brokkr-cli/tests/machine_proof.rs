@@ -400,9 +400,10 @@ impl Workspace {
         let seat_results = config["seats"][phase]["results"].clone();
         let steps: Vec<Value> = specs
             .iter()
-            .map(|spec| {
+            .enumerate()
+            .map(|(index, spec)| {
                 let name = spec["name"].as_str().unwrap();
-                match spec.get("members") {
+                let mut step = match spec.get("members") {
                     None => json!({
                         "name": name,
                         "results": spec.get("results").unwrap_or(&seat_results).clone(),
@@ -426,7 +427,11 @@ impl Workspace {
                             "aggregate": spec["aggregate"],
                         })
                     }
+                };
+                if index + 1 == specs.len() {
+                    step.as_object_mut().unwrap().remove("results");
                 }
+                step
             })
             .collect();
         let seat = config["seats"][phase].as_object_mut().unwrap();

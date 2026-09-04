@@ -17,6 +17,6 @@ for someone arriving from outside this repository.
 | [Secrets](secrets.md) | Names cross the control plane; values stay in the operator-side store and are masked before capture. |
 | [Journal and verification](journal-and-verification.md) | Anchor, export, verify, replay, import and keep the evidence that proves a run. |
 | [Repository layout](repository-layout.md) | The crates, contracts, recipes, evidence and read-only shelves, with the reason each exists. |
-| [Adopting a Node repo](adopting-a-node-repo.md) | The quickstart's flow 3 at length for a Node/TypeScript repo on `recipes/node`: what you are granting, the four files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
+| [Adopting a Node repo](adopting-a-node-repo.md) | The quickstart's flow 3 at length for a Node/TypeScript repo on `recipes/node`: what you are granting, the five files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
 | [Versioning](versioning.md) | What is stable and what may still move: the frozen-contract law, the two manifest lineages, semver as of 1.0, and the live deprecation window. |
 | [Contributing by hand](contributing-by-hand.md) | The repository gates in full, retained as reference for the visible operator escape hatch. |

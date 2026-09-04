@@ -1144,7 +1144,7 @@ fn body_manifest(body: &SeatBody) -> Value {
                     "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
                 }),
             };
-            json!({"name": step.name, "body": body})
+            json!({"name": step.name, "results": step.results, "body": body})
         }).collect::<Vec<_>>() }),
         SeatBody::Select { cases, default, .. } => {
             let mut resolved: Map<String, Value> = cases
@@ -2108,6 +2108,11 @@ fn parse_sequence(
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
         let final_step = index + 1 == steps_raw.len();
+        if final_step && step_raw.get("results").is_some() {
+            return Err(CompileError::Invalid(format!(
+                "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
+            )));
+        }
         let step_results = if final_step {
             results.to_vec()
         } else if step_raw.get("results").is_some() {

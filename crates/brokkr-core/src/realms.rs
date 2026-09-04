@@ -110,7 +110,7 @@ fn is_name(value: &str) -> bool {
 fn is_repository_relative(value: &str) -> bool {
     let bytes = value.as_bytes();
     !matches!(bytes.first(), Some(b'/' | b'\\'))
-        && !matches!(bytes, [_, b':', b'/' | b'\\', ..])
+        && !(bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
         && !value.split(['/', '\\']).any(|component| component == "..")
 }
 

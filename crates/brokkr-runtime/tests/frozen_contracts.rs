@@ -151,3 +151,24 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         );
     }
 }
+
+#[test]
+fn the_realms_v3_contract_refuses_windows_drive_relative_text_paths() {
+    let schema: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(workspace().join("contracts/realms.v3.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    for field in ["house", "dialect"] {
+        let mut map = serde_json::json!({
+            "schema": "forge.realms/v3",
+            "realms": [{"name": "app", "path": ".", "default_branch": "main"}],
+            "journal": "forge.db"
+        });
+        map["realms"][0][field] = serde_json::json!("C:outside.md");
+        assert!(
+            !validator.is_valid(&map),
+            "the v3 schema admitted a drive-relative {field}"
+        );
+    }
+}

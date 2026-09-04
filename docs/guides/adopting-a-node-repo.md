@@ -36,7 +36,7 @@ You will need, beyond the spine's requirements:
   Without a local install `npx` resolves the name outward to the
   registry instead, which is not what you want a gate seat doing. A
   plain-JavaScript repo should drop the type-check step from
-  `roles/verify-seat.sh` and `roles/implementer.md` rather than let it
+  `roles/verify-seat.sh` and `docs/house-rules.md` rather than let it
   reach out; see [below](#fitting-the-recipe-to-your-repo).
 - `node` and `npm` on your `PATH`. The recipe is wired for npm because
   npm ships with Node — nothing to install before the first seat can
@@ -202,7 +202,7 @@ write two or three sentences that would let a new colleague start.
 |---|---|---|---|
 | `implement` | work | `npm ci`, writes code and tests, `npx tsc --noEmit`, `npm test` | yes |
 | `verify` | gate | `npm ci`, `npx tsc --noEmit`, `npm test`, and `npm run lint` if you declare one | no — fixes nothing |
-| `review` | gate | reads the diff for correctness, simplicity and security | only small, safe fixes, which force a re-verify |
+| `review` | gate | reads the diff for correctness, simplicity and security | no — reports findings for the implementer |
 | `ship` | gate | writes `.forge/ledger/<run-id>.md`, confirms the tree is clean | no |
 
 Nobody pushes, nobody merges, and nobody publishes — no `npm publish`,
@@ -225,14 +225,14 @@ come up.
 [`recipes/node/README.md`](../../recipes/node/README.md) names every
 swap point for pnpm and yarn: the `--allowedTools` list in each seat's
 driver, and the install/type-check/test commands plus the lockfile name
-  in the implementer charter and verifier script. There is deliberately no second bundle to keep in
+in the house rules and verifier script. There is deliberately no second bundle to keep in
 sync. For bun, [cards/bun.md](cards/bun.md) names the same three
 command swaps.
 
 **Your repo's own scripts.** If your suite is `npm run test:ci`, or your
 type check is `npm run typecheck`, edit `roles/verify-seat.sh` and
-`roles/implementer.md` to say so. A charter naming a script that exists
-beats a charter naming a command a seat has to guess at. A repository
+`docs/house-rules.md` to say so. A house naming a script that exists
+beats a house naming a command a seat has to guess at. A repository
 with no TypeScript at all deletes the `npx tsc --noEmit` step from both
 files for the same reason — one step short beats a step that resolves
 to something the repo never installed.

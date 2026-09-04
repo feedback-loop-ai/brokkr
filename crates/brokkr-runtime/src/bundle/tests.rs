@@ -333,6 +333,45 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         &mut BTreeMap::new(),
     ));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
+
+    let final_vocabulary = json!({"sequence": [
+        {"name":"first", "results":["drafted"],
+         "role":"roles/role.md", "driver":{"command":["driver"]}},
+        {"name":"final", "results":["invented"],
+         "role":"roles/role.md", "driver":{"command":["driver"]}}
+    ]});
+    let refusal = error(parse_sequence(
+        dir,
+        "review",
+        &final_vocabulary,
+        &results,
+        &[],
+        &mut None,
+        &mut BTreeMap::new(),
+    ));
+    assert!(
+        refusal.contains("final and receives the seat's results"),
+        "{refusal}"
+    );
+
+    let valid = json!({"sequence": [
+        {"name":"first", "results":["drafted"],
+         "role":"roles/role.md", "driver":{"command":["driver"]}},
+        {"name":"final", "role":"roles/role.md", "driver":{"command":["driver"]}}
+    ]});
+    let steps = parse_sequence(
+        dir,
+        "review",
+        &valid,
+        &results,
+        &[],
+        &mut None,
+        &mut BTreeMap::new(),
+    )
+    .unwrap();
+    let pinned = body_manifest(&SeatBody::Sequence { steps });
+    assert_eq!(pinned["sequence"][0]["results"], json!(["drafted"]));
+    assert_eq!(pinned["sequence"][1]["results"], json!(results));
 }
 
 #[test]

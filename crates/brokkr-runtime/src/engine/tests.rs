@@ -3517,9 +3517,11 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
             },
         },
     ];
-    let (_dir, mut engine) = engine(SeatBody::Sequence {
+    let (dir, mut engine) = engine(SeatBody::Sequence {
         steps: steps.clone(),
     });
+    let repo = dir.path().join("work");
+    engine.world = Some(world_with_house(dir.path(), &repo, "One realm rule.\n"));
     engine.bundle.seats.get_mut("work").unwrap().results = vec!["pass".into(), "fail".into()];
     let seq_input = engine
         .seat_input(
@@ -3550,6 +3552,11 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     assert_eq!(
         final_step["input"]["allowed_results"],
         json!(["pass", "fail"])
+    );
+    assert_eq!(first["input"]["house_rules"], "One realm rule.\n");
+    assert_eq!(
+        final_step["input"]["house_rules"], "One realm rule.\n",
+        "a sequence panel passes the realm house through to every member"
     );
     let first_prompt = brokkr_protocol::adapters::render_prompt(&first["input"]);
     let final_prompt = brokkr_protocol::adapters::render_prompt(&final_step["input"]);

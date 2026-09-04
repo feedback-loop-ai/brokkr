@@ -1053,8 +1053,8 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        "612613375122a4d6a8cac4bcc07fbcb9d7ae892c50a34d051b3012c1b2ba9a55",
-        "ruling 7 pins every selected case in triage's identity"
+        "0716d4eefad660f5f01a440874588b780151182f98b5192aa7f8c2b848762892",
+        "ruling 8 pins every selected sequence step's effective results"
     );
 
     let night = compiled("recipes/night-shift");

@@ -66,11 +66,43 @@ fn doctor_reports_a_declared_house_that_cannot_be_read() {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_house(&mut report, dir.path());
+    report_realm_house(&mut report, dir.path(), None);
     assert!(!report.healthy);
     assert!(report
         .render()
         .contains("MISSING  house rules: realm 'app' names house"));
+}
+
+#[test]
+fn doctor_honours_a_named_map_and_reports_an_unreadable_neighbour_house() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("here")).unwrap();
+    std::fs::write(dir.path().join("here/HOUSE.md"), "Here.\n").unwrap();
+    let named = dir.path().join("fleet.json");
+    std::fs::write(
+        &named,
+        serde_json::to_vec(&json!({
+            "schema": "forge.realms/v3",
+            "realms": [
+                {"name": "here", "path": "here", "default_branch": "main",
+                 "house": "HOUSE.md"},
+                {"name": "away", "path": "not-checked-out", "default_branch": "main",
+                 "house": "HOUSE.md"}
+            ],
+            "journal": ".forge/forge.db"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house(&mut report, dir.path(), Some(&named));
+    let rendered = report.render();
+    assert!(!report.healthy);
+    assert!(rendered.contains("realm 'away' names house"), "{rendered}");
+    assert!(!rendered.contains("MISSING  realms map"), "{rendered}");
 }
 
 #[test]
@@ -81,7 +113,7 @@ fn doctor_reports_a_broken_map_as_the_map_not_as_missing_house_rules() {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_house(&mut report, dir.path());
+    report_realm_house(&mut report, dir.path(), None);
     let rendered = report.render();
     assert!(rendered.contains("MISSING  realms map:"), "{rendered}");
     assert!(!rendered.contains("MISSING  house rules:"), "{rendered}");
@@ -94,7 +126,7 @@ fn doctor_reports_readable_and_absent_house_declarations() {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_house(&mut report, dir.path());
+    report_realm_house(&mut report, dir.path(), None);
     assert_eq!(
         report.render(),
         "ok       house rules: no realms map; none declared"
@@ -116,7 +148,7 @@ fn doctor_reports_readable_and_absent_house_declarations() {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_house(&mut report, dir.path());
+    report_realm_house(&mut report, dir.path(), None);
     assert!(report.healthy);
     assert_eq!(
         report.render(),
@@ -131,6 +163,7 @@ fn public_doctor_includes_the_workspace_house_check() {
         None,
         &dir.path().join("forge.db"),
         &dir.path().join("secrets.env"),
+        None,
     );
     assert!(report.render().contains("house rules:"));
 }

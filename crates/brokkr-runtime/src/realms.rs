@@ -45,7 +45,26 @@ struct TextPin {
     content: String,
 }
 
-type RealmTexts = BTreeMap<String, (Option<TextPin>, Option<TextPin>)>;
+#[derive(Debug, Clone)]
+struct RealmTextFailure {
+    realm: String,
+    kind: &'static str,
+    path: String,
+    detail: String,
+}
+
+impl RealmTextFailure {
+    fn error(&self) -> WorldError {
+        WorldError::RealmText {
+            realm: self.realm.clone(),
+            kind: self.kind,
+            path: self.path.clone(),
+            detail: self.detail.clone(),
+        }
+    }
+}
+
+type RealmTexts = BTreeMap<String, (Result<Option<TextPin>, RealmTextFailure>, Option<TextPin>)>;
 
 /// A loaded map, with everything a run needs to answer for it later: the
 /// file it came from, the content verbatim, and the content's digest.
@@ -109,7 +128,7 @@ impl World {
         })?;
         let (map, content) = RealmMap::parse(&named, &text)?;
         let source = path.to_path_buf();
-        let texts = load_realm_texts(&source, &map)?;
+        let texts = load_realm_texts(&source, &map);
         Ok(World {
             source,
             sha256: canonical::sha256_hex(&content),
@@ -245,16 +264,26 @@ impl World {
     }
 
     /// The immutable house text selected for this repository's realm.
-    pub fn house_for(&self, repo: &Path) -> Option<&str> {
-        let realm = self.realm_for(repo)?;
-        self.texts
-            .get(&realm.name)
-            .and_then(|(house, _)| house.as_ref())
-            .map(|pin| pin.content.as_str())
+    pub fn house_for(&self, repo: &Path) -> Result<Option<&str>, WorldError> {
+        let Some(realm) = self.realm_for(repo) else {
+            return Ok(None);
+        };
+        self.house_for_realm(realm)
+    }
+
+    /// Check and read one declared realm's immutable house text. Doctor
+    /// uses the realm directly so two declarations that currently point
+    /// at the same absent checkout are still diagnosed independently.
+    pub fn house_for_realm(&self, realm: &Realm) -> Result<Option<&str>, WorldError> {
+        match self.texts.get(&realm.name).map(|(house, _)| house) {
+            Some(Ok(house)) => Ok(house.as_ref().map(|pin| pin.content.as_str())),
+            Some(Err(failure)) => Err(failure.error()),
+            None => Ok(None),
+        }
     }
 
     /// The world as it goes into a run manifest: named, hashed, embedded.
-    pub fn pin(&self, repo: Option<&Path>) -> Value {
+    pub fn pin(&self, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut pin = json!({
             "source": self.source.display().to_string(),
             "sha256": self.sha256,
@@ -263,6 +292,7 @@ impl World {
         if let Some(realm) = repo.and_then(|repo| self.realm_for(repo)) {
             pin["realm"] = json!(realm.name);
             if let Some((house, dialect)) = self.texts.get(&realm.name) {
+                let house = house.as_ref().map_err(RealmTextFailure::error)?;
                 if let Some(house) = house {
                     pin["house"] = json!({
                         "source": house.source,
@@ -279,21 +309,25 @@ impl World {
                 }
             }
         }
-        pin
+        Ok(pin)
     }
 
     /// A run manifest with this world pinned into it (run-manifest/v4, carried forward by v5).
     /// The bundle manifest is untouched — the map is workspace data, not
     /// bundle data, so adopting a map moves no bundle digest.
-    pub fn pinned(&self, manifest: &Value, repo: Option<&Path>) -> Value {
+    pub fn pinned(&self, manifest: &Value, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut fields = manifest.as_object().cloned().unwrap_or_default();
-        fields.insert("realms".to_string(), self.pin(repo));
-        Value::Object(fields)
+        fields.insert("realms".to_string(), self.pin(repo)?);
+        Ok(Value::Object(fields))
     }
 }
 
-fn read_text(realm: &Realm, kind: &'static str, path: PathBuf) -> Result<TextPin, WorldError> {
-    let content = std::fs::read_to_string(&path).map_err(|error| WorldError::RealmText {
+fn read_text(
+    realm: &Realm,
+    kind: &'static str,
+    path: PathBuf,
+) -> Result<TextPin, RealmTextFailure> {
+    let content = std::fs::read_to_string(&path).map_err(|error| RealmTextFailure {
         realm: realm.name.clone(),
         kind,
         path: path.display().to_string(),
@@ -306,7 +340,7 @@ fn read_text(realm: &Realm, kind: &'static str, path: PathBuf) -> Result<TextPin
     })
 }
 
-fn load_realm_texts(map_source: &Path, map: &RealmMap) -> Result<RealmTexts, WorldError> {
+fn load_realm_texts(map_source: &Path, map: &RealmMap) -> RealmTexts {
     let base = map_source.parent().unwrap_or(Path::new(""));
     let mut texts = BTreeMap::new();
     for realm in &map.realms {
@@ -319,8 +353,8 @@ fn load_realm_texts(map_source: &Path, map: &RealmMap) -> Result<RealmTexts, Wor
             }
         };
         let house = match &realm.house {
-            Some(path) => Some(read_text(realm, "house", realm_root.join(path))?),
-            None => None,
+            Some(path) => read_text(realm, "house", realm_root.join(path)).map(Some),
+            None => Ok(None),
         };
         // This slice opens the declaration but does not resolve a dialect.
         // Pin the realm's exact value so decision 0042's loader can later
@@ -338,7 +372,7 @@ fn load_realm_texts(map_source: &Path, map: &RealmMap) -> Result<RealmTexts, Wor
         };
         texts.insert(realm.name.clone(), (house, dialect));
     }
-    Ok(texts)
+    texts
 }
 
 fn pinned_text(pin: &Value, key: &str) -> Result<Option<TextPin>, WorldError> {
@@ -386,9 +420,9 @@ fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
                 "its selected realm names a dialect but the manifest pins none".to_string(),
             ));
         }
-        texts.insert(realm.name.clone(), (house, dialect));
+        texts.insert(realm.name.clone(), (Ok(house), dialect));
     } else if map.realms.len() == 1 {
-        texts.insert(map.realms[0].name.clone(), (house, dialect));
+        texts.insert(map.realms[0].name.clone(), (Ok(house), dialect));
     }
     Ok(texts)
 }

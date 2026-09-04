@@ -273,11 +273,14 @@ fn house_and_dialect_are_v3_vocabulary_and_may_not_be_empty() {
 
 #[test]
 fn realm_text_declarations_cannot_leave_the_repository() {
+    assert!(is_repository_relative("h"));
+    assert!(is_repository_relative("1:house.md"));
     for value in [
         "/house.md",
         "\\house.md",
         "C:/house.md",
         "C:\\house.md",
+        "C:house.md",
         "../house.md",
         "docs/../house.md",
     ] {

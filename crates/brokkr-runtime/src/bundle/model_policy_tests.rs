@@ -2383,9 +2383,11 @@ fn hands_are_recorded_under_the_sites_the_engine_labels() {
     assert!(bundle.hands["work:left"].network);
     assert!(!bundle.hands["work:right"].network);
 
+    let mut second = exec("second");
+    second.as_object_mut().unwrap().remove("results");
     let sequence = json!({
         "results": ["pass", "fail"],
-        "sequence": [exec("first"), exec("second")],
+        "sequence": [exec("first"), second],
     });
     let bundle = fixture.compile(sequence).unwrap();
     assert_eq!(

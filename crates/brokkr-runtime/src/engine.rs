@@ -204,7 +204,7 @@ impl Engine {
         let slug = slug.chars().take(32).collect::<String>();
         let run_id = format!("{slug}-{}", &Uuid::new_v4().to_string()[..8]);
         let manifest = match &world {
-            Some(world) => world.pinned(&bundle.manifest, repo.as_deref()),
+            Some(world) => world.pinned(&bundle.manifest, repo.as_deref())?,
             None => bundle.manifest.clone(),
         };
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
@@ -759,7 +759,7 @@ impl Engine {
             input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
         }
         if let (Some(world), Some(repo)) = (&self.world, self.repo.as_deref()) {
-            if let Some(house) = world.house_for(repo) {
+            if let Some(house) = world.house_for(repo)? {
                 input["house_rules"] = json!(house);
             }
         }

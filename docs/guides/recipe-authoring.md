@@ -267,7 +267,8 @@ attempt.
 Later steps see earlier steps' result objects as context. The `results` array
 on every non-final step is that step's own prompt vocabulary; the final step
 receives the enclosing seat's vocabulary because its result is what the phase
-machine consumes. The engine refuses an intermediate result outside that
+machine consumes; declaring `results` on the final step is refused rather than
+silently ignored. The engine refuses an intermediate result outside that
 declared vocabulary before it can become later context. A panel may omit the
 array only because its named aggregate supplies a fixed vocabulary; when the
 array is present, the compiler checks that it covers every aggregate result
