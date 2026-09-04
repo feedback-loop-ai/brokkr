@@ -314,13 +314,33 @@ fn doctor_with_probe(
             "required for worktree, drift, and dirty gates".into(),
         ),
     }
+    // Compile now so the hands probe can name the exact boxed sites in
+    // the bundle the operator asked doctor to inspect. The bundle result
+    // is still rendered at the end, after the other diagnostics.
+    let compiled = bundle.map(|dir| (dir, Bundle::compile_with(dir, library_root, adapters_root)));
+    let hands: Vec<&str> = compiled
+        .as_ref()
+        .and_then(|(_, result)| result.as_ref().ok())
+        .map(|bundle| bundle.hands.keys().map(String::as_str).collect())
+        .unwrap_or_default();
     // Decision 0043: a bundle whose seats box their hands cannot run
     // without bubblewrap, and the boundary is never simulated.
     match probe("bwrap") {
-        Some(v) => report.ok("hands", format!("{v} · boxed seats can run")),
-        None => report.warn(
+        Some(v) if hands.is_empty() => report.ok("hands", format!("{v} · boxed seats can run")),
+        Some(v) => report.ok(
+            "hands",
+            format!("{v} · seats {hands:?} declare hands and can run"),
+        ),
+        None if hands.is_empty() => report.warn(
             "hands",
             "bubblewrap (bwrap) not found — seats declaring hands will refuse to spawn".into(),
+        ),
+        None => report.warn(
+            "hands",
+            format!(
+                "bubblewrap (bwrap) not found — seats {hands:?} declare hands and will refuse \
+                 to spawn"
+            ),
         ),
     }
     // Optional: each agent CLI matters only to bundles whose seats use
@@ -352,7 +372,6 @@ fn doctor_with_probe(
     // refusals as well as for agent resolution, and doctor reporting on
     // one tree while compiling against another would be the machine
     // diagnosing itself wrong.
-    let compiled = bundle.map(|dir| (dir, Bundle::compile_with(dir, library_root, adapters_root)));
     // A bundle that does not compile declares nothing this report can
     // trust, so it is no bundle to inspect — and it says which of the
     // two silences it is, rather than reading an empty set as "no seat

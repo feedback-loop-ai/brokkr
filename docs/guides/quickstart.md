@@ -85,6 +85,12 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
+The shipped verify and ship gates also require Linux with bubblewrap
+0.10 or newer on `PATH` (`bwrap --version`). Their boundary is never
+simulated: a run refuses at start when bubblewrap is unavailable. macOS
+and Windows adopters need a Linux box for those gates until a ruling says
+otherwise.
+
 ```
 $ brokkr --version
 brokkr 0.8.0

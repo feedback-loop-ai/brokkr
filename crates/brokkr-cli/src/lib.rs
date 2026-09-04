@@ -1591,6 +1591,15 @@ fn run_with(
                  the trust tier and the tool grants its seats run under",
                 dir.display()
             );
+            if let Err(reason) =
+                brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
+            {
+                eprintln!(
+                    "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
+                     declare hands and will refuse to run here — the shipped gates \
+                     require Linux with bubblewrap on PATH"
+                );
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Costs { run, db } => {

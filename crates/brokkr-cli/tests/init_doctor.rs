@@ -62,6 +62,36 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
 }
 
+#[test]
+fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    let empty_path = dir.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["init", bundle.to_str().unwrap()])
+        .env("PATH", &empty_path)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains(
+            "hands need bubblewrap: no `bwrap` on PATH, and the boundary is never simulated"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("scaffolded seats [\"ship\", \"verify\"] declare hands"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("require Linux with bubblewrap on PATH"),
+        "{stderr}"
+    );
+}
+
 /// The other half of that: the scaffold WRITES a trust declaration, and
 /// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
 /// its bundle against clobbering; the declaration is workspace data and

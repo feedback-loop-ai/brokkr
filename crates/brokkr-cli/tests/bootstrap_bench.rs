@@ -20,10 +20,11 @@
 //! gate seats would have had to be demoted to `work` to make it pass.
 //! That would have been a benchmark of a different bundle.
 //!
-//! Unix only: the stub is a shell script, because the thing it stands
-//! in for is a CLI on `PATH`.
+//! Linux only: the stub is a shell script, and the byte-identical
+//! scaffold carries boxed verify and ship gates. Decision 0043 never
+//! simulates that Linux boundary on macOS or Windows.
 
-#![cfg(unix)]
+#![cfg(target_os = "linux")]
 
 use std::path::Path;
 use std::process::Command;
