@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    Aggregate, Bundle, Confine, PanelMember, SeatBody, SequenceStep, StepBody, ENGINE_VERSION,
-    REALM_FACTS,
+    Aggregate, Bundle, Confine, PanelMember, SeatBody, SeatClass, SequenceStep, StepBody,
+    ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -92,8 +92,9 @@ pub struct Engine {
     /// are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
-    /// Present only while this process is executing a gate-bearing effect.
-    /// The two observations are journaled as ordinary checkpoints.
+    /// Present only while this process is executing a gate-bearing site. The
+    /// observations are compared before its terminal event; only a mismatch
+    /// is journaled, as the raw evidence on the resulting park.
     active_gate_head: Option<Option<String>>,
 }
 
@@ -483,27 +484,43 @@ impl Engine {
             event_type,
             EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
         ) {
-            if let Some(start) = self.active_gate_head.take() {
-                let end = self.repo.as_deref().and_then(git_head);
-                let effect_id = payload
-                    .get("effect_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                if start != end {
-                    let evidence = json!({"head_at_start": start, "head_at_end": end});
-                    return self.append_raw(
-                        EventType::EffectIndeterminate,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!("GATE-MOVED-HEAD {evidence}"),
-                        }),
-                        attempt_id,
-                    );
-                }
+            let effect_id = payload
+                .get("effect_id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            if let Some(moved) = self.finish_gate_head_check(effect_id, attempt_id.clone())? {
+                return Ok(moved);
             }
         }
         self.append_raw(event_type, payload, attempt_id)
+    }
+
+    fn finish_gate_head_check(
+        &mut self,
+        effect_id: &str,
+        attempt_id: Option<String>,
+    ) -> Result<Option<EventEnvelope>, EngineError> {
+        let Some(start) = self.active_gate_head.take() else {
+            return Ok(None);
+        };
+        let end = self.repo.as_deref().and_then(git_head);
+        if start == end {
+            return Ok(None);
+        }
+        let evidence = json!({"head_at_start": start, "head_at_end": end});
+        // EffectIndeterminate has only a reason string in the frozen event
+        // contract. Keep the evidence packed there and attach its structured
+        // copy to run/parked rather than widening that contract in this slice.
+        self.append_raw(
+            EventType::EffectIndeterminate,
+            json!({
+                "effect_id": effect_id,
+                "attempt_id": attempt_id,
+                "reason": format!("GATE-MOVED-HEAD {evidence}"),
+            }),
+            attempt_id,
+        )
+        .map(Some)
     }
 
     fn append_raw(
@@ -1323,6 +1340,9 @@ impl Engine {
             // Which sites of THIS step failed to start, if the step is
             // the one that fails the attempt.
             let mut start_failures: Vec<Site> = Vec::new();
+            if step.class == SeatClass::Gate {
+                self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+            }
             let outcome = match &step.body {
                 StepBody::Single {
                     command, confine, ..
@@ -1410,6 +1430,12 @@ impl Engine {
                     panel_outcome(*aggregate, reports)
                 }
             };
+            if self
+                .finish_gate_head_check(effect_id, Some(attempt_id.to_string()))?
+                .is_some()
+            {
+                return Ok(());
+            }
             let result = match outcome {
                 AttemptOutcome::Succeeded { result } => result,
                 AttemptOutcome::Failed { error } => {
@@ -1563,10 +1589,18 @@ impl Engine {
                     }
                 }
             }
-            // Decision 0041 ruling 5: the smith now owns every fix. On a
-            // returning implement visit, classify only that visit's delta;
-            // absence remains the answer when no entry head was recorded.
-            if phase == "implement" {
+            // Decision 0041 ruling 5: the smith owns review findings. Expose
+            // the docs-only shortcut only when review sent this implement
+            // visit back; verify failures and implement self-loops must still
+            // pass through verify even when their delta happens to be prose.
+            let returned_from_review = phase == "implement"
+                && state
+                    .last_decision
+                    .as_ref()
+                    .and_then(|decision| decision.get("from"))
+                    .and_then(Value::as_str)
+                    == Some(self.bundle.protected_phase.as_str());
+            if returned_from_review {
                 if let Some(head) = git_head(repo) {
                     if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
                         inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));

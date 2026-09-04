@@ -291,10 +291,10 @@ fn self_resolves_to_what_it_used_to_inline() {
     assert_adopted("bundles/self", SELF);
 }
 
-/// `recipes/sdd`'s `speckit-check` step stays INLINE. It is
-/// `driver exec -- bash …` — a shell script with no model and no
-/// charter-as-prompt semantics — and it is the case that proves the
-/// library is an option and not a mandate.
+/// `recipes/sdd`'s boxed `speckit-check` gate stays INLINE. It is
+/// `driver exec -- bash …` — a deterministic shell script with no model
+/// and no charter-as-prompt semantics — and it is the case that proves
+/// the library is an option and not a mandate.
 #[test]
 fn the_speckit_check_step_stays_inline() {
     let bundle = compile("recipes/sdd");

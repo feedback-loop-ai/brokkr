@@ -245,6 +245,156 @@ read -r done
         .contains("failed 2 of 2"));
 }
 
+fn compiled_sequence_with_gate(dir: &Path, gate_commits: bool) -> Bundle {
+    let bundle_dir = dir.join("bundle");
+    let agents = dir.join("agents");
+    let adapters = dir.join("adapters");
+    std::fs::create_dir_all(bundle_dir.join("roles")).unwrap();
+    std::fs::create_dir_all(agents.join("charters")).unwrap();
+    std::fs::create_dir_all(&adapters).unwrap();
+    std::fs::write(bundle_dir.join("roles/chief.md"), "# chief\n").unwrap();
+    std::fs::write(bundle_dir.join("roles/review.md"), "# review\n").unwrap();
+    std::fs::write(agents.join("charters/validator.md"), "# validator\n").unwrap();
+
+    let driver = |commit: bool, result: &str| {
+        format!(
+            r#"
+read -r hello
+printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+{}
+printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}}\n' "$effect_id" "$attempt_id"
+printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{{"result":"{}"}},"error":null}}\n' "$effect_id" "$attempt_id"
+read -r done
+"#,
+            if commit {
+                "git commit -q --allow-empty -m site-moved-head"
+            } else {
+                ":"
+            },
+            result
+        )
+    };
+    let chief_driver = driver(true, "pass");
+    let validator_driver = driver(gate_commits, "complete");
+    std::fs::write(
+        adapters.join("judge.json"),
+        serde_json::to_vec_pretty(&json!({
+            "provider": "judge",
+            "trust_tier": "trusted",
+            "binding_grant": true,
+            "binary": "sh",
+            "driver": ["sh", "-c", validator_driver],
+            "models": {"judge": "judge-1"},
+            "judges": ["judge"],
+            "model_flag": "--model",
+            "efforts": ["high"],
+            "effort_flag": "--effort",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        agents.join("validator.json"),
+        serde_json::to_vec_pretty(&json!({
+            "description": "fixture validator",
+            "charter": "charters/validator.md",
+            "models": ["judge"],
+            "efforts": {"judge": "high"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        bundle_dir.join("policy.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema": "forge.phase-machine/v1",
+            "phases": ["work", "review", "done", "stop"],
+            "initial": "work",
+            "terminal": ["done", "stop"],
+            "shippable_from": ["review"],
+            "rules": [
+                {"id": "WORK", "from": "work", "result": "complete", "next": "review", "reason": "worked"},
+                {"id": "REVIEW", "from": "review", "result": "clean", "next": "done", "reason": "reviewed"}
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        bundle_dir.join("bundle.json"),
+        serde_json::to_vec_pretty(&json!({
+            "name": "gate-sequence",
+            "description": "compiled gate sequence",
+            "cost": "test",
+            "policy": "policy.json",
+            "protected_phase": "review",
+            "seats": {
+                "work": {
+                    "results": ["complete"],
+                    "sequence": [
+                        {"name": "chief", "class": "work", "role": "roles/chief.md",
+                         "driver": {"command": ["sh", "-c", chief_driver]}},
+                        {"name": "validator", "class": "gate", "agent": "validator"}
+                    ]
+                },
+                "review": {"results": ["clean"], "class": "work", "role": "roles/review.md",
+                           "driver": {"command": ["missing-review-driver"]}}
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let compiled = Bundle::compile_with(&bundle_dir, &agents, &adapters).unwrap();
+    assert!(!compiled.seats["work"].has_gate);
+    let SeatBody::Sequence { steps } = &compiled.seats["work"].body else {
+        panic!("the fixture must compile as a sequence")
+    };
+    assert_eq!(steps[0].class, SeatClass::Work);
+    assert_eq!(steps[1].class, SeatClass::Gate);
+    compiled
+}
+
+#[test]
+fn a_compiled_mixed_sequence_guards_the_gate_step_not_the_work_step() {
+    for gate_commits in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let base = git_commit(&repo, "base");
+        let compiled = compiled_sequence_with_gate(dir.path(), gate_commits);
+        let store = Store::open(&dir.path().join("forge.db")).unwrap();
+        let mut engine =
+            Engine::start(store, compiled, "mixed sequence", Some(repo.clone())).unwrap();
+        let end = engine.drive().unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+
+        assert_ne!(
+            git_head(&repo).as_deref(),
+            Some(base.as_str()),
+            "the work chief commits"
+        );
+        if gate_commits {
+            assert_eq!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+            assert!(!events
+                .iter()
+                .any(|event| event.event_type == EventType::EffectSucceeded));
+        } else {
+            assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event.event_type == EventType::EffectSucceeded),
+                "{events:#?}"
+            );
+        }
+    }
+}
+
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     EventEnvelope {
         run_id: "run".into(),
@@ -337,6 +487,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
             steps: vec![
                 SequenceStep {
                     name: "single".into(),
+                    class: SeatClass::Work,
                     body: StepBody::Single {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
@@ -346,6 +497,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                 },
                 SequenceStep {
                     name: "panel".into(),
+                    class: SeatClass::Work,
                     body: StepBody::Panel {
                         members,
                         aggregate: Aggregate::UnanimousPass,
@@ -956,6 +1108,7 @@ fn step_input() -> Value {
 fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
     let failed_step = SequenceStep {
         name: "failed".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
@@ -984,6 +1137,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
 
     let lost_step = SequenceStep {
         name: "lost".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: driver_command(
@@ -2340,6 +2494,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 
     let failed_step = SequenceStep {
         name: "failed".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
@@ -2362,6 +2517,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 
     let lost_step = SequenceStep {
         name: "lost".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: driver_command(
@@ -2390,6 +2546,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 
     let ok_step = SequenceStep {
         name: "ok".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: driver_command(
@@ -2418,6 +2575,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 
     let checkpoint_step = SequenceStep {
         name: "checkpoint".into(),
+        class: SeatClass::Work,
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: two_checkpoint_command("effect", "attempt"),
@@ -2441,6 +2599,7 @@ fn panel_and_sequence_storage_failures_propagate() {
     let steps = [
         SequenceStep {
             name: "first".into(),
+            class: SeatClass::Work,
             body: StepBody::Single {
                 role_path: "role.md".into(),
                 command: driver_command(
@@ -2456,6 +2615,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         },
         SequenceStep {
             name: "second".into(),
+            class: SeatClass::Work,
             body: StepBody::Single {
                 role_path: "role.md".into(),
                 command: vec!["missing-driver".into()],
@@ -2979,6 +3139,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
         let steps = vec![
             SequenceStep {
                 name: "positions".into(),
+                class: SeatClass::Work,
                 body: StepBody::Panel {
                     members: vec![
                         member(
@@ -3017,6 +3178,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
             },
             SequenceStep {
                 name: "chief".into(),
+                class: SeatClass::Work,
                 body: StepBody::Single {
                     role_path: "chief.md".into(),
                     command: capturing_driver_command(
@@ -3187,6 +3349,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     commit_file(&repo, "docs/answer.md", "# answer\n", "answer finding");
     let mut returned = state(Some("implement"), Cursor::Idle);
     returned.visits.insert("implement".into(), 2);
+    returned.last_decision = Some(json!({"from": "review"}));
     engine
         .decide(
             &returned,
@@ -3200,8 +3363,89 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     assert_eq!(event.payload["next"], "review");
 }
 
-/// Ruling 1: the protected phase's entry carries the head; no other
-/// phase's does, and a run with no readable repository carries none.
+#[test]
+fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compiled = Bundle::compile_with(
+        &root.join("bundles/self"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, compiled, "verify return", Some(repo.clone())).unwrap();
+    engine
+        .store
+        .append_next(
+            &engine.run_id,
+            EventType::PhaseEntered,
+            json!({"phase": "implement", "head": entered}),
+            None,
+            None,
+        )
+        .unwrap();
+    commit_file(
+        &repo,
+        "docs/answer.md",
+        "# answer\n",
+        "answer verify failure",
+    );
+    let mut returned = state(Some("implement"), Cursor::Idle);
+    returned.visits.insert("implement".into(), 2);
+    returned.last_decision = Some(json!({"from": "verify"}));
+    engine
+        .decide(
+            &returned,
+            "effect",
+            json!({"result": "complete", "inputs": {}}),
+        )
+        .unwrap();
+    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+    assert_eq!(event.payload["rule_id"], "IMPL-OK");
+    assert_eq!(event.payload["next"], "verify");
+}
+
+#[test]
+fn a_review_return_exposes_no_docs_fact_without_both_heads() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git_commit(&repo, "base");
+    commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compiled = Bundle::compile_with(
+        &root.join("bundles/self"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, compiled, "review return", Some(repo.clone())).unwrap();
+    let mut returned = state(Some("implement"), Cursor::Idle);
+    returned.last_decision = Some(json!({"from": "review"}));
+
+    engine
+        .decide(&returned, "first", json!({"result": "complete"}))
+        .unwrap();
+    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+
+    std::fs::remove_dir_all(repo.join(".git")).unwrap();
+    engine
+        .decide(&returned, "second", json!({"result": "complete"}))
+        .unwrap();
+    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+}
+
+/// Ruling 1: the protected phase and a returning implement carry their
+/// entry heads; first-visit work and an unreadable repository carry none.
 #[test]
 fn the_protected_phase_is_entered_at_a_recorded_head() {
     let dir = tempfile::tempdir().unwrap();

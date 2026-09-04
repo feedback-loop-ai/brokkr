@@ -39,12 +39,13 @@
         {
           "name": "chief",
           "agent": "chief-architect",
-          "class": "gate"
+          "class": "work"
         },
         {
           "name": "speckit-check",
           "role": "roles/speckit-check.md",
-          "class": "work",
+          "class": "gate",
+          "hands": "workspace",
           "driver": {
             "command": [
               "{brokkr}",

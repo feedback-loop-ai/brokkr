@@ -408,6 +408,11 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
         ),
         ("IMPL-OK-DOCS-RETURN".into(), "review".into())
     );
+    assert_eq!(
+        ruling(&machine, "implement", "complete", json!({})),
+        ("IMPL-OK".into(), "verify".into()),
+        "a verify-fail return cannot take the docs shortcut without its input"
+    );
     assert_eq!(ruling(&machine, "review", "clean", json!({})).1, "ship");
     assert_eq!(
         ruling(&machine, "review", "security-hold", json!({})).1,
@@ -435,6 +440,26 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
                 .unwrap()
         ),
         Outcome::Park { ref rule_id, .. } if rule_id == "REVIEW-SPEC-DEFECT-EXHAUSTED"
+    ));
+    assert_eq!(
+        ruling(
+            &sdd,
+            "review",
+            "clean",
+            json!({"spec_defect": true, "visits_design": 2})
+        ),
+        ("REVIEW-CLEAN-SPEC-DEFECT".into(), "design".into())
+    );
+    assert!(matches!(
+        sdd.evaluate(
+            "review",
+            "clean",
+            json!({"spec_defect": true, "visits_design": 3})
+                .as_object()
+                .unwrap()
+        ),
+        Outcome::Park { ref rule_id, .. }
+            if rule_id == "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED"
     ));
 }
 

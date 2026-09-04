@@ -670,7 +670,7 @@ If your driver does not need a protocol implementation at all — you just
 want to run a command and have it honor the result-file contract — the
 built-in `exec` adapter already speaks `forge-driver/v1` on your behalf:
 `["{brokkr}", "driver", "exec", "--", "bash", "./my-script.sh",
-"{prompt_file}"]`. `recipes/sdd`'s `speckit-check` step is a working
+"{prompt_file}"]`. `recipes/sdd`'s boxed `speckit-check` gate is an
 example.
 
 ## See also

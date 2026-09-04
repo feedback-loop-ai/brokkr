@@ -790,7 +790,7 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     ),
     (
         "recipes/sdd",
-        "ef06afb5fe6e2ae549776f39eb906aa92a2ffce016ded346b7a36994c463e267",
+        "043868cea055088796d1d3fbb081d0b2934f587d65111d47d2a6742ee78f3df4",
     ),
     (
         "bundles/self",
@@ -929,7 +929,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "89b691c34a4bac5cf880a0298cafbb5e1ce38a030603e56f391f4379bca0a25c",
+        "bb8e680d078083376a43e57322871bc047e38c6b436bbbc31174fdfa592cd40b",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -943,7 +943,9 @@ fn a_composed_bundles_manifest_is_pinned() {
          resolves — and decision 0041 moves it again because ruling 1 \
          advances fable, ruling 2 moves the roster, and ruling 3 adds \
          judges to the adapters, then the ruling-2 review correction makes \
-         Git explicit in the intake and implementer charters and grants; \
+         Git explicit in the intake and implementer charters and grants, \
+         and the 0041 addendum makes the design chief work while its boxed \
+         validator becomes the gate; \
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

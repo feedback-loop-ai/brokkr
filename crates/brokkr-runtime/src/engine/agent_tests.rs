@@ -111,6 +111,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         steps: vec![
             SequenceStep {
                 name: "one".into(),
+                class: SeatClass::Work,
                 body: StepBody::Single {
                     role_path: PathBuf::from("role.md"),
                     command: vec!["driver".into()],
@@ -120,6 +121,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
             },
             SequenceStep {
                 name: "two".into(),
+                class: SeatClass::Work,
                 body: StepBody::Panel {
                     members: vec![member("m", vec![candidate("left", "opus")])],
                     aggregate: Aggregate::UnanimousPass,

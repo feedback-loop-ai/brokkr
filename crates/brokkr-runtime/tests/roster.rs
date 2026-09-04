@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, SeatBody, SeatClass};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -185,6 +185,35 @@ fn shipped_claude_implementer_can_commit() {
         allowed_tools.split(',').any(|tool| tool == "Bash(git:*)"),
         "the shipped claude implementer must be able to commit with git"
     );
+}
+
+#[test]
+fn shipped_sdd_gate_scope_stops_at_the_judging_sites() {
+    let root = workspace();
+    let bundle = Bundle::compile_with(
+        &root.join("recipes/sdd"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .expect("sdd bundle compiles");
+
+    for phase in ["review", "verify", "ship"] {
+        assert!(bundle.seats[phase].has_gate, "{phase} must remain a gate");
+    }
+    for phase in ["implement", "design"] {
+        assert!(
+            !bundle.seats[phase].has_gate,
+            "{phase} includes work and must not guard the whole effect"
+        );
+    }
+
+    let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
+        panic!("sdd design remains a sequence")
+    };
+    assert_eq!(steps[1].name, "chief");
+    assert_eq!(steps[1].class, SeatClass::Work);
+    assert_eq!(steps.last().unwrap().name, "speckit-check");
+    assert_eq!(steps.last().unwrap().class, SeatClass::Gate);
 }
 
 #[test]

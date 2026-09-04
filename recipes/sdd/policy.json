@@ -126,6 +126,26 @@
       "reason": "Unresolved high-severity security findings. NEVER ship. Risk acceptance is the operator's, never an agent's."
     },
     {
+      "id": "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED",
+      "from": "review",
+      "result": "clean",
+      "when": {
+        "spec_defect": true,
+        "visits_design_gte": 3
+      },
+      "park": true,
+      "reason": "The specification remains defective after three design visits; park for the operator."
+    },
+    {
+      "id": "REVIEW-CLEAN-SPEC-DEFECT",
+      "from": "review",
+      "result": "clean",
+      "when": { "spec_defect": true },
+      "next": "design",
+      "severity": "flagged",
+      "reason": "The specification owns this defect; return it to design (decision 0041)."
+    },
+    {
       "id": "REVIEW-SPEC-DEFECT-EXHAUSTED",
       "from": "review",
       "result": "residual",

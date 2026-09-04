@@ -1580,9 +1580,16 @@ fn a_class_outside_the_vocabulary_refuses() {
 }
 
 #[test]
+fn whole_gate_class_rejects_empty_and_driverless_shapes() {
+    assert!(!is_gate_class(&Value::Null));
+    assert!(!is_gate_class(&json!({"panel": {}})));
+    assert!(!is_gate_class(&json!({"sequence": []})));
+}
+
+#[test]
 fn a_seat_that_bears_no_driver_may_not_carry_a_class() {
     // `recipes/sdd`'s design seat is the reason: a panel of work
-    // positions, a gate chief and a work check cannot share one word.
+    // positions, a work chief and a gate check cannot share one word.
     let fixture = Fixture::new();
     let refusal = fixture.refusal(json!({
         "results": ["pass", "fail"],
