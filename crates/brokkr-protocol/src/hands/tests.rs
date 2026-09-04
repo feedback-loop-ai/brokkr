@@ -103,7 +103,9 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let cargo = home.join(".cargo");
+    let npm = home.join(".npm");
     std::fs::create_dir_all(&cargo).unwrap();
+    std::fs::create_dir_all(&npm).unwrap();
     std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
     let workdir = dir.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
@@ -114,7 +116,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         "binds": [
             {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "absent.toml"]},
             {"path": "~/.rustup", "mode": "ro"},
-            {"path": "/opt/scratchpad", "mode": "rw"}
+            {"path": "/opt/scratchpad", "mode": "rw"},
+            {"path": "~/.npm", "mode": "overlay"}
         ]
     }));
     let none = GitFacts::default();
@@ -162,6 +165,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         r = home.join(".rustup").display()
     )));
     assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
+    assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
     assert!(
         text.contains("--setenv GIT_CONFIG_KEY_0 commit.gpgsign --setenv GIT_CONFIG_VALUE_0 false")
     );

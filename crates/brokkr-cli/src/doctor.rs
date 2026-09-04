@@ -32,6 +32,17 @@ impl Report {
 }
 
 fn tool_version(program: &str) -> Option<String> {
+    // POSIX `sh` has no portable `--version`; dash exits 2 for it even
+    // though the executable is healthy. The exec adapter needs presence,
+    // not a shell brand, so probe the one operation every `sh` promises.
+    if program == "sh" {
+        return Command::new(program)
+            .args(["-c", "printf 'POSIX shell'"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
+    }
     let out = Command::new(program).arg("--version").output().ok()?;
     if !out.status.success() {
         return None;

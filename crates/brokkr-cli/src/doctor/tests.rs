@@ -727,3 +727,8 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
     );
     assert!(rendered.contains("--effort <level>"), "{rendered}");
 }
+
+#[test]
+fn the_posix_shell_probe_executes_a_portable_shell_operation() {
+    assert_eq!(tool_version("sh").as_deref(), Some("POSIX shell"));
+}

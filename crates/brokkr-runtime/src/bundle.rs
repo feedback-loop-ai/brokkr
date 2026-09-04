@@ -1627,6 +1627,24 @@ fn parse_panel(
              a one-member panel is a single seat"
         )));
     }
+    let gate_members: Vec<&str> = members_raw
+        .iter()
+        .filter(|(_, member)| member.get("class").and_then(Value::as_str) == Some("gate"))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let work_members: Vec<&str> = members_raw
+        .iter()
+        .filter(|(_, member)| member.get("class").and_then(Value::as_str) != Some("gate"))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if !gate_members.is_empty() && !work_members.is_empty() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' is a mixed panel: gate members [{}], work members [{}]; \
+             a panel may judge or work, never do both",
+            gate_members.join(", "),
+            work_members.join(", ")
+        )));
+    }
     let aggregate_name = raw
         .get("aggregate")
         .and_then(Value::as_str)
@@ -1805,10 +1823,32 @@ fn parse_sequence(
 }
 
 fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileError> {
-    let role_rel = raw
-        .get("role")
-        .and_then(Value::as_str)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' missing 'role'")))?;
+    let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
+        if raw
+            .pointer("/driver/command")
+            .and_then(Value::as_array)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .as_deref()
+            .and_then(dispatch_driver)
+            .as_deref()
+            == Some("exec")
+        {
+            // A deterministic exec site is the script it names. It has no
+            // model to instruct and therefore no charter to load into a
+            // prompt; the prompt remains the typed run context and result
+            // contract the script reads.
+            return Ok(PathBuf::new());
+        }
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' missing 'role'"
+        )));
+    };
     let role_path = dir.join(role_rel);
     if !role_path.is_file() {
         return Err(CompileError::Invalid(format!(

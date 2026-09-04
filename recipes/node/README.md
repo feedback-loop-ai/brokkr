@@ -9,7 +9,7 @@ The phase table is `recipes/fast`'s, rule for rule, including decision
 0022's reforging ladder. Nothing about a delivery's *constitution* is
 language-specific, and pretending otherwise would have produced a second
 table to keep in sync. What is Node here is the two things that touch a
-codebase: the seats' driver commands and their role charters.
+codebase: the seats' driver commands and the model seats' role charters.
 
 | | `recipes/fast` | `recipes/node` |
 |---|---|---|
@@ -48,21 +48,14 @@ JavaScript suite rather than a cold Rust workspace build: `implement`
 `npm ci` alone takes ten minutes should raise them — they are seat data,
 not law.
 
-## Why every gate seats an agent driver
+## Why every gate is still a gate
 
-Decision 0021: `verify`, `review` and `ship` declare `class: "gate"`,
-and a gate requires a driver holding the operator-granted **trusted**
-tier — checked when the bundle compiles, before any prompt exists.
-Among the shipped adapters only `claude` (`adapters/claude.json`) is
-declared trusted; `exec` is untrusted. So the Node commands run inside
-the driver's own Bash calls rather than as a bare `exec` invocation.
-That is not a workaround: the gate seats *are* the check, and the tier
-is what says who may check.
-
-`crates/brokkr-runtime/tests/node_recipe_gates.rs` proves this against
-invented fixture providers — this recipe's own seats, one gate at a
-time, refused when their driver is untrusted and authorised when it is
-trusted.
+Decision 0021 makes `verify`, `review` and `ship` gate-class. Review
+uses the trusted model driver. Decision 0043 permits the other two to
+hold that class only because their complete `exec` dispatches declare
+boxed hands; neither script seats a model. The roster test pins this
+split, while `node_recipe_gates.rs` proves the remaining model gate
+still refuses an untrusted driver.
 
 ## Running it
 
@@ -79,3 +72,8 @@ repository.** It compiles under the shipped adapters and its gate
 refusals are tested; that is the claim, and the only one. A run against
 a real Node codebase is the operator's, and its journal is what gets to
 say so.
+
+The verifier is a boxed exec script beside this recipe's roles. Network
+is refused: `npm ci --offline` can use only the bound `~/.npm` cache
+artifacts, and a missing dependency fails closed with npm's decisive
+line quoted in the `fail` notes.

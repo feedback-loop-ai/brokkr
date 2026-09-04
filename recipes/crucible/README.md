@@ -9,14 +9,14 @@ For changes whose blast radius is the machine itself: the engine
 protocol, the frozen contracts. The recipe you reach for when being
 wrong is expensive.
 
-| Phase | Agent | `max_attempts` | `timeout_seconds` | Class |
+| Phase | Office | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `implement` | `implementer-engine` | 2 | 7200 | work |
-| `verify` | `verifier` | 2 | 3600 | gate |
+| `verify` | boxed `verify-seat.sh` | 2 | 3600 | gate |
 | `review` → `positions.correctness` | `review-correctness` | 2 (seat) | 7200 (seat) | gate |
 | `review` → `positions.security` | `review-security` | ″ | ″ | gate |
 | `review` → `chief` | `review-chief` | ″ | ″ | **gate** |
-| `ship` | `shipper` | 2 | 1800 | gate |
+| `ship` | boxed `ship-seat.sh` | 2 | 1800 | gate |
 
 ## The review sequence — the one new shape here
 
@@ -172,3 +172,7 @@ shipped adapters, its gate seats' trust tiers are checked at compile
 time, its review sequence's propagation is tested, and its manifest
 digest is pinned in `crates/brokkr-runtime/tests/witness_digests.rs`;
 that is the claim, and the only one.
+
+Its verifier and shipper are boxed exec scripts. Cargo runs offline from
+the bound registry cache; an uncached dependency fails closed and the
+verifier quotes Cargo's decisive offline/cache line in its `fail` notes.

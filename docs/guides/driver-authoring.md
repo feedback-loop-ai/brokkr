@@ -28,6 +28,13 @@ engine is narrower than the schema, this guide says so.
 - [The conformance suite is the acceptance test](#the-conformance-suite-is-the-acceptance-test)
 - [Wiring it into a bundle](#wiring-it-into-a-bundle)
 
+The shipped verifier and shipper are not agents or bespoke wire
+implementations. Their inline commands dispatch through the generic
+`exec` driver and declare workspace hands, so the engine runs the whole
+script through `brokkr hands exec`. The script reads the staged prompt
+only for journal context and the result path, then writes the ordinary
+typed result file.
+
 ## Transport
 
 NDJSON over stdio, one JSON object per line.

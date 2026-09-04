@@ -101,38 +101,42 @@ fn workspace() -> PathBuf {
 /// reserved `oversized` verdict, and tables with an implement phase gain
 /// bounded finding returns. The two verdict-only strategies move because
 /// their reviewer charter and declared inputs become honestly read-only.
+/// This slice moves all eight again for one named reason: verifier and
+/// shipper are no longer model-backed agents. Their inline exec commands,
+/// boxed hands and recipe-owned verifier scripts are bundle identity, and
+/// every wager inherits the same gates from `fast` by construction.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
+        "d1ec8b3ab21140fb23c3eaae5b9aec970f9c71d79aa159eda91e1dad09450fc6",
     ),
     (
         "recipes/node",
-        "d165e301c73b2840bf963b5434524bfba399521304898debe405846f13ff4cf9",
+        "de7e2bf2c18f2ec3bf3b339c9704ee5569a9b9b2b20dcac0e87cc369511b4bdf",
     ),
     (
         "recipes/preflight",
-        "1b36ccdcdd4d88d5bd3278b4a7f690bada5b84f38d4d2e3c8aa2c1b225ca7115",
+        "17055e1c914f4455fb5e2dba908da75a99b8ab52f555bd89a3141f57e60845f7",
     ),
     (
         "recipes/ember",
-        "fd7458aa3b823cb4c76bb241fdc43ede78e7f8eb084bbe4ee05e1657d4366937",
+        "fda02a55ce9b119f73c6257d9b5513b2ab5cf3a0136049ba6e3d31cb9cdf87cb",
     ),
     (
         "recipes/crucible",
-        "1980125c1910fdc1e2cc5e272645c03d1154fdc976f434deb8f1d66ded321ecd",
+        "b42f0118c8a9e755e03081a619c450b7b7a0fb972ae262e6d47f24a15f0d91c9",
     ),
     (
         "recipes/night-shift",
-        "28eff5305ca53951687d2b1ed8d9e1a5a49539b41bf4bff20ef043d7f7602e21",
+        "c807e27ad2086d90f38b5890da884d4269903fd00f5d86717d67ff240643fd52",
     ),
     (
         "recipes/wager-harness",
-        "2b4d5dc5f4520785f0ee0404a0fe3e5c363035b080e42fe8a9e40ea483b45125",
+        "75b3dec5dfb7dd81830a154b69c9559fdb3c0b3d7172cc8d595e59d4bc9002e7",
     ),
     (
         "bundles/verify",
-        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
+        "ba5428fc3bd48a35e3a2f8cc3ccb50dd3e0d32e843cab0e37ca45ff4d4324efb",
     ),
 ];
 
@@ -185,6 +189,9 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
     let claude = adapters
         .digest("claude")
         .expect("the incumbent adapter is declared");
+    let exec = adapters
+        .digest("exec")
+        .expect("the deterministic adapter is declared");
     for (relative, gates) in INLINE_GATES {
         let bundle = Bundle::compile_with(
             &root.join(relative),
@@ -198,9 +205,14 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
         let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
         assert_eq!(seats, gates, "{relative} witnessed the wrong seats");
         for seat in gates {
+            let (driver, digest) = if matches!(*seat, "verify" | "ship") {
+                ("exec", exec)
+            } else {
+                ("claude", claude)
+            };
             assert_eq!(
                 witnessed[*seat],
-                serde_json::json!({ "claude": claude }),
+                serde_json::json!({ (driver): digest }),
                 "{relative} seat '{seat}' pins the wrong adapter"
             );
         }

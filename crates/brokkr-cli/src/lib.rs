@@ -7,6 +7,7 @@ mod agents;
 mod compare;
 mod doctor;
 mod init;
+mod ledger;
 mod muninn;
 mod realms;
 mod recipes;
@@ -77,6 +78,16 @@ enum Cmd {
         run: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
+    },
+    /// Render the shipper's delivery ledger from journal and repository evidence.
+    Ledger {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
+        /// Write `.forge/ledger/<run>.md` here; without it, print the ledger.
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
@@ -1589,6 +1600,16 @@ fn run_with(
                     "total_cost_usd": total,
                 }))?
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Ledger { run, db, repo } => {
+            let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
+            let events = store.load(&run)?;
+            match repo {
+                Some(repo) => println!("{}", ledger::write(&run, &events, &repo)?.display()),
+                None => print!("{}", ledger::render(&run, &events, workspace)?),
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Anchor {

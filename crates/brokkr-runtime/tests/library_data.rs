@@ -7,6 +7,8 @@
 //! Decision 0041 rulings 4 and 5 deliberately move the implement and review
 //! pins: implementers learn the bounded-return vocabulary, while every judge
 //! becomes read-only and reports the return instead of applying it.
+//! Decision 0043 retires verifier and shipper from this model library; the
+//! roster test accounts for their boxed exec scripts instead.
 
 use std::path::PathBuf;
 
@@ -22,7 +24,7 @@ fn workspace() -> PathBuf {
 }
 
 /// The current bytes of every shared charter.
-const CHARTERS: [(&str, &str); 15] = [
+const CHARTERS: [(&str, &str); 13] = [
     (
         "chief-architect.md",
         "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
@@ -75,14 +77,6 @@ const CHARTERS: [(&str, &str); 15] = [
         "reviewer.md",
         "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
     ),
-    (
-        "shipper.md",
-        "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
-    ),
-    (
-        "verifier.md",
-        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
-    ),
 ];
 
 /// Charters authored here rather than moved: they have no pre-move
@@ -90,9 +84,10 @@ const CHARTERS: [(&str, &str); 15] = [
 /// stays exact instead of merely permissive.
 const AUTHORED_CHARTERS: [&str; 2] = ["muninn.md", "triage.md"];
 
-/// Decision 0041's library roster. `implementer-engine` temporarily shares
-/// the implementer charter until strategy-selected seats land.
-const AGENTS: [&str; 18] = [
+/// Decision 0041's remaining model library roster after decision 0043.
+/// `implementer-engine` temporarily shares the implementer charter until
+/// strategy-selected seats land.
+const AGENTS: [&str; 16] = [
     "chief-architect",
     "implementer",
     "implementer-engine",
@@ -108,9 +103,7 @@ const AGENTS: [&str; 18] = [
     "review-security",
     "review-spec-compliance",
     "reviewer",
-    "shipper",
     "triage",
-    "verifier",
 ];
 
 fn library() -> Library {

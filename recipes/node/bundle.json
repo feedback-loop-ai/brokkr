@@ -36,7 +36,6 @@
       }
     },
     "verify": {
-      "role": "roles/verifier.md",
       "results": [
         "pass",
         "fail"
@@ -50,18 +49,18 @@
         "command": [
           "{brokkr}",
           "driver",
-          "claude",
+          "exec",
           "--",
-          "--model",
-          "claude-fable-5-1",
-          "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+          "bash",
+          "recipes/node/roles/verify-seat.sh",
+          "{prompt_file}"
         ]
-      }
+      },
+      "hands": {"kind": "workspace", "network": false, "binds": [
+        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+        {"path": "~/.rustup", "mode": "ro"},
+        {"path": "~/.npm", "mode": "overlay"}
+      ]}
     },
     "review": {
       "role": "roles/reviewer.md",
@@ -97,7 +96,6 @@
       }
     },
     "ship": {
-      "role": "roles/shipper.md",
       "results": [
         "ready",
         "shipped"
@@ -111,18 +109,18 @@
         "command": [
           "{brokkr}",
           "driver",
-          "claude",
+          "exec",
           "--",
-          "--model",
-          "claude-fable-5-1",
-          "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)"
+          "bash",
+          "scripts/ship-seat.sh",
+          "{prompt_file}",
+          "{brokkr}"
         ]
-      }
+      },
+      "hands": {"kind": "workspace", "network": false, "binds": [
+        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+        {"path": "~/.rustup", "mode": "ro"}
+      ]}
     }
   }
 }

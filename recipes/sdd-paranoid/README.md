@@ -43,3 +43,7 @@ brokkr run --recipe sdd-paranoid --feature "<the task>"
 The panel is read-only, like SDD's. One `security-hold` from either
 member stops the run; the aggregate takes the worst member verdict,
 maxes severities and ORs the security flags.
+
+The verifier and shipper inherit SDD's boxed exec gates. Cargo runs
+offline from the bound registry cache; an uncached dependency fails
+closed and its decisive offline/cache line is quoted in `fail` notes.

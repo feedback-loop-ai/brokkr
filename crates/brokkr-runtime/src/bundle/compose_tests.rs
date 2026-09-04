@@ -782,23 +782,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
+        "d1ec8b3ab21140fb23c3eaae5b9aec970f9c71d79aa159eda91e1dad09450fc6",
     ),
     (
         "recipes/panel-review",
-        "cebbbe0625ed02cc5a8770fa00af465f4bc7ddfdee8bd4c2b3b2285047867a20",
+        "00d6c248172867d7d82541b12ccaee5d9ef4d486e6589c48e55245cf88b596a7",
     ),
     (
         "recipes/sdd",
-        "043868cea055088796d1d3fbb081d0b2934f587d65111d47d2a6742ee78f3df4",
+        "533d3fcd24735e875de660d71f54c691e9107825cf2fbfbecf53f4d1cea15e86",
     ),
     (
         "bundles/self",
-        "123bb389c43ad1804459093211bb03cc985d5cc75914c493109fcae3f65bef31",
+        "e07b27f406c341c2cb0b2240fce31ab4942c0a7b8db5bc7c9cbb1f8da66d42ff",
     ),
     (
         "bundles/verify",
-        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
+        "ba5428fc3bd48a35e3a2f8cc3ccb50dd3e0d32e843cab0e37ca45ff4d4324efb",
     ),
 ];
 
@@ -929,7 +929,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "bb8e680d078083376a43e57322871bc047e38c6b436bbbc31174fdfa592cd40b",
+        "4934cfc732fa0236ffe7cbd20e63609e6aa56c230af8d0953f0f5a09b58fb53b",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -945,7 +945,8 @@ fn a_composed_bundles_manifest_is_pinned() {
          judges to the adapters, then the ruling-2 review correction makes \
          Git explicit in the intake and implementer charters and grants, \
          and the 0041 addendum makes the design chief work while its boxed \
-         validator becomes the gate; \
+         validator becomes the gate; this slice moves it because the base's \
+         verifier and shipper become boxed exec scripts with no model; \
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

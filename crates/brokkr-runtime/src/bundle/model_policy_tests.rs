@@ -1622,6 +1622,27 @@ fn a_seat_that_bears_no_driver_may_not_carry_a_class() {
     assert!(refusal.contains("bears no driver of its own"), "{refusal}");
 }
 
+#[test]
+fn a_panel_may_not_mix_judges_and_workers() {
+    let fixture = Fixture::new();
+    let refusal = fixture.refusal(json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {
+            "judge": {"role": "roles/role.md", "class": "gate",
+                      "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
+            "smith": {"role": "roles/role.md", "class": "work",
+                      "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}}
+        }
+    }));
+    assert!(
+        refusal.contains("seat 'work' is a mixed panel"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("gate members [judge]"), "{refusal}");
+    assert!(refusal.contains("work members [smith]"), "{refusal}");
+}
+
 // ----------------------------- the vocabulary a declaration is written in
 
 #[test]
@@ -1710,15 +1731,14 @@ fn a_panel_member_is_classed_and_refused_on_its_own() {
     assert!(refusal.contains("seat 'work:other'"), "{refusal}");
     assert!(refusal.contains("driver 'newcomer'"), "{refusal}");
 
-    // The same member, classed work, is exactly ruling 7's newcomer
-    // sitting beside a judge — and compiles.
-    fixture
-        .compile(panel(json!({
-            "class": "work",
-            "role": "roles/role.md",
-            "driver": {"command": ["{brokkr}", "driver", "newcomer", "--", "true"]},
-        })))
-        .expect("a work member beside a gate member");
+    // A work member beside a judge is refused before either member can
+    // run without the whole-effect gate guard.
+    let refusal = fixture.refusal(panel(json!({
+        "class": "work",
+        "role": "roles/role.md",
+        "driver": {"command": ["{brokkr}", "driver", "newcomer", "--", "true"]},
+    })));
+    assert!(refusal.contains("mixed panel"), "{refusal}");
 }
 
 #[test]
@@ -2346,7 +2366,9 @@ fn hands_are_recorded_under_the_sites_the_engine_labels() {
             },
             "right": {
                 "role": "roles/role.md",
-                "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]},
+                "class": "gate",
+                "hands": "workspace",
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "check.sh", "{prompt_file}"]},
             }
         },
         "aggregate": "unanimous-pass",
@@ -2354,10 +2376,11 @@ fn hands_are_recorded_under_the_sites_the_engine_labels() {
     let bundle = fixture.compile(panel).unwrap();
     assert_eq!(
         bundle.hands.keys().collect::<Vec<_>>(),
-        ["work:left"],
-        "one boxed member, keyed as the engine labels it"
+        ["work:left", "work:right"],
+        "boxed members are keyed as the engine labels them"
     );
     assert!(bundle.hands["work:left"].network);
+    assert!(!bundle.hands["work:right"].network);
 
     let sequence = json!({
         "results": ["pass", "fail"],

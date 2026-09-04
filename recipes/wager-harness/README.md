@@ -200,3 +200,7 @@ list` shows it, `brokkr rerun --recipe wager-harness` runs it, the
 tree-wide compile test covers it, and its digest is pinned like any
 other recipe's. An example nobody can run is a snippet, and snippets
 rot.
+
+The harness inherits `fast`'s boxed verifier and shipper by construction.
+Cargo verification runs offline from the bound registry cache; an
+uncached dependency fails closed and its decisive line is quoted.

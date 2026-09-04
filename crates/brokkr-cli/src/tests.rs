@@ -132,6 +132,33 @@ fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
+#[test]
+fn ledger_command_renders_to_stdout_or_the_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("journal.db");
+    running_store(&db, "ledger-run");
+
+    assert_eq!(
+        run(cli(Cmd::Ledger {
+            run: "ledger-run".into(),
+            db: db.clone(),
+            repo: None,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(
+        run(cli(Cmd::Ledger {
+            run: "ledger-run".into(),
+            db,
+            repo: Some(dir.path().to_path_buf()),
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    assert!(dir.path().join(".forge/ledger/ledger-run.md").is_file());
+}
+
 /// A shipped recipe, compiled against the tree it ships in. Since
 /// decision 0021 a compile reads the adapter data even for a bundle that
 /// names no agent — a gate seat's trust tier lives there — and a test
@@ -167,10 +194,19 @@ fn stage_declassed_fast(workspace_dir: &std::path::Path) -> std::path::PathBuf {
         let entry = entry.unwrap();
         std::fs::copy(entry.path(), to.join("roles").join(entry.file_name())).unwrap();
     }
-    let manifest = std::fs::read_to_string(from.join("bundle.json"))
-        .unwrap()
-        .replace("\"class\": \"gate\"", "\"class\": \"work\"");
-    std::fs::write(to.join("bundle.json"), manifest).unwrap();
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(from.join("bundle.json")).unwrap()).unwrap();
+    for seat in manifest["seats"].as_object_mut().unwrap().values_mut() {
+        if seat.get("class").and_then(Value::as_str) == Some("gate") {
+            seat["class"] = json!("work");
+            seat.as_object_mut().unwrap().remove("hands");
+        }
+    }
+    std::fs::write(
+        to.join("bundle.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
     to
 }
 

@@ -101,28 +101,34 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
 }
 
 /// Decision 0041 moves every model-backed site here into the library.
-/// Agent resolution is its witness, so no redundant inline-driver
-/// witness remains.
+/// Decision 0043 makes verify and ship deterministic exec sites, whose
+/// adapter resolution is witnessed separately from the model roster.
 #[test]
 fn every_review_site_is_witnessed_by_its_agent_resolution() {
     let bundle = crucible();
-    assert!(bundle.manifest.get("drivers").is_none());
     let witnessed = bundle.manifest["agents"]
         .as_object()
         .expect("crucible witnesses its roster");
     for site in [
         "implement",
-        "verify",
         "review:positions:correctness",
         "review:positions:security",
         "review:chief",
-        "ship",
     ] {
         assert!(
             witnessed.contains_key(site),
             "'{site}' must pin the library agent that holds the office"
         );
     }
+
+    let drivers = bundle.manifest["drivers"]
+        .as_object()
+        .expect("crucible witnesses its deterministic drivers");
+    assert_eq!(
+        drivers.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["ship", "verify"],
+        "only the boxed ship and verify offices are inline drivers"
+    );
 }
 
 /// The chief's floor is a charter instruction, so the only thing a test

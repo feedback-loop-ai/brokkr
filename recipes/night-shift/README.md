@@ -2,16 +2,16 @@
 
 `extends: "fast"`. The same four phases and the same constitution, tuned
 for the case where **nobody is awake**: one attempt per seat, a long
-implement deadline, and every gate seated from the shared roster. Anything
+implement deadline, and deterministic verify and ship gates. Anything
 unusual parks or stops for morning triage instead of retrying into the
 dark.
 
 | Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `implement` | inline deepseek-v4-flash via `dsh` | **1** | 7200 | work |
-| `verify` | `verifier` | **1** | 3600 | gate |
+| `verify` | boxed `verify-seat.sh` | **1** | 3600 | gate |
 | `review` | `reviewer` | **1** | 3600 | gate |
-| `ship` | `shipper` | **1** | 1800 | gate |
+| `ship` | boxed `ship-seat.sh` | **1** | 1800 | gate |
 
 ## `max_attempts: 1` everywhere — what it does and does not do
 
@@ -118,10 +118,9 @@ this seat will need.
 
 ## How the roster is seated
 
-The dsh implement lane remains inline by the lane exception. The three gates
-name `verifier`, `reviewer`, and `shipper`; their charters, fallback chains,
-effort, tools, and default limits come from the agent library. This strategy
-narrows each gate's attempt bound to one.
+The dsh implement lane remains inline by the lane exception. Review names the
+shared `reviewer`; verify and ship are boxed exec scripts with no model. This
+strategy narrows each gate's attempt bound to one.
 
 ## Running it
 
@@ -134,3 +133,8 @@ shipped adapters, its gate seats' trust tiers are checked at compile
 time, and its manifest digest is pinned in
 `crates/brokkr-runtime/tests/witness_digests.rs`; that is the claim, and
 the only one.
+
+Its one-attempt verifier and shipper are boxed exec scripts. Cargo runs
+offline from the bound registry cache; an uncached dependency fails
+closed and the verifier quotes Cargo's decisive offline/cache line in
+its `fail` notes.

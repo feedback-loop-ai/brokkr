@@ -5,6 +5,7 @@
 #![cfg(target_os = "linux")]
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
@@ -146,4 +147,178 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
         String::from_utf8_lossy(&selfcall.stderr)
     );
     assert!(String::from_utf8_lossy(&selfcall.stdout).starts_with("brokkr "));
+}
+
+fn verifier_workspace(failing: bool) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
+    std::fs::create_dir_all(dir.path().join("bundles/self")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify-seat.sh"),
+        dir.path().join("scripts/verify-seat.sh"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname='brokkr-cli'\nversion='0.0.0'\nedition='2021'\n",
+    )
+    .unwrap();
+    let assertion = if failing {
+        "assert_eq!(2 + 2, 5, \"DECISIVE RED LINE\");"
+    } else {
+        "assert_eq!(2 + 2, 4);"
+    };
+    std::fs::write(
+        dir.path().join("src/main.rs"),
+        format!("fn main() {{}}\n#[test]\nfn trivial() {{ {assertion} }}\n"),
+    )
+    .unwrap();
+    let result = dir.path().join("result.json");
+    std::fs::write(
+        dir.path().join("prompt.md"),
+        format!("result contract\n\n    {}\n", result.display()),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        return;
+    }
+    let home = std::env::var("HOME").unwrap();
+    let spec = serde_json::json!({
+        "kind": "workspace", "network": false,
+        "binds": [
+            {"path": format!("{home}/.cargo"), "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+            {"path": format!("{home}/.rustup"), "mode": "ro"}
+        ]
+    })
+    .to_string();
+    for (failing, expected) in [(false, "pass"), (true, "fail")] {
+        let work = verifier_workspace(failing);
+        let output = Command::new(brokkr_bin())
+            .args([
+                "hands",
+                "exec",
+                "--workdir",
+                work.path().to_str().unwrap(),
+                "--spec",
+                &spec,
+                "--",
+                "bash",
+                "scripts/verify-seat.sh",
+                "prompt.md",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: Value =
+            serde_json::from_slice(&std::fs::read(work.path().join("result.json")).unwrap())
+                .unwrap();
+        assert_eq!(result["result"], expected, "{result}");
+        if failing {
+            assert!(
+                result["notes"]
+                    .as_str()
+                    .unwrap()
+                    .contains("DECISIVE RED LINE"),
+                "{result}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
+    if Command::new("bwrap").arg("--version").output().is_err() {
+        return;
+    }
+    let work = verifier_workspace(false);
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ship-seat.sh"),
+        work.path().join("scripts/ship-seat.sh"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(work.path().join("adapters")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json"),
+        work.path().join("adapters/exec.json"),
+    )
+    .unwrap();
+    let bundle = work.path().join("bundle");
+    std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::write(
+        bundle.join("policy.json"),
+        r#"{
+      "schema":"forge.phase-machine/v1","phases":["verify","ship","done","stop"],
+      "initial":"verify","terminal":["done","stop"],"shippable_from":["ship"],"rules":[
+        {"id":"V","from":"verify","result":"pass","next":"ship","reason":"green"},
+        {"id":"VF","from":"verify","result":"fail","next":"stop","reason":"red"},
+        {"id":"SHIP-READY","from":"ship","result":"ready","next":"ship","reason":"ledger"},
+        {"id":"S","from":"ship","result":"shipped","next":"done","reason":"closed"}
+      ]}"#,
+    )
+    .unwrap();
+    let home = std::env::var("HOME").unwrap();
+    let hands = serde_json::json!({"kind":"workspace","network":false,"binds":[
+        {"path":format!("{home}/.cargo"),"mode":"overlay","mask":["credentials.toml","credentials"]},
+        {"path":format!("{home}/.rustup"),"mode":"ro"}
+    ]});
+    let config = serde_json::json!({"name":"script-proof","policy":"policy.json","protected_phase":"ship","seats":{
+        "verify":{"results":["pass","fail"],"class":"gate","hands":hands.clone(),
+          "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/verify-seat.sh","{prompt_file}"]}},
+        "ship":{"results":["ready","shipped"],"class":"gate","hands":hands,
+          "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/ship-seat.sh","{prompt_file}","{brokkr}"]}}
+    }});
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec_pretty(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(work.path().join(".gitignore"), ".forge/\ntarget/\n").unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "proof@example.invalid"],
+        vec!["config", "user.name", "Proof"],
+        vec!["config", "commit.gpgsign", "false"],
+        vec!["add", "."],
+        vec!["commit", "-q", "-m", "proof"],
+    ] {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(work.path())
+            .status()
+            .unwrap()
+            .success());
+    }
+    let output = Command::new(brokkr_bin())
+        .args([
+            "run",
+            "--bundle",
+            "bundle",
+            "--feature",
+            "script proof",
+            "--db",
+            ".forge/forge.db",
+            "--repo",
+            work.path().to_str().unwrap(),
+        ])
+        .current_dir(work.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ledger_dir = work.path().join(".forge/ledger");
+    assert_eq!(std::fs::read_dir(ledger_dir).unwrap().count(), 1);
 }
