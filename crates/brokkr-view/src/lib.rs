@@ -48,7 +48,9 @@ use serde_json::Value;
 /// carries the reasoning subset, and the pin the plan asked for stands
 /// beside the effort the harness says it applied — two cells, because
 /// ruling 6 keeps them two facts.
-pub const VIEW_VERSION: u32 = 7;
+/// Bumped to 8 by decision 0041 ruling 6: the run summary and triage
+/// phase expose the strategy class derived by the fold.
+pub const VIEW_VERSION: u32 = 8;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -145,7 +147,7 @@ pub struct FleetView {
     pub count: usize,
 }
 
-/// The nine `summarize()` keys, verbatim and in the same order the
+/// The `summarize()` keys, verbatim and in the same order the
 /// existing `brokkr inspect` prints them.
 #[derive(Serialize)]
 pub struct Summary {
@@ -158,6 +160,7 @@ pub struct Summary {
     pub run_id: String,
     pub seq: u64,
     pub status: String,
+    pub strategy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -335,6 +338,9 @@ pub struct Column {
 #[derive(Serialize)]
 pub struct Phase {
     pub name: String,
+    /// The triage ruling, beside that phase only. Older and non-triage
+    /// runs carry no class rather than an inferred one.
+    pub strategy: Option<String>,
     pub visits: u64,
     pub current: bool,
     /// No inner structure was observed: the rail draws a single node.
@@ -2017,6 +2023,11 @@ fn phase_rail(
             };
             Phase {
                 name: name.clone(),
+                strategy: if name == "triage" {
+                    state.and_then(|state| state.strategy.clone())
+                } else {
+                    None
+                },
                 visits: *count,
                 current: current.as_deref() == Some(name.as_str()),
                 plain,
@@ -2255,6 +2266,7 @@ fn summary_of(state: &RunState) -> Summary {
         run_id: state.run_id.clone(),
         seq: state.seq,
         status: status_str(&state.status).to_string(),
+        strategy: state.strategy.clone(),
     }
 }
 

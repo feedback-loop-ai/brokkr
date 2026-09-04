@@ -148,9 +148,8 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         let efforts = agent["efforts"].as_object().unwrap();
         let first = models[0].as_str().unwrap();
         let first_rank = rank(efforts[first].as_str().unwrap());
-        // Triage is not seated by a shipped recipe in this slice and its
-        // ruling-6 office is explicitly pinned fable/xhigh then opus/max
-        // by the commission.
+        // Triage's ruling-6 office is explicitly pinned fable/xhigh then
+        // opus/max by the commission, the one deliberate rising fallback.
         if entry.file_name() == "triage.json" {
             continue;
         }

@@ -1123,6 +1123,7 @@ fn state_constructor_keeps_the_running_cursor_shape_explicit() {
         },
         consecutive_failures: Default::default(),
         visits: Default::default(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision: None,

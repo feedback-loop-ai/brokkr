@@ -40,11 +40,14 @@ pub enum CompileError {
 
 /// Inputs the engine owns. A seat may never supply or declare these:
 /// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 6] = [
+pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
     "consecutive_failures",
     "drift_detected",
     "dirty_worktrees",
     "reviewed_heads",
+    // The fold remembers the last successful triage result. A seat may
+    // neither declare nor overwrite the class that governs its run.
+    "strategy",
     // Read from the tree at the protected phase's ruling (decision
     // 0039): the review's own commits, classified by the repository's
     // declared docs class.
@@ -2050,6 +2053,7 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
                 .strip_suffix("_gte")
                 .or_else(|| key.strip_suffix("_above"))
                 .or_else(|| key.strip_suffix("_at_most"))
+                .or_else(|| key.strip_suffix("_in"))
                 .unwrap_or(key)
                 .to_string();
             if !is_engine_owned(&name) && !names.contains(&name) {

@@ -679,6 +679,7 @@ fn summarize(state: &RunState) -> Value {
         "consecutive_failures": state.consecutive_failures,
         "last_decision": state.last_decision,
         "feature": state.feature,
+        "strategy": state.strategy,
     })
 }
 

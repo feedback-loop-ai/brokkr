@@ -1676,6 +1676,10 @@ fn name_text(phase: &Phase, lens: Option<&render::Lens>) -> String {
         text.push('▸');
     }
     text.push_str(&phase.name);
+    if let Some(strategy) = &phase.strategy {
+        text.push_str(" · ");
+        text.push_str(strategy);
+    }
     if let Some(visits) = visits_text(phase.visits) {
         text.push(' ');
         text.push_str(&visits);

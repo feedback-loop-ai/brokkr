@@ -36,6 +36,7 @@ fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunStat
         cursor: Cursor::Idle,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision: decision,
@@ -597,6 +598,20 @@ graph
     → chief · active · model —
 "
     );
+}
+
+#[test]
+fn triage_strategy_prints_beside_its_graph_phase() {
+    let mut routed = view(None);
+    let triage = routed
+        .phases
+        .iter_mut()
+        .find(|phase| phase.name == "intake")
+        .unwrap();
+    triage.name = "triage".into();
+    triage.strategy = Some("chore".into());
+    let out = inspect(&routed, None, false, &Style::plain(100));
+    assert!(out.contains("\n  triage · chore ×1\n"), "{out}");
 }
 
 #[test]

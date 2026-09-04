@@ -21,6 +21,11 @@ pub const SEVERITY_ORDER: [&str; 6] = ["none", "info", "low", "medium", "high", 
 /// Ruling severity axis — the phase-event/v1 vocabulary.
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 
+/// Delivery classes ruled by the triage chief (decision 0041 ruling 6).
+/// This is both the result vocabulary of that office and the value
+/// vocabulary of the engine-owned `strategy` input.
+pub const STRATEGIES: [&str; 5] = ["chore", "feature", "design", "engine", "escalate"];
+
 /// The table format this evaluator reads. `v2` adds exactly one thing to
 /// `v1` (decision 0022): a rule may rule a PARK instead of a transition.
 /// A `v1` table is still read as it always was; a table that parks must
@@ -67,6 +72,7 @@ enum Condition {
     SeverityAbove { name: String, threshold_rank: usize },
     SeverityAtMost { name: String, threshold_rank: usize },
     Flag { name: String, expected: bool },
+    EnumIn { name: String, allowed: Vec<String> },
 }
 
 #[derive(Debug, Clone)]
@@ -377,6 +383,25 @@ fn parse_condition(
     expected: &Value,
     phases: &[String],
 ) -> Result<Condition, PolicyError> {
+    if key == "strategy_in" {
+        let allowed = string_array(expected, &format!("rule {rule_id} condition '{key}'"))?;
+        if allowed.is_empty() {
+            return Err(PolicyError(format!(
+                "rule {rule_id}: condition '{key}' needs at least one value"
+            )));
+        }
+        for value in &allowed {
+            if !STRATEGIES.contains(&value.as_str()) {
+                return Err(PolicyError(format!(
+                    "rule {rule_id}: condition '{key}' value '{value}' not in {STRATEGIES:?}"
+                )));
+            }
+        }
+        return Ok(Condition::EnumIn {
+            name: "strategy".to_string(),
+            allowed,
+        });
+    }
     if let Some(name) = key.strip_suffix("_gte") {
         // Counters are the declared list plus one family: the phase-visit
         // predicate (decision 0022), whose suffix must name a phase THIS
@@ -451,7 +476,8 @@ fn parse_condition(
     }
     Err(PolicyError(format!(
         "rule {rule_id}: unknown condition key '{key}'; known: {BOOLEAN_INPUTS:?} \
-         plus *_gte over {COUNTER_INPUTS:?} and *_above/*_at_most over {SEVERITY_INPUTS:?}"
+         plus strategy_in over {STRATEGIES:?}, *_gte over {COUNTER_INPUTS:?} and \
+         *_above/*_at_most over {SEVERITY_INPUTS:?}"
     )))
 }
 
@@ -515,6 +541,18 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
                     }
                 }
                 Some(other) => return Err(format!("{name} must be a boolean, got {other}")),
+            },
+            Condition::EnumIn { name, allowed } => match inputs.get(name) {
+                None | Some(Value::Null) => return Ok(false),
+                Some(Value::String(actual)) if !STRATEGIES.contains(&actual.as_str()) => {
+                    return Err(format!("{name} '{actual}' not in {STRATEGIES:?}"));
+                }
+                Some(Value::String(actual)) => {
+                    if !allowed.contains(actual) {
+                        return Ok(false);
+                    }
+                }
+                Some(other) => return Err(format!("{name} must be a string, got {other}")),
             },
         }
     }

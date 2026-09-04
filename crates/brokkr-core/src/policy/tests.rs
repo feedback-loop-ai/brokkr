@@ -173,6 +173,55 @@ fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
     assert!(many.visit_phases("done").is_empty());
 }
 
+/// Decision 0041 ruling 6's enumerated condition: every class has a
+/// matching arm, while absence, another class, malformed runtime data,
+/// and malformed table vocabulary all fail closed.
+#[test]
+fn strategy_in_has_one_table_arm_for_every_triage_class() {
+    for strategy in STRATEGIES {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"strategy_in": [strategy]});
+        let machine = Machine::from_table(&value).unwrap();
+
+        let matching = json!({"strategy": strategy}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &matching),
+            Outcome::Ruling { .. }
+        ));
+        let other = STRATEGIES
+            .iter()
+            .copied()
+            .find(|candidate| *candidate != strategy)
+            .unwrap();
+        let nonmatching = json!({"strategy": other}).as_object().unwrap().clone();
+        assert_eq!(
+            machine.evaluate("work", "complete", &nonmatching),
+            Outcome::NoRule { problem: None }
+        );
+        assert_eq!(
+            machine.evaluate("work", "complete", &Map::new()),
+            Outcome::NoRule { problem: None }
+        );
+    }
+
+    for invalid in [json!([]), json!(["unknown"]), json!("feature")] {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"strategy_in": invalid});
+        assert!(Machine::from_table(&value).is_err(), "accepted {invalid}");
+    }
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"strategy_in": ["feature"]});
+    let machine = Machine::from_table(&value).unwrap();
+    for malformed in [json!(7), json!("unknown")] {
+        let inputs = json!({"strategy": malformed}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &inputs),
+            Outcome::NoRule { problem: Some(_) }
+        ));
+    }
+}
+
 /// Decision 0022's rule-driven park. A park is not a stop, so a table
 /// that contains one has to say which vocabulary it is written in.
 #[test]

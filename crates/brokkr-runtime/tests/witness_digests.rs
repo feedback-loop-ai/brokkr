@@ -116,7 +116,10 @@ fn workspace() -> PathBuf {
 /// the verifier and shipper bytes now live inside those bundle roots and
 /// therefore enter the manifest identity. Preflight already owned its
 /// verifier under `roles/`, so it does not move.
-const WITNESSES: [(&str, &str); 8] = [
+/// Decision 0041 ruling 6 adds the ninth witness: the routing recipe's
+/// identity includes the triage office, routing table, current design
+/// council, and Fast as its composed base.
+const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
         "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
@@ -144,6 +147,10 @@ const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/wager-harness",
         "f76cb46fcf8f0e30dcb9d5349fd40848bd06cce670ecaa16d32b6fcd1e2307d2",
+    ),
+    (
+        "recipes/triage",
+        "cdf869d85be5eab8dd03e21187c6b11a175b6a58c38dbdc009c22acfd8bd5ce9",
     ),
     (
         "bundles/verify",

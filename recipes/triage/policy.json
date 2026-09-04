@@ -1,0 +1,102 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "description": "Decision 0041 ruling 6 routing form: triage rules a delivery class before Fast's constitution, with the existing design council and every bounded finding return.",
+  "phases": [
+    "triage",
+    "design",
+    "implement",
+    "verify",
+    "review",
+    "ship",
+    "done",
+    "stop"
+  ],
+  "initial": "triage",
+  "terminal": [
+    "done",
+    "stop"
+  ],
+  "shippable_from": [
+    "review"
+  ],
+  "rules": [
+    {
+      "id": "TRIAGE-CHORE",
+      "from": "triage",
+      "result": "chore",
+      "next": "implement",
+      "reason": "A bounded maintenance task enters Fast's implementation path."
+    },
+    {
+      "id": "TRIAGE-FEATURE",
+      "from": "triage",
+      "result": "feature",
+      "next": "implement",
+      "reason": "Ordinary product work enters Fast's implementation path."
+    },
+    {
+      "id": "TRIAGE-DESIGN",
+      "from": "triage",
+      "result": "design",
+      "next": "design",
+      "reason": "The commission needs the design council before implementation."
+    },
+    {
+      "id": "TRIAGE-ENGINE",
+      "from": "triage",
+      "result": "engine",
+      "next": "design",
+      "reason": "Core, store, contract, or policy work needs the design council before implementation."
+    },
+    {
+      "id": "TRIAGE-ESCALATE",
+      "from": "triage",
+      "result": "escalate",
+      "park": true,
+      "reason": "Triage escalated the commission for operator judgment."
+    },
+    {
+      "id": "DESIGN-FAIL-TWICE",
+      "from": "design",
+      "result": "fail",
+      "when": {
+        "consecutive_failures_gte": 2
+      },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Two consecutive failed design attempts; stop and report rather than thrash."
+    },
+    {
+      "id": "DESIGN-RETRY",
+      "from": "design",
+      "result": "fail",
+      "next": "design",
+      "reason": "First failed design attempt; one re-run with the validation findings named is permitted."
+    },
+    {
+      "id": "DESIGN-OK",
+      "from": "design",
+      "result": "designed",
+      "next": "implement",
+      "reason": "Spec artifacts committed and validated deterministically; implementation builds to the spec."
+    },
+    {
+      "id": "IMPL-OVERSIZED-EXHAUSTED",
+      "from": "implement",
+      "result": "oversized",
+      "when": {
+        "visits_triage_gte": 2
+      },
+      "park": true,
+      "reason": "The work still exceeds its ruled class after the bounded return to triage; park for the operator."
+    },
+    {
+      "id": "IMPL-OVERSIZED",
+      "from": "implement",
+      "result": "oversized",
+      "next": "triage",
+      "severity": "flagged",
+      "reason": "The work exceeds the class triage ruled; return once for a new ruling (decision 0041)."
+    }
+  ]
+}
