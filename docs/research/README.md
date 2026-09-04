@@ -70,3 +70,13 @@ vocabulary, and refuses a citation that does not resolve.
 | [0005](0005-model-based-agentic-software-engineering.md) | Model-Based Agentic Software Engineering (MAGE) | [arXiv 2608.25174](https://arxiv.org/abs/2608.25174) | 6 | proposed |
 | [0006](0006-harness-of-harness.md) | Harness-of-Harness: Multi-Day Autonomous Software Development with Continual Improvement | [arXiv 2609.01481](https://arxiv.org/abs/2609.01481) | 6 | proposed |
 | [0007](0007-loop-engineering.md) | Loop Engineering: Building Blocks, Adoption, and Impact | [arXiv 2608.21884](https://arxiv.org/abs/2608.21884) | 6 | proposed |
+| [0008](0008-swe-gate.md) | SWE-Gate: Passing Functional Tests Is Not Enough for Software Engineering Agents | [arXiv 2609.04167](https://arxiv.org/abs/2609.04167) | 4 | proposed |
+| [0009](0009-illusion-of-independent-quorums.md) | The Illusion of Independent Quorums: Epistemic Fault Domains and Correlated Cognitive Failures in Agentic Quorums | [arXiv 2609.02925](https://arxiv.org/abs/2609.02925) | 5 | proposed |
+| [0010](0010-toolgate.md) | ToolGate: An Executable Acceptance Pipeline for Tool-Dependent Scientific Benchmark Construction | [arXiv 2609.02067](https://arxiv.org/abs/2609.02067) | 5 | proposed |
+| [0011](0011-trajectory-aware-evaluation.md) | Efficient SWE Agent Benchmarking via Trajectory-Aware Evaluation | [arXiv 2609.01603](https://arxiv.org/abs/2609.01603) | 4 | proposed |
+| [0012](0012-harnessdev.md) | HarnessDev: Can LLMs Create and Evolve Their Own Agent Harness? | [arXiv 2609.01437](https://arxiv.org/abs/2609.01437) | 5 | proposed |
+| [0013](0013-heart-tool-primitives.md) | Harness Engineering in LLM Tool Use via Agent-Native Reusable Tool Primitives | [arXiv 2609.01736](https://arxiv.org/abs/2609.01736) | 5 | proposed |
+| [0014](0014-progressive-risk-vesting.md) | Spawn Freely, Act Sparingly: Progressive Risk Vesting for Recursive LLM-Agent Trees | [arXiv 2609.01035](https://arxiv.org/abs/2609.01035) | 5 | proposed |
+| [0015](0015-black-box-agentic-processes.md) | A Black Box for Agentic Processes: Blockchain-Anchored Evidence for AI Agent Communication, Human Oversight, and GRC Audits | [arXiv 2609.04017](https://arxiv.org/abs/2609.04017) | 5 | proposed |
+| [0016](0016-extracting-architectural-decisions.md) | Can LLMs Extract Architectural Design Decisions from Source Code Commits? A Preliminary Exploratory Study | [arXiv 2609.03721](https://arxiv.org/abs/2609.03721) | 4 | proposed |
+| [0017](0017-scx-router.md) | SCX Router: Streaming Zero-Shot Model Selection with a Decoder-KV Classifier and a Real-World Task Ontology | [arXiv 2609.02292](https://arxiv.org/abs/2609.02292) | 4 | proposed |
