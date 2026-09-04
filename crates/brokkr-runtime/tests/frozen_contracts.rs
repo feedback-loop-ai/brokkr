@@ -113,6 +113,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/dialect.v1.schema.json",
             "Brokkr specification dialect v1",
         ),
+        // Decision 0042's addendum of 2026-09-04: the tool block gains the
+        // install identity, as a new file beside v1 whose bytes are pinned
+        // above and did not move.
+        (
+            "contracts/dialect.v2.schema.json",
+            "Brokkr specification dialect v2",
+        ),
         // Decision 0034 freezes the previously conventional accounting
         // record as its own v1 contract; no older frozen file moves.
         (

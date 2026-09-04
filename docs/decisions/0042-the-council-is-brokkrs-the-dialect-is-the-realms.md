@@ -497,3 +497,79 @@ seat, which phase the council sits on, custom schemas, a dialect wager
   compared by artifacts — which the wager harness could run once ruling
   1 lands and which would be the evidence for changing ruling 7's
   default.
+
+## Addendum — 2026-09-04, the operator's rulings: the decision is authoritative, and the fold runs one way
+
+Ruling 7 declared this realm's dialect and gave one reason, shape: a
+proposal that amends a living specification is what this repository
+already does with its decisions. A review the same day found the reason
+true but unearned, and found a boundary the ruling left unwritten. Both
+are settled here by the operator's rulings in chat.
+
+**What the tree showed.** The hybrid ruling 7 retires was never two
+dialects side by side. The eight OpenSpec changes hold a proposal each
+and nothing more; the eight spec-kit features hold a spec, a plan and a
+task list each; and `openspec/specs/`, the truth a proposal is supposed
+to amend, has never existed here. Spec-kit did the work behind an
+OpenSpec front. So the shape argument was a claim about a fold this
+repository had never performed. The rulings below give that fold its
+direction, which is what makes ruling 7 hold rather than merely sound
+right.
+
+1. **The decision is the authority; a specification never amends one.**
+   An accepted decision governs. A capability specification that
+   contradicts a numbered ruling is a defect in the specification, and
+   is fixed there. No spec artifact, no clarification scenario and no
+   design note changes what a ruling means. Only a superseding decision
+   does, and it takes its own number and says so, exactly as this
+   directory has always required.
+
+2. **The fold runs one way, and its unit is the delta.** The operator's
+   own formulation: *state + decision = delta, the delta becomes the
+   spec, and the work fixes the delta.* The decision's prose is not
+   what lands in the truth. What lands is the difference between what
+   the system is specified to be today and what the ruling requires,
+   which is precisely OpenSpec's unit of work and precisely what its
+   archive folds into `openspec/specs/`. So the decision record is this
+   realm's stream of changes and the truth tree is what that stream
+   accumulates into. The two are not rival bodies of normative text;
+   they are the two ends of one fold. This is the same algebra the
+   engine already runs on, where state is a fold over a journal
+   (decision 0002): here the specification is a fold over deltas, and
+   every delta has a ruling behind it.
+
+   A consequence for ruling 7's enactment, which the operator confirms
+   when it is enacted: the truth tree is seeded from the accepted
+   decisions rather than started empty. A capability whose text no
+   ruling authorises is either work nobody ruled or a ruling nobody
+   wrote down, and both are findings rather than specifications.
+
+   **Enforcement binding:** judgment guidance until the truth tree
+   exists, and stated as such. When ruling 7 is enacted, a test walks
+   `openspec/specs/` and refuses a capability specification that cites
+   no decision, the way `crates/brokkr-cli/tests/decisions_index.rs`
+   holds the index equal to the files and decision 0044's registry test
+   refuses a citation that does not resolve.
+
+3. **A dialect names what installs its tool, not just what runs it.**
+   The binary's name is not the tool's identity, and on both shipped
+   dialects it is actively misleading. Measured 2026-09-04: OpenSpec's
+   binary is `openspec`, but the bare npm name of that spelling is a
+   placeholder at version 0.0.0 and the tool is published under a
+   different scope, so an install by binary name silently fetches the
+   wrong package; spec-kit's `specify` is not a registry package at
+   all, but a project installed by uv from a git tag. A dialect
+   therefore declares the manager, the package, and the source where
+   the manager's default registry is not where the tool comes from.
+   The manager vocabulary is closed, like every other vocabulary here:
+   an installer this engine does not know is a refusal, never a shell
+   command it guesses at.
+
+   **Enforcement binding:** `contracts/dialect.v2.schema.json`, a new
+   file beside v1 whose bytes do not move, pinned by
+   `crates/brokkr-runtime/tests/frozen_contracts.rs`; the `install`
+   block on `Tool` in `crates/brokkr-runtime/src/dialect.rs`, required
+   and non-empty; a test that no shipped dialect installs by its binary
+   name. This build reads `brokkr.dialect/v2` only, which costs nothing
+   today: the dialect landed the same day with no realm declaring one,
+   so no journal pins a v1 dialect for a resume to reload.
