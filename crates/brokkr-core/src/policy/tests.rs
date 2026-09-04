@@ -240,6 +240,49 @@ fn strategy_in_has_one_table_arm_for_every_triage_class() {
     }
 }
 
+/// Decision 0042's analysis return is data, not a match arm in the engine:
+/// each artifact phase is selected by the same closed enum condition.
+#[test]
+fn drift_in_has_one_table_arm_for_every_artifact_phase() {
+    for phase in DRIFT_PHASES {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"drift_in": [phase]});
+        let machine = Machine::from_table(&value).unwrap();
+        let matching = json!({"drift_in": phase}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &matching),
+            Outcome::Ruling { .. }
+        ));
+        let other = DRIFT_PHASES
+            .iter()
+            .copied()
+            .find(|candidate| *candidate != phase)
+            .unwrap();
+        let nonmatching = json!({"drift_in": other}).as_object().unwrap().clone();
+        assert_eq!(
+            machine.evaluate("work", "complete", &nonmatching),
+            Outcome::NoRule { problem: None }
+        );
+    }
+
+    for invalid in [json!([]), json!(["implement"]), json!("design")] {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"drift_in": invalid});
+        assert!(Machine::from_table(&value).is_err(), "accepted {invalid}");
+    }
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"drift_in": ["design"]});
+    let machine = Machine::from_table(&value).unwrap();
+    for malformed in [json!(7), json!("implement")] {
+        let inputs = json!({"drift_in": malformed}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &inputs),
+            Outcome::NoRule { problem: Some(_) }
+        ));
+    }
+}
+
 /// Decision 0022's rule-driven park. A park is not a stop, so a table
 /// that contains one has to say which vocabulary it is written in.
 #[test]
@@ -492,17 +535,17 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
             &sdd,
             "review",
             "residual",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 2,
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 2,
                    "visits_implement": 3, "max_residual_severity": "critical"})
         )
         .1,
-        "design"
+        "specify"
     );
     assert!(matches!(
         sdd.evaluate(
             "review",
             "residual",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 3})
                 .as_object()
                 .unwrap()
         ),
@@ -513,15 +556,15 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
             &sdd,
             "review",
             "clean",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 2})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 2})
         ),
-        ("REVIEW-CLEAN-SPEC-DEFECT".into(), "design".into())
+        ("REVIEW-CLEAN-SPEC-DEFECT".into(), "specify".into())
     );
     assert!(matches!(
         sdd.evaluate(
             "review",
             "clean",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 3})
                 .as_object()
                 .unwrap()
         ),

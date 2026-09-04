@@ -106,6 +106,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     let housed = render_prompt(&json!({
         "role_path": role,
         "house_rules": "Keep the tree green.",
+        "spec_dialect": "Write the requirement scenarios.",
         "feature": "feature",
         "phase": "review",
         "workdir": "/work",
@@ -114,8 +115,11 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         "allowed_results": ["clean"],
     }));
     assert_eq!(housed.matches("## House rules").count(), 1);
+    assert_eq!(housed.matches("## Spec dialect").count(), 1);
     assert!(housed.find("trusted role").unwrap() < housed.find("## House rules").unwrap());
     assert!(housed.find("## House rules").unwrap() < housed.find("## Task").unwrap());
+    assert!(housed.find("## House rules").unwrap() < housed.find("## Spec dialect").unwrap());
+    assert!(housed.find("## Spec dialect").unwrap() < housed.find("## Task").unwrap());
     assert!(!prompt.contains("## House rules"));
 
     let mut turns = 0;

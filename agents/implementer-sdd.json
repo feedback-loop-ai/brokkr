@@ -1,0 +1,19 @@
+{
+  "description": "Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.",
+  "charter": "charters/implementer-sdd.md",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "efforts": {
+    "opus": "high",
+    "sonnet": "high"
+  },
+  "tools": {
+    "allow": [
+      "cargo",
+      "git"
+    ],
+    "mcp": []
+  }
+}

@@ -818,6 +818,11 @@ impl Engine {
                 input["house_rules"] = json!(house);
             }
         }
+        if phase != "review" {
+            if let Some(instructions) = self.bundle.dialect_prompts.get(phase) {
+                input["spec_dialect"] = json!(instructions);
+            }
+        }
         Ok(input)
     }
 
@@ -1284,6 +1289,15 @@ impl Engine {
                     "house_rules": seat_input["house_rules"],
                     "context": context,
                 });
+                if seat_input["phase"] == "review" && member.name == "spec-compliance" {
+                    input["spec_dialect"] = self
+                        .bundle
+                        .dialect_prompts
+                        .get("review")
+                        .map_or(Value::Null, |text| json!(text));
+                } else if !seat_input["spec_dialect"].is_null() {
+                    input["spec_dialect"] = seat_input["spec_dialect"].clone();
+                }
                 copy_secret_binding_facts(&mut input, seat_input);
                 MemberRun {
                     name: member.name.clone(),
@@ -1518,6 +1532,9 @@ impl Engine {
                         "house_rules": seq_input["house_rules"],
                         "context": context,
                     });
+                    if !seq_input["spec_dialect"].is_null() {
+                        input["spec_dialect"] = seq_input["spec_dialect"].clone();
+                    }
                     copy_secret_binding_facts(&mut input, seq_input);
                     let command = hands_command(
                         confined_command(
@@ -1606,6 +1623,17 @@ impl Engine {
                             .flatten()
                             .any(|token| token.contains("{change}"));
                     if needs_change && nearest_change.is_none() {
+                        if seq_input["phase"] == "verify" {
+                            let result = prior_results
+                                .get("checks")
+                                .cloned()
+                                .expect("dialect verify follows the checks step");
+                            return self.append(
+                                EventType::EffectSucceeded,
+                                json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+                                Some(attempt_id.to_string()),
+                            ).map(drop);
+                        }
                         return self.append(
                             EventType::EffectIndeterminate,
                             json!({
@@ -1739,6 +1767,17 @@ impl Engine {
                         Some(attempt_id.to_string()),
                     )?;
                     return Ok(());
+                }
+                // An artifact author can discover that the preceding
+                // artifact is at fault. `upstream` is the phase boundary,
+                // so its final validator must not run against an artifact
+                // the author has just refused as downstream of the defect.
+                if result.get("result").and_then(Value::as_str) == Some("upstream") {
+                    return self.append(
+                        EventType::EffectSucceeded,
+                        json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+                        Some(attempt_id.to_string()),
+                    ).map(drop);
                 }
             }
             let model = result

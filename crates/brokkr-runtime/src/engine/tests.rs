@@ -60,6 +60,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         );
     }
     Bundle {
+        dialect_prompts: Default::default(),
         name: "test".into(),
         description: String::new(),
         cost: String::new(),
@@ -268,6 +269,63 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         .as_str()
         .unwrap()
         .contains("no preceding successful result carries it"));
+
+    let (_kept, mut verify_without_change) = engine(single_body(vec!["driver".into()]));
+    let verify_input = json!({
+        "feature":"feature", "phase":"verify", "workdir":".",
+        "allowed_results":["pass", "fail"],
+        "context":{},
+        "steps":[
+            {"role_path":"checks.md", "result_path":"checks.json", "allowed_results":["pass", "fail"]},
+            {"role_path":"", "result_path":"result.json", "allowed_results":["pass", "fail"]}
+        ],
+    });
+    let verify_steps = [
+        SequenceStep {
+            name: "checks".into(),
+            results: vec!["pass".into(), "fail".into()],
+            class: SeatClass::Gate,
+            body: StepBody::Single {
+                role_path: "checks.md".into(),
+                command: driver_command(
+                    "effect",
+                    "attempt",
+                    AttemptOutcome::Succeeded {
+                        result: json!({"result":"pass"}),
+                    },
+                ),
+                confine: None,
+                candidates: Vec::new(),
+            },
+        },
+        SequenceStep {
+            name: "dialect-verify".into(),
+            results: vec!["pass".into(), "fail".into()],
+            class: SeatClass::Gate,
+            body: StepBody::Dialect {
+                execution: crate::bundle::DialectExecution {
+                    argv: vec!["validator".into(), "{change}".into()],
+                    state: None,
+                },
+            },
+        },
+    ];
+    verify_without_change
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "verify",
+            &verify_steps,
+            &verify_input,
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+    let events = verify_without_change
+        .store
+        .load(&verify_without_change.run_id)
+        .unwrap();
+    assert_eq!(events.last().unwrap().payload["result"]["result"], "pass");
 
     let metadata_step = SequenceStep {
         name: "validate".into(),
@@ -3919,6 +3977,67 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                 && event.payload["checkpoint"]["step_name"] == "draft"
         }));
     }
+
+    let steps = vec![
+        SequenceStep {
+            name: "author".into(),
+            class: SeatClass::Work,
+            results: vec!["drafted".into(), "upstream".into()],
+            body: StepBody::Single {
+                role_path: "author.md".into(),
+                command: driver_command(
+                    "upstream-effect",
+                    "upstream-attempt",
+                    AttemptOutcome::Succeeded {
+                        result: json!({"result":"upstream", "notes":"the specification is at fault"}),
+                    },
+                ),
+                confine: None,
+                candidates: Vec::new(),
+            },
+        },
+        SequenceStep {
+            name: "validate".into(),
+            class: SeatClass::Gate,
+            results: vec!["drafted".into(), "fail".into()],
+            body: StepBody::Single {
+                role_path: "validate.md".into(),
+                command: vec!["must-not-run".into()],
+                confine: None,
+                candidates: Vec::new(),
+            },
+        },
+    ];
+    let (_dir, mut engine) = engine(SeatBody::Sequence {
+        steps: steps.clone(),
+    });
+    let input = engine
+        .seat_input(
+            &state(Some("work"), Cursor::Idle),
+            "work",
+            "upstream-effect",
+        )
+        .unwrap();
+    engine
+        .execute_sequence(
+            "upstream-effect",
+            "upstream-attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &Selection::new(),
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectSucceeded)
+        .unwrap();
+    assert_eq!(succeeded.payload["result"]["result"], "upstream");
+    assert!(!events
+        .iter()
+        .any(|event| { event.payload["checkpoint"]["step_name"] == "validate" }));
 }
 
 /// Triage's design and engine routes review with a sequence: a positions panel, then

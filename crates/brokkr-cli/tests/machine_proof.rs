@@ -177,6 +177,29 @@ const TRIAGE_POLICY: &str = r#"{
   ]
 }"#;
 
+const SDD_PROOF_POLICY: &str = r#"{
+  "schema":"forge.phase-machine/v2",
+  "phases":["triage","specify","clarify","design","tasks","analyze","implement","verify","review","ship","done","stop"],
+  "initial":"triage","terminal":["done","stop"],"shippable_from":["review"],
+  "rules":[
+    {"id":"T","from":"triage","result":"engine","next":"specify","reason":"design route"},
+    {"id":"S","from":"specify","result":"drafted","next":"clarify","reason":"drafted"},
+    {"id":"CA","from":"clarify","result":"ambiguous","next":"specify","reason":"answer"},
+    {"id":"CC","from":"clarify","result":"clear","next":"design","reason":"clear"},
+    {"id":"D","from":"design","result":"drafted","next":"tasks","reason":"designed"},
+    {"id":"TK","from":"tasks","result":"drafted","next":"analyze","reason":"planned"},
+    {"id":"AD","from":"analyze","result":"drift","when":{"drift_in":["design"]},"next":"design","reason":"repair design"},
+    {"id":"AC","from":"analyze","result":"consistent","next":"implement","reason":"zero"},
+    {"id":"I","from":"implement","result":"complete","next":"verify","reason":"built"},
+    {"id":"V","from":"verify","result":"pass","next":"review","reason":"green"},
+    {"id":"RH","from":"review","result":"security-hold","next":"stop","severity":"hard","reason":"hold"},
+    {"id":"RR","from":"review","result":"residual","next":"stop","severity":"hard","reason":"residual"},
+    {"id":"R","from":"review","result":"clean","next":"ship","reason":"clean"},
+    {"id":"SR","from":"ship","result":"ready","next":"ship","reason":"ready"},
+    {"id":"SS","from":"ship","result":"shipped","next":"done","reason":"done"}
+  ]
+}"#;
+
 struct Workspace {
     dir: tempfile::TempDir,
 }
@@ -248,6 +271,22 @@ impl Workspace {
             ws.path().join("dialects/speckit.json"),
         )
         .unwrap();
+        std::fs::create_dir_all(ws.path().join("dialects/speckit")).unwrap();
+        for name in [
+            "analyze.md",
+            "checklist.md",
+            "clarify.md",
+            "design.md",
+            "return.md",
+            "specify.md",
+            "tasks.md",
+        ] {
+            std::fs::copy(
+                root.join("dialects/speckit").join(name),
+                ws.path().join("dialects/speckit").join(name),
+            )
+            .unwrap();
+        }
         std::fs::copy(
             root.join("adapters/exec.json"),
             ws.path().join("adapters/exec.json"),
@@ -323,6 +362,53 @@ impl Workspace {
             serde_json::to_string_pretty(&config).unwrap(),
         )
         .unwrap();
+        ws
+    }
+
+    fn sdd(script: Value) -> Workspace {
+        let ws = Workspace::triage(script);
+        std::fs::write(ws.bundle_dir().join("policy.json"), SDD_PROOF_POLICY).unwrap();
+        let script_path = ws.path().join("script.json");
+        let state_path = ws.path().join("state");
+        let driver = || {
+            json!({"command":[
+                brokkr_bin(), "fake-driver", "--script", script_path.to_string_lossy(),
+                "--state", state_path.to_string_lossy()
+            ]})
+        };
+        let single = |results: Vec<&str>| json!({"role":"roles/role.md", "results":results, "driver":driver()});
+        let step = |name: &str, results: Vec<&str>| json!({"name":name, "results":results, "role":"roles/role.md", "driver":driver()});
+        let config = json!({
+            "name":"sdd-proof", "policy":"policy.json", "protected_phase":"review",
+            "seats":{
+                "triage":single(vec!["engine"]),
+                "specify":single(vec!["drafted"]),
+                "clarify":{"results":["clear","ambiguous"],"sequence":[
+                    step("check", vec!["clear"]),
+                    {"name":"judge","role":"roles/role.md","driver":driver()}
+                ]},
+                "design":{"results":["drafted"],"sequence":[
+                    {"name":"positions","aggregate":"unanimous-pass","panel":{
+                        "simplicity":{"role":"roles/role.md","driver":driver()},
+                        "robustness":{"role":"roles/role.md","driver":driver()}
+                    }},
+                    {"name":"chief","role":"roles/role.md","driver":driver()}
+                ]},
+                "tasks":single(vec!["drafted"]),
+                "analyze":{"results":["consistent","drift"],"inputs":["drift_in"],"sequence":[
+                    step("check", vec!["consistent"]),
+                    {"name":"judge","role":"roles/role.md","driver":driver()}
+                ]},
+                "implement":single(vec!["complete"]),
+                "verify":single(vec!["pass"]),
+                "review":{"results":["clean","residual","security-hold"],"aggregate":"review-panel","panel":{
+                    "correctness":{"role":"roles/role.md","driver":driver()},
+                    "spec-compliance":{"role":"roles/role.md","driver":driver()}
+                }},
+                "ship":single(vec!["ready","shipped"])
+            }
+        });
+        std::fs::write(ws.bundle_dir().join("bundle.json"), config.to_string()).unwrap();
         ws
     }
 
@@ -692,6 +778,100 @@ fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief()
         event["type"] == "effect/checkpointed"
             && event["payload"]["checkpoint"]["member"] == "chief"
     }));
+}
+
+#[test]
+fn sdd_machine_revisits_ambiguity_and_design_drift_before_implementation() {
+    let pass = || json!({"behavior":"succeed","result":{"result":"pass"}});
+    let script = json!({"seats":{
+        "triage":[{"behavior":"succeed","result":{"result":"engine"}}],
+        "specify":[
+            {"behavior":"succeed","result":{"result":"drafted","inputs":{"change":"proof-change"}}},
+            {"behavior":"succeed","result":{"result":"drafted","inputs":{"change":"proof-change"}}}
+        ],
+        "clarify:check":[
+            {"behavior":"succeed","result":{"result":"clear"}},
+            {"behavior":"succeed","result":{"result":"clear"}}
+        ],
+        "clarify:judge":[
+            {"behavior":"echo","result":{"result":"ambiguous","notes":"one open question"}},
+            {"behavior":"echo","result":{"result":"clear"}}
+        ],
+        "design:positions:simplicity":[pass(), pass()],
+        "design:positions:robustness":[pass(), pass()],
+        "design:chief":[
+            {"behavior":"succeed","result":{"result":"drafted"}},
+            {"behavior":"succeed","result":{"result":"drafted"}}
+        ],
+        "tasks":[
+            {"behavior":"succeed","result":{"result":"drafted"}},
+            {"behavior":"succeed","result":{"result":"drafted"}}
+        ],
+        "analyze:check":[
+            {"behavior":"succeed","result":{"result":"consistent"}},
+            {"behavior":"succeed","result":{"result":"consistent"}}
+        ],
+        "analyze:judge":[
+            {"behavior":"echo","result":{"result":"drift","inputs":{"drift_in":"design"}}},
+            {"behavior":"echo","result":{"result":"consistent"}}
+        ],
+        "implement":[{"behavior":"succeed","result":{"result":"complete"}}],
+        "verify":[{"behavior":"succeed","result":{"result":"pass"}}],
+        "review:correctness":[{"behavior":"echo","result":{"result":"clean"}}],
+        "review:spec-compliance":[{"behavior":"echo","result":{"result":"clean"}}],
+        "ship":[
+            {"behavior":"succeed","result":{"result":"ready"}},
+            {"behavior":"succeed","result":{"result":"shipped"}}
+        ]
+    }});
+    let ws = Workspace::sdd(script);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "summary: {summary}; stderr: {stderr}");
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let entered: Vec<&str> = events
+        .iter()
+        .filter(|event| event["type"] == "phase/entered")
+        .filter_map(|event| event["payload"]["phase"].as_str())
+        .collect();
+    assert_eq!(
+        entered,
+        [
+            "triage",
+            "specify",
+            "clarify",
+            "specify",
+            "clarify",
+            "design",
+            "tasks",
+            "analyze",
+            "design",
+            "tasks",
+            "analyze",
+            "implement",
+            "verify",
+            "review",
+            "ship",
+            "ship",
+            "done"
+        ]
+    );
+
+    let judge_inputs: Vec<&Value> = events
+        .iter()
+        .filter(|event| event["type"] == "effect/succeeded")
+        .filter_map(|event| event["payload"]["result"].get("seat_input"))
+        .filter(|input| {
+            matches!(
+                input["seat"].as_str(),
+                Some("clarify:judge" | "analyze:judge")
+            )
+        })
+        .collect();
+    assert_eq!(judge_inputs.len(), 4);
+    for input in judge_inputs {
+        assert!(input["context"]["prior_results"]["check"].is_object());
+        assert!(input["spec_dialect"].as_str().unwrap().contains("#"));
+    }
 }
 
 #[cfg(target_os = "linux")]

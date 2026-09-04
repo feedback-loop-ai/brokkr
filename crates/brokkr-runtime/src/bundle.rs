@@ -62,6 +62,10 @@ pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
 /// realm name -> observed HEAD, dirty worktree, drift.
 pub const REALM_FACTS: &str = "realm_facts";
 
+/// Closed, seat-declarable enum inputs. Their values are validated by the
+/// pure policy evaluator whenever a ruling reads them.
+pub const ENUM_INPUTS: [&str; 1] = ["drift_in"];
+
 /// The same law over the phase-visit family (decision 0022): every
 /// `visits_<phase>` is counted by the fold from `phase/entered` events,
 /// so no seat may declare one and no seat may claim one.
@@ -368,6 +372,10 @@ pub struct Bundle {
     pub hands: BTreeMap<String, HandsSpec>,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
+    /// Dialect-owned prose, resolved once at compile time and keyed by the
+    /// phase whose office receives it. Review is supplied only to the
+    /// spec-compliance member by the engine.
+    pub dialect_prompts: BTreeMap<String, String>,
 }
 
 /// The default library roots, resolved against the current working
@@ -857,6 +865,27 @@ impl Bundle {
             .iter()
             .any(|phase| DIALECT_PHASES.contains(&phase.as_str()));
 
+        let mut dialect_prompts = BTreeMap::new();
+        if uses_dialect {
+            if let Some(dialect) = dialect {
+                let instruction_root = library_root.parent().unwrap_or(Path::new(""));
+                for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+                    let rendered = match dialect.rendered.get(phase) {
+                        Some(rendered) => rendered.clone(),
+                        None => dialect
+                            .prompt_for(instruction_root, phase)
+                            .map_err(|error| {
+                                CompileError::Invalid(format!(
+                                "dialect '{}' cannot render phase '{phase}' instructions: {error}",
+                                dialect.name
+                            ))
+                            })?,
+                    };
+                    dialect_prompts.insert(phase.to_string(), rendered);
+                }
+            }
+        }
+
         if let Some(phase) = machine
             .phases
             .iter()
@@ -1259,6 +1288,7 @@ impl Bundle {
             seats,
             manifest,
             protected_phase,
+            dialect_prompts,
         })
     }
 
@@ -2346,12 +2376,15 @@ fn parse_sequence(
                     "phase '{phase}' needs a realm dialect to resolve step '{name}'"
                 ))
             })?;
-            let command = dialect.validation(phase).ok_or_else(|| {
-                CompileError::Invalid(format!(
+            let Some(command) = dialect.validation(phase) else {
+                if operation == "check" {
+                    continue;
+                }
+                return Err(CompileError::Invalid(format!(
                     "dialect '{}' declares phase '{phase}' {operation} unsupported",
                     dialect.name
-                ))
-            })?;
+                )));
+            };
             let synthetic = json!({
                 "class": "gate",
                 "hands": "workspace",
@@ -2618,6 +2651,7 @@ fn declarable_input(name: &str) -> bool {
     !is_engine_owned(name)
         && (BOOLEAN_INPUTS.contains(&name)
             || SEVERITY_INPUTS.contains(&name)
+            || ENUM_INPUTS.contains(&name)
             || IDENTIFIER_INPUTS.contains(&name))
 }
 
@@ -2636,13 +2670,18 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
             continue;
         };
         for key in when.keys() {
-            let name = key
-                .strip_suffix("_gte")
-                .or_else(|| key.strip_suffix("_above"))
-                .or_else(|| key.strip_suffix("_at_most"))
-                .or_else(|| key.strip_suffix("_in"))
-                .unwrap_or(key)
-                .to_string();
+            let name = if key == "strategy_in" {
+                "strategy"
+            } else if key == "drift_in" {
+                "drift_in"
+            } else {
+                key.strip_suffix("_gte")
+                    .or_else(|| key.strip_suffix("_above"))
+                    .or_else(|| key.strip_suffix("_at_most"))
+                    .or_else(|| key.strip_suffix("_in"))
+                    .unwrap_or(key)
+            }
+            .to_string();
             if !is_engine_owned(&name) && !names.contains(&name) {
                 names.push(name);
             }

@@ -61,6 +61,10 @@ pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
 /// branch on them: identity is data passed to effects, not a control signal.
 pub const IDENTIFIER_INPUTS: [&str; 1] = ["change"];
 
+/// Artifact ownership reported by the read-only analysis judge. Unlike an
+/// identifier, this is a closed enum which policy may branch on.
+pub const DRIFT_PHASES: [&str; 3] = ["specify", "design", "tasks"];
+
 pub fn is_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     chars
@@ -403,22 +407,31 @@ fn parse_condition(
             "rule {rule_id}: identifier input '{key}' may be declared by a seat but never used as a condition key"
         )));
     }
-    if key == "strategy_in" {
+    if key == "strategy_in" || key == "drift_in" {
         let allowed = string_array(expected, &format!("rule {rule_id} condition '{key}'"))?;
         if allowed.is_empty() {
             return Err(PolicyError(format!(
                 "rule {rule_id}: condition '{key}' needs at least one value"
             )));
         }
+        let vocabulary: &[&str] = if key == "strategy_in" {
+            &STRATEGIES
+        } else {
+            &DRIFT_PHASES
+        };
         for value in &allowed {
-            if !STRATEGIES.contains(&value.as_str()) {
+            if !vocabulary.contains(&value.as_str()) {
                 return Err(PolicyError(format!(
-                    "rule {rule_id}: condition '{key}' value '{value}' not in {STRATEGIES:?}"
+                    "rule {rule_id}: condition '{key}' value '{value}' not in {vocabulary:?}"
                 )));
             }
         }
         return Ok(Condition::EnumIn {
-            name: "strategy".to_string(),
+            name: if key == "strategy_in" {
+                "strategy".to_string()
+            } else {
+                "drift_in".to_string()
+            },
             allowed,
         });
     }
@@ -564,8 +577,16 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
             },
             Condition::EnumIn { name, allowed } => match inputs.get(name) {
                 None | Some(Value::Null) => return Ok(false),
-                Some(Value::String(actual)) if !STRATEGIES.contains(&actual.as_str()) => {
-                    return Err(format!("{name} '{actual}' not in {STRATEGIES:?}"));
+                Some(Value::String(actual))
+                    if (name == "strategy" && !STRATEGIES.contains(&actual.as_str()))
+                        || (name == "drift_in" && !DRIFT_PHASES.contains(&actual.as_str())) =>
+                {
+                    let vocabulary: &[&str] = if name == "strategy" {
+                        &STRATEGIES
+                    } else {
+                        &DRIFT_PHASES
+                    };
+                    return Err(format!("{name} '{actual}' not in {vocabulary:?}"));
                 }
                 Some(Value::String(actual)) => {
                     if !allowed.contains(actual) {

@@ -152,6 +152,8 @@ pub struct Dialect {
     pub verify: CommandOrUnsupported,
     pub archive: CommandOrUnsupported,
     pub house: PathOrUnsupported,
+    #[serde(skip)]
+    pub rendered: BTreeMap<String, String>,
 }
 
 impl Dialect {
@@ -160,7 +162,18 @@ impl Dialect {
             path: path.display().to_string(),
             source,
         })?;
-        Self::parse(&path.display().to_string(), &text)
+        let (mut dialect, value) = Self::parse(&path.display().to_string(), &text)?;
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let root = if parent.file_name().and_then(|name| name.to_str()) == Some("dialects") {
+            parent.parent().unwrap_or(parent)
+        } else {
+            parent
+        };
+        // Loading the dialect data stays useful to doctor and realm reads even
+        // when its prompt assets are not installed. A bundle that actually
+        // seats an artifact phase resolves them strictly during compilation.
+        let _ = dialect.render(root);
+        Ok((dialect, value))
     }
 
     pub fn parse(path: &str, text: &str) -> Result<(Self, Value), DialectError> {
@@ -262,6 +275,95 @@ impl Dialect {
             },
             _ => None,
         }
+    }
+
+    /// Read the dialect-owned prose which is spliced into a model prompt.
+    /// Paths are repository-relative in the shipped dialects; the caller
+    /// supplies the library workspace root so the bytes do not depend on the
+    /// target realm's current directory.
+    pub fn prompt_for(&self, root: &Path, phase: &str) -> Result<String, std::io::Error> {
+        let paths: Vec<&str> = match phase {
+            "specify" | "design" | "tasks" => self
+                .phases
+                .artifact(phase)
+                .expect("closed artifact phase")
+                .steps
+                .iter()
+                .flat_map(|step| {
+                    [
+                        step.instructions.as_str(),
+                        step.return_instructions.as_str(),
+                    ]
+                })
+                .collect(),
+            "clarify" | "analyze" => vec![self
+                .phases
+                .loop_phase(phase)
+                .expect("closed loop phase")
+                .taxonomy
+                .as_str()],
+            "implement" => self
+                .phases
+                .tasks
+                .steps
+                .iter()
+                .flat_map(|step| {
+                    [
+                        step.instructions.as_str(),
+                        step.return_instructions.as_str(),
+                    ]
+                })
+                .collect(),
+            "review" => ARTIFACT_PHASES
+                .iter()
+                .flat_map(|name| {
+                    self.phases
+                        .artifact(name)
+                        .expect("closed artifact phase")
+                        .steps
+                        .iter()
+                        .map(|step| step.instructions.as_str())
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut rendered = Vec::new();
+        for relative in paths {
+            let text = std::fs::read_to_string(root.join(relative))?;
+            if !rendered.iter().any(|known| known == text.trim()) {
+                rendered.push(text.trim().to_string());
+            }
+        }
+        if phase == "implement" {
+            let archive = match &self.archive {
+                CommandOrUnsupported::Command(command) => {
+                    serde_json::to_string(&command.argv).unwrap_or_default()
+                }
+                CommandOrUnsupported::Unsupported(reason) => {
+                    format!("unsupported: {}", reason.unsupported)
+                }
+            };
+            rendered.push(format!(
+                "Change location: `{}`. Archive operation: {archive}.",
+                self.change
+            ));
+        }
+        Ok(rendered.join("\n\n"))
+    }
+
+    pub fn render(&mut self, root: &Path) -> Result<(), DialectError> {
+        let mut rendered = BTreeMap::new();
+        for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+            let prompt =
+                self.prompt_for(root, phase)
+                    .map_err(|source| DialectError::Unreadable {
+                        path: root.display().to_string(),
+                        source,
+                    })?;
+            rendered.insert(phase.to_string(), prompt);
+        }
+        self.rendered = rendered;
+        Ok(())
     }
 }
 

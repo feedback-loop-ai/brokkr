@@ -3271,6 +3271,13 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     broken["realms"]["sha256"] = json!("0".repeat(64));
     assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
 
+    let mut no_dialect = map;
+    no_dialect["realms"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("dialect");
+    let no_dialect_path = dir.path().join("no-dialect.json");
+    std::fs::write(&no_dialect_path, no_dialect.to_string()).unwrap();
     let refusal = run_in(
         &root,
         cli(Cmd::Run {
@@ -3278,7 +3285,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             recipe: None,
             recipes_dir: root.join("recipes"),
             feature: "dialect refusal".into(),
-            realms: Some(root.join("realms.json")),
+            realms: Some(no_dialect_path),
             db: Some(dir.path().join("never-created.db")),
             repo: Some(root.clone()),
             dispatch: None,
@@ -3287,7 +3294,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     )
     .unwrap_err()
     .to_string();
-    assert!(refusal.contains("realm 'brokkr'"), "{refusal}");
+    assert!(refusal.contains("realm 'pinned'"), "{refusal}");
 
     let resume_db = dir.path().join("resume.db");
     running_store(&resume_db, "resume-missing-bundle");

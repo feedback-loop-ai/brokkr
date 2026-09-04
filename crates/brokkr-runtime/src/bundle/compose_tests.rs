@@ -1057,11 +1057,11 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // The design validator and post-check verifier now come from the
-        // pinned dialect, the chief charter hands off the typed change id,
-        // and decision 0044 adds the web tools to its pinned claude adapter.
-        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
-        "ruling 8 pins every selected sequence step's effective results"
+        // Decision 0042's five SDD phases add the two judges, three artifact
+        // validators, two loop checks and the dialect-free smith; all of that
+        // executable topology is bundle identity.
+        "f71e44929070afc4a3801515b27a532d09c96e96ae2bbe76e4f3260f3c0da1cc",
+        "the five-phase SDD sequence and every resolved office are pinned"
     );
 
     let night = compiled("recipes/night-shift");

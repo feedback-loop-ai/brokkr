@@ -30,9 +30,9 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
         (agent, tool),
         ("chief-architect", "git")
             | ("implementer-engine", "cargo" | "git")
-            | ("implementer-speckit", "cargo" | "git")
+            | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
-            | ("intake-speckit", "git")
+            | ("intake-sdd", "git")
             | ("intake", "git")
     )
 }
@@ -51,6 +51,9 @@ fn library_charters_name_no_repository_tokens() {
         "policy/",
         "fixtures/",
         "contracts/",
+        "specs/",
+        "openspec/",
+        ".specify/",
     ];
     for entry in std::fs::read_dir(&root).unwrap().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
@@ -160,6 +163,14 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
             continue;
         }
         let agent = json(&entry.path());
+        assert!(
+            !agent
+                .pointer("/tools/allow")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| tools.iter().any(|tool| tool == "specify")),
+            "{} still grants the retired specify tool",
+            entry.path().display()
+        );
         let charter =
             std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
                 .unwrap();

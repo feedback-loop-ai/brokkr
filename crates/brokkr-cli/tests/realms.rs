@@ -487,7 +487,7 @@ fn the_repository_carries_the_bootstrap_map() {
         json!({
             "schema": "forge.realms/v3",
             "realms": [{"name": "brokkr", "path": ".", "default_branch": "main",
-                        "house": "docs/house-rules.md"}],
+                        "house": "docs/house-rules.md", "dialect": "openspec"}],
             "journal": ".forge/forge.db",
         })
     );

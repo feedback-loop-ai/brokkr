@@ -350,6 +350,12 @@ impl World {
                         "sha256": dialect.sha256,
                         "content": dialect.content
                     });
+                    if !dialect.dialect.rendered.is_empty() {
+                        let instructions = json!(dialect.dialect.rendered);
+                        pin["dialect"]["instructions_sha256"] =
+                            json!(canonical::sha256_hex(&instructions));
+                        pin["dialect"]["instructions"] = instructions;
+                    }
                 }
             }
         }
@@ -470,8 +476,25 @@ fn pinned_dialect(pin: &Value) -> Result<Option<DialectPin>, WorldError> {
         )));
     }
     let text = serde_json::to_string(&content).expect("JSON serializes");
-    let (dialect, _) =
+    let (mut dialect, _) =
         Dialect::parse(source, &text).map_err(|error| WorldError::Unpinned(error.to_string()))?;
+    if let Some(instructions) = value.get("instructions") {
+        let expected = value
+            .get("instructions_sha256")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                WorldError::Unpinned("its dialect instructions carry no sha256".into())
+            })?;
+        let actual = canonical::sha256_hex(instructions);
+        if actual != expected {
+            return Err(WorldError::Unpinned(format!(
+                "the pinned dialect instructions hash to {actual}, not the pinned {expected}"
+            )));
+        }
+        dialect.rendered = serde_json::from_value(instructions.clone()).map_err(|error| {
+            WorldError::Unpinned(format!("its dialect instructions are malformed: {error}"))
+        })?;
+    }
     Ok(Some(DialectPin {
         source: source.to_string(),
         sha256: sha256.to_string(),

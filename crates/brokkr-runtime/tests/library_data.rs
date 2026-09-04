@@ -25,23 +25,24 @@ fn workspace() -> PathBuf {
 
 /// The current bytes of every shared charter. Decision 0041 ruling 8 moves
 /// the affected witnesses because repository rules left the office text and
-/// the three sequence disclaimers disappeared.
+/// the three sequence disclaimers disappeared. Decision 0042 moves the four
+/// SDD office charters as dialect-specific prose leaves them.
 const CHARTERS: [(&str, &str); 13] = [
     (
         "chief-architect.md",
-        "9f6b59e43485a8dc04b0cb1b8229a2c59a61d6b26c37b11beff36e5b419445f1",
+        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
     ),
     (
-        "implementer-speckit.md",
-        "b25c9887f64c526f3e544bd2cba6d8aae504a1b6b85c09bfd1214d07dd556a3a",
+        "implementer-sdd.md",
+        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
     ),
     (
         "implementer.md",
         "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
-        "intake-speckit.md",
-        "c2827f036df66b99ad8c33f3956728d255064297be052ccbfcf57ec2fa60a6b6",
+        "intake-sdd.md",
+        "050d39eb135097ee416dc3979849bbee8dfbeaebdc9b2daaee883c67435dd94b",
     ),
     (
         "intake.md",
@@ -73,7 +74,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "review-spec-compliance.md",
-        "8eef2c37b4cd882ca4af4138372506c6bb15f58a46f9c57a7aea3afd127a9c40",
+        "792b449ce2c8bd0a8c2b8ad6538338bad176fc58742a953cd09da74c1c38b627",
     ),
     (
         "reviewer.md",
@@ -84,20 +85,28 @@ const CHARTERS: [(&str, &str); 13] = [
 /// Charters authored here rather than moved: they have no pre-move
 /// bytes to be compared against, and are listed so the accounting below
 /// stays exact instead of merely permissive.
-const AUTHORED_CHARTERS: [&str; 3] = ["muninn.md", "researcher.md", "triage.md"];
+const AUTHORED_CHARTERS: [&str; 5] = [
+    "analyst.md",
+    "clarifier.md",
+    "muninn.md",
+    "researcher.md",
+    "triage.md",
+];
 
 /// Decision 0041's remaining model library roster after decision 0043.
 /// `implementer-engine` temporarily shares the implementer charter until
 /// strategy-selected seats land. Decision 0044 ruling 4 seats the
 /// researcher: the one office that reads the field and holds the fetch
 /// grant, authored here like muninn and triage.
-const AGENTS: [&str; 17] = [
+const AGENTS: [&str; 19] = [
+    "analyst",
     "chief-architect",
+    "clarifier",
     "implementer",
     "implementer-engine",
-    "implementer-speckit",
+    "implementer-sdd",
     "intake",
-    "intake-speckit",
+    "intake-sdd",
     "muninn",
     "position-robustness",
     "position-simplicity",

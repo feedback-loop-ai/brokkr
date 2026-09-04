@@ -5,7 +5,8 @@
       "name": "brokkr",
       "path": ".",
       "default_branch": "main",
-      "house": "docs/house-rules.md"
+      "house": "docs/house-rules.md",
+      "dialect": "openspec"
     }
   ],
   "journal": ".forge/forge.db"

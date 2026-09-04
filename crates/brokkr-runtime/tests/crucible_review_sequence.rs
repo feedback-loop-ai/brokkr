@@ -131,8 +131,12 @@ fn every_review_site_is_witnessed_by_its_agent_resolution() {
     assert_eq!(
         drivers.keys().map(String::as_str).collect::<Vec<_>>(),
         [
+            "analyze:check",
+            "clarify:check",
             "design:validate",
             "ship",
+            "specify:validate",
+            "tasks:validate",
             "verify:checks",
             "verify:dialect-verify"
         ],

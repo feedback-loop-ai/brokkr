@@ -33,7 +33,11 @@ fn triage_is_the_only_front_door_and_each_class_has_one_rule() {
         bundle.machine.phases,
         [
             "triage",
+            "specify",
+            "clarify",
             "design",
+            "tasks",
+            "analyze",
             "implement",
             "verify",
             "review",
@@ -54,7 +58,7 @@ fn triage_is_the_only_front_door_and_each_class_has_one_rule() {
         assert_eq!(rules.len(), 1, "{strategy} must have exactly one arm");
         match strategy {
             "chore" | "feature" => assert_eq!(rules[0].next.as_deref(), Some("implement")),
-            "design" | "engine" => assert_eq!(rules[0].next.as_deref(), Some("design")),
+            "design" | "engine" => assert_eq!(rules[0].next.as_deref(), Some("specify")),
             "escalate" => assert_eq!(rules[0].next, None, "escalate parks"),
             _ => unreachable!("STRATEGIES is closed"),
         }
@@ -67,7 +71,7 @@ fn triage_is_the_only_front_door_and_each_class_has_one_rule() {
         .filter(|rule| rule.from == "triage")
     {
         assert!(
-            rule.next.is_none() || matches!(rule.next.as_deref(), Some("design" | "implement")),
+            rule.next.is_none() || matches!(rule.next.as_deref(), Some("specify" | "implement")),
             "{} skips from triage to {:?}",
             rule.id,
             rule.next

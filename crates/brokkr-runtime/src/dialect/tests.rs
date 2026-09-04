@@ -178,3 +178,17 @@ fn validation_is_total_over_the_closed_phase_vocabulary() {
     assert!(dialect.phases.artifact("unknown").is_none());
     assert!(dialect.phases.loop_phase("unknown").is_none());
 }
+
+#[test]
+fn rendered_instructions_cover_every_seated_phase_and_ignore_no_phase() {
+    let dialect = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+        assert!(
+            !dialect.prompt_for(&root(), phase).unwrap().is_empty(),
+            "{phase}"
+        );
+    }
+    assert_eq!(dialect.prompt_for(&root(), "ship").unwrap(), "");
+}

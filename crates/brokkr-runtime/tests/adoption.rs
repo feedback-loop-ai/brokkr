@@ -122,12 +122,12 @@ const TRIAGE: &Roster = &[
     (
         "implement:design",
         "claude-opus-5",
-        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
+        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
     ),
     (
         "review:design:positions:spec-compliance",
         "claude-opus-5",
-        "8eef2c37b4cd882ca4af4138372506c6bb15f58a46f9c57a7aea3afd127a9c40",
+        "792b449ce2c8bd0a8c2b8ad6538338bad176fc58742a953cd09da74c1c38b627",
     ),
     (
         "review:design:positions:security",
@@ -137,7 +137,27 @@ const TRIAGE: &Roster = &[
     (
         "design:chief",
         "claude-fable-5-1",
-        "9f6b59e43485a8dc04b0cb1b8229a2c59a61d6b26c37b11beff36e5b419445f1",
+        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
+    ),
+    (
+        "specify:author",
+        "claude-fable-5-1",
+        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
+    ),
+    (
+        "tasks:author",
+        "claude-opus-5",
+        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
+    ),
+    (
+        "clarify:judge",
+        "claude-opus-5",
+        "d6a29b7aed9bec3460469ad812bf0cfe7f53381b17f7b1c537f04beb91c6515b",
+    ),
+    (
+        "analyze:judge",
+        "claude-fable-5-1",
+        "cb0bb2ee61d718481d3032025b114e8ea63298026fb4bfad18661c37648b30a2",
     ),
     (
         "design:positions:simplicity",
@@ -185,13 +205,20 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
         )
     };
     let effort = match site {
-        "design:chief" => "max",
+        "design:chief" | "specify:author" => "max",
+        "clarify:judge" | "analyze:judge" => "xhigh",
         "review" => "xhigh",
         site if site.ends_with(":security") || site.ends_with(":chief") => "xhigh",
         _ => "high",
     };
     argv.extend(["--model", model, "--effort", effort]);
-    if site == "review" || site.starts_with("review:") {
+    if site == "review"
+        || site.starts_with("review:")
+        || matches!(
+            site,
+            "design:chief" | "specify:author" | "clarify:judge" | "analyze:judge"
+        )
+    {
         let hands: &[&str] = match provider {
             "codex" => &[
                 "--sandbox",
@@ -216,8 +243,8 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
         let tools = match site {
             "implement" => Some("Bash(cargo:*),Bash(git:*)"),
             site if site.starts_with("implement:") => Some("Bash(cargo:*),Bash(git:*)"),
+            "tasks:author" => Some("Bash(cargo:*),Bash(git:*)"),
             "intake" => Some("Bash(git:*)"),
-            "design:chief" => Some("Bash(git:*),Bash(specify:*)"),
             _ => None,
         };
         if let Some(tools) = tools {

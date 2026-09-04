@@ -22,6 +22,14 @@ fn workspace(text: &str) -> tempfile::TempDir {
         dir.path().join("dialects/openspec.json"),
     )
     .unwrap();
+    std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
+    for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+        std::fs::copy(
+            root.join(format!("dialects/openspec/{name}.md")),
+            dir.path().join(format!("dialects/openspec/{name}.md")),
+        )
+        .unwrap();
+    }
     std::fs::write(dir.path().join("realms.json"), text).unwrap();
     dir
 }
@@ -389,6 +397,33 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
 
     let rehydrated = World::from_manifest(&first).unwrap().unwrap();
     assert_eq!(rehydrated.house_for(&repo).unwrap(), Some("First rule.\n"));
+    assert!(
+        rehydrated.dialect_for(&repo).unwrap().unwrap().rendered["specify"].contains("OpenSpec")
+    );
+
+    let mut damaged = first.clone();
+    damaged["realms"]["dialect"]
+        .as_object_mut()
+        .unwrap()
+        .remove("instructions_sha256");
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(
+        message.contains("instructions carry no sha256"),
+        "{message}"
+    );
+
+    let mut damaged = first.clone();
+    damaged["realms"]["dialect"]["instructions_sha256"] = json!("0".repeat(64));
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("instructions hash"), "{message}");
+
+    let mut damaged = first.clone();
+    damaged["realms"]["dialect"]["instructions"] = json!("not a phase map");
+    damaged["realms"]["dialect"]["instructions_sha256"] = json!(
+        brokkr_core::canonical::sha256_hex(&damaged["realms"]["dialect"]["instructions"])
+    );
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("instructions are malformed"), "{message}");
 
     std::fs::write(&house, "Changed rule.\n").unwrap();
     let changed = World::load(&dir.path().join("realms.json"))

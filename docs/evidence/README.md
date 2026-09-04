@@ -1,5 +1,9 @@
 # Evidence
 
+The [August 2026 SDD shelf](sdd-2026-08/README.md) preserves the eight retired
+hybrid change/feature pairs. They remain historical run evidence while new
+spec-driven work uses the realm's OpenSpec tree.
+
 Redacted exports of journals cited in the project's essays and decisions —
 produced by `brokkr export --redact`, which this repository built for itself
 ([PR #85](https://github.com/feedback-loop-ai/brokkr/pull/85), the wager's

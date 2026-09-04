@@ -47,6 +47,7 @@ fn bundle_with_sequence() -> Bundle {
         },
     );
     Bundle {
+        dialect_prompts: Default::default(),
         name: "test".into(),
         description: String::new(),
         cost: String::new(),

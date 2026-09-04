@@ -138,6 +138,9 @@ fn workspace() -> PathBuf {
 /// boxed registry gate and proposal-only table are its identity. Its dsh lane
 /// is the ninth: it pins the same charter, the Qwen3.8-Max hire and the overlay
 /// that enables page fetch and names its route.
+/// Decision 0042's second slice moves the two triage descendants again: the
+/// design route is now five phases, its new judges and validators are pinned,
+/// and the dialect-free SDD smith replaces the generic design implementer.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
@@ -153,7 +156,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "0bccae5970e7642b240a37b11a4aac82a69ac6c27ac27660ba595e0a67ec23e9",
+        "857faa96720282a84d21e710317ec9a3e069d89cbf2f5efa1225b051461af074",
     ),
     (
         "recipes/wager-harness",
@@ -161,7 +164,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
+        "f71e44929070afc4a3801515b27a532d09c96e96ae2bbe76e4f3260f3c0da1cc",
     ),
     (
         "recipes/research",
