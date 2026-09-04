@@ -770,6 +770,10 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// The ruling-2 review correction moves the three adopters again because
 /// intake and implement now name and receive the Git capability their
 /// charters require, while dead allow-lists no longer sit beside hands.
+/// Rulings 4 and 5 move all five for the declared reason: reviewer fixes
+/// disappear, implementers gain `oversized`, and every finding-bearing
+/// table gains its bounded return edges (or, for verify, the read-only
+/// charter and inputs that make the absence of such an edge explicit).
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -778,23 +782,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "f6f960da0503f2130200430bcf5877b5cf128a9b7fe2071c09b4dbc7c505892b",
+        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
     ),
     (
         "recipes/panel-review",
-        "80374e3fc58b6bc43ca28e2b250c7537578dce2e69d50a9af6d51a6673ab8e37",
+        "cebbbe0625ed02cc5a8770fa00af465f4bc7ddfdee8bd4c2b3b2285047867a20",
     ),
     (
         "recipes/sdd",
-        "0a1671eef1121cc2ed587adeb8586509f431920370a592b4f781a8b62684aa29",
+        "ef06afb5fe6e2ae549776f39eb906aa92a2ffce016ded346b7a36994c463e267",
     ),
     (
         "bundles/self",
-        "ac0fc14129a4e7cee3f44c11c1e1875a0fd4ed8b702fb5be9317391c2b3cb319",
+        "123bb389c43ad1804459093211bb03cc985d5cc75914c493109fcae3f65bef31",
     ),
     (
         "bundles/verify",
-        "162fef593349a481998130acbd082756357028874f2dee6d9949dcfb21982f25",
+        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
     ),
 ];
 
@@ -925,7 +929,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "5776aad40cb5df78336945ea90994ae0bb2fbe00a47849f93ff4f628a29f5377",
+        "89b691c34a4bac5cf880a0298cafbb5e1ce38a030603e56f391f4379bca0a25c",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \

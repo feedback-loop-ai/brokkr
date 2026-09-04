@@ -344,7 +344,11 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 .and_then(Value::as_str)
                 .unwrap_or("no detail recorded");
             let normal = Cursor::Park {
-                reason: format!("effect {effect_id} indeterminate: {detail}"),
+                reason: if detail.starts_with("GATE-MOVED-HEAD ") {
+                    "GATE-MOVED-HEAD".to_string()
+                } else {
+                    format!("effect {effect_id} indeterminate: {detail}")
+                },
             };
             conclude(state, normal);
             Ok(())

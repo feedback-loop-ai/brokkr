@@ -48,15 +48,6 @@
       "reason": "Security residuals never qualify as an acceptable verification outcome."
     },
     {
-      "id": "REVIEW-RESIDUAL-FIXED",
-      "from": "review",
-      "result": "residual",
-      "when": { "fixes_applied": true },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "The read-only reviewer claims it changed code on a residual verdict: charter violation, park-grade defect in the verification itself."
-    },
-    {
       "id": "REVIEW-RESIDUAL-OK",
       "from": "review",
       "result": "residual",
@@ -68,17 +59,8 @@
       "id": "REVIEW-CLEAN",
       "from": "review",
       "result": "clean",
-      "when": { "fixes_applied": false },
       "next": "done",
       "reason": "Verified clean. This bundle's reviewer never applies fixes."
-    },
-    {
-      "id": "REVIEW-CLEAN-FIXED",
-      "from": "review",
-      "result": "clean",
-      "next": "stop",
-      "severity": "hard",
-      "reason": "The read-only reviewer claims it changed code: charter violation, park-grade defect in the verification itself."
     }
   ]
 }

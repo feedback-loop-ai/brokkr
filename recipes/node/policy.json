@@ -45,6 +45,14 @@
       "reason": "Implementer blocked; report the blocker, never silently continue."
     },
     {
+      "id": "IMPL-OK-DOCS-RETURN",
+      "from": "implement",
+      "result": "complete",
+      "when": { "fixes_docs_only": true },
+      "next": "review",
+      "reason": "A returned implement changed only declared docs; review the answer without rerunning code verification (decision 0041)."
+    },
+    {
       "id": "IMPL-OK",
       "from": "implement",
       "result": "complete",
@@ -52,12 +60,21 @@
       "reason": "Implementation complete and committed."
     },
     {
+      "id": "VERIFY-FAIL-EXHAUSTED",
+      "from": "verify",
+      "result": "fail",
+      "when": { "visits_implement_gte": 3 },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "Verification is still red after three implement visits; stop at the bound."
+    },
+    {
       "id": "VERIFY-FAIL",
       "from": "verify",
       "result": "fail",
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Failures survived; not shippable."
+      "next": "implement",
+      "severity": "flagged",
+      "reason": "Return the failing output to the implementer (decision 0041)."
     },
     {
       "id": "VERIFY-PASS",
@@ -79,7 +96,6 @@
       "from": "review",
       "result": "residual",
       "when": {
-        "has_security_residual": true,
         "visits_implement_gte": 3,
         "max_residual_severity_above": "medium"
       },
@@ -92,7 +108,6 @@
       "from": "review",
       "result": "residual",
       "when": {
-        "has_security_residual": true,
         "visits_implement_gte": 3,
         "max_residual_severity_above": "low"
       },
@@ -104,73 +119,43 @@
       "from": "review",
       "result": "residual",
       "when": {
-        "has_security_residual": true,
         "visits_implement_gte": 3,
-        "fixes_applied": true,
         "max_residual_severity_above": "none",
         "max_residual_severity_at_most": "low"
       },
       "next": "ship",
       "severity": "flagged",
-      "reason": "Two reforgings spent; the surviving security residual is POSITIVELY low or info with fixes applied, so it ships as tracked debt named in the notes. An absent or unranked severity never takes this arm (decision 0022)."
-    },
-    {
-      "id": "REVIEW-REFORGE-EXHAUSTED-UNFIXED",
-      "from": "review",
-      "result": "residual",
-      "when": {
-        "has_security_residual": true,
-        "visits_implement_gte": 3
-      },
-      "park": true,
-      "reason": "Two reforgings spent and a low or info security residual survives unfixed; the run parks awaiting the operator, the same door a medium takes (decision 0022)."
+      "reason": "Two returns spent; a positively low or info residual ships as tracked debt named in the notes. Silence never earns this arm (decision 0041)."
     },
     {
       "id": "REVIEW-REFORGE",
       "from": "review",
       "result": "residual",
       "when": {
-        "has_security_residual": true
+        "max_residual_severity_above": "low"
       },
       "next": "implement",
       "severity": "flagged",
-      "reason": "Security residual, any severity: back into the fire. Implement answers the finding it is handed, then verify and review rule again (decision 0022)."
-    },
-    {
-      "id": "REVIEW-RESIDUAL-ABOVE-MEDIUM",
-      "from": "review",
-      "result": "residual",
-      "when": {
-        "max_residual_severity_above": "medium"
-      },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Residual severity above medium; not shippable."
+      "reason": "A residual above low, in any dimension, returns to implement while the bounded heats remain (decision 0041)."
     },
     {
       "id": "REVIEW-RESIDUAL-OK",
       "from": "review",
       "result": "residual",
-      "next": "ship",
-      "severity": "flagged",
-      "reason": "Non-security residuals at or below medium proceed only as tracked debt named in the notes."
-    },
-    {
-      "id": "REVIEW-CLEAN-NO-FIXES",
-      "from": "review",
-      "result": "clean",
       "when": {
-        "fixes_applied": false
+        "max_residual_severity_above": "none",
+        "max_residual_severity_at_most": "low"
       },
       "next": "ship",
-      "reason": "Review clean and no code changed; verification evidence stands."
+      "severity": "flagged",
+      "reason": "A low or info residual proceeds only as tracked debt named in the notes."
     },
     {
       "id": "REVIEW-CLEAN",
       "from": "review",
       "result": "clean",
-      "next": "verify",
-      "reason": "Review clean but fixes were applied; re-verify before shipping."
+      "next": "ship",
+      "reason": "Review clean and no code changed; verification evidence stands."
     },
     {
       "id": "SHIP-DRIFT",

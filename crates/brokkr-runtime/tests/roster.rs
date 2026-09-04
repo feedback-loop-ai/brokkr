@@ -267,3 +267,78 @@ fn night_shift_keeps_one_attempt_on_every_roster_gate() {
         );
     }
 }
+
+#[test]
+fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
+    let root = workspace();
+    for parent in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
+            let bundle_path = entry.path().join("bundle.json");
+            if !bundle_path.is_file() {
+                continue;
+            }
+            let bundle = json(&bundle_path);
+            let compiled =
+                Bundle::compile_with(&entry.path(), &root.join("agents"), &root.join("adapters"))
+                    .unwrap_or_else(|error| panic!("{}: {error}", bundle_path.display()));
+            if let Some(implement) = compiled.seats.get("implement") {
+                assert!(
+                    implement.results.iter().any(|result| result == "oversized"),
+                    "{} does not give implementer the oversized verdict",
+                    bundle_path.display()
+                );
+            }
+            let policy_path = entry
+                .path()
+                .join(bundle["policy"].as_str().unwrap_or("policy.json"));
+            walk(&bundle, &mut Vec::new(), &mut |path, value| {
+                assert_ne!(
+                    value.as_str(),
+                    Some("fixes_applied"),
+                    "{} declares fixes_applied at {}",
+                    bundle_path.display(),
+                    path.join(".")
+                );
+            });
+            if !policy_path.is_file() {
+                continue;
+            }
+            let policy = json(&policy_path);
+            walk(&policy, &mut Vec::new(), &mut |path, value| {
+                assert_ne!(
+                    value.as_str(),
+                    Some("fixes_applied"),
+                    "{} reads fixes_applied at {}",
+                    policy_path.display(),
+                    path.join(".")
+                );
+            });
+
+            let has_triage = policy["phases"]
+                .as_array()
+                .is_some_and(|phases| phases.iter().any(|phase| phase == "triage"));
+            if has_triage {
+                let rules = policy["rules"].as_array().unwrap();
+                assert!(
+                    rules.iter().any(|rule| {
+                        rule["from"] == "implement"
+                            && rule["result"] == "oversized"
+                            && rule["next"] == "triage"
+                    }),
+                    "{} has triage but no oversized return edge",
+                    policy_path.display()
+                );
+                assert!(
+                    rules.iter().any(|rule| {
+                        rule["from"] == "implement"
+                            && rule["result"] == "oversized"
+                            && rule["when"]["visits_triage_gte"] == 2
+                            && rule["park"] == true
+                    }),
+                    "{} has triage but no exhausted oversized park",
+                    policy_path.display()
+                );
+            }
+        }
+    }
+}

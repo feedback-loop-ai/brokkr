@@ -4,6 +4,9 @@
 //! when decision 0019's closing sweep changed their living prose. Two agents
 //! deliberately share a charter file — identical bytes, differing only in
 //! tools — so nothing is copied to make the roster look tidy.
+//! Decision 0041 rulings 4 and 5 deliberately move the implement and review
+//! pins: implementers learn the bounded-return vocabulary, while every judge
+//! becomes read-only and reports the return instead of applying it.
 
 use std::path::PathBuf;
 
@@ -26,11 +29,11 @@ const CHARTERS: [(&str, &str); 15] = [
     ),
     (
         "implementer-speckit.md",
-        "8b4b3b12f0df64a695a412b42288a2c112bbed61e55ae7bdc77c588f080a0564",
+        "5853f85c7e8ee053b8085af1610c59dd455d15216b70490e80bae533835039a0",
     ),
     (
         "implementer.md",
-        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
+        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
         "intake-speckit.md",
@@ -50,27 +53,27 @@ const CHARTERS: [(&str, &str); 15] = [
     ),
     (
         "review-correctness.md",
-        "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
+        "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
     ),
     (
         "review-adversarial.md",
-        "d7182c21454afd5efeade166f3433fc2eeb1e54cac7dc8dbad20a0fec6907a1a",
+        "b188aed4546a8af672835f7fea2de1ac1c13d1f6ae783baafd8644e440743251",
     ),
     (
         "review-chief.md",
-        "aa2af882e7413b3727e49eb043bd9fdce55bece36d4d5cadab82de74ad65205d",
+        "313c247e6c7b187423a7f47b17e655bde827982688939bd4c5fc8bfe3f367297",
     ),
     (
         "review-security.md",
-        "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
+        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
     ),
     (
         "review-spec-compliance.md",
-        "416f9e17378ab421318a9deee9ba156ab7b8b2e793b6c56fd77253354fe78f75",
+        "8eef2c37b4cd882ca4af4138372506c6bb15f58a46f9c57a7aea3afd127a9c40",
     ),
     (
         "reviewer.md",
-        "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
+        "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
     ),
     (
         "shipper.md",

@@ -9,11 +9,12 @@ partial failure, resume after a crash, an empty collection, a value at
 the boundary of its range. A finding you cannot state as concrete
 inputs → wrong output is not a finding; drop it rather than pad the
 report. Severity vocabulary: none|info|low|medium|high|critical.
-Strictly read-only: no fixes, no commits; `fixes_applied: false` always.
+Strictly read-only: no fixes and no commits. A finding above low is a
+return to implement, not a fix by this seat.
 
-Result: `clean` with `inputs: {"fixes_applied": false}` · `residual`
+Result: `clean` · `residual`
 with `inputs: {"max_residual_severity": "<severity>",
-"has_security_residual": <bool>, "fixes_applied": false}` · or
+"has_security_residual": <bool>}` · or
 `security-hold` for any unresolved high/critical finding — one hold from
 you stops the whole panel: that is the design. The aggregate takes the
 worst member verdict; severities max; security flags OR.

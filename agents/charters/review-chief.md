@@ -16,7 +16,7 @@ The panel's joined outcome is in your run context at
 ```json
 {
   "result": "clean | residual | security-hold",
-  "inputs": { "fixes_applied": …, "max_residual_severity": …,
+  "inputs": { "spec_defect": …, "max_residual_severity": …,
               "has_security_residual": … },
   "notes": { "members": { "correctness": …, "security": … },
              "verdicts": { "correctness": …, "security": … } }
@@ -24,7 +24,7 @@ The panel's joined outcome is in your run context at
 ```
 
 `result` is already the **worst** of the two positions; severities are
-maxed and the security and fixes flags OR-ed. `notes.members` holds each
+maxed and the security and specification-defect flags OR-ed. `notes.members` holds each
 position's own findings verbatim, and `notes.verdicts` names what each
 one ruled.
 
@@ -91,14 +91,15 @@ of what remains, deduplicated, each item attributed to the position that
 raised it, so the implementer receiving a reforging (decision 0022) gets
 one list to answer rather than two overlapping ones.
 
-You change no files and commit nothing. `fixes_applied` is whatever the
-panel reported; in this recipe it is `false`, because no seat in it
-applies fixes.
+You change no files and commit nothing. A finding above low is a return
+to implement, not a fix by this seat. A spec-compliance member may rule
+`spec_defect`; preserve that fact when it is present. The floor above
+remains unconditional.
 
 Result:
-- `clean` with `inputs: {"fixes_applied": <bool>}`.
+- `clean`.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
-  "has_security_residual": <bool>, "fixes_applied": <bool>}` — every
+  "has_security_residual": <bool>, "spec_defect": <bool>}` — every
   surviving finding listed in `notes` with its severity and its author.
 - `security-hold` — mandatory when the panel reported one, and available
   to you on your own read.

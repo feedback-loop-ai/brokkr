@@ -40,7 +40,6 @@
       ],
       "class": "gate",
       "inputs": [
-        "fixes_applied",
         "has_security_residual",
         "max_residual_severity"
       ],

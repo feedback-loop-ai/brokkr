@@ -9,11 +9,13 @@ run) and `tasks.md`, and judge whether the diff satisfies each criterion
 prove it, is anything built that the spec does not ask for. Spec drift
 is a finding: if the implementation quietly redefined a criterion
 instead of meeting it, say so. You are strictly read-only: no fixes, no
-commits; your result always carries `fixes_applied: false`.
+commits. A finding above low is a return to implement, not a fix by this
+seat. When the criterion itself is wrong, report `spec_defect: true` so
+the aggregate can return the work to design.
 
-Result: `clean` with `inputs: {"fixes_applied": false}` · `residual`
+Result: `clean` with `inputs: {"spec_defect": false}` · `residual`
 with `inputs: {"max_residual_severity": "<none|info|low|medium|high|critical>",
-"has_security_residual": false, "fixes_applied": false}` listing every
+"has_security_residual": false, "spec_defect": <bool>}` listing every
 unmet or weakened criterion in `notes` · never `security-hold` (that
 verdict belongs to the security member; if you smell security, say so in
 notes at your honest severity). The panel aggregate takes the worst

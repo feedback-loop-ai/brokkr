@@ -2,6 +2,9 @@
 //! current first hire and the charter recorded in the compiled manifest.
 //! The fable pins deliberately moved to `claude-fable-5-1` under ruling 1;
 //! ruling 2 moved tools and model choices into one office definition.
+//! Rulings 4 and 5 move the charter witnesses again: judges no longer fix,
+//! implementers answer returned findings, and spec compliance can return a
+//! defective specification to design.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -82,7 +85,7 @@ const PANEL_REVIEW: &Roster = &[
     (
         "implement",
         "claude-opus-5",
-        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
+        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
         "verify",
@@ -97,12 +100,12 @@ const PANEL_REVIEW: &Roster = &[
     (
         "review:correctness",
         "gpt-5.6-sol",
-        "ce423d91104cd3e298c49b22a7ebf96182fd2cbde71bd4abc0f147f568aa3001",
+        "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
     ),
     (
         "review:security",
         "claude-fable-5-1",
-        "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
+        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
     ),
 ];
 
@@ -115,7 +118,7 @@ const SDD: &Roster = &[
     (
         "implement",
         "claude-opus-5",
-        "8b4b3b12f0df64a695a412b42288a2c112bbed61e55ae7bdc77c588f080a0564",
+        "5853f85c7e8ee053b8085af1610c59dd455d15216b70490e80bae533835039a0",
     ),
     (
         "verify",
@@ -130,12 +133,12 @@ const SDD: &Roster = &[
     (
         "review:spec-compliance",
         "claude-opus-5",
-        "416f9e17378ab421318a9deee9ba156ab7b8b2e793b6c56fd77253354fe78f75",
+        "8eef2c37b4cd882ca4af4138372506c6bb15f58a46f9c57a7aea3afd127a9c40",
     ),
     (
         "review:security",
         "claude-fable-5-1",
-        "555a59377d31565a87489664571e23015a958839bea50a226471a99e8b11b869",
+        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
     ),
     (
         "design:chief",
@@ -162,7 +165,7 @@ const SELF: &Roster = &[
     (
         "implement",
         "claude-opus-5",
-        "094297953525b949d5a5f26c16e97a73602320150bd40c3951838c93d8d7e35a",
+        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
         "verify",
@@ -172,7 +175,7 @@ const SELF: &Roster = &[
     (
         "review",
         "claude-fable-5-1",
-        "6015367df641c90cf74131b37cda475c12899a0cece1d90ad167a47860e12df8",
+        "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
     ),
     (
         "ship",
@@ -318,20 +321,30 @@ fn the_speckit_check_step_stays_inline() {
         .is_none());
 }
 
-/// The 0007 declaration an adopting seat used to write inline is the one
-/// the 0007 DEFAULT already computes, so dropping it changed nothing
-/// about which facts the seat may supply.
+/// Rulings 4 and 5 deliberately change the 0007 declarations: judge-fix
+/// state is gone everywhere, and only the design-bearing table admits the
+/// specification-defect finding that its panel can return.
 #[test]
-fn adoption_did_not_change_any_seats_declared_inputs() {
-    for relative in ["bundles/self", "recipes/panel-review", "recipes/sdd"] {
+fn adopting_review_seats_declare_only_the_findings_their_tables_can_read() {
+    for (relative, expected) in [
+        ("bundles/self", vec!["max_residual_severity"]),
+        (
+            "recipes/panel-review",
+            vec!["has_security_residual", "max_residual_severity"],
+        ),
+        (
+            "recipes/sdd",
+            vec![
+                "spec_defect",
+                "has_security_residual",
+                "max_residual_severity",
+            ],
+        ),
+    ] {
         let bundle = compile(relative);
         assert_eq!(
             bundle.seats["review"].inputs,
-            vec![
-                "fixes_applied".to_string(),
-                "has_security_residual".to_string(),
-                "max_residual_severity".to_string(),
-            ],
+            expected.into_iter().map(str::to_string).collect::<Vec<_>>(),
             "{relative}"
         );
     }

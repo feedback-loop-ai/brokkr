@@ -13,6 +13,7 @@ fn bundle_with_sequence() -> Bundle {
     seats.insert(
         "review".into(),
         Seat {
+            has_gate: false,
             results: vec!["clean".into()],
             limits: Limits::default(),
             inputs: Vec::new(),

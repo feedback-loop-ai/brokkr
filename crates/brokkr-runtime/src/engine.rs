@@ -92,6 +92,9 @@ pub struct Engine {
     /// are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
+    /// Present only while this process is executing a gate-bearing effect.
+    /// The two observations are journaled as ordinary checkpoints.
+    active_gate_head: Option<Option<String>>,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -189,6 +192,7 @@ impl Engine {
             world,
             current_cause: None,
             secrets_file: None,
+            active_gate_head: None,
         })
     }
 
@@ -227,6 +231,7 @@ impl Engine {
             world: None,
             current_cause: None,
             secrets_file: None,
+            active_gate_head: None,
         })
     }
 
@@ -267,6 +272,7 @@ impl Engine {
             world: crate::realms::World::from_manifest(&pinned)?,
             current_cause: None,
             secrets_file: None,
+            active_gate_head: None,
         })
     }
 
@@ -371,11 +377,11 @@ impl Engine {
         match state.cursor.clone() {
             Cursor::Start => {
                 let initial = self.bundle.machine.initial.clone();
-                let payload = self.phase_entered_payload(&initial);
+                let payload = self.phase_entered_payload(&initial, &state);
                 self.append(EventType::PhaseEntered, payload, None)?;
             }
             Cursor::EnterPhase { phase } => {
-                let payload = self.phase_entered_payload(&phase);
+                let payload = self.phase_entered_payload(&phase, &state);
                 self.append(EventType::PhaseEntered, payload, None)?;
             }
             Cursor::RequestEffect => self.request_or_finish(&state)?,
@@ -431,7 +437,7 @@ impl Engine {
                     EventType::EffectIndeterminate,
                     json!({
                         "effect_id": effect_id,
-                        "attempt_id": attempt_id,
+                        "attempt_id": attempt_id.clone(),
                         "reason": "engine restarted while the attempt was in flight; \
                                    completion cannot be established",
                     }),
@@ -440,9 +446,14 @@ impl Engine {
             }
             Cursor::Decide { effect_id, result } => self.decide(&state, &effect_id, result)?,
             Cursor::Park { reason } => {
+                let evidence = if reason == "GATE-MOVED-HEAD" {
+                    gate_head_evidence(events)
+                } else {
+                    json!({})
+                };
                 self.append(
                     EventType::RunParked,
-                    json!({"reason": reason, "evidence": {}}),
+                    json!({"reason": reason, "evidence": evidence}),
                     None,
                 )?;
             }
@@ -463,6 +474,39 @@ impl Engine {
     }
 
     fn append(
+        &mut self,
+        event_type: EventType,
+        payload: Value,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, EngineError> {
+        if matches!(
+            event_type,
+            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
+        ) {
+            if let Some(start) = self.active_gate_head.take() {
+                let end = self.repo.as_deref().and_then(git_head);
+                let effect_id = payload
+                    .get("effect_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                if start != end {
+                    let evidence = json!({"head_at_start": start, "head_at_end": end});
+                    return self.append_raw(
+                        EventType::EffectIndeterminate,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "reason": format!("GATE-MOVED-HEAD {evidence}"),
+                        }),
+                        attempt_id,
+                    );
+                }
+            }
+        }
+        self.append_raw(event_type, payload, attempt_id)
+    }
+
+    fn append_raw(
         &mut self,
         event_type: EventType,
         payload: Value,
@@ -783,6 +827,9 @@ impl Engine {
         };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
+        if seat.has_gate {
+            self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+        }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
@@ -1511,11 +1558,16 @@ impl Engine {
             if phase == self.bundle.protected_phase {
                 if let Some(head) = git_head(repo) {
                     inputs.insert("reviewed_heads".into(), json!({ key: &head }));
-                    // Decision 0039: what the protected phase itself
-                    // committed since it was entered, classified — so a
-                    // table can send a docs-only fix to ship without
-                    // buying the whole verify again. The same observed
-                    // head the record above vouches for, read once.
+                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
+                    }
+                }
+            }
+            // Decision 0041 ruling 5: the smith now owns every fix. On a
+            // returning implement visit, classify only that visit's delta;
+            // absence remains the answer when no entry head was recorded.
+            if phase == "implement" {
+                if let Some(head) = git_head(repo) {
                     if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
                         inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                     }
@@ -2718,7 +2770,7 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
                 .expect("panels have members");
             let mut severity_rank = 0usize;
             let mut has_security = false;
-            let mut fixes_applied = false;
+            let mut spec_defect = false;
             for (_, _, payload) in &parsed {
                 if let Some(inputs) = payload.get("inputs").and_then(Value::as_object) {
                     if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str) {
@@ -2730,14 +2782,18 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
                         .get("has_security_residual")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
-                    fixes_applied |= inputs
-                        .get("fixes_applied")
+                    spec_defect |= inputs
+                        .get("spec_defect")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                 }
             }
             let mut inputs = Map::new();
-            inputs.insert("fixes_applied".into(), Value::Bool(fixes_applied));
+            // Backward-compatible evidence for frozen/third-party tables:
+            // judges never fix, so the only lawful value is false. Shipped
+            // tables no longer declare or read it and therefore drop it.
+            inputs.insert("fixes_applied".into(), Value::Bool(false));
+            inputs.insert("spec_defect".into(), Value::Bool(spec_defect));
             if worst.1 == "residual" || severity_rank > 0 {
                 inputs.insert(
                     "max_residual_severity".into(),
@@ -2929,9 +2985,11 @@ impl Engine {
     /// Optional and absent by default — no repository, no head — and
     /// published as `contracts/phase-entered-head.v1.schema.json`; `fold`
     /// never reads it.
-    fn phase_entered_payload(&self, phase: &str) -> Value {
+    fn phase_entered_payload(&self, phase: &str, state: &RunState) -> Value {
         let mut payload = json!({"phase": phase});
-        if phase == self.bundle.protected_phase {
+        let returning_implement =
+            phase == "implement" && state.visits.get("implement").copied().unwrap_or(0) > 0;
+        if phase == self.bundle.protected_phase || returning_implement {
             if let Some(head) = self.repo.as_deref().and_then(git_head) {
                 payload["head"] = Value::String(head);
             }
@@ -3046,6 +3104,23 @@ fn git_dirty(repo: &std::path::Path) -> bool {
         .output()
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(true) // unreadable repo counts as dirty: fail closed
+}
+
+/// Recover the raw observations carried by the most recent gate defect. The
+/// indeterminate reason is an existing string field; the structured copy is
+/// attached to `run/parked`, the contract's evidence envelope.
+fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
+    events
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == EventType::EffectIndeterminate)
+        .find_map(|event| {
+            event.payload["reason"]
+                .as_str()?
+                .strip_prefix("GATE-MOVED-HEAD ")
+                .and_then(|raw| serde_json::from_str(raw).ok())
+        })
+        .unwrap_or(json!({}))
 }
 
 #[cfg(test)]

@@ -321,75 +321,120 @@ fn every_runtime_condition_shape_is_strict() {
     .is_err());
 }
 
-/// The reviewer's own repro, pinned against the REAL self table: a
-/// security residual whose severity is ABSENT (or the contradictory
-/// "none") at the exhausted bound never ships as debt — it falls to the
-/// unfixed arm's park, the operator's door. The at-most predicate is
-/// fail-closed: silence never earns the debt arm, an unranked token is
-/// a refusal to rule, and the ranked cases draw the boundary at low.
+fn shipped_machine(relative: &str) -> Machine {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    Machine::from_table(&table).unwrap()
+}
+
+fn ruling(machine: &Machine, phase: &str, result: &str, inputs: Value) -> (String, String) {
+    match machine.evaluate(phase, result, inputs.as_object().unwrap()) {
+        Outcome::Ruling {
+            rule_id,
+            next_phase,
+            ..
+        } => (rule_id, next_phase),
+        other => panic!("expected ruling for ({phase}, {result}), got {other:?}"),
+    }
+}
+
+/// Decision 0041 ruling 5, point-blank against shipped tables: every
+/// return and every exhaustion arm is independently earned.
 #[test]
-fn an_absent_or_none_severity_at_the_bound_parks_and_never_ships() {
-    let table: Value = serde_json::from_str(
-        &std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bundles/self/policy.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let machine = Machine::from_table(&table).unwrap();
-    let at_bound = |severity: Option<&str>| {
-        let mut m = json!({
-            "has_security_residual": true,
-            "fixes_applied": true,
-            "visits_implement": 3,
-        });
-        if let Some(s) = severity {
-            m["max_residual_severity"] = json!(s);
-        }
-        m.as_object().unwrap().clone()
-    };
+fn every_finding_edge_and_bound_has_a_table_arm() {
+    let machine = shipped_machine("../../bundles/self/policy.json");
 
-    // Absent severity, bound spent: park, not ship.
-    match machine.evaluate("review", "residual", &at_bound(None)) {
-        Outcome::Park { rule_id, .. } => {
-            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
-        }
-        other => panic!("silence must take the operator's door, got {other:?}"),
+    assert_eq!(
+        ruling(&machine, "verify", "fail", json!({"visits_implement": 2})),
+        ("VERIFY-FAIL".into(), "implement".into())
+    );
+    assert_eq!(
+        ruling(&machine, "verify", "fail", json!({"visits_implement": 3})),
+        ("VERIFY-FAIL-EXHAUSTED".into(), "stop".into())
+    );
+    for severity in ["medium", "high", "critical"] {
+        assert_eq!(
+            ruling(
+                &machine,
+                "review",
+                "residual",
+                json!({"visits_implement": 2, "max_residual_severity": severity})
+            )
+            .1,
+            "implement",
+            "{severity} must return before exhaustion"
+        );
     }
-
-    // The contradictory "none": the same door.
-    match machine.evaluate("review", "residual", &at_bound(Some("none"))) {
-        Outcome::Park { rule_id, .. } => {
-            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-UNFIXED");
-        }
-        other => panic!("'none' must take the operator's door, got {other:?}"),
-    }
-
-    // info and low earn the debt arm; medium takes its own park.
     for severity in ["info", "low"] {
-        match machine.evaluate("review", "residual", &at_bound(Some(severity))) {
-            Outcome::Ruling {
-                rule_id,
-                next_phase,
-                ..
-            } => {
-                assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-DEBT", "{severity}");
-                assert_eq!(next_phase, "ship", "{severity}");
-            }
-            other => panic!("{severity} earns the debt arm, got {other:?}"),
-        }
+        assert_eq!(
+            ruling(
+                &machine,
+                "review",
+                "residual",
+                json!({"visits_implement": 2, "max_residual_severity": severity,
+                       "has_security_residual": true})
+            )
+            .1,
+            "ship",
+            "{severity} is named debt without a return"
+        );
     }
-    match machine.evaluate("review", "residual", &at_bound(Some("medium"))) {
-        Outcome::Park { rule_id, .. } => {
-            assert_eq!(rule_id, "REVIEW-REFORGE-EXHAUSTED-MEDIUM");
-        }
-        other => panic!("medium parks, got {other:?}"),
-    }
-
-    // An unranked token is a refusal to rule, never a quiet arm.
+    assert_eq!(
+        ruling(
+            &machine,
+            "review",
+            "residual",
+            json!({"visits_implement": 3, "max_residual_severity": "high"})
+        )
+        .1,
+        "stop"
+    );
     assert!(matches!(
-        machine.evaluate("review", "residual", &at_bound(Some("beyond-critical"))),
-        Outcome::NoRule { problem: Some(_) }
+        machine.evaluate(
+            "review",
+            "residual",
+            json!({"visits_implement": 3, "max_residual_severity": "medium"})
+                .as_object()
+                .unwrap()
+        ),
+        Outcome::Park { ref rule_id, .. } if rule_id == "REVIEW-REFORGE-EXHAUSTED-MEDIUM"
+    ));
+    assert_eq!(
+        ruling(
+            &machine,
+            "implement",
+            "complete",
+            json!({"fixes_docs_only": true})
+        ),
+        ("IMPL-OK-DOCS-RETURN".into(), "review".into())
+    );
+    assert_eq!(ruling(&machine, "review", "clean", json!({})).1, "ship");
+    assert_eq!(
+        ruling(&machine, "review", "security-hold", json!({})).1,
+        "stop"
+    );
+
+    let sdd = shipped_machine("../../recipes/sdd/policy.json");
+    assert_eq!(
+        ruling(
+            &sdd,
+            "review",
+            "residual",
+            json!({"spec_defect": true, "visits_design": 2,
+                   "visits_implement": 3, "max_residual_severity": "critical"})
+        )
+        .1,
+        "design"
+    );
+    assert!(matches!(
+        sdd.evaluate(
+            "review",
+            "residual",
+            json!({"spec_defect": true, "visits_design": 3})
+                .as_object()
+                .unwrap()
+        ),
+        Outcome::Park { ref rule_id, .. } if rule_id == "REVIEW-SPEC-DEFECT-EXHAUSTED"
     ));
 }
 

@@ -18,7 +18,8 @@
       "results": [
         "complete",
         "broken",
-        "blocked"
+        "blocked",
+        "oversized"
       ],
       "class": "work",
       "limits": {

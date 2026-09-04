@@ -96,38 +96,43 @@ fn workspace() -> PathBuf {
 /// table that rules differently is a different strategy, and this is
 /// where that is said. `recipes/node`, `recipes/preflight` and
 /// `bundles/verify` do not derive from `fast` and did not move.
+/// Decision 0041 rulings 4 and 5 move every witness here: gates no longer
+/// advertise or route on judge-authored fixes, implement gains its
+/// reserved `oversized` verdict, and tables with an implement phase gain
+/// bounded finding returns. The two verdict-only strategies move because
+/// their reviewer charter and declared inputs become honestly read-only.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "f6f960da0503f2130200430bcf5877b5cf128a9b7fe2071c09b4dbc7c505892b",
+        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
     ),
     (
         "recipes/node",
-        "2ebd5ac5ad6a11d9e247edc224aca4872ebf5b3959dabfa7aca4d245ed129c2b",
+        "d165e301c73b2840bf963b5434524bfba399521304898debe405846f13ff4cf9",
     ),
     (
         "recipes/preflight",
-        "ffa8c3a07b999bf9026edfde9fcf5886c471983a778480ab37bd3dc1c5590111",
+        "1b36ccdcdd4d88d5bd3278b4a7f690bada5b84f38d4d2e3c8aa2c1b225ca7115",
     ),
     (
         "recipes/ember",
-        "c3572a9a0543b2b23e94bc315d5ecb8c09575060268cc158fe7d9e12532733e2",
+        "fd7458aa3b823cb4c76bb241fdc43ede78e7f8eb084bbe4ee05e1657d4366937",
     ),
     (
         "recipes/crucible",
-        "b955888721e096e36a3d3913549de68c3ded0feadd453106762b73b13603dad7",
+        "1980125c1910fdc1e2cc5e272645c03d1154fdc976f434deb8f1d66ded321ecd",
     ),
     (
         "recipes/night-shift",
-        "e008816de894763365905f1a667ae4528db976d2367bb8ebbc4a30dc38ad275e",
+        "28eff5305ca53951687d2b1ed8d9e1a5a49539b41bf4bff20ef043d7f7602e21",
     ),
     (
         "recipes/wager-harness",
-        "6ea8645805e3dce76690ac8dbf71e2c9301c07cc40c422d0f3eb9b4e04963998",
+        "2b4d5dc5f4520785f0ee0404a0fe3e5c363035b080e42fe8a9e40ea483b45125",
     ),
     (
         "bundles/verify",
-        "162fef593349a481998130acbd082756357028874f2dee6d9949dcfb21982f25",
+        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
     ),
 ];
 

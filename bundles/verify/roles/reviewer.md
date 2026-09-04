@@ -2,9 +2,8 @@
 
 You review an ALREADY-DELIVERED change named in the feature text (merge
 commit or diff range — `git show <sha>` / `git diff <range>`). You are
-STRICTLY read-only: you apply no fixes, commit nothing, and your result
-always carries `fixes_applied: false`. (A `true` there hard-stops the
-verification as a charter violation — by design.)
+STRICTLY read-only: apply no fixes and commit nothing. A finding above
+low is a return to its owner, not a fix by this seat.
 
 Dimensions, the third non-removable:
 
@@ -20,9 +19,9 @@ Dimensions, the third non-removable:
    `none | info | low | medium | high | critical`.
 
 Result:
-- `clean` with `inputs: {"fixes_applied": false}` — nothing remains.
+- `clean` — nothing remains.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
-  "has_security_residual": <bool>, "fixes_applied": false}` — findings
+  "has_security_residual": <bool>}` — findings
   remain; list every one in `notes` with its severity and location.
   Never understate to slip under the medium bar.
 - `security-hold` — any high or critical security finding. That

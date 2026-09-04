@@ -67,6 +67,9 @@ pub fn is_engine_owned(name: &str) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct Seat {
+    /// True when this seat or one of its nested sites is a gate. The
+    /// runtime uses the compiled fact to enforce a stable repository HEAD.
+    pub has_gate: bool,
     pub results: Vec<String>,
     pub limits: Limits,
     /// Typed facts this seat may supply (decision 0007). Anything else a
@@ -197,6 +200,19 @@ impl SeatClass {
             "gate" => Some(SeatClass::Gate),
             _ => None,
         }
+    }
+}
+
+/// Compilation has already validated every `class` occurrence. Preserve the
+/// one runtime fact ruling 4 needs without teaching the engine bundle JSON.
+fn contains_gate_class(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => {
+            fields.get("class").and_then(Value::as_str) == Some("gate")
+                || fields.values().any(contains_gate_class)
+        }
+        Value::Array(values) => values.iter().any(contains_gate_class),
+        _ => false,
     }
 }
 
@@ -755,7 +771,15 @@ impl Bundle {
                     .rules
                     .iter()
                     .any(|rule| rule.from == *phase && rule.result == *result);
-                if !covered {
+                // Decision 0041 reserves the implementer's `oversized`
+                // verdict before ruling 6 seats triage. Until that phase
+                // exists there can be no edge to it; the unmatched verdict
+                // parks fail-closed. Once triage exists, ordinary coverage
+                // is mandatory and the roster test pins both bounded arms.
+                let reserved_oversized = phase == "implement"
+                    && result == "oversized"
+                    && !machine.phases.iter().any(|known| known == "triage");
+                if !covered && !reserved_oversized {
                     return Err(CompileError::Invalid(format!(
                         "seat '{phase}' may emit '{result}' but no rule covers it; \
                          result variants without an outer rule are rejected"
@@ -918,6 +942,7 @@ impl Bundle {
             seats.insert(
                 phase.clone(),
                 Seat {
+                    has_gate: contains_gate_class(raw),
                     results,
                     limits,
                     inputs,
