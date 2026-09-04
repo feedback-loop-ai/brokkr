@@ -39,8 +39,7 @@ in one run, and the gate refuses an eleventh entry.
 `recipes/research-dsh` extends this recipe and seats the researcher
 inline on dsh, the way night-shift seats its implementer: the same
 charter bytes as a role file, `dashscope/qwen3.8-max`, and one
-overlay (`drivers/research-web.yml`) that turns dsh's page fetch on
-and names the route,
+overlay (`drivers/research-web.yml`) that names the Model Studio route,
 because dsh expresses no tool list. The weekly workflow runs that lane;
 the operator's skill runs this one.
 

@@ -52,7 +52,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: the harness is the one the adapter measured
         run: |
-          npm install -g @deepseek-ai/dsh@0.1.0-rc.6
+          npm install -g @deepseek-ai/dsh@0.1.2-rc.1
           dsh -V
           dsh --profile headless --dump-default-config >/dev/null
       - name: the engine

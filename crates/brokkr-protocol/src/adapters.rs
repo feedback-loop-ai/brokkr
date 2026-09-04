@@ -774,10 +774,18 @@ fn add_usage(session_meta: &mut Map<String, Value>, key: &str, value: u64) {
 /// double-count. So `DSH_INPUT_CACHE_READ` is folded back into the
 /// input count below rather than leaving one journal key meaning one
 /// thing for codex and another for dsh.
-const DSH_USAGE: [(&str, &str); 3] = [
+///
+/// dsh 0.1.2-rc.1 (re-measured 2026-09-04, one real headless session)
+/// adds `totalTokens`, `reasoningTokens` and a zero `cacheReadTokens` to
+/// the same object. The total is a sum the journal never stores twice;
+/// the reasoning count is decision 0035's `reasoning_output_tokens`, a
+/// reported subset of `output_tokens`, and `positive_count` keeps a
+/// reported zero out of the record as the contract requires.
+const DSH_USAGE: [(&str, &str); 4] = [
     ("inputTokens", "input_tokens"),
     ("outputTokens", "output_tokens"),
     (DSH_INPUT_CACHE_READ, "cache_read_tokens"),
+    ("reasoningTokens", "reasoning_output_tokens"),
 ];
 
 /// The dsh count that is a subset of the journal's `input_tokens` but a
@@ -787,7 +795,10 @@ const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
 /// One dsh session-log line folded into bounded live telemetry.
 ///
 /// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
-/// stream — verified against the installed binary: `dsh --help` lists
+/// stream (unchanged in 0.1.2-rc.1, re-measured 2026-09-04: the same
+/// launcher flags, and headless gained only "stream reasoning to
+/// stderr", which `redact_dsh_reasoning` keeps out of the journal) —
+/// verified against the installed binary: `dsh --help` lists
 /// `-V/--profile/--patch/--dump-config/--dump-default-config` and the
 /// `web`/`plugin` commands, none of them an output format, and `dsh
 /// --profile headless --help` lists `-h` alone under "Answer one task,
@@ -1550,7 +1561,8 @@ fn invoke_dsh_with(
     let (model, passthrough) = split_dsh_model(extra)?;
     // The effort pin leaves the argv here and goes nowhere else, and
     // that is the honest state of this lane rather than an oversight.
-    // `dsh --help` (0.1.0-rc.6) lists no effort control at all, and the
+    // `dsh --help` (0.1.0-rc.6, and 0.1.2-rc.1 re-measured 2026-09-04)
+    // lists no effort control at all, and the
     // one place a level could be imposed is the provider row of the
     // composed profile — which is the `headless` profile finding
     // decision 0035 deliberately leaves unruled. Forwarding it would
@@ -1617,9 +1629,42 @@ fn invoke_dsh_with(
         exit_code,
         session_meta,
         stdout: String::new(),
-        stderr: stderr_thread.join().unwrap_or_default(),
+        stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
         state: None,
     })
+}
+
+/// The one dsh stderr stream the journal may not quote.
+///
+/// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
+/// stderr under a `dsh: reasoning:` line (measured 2026-09-04: one
+/// header, then the raw thinking text, until the harness's next `dsh: `
+/// line or the end of the stream). The driver's stderr tail is what a
+/// parked seat quotes into the journal, and a journal admits no
+/// reasoning text (decisions 0032 and 0034). So a reasoning block is
+/// replaced by one line that says it was there, and every harness line
+/// survives, because those are what a park needs to be read.
+fn redact_dsh_reasoning(stderr: &str) -> String {
+    const HEADER: &str = "dsh: reasoning:";
+    const REDACTED: &str = "dsh: reasoning: [not journaled — decision 0034]";
+    let mut kept = Vec::new();
+    let mut inside = false;
+    for line in stderr.lines() {
+        if line.trim_end() == HEADER {
+            inside = true;
+            kept.push(REDACTED);
+        } else if line.starts_with("dsh: ") {
+            inside = false;
+            kept.push(line);
+        } else if !inside {
+            kept.push(line);
+        }
+    }
+    let mut text = kept.join("\n");
+    if stderr.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 fn invoke(
@@ -1890,7 +1935,9 @@ fn dsh_transcript_root_in(
 /// doubled, and a path that could open a line of its own is refused
 /// rather than written — same discipline as the model id.
 ///
-/// Accepted by the installed 0.1.0-rc.6, not merely by a shim: `dsh
+/// Accepted by the installed 0.1.0-rc.6 and re-measured on 0.1.2-rc.1
+/// (2026-09-04: without `compression: none` that release writes
+/// `session.jsonl.zstd`; with this row, the plain file below): `dsh
 /// --profile headless --dump-config` composes this row over the
 /// `session-persistence-jsonl` id that `@deepseek-ai/dsh-base` already
 /// contributes (whose only default is `root: dshHomePath('sessions')`),
