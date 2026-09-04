@@ -358,7 +358,8 @@ impl Workspace {
     fn run(&self) -> (Option<i32>, Value, String) {
         let bundle = self.bundle_dir();
         let db = self.db();
-        self.brokkr(&[
+        let realms = self.path().join("realms.json");
+        let mut args = vec![
             "run",
             "--bundle",
             bundle.to_str().unwrap(),
@@ -366,7 +367,11 @@ impl Workspace {
             "proof feature",
             "--db",
             db.to_str().unwrap(),
-        ])
+        ];
+        if realms.exists() {
+            args.extend(["--realms", realms.to_str().unwrap()]);
+        }
+        self.brokkr(&args)
     }
 
     fn run_id(stderr: &str) -> String {
@@ -741,6 +746,7 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
 
     let (code, summary, stderr) = ws.run();
     assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains(" is adopted "), "stderr: {stderr}");
     assert_eq!(summary["status"], "completed");
     let run_id = Workspace::run_id(&stderr);
     let events = brokkr_store::Store::open(&ws.db())
