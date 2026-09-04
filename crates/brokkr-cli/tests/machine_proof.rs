@@ -697,6 +697,13 @@ fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief()
 #[cfg(target_os = "linux")]
 #[test]
 fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
+    // A dialect command is a boxed gate. The verifier already runs the
+    // workspace suite inside that same boundary, and decision 0043 forbids
+    // nesting it. Portable engine tests prove argv expansion and dispatch;
+    // this end-to-end proof is only for a process allowed to open the box.
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return;
+    }
     let script = json!({"seats": {
         "triage": [{"behavior":"succeed", "result":{"result":"design"}}],
         "design:author": [{"behavior":"succeed", "result":{
