@@ -1,18 +1,19 @@
-# Decision 0044 ruling 5, the dsh shape of the fetch grant, and the hire
-# the operator ruled for this office: Qwen3.8-Max on Model Studio.
+# Decision 0044 ruling 5 (erratum of 2026-09-04): the hire the operator
+# ruled for this office, Qwen3.8-Max on Model Studio, and nothing else.
 #
-# dsh's headless profile ships web search on and page fetch off; the
-# researcher reads articles, so this overlay turns fetch on for this seat
-# and nothing else. The default profile also names no Model Studio
-# route, so the provider is stated here, keyed from the environment
-# (DASHSCOPE_API_KEY) and never holding a value, exactly as the
-# operator's own profile layer states it; where that layer exists the
-# two agree. Search keeps its own key (DEEPSEEK_API_KEY). The file is
-# part of the bundle, so it is part of the recipe's digest. The path is
-# read from the repository root, where the sweep runs.
-- id: tool-web
-  config:
-    fetch: true
+# dsh's default headless profile names no Model Studio route, so the
+# provider is stated here, keyed from the environment (DASHSCOPE_API_KEY)
+# and never holding a value, exactly as the operator's own profile layer
+# states it; where that layer exists the two agree. Search keeps its own
+# key (DEEPSEEK_API_KEY).
+#
+# This file once also turned the harness's page fetch on. That row was
+# inert: 0.1.0-rc.6 shipped no fetch provider, so the first sweep read
+# with curl, and 0.1.2-rc.1 ships `web-fetch-http` with fetch on by
+# default (measured 2026-09-04). The grant is the profile's; the overlay
+# carries only the route. The file is part of the bundle, so it is part
+# of the recipe's digest. The path is read from the repository root,
+# where the sweep runs.
 - id: llm-pi-ai
   config:
     providers:

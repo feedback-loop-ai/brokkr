@@ -1780,7 +1780,7 @@ mkdir -p "$d"
 f="$d/session.jsonl"
 printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
 printf 'not json, ignorable noise\n' >> "$f"
-printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4}}}\n' >> "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4,"reasoningTokens":1,"totalTokens":16}}}\n' >> "$f"
 printf '{"type":"tool/call","data":{"turn":1,"step":1,"name":"fs_write","arguments":"hunter22"}}\n' >> "$f"
 printf '{"type":"assistant/chunk","data":{"turn":1,"step":2}}\n' >> "$f"
 i=0
@@ -1859,6 +1859,10 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // counts it inside — the key means one thing across drivers.
     assert_eq!(turns[0]["input_tokens"], 14);
     assert_eq!(turns[0]["cache_read_tokens"], 4);
+    // dsh 0.1.2-rc.1 reports the reasoning subset per step; it lands as
+    // decision 0035's figure and the total is never stored.
+    assert_eq!(turns[0]["reasoning_output_tokens"], 1);
+    assert!(turns[0].get("totalTokens").is_none());
     assert_eq!(turns[1]["tool"], "fs_write");
     assert_eq!(turns[2]["turn"], 2, "the second turn was written LIVE");
     assert!(turns[2].get("cache_read_tokens").is_none());
@@ -1876,6 +1880,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(meta["input_tokens"], 34);
     assert_eq!(meta["output_tokens"], 5);
     assert_eq!(meta["cache_read_tokens"], 4);
+    assert_eq!(meta["reasoning_output_tokens"], 1);
     assert_eq!(meta["harness"], "deepseek");
     assert_eq!(meta["profile"], "headless");
 
@@ -2424,4 +2429,28 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
         "an unnamed tool is absent, never the empty string"
     );
     assert_eq!(emitted[0]["target"], "src/main.rs");
+}
+
+#[test]
+fn dsh_reasoning_on_stderr_is_redacted_and_harness_lines_survive() {
+    // dsh 0.1.2-rc.1 streams the model's thinking to stderr under one
+    // header line; a parked seat quotes the stderr tail into the
+    // journal, which admits no reasoning text (decision 0034).
+    let stream = "dsh: booting headless\ndsh: reasoning:\nThinking: 17 is prime because…\n\nAnswer: OK\ndsh: exit 0\n";
+    assert_eq!(
+        redact_dsh_reasoning(stream),
+        "dsh: booting headless\ndsh: reasoning: [not journaled — decision 0034]\ndsh: exit 0\n"
+    );
+    // A block that runs to the end of the stream is dropped whole.
+    assert_eq!(
+        redact_dsh_reasoning("dsh: reasoning:\nthe whole plan"),
+        "dsh: reasoning: [not journaled — decision 0034]"
+    );
+    // Nothing to redact: the stream is returned as it was, and an empty
+    // stream stays empty.
+    assert_eq!(
+        redact_dsh_reasoning("Error: spawn failed\n"),
+        "Error: spawn failed\n"
+    );
+    assert_eq!(redact_dsh_reasoning(""), "");
 }

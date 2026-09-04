@@ -165,11 +165,11 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/research",
-        "b9a38128ef567d0bb305ff16c7cd3319e62a677d6938d6486d67b8601a01f7a5",
+        "50c7db63c6f57766708c2b081681e972287d1b400bf1a185b70325424423565e",
     ),
     (
         "recipes/research-dsh",
-        "78a785cface7aec1bb20069dd0597d24fbca17094c00ed371432acd1bd4c6820",
+        "2095631397be952a0149a2fa2ce5856b2f102440934fae7dffeda49c68b55ae8",
     ),
     (
         "bundles/verify",

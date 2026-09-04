@@ -20,10 +20,12 @@ dsh expresses no tool allow-list (`adapters/dsh.json` declares
 `tool_permissions` unsupported), so the library office's `webfetch` and
 `websearch` grants cannot be compiled onto it. The seat is therefore an
 inline dsh site, as night-shift's implementer is, and the fetch grant
-takes the shape dsh has: `drivers/research-web.yml`, one overlay that
-turns the headless profile's page fetch on (search is on by default)
-and states the Model Studio route the default profile lacks, keyed
-from `DASHSCOPE_API_KEY`; search keeps `DEEPSEEK_API_KEY`.
+takes the shape dsh has: the headless profile's own web tools. Since
+dsh 0.1.2-rc.1 that profile ships `web-fetch-http` with page fetch on
+(0.1.0-rc.6 shipped no fetch provider, and the first sweep read with
+curl). `drivers/research-web.yml` therefore carries only the Model
+Studio route the default profile lacks, keyed from `DASHSCOPE_API_KEY`;
+search keeps `DEEPSEEK_API_KEY`.
 The overlay path is read from the repository root, where the sweep
 runs, and the file is inside the bundle, so it is in the digest.
 

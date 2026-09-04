@@ -126,7 +126,15 @@ first row.
    `dashscope/qwen3.8-max` by the operator's ruling, with one overlay
    file beside it that turns the harness's page fetch on
    (`tool-web.fetch: true`; search is on by default) and states the
-   Model Studio route, keyed from the environment. The overlay is in
+   Model Studio route, keyed from the environment.
+
+   *Erratum, 2026-09-04, operator-directed:* the fetch row was inert.
+   dsh 0.1.0-rc.6 registered no fetch provider, so the first sweep read
+   its sources with curl through the seat's shell and said so in its
+   notes; dsh 0.1.2-rc.1 ships `web-fetch-http` with fetch on by
+   default, and the lane was moved to that release the same day. On
+   dsh the fetch grant is therefore the profile's, and the overlay
+   carries only the route. The overlay is in
    the bundle and therefore in its digest; the role file is the library
    charter's bytes, so the prompt stays one text. The operator ruled the
    weekly sweep runs on this lane.
