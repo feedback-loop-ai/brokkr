@@ -259,6 +259,43 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     .unwrap();
     assert!(!argv.iter().any(|part| part == "--unshare-net"));
 
+    // A relative workdir is bound and entered at its absolute path — a
+    // relative destination would land the worktree over the box's root
+    // and shadow /runtime before the bundle mounts there — and the empty
+    // path, which has no absolute form, is an error rather than a box
+    // rooted nowhere.
+    let relative = box_argv(
+        &open,
+        Path::new("."),
+        &home,
+        &scratch,
+        &session,
+        &none,
+        None,
+        &one("true"),
+    )
+    .unwrap();
+    let here = std::path::absolute(".").unwrap();
+    let here = namespace_path(&here);
+    let relative_text = relative.join(" ");
+    assert!(
+        relative_text.contains(&format!("--bind {here} {here}")),
+        "{relative_text}"
+    );
+    assert!(relative_text.contains(&format!("--chdir {here} --")));
+    assert!(!relative.iter().any(|part| part == "."));
+    assert!(box_argv(
+        &open,
+        Path::new(""),
+        &home,
+        &scratch,
+        &session,
+        &none,
+        None,
+        &one("true")
+    )
+    .is_err());
+
     // A scratch that cannot be created is an error, never a half box;
     // and so is an overlay layer that cannot be made.
     let blocked = dir.path().join("file");

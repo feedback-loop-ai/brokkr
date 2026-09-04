@@ -282,6 +282,14 @@ pub fn box_argv(
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> std::io::Result<Vec<String>> {
+    // The workdir is bound at its own path, and that path must be
+    // absolute: `--repo .` is the common spelling, and a relative
+    // destination is resolved by bwrap against the box's root, so the
+    // worktree lands over `/` and shadows `/runtime` before the bundle
+    // mounts there — the first weekly research sweep parked on exactly
+    // that, "Can't mkdir parents for /runtime/bundle". Symlinks stay as
+    // the host spells them; only the relative prefix is resolved.
+    let workdir = &std::path::absolute(workdir)?;
     let etc = scratch.join("etc");
     let private_home = scratch.join("home");
     let private_tmp = scratch.join("tmp");
