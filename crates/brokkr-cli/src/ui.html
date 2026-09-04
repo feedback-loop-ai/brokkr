@@ -418,8 +418,11 @@ function renderLoops(detail, view, id) {
   const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
   const pulsing = status === 'running';
   const drillable = new Set(view.participants.map((part) => part.key));
-  const nodeText = (node, label = node.label) =>
-    label + ' · model ' + node.model.text;
+  // The rail carries structure, not the leaf's facts: a node reads as
+  // its label and nothing else. The served model is a seat's field and
+  // is shown where a seat is (the seats table and the seat pane), never
+  // on the abstraction that only says which work followed which.
+  const nodeText = (node, label = node.label) => label;
 
   // Geometry: ONE center rail. Sequential work sits on the rail joined
   // by arrowed edges ("then"); a panel forks into symmetric lanes that

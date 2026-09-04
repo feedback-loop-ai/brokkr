@@ -555,6 +555,9 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
 /// markers are content, not colour, and are therefore unconditional —
 /// the models already emit `Σ`, `↓`, `…` and `—` in pre-baked text, so
 /// an ASCII mode would need a second derivation of every one of them.
+/// Nodes read as name and state only: the served model is a seat's
+/// field, printed by the seats table and the seat block, never by the
+/// rail — the graph is the abstraction over order and shape.
 fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
     let phases: Vec<&Phase> = view
         .phases
@@ -590,10 +593,9 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
                 push_line(
                     &mut out,
                     &format!(
-                        "    → {} · {} · model {}",
+                        "    → {} · {}",
                         Safe::new(label).as_str(),
-                        Safe::new(&node.state).as_str(),
-                        Safe::new(&node.model.text).as_str()
+                        Safe::new(&node.state).as_str()
                     ),
                 );
             } else {
@@ -606,10 +608,9 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
                     push_line(
                         &mut out,
                         &format!(
-                            "      {} · {} · model {}",
+                            "      {} · {}",
                             Safe::new(&node.label).as_str(),
-                            Safe::new(&node.state).as_str(),
-                            Safe::new(&node.model.text).as_str()
+                            Safe::new(&node.state).as_str()
                         ),
                     );
                 }
