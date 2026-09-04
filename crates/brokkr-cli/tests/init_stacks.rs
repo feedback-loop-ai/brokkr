@@ -761,11 +761,11 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
 
         let verify = argv(&compiled, "verify");
         assert_eq!(&verify[..4], ["driver", "exec", "--", "bash"], "{fixture}");
-        assert_eq!(
-            Path::new(&verify[4]),
-            bundle.join("scripts/verify-seat.sh"),
-            "{fixture}"
-        );
+        // Compare canonical paths because the compiler canonicalizes bundle roots:
+        // macOS temp dirs may cross `/private`, and Windows may use verbatim paths.
+        let expected_script = std::fs::canonicalize(bundle.join("scripts/verify-seat.sh"))
+            .expect("the scaffolded verifier script canonicalizes");
+        assert_eq!(Path::new(&verify[4]), expected_script, "{fixture}");
         assert_eq!(verify[5], "{prompt_file}", "{fixture}");
     }
 }

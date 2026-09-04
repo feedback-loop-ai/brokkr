@@ -120,7 +120,7 @@ fn init_refuses_to_overwrite_exec_trust_or_deterministic_seat_scripts() {
 
     let exec_bundle = dir.path().join("exec-bundle");
     std::fs::create_dir_all(exec_bundle.join("adapters")).unwrap();
-    let exec = exec_bundle.join("adapters/exec.json");
+    let exec = exec_bundle.join("adapters").join("exec.json");
     std::fs::write(&exec, "operator-owned\n").unwrap();
     let (code, _, stderr) = brokkr(&["init", exec_bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(1), "stderr: {stderr}");
