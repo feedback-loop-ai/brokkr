@@ -1,5 +1,5 @@
 {
-  "description": "Intake for spec-driven delivery: frames the request and runs the spec-kit CLI to open the feature's spec directory.",
+  "description": "Intake for spec-driven delivery: frames the request before the design phase opens the feature's spec directory.",
   "charter": "charters/intake-speckit.md",
   "models": [
     "sonnet",
@@ -11,14 +11,7 @@
   },
   "tools": {
     "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "specify"
+      "git"
     ],
     "mcp": []
   },

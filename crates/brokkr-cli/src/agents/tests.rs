@@ -68,7 +68,7 @@ fn show_prints_the_definition_and_its_per_entry_resolution() {
     assert_eq!(resolution["chain"][0]["status"], "ok");
     assert_eq!(resolution["chain"][0]["provider"], "claude");
     assert_eq!(resolution["chain"][0]["presence"], "unknown");
-    assert_eq!(resolution["chain"].as_array().unwrap().len(), 3);
+    assert_eq!(resolution["chain"].as_array().unwrap().len(), 2);
 }
 
 /// An unknown name errors naming the known set, so the next command is

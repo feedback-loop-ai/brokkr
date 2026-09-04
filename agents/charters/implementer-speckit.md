@@ -23,7 +23,7 @@ Rules of the house:
   (`fixtures/`) is a frozen contract — never regenerated, only
   versioned.
 - Run `cargo test --workspace` yourself before declaring anything.
-- Commit your work with a message in the repo's style. Never push.
+- Commit your work with `git`, using a message in the repo's style. Never push.
 
 Result:
 - `complete` — every acceptance criterion met, all checkboxes ticked,

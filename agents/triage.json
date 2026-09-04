@@ -1,0 +1,16 @@
+{
+  "description": "Rules the commission's delivery class from a closed vocabulary, fresh and blind.",
+  "charter": "charters/triage.md",
+  "models": [
+    "fable",
+    "opus"
+  ],
+  "efforts": {
+    "fable": "xhigh",
+    "opus": "max"
+  },
+  "limits": {
+    "max_attempts": 1,
+    "timeout_seconds": 1800
+  }
+}

@@ -848,12 +848,16 @@ impl Bundle {
                 }
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
-            let limits = match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
-                // An agent's 0006 bounds ARE the seat's bounds: `limits`
-                // is forbidden beside `agent:`, so there is nothing to
-                // reconcile and nothing silently overridden.
-                Some(limits) => limits,
-                None => parse_limits(phase, raw)?,
+            // Decision 0006 bounds belong to the strategy seat, not the
+            // office it hires. A roster entry supplies the default, while
+            // an explicit seat limit (night-shift's one-attempt gates) wins.
+            let limits = if raw.get("limits").is_some() {
+                parse_limits(phase, raw)?
+            } else {
+                match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
+                    Some(limits) => limits,
+                    None => parse_limits(phase, raw)?,
+                }
             };
             // Input provenance (decision 0007): every input the phase's
             // rules reference must be engine-computed or supplied by
@@ -1030,10 +1034,11 @@ enum Site {
 /// it. `results`, `secrets`, `class` and `driver.confine` stay legal
 /// beside it, because they are bindings the SEAT provides rather than
 /// statements about what the agent is, and `brokkr agents show` never
-/// claims to show them. `class` in particular is the seat's authority,
-/// never the agent's: one charter may sit in a work seat here and a gate
-/// seat there, which is why decision 0021 ruling 1 puts the division in
-/// bundle data.
+/// claims to show them. `limits` is likewise a strategy bound on the
+/// invocation, not part of the office. `class` in particular is the
+/// seat's authority, never the agent's: one charter may sit in a work
+/// seat here and a gate seat there, which is why decision 0021 ruling 1
+/// puts the division in bundle data.
 fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
     let refuse = |key: &str| {
         Err(CompileError::Invalid(format!(
@@ -1042,7 +1047,7 @@ fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
              amend it would make `brokkr agents show` a lie for that seat"
         )))
     };
-    for key in ["role", "limits", "inputs", "hands"] {
+    for key in ["role", "inputs", "hands"] {
         if raw.get(key).is_some() {
             return refuse(key);
         }
@@ -1357,42 +1362,56 @@ fn enforce_model_policy(
     // Each site as (driver, concrete model id): the id is what carries
     // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
     // name becomes concrete through the adapter that maps it.
-    let drivers: Vec<(Option<String>, ModelPin)> = match candidates.is_empty() {
-        // An inline site's route is read off its own argv, on the flag
-        // the ADAPTER names (`model_flag`, since decision 0016) AND on
-        // `--model` (decision 0040 ruling 1). A provider the operator
-        // adds that takes `-m` is read on `-m`, so the route named
-        // there is the route this site reaches; and it is read on
-        // `--model` too, because the same CLI commonly honours that as
-        // well, and a pin the engine declined to read there went to an
-        // unruled route on the adapter's own clearance. Both doors,
-        // held shut by one read. Where no adapter answers for the
-        // driver, the `(None, _)` arm below lands the site on
-        // `Uncontracted` whatever this returns.
-        true => {
-            let driver = dispatch_driver(&command_parts(raw));
-            let pin = inline_route_pin(
-                raw,
-                driver
+    let drivers: Vec<(usize, Option<String>, Option<String>, ModelPin)> =
+        match candidates.is_empty() {
+            // An inline site's route is read off its own argv, on the flag
+            // the ADAPTER names (`model_flag`, since decision 0016) AND on
+            // `--model` (decision 0040 ruling 1). A provider the operator
+            // adds that takes `-m` is read on `-m`, so the route named
+            // there is the route this site reaches; and it is read on
+            // `--model` too, because the same CLI commonly honours that as
+            // well, and a pin the engine declined to read there went to an
+            // unruled route on the adapter's own clearance. Both doors,
+            // held shut by one read. Where no adapter answers for the
+            // driver, the `(None, _)` arm below lands the site on
+            // `Uncontracted` whatever this returns.
+            true => {
+                let driver = dispatch_driver(&command_parts(raw));
+                let pin = inline_route_pin(
+                    raw,
+                    driver
+                        .as_deref()
+                        .and_then(|provider| adapters.adapter(provider)),
+                );
+                let abstract_model = driver
                     .as_deref()
-                    .and_then(|provider| adapters.adapter(provider)),
-            );
-            vec![(driver, pin)]
-        }
-        false => candidates
-            .iter()
-            .map(|candidate| {
-                let (_, concrete) = adapters
-                    .serving(&candidate.model)
-                    .expect("resolution mapped every link of the chain");
-                (
-                    Some(candidate.provider.clone()),
-                    ModelPin::Concrete(concrete.to_string()),
-                )
-            })
-            .collect(),
-    };
-    for (driver, pin) in drivers {
+                    .and_then(|provider| adapters.adapter(provider))
+                    .and_then(|adapter| match &pin {
+                        ModelPin::Concrete(concrete) => adapter
+                            .models
+                            .iter()
+                            .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
+                        _ => None,
+                    });
+                vec![(1, driver, abstract_model, pin)]
+            }
+            false => candidates
+                .iter()
+                .enumerate()
+                .map(|(index, candidate)| {
+                    let (_, concrete) = adapters
+                        .serving(&candidate.model)
+                        .expect("resolution mapped every link of the chain");
+                    (
+                        index + 1,
+                        Some(candidate.provider.clone()),
+                        Some(candidate.model.clone()),
+                        ModelPin::Concrete(concrete.to_string()),
+                    )
+                })
+                .collect(),
+        };
+    for (link, driver, abstract_model, pin) in drivers {
         let adapter = driver
             .as_deref()
             .and_then(|provider| adapters.adapter(provider));
@@ -1414,6 +1433,24 @@ fn enforce_model_policy(
                  stands behind the judges (decision 0021 ruling 2 — an \
                  undeclared tier is untrusted)"
             )));
+        }
+        // Decision 0041 ruling 3: trust authorises a provider, while
+        // `judges` authorises the particular abstract hire. Both must
+        // hold on every fallback link. A missing declaration is the
+        // empty set, just like an absent tier is untrusted.
+        if class == SeatClass::Gate && !boxed_exec {
+            let admitted = adapter
+                .zip(abstract_model.as_deref())
+                .is_some_and(|(adapter, model)| adapter.judges.iter().any(|judge| judge == model));
+            if !admitted {
+                let model = abstract_model.as_deref().unwrap_or(match pin {
+                    ModelPin::Absent => "<unpinned>",
+                    _ => "<unmapped>",
+                });
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' gate link {link} names model '{model}', which {named} does not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+                )));
+            }
         }
         // Where this site's material actually goes. Two kinds of
         // not-knowing land on the floor for the one ruling-1 reason —

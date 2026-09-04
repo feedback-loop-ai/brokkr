@@ -11,10 +11,14 @@
     "acceptEdits"
   ],
   "models": {
-    "fable-tallied": "claude-fable-5",
+    "fable-tallied": "claude-fable-5-1",
     "opus-tallied": "claude-opus-5",
     "sonnet-tallied": "claude-sonnet-5"
   },
+  "judges": [
+    "fable-tallied",
+    "opus-tallied"
+  ],
   "model_flag": "--model",
   "efforts": [
     "low",

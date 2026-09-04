@@ -3,23 +3,10 @@
   "charter": "charters/position-simplicity.md",
   "models": [
     "opus",
-    "sonnet"
+    "sol"
   ],
   "efforts": {
     "opus": "high",
-    "sonnet": "high"
-  },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "specify"
-    ],
-    "mcp": []
+    "sol": "high"
   }
 }

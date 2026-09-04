@@ -3,23 +3,15 @@
   "charter": "charters/chief-architect.md",
   "models": [
     "fable",
-    "opus",
-    "sonnet"
+    "opus"
   ],
   "efforts": {
-    "fable": "high",
-    "opus": "high",
-    "sonnet": "high"
+    "fable": "max",
+    "opus": "max"
   },
   "tools": {
     "allow": [
-      "cargo",
       "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
       "specify"
     ],
     "mcp": []

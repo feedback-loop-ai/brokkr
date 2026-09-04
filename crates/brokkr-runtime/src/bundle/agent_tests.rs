@@ -220,13 +220,13 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
 }
 
 /// AC-21: the agent reference is total. Every key that states what the
-/// agent IS is refused beside it, by name.
+/// agent IS is refused beside it, by name. Limits bound this invocation,
+/// so the strategy may narrow the roster default without amending the office.
 #[test]
 fn an_agent_reference_refuses_every_key_that_would_amend_it() {
     let fixture = AgentFixture::new();
     for (key, value) in [
         ("role", json!("../agents/charters/work.md")),
-        ("limits", json!({"max_attempts": 1})),
         ("inputs", json!(["fixes_applied"])),
     ] {
         let mut config = fixture.config();
@@ -246,6 +246,16 @@ fn an_agent_reference_refuses_every_key_that_would_amend_it() {
     let mut config = fixture.config();
     config["seats"]["work"]["driver"] = json!("not an object");
     assert!(error(fixture.compile(config)).contains("driver must be an object"));
+}
+
+#[test]
+fn a_seat_limit_narrows_the_agent_default() {
+    let fixture = AgentFixture::new();
+    let mut config = fixture.config();
+    config["seats"]["work"]["limits"] = json!({"max_attempts": 1, "timeout_seconds": 19});
+    let bundle = fixture.compile(config).unwrap();
+    assert_eq!(bundle.seats["work"].limits.max_attempts, 1);
+    assert_eq!(bundle.seats["work"].limits.timeout_seconds, 19);
 }
 
 #[test]

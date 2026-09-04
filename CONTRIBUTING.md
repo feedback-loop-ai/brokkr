@@ -35,8 +35,8 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 <!-- recipe-table:start -->
 | Recipe | When to use it | What it seats | Rough cost |
 |---|---|---|---|
-| `crucible` | Engine, store, protocol, or contract changes needing an Opus review sequence. | implement, review[positions>chief], ship, verify | high |
-| `ember` | Docs, chores, and small fixes with a cheap intake and economical working seats. | implement, intake, review, ship, verify | low |
+| `crucible` | Engine, store, protocol, or contract changes needing a review panel and chief. | implement, review[positions>chief], ship, verify | high |
+| `ember` | Docs, chores, and small fixes using the shared agent roster. | implement, intake, review, ship, verify | low |
 | `fast` | Default Rust delivery from implementation through verification, review, and ship. | implement, review, ship, verify | medium |
 | `night-shift` | Unattended work that should park on the first unusual result instead of retrying. | implement, review, ship, verify | medium-high |
 | `node` | Node and TypeScript repositories using JavaScript-specific seats and tools. | implement, review, ship, verify | medium |

@@ -31,44 +31,12 @@
       "aggregate": "review-panel",
       "panel": {
         "adversarial": {
-          "role": "roles/review-adversarial.md",
-          "class": "gate",
-          "driver": {
-            "command": [
-              "{brokkr}",
-              "driver",
-              "claude",
-              "--",
-              "--model",
-              "claude-fable-5-1",
-              "--effort",
-              "high",
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-            ]
-          }
+          "agent": "review-adversarial",
+          "class": "gate"
         },
         "security": {
-          "role": "roles/review-security.md",
-          "class": "gate",
-          "driver": {
-            "command": [
-              "{brokkr}",
-              "driver",
-              "claude",
-              "--",
-              "--model",
-              "claude-fable-5-1",
-              "--effort",
-              "high",
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*),Bash(specify:*)"
-            ]
-          }
+          "agent": "review-security",
+          "class": "gate"
         }
       }
     }

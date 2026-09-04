@@ -2,16 +2,16 @@
 
 `extends: "fast"`. The same four phases and the same constitution, tuned
 for the case where **nobody is awake**: one attempt per seat, a long
-implement deadline, and every gate on the best judge available. Anything
+implement deadline, and every gate seated from the shared roster. Anything
 unusual parks or stops for morning triage instead of retrying into the
 dark.
 
-| Phase | Model | `max_attempts` | `timeout_seconds` | Class |
+| Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | deepseek-v4-flash via `dsh` | **1** | 7200 | work |
-| `verify` | opus | **1** | 3600 | gate |
-| `review` | opus | **1** | 3600 | gate |
-| `ship` | opus | **1** | 1800 | gate |
+| `implement` | inline deepseek-v4-flash via `dsh` | **1** | 7200 | work |
+| `verify` | `verifier` | **1** | 3600 | gate |
+| `review` | `reviewer` | **1** | 3600 | gate |
+| `ship` | `shipper` | **1** | 1800 | gate |
 
 ## `max_attempts: 1` everywhere — what it does and does not do
 
@@ -49,7 +49,7 @@ prohibition (untrusted judge, ungranted secret binding) applies.
 What the seat gives up, and the comparison must say: `adapters/dsh.json`
 declares `tool_permissions: "unsupported"`, because the headless dsh
 launcher has no allowed-tools flag. The seat runs with whatever the
-harness permits, not the seven `Bash` prefixes the sonnet seat named.
+harness permits, not the seven `Bash` prefixes the former inline seat named.
 That asymmetry is the same one [`recipes/wager-harness`](../wager-harness/README.md)
 records for its challenger arm, for the same reason.
 
@@ -67,10 +67,6 @@ so no agent chain written for one provider lands on the other.
 Nothing in this repository's journal records a night-shift run. What is
 structural fact:
 
-- Three of four seats sit on opus. This recipe is **not** the cheap
-  one — [`ember`](../ember/README.md) is. Night-shift buys *unattended
-  safety*: the gates are the seats nobody will double-check before
-  breakfast, so they get the best judge.
 - Its intended saving is the implement seat on a cheap untrusted
   lane, which it now sits on. Whether the saving is real is what the
   first night-shift runs will show; nothing here has measured it.
@@ -113,18 +109,19 @@ run it attended.
 
 ## The one-line swap property
 
-The implement seat is one JSON object; moving it from sonnet to the
+The implement seat is one JSON object; moving it from the shared roster to the
 deepseek lane was a driver name and a model id, nothing else. That is
 the property [`recipes/wager-harness`](../wager-harness/README.md)
 turns into a procedure — and the discipline it names (same sandbox, same
-tools, same repo base) is exactly what a dsh-vs-sonnet comparison on
+tools, same repo base) is exactly what a dsh-vs-roster comparison on
 this seat will need.
 
-## How the models are pinned
+## How the roster is seated
 
-Inline `--model` pairs on each `driver.command`, the same mechanism and
-the same trade-offs [`ember`](../ember/README.md#how-the-models-are-pinned)
-documents.
+The dsh implement lane remains inline by the lane exception. The three gates
+name `verifier`, `reviewer`, and `shipper`; their charters, fallback chains,
+effort, tools, and default limits come from the agent library. This strategy
+narrows each gate's attempt bound to one.
 
 ## Running it
 

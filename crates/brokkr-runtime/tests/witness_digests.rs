@@ -2,21 +2,20 @@
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
 //!
-//! `recipes/fast`, `recipes/node`, `recipes/preflight` and
-//! `bundles/verify` adopt no agent, and neither do the four roster
-//! recipes that later joined them (`ember`, `crucible`, `night-shift`,
-//! `wager-harness`, all composed from `fast`'s inline seats). Their
-//! pinned manifest digest must not move, and their manifest must carry
-//! no `agents` key at all —
-//! absence, not an empty object, is what keeps a non-adopting bundle's
-//! identity exactly what it was.
+//! `recipes/fast`, `recipes/node`, `recipes/preflight`,
+//! `recipes/wager-harness` and `bundles/verify` adopt no agent. The
+//! other roster recipes (`ember`, `crucible`, and `night-shift`) now
+//! seat library agents under decision 0041. Every pinned manifest must
+//! move only when its recorded strategy or dependencies move; an inline
+//! recipe must continue to carry no `agents` key at all.
 //!
-//! Adopting no agent is not the same as answering to nobody. Both seat
-//! INLINE gates, and since decision 0021 a gate stands on an adapter's
-//! declared tier — so both now carry a `drivers` key naming the adapter
-//! digest that authorised each judging seat. That key is the witness the
-//! refusals were missing: without it a demoted tier would change what
-//! the compiler allows while leaving the bundle's identity untouched.
+//! Adopting no agent is not the same as answering to nobody. The inline
+//! recipes seat gates, and since decision 0021 a gate stands on an
+//! adapter's declared tier — so they carry a `drivers` key naming the
+//! adapter digest that authorised each judging seat. That key is the
+//! witness the refusals were missing: without it a demoted tier would
+//! change what the compiler allows while leaving the bundle's identity
+//! untouched.
 
 use std::path::PathBuf;
 
@@ -32,14 +31,20 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// Decision 0043 moved every pinned bundle at once, and for one reason:
+/// Decision 0041 moves every pinned bundle for its three enacted reasons:
+/// ruling 1 advances the fable adapter mapping, ruling 2 moves model sites
+/// onto the roster, and ruling 3 adds each adapter's judges declaration.
+/// Decision 0043 previously moved every pinned bundle at once, and for one reason:
 /// every adapter file gained `hands` — how the provider puts its hands in
 /// the box, or the measured reason it cannot — and a bundle whose inline
 /// gate pins the adapter declaration that authorised it (decision 0021)
 /// carries that file's digest in its identity. The bundles hiring the
 /// review agents moved further: those agents now chain fable@high →
 /// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
-/// records and the manifest's `hands` key changed. Nothing else moved.
+/// records and the manifest's `hands` key changed. This review correction
+/// moves only bundles that hire an intake or implementer: their Git work is
+/// now named in the charter and expressible in the resolved tool grant;
+/// ignored allow-lists beside boxed hands were removed at the same time.
 /// Recorded from this tree at the commit that introduced this test. A
 /// move here is either an intended engine-version bump, an intended
 /// policy change re-pinned as the identity change it is (decision 0022
@@ -94,35 +99,35 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "36c369e4cd5e30a87c83702ad937426245dd3d34d53dd3b4c0b2468e8029ded3",
+        "f6f960da0503f2130200430bcf5877b5cf128a9b7fe2071c09b4dbc7c505892b",
     ),
     (
         "recipes/node",
-        "6bbf77c48e4ef23673aca575e3dd3702b6bcdbfc1c4a680605498c552ef5f7c6",
+        "2ebd5ac5ad6a11d9e247edc224aca4872ebf5b3959dabfa7aca4d245ed129c2b",
     ),
     (
         "recipes/preflight",
-        "6ed32431fbd45b26b5a7941f3b9f6823c4f486950391ec1a35b01e4d0f811990",
+        "ffa8c3a07b999bf9026edfde9fcf5886c471983a778480ab37bd3dc1c5590111",
     ),
     (
         "recipes/ember",
-        "ec871aaa7746d477c712ecc2ad59f1b1a8b224d3c81c5930f6583d2e80cf9b5b",
+        "c3572a9a0543b2b23e94bc315d5ecb8c09575060268cc158fe7d9e12532733e2",
     ),
     (
         "recipes/crucible",
-        "b1ee158eb288e24506255bc6bb710fa59d43ae2280d6ccc70a367375150d9018",
+        "b955888721e096e36a3d3913549de68c3ded0feadd453106762b73b13603dad7",
     ),
     (
         "recipes/night-shift",
-        "24194a7384e5c6fa2df3341ffaea646b05f94a1a58e5b1e5269f764746700a15",
+        "e008816de894763365905f1a667ae4528db976d2367bb8ebbc4a30dc38ad275e",
     ),
     (
         "recipes/wager-harness",
-        "340874e1dcea2533ca5a410a616519c4b04fbc023812203b0cd934cc03a39c95",
+        "6ea8645805e3dce76690ac8dbf71e2c9301c07cc40c422d0f3eb9b4e04963998",
     ),
     (
         "bundles/verify",
-        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
+        "162fef593349a481998130acbd082756357028874f2dee6d9949dcfb21982f25",
     ),
 ];
 
@@ -132,31 +137,23 @@ const WITNESSES: [(&str, &str); 8] = [
 /// phase to gate — and no working seat at all, so in those two every
 /// seat appears here.
 ///
-/// `recipes/crucible` is the one that reads differently, and on purpose:
-/// its review seat is a sequence whose panel of `positions` WORKS and
-/// whose `chief` step JUDGES, so the witness names `review:chief` and
-/// not `review`. If that entry ever reads plain `review`, the chief
-/// stopped being the seat's gate — and the two positions, which are
-/// work-class and admit any driver under decision 0021 ruling 7, would
-/// be ruling the protected phase between them.
-const INLINE_GATES: [(&str, &[&str]); 8] = [
+/// Library-backed gates carry their adapter witnesses through the agent
+/// resolution record instead, so they do not belong in this inline-only
+/// list. In particular, all of Crucible's review offices are gates now.
+const INLINE_GATES: [(&str, &[&str]); 4] = [
     ("recipes/fast", &["review", "ship", "verify"]),
     ("recipes/node", &["review", "ship", "verify"]),
     ("recipes/preflight", &["review", "verify"]),
-    ("recipes/ember", &["review", "ship", "verify"]),
-    ("recipes/crucible", &["review:chief", "ship", "verify"]),
-    ("recipes/night-shift", &["review", "ship", "verify"]),
     ("recipes/wager-harness", &["review", "ship", "verify"]),
-    ("bundles/verify", &["review", "verify"]),
 ];
 
 #[test]
-fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
+fn pinned_bundles_keep_their_recorded_digest() {
     let root = workspace();
     for (relative, digest) in WITNESSES {
         // Explicit roots, as in the compile below: since decision 0021 a
-        // compile reads the adapter data even for these two, which adopt
-        // no agent — a gate seat's trust tier is declared there.
+        // compile reads adapter data for inline gates too, even though
+        // they adopt no agent — a gate seat's trust tier is declared there.
         let bundle = Bundle::compile_with(
             &root.join(relative),
             &root.join("agents"),
@@ -167,11 +164,6 @@ fn non_adopting_bundles_keep_their_digest_and_grow_no_agents_key() {
             bundle.manifest_digest(),
             digest,
             "{relative} manifest digest moved"
-        );
-        assert!(
-            bundle.manifest.get("agents").is_none(),
-            "{relative} manifest gained an 'agents' key; a non-adopting \
-             bundle carries none"
         );
     }
 }

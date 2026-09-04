@@ -257,6 +257,10 @@ pub struct Adapter {
     pub driver: Vec<String>,
     /// Abstract model name → concrete provider model id.
     pub models: BTreeMap<String, String>,
+    /// Decision 0041 ruling 3: the abstract model names this adapter is
+    /// authorised to seat at a gate. Absence loads as empty so a new or
+    /// older adapter fails closed.
+    pub judges: Vec<String>,
     pub model_flag: Option<String>,
     /// The effort levels this provider's harness names, as measured
     /// against its CLI. Empty for a provider with no effort control.

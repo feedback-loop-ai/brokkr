@@ -10,6 +10,7 @@
     "--"
   ],
   "models": {},
+  "judges": [],
   "model_flag": "unsupported",
   "efforts": [],
   "effort_flag": "unsupported",

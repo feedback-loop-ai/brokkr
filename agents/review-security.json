@@ -7,7 +7,7 @@
     "sol"
   ],
   "efforts": {
-    "fable": "high",
+    "fable": "xhigh",
     "opus": "xhigh",
     "sol": "xhigh"
   },
@@ -28,17 +28,5 @@
         "mode": "ro"
       }
     ]
-  },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir"
-    ],
-    "mcp": []
   }
 }

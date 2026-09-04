@@ -689,7 +689,7 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         let mut verify: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
         verify.extend([
             "--model".to_string(),
-            "claude-sonnet-5".to_string(),
+            "claude-fable-5-1".to_string(),
             "--effort".to_string(),
             "high".to_string(),
             "--allowedTools".to_string(),

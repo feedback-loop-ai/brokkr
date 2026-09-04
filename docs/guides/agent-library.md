@@ -5,14 +5,24 @@ limits, declared inputs. Decision 0016 lets it name an agent instead.
 
 ```
 $ brokkr agents list
-chief-architect	fable → opus → sonnet	Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.
+chief-architect	fable → opus	Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.
+implementer-engine	fable → opus	Temporary engine-class implementer: builds the framed task at the engine-class hire until strategy selection lands.
+implementer-speckit	opus → sonnet	Implementer for spec-driven delivery: builds to the committed spec, ticking tasks.md as it goes.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
-review-security	opus → sonnet	Review panel member: the adversarial security read of the change.
-reviewer	opus → sonnet	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
-shipper	sonnet → opus	Closes a delivery out: ledger, gates, and the report the operator reads before merging.
-verifier	sonnet → opus	Runs the suites and gates and reports pass or fail on evidence, never on intent.
-…
+intake-speckit	sonnet → opus	Intake for spec-driven delivery: frames the request before the design phase opens the feature's spec directory.
+muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
+position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
+position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
+review-adversarial	fable → opus → sol	Review panel member: tries to break the delivered change with concrete adversarial cases.
+review-chief	fable → opus → sol	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
+review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
+review-security	fable → opus → sol	Review panel member: the adversarial security read of the change.
+review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
+reviewer	fable → opus → sol	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
+shipper	fable → opus	Closes a delivery out: ledger, gates, and the report the operator reads before merging.
+triage	fable → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
+verifier	fable → opus	Runs the suites and gates and reports pass or fail on evidence, never on intent.
 ```
 
 ```

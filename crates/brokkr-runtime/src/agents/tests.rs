@@ -941,6 +941,21 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
         ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "judges": "no"}),
+            "needs 'judges' as an array of strings",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "judges": ["Opus"]}),
+            "'judges' names 'Opus'",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "judges": ["opus"]}),
+            "declares judge 'opus' but maps no model",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
                    "models": {}, "tool_permissions": "maybe"}),
             "the only legal string here is \"unsupported\"",
         ),

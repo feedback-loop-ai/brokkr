@@ -2,22 +2,16 @@
   "description": "Closes a delivery out: ledger, gates, and the report the operator reads before merging.",
   "charter": "charters/shipper.md",
   "models": [
-    "sonnet",
+    "fable",
     "opus"
   ],
   "efforts": {
-    "sonnet": "high",
-    "opus": "high"
+    "fable": "xhigh",
+    "opus": "xhigh"
   },
   "tools": {
     "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir"
+      "git"
     ],
     "mcp": []
   },

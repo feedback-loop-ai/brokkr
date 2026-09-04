@@ -68,7 +68,11 @@ impl Fixture {
         };
         std::fs::create_dir_all(fixture.dir.path().join("adapters")).unwrap();
         std::fs::create_dir_all(fixture.dir.path().join("agents/charters")).unwrap();
-        fixture.write_adapter(adapter("judge", Some("trusted"), Some(true)));
+        let mut judge = adapter("judge", Some("trusted"), Some(true));
+        judge["models"] = json!({"judge": "judge-1"});
+        judge["judges"] = json!(["judge"]);
+        judge["model_flag"] = json!("--model");
+        fixture.write_adapter(judge);
         fixture.write_adapter(adapter("newcomer", Some("untrusted"), Some(false)));
         fixture.write_adapter(adapter("silent", None, None));
         fixture
@@ -90,6 +94,7 @@ impl Fixture {
         for (model, provider, tier) in links {
             let mut serving = adapter(provider, Some(tier), Some(true));
             serving["models"] = json!({ *model: format!("{provider}-1") });
+            serving["judges"] = json!([*model]);
             serving["model_flag"] = json!("--model");
             self.write_adapter(serving);
         }
@@ -142,7 +147,9 @@ impl Fixture {
                 "review": {
                     "role": "roles/role.md",
                     "results": ["clean"],
-                    "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]},
+                    "driver": {"command": [
+                        "{brokkr}", "driver", "judge", "--", "--model", "judge-1", "true"
+                    ]},
                 },
             }
         });
@@ -201,6 +208,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "medium",
             "true"
         ]),
+        "judge" => json!(["{brokkr}", "driver", provider, "--", "--model", "judge-1", "true"]),
         _ => json!(["{brokkr}", "driver", provider, "--", "true"]),
     };
     let mut value = json!({
@@ -545,9 +553,31 @@ fn a_gate_seating_an_untrusted_driver_refuses_and_names_both() {
 #[test]
 fn a_gate_seating_a_trusted_driver_compiles() {
     let fixture = Fixture::new();
+    let mut judge = adapter("judge", Some("trusted"), Some(true));
+    judge["models"] = json!({"judge": "judge-1"});
+    judge["judges"] = json!(["judge"]);
+    judge["model_flag"] = json!("--model");
+    fixture.write_adapter(judge);
+    let mut work = seat("judge", Some("gate"), None);
+    work["driver"]["command"] =
+        json!(["{brokkr}", "driver", "judge", "--", "--model", "judge-1", "true"]);
     fixture
-        .compile(seat("judge", Some("gate"), None))
-        .expect("a promoted driver may hold a gate");
+        .compile(work)
+        .expect("a promoted driver may hold a gate on a declared judge");
+}
+
+#[test]
+fn a_trusted_unpinned_gate_is_not_exempt_from_an_empty_judges_list() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("empty-judge", Some("trusted"), Some(true)));
+    let refusal = fixture.refusal(seat("empty-judge", Some("gate"), None));
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("gate link 1"), "{refusal}");
+    assert!(refusal.contains("model '<unpinned>'"), "{refusal}");
+    assert!(
+        refusal.contains("does not declare in 'judges'"),
+        "{refusal}"
+    );
 }
 
 #[test]
@@ -688,15 +718,29 @@ fn the_two_axes_are_independent() {
     // are different grants. A driver may hold either alone.
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("courier", Some("untrusted"), Some(true)));
-    fixture.write_adapter(adapter("ascetic", Some("trusted"), Some(false)));
+    let mut ascetic = adapter("ascetic", Some("trusted"), Some(false));
+    ascetic["models"] = json!({"ascetic": "ascetic-1"});
+    ascetic["judges"] = json!(["ascetic"]);
+    ascetic["model_flag"] = json!("--model");
+    fixture.write_adapter(ascetic);
     fixture
         .compile(seat("courier", None, Some(json!(["GH_TOKEN"]))))
         .expect("an untrusted driver may still be cleared to receive");
     assert!(fixture
         .refusal(seat("courier", Some("gate"), None))
         .contains("does not hold the trusted tier"));
+    let mut ascetic_gate = seat("ascetic", Some("gate"), None);
+    ascetic_gate["driver"]["command"] = json!([
+        "{brokkr}",
+        "driver",
+        "ascetic",
+        "--",
+        "--model",
+        "ascetic-1",
+        "true"
+    ]);
     fixture
-        .compile(seat("ascetic", Some("gate"), None))
+        .compile(ascetic_gate)
         .expect("a trusted driver judges");
     assert!(fixture
         .refusal(seat("ascetic", None, Some(json!(["GH_TOKEN"]))))
@@ -1646,7 +1690,7 @@ fn a_panel_member_is_classed_and_refused_on_its_own() {
             "panel": {
                 "trusted": {"class": "gate", "role": "roles/role.md",
                             "driver": {"command":
-                                ["{brokkr}", "driver", "judge", "--", "true"]}},
+                                ["{brokkr}", "driver", "judge", "--model", "judge-1", "--", "true"]}},
                 "other": member,
             },
         })
@@ -1888,6 +1932,24 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     }
 }
 
+#[test]
+fn the_shipped_adapters_declare_exactly_the_decision_0041_judges() {
+    let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    for (provider, judges) in [
+        ("claude", vec!["fable", "opus"]),
+        ("codex", vec!["sol"]),
+        ("dsh", vec![]),
+        ("exec", vec![]),
+        ("lanetally", vec!["fable-tallied", "opus-tallied"]),
+    ] {
+        assert_eq!(
+            adapters.adapter(provider).unwrap().judges,
+            judges,
+            "{provider}"
+        );
+    }
+}
+
 /// The path to the adapters this repository actually ships.
 fn shipped_adapters() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2105,6 +2167,72 @@ fn an_agent_gate_is_witnessed_by_its_resolution_not_a_second_time() {
         .expect("a trusted chain holds a gate");
     assert!(bundle.manifest["agents"]["work"]["adapter_digest"].is_string());
     assert!(bundle.manifest.get("drivers").is_none());
+}
+
+// -------------------------------- decision 0041: gates hire judges only
+
+#[test]
+fn a_gate_on_sonnet_is_refused_and_a_gate_on_opus_is_admitted() {
+    let fixture = Fixture::new();
+    fixture.write_agent("sonnet-seat", &[("sonnet", "claude-sonnet", "trusted")]);
+    let mut sonnet = adapter("claude-sonnet", Some("trusted"), Some(true));
+    sonnet["models"] = json!({"sonnet": "claude-sonnet-5"});
+    sonnet["model_flag"] = json!("--model");
+    sonnet["judges"] = json!([]);
+    fixture.write_adapter(sonnet);
+    let refusal = fixture.refusal(json!({
+        "agent": "sonnet-seat", "class": "gate", "results": ["pass", "fail"]
+    }));
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("link 1"), "{refusal}");
+    assert!(refusal.contains("model 'sonnet'"), "{refusal}");
+
+    fixture.write_agent("opus-seat", &[("opus", "claude-opus", "trusted")]);
+    fixture
+        .compile(json!({
+            "agent": "opus-seat", "class": "gate", "results": ["pass", "fail"]
+        }))
+        .expect("an adapter-declared opus judge may hold a gate");
+}
+
+#[test]
+fn a_gate_chain_refuses_its_third_non_judge_link_by_site_and_link() {
+    let fixture = Fixture::new();
+    fixture.write_agent(
+        "descending",
+        &[
+            ("fable", "first", "trusted"),
+            ("opus", "second", "trusted"),
+            ("sonnet", "third", "trusted"),
+        ],
+    );
+    let mut third = adapter("third", Some("trusted"), Some(true));
+    third["models"] = json!({"sonnet": "claude-sonnet-5"});
+    third["model_flag"] = json!("--model");
+    third["judges"] = json!([]);
+    fixture.write_adapter(third);
+
+    let refusal = fixture.refusal(json!({
+        "agent": "descending", "class": "gate", "results": ["pass", "fail"]
+    }));
+    assert!(refusal.contains("seat 'work'"), "{refusal}");
+    assert!(refusal.contains("link 3"), "{refusal}");
+    assert!(refusal.contains("model 'sonnet'"), "{refusal}");
+}
+
+#[test]
+fn a_work_seat_on_sonnet_is_untouched_by_the_judges_declaration() {
+    let fixture = Fixture::new();
+    fixture.write_agent("worker", &[("sonnet", "claude-sonnet", "trusted")]);
+    let mut sonnet = adapter("claude-sonnet", Some("trusted"), Some(true));
+    sonnet["models"] = json!({"sonnet": "claude-sonnet-5"});
+    sonnet["model_flag"] = json!("--model");
+    fixture.write_adapter(sonnet); // no `judges`: the fail-closed default
+    fixture
+        .compile(json!({
+            "agent": "worker", "class": "work", "results": ["pass", "fail"]
+        }))
+        .expect("judges constrains gates, not work seats");
 }
 
 // ---------------------------------------------- decision 0043: boxed hands

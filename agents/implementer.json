@@ -12,14 +12,7 @@
   "tools": {
     "allow": [
       "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "codex",
-      "dsh"
+      "git"
     ],
     "mcp": []
   },

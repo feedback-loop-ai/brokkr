@@ -185,7 +185,7 @@ screenshots.
 
 The one wager this repository has actually run is documented in
 [the-wager.md](../../docs/essays/the-wager.md) with its journal
-citations; **this recipe itself has not been run.** It compiles under
+citations; this recipe itself ran on 2026-09-02. It compiles under
 the shipped adapters, its charter parity against `recipes/fast` is
 tested, and its manifest digest is pinned in
 `crates/brokkr-runtime/tests/witness_digests.rs`. That is the claim, and

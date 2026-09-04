@@ -2,14 +2,12 @@
   "description": "Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?",
   "charter": "charters/review-spec-compliance.md",
   "models": [
-    "fable",
     "opus",
     "sol"
   ],
   "efforts": {
-    "fable": "high",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "opus": "high",
+    "sol": "high"
   },
   "hands": {
     "kind": "workspace",
@@ -28,18 +26,5 @@
         "mode": "ro"
       }
     ]
-  },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "specify"
-    ],
-    "mcp": []
   }
 }

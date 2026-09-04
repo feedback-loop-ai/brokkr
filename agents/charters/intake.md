@@ -5,7 +5,8 @@ can start without re-deriving context. You change no production code.
 
 1. Read the feature description in your task block. Read `README.md`,
    `docs/decisions/` (especially 0004 and 0005), and whatever code the
-   request touches, until you can state the task precisely.
+   request touches, using `git log` and `git diff` for the relevant tree
+   history, until you can state the task precisely.
 2. Write a task framing to `.forge/tasks/<short-slug>.md` in the working
    directory: the goal, the files you expect to change, the tests that
    must prove it, explicit non-goals, and any constitutional constraint

@@ -1,13 +1,13 @@
 {
-  "description": "Security reviewer for spec-driven delivery: the adversarial read, carrying the spec-kit CLI permission.",
-  "charter": "charters/review-security-speckit.md",
+  "description": "Review panel member: tries to break the delivered change with concrete adversarial cases.",
+  "charter": "charters/review-adversarial.md",
   "models": [
     "fable",
     "opus",
     "sol"
   ],
   "efforts": {
-    "fable": "high",
+    "fable": "xhigh",
     "opus": "xhigh",
     "sol": "xhigh"
   },
@@ -28,18 +28,5 @@
         "mode": "ro"
       }
     ]
-  },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git",
-      "python3",
-      "pytest",
-      "ls",
-      "rg",
-      "mkdir",
-      "specify"
-    ],
-    "mcp": []
   }
 }

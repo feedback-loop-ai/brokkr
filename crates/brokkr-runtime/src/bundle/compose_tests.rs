@@ -764,6 +764,12 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// (`recipes/panel-review`, `recipes/sdd`, `bundles/self`, whose agents
 /// now name the effort they hire beside the model). A hire that gained
 /// half its terms is a different hire, and therefore a different bundle.
+/// Decision 0041 moves all five again: ruling 1 advances the fable
+/// adapter mapping, ruling 2 reorders and re-efforts the roster, and
+/// ruling 3 adds the judges declaration to every adapter digest.
+/// The ruling-2 review correction moves the three adopters again because
+/// intake and implement now name and receive the Git capability their
+/// charters require, while dead allow-lists no longer sit beside hands.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -772,23 +778,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "36c369e4cd5e30a87c83702ad937426245dd3d34d53dd3b4c0b2468e8029ded3",
+        "f6f960da0503f2130200430bcf5877b5cf128a9b7fe2071c09b4dbc7c505892b",
     ),
     (
         "recipes/panel-review",
-        "1607d7a82b948a2b71bb146cc88b2ebbacf543e2ae1f2c06db4079e757bf252d",
+        "80374e3fc58b6bc43ca28e2b250c7537578dce2e69d50a9af6d51a6673ab8e37",
     ),
     (
         "recipes/sdd",
-        "a43ac28ab9cddf115aa15bc1d9d96c83e1c730028cc64881481e98483f4b8f40",
+        "0a1671eef1121cc2ed587adeb8586509f431920370a592b4f781a8b62684aa29",
     ),
     (
         "bundles/self",
-        "48ca9166e77c5745a7b2b2869d82157cf73c106c41d2453bf45c0fd1645ffcdb",
+        "ac0fc14129a4e7cee3f44c11c1e1875a0fd4ed8b702fb5be9317391c2b3cb319",
     ),
     (
         "bundles/verify",
-        "e7f7e3db903da3f71dcea248e96f3913359a9deb9b8f055ef306af96782622c2",
+        "162fef593349a481998130acbd082756357028874f2dee6d9949dcfb21982f25",
     ),
 ];
 
@@ -919,7 +925,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "0a6c14473bd7b608ace293cdd8d325a53a03a4007e4ef7fd55c29b7720fad4c9",
+        "5776aad40cb5df78336945ea90994ae0bb2fbe00a47849f93ff4f628a29f5377",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -930,7 +936,11 @@ fn a_composed_bundles_manifest_is_pinned() {
          contributor-facing description and cost data, and now that \
          decision 0035 ruling 5 makes every model pin carry an effort \
          pin — in this layer's own argv and in the agents its base \
-         resolves — which is this test's own principle: changing a \
+         resolves — and decision 0041 moves it again because ruling 1 \
+         advances fable, ruling 2 moves the roster, and ruling 3 adds \
+         judges to the adapters, then the ruling-2 review correction makes \
+         Git explicit in the intake and implementer charters and grants; \
+         which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
 }
