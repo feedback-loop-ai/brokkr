@@ -42,7 +42,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "intake-sdd.md",
-        "050d39eb135097ee416dc3979849bbee8dfbeaebdc9b2daaee883c67435dd94b",
+        "bbd5c49d97796d91df3713344faaa3adb536e9acc36ae7cfc5cb1e2700211e9d",
     ),
     (
         "intake.md",
@@ -74,7 +74,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "review-spec-compliance.md",
-        "792b449ce2c8bd0a8c2b8ad6538338bad176fc58742a953cd09da74c1c38b627",
+        "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
     ),
     (
         "reviewer.md",

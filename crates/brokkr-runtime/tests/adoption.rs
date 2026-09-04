@@ -127,7 +127,7 @@ const TRIAGE: &Roster = &[
     (
         "review:design:positions:spec-compliance",
         "claude-opus-5",
-        "792b449ce2c8bd0a8c2b8ad6538338bad176fc58742a953cd09da74c1c38b627",
+        "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
     ),
     (
         "review:design:positions:security",

@@ -7,8 +7,20 @@ the proposal directories that formerly lived under the OpenSpec change tree;
 directories. They are historical evidence, not living OpenSpec changes or
 truth.
 
-The runs for composable recipes, the agent library, artifact enforcement,
-sealed secret bindings, the LaneTally driver, the interactive TUI, the TUI
-graph, and one derivation with two surfaces wrote these records. Their durable
-journals identify the commits that carried them; moving the paths does not
-change that evidence.
+The originating delivery runs and their merge records were:
+
+| Record | Delivery |
+|---|---|
+| one derivation, two surfaces | `8c8b8a7` · #39 |
+| interactive TUI | `0260d35` · #41 |
+| composable recipes | `437169b` · #44 |
+| TUI graph | `661becc` · #45 |
+| agent library | `7e30350` · #46 |
+| artifact enforcement | `f81b642` |
+| LaneTally driver | `82b8cc4` |
+| sealed secret bindings | `19b9a79` |
+
+Later cross-cutting runs also amended these records: the first rename sweep
+(`#92`), the return-edge work (`#98` and `#120`), and the closing rename sweep
+(`#142`). Their durable journals identify the commits that carried them;
+moving the paths does not change that evidence.

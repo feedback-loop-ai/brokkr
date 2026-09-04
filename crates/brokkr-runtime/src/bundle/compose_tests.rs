@@ -1057,10 +1057,9 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // Decision 0042's five SDD phases add the two judges, three artifact
-        // validators, two loop checks and the dialect-free smith; all of that
-        // executable topology is bundle identity.
-        "f71e44929070afc4a3801515b27a532d09c96e96ae2bbe76e4f3260f3c0da1cc",
+        // Decision 0042's five SDD phases and the returned review's restored
+        // spec-compliance contract and boxed intake are all bundle identity.
+        "ffd8b3090b16b3b88192ee5dcb4cff30d4b1517c69b8e5e8ecd41dccb71166f3",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

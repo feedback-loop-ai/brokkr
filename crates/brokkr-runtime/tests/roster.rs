@@ -32,7 +32,6 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
             | ("implementer-engine", "cargo" | "git")
             | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
-            | ("intake-sdd", "git")
             | ("intake", "git")
     )
 }

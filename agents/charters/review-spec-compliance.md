@@ -11,3 +11,9 @@ fault, return the finding to the smith. If an artifact itself is wrong, set
 `spec_defect: true` so the table can return to the earliest author. A clean
 result sets it false. Never report a security hold; that verdict belongs to the
 security office.
+
+Result: `clean` or `residual`, with `inputs` containing
+`max_residual_severity` (`none`, `info`, `low`, `medium`, `high`, or
+`critical`), `has_security_residual: false`, and `spec_defect` as a boolean.
+List every residual finding and its severity in `notes`; a clean result uses
+severity `none`.

@@ -9,12 +9,7 @@
     "sonnet": "high",
     "opus": "high"
   },
-  "tools": {
-    "allow": [
-      "git"
-    ],
-    "mcp": []
-  },
+  "hands": {"kind": "workspace", "network": false, "binds": []},
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 1800

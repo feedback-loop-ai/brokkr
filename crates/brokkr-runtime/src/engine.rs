@@ -698,6 +698,7 @@ impl Engine {
             );
         }
         let context = Value::Object(context);
+        let has_change = nearest_change(&context).is_some();
         let mut input = match body {
             ExecutableBody::Single { role_path, .. } => json!({
                 "feature": self.feature,
@@ -818,7 +819,7 @@ impl Engine {
                 input["house_rules"] = json!(house);
             }
         }
-        if phase != "review" {
+        if phase != "review" && (phase != "implement" || has_change) {
             if let Some(instructions) = self.bundle.dialect_prompts.get(phase) {
                 input["spec_dialect"] = json!(instructions);
             }
@@ -1623,17 +1624,6 @@ impl Engine {
                             .flatten()
                             .any(|token| token.contains("{change}"));
                     if needs_change && nearest_change.is_none() {
-                        if seq_input["phase"] == "verify" {
-                            let result = prior_results
-                                .get("checks")
-                                .cloned()
-                                .expect("dialect verify follows the checks step");
-                            return self.append(
-                                EventType::EffectSucceeded,
-                                json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-                                Some(attempt_id.to_string()),
-                            ).map(drop);
-                        }
                         return self.append(
                             EventType::EffectIndeterminate,
                             json!({

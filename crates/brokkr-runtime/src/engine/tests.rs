@@ -172,6 +172,36 @@ fn forward_context_carries_only_typed_phase_facts() {
 }
 
 #[test]
+fn implement_receives_dialect_instructions_only_after_a_change_exists() {
+    let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
+    let implement = runtime.bundle.seats.remove("work").unwrap();
+    runtime.bundle.seats.insert("implement".into(), implement);
+    runtime.bundle.machine.phases[0] = "specify".into();
+    runtime.bundle.machine.phases.insert(1, "implement".into());
+    runtime
+        .bundle
+        .dialect_prompts
+        .insert("implement".into(), "Archive the dialect change.".into());
+
+    let without_change = runtime
+        .seat_input(
+            &state(Some("implement"), Cursor::Idle),
+            "implement",
+            "fast-effect",
+        )
+        .unwrap();
+    assert!(without_change.get("spec_dialect").is_none());
+
+    let mut sdd = state(Some("implement"), Cursor::Idle);
+    sdd.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"decision-0042"}}),
+    );
+    let with_change = runtime.seat_input(&sdd, "implement", "sdd-effect").unwrap();
+    assert_eq!(with_change["spec_dialect"], "Archive the dialect change.");
+}
+
+#[test]
 fn an_undeclared_change_claim_is_dropped() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime
@@ -275,41 +305,19 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         "feature":"feature", "phase":"verify", "workdir":".",
         "allowed_results":["pass", "fail"],
         "context":{},
-        "steps":[
-            {"role_path":"checks.md", "result_path":"checks.json", "allowed_results":["pass", "fail"]},
-            {"role_path":"", "result_path":"result.json", "allowed_results":["pass", "fail"]}
-        ],
+        "steps":[{"role_path":"", "result_path":"result.json", "allowed_results":["pass", "fail"]}],
     });
-    let verify_steps = [
-        SequenceStep {
-            name: "checks".into(),
-            results: vec!["pass".into(), "fail".into()],
-            class: SeatClass::Gate,
-            body: StepBody::Single {
-                role_path: "checks.md".into(),
-                command: driver_command(
-                    "effect",
-                    "attempt",
-                    AttemptOutcome::Succeeded {
-                        result: json!({"result":"pass"}),
-                    },
-                ),
-                confine: None,
-                candidates: Vec::new(),
+    let verify_steps = [SequenceStep {
+        name: "dialect-verify".into(),
+        results: vec!["pass".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["validator".into(), "{change}".into()],
+                state: None,
             },
         },
-        SequenceStep {
-            name: "dialect-verify".into(),
-            results: vec!["pass".into(), "fail".into()],
-            class: SeatClass::Gate,
-            body: StepBody::Dialect {
-                execution: crate::bundle::DialectExecution {
-                    argv: vec!["validator".into(), "{change}".into()],
-                    state: None,
-                },
-            },
-        },
-    ];
+    }];
     verify_without_change
         .execute_sequence(
             "effect",
@@ -325,7 +333,14 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         .store
         .load(&verify_without_change.run_id)
         .unwrap();
-    assert_eq!(events.last().unwrap().payload["result"]["result"], "pass");
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
 
     let metadata_step = SequenceStep {
         name: "validate".into(),

@@ -7,11 +7,13 @@ Every model prompt is assembled from independently owned texts. The
 library charter under `agents/charters/` is the portable office: what the seat
 does and must not do. The realm may name repository-specific Markdown through
 `house` in `forge.realms/v3`; the engine inserts it once under `## House rules`
-after the charter. On an SDD phase, the engine then inserts the realm's
-dialect instructions under `## Spec dialect`; only the spec-compliance member
-receives them during review. Finally, the engine renders the result-file
-contract from the current site. A non-final sequence step receives its own `results`; the
-final step and an ordinary single seat receive the enclosing seat's results.
+after the charter. On an SDD artifact or loop phase, the engine then inserts
+the realm's dialect instructions under `## Spec dialect`; implementation gets
+them only after an earlier typed result establishes a change, and only the
+spec-compliance member receives them during review. Finally, the engine renders
+the result-file contract from the current site. A non-final sequence step
+receives its own `results`; the final step and an ordinary single seat receive
+the enclosing seat's results.
 House and dialect declarations and their content digests ride inside the
 realms manifest pin, so changing a house changes the run identity without
 changing an agent or recipe digest.

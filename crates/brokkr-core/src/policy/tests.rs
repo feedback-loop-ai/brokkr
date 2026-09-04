@@ -573,6 +573,114 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
     ));
 }
 
+/// Decision 0042's shipped table is evaluated arm by arm. These are not
+/// shape assertions: each pair proves first-match ordering on either side of
+/// its literal bound, and each `drift_in` value drives the real table.
+#[test]
+fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
+    let machine = shipped_machine("../../recipes/triage/policy.json");
+    let park = |phase: &str, result: &str, inputs: Value| match machine.evaluate(
+        phase,
+        result,
+        inputs.as_object().unwrap(),
+    ) {
+        Outcome::Park { rule_id, .. } => rule_id,
+        other => panic!("expected park for ({phase}, {result}), got {other:?}"),
+    };
+
+    for phase in ["specify", "design", "tasks"] {
+        assert_eq!(
+            ruling(&machine, phase, "fail", json!({"consecutive_failures": 1})),
+            (
+                format!("{}-RETRY", phase.to_ascii_uppercase()),
+                phase.into()
+            )
+        );
+        assert_eq!(
+            ruling(&machine, phase, "fail", json!({"consecutive_failures": 2})),
+            (
+                format!("{}-FAIL-TWICE", phase.to_ascii_uppercase()),
+                "stop".into()
+            )
+        );
+    }
+
+    assert_eq!(park("specify", "upstream", json!({})), "SPECIFY-UPSTREAM");
+    assert_eq!(
+        ruling(&machine, "specify", "drafted", json!({})),
+        ("SPECIFY-DRAFTED".into(), "clarify".into())
+    );
+    assert_eq!(
+        ruling(&machine, "design", "upstream", json!({"visits_specify": 2})),
+        ("DESIGN-UPSTREAM".into(), "specify".into())
+    );
+    assert_eq!(
+        park("design", "upstream", json!({"visits_specify": 3})),
+        "DESIGN-UPSTREAM-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "design", "drafted", json!({})),
+        ("DESIGN-DRAFTED".into(), "tasks".into())
+    );
+    assert_eq!(
+        ruling(&machine, "tasks", "upstream", json!({"visits_design": 2})),
+        ("TASKS-UPSTREAM".into(), "design".into())
+    );
+    assert_eq!(
+        park("tasks", "upstream", json!({"visits_design": 3})),
+        "TASKS-UPSTREAM-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "tasks", "drafted", json!({})),
+        ("TASKS-DRAFTED".into(), "analyze".into())
+    );
+
+    assert_eq!(
+        ruling(
+            &machine,
+            "clarify",
+            "ambiguous",
+            json!({"visits_clarify": 2})
+        ),
+        ("CLARIFY-AMBIGUOUS".into(), "specify".into())
+    );
+    assert_eq!(
+        park("clarify", "ambiguous", json!({"visits_clarify": 3})),
+        "CLARIFY-AMBIGUOUS-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "clarify", "clear", json!({})),
+        ("CLARIFY-CLEAR".into(), "design".into())
+    );
+
+    for drift_in in ["specify", "design", "tasks"] {
+        assert_eq!(
+            ruling(
+                &machine,
+                "analyze",
+                "drift",
+                json!({"visits_analyze": 2, "drift_in": drift_in})
+            ),
+            (
+                format!("ANALYZE-DRIFT-{}", drift_in.to_ascii_uppercase()),
+                drift_in.into()
+            )
+        );
+        assert_eq!(
+            park(
+                "analyze",
+                "drift",
+                json!({"visits_analyze": 3, "drift_in": drift_in})
+            ),
+            "ANALYZE-DRIFT-EXHAUSTED"
+        );
+    }
+    assert_eq!(
+        ruling(&machine, "analyze", "consistent", json!({})),
+        ("ANALYZE-CONSISTENT".into(), "implement".into())
+    );
+}
+
 /// Every arm of the at-most predicate, point-blank against a synthetic
 /// table so no earlier rule intercepts: the loader's two refusals
 /// (unknown axis, unranked threshold), and the evaluator's four
