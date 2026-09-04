@@ -596,6 +596,9 @@ impl Engine {
         let mut context = Map::new();
         context.insert("run_id".into(), json!(self.run_id));
         context.insert("last_decision".into(), json!(state.last_decision));
+        if phase == "ship" {
+            context.insert("journal".into(), json!(self.store.path().to_string_lossy()));
+        }
         // Reforging (decision 0022): a seat the run RETURNS to receives
         // the result that sent it back — the review's findings,
         // severities and notes reach the implementer who has to answer

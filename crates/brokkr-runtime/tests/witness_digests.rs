@@ -112,11 +112,11 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/node",
-        "de7e2bf2c18f2ec3bf3b339c9704ee5569a9b9b2b20dcac0e87cc369511b4bdf",
+        "4f4d2773f223228361cdf0dcb44df9e0385c608e58e3c5c7c950ca8695a673aa",
     ),
     (
         "recipes/preflight",
-        "17055e1c914f4455fb5e2dba908da75a99b8ab52f555bd89a3141f57e60845f7",
+        "a186560e364513467a989fa1e20d513a2c48e68b0a78ee36a6183eee7bafd715",
     ),
     (
         "recipes/ember",

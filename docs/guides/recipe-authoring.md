@@ -31,9 +31,9 @@ crucible	b42f0118c8a9	6 phases	implement, review[positions>chief], ship, verify	
 ember	fda02a55ce9b	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
 fast	d1ec8b3ab211	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
 night-shift	c807e27ad208	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
-node	de7e2bf2c18f	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+node	4f4d2773f223	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
 panel-review	00d6c2481728	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	17055e1c914f4	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+preflight	a186560e3645	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
 sdd	533d3fcd2473	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
 sdd-paranoid	4934cfc732fa	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
 wager-harness	75b3dec5dfb7	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness

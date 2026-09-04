@@ -190,37 +190,42 @@ fn shipped_claude_implementer_can_commit() {
 #[test]
 fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
     let root = workspace();
+    let mut shipped = Vec::new();
     for entry in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
         let bundle_path = entry.path().join("bundle.json");
         if !bundle_path.is_file() {
             continue;
         }
-        let recipe = entry.file_name().to_string_lossy().into_owned();
-        let bundle =
-            Bundle::compile_with(&entry.path(), &root.join("agents"), &root.join("adapters"))
-                .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"));
+        shipped.push((
+            format!("recipes/{}", entry.file_name().to_string_lossy()),
+            entry.path(),
+        ));
+    }
+    for name in ["self", "verify"] {
+        shipped.push((format!("bundles/{name}"), root.join("bundles").join(name)));
+    }
+    for (name, path) in shipped {
+        let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{name} compiles: {error}"));
         for phase in ["verify", "ship"] {
             let Some(seat) = bundle.seats.get(phase) else {
                 continue;
             };
-            assert!(seat.has_gate, "{recipe}:{phase} is gate-class");
-            assert!(
-                bundle.hands.contains_key(phase),
-                "{recipe}:{phase} is boxed"
-            );
+            assert!(seat.has_gate, "{name}:{phase} is gate-class");
+            assert!(bundle.hands.contains_key(phase), "{name}:{phase} is boxed");
             let SeatBody::Single {
                 command,
                 candidates,
                 ..
             } = &seat.body
             else {
-                panic!("{recipe}:{phase} is one deterministic script")
+                panic!("{name}:{phase} is one deterministic script")
             };
-            assert!(candidates.is_empty(), "{recipe}:{phase} seats no model");
-            assert_eq!(&command[1..4], ["driver", "exec", "--"], "{recipe}:{phase}");
+            assert!(candidates.is_empty(), "{name}:{phase} seats no model");
+            assert_eq!(&command[1..4], ["driver", "exec", "--"], "{name}:{phase}");
             let script = command.get(5).map(String::as_str);
             if phase == "ship" {
-                assert_eq!(script, Some("scripts/ship-seat.sh"), "{recipe}:{phase}");
+                assert_eq!(script, Some("scripts/ship-seat.sh"), "{name}:{phase}");
             } else {
                 assert!(
                     matches!(
@@ -231,7 +236,7 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                                 | "recipes/preflight/roles/verify-seat.sh"
                         )
                     ),
-                    "{recipe}:{phase} names a shipped verifier script: {script:?}"
+                    "{name}:{phase} names a shipped verifier script: {script:?}"
                 );
             }
         }

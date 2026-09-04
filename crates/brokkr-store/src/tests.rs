@@ -3,7 +3,9 @@ use serde_json::json;
 
 fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let path = dir.path().join("forge.db");
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.path(), path);
     (dir, store)
 }
 

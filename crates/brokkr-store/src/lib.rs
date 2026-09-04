@@ -59,7 +59,7 @@
 //! worktree-local `.forge/forge.db` remains entirely legal — it is
 //! emergency isolation now, not the assumed steady state.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain, ChainError, EventEnvelope, EventType};
@@ -259,6 +259,7 @@ fn escaped(run_id: &str) -> String {
 
 pub struct Store {
     conn: Connection,
+    path: PathBuf,
     /// The whole budget one store operation spends on a peer's lock —
     /// the connection's busy handler and [`patiently`]'s retry together,
     /// never one each. [`BUSY_TIMEOUT`] unless a caller says otherwise;
@@ -591,6 +592,7 @@ impl Store {
         patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
         Ok(Store {
             conn,
+            path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
         })
     }
@@ -608,6 +610,12 @@ impl Store {
         self.conn.busy_timeout(patience)?;
         self.patience = patience;
         Ok(())
+    }
+
+    /// The journal this connection opened, retained so deterministic
+    /// exec seats can read the same journal the engine is driving.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Bring a journal to [`DATABASE_SCHEMA`], writing only when it is
@@ -700,6 +708,7 @@ impl Store {
         schema_supported(found.parse().unwrap_or(0))?;
         Ok(Store {
             conn,
+            path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
         })
     }

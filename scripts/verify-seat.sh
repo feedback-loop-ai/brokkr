@@ -19,8 +19,21 @@ trap 'rm -f "$output" "$notes_file"' EXIT
 
 write_result() {
     seat_result="$1"
-    awk -v result="$seat_result" 'BEGIN { printf "{\"result\": \"%s\", \"notes\": \"", result }
-      { gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); if (NR > 1) printf "\\n"; printf "%s", $0 }
+    awk -v result="$seat_result" '
+      function json(text, out, i, byte, character) {
+        for (i = 1; i <= length(text); i++) {
+          character = substr(text, i, 1)
+          if (character == "\\") out = out "\\\\"
+          else if (character == "\"") out = out "\\\""
+          else {
+            for (byte = 1; byte < 32 && character != sprintf("%c", byte); byte++) {}
+            out = out (byte < 32 ? sprintf("\\u%04x", byte) : character)
+          }
+        }
+        return out
+      }
+      BEGIN { printf "{\"result\": \"%s\", \"notes\": \"", result }
+      { if (NR > 1) printf "\\n"; printf "%s", json($0) }
       END { print "\"}" }' "$notes_file" > "$result_path"
 }
 

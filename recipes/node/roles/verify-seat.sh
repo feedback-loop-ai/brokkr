@@ -13,7 +13,9 @@ mkdir -p "$(dirname "$result_path")"
 output="$(dirname "$result_path")/node-verify-output.$$"
 notes="$(dirname "$result_path")/node-verify-notes.$$"
 trap 'rm -f "$output" "$notes"' EXIT
-write_result() { awk -v result="$1" 'BEGIN{printf "{\"result\": \"%s\", \"notes\": \"",result}{gsub(/\\/,"\\\\");gsub(/\"/,"\\\"");if(NR>1)printf "\\n";printf "%s",$0}END{print "\"}"}' "$notes" > "$result_path"; }
+write_result() { awk -v result="$1" '
+  function json(text,out,i,byte,c){for(i=1;i<=length(text);i++){c=substr(text,i,1);if(c=="\\")out=out "\\\\";else if(c=="\"")out=out "\\\"";else{for(byte=1;byte<32&&c!=sprintf("%c",byte);byte++){}out=out (byte<32?sprintf("\\u%04x",byte):c)}}return out}
+  BEGIN{printf "{\"result\": \"%s\", \"notes\": \"",result}{if(NR>1)printf "\\n";printf "%s",json($0)}END{print "\"}"}' "$notes" > "$result_path"; }
 run() {
     label="$1"; shift
     if ! "$@" > "$output" 2>&1 </dev/null; then

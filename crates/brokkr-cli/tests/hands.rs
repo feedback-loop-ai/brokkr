@@ -165,7 +165,7 @@ fn verifier_workspace(failing: bool) -> tempfile::TempDir {
     )
     .unwrap();
     let assertion = if failing {
-        "assert_eq!(2 + 2, 5, \"DECISIVE RED LINE\");"
+        "assert_eq!(2 + 2, 5, \"DECISIVE\\tRED\\rLINE\");"
     } else {
         "assert_eq!(2 + 2, 4);"
     };
@@ -224,15 +224,48 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
                 .unwrap();
         assert_eq!(result["result"], expected, "{result}");
         if failing {
-            assert!(
-                result["notes"]
-                    .as_str()
-                    .unwrap()
-                    .contains("DECISIVE RED LINE"),
-                "{result}"
-            );
+            let notes = result["notes"].as_str().unwrap();
+            assert!(notes.contains("DECISIVE\tRED\rLINE"), "{result}");
         }
     }
+}
+
+#[test]
+fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
+    let work = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(work.path().join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ship-seat.sh"),
+        work.path().join("scripts/ship-seat.sh"),
+    )
+    .unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(work.path())
+        .status()
+        .unwrap()
+        .success());
+    let result = work.path().join("result.json");
+    std::fs::write(
+        work.path().join("prompt.md"),
+        format!(
+            "Run context (journal-derived, read-only):\n```json\n{{\n  \"journal\": \"state/custom.db\",\n  \"last_decision\": {{\n    \"inputs\": {{\n      \"rule_id\": \"SHIP-READY\"\n    }},\n    \"rule_id\": \"REVIEW-CLEAN\"\n  }},\n  \"run_id\": \"known-run\"\n}}\n```\n\n## Result contract — MANDATORY\n\n    {}\n",
+            result.display()
+        ),
+    )
+    .unwrap();
+    let output = Command::new("bash")
+        .args(["scripts/ship-seat.sh", "prompt.md", "/bin/false"])
+        .current_dir(work.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!result.exists(), "a failed ledger must not type ready");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("ledger generation failed"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -306,7 +339,7 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
             "--feature",
             "script proof",
             "--db",
-            ".forge/forge.db",
+            "state/custom.db",
             "--repo",
             work.path().to_str().unwrap(),
         ])
