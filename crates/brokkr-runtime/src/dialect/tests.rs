@@ -115,6 +115,17 @@ fn every_checked_dialect_boundary_is_named() {
         *value.pointer_mut(pointer).unwrap() = json!(" ");
         assert!(refusal(value).contains("must be non-empty"));
     }
+    for binary in [
+        "/bin/echo",
+        "tools/openspec",
+        "tools\\openspec",
+        "C:openspec.exe",
+    ] {
+        let mut value = openspec();
+        value["tool"]["binary"] = json!(binary);
+        let message = refusal(value);
+        assert!(message.contains("bare filename"), "{binary}: {message}");
+    }
     for pointer in [
         "/phases/specify/steps/0/name",
         "/phases/design/steps/0/name",

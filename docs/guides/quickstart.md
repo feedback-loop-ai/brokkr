@@ -115,6 +115,8 @@ ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
 warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
+ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
 …
 ```
 
@@ -122,9 +124,12 @@ Lines are prefixed `ok`, `warn`, or `MISSING`. A `MISSING` line is a
 refusal to guess: an absent driver binary means seats resolving to that
 provider will fail to spawn, and doctor says so rather than letting you
 find out mid-run. Warnings are optional capabilities. `doctor` executes
-no agent. Two flags: `--bundle <dir>` also compiles a bundle and reports
+no agent. Dialect lines compare the installed specification tool with the
+realm's pin and check every file its dialect requires; a missing dialect tool
+warns that the design route will refuse without making the whole doctor fail.
+Three flags: `--bundle <dir>` also compiles a bundle and reports
 the result, and `--db <path>` chooses the workspace journal (default
-`.forge/forge.db`). It takes no `--realms`.
+`.forge/forge.db`); `--realms <path>` selects a non-default realm map.
 
 ### Step 2 — `brokkr init .`
 
@@ -655,6 +660,7 @@ ok       contracts: engine 0.8.0, event_schema 1, database_schema 1, driver_prot
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
+ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
 …
 
 $ brokkr init my-bundle                   # scaffold a reviewable starter recipe

@@ -209,6 +209,12 @@ impl Dialect {
                 "name, tool binary and measured version must be non-empty".into(),
             ));
         }
+        let binary = self.tool.binary.as_str();
+        if binary.contains(['/', '\\', ':']) {
+            return Err(invalid(format!(
+                "tool binary '{binary}' must be a bare filename resolved from PATH"
+            )));
+        }
         let mut artifact_position = BTreeMap::new();
         let mut assigned = BTreeSet::new();
         let mut position = 0usize;

@@ -986,3 +986,94 @@ fn init_at_a_projects_root_leaves_its_own_readme_untouched() {
         "the scaffold's notes moved under agents/: {notes}"
     );
 }
+
+#[test]
+fn init_scaffolds_each_dialect_detection_outcome() {
+    for (case, speckit, openspec, expected, notes) in [
+        (
+            "spec-kit",
+            true,
+            false,
+            Some("speckit"),
+            "`specify` at version `0.8.7`",
+        ),
+        (
+            "OpenSpec",
+            false,
+            true,
+            Some("openspec"),
+            "`openspec` at version `1.12.0`",
+        ),
+        (
+            "both",
+            true,
+            true,
+            None,
+            "Found both `.specify/` (spec-kit) and `openspec/config.yaml` (OpenSpec)",
+        ),
+        (
+            "neither",
+            false,
+            false,
+            None,
+            "An artifact phase will need one",
+        ),
+    ] {
+        let repo = tempfile::tempdir().unwrap();
+        if speckit {
+            std::fs::create_dir(repo.path().join(".specify")).unwrap();
+        }
+        if openspec {
+            std::fs::create_dir(repo.path().join("openspec")).unwrap();
+            std::fs::write(
+                repo.path().join("openspec/config.yaml"),
+                "schema: spec-driven\n",
+            )
+            .unwrap();
+        }
+        let bundle = repo.path().join("bundle");
+        let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], repo.path());
+        assert_eq!(code, Some(0), "{case}: {stderr}");
+
+        let map = read_json(&bundle.join("realms.json"));
+        assert_eq!(
+            map["realms"][0].get("dialect").and_then(Value::as_str),
+            expected,
+            "{case}"
+        );
+        let world = brokkr_runtime::realms::World::load(&bundle.join("realms.json")).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(world.path_of(&world.map.realms[0])).unwrap(),
+            std::fs::canonicalize(repo.path()).unwrap(),
+            "{case}: the scaffolded realm must be the repository detection read"
+        );
+        let compiled = Bundle::compile_with(
+            &bundle,
+            &bundle.join(DEFAULT_AGENTS_DIR),
+            &bundle.join(DEFAULT_ADAPTERS_DIR),
+        )
+        .unwrap();
+        let files = compiled.manifest["files"].as_object().unwrap();
+        assert!(!files.contains_key("realms.json"), "{case}");
+        assert!(
+            !files.keys().any(|path| path.starts_with("dialects/")),
+            "{case}"
+        );
+        let scaffold_notes = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
+        assert!(scaffold_notes.contains(notes), "{case}: {scaffold_notes}");
+
+        if let Some(name) = expected {
+            assert!(bundle
+                .join("dialects")
+                .join(format!("{name}.json"))
+                .is_file());
+            assert!(bundle
+                .join("dialects")
+                .join(name)
+                .join("specify.md")
+                .is_file());
+        } else {
+            assert!(!bundle.join("dialects").exists(), "{case}");
+        }
+    }
+}

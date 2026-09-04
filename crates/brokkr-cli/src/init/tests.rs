@@ -8,10 +8,78 @@
 //! synthetic `Detected` can reach.
 
 use super::{
-    allowance, command_tools, grants, leading_word, runner_tools, tools_for, AgentSpec, Class,
-    Detected, Tool,
+    allowance, command_tools, detect, grants, leading_word, relative_realm_path, runner_tools,
+    tools_for, write_dialect, AgentSpec, Class, Detected, DialectDetection, Tool, OPENSPEC,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+#[test]
+fn dialect_detection_covers_each_marker_combination() {
+    for (speckit, openspec, expected) in [
+        (true, false, "speckit"),
+        (false, true, "openspec"),
+        (true, true, "ambiguous"),
+        (false, false, "absent"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        if speckit {
+            std::fs::create_dir(dir.path().join(".specify")).unwrap();
+        }
+        if openspec {
+            std::fs::create_dir(dir.path().join("openspec")).unwrap();
+            std::fs::write(
+                dir.path().join("openspec/config.yaml"),
+                "schema: spec-driven\n",
+            )
+            .unwrap();
+        }
+        let detection = detect(dir.path());
+        let actual = match detection.dialect {
+            DialectDetection::Detected(choice, dialect) => {
+                assert_eq!(choice.name, dialect.name);
+                choice.name
+            }
+            DialectDetection::Ambiguous => "ambiguous",
+            DialectDetection::Absent => "absent",
+        };
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn a_realm_path_is_relative_when_roots_are_related_and_absolute_when_they_are_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir(&bundle).unwrap();
+    assert_eq!(
+        relative_realm_path(&bundle, dir.path()),
+        std::path::Path::new("..")
+    );
+    assert_eq!(
+        relative_realm_path(dir.path(), dir.path()),
+        std::path::Path::new(".")
+    );
+    let child = dir.path().join("child");
+    std::fs::create_dir(&child).unwrap();
+    assert_eq!(
+        relative_realm_path(dir.path(), &child),
+        std::path::Path::new("child")
+    );
+    assert_eq!(
+        relative_realm_path(
+            std::path::Path::new("brokkr-certainly-absent-left"),
+            std::path::Path::new("brokkr-certainly-absent-right")
+        ),
+        std::path::Path::new("brokkr-certainly-absent-right")
+    );
+}
+
+#[test]
+fn dialect_writes_surface_a_target_that_becomes_unwritable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("dialects/openspec.json")).unwrap();
+    assert!(write_dialect(dir.path(), OPENSPEC).is_err());
+}
 
 /// The leading word is the binary that runs: whole command, flag-heavy
 /// command, or a bare single-token command.

@@ -53,6 +53,12 @@
 //! SAYING it is a workspace, so a seat does not go hunting for a
 //! per-crate or per-module command that nobody needed.
 //!
+//! The specification dialect is a separate detection axis. A `.specify/`
+//! directory names spec-kit and `openspec/config.yaml` names OpenSpec. The
+//! starter carries the detected dialect and its pinned library data beside
+//! `realms.json`; ambiguity or absence leaves the declaration empty and is
+//! stated in the scaffold notes.
+//!
 //! The same stack decides the scaffold's MODEL TOOL GRANTS. A headless seat
 //! runs under `--allowedTools`: a claude session that may run anything
 //! stops at every shell prompt it is not allowed to answer. So the tools
@@ -77,12 +83,74 @@
 //! README says so in those words — a tool name is a permission, and one
 //! guessed is one granted.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
 use serde_json::{json, Map};
+
+const OPENSPEC_DIALECT: &str = include_str!("../../../dialects/openspec.json");
+const SPECKIT_DIALECT: &str = include_str!("../../../dialects/speckit.json");
+
+const OPENSPEC_INSTRUCTIONS: &[(&str, &str)] = &[
+    (
+        "analyze.md",
+        include_str!("../../../dialects/openspec/analyze.md"),
+    ),
+    (
+        "clarify.md",
+        include_str!("../../../dialects/openspec/clarify.md"),
+    ),
+    (
+        "design.md",
+        include_str!("../../../dialects/openspec/design.md"),
+    ),
+    (
+        "return.md",
+        include_str!("../../../dialects/openspec/return.md"),
+    ),
+    (
+        "specify.md",
+        include_str!("../../../dialects/openspec/specify.md"),
+    ),
+    (
+        "tasks.md",
+        include_str!("../../../dialects/openspec/tasks.md"),
+    ),
+];
+
+const SPECKIT_INSTRUCTIONS: &[(&str, &str)] = &[
+    (
+        "analyze.md",
+        include_str!("../../../dialects/speckit/analyze.md"),
+    ),
+    (
+        "checklist.md",
+        include_str!("../../../dialects/speckit/checklist.md"),
+    ),
+    (
+        "clarify.md",
+        include_str!("../../../dialects/speckit/clarify.md"),
+    ),
+    (
+        "design.md",
+        include_str!("../../../dialects/speckit/design.md"),
+    ),
+    (
+        "return.md",
+        include_str!("../../../dialects/speckit/return.md"),
+    ),
+    (
+        "specify.md",
+        include_str!("../../../dialects/speckit/specify.md"),
+    ),
+    (
+        "tasks.md",
+        include_str!("../../../dialects/speckit/tasks.md"),
+    ),
+];
 
 // Drivers are built into the brokkr binary itself (decision 0009):
 // scaffolds reference them as {brokkr} driver <kind>.
@@ -578,7 +646,7 @@ fn allowance<'a>(spec: &AgentSpec, grants: &'a Grants) -> Option<&'a [Tool]> {
 /// seats were granted and why. Where no stack was recognized it says the
 /// map is EMPTY, in those words, so an empty grant cannot be mistaken for
 /// a considered one. It is never written to the target's own README.md.
-fn readme(detected: Option<&Detected>) -> String {
+fn stack_readme(detected: Option<&Detected>) -> String {
     match detected {
         Some(detected) => {
             let grants = grants(Some(detected));
@@ -661,6 +729,14 @@ fn readme(detected: Option<&Detected>) -> String {
                  gate gets the read-only subset (git, ls, rg and the test runner).\n"
             .to_string(),
     }
+}
+
+fn readme(detected: Option<&Detected>, dialect: &DialectDetection) -> String {
+    format!(
+        "{}\n## Specification dialect\n\n{}\n",
+        stack_readme(detected),
+        dialect.note()
+    )
 }
 
 /// One recognized stack: the marker files that identify it, the name the
@@ -878,6 +954,162 @@ struct Detected {
     note: Option<&'static str>,
 }
 
+struct Detection {
+    stack: Option<Detected>,
+    dialect: DialectDetection,
+}
+
+#[derive(Clone, Copy)]
+struct DialectChoice {
+    name: &'static str,
+    marker: &'static str,
+    source: &'static str,
+    instructions: &'static [(&'static str, &'static str)],
+}
+
+const OPENSPEC: DialectChoice = DialectChoice {
+    name: "openspec",
+    marker: "openspec/config.yaml",
+    source: OPENSPEC_DIALECT,
+    instructions: OPENSPEC_INSTRUCTIONS,
+};
+
+const SPECKIT: DialectChoice = DialectChoice {
+    name: "speckit",
+    marker: ".specify/",
+    source: SPECKIT_DIALECT,
+    instructions: SPECKIT_INSTRUCTIONS,
+};
+
+enum DialectDetection {
+    Detected(DialectChoice, Box<Dialect>),
+    Ambiguous,
+    Absent,
+}
+
+impl DialectDetection {
+    fn choice(&self) -> Option<DialectChoice> {
+        match self {
+            Self::Detected(choice, _) => Some(*choice),
+            Self::Ambiguous | Self::Absent => None,
+        }
+    }
+
+    fn note(&self) -> String {
+        match self {
+            Self::Detected(choice, dialect) => format!(
+                "Detected {name} from `{marker}`. `realms.json` declares \
+                 `\"dialect\": \"{name}\"`; its dialect file pins tool \
+                 `{binary}` at version `{version}`.",
+                name = choice.name,
+                marker = choice.marker,
+                binary = dialect.tool.binary,
+                version = dialect.tool.version,
+            ),
+            Self::Ambiguous => "Found both `.specify/` (spec-kit) and \
+                 `openspec/config.yaml` (OpenSpec). This non-interactive init \
+                 refuses to guess, so `realms.json` carries no dialect. Choose \
+                 `speckit` or `openspec` before running an artifact phase."
+                .to_string(),
+            Self::Absent => "Found neither `.specify/` (spec-kit) nor \
+                 `openspec/config.yaml` (OpenSpec), so `realms.json` carries no \
+                 dialect. An artifact phase will need one before it can run."
+                .to_string(),
+        }
+    }
+}
+
+fn detect_dialect(repo: &Path) -> DialectDetection {
+    let speckit = repo.join(".specify").is_dir();
+    let openspec = repo.join("openspec/config.yaml").is_file();
+    let choice = match (speckit, openspec) {
+        (true, false) => SPECKIT,
+        (false, true) => OPENSPEC,
+        (true, true) => return DialectDetection::Ambiguous,
+        (false, false) => return DialectDetection::Absent,
+    };
+    let dialect = Dialect::parse(choice.name, choice.source)
+        .expect("the embedded shipped dialect is valid")
+        .0;
+    DialectDetection::Detected(choice, Box::new(dialect))
+}
+
+fn relative_realm_path(map_dir: &Path, repo: &Path) -> PathBuf {
+    let map_dir = std::fs::canonicalize(map_dir).unwrap_or_else(|_| map_dir.to_path_buf());
+    let repo = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    let from: Vec<_> = map_dir.components().collect();
+    let to: Vec<_> = repo.components().collect();
+    let common = from
+        .iter()
+        .zip(&to)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return repo;
+    }
+    let mut relative = PathBuf::new();
+    for _ in &from[common..] {
+        relative.push("..");
+    }
+    for component in &to[common..] {
+        relative.push(component.as_os_str());
+    }
+    if relative.as_os_str().is_empty() {
+        relative.push(".");
+    }
+    relative
+}
+
+fn realms_json(dialect: &DialectDetection, realm_path: &Path) -> String {
+    let mut realm = json!({
+        "name": "starter",
+        "path": realm_path.to_string_lossy().replace('\\', "/"),
+        "default_branch": "main"
+    });
+    if let Some(choice) = dialect.choice() {
+        realm["dialect"] = json!(choice.name);
+    }
+    serde_json::to_string_pretty(&json!({
+        "schema": "forge.realms/v3",
+        "realms": [realm],
+        "journal": ".forge/forge.db"
+    }))
+    .expect("realms map serializes")
+        + "\n"
+}
+
+fn write_dialect(dir: &Path, choice: DialectChoice) -> Result<()> {
+    let instructions = dir.join("dialects").join(choice.name);
+    std::fs::create_dir_all(&instructions)?;
+    std::fs::write(
+        dir.join("dialects").join(format!("{}.json", choice.name)),
+        choice.source,
+    )?;
+    for (name, contents) in choice.instructions {
+        std::fs::write(instructions.join(name), contents)?;
+    }
+    Ok(())
+}
+
+fn refuse_dialect_overwrite(dir: &Path, choice: DialectChoice) -> Result<()> {
+    let dialect = dir.join("dialects").join(format!("{}.json", choice.name));
+    let instructions = dir.join("dialects").join(choice.name);
+    for path in std::iter::once(dialect).chain(
+        choice
+            .instructions
+            .iter()
+            .map(|(name, _)| instructions.join(name)),
+    ) {
+        if path.exists() {
+            bail!(
+                "{} already defines dialect data; refusing to overwrite — a dialect is an operator's ruling",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// `` `Cargo.toml` `` — or `` `package.json` + `pnpm-lock.yaml` ``: the
 /// evidence, quoted back so the operator can check the guess.
 fn evidence(markers: &[&str]) -> String {
@@ -895,10 +1127,14 @@ fn present(repo: &Path, markers: &[&str]) -> bool {
 
 /// Read the repository, decide nothing else. The orchestrator table has
 /// the first say — a monorepo's build tool outranks any one package's
-/// manifest — then the per-manifest table. `None` is the honest answer
-/// when neither matched, and the charters say so.
-fn detect(repo: &Path) -> Option<Detected> {
-    orchestrator(repo).or_else(|| stack(repo))
+/// manifest — then the per-manifest table. The dialect is detected beside
+/// that stack; either axis records absence rather than borrowing from the
+/// other, and the scaffold notes say what each concluded.
+fn detect(repo: &Path) -> Detection {
+    Detection {
+        stack: orchestrator(repo).or_else(|| stack(repo)),
+        dialect: detect_dialect(repo),
+    }
 }
 
 /// The monorepo arm. Two axes crossed: the orchestrator says WHAT to run,
@@ -1081,6 +1317,16 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             dir.display()
         );
     }
+    if dir.join("realms.json").exists() {
+        bail!(
+            "{} already contains a realms.json; refusing to overwrite",
+            dir.display()
+        );
+    }
+    let detection = detect(repo);
+    if let Some(choice) = detection.dialect.choice() {
+        refuse_dialect_overwrite(dir, choice)?;
+    }
     // The scaffold writes a trust declaration too, and that is WORKSPACE
     // data rather than this bundle's own text: an `adapters/` already
     // standing here is an operator's ruling (decision 0021 ruling 3), and
@@ -1128,18 +1374,23 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             );
         }
     }
-    let detected = detect(repo);
-    let detected = detected.as_ref();
+    let detected = detection.stack.as_ref();
+    let dialect = &detection.dialect;
     let grants = grants(detected);
     std::fs::create_dir_all(library.join("charters"))?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::create_dir_all(dir.join("scripts"))?;
+    let realm_path = relative_realm_path(dir, repo);
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
+    std::fs::write(dir.join("realms.json"), realms_json(dialect, &realm_path))?;
+    if let Some(choice) = dialect.choice() {
+        write_dialect(dir, choice)?;
+    }
     // The scaffold's notes live inside the library it wrote, never at the
     // target's own README.md: `brokkr init .` runs at a project's root, and
     // a project's README is the operator's file, not a scaffold's.
-    std::fs::write(library.join("README.md"), readme(detected))?;
+    std::fs::write(library.join("README.md"), readme(detected, dialect))?;
     std::fs::write(&declaration, adapter_json(&grants))?;
     std::fs::write(exec_declaration, EXEC_ADAPTER)?;
     std::fs::write(dir.join("scripts/verify-seat.sh"), verify_script(detected))?;
