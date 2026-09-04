@@ -39,6 +39,7 @@ fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> R
         cursor: Cursor::Idle,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision,
@@ -1877,7 +1878,7 @@ fn an_effect_failure_colours_its_node_by_the_effects_own_status() {
 // ------------------------------------------------------ AC-10, AC-13
 
 #[test]
-fn the_summary_carries_the_nine_keys_and_the_ruling_reads_the_last_decision() {
+fn the_summary_carries_its_keys_and_the_ruling_reads_the_last_decision() {
     let decision = json!({
         "rule_id": "DESIGN-OK", "severity": "flagged", "from": "design",
         "next": "implement", "result": "designed",
@@ -1897,6 +1898,7 @@ fn the_summary_carries_the_nine_keys_and_the_ruling_reads_the_last_decision() {
         "run_id",
         "seq",
         "status",
+        "strategy",
     ] {
         assert!(summary.get(key).is_some(), "summarize() key {key}");
     }
@@ -1911,6 +1913,34 @@ fn the_summary_carries_the_nine_keys_and_the_ruling_reads_the_last_decision() {
     assert_eq!(ruling["inputs"][0][0], "positions");
     assert_eq!(ruling["inputs"][0][1], "2");
     assert_eq!(ruling["problem"], "none really");
+}
+
+#[test]
+fn the_strategy_is_shown_beside_the_triage_phase_only() {
+    let events = vec![
+        ev(1, EventType::RunStarted, json!({"feature": "route it"}), T0),
+        ev(2, EventType::PhaseEntered, json!({"phase": "triage"}), T0),
+        ev(
+            3,
+            EventType::TransitionDecided,
+            json!({"from":"triage", "result":"chore", "rule_id":"TRIAGE-CHORE",
+                   "next":"implement", "severity":"normal", "inputs":{}, "problem":null}),
+            T0,
+        ),
+        ev(
+            4,
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            T0,
+        ),
+    ];
+    let mut folded = state(Some("implement"), Status::Running, None);
+    folded.strategy = Some("chore".into());
+    let view = run_view(&events, Some(&folded));
+    assert_eq!(view.summary.unwrap().strategy.as_deref(), Some("chore"));
+    assert_eq!(view.phases[0].name, "triage");
+    assert_eq!(view.phases[0].strategy.as_deref(), Some("chore"));
+    assert_eq!(view.phases[1].strategy, None);
 }
 
 #[test]

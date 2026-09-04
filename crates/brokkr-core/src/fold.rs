@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::envelope::{EventEnvelope, EventType};
+use crate::policy::STRATEGIES;
 
 /// Results that count toward the consecutive-failure counter, matching
 /// the production table's retry/hard-stop rules.
@@ -74,6 +75,9 @@ pub struct RunState {
     /// graph already renders as `×N`, now readable by the table as the
     /// phase-visit predicate that bounds reforging (decision 0022).
     pub visits: BTreeMap<String, u64>,
+    /// The last successful triage ruling in this run. It is derived from
+    /// the journal and never accepted from a seat as an evaluation input.
+    pub strategy: Option<String>,
     /// The raw result object of the most recent succeeded effect. A seat
     /// the run RETURNS to receives it (decision 0022): the finding
     /// travels with the run, not just the boolean it was reduced to.
@@ -175,6 +179,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         cursor: Cursor::Start,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision: None,
@@ -360,6 +365,9 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             }
             let from = payload_str(event, "from")?;
             let result = payload_str(event, "result")?;
+            if from == "triage" && STRATEGIES.contains(&result.as_str()) {
+                state.strategy = Some(result.clone());
+            }
             if FAILURE_RESULTS.contains(&result.as_str()) {
                 *state.consecutive_failures.entry(from.clone()).or_insert(0) += 1;
             } else {
@@ -506,6 +514,9 @@ pub fn computed_inputs(state: &RunState, phase: &str, result: &str) -> Map<Strin
     if FAILURE_RESULTS.contains(&result) {
         let prior = state.consecutive_failures.get(phase).copied().unwrap_or(0);
         inputs.insert("consecutive_failures".to_string(), Value::from(prior + 1));
+    }
+    if let Some(strategy) = &state.strategy {
+        inputs.insert("strategy".to_string(), Value::from(strategy.clone()));
     }
     inputs
 }

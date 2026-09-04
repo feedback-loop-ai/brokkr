@@ -961,6 +961,23 @@ fn a_composed_bundles_manifest_is_pinned() {
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );
+
+    // Ruling 6's routing form is composed deliberately: Fast remains the
+    // constitution below its new front gate. Pin both the moved compose
+    // edge and the resulting identity so neither can flatten silently.
+    let triage = compiled("recipes/triage");
+    assert_eq!(triage.chain.len(), 1);
+    assert_eq!(triage.chain[0].reached_as.as_deref(), Some("fast"));
+    assert_eq!(triage.chain[0].name, "fast");
+    assert_eq!(
+        triage.manifest["files"]["@compose/0000/fast"],
+        json!(triage.chain[0].digest)
+    );
+    assert_eq!(
+        triage.manifest_digest(),
+        "cdf869d85be5eab8dd03e21187c6b11a175b6a58c38dbdc009c22acfd8bd5ce9",
+        "decision 0041 ruling 6 adds triage as Fast's routing form"
+    );
 }
 
 /// Symlinks are a unix concept here; Windows has no equivalent to

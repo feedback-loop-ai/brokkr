@@ -102,6 +102,7 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
         cursor,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision: None,
@@ -1274,6 +1275,33 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
         event.payload["inputs"]["drift_detected"] == true
             && event.payload["inputs"]["dirty_worktrees"] == false
     }));
+
+    // Park is a general table operation. Only the triage/escalate pair
+    // substitutes the seat's reasoning; another triage result keeps the
+    // table's reason.
+    engine.bundle.machine = Machine::from_table(&json!({
+        "schema":"forge.phase-machine/v2",
+        "phases":["triage", "done", "stop"],
+        "initial":"triage",
+        "terminal":["done", "stop"],
+        "rules":[
+            {"id":"TRIAGE-CHORE-PARK", "from":"triage", "result":"chore",
+             "park":true, "reason":"table reason"}
+        ]
+    }))
+    .unwrap();
+    let mut triage_seat = engine.bundle.seats["work"].clone();
+    triage_seat.results = vec!["chore".into()];
+    engine.bundle.seats.insert("triage".into(), triage_seat);
+    engine
+        .decide(
+            &state(Some("triage"), Cursor::Idle),
+            "effect",
+            json!({"result":"chore", "notes":"seat reason"}),
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(events.last().unwrap().payload["problem"], "table reason");
 }
 
 /// A run stopped mid-attempt: the effect is in flight, so the run is

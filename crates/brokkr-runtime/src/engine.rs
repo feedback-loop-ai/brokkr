@@ -595,7 +595,12 @@ impl Engine {
         let workdir = self.workdir();
         let mut context = Map::new();
         context.insert("run_id".into(), json!(self.run_id));
-        context.insert("last_decision".into(), json!(state.last_decision));
+        // Triage is the fresh-and-blind chief's office (decision 0041
+        // ruling 6). Even on the bounded oversized return it receives
+        // the commission and current tree, not journal history.
+        if phase != "triage" {
+            context.insert("last_decision".into(), json!(state.last_decision));
+        }
         // Reforging (decision 0022): a seat the run RETURNS to receives
         // the result that sent it back — the review's findings,
         // severities and notes reach the implementer who has to answer
@@ -603,7 +608,7 @@ impl Engine {
         // reads it. A seat on its FIRST visit of the run gets nothing
         // new, so a run that never revisits builds the input, and the
         // digest, it always built.
-        if state.visits.get(phase).copied().unwrap_or(0) > 1 {
+        if phase != "triage" && state.visits.get(phase).copied().unwrap_or(0) > 1 {
             context.insert(
                 "returned_from".into(),
                 json!({
@@ -1739,7 +1744,13 @@ impl Engine {
                 "next": null,
                 "severity": null,
                 "inputs": inputs,
-                "problem": reason,
+                "problem": if phase == "triage" && result == "escalate" {
+                    object.get("notes").and_then(Value::as_str)
+                        .filter(|notes| !notes.is_empty())
+                        .unwrap_or(&reason)
+                } else {
+                    &reason
+                },
             }),
             Outcome::NoRule { problem } => json!({
                 "from": phase,

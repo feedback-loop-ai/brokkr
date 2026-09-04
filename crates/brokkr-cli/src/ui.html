@@ -441,10 +441,11 @@ function renderLoops(detail, view, id) {
 
   let cursor = 12;
   const segs = rail.map((phase) => {
-    const seg = { name: phase.name, visits: phase.visits, current: phase.current,
+    const seg = { name: phase.name, strategy: phase.strategy, visits: phase.visits, current: phase.current,
                   plain: phase.plain, cols: [], x0: cursor };
     if (phase.plain) {
-      const w = Math.max(28, mono(phase.name) + 6);
+      const phaseLabel = phase.name + (phase.strategy ? ' · ' + phase.strategy : '');
+      const w = Math.max(28, mono(phaseLabel) + 6);
       seg.cx = cursor + w / 2;
       seg.entry = seg.cx - 9;
       seg.exit = seg.cx + 9;
@@ -508,7 +509,8 @@ function renderLoops(detail, view, id) {
   // Native tooltip: phase, visit count, and — on the current phase —
   // the last ruling, so the graph explains itself on hover.
   const phaseTip = (seg) => {
-    const tip = [seg.name + (seg.visits > 1 ? ' · visited ×' + seg.visits : '')];
+    const tip = [seg.name + (seg.strategy ? ' · ' + seg.strategy : '') +
+      (seg.visits > 1 ? ' · visited ×' + seg.visits : '')];
     if (seg.current && view.ruling) {
       tip.push('last ruling: ' + view.ruling.rule_id + ' → ' + view.ruling.next);
     }
@@ -644,7 +646,8 @@ function renderLoops(detail, view, id) {
     const nameG = svgEl('g', 'hit');
     nameG.appendChild(svgEl('title', null, phaseTip(seg)));
     const label = svgEl('text', 'phase' + stateCls +
-      (seg.name === selectedPhase ? ' phase-sel' : ''), seg.name);
+      (seg.name === selectedPhase ? ' phase-sel' : ''),
+      seg.name + (seg.strategy ? ' · ' + seg.strategy : ''));
     label.setAttribute('x', seg.cx);
     label.setAttribute('y', nameY);
     label.setAttribute('text-anchor', 'middle');

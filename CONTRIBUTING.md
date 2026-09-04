@@ -44,6 +44,7 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 | `preflight` | Verify and review an existing branch without implementing or shipping it. | review, verify | medium |
 | `sdd` | Spec-driven work that needs a design panel, chief synthesis, and spec-kit check. | design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify | high |
 | `sdd-paranoid` | Spec-driven high-risk work needing adversarial and security review. | design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify | very high |
+| `triage` | Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled. | design[positions>chief>speckit-check], implement, review, ship, triage, verify | variable |
 | `wager-harness` | Driver evaluation that swaps only implementation to Codex for a fair wager. | implement, review, ship, verify | medium |
 | `wager-harness-dsh` | Driver evaluation that swaps only implementation to DSH for a fair wager. | implement, review, ship, verify | medium |
 <!-- recipe-table:end -->

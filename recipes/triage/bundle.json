@@ -1,0 +1,79 @@
+{
+  "name": "triage",
+  "description": "Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.",
+  "cost": "variable",
+  "extends": "fast",
+  "policy": "policy.json",
+  "seats": {
+    "triage": {
+      "results": [
+        "chore",
+        "feature",
+        "design",
+        "engine",
+        "escalate"
+      ],
+      "class": "gate",
+      "agent": "triage"
+    },
+    "design": {
+      "results": [
+        "designed",
+        "fail"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "positions",
+          "aggregate": "unanimous-pass",
+          "panel": {
+            "simplicity": {
+              "agent": "position-simplicity",
+              "class": "work"
+            },
+            "robustness": {
+              "agent": "position-robustness",
+              "class": "work"
+            }
+          }
+        },
+        {
+          "name": "chief",
+          "agent": "chief-architect",
+          "class": "work"
+        },
+        {
+          "name": "speckit-check",
+          "role": "roles/speckit-check.md",
+          "class": "gate",
+          "hands": "workspace",
+          "driver": {
+            "command": [
+              "{brokkr}",
+              "driver",
+              "exec",
+              "--",
+              "bash",
+              "./drivers/speckit_check.sh",
+              "{prompt_file}"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
+    "table": [
+      "description",
+      "phases",
+      "initial"
+    ]
+  }
+}

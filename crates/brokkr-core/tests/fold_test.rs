@@ -77,6 +77,31 @@ fn happy_path_reaches_decide_cursor() {
 }
 
 #[test]
+fn the_last_successful_triage_result_is_the_engine_strategy() {
+    let mut journal = Journal::new();
+    effect_cycle(&mut journal, "triage", json!({"result": "not-a-class"}));
+    journal.append(
+        EventType::TransitionDecided,
+        json!({"from":"triage", "result":"not-a-class", "rule_id":"TRIAGE-OLD",
+               "next":"triage", "severity":"normal", "inputs":{}, "problem":null}),
+    );
+    assert_eq!(fold(&journal.events).unwrap().strategy, None);
+
+    effect_cycle(&mut journal, "triage", json!({"result": "feature"}));
+    journal.append(
+        EventType::TransitionDecided,
+        json!({"from":"triage", "result":"feature", "rule_id":"TRIAGE-FEATURE",
+               "next":"implement", "severity":"normal", "inputs":{}, "problem":null}),
+    );
+    let state = fold(&journal.events).unwrap();
+    assert_eq!(state.strategy.as_deref(), Some("feature"));
+    assert_eq!(
+        computed_inputs(&state, "implement", "complete").get("strategy"),
+        Some(&Value::from("feature"))
+    );
+}
+
+#[test]
 fn consecutive_failures_count_and_reset() {
     let mut journal = Journal::new();
     effect_cycle(&mut journal, "implement", json!({"result": "broken"}));

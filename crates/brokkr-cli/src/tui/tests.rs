@@ -52,6 +52,7 @@ fn state_of(status: Status) -> RunState {
         cursor: Cursor::Idle,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         last_decision: Some(json!({"rule_id": "INTAKE-OK", "from": "intake",
                                    "next": "design", "result": "intook"})),
@@ -1667,6 +1668,7 @@ fn gcolumn(label: Option<&str>, nodes: Vec<Node>) -> Column {
 fn gphase(name: &str, visits: u64, current: bool, columns: Vec<Column>) -> Phase {
     Phase {
         name: name.to_string(),
+        strategy: None,
         visits,
         current,
         plain: columns.is_empty(),
@@ -1675,6 +1677,13 @@ fn gphase(name: &str, visits: u64, current: bool, columns: Vec<Column>) -> Phase
         // says otherwise, which `returned` is for.
         returns: Vec::new(),
     }
+}
+
+#[test]
+fn triage_name_carries_its_ruled_strategy() {
+    let mut phase = gphase("triage", 1, false, Vec::new());
+    phase.strategy = Some("engine".into());
+    assert_eq!(name_text(&phase, None), "triage · engine");
 }
 
 fn members(count: usize, class: &str) -> Vec<Node> {

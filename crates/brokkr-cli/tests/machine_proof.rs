@@ -144,6 +144,39 @@ const REFORGING_POLICY: &str = r#"{
   ]
 }"#;
 
+/// The routing surface of `recipes/triage`, kept deliberately small here:
+/// the structural test compiles the shipped composed recipe, while this
+/// table drives its two ruling-6 outcomes through the real engine and fake
+/// protocol driver.
+const TRIAGE_POLICY: &str = r#"{
+  "schema": "forge.phase-machine/v2",
+  "phases": ["triage", "design", "implement", "verify", "review", "ship", "done", "stop"],
+  "initial": "triage",
+  "terminal": ["done", "stop"],
+  "shippable_from": ["review"],
+  "rules": [
+    {"id":"TRIAGE-CHORE","from":"triage","result":"chore","next":"implement","reason":"chore"},
+    {"id":"TRIAGE-FEATURE","from":"triage","result":"feature","next":"implement","reason":"feature"},
+    {"id":"TRIAGE-DESIGN","from":"triage","result":"design","next":"design","reason":"design"},
+    {"id":"TRIAGE-ENGINE","from":"triage","result":"engine","next":"design","reason":"engine"},
+    {"id":"TRIAGE-ESCALATE","from":"triage","result":"escalate","park":true,"reason":"escalated"},
+    {"id":"DESIGN-OK","from":"design","result":"designed","next":"implement","reason":"designed"},
+    {"id":"DESIGN-FAIL","from":"design","result":"fail","next":"stop","reason":"failed"},
+    {"id":"IMPL-OK","from":"implement","result":"complete","next":"verify","reason":"complete"},
+    {"id":"IMPL-BROKEN","from":"implement","result":"broken","next":"stop","reason":"broken"},
+    {"id":"IMPL-BLOCKED","from":"implement","result":"blocked","next":"stop","reason":"blocked"},
+    {"id":"IMPL-OVERSIZED-EXHAUSTED","from":"implement","result":"oversized","when":{"visits_triage_gte":2},"park":true,"reason":"exhausted"},
+    {"id":"IMPL-OVERSIZED","from":"implement","result":"oversized","next":"triage","reason":"oversized"},
+    {"id":"VERIFY-PASS","from":"verify","result":"pass","next":"review","reason":"pass"},
+    {"id":"VERIFY-FAIL","from":"verify","result":"fail","next":"implement","reason":"fail"},
+    {"id":"REVIEW-CLEAN","from":"review","result":"clean","next":"ship","reason":"clean"},
+    {"id":"REVIEW-RESIDUAL","from":"review","result":"residual","next":"stop","reason":"residual"},
+    {"id":"REVIEW-HOLD","from":"review","result":"security-hold","next":"stop","reason":"hold"},
+    {"id":"SHIP-READY","from":"ship","result":"ready","next":"ship","reason":"ready"},
+    {"id":"SHIP-COMPLETE","from":"ship","result":"shipped","next":"done","reason":"shipped"}
+  ]
+}"#;
+
 struct Workspace {
     dir: tempfile::TempDir,
 }
@@ -182,6 +215,49 @@ impl Workspace {
             "seats": {
                 "intake": seat(vec!["resolved"]),
                 "implement": seat(vec!["complete", "broken", "blocked"]),
+                "verify": seat(vec!["pass", "fail"]),
+                "review": seat(vec!["clean", "residual", "security-hold"]),
+                "ship": seat(vec!["ready", "shipped"]),
+            }
+        });
+        std::fs::write(
+            bundle.join("bundle.json"),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+        ws
+    }
+
+    fn triage(script: Value) -> Workspace {
+        let ws = Workspace {
+            dir: tempfile::tempdir().unwrap(),
+        };
+        let bundle = ws.bundle_dir();
+        std::fs::create_dir_all(bundle.join("roles")).unwrap();
+        std::fs::create_dir_all(ws.path().join("state")).unwrap();
+        std::fs::write(bundle.join("policy.json"), TRIAGE_POLICY).unwrap();
+        let script_path = ws.path().join("script.json");
+        std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
+        std::fs::write(bundle.join("roles/role.md"), "# test role\n").unwrap();
+        let seat = |results: Vec<&str>| -> Value {
+            json!({
+                "role": "roles/role.md",
+                "results": results,
+                "driver": {"command": [
+                    brokkr_bin(), "fake-driver",
+                    "--script", script_path.to_string_lossy(),
+                    "--state", ws.path().join("state").to_string_lossy(),
+                ]}
+            })
+        };
+        let config = json!({
+            "name": "triage-machine-proof",
+            "policy": "policy.json",
+            "protected_phase": "review",
+            "seats": {
+                "triage": seat(vec!["chore", "feature", "design", "engine", "escalate"]),
+                "design": seat(vec!["designed", "fail"]),
+                "implement": seat(vec!["complete", "broken", "blocked", "oversized"]),
                 "verify": seat(vec!["pass", "fail"]),
                 "review": seat(vec!["clean", "residual", "security-hold"]),
                 "ship": seat(vec!["ready", "shipped"]),
@@ -410,6 +486,94 @@ fn happy_script() -> Value {
             {"behavior": "succeed", "result": {"result": "shipped"}},
         ],
     }})
+}
+
+#[test]
+fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
+    let chore = json!({"seats": {
+        "triage": [{"behavior":"succeed", "result": {
+            "result":"chore", "notes":"bounded maintenance"
+        }}],
+        "implement": [{"behavior":"succeed", "result": {
+            "result":"complete", "inputs":{"strategy":"escalate"}
+        }}],
+        "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
+        "review": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "ship": [
+            {"behavior":"succeed", "result":{"result":"ready"}},
+            {"behavior":"succeed", "result":{"result":"shipped"}}
+        ]
+    }});
+    let ws = Workspace::triage(chore);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    assert_eq!(summary["strategy"], "chore");
+    let run_id = Workspace::run_id(&stderr);
+    let decisions: Vec<Value> = ws
+        .exported_events(&run_id)
+        .into_iter()
+        .filter(|event| event["type"] == "transition/decided")
+        .collect();
+    let implement = decisions
+        .iter()
+        .find(|event| event["payload"]["from"] == "implement")
+        .expect("implement decision");
+    assert_eq!(
+        implement["payload"]["inputs"]["strategy"], "chore",
+        "the seat's forged strategy claim is dropped before the fold-owned fact overlays it"
+    );
+
+    let returned = json!({"seats": {
+        "triage": [
+            {"behavior":"echo", "result":{"result":"feature"}},
+            {"behavior":"echo", "result":{"result":"feature"}}
+        ],
+        "implement": [
+            {"behavior":"succeed", "result":{"result":"oversized"}},
+            {"behavior":"succeed", "result":{"result":"complete"}}
+        ],
+        "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
+        "review": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "ship": [
+            {"behavior":"succeed", "result":{"result":"ready"}},
+            {"behavior":"succeed", "result":{"result":"shipped"}}
+        ]
+    }});
+    let ws = Workspace::triage(returned);
+    let (code, _, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let triage_inputs: Vec<Value> = ws
+        .exported_events(&Workspace::run_id(&stderr))
+        .into_iter()
+        .filter(|event| {
+            event["type"] == "effect/succeeded"
+                && event["payload"]["result"]["seat_input"]["phase"] == "triage"
+        })
+        .map(|event| event["payload"]["result"]["seat_input"].clone())
+        .collect();
+    assert_eq!(triage_inputs.len(), 2);
+    for input in triage_inputs {
+        assert_eq!(input["feature"], "proof feature");
+        assert!(input["context"].get("last_decision").is_none());
+        assert!(input["context"].get("returned_from").is_none());
+    }
+
+    let escalation = json!({"seats": {
+        "triage": [{"behavior":"succeed", "result": {
+            "result":"escalate", "notes":"split the commission at the frozen boundary"
+        }}]
+    }});
+    let ws = Workspace::triage(escalation);
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(2), "stderr: {stderr}");
+    assert_eq!(summary["status"], "awaiting_operator");
+    assert_eq!(summary["strategy"], "escalate");
+    let reason = summary["park_reason"].as_str().unwrap();
+    assert!(
+        reason.ends_with("split the commission at the frozen boundary"),
+        "triage's reasoning is the journaled park reason: {reason}"
+    );
 }
 
 #[test]

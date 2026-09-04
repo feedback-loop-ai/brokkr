@@ -570,8 +570,13 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
         push_line(
             &mut out,
             &format!(
-                "  {} ×{}{current}",
+                "  {}{} ×{}{current}",
                 Safe::new(&phase.name).as_str(),
+                phase
+                    .strategy
+                    .as_ref()
+                    .map(|strategy| format!(" · {}", Safe::new(strategy).as_str()))
+                    .unwrap_or_default(),
                 phase.visits
             ),
         );

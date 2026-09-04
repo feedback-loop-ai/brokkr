@@ -36,6 +36,7 @@ panel-review	00d6c2481728	7 phases	implement, intake, review[correctness+securit
 preflight	a186560e3645	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
 sdd	533d3fcd2473	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
 sdd-paranoid	4934cfc732fa	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+triage	cdf869d85be5	8 phases	design[positions>chief>speckit-check], implement, review, ship, triage, verify	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
 wager-harness	75b3dec5dfb7	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
 wager-harness-dsh	57cf316e0bfe	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
 self	e07b27f406c3	7 phases	implement, intake, review, ship, verify			./bundles/self
@@ -55,10 +56,11 @@ verify	ba5428fc3bd4	4 phases	review, verify			./bundles/verify
 | [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
 | [`sdd`](../../recipes/sdd) | spec-driven delivery | adds a `design` sequence: positions → chief → a deterministic spec-kit check |
 | [`sdd-paranoid`](../../recipes/sdd-paranoid/README.md) | SDD with a harsher panel | `extends sdd`, replacing exactly one seat |
+| [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: a chief-grade gate rules `chore`, `feature`, `design`, `engine`, or `escalate`; design classes visit the current council |
 
-Eight of the entries above carry pinned manifest digests in
+Nine of the entries above carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs` — `fast`, `node`, the
-four roster recipes, `preflight`, and `bundles/verify`; the rest are
+four roster recipes, `triage`, `preflight`, and `bundles/verify`; the rest are
 covered by the tree-wide compile test but not pinned. The `low` through `very high`
 bands printed by the library are relative strategy labels for the
 sixty-second contributor choice, never price quotes. Dollar figures

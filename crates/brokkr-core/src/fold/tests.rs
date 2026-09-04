@@ -28,6 +28,7 @@ fn state(cursor: Cursor) -> RunState {
         cursor,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
+        strategy: None,
         last_result: None,
         reviewed_heads: None,
         last_decision: None,
