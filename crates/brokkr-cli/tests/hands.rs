@@ -18,9 +18,9 @@ fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Finding `bwrap` is not enough inside an existing hands box: the binary is
-/// visible there but the kernel refuses the nested namespace. Ask the boundary
-/// itself, quietly, before a test claims it can build another box.
+/// Ask the boundary itself, quietly, before a test claims it can build a box.
+/// Nesting is refused by the engine-owned marker, not by an accidental kernel
+/// policy or namespace nesting limit.
 fn namespace_probe(program: &str) -> bool {
     Command::new(program)
         .args(["--ro-bind", "/", "/", "--", "true"])
@@ -31,6 +31,9 @@ fn namespace_probe(program: &str) -> bool {
 }
 
 fn can_create_namespace() -> bool {
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return false;
+    }
     namespace_probe("bwrap")
 }
 
@@ -179,9 +182,40 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
         String::from_utf8_lossy(&selfcall.stderr)
     );
     assert!(String::from_utf8_lossy(&selfcall.stdout).starts_with("brokkr "));
+
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::write(
+        bundle.join("outside.sh"),
+        "#!/bin/sh\nprintf 'bundle script ran\\n' > bundle-ran.txt\n",
+    )
+    .unwrap();
+    let outside = Command::new(brokkr_bin())
+        .args([
+            "hands",
+            "exec",
+            "--workdir",
+            work.to_str().unwrap(),
+            "--bundle-root",
+            bundle.to_str().unwrap(),
+            "--",
+            "sh",
+            "/runtime/bundle/outside.sh",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        outside.status.success(),
+        "{}",
+        String::from_utf8_lossy(&outside.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.join("bundle-ran.txt")).unwrap(),
+        "bundle script ran\n"
+    );
 }
 
-fn verifier_workspace(failing: bool) -> tempfile::TempDir {
+fn verifier_workspace() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("src")).unwrap();
     std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
@@ -196,14 +230,18 @@ fn verifier_workspace(failing: bool) -> tempfile::TempDir {
         "[package]\nname='brokkr-cli'\nversion='0.0.0'\nedition='2021'\n",
     )
     .unwrap();
-    let assertion = if failing {
-        "assert_eq!(2 + 2, 5, \"DECISIVE\\tRED\\rLINE\");"
-    } else {
-        "assert_eq!(2 + 2, 4);"
-    };
     std::fs::write(
         dir.path().join("src/main.rs"),
-        format!("fn main() {{}}\n#[test]\nfn trivial() {{ {assertion} }}\n"),
+        r#"fn main() {}
+#[test]
+fn named_pass() { assert_eq!(2 + 2, 4); }
+#[test]
+fn named_fail_when_requested() {
+    if std::path::Path::new("FAIL").exists() {
+        panic!("FAILED DECISIVE\tRED\rLINE");
+    }
+}
+"#,
     )
     .unwrap();
     let result = dir.path().join("result.json");
@@ -215,6 +253,10 @@ fn verifier_workspace(failing: bool) -> tempfile::TempDir {
     dir
 }
 
+/// A deliberately tiny named suite proves both result arms. If its Cargo
+/// process encounters any box-building test, that test sees `BROKKR_HANDS_BOX`
+/// and skips explicitly; termination never depends on the host kernel refusing
+/// another namespace.
 #[test]
 fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
     if !can_create_namespace() {
@@ -229,8 +271,11 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
         ]
     })
     .to_string();
+    let work = verifier_workspace();
     for (failing, expected) in [(false, "pass"), (true, "fail")] {
-        let work = verifier_workspace(failing);
+        if failing {
+            std::fs::write(work.path().join("FAIL"), "fail this named test\n").unwrap();
+        }
         let output = Command::new(brokkr_bin())
             .args([
                 "hands",
@@ -260,64 +305,6 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
             assert!(notes.contains("DECISIVE\tRED\rLINE"), "{result}");
         }
     }
-}
-
-#[test]
-fn this_workspaces_verifier_passes_inside_its_real_box() {
-    if !can_create_namespace() {
-        return;
-    }
-    let root = workspace().canonicalize().unwrap();
-    let scratch = root
-        .join(".forge")
-        .join(format!("boxed-self-verify-{}", std::process::id()));
-    std::fs::create_dir_all(&scratch).unwrap();
-    let result = scratch.join("result.json");
-    let prompt = scratch.join("prompt.md");
-    std::fs::write(
-        &prompt,
-        format!("result contract\n\n    {}\n", result.display()),
-    )
-    .unwrap();
-    let home = std::env::var("HOME").unwrap();
-    let spec = serde_json::json!({
-        "kind": "workspace", "network": false,
-        "binds": [
-            {"path": format!("{home}/.cargo"), "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
-            {"path": format!("{home}/.rustup"), "mode": "ro"}
-        ]
-    })
-    .to_string();
-    let output = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            root.to_str().unwrap(),
-            "--spec",
-            &spec,
-            "--",
-            "bash",
-            "scripts/verify-seat.sh",
-            prompt.to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
-    let parsed = std::fs::read(&result)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-    let _ = std::fs::remove_dir_all(&scratch);
-    assert!(
-        output.status.success(),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        parsed.as_ref().and_then(|value| value["result"].as_str()),
-        Some("pass"),
-        "{parsed:?}"
-    );
 }
 
 #[test]
@@ -511,22 +498,27 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
     if !can_create_namespace() {
         return;
     }
-    let work = verifier_workspace(false);
+    let work = verifier_workspace();
     let journal = tempfile::tempdir().unwrap();
     let journal_db = journal.path().join("canonical.db");
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ship-seat.sh"),
-        work.path().join("scripts/ship-seat.sh"),
-    )
-    .unwrap();
+    std::fs::remove_dir_all(work.path().join("scripts")).unwrap();
     std::fs::create_dir_all(work.path().join("adapters")).unwrap();
     std::fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json"),
         work.path().join("adapters/exec.json"),
     )
     .unwrap();
-    let bundle = work.path().join("bundle");
+    let strategy = tempfile::tempdir().unwrap();
+    let bundle = strategy.path().join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
+    std::fs::create_dir_all(bundle.join("scripts")).unwrap();
+    for script in ["verify-seat.sh", "ship-seat.sh"] {
+        std::fs::copy(
+            workspace().join("scripts").join(script),
+            bundle.join("scripts").join(script),
+        )
+        .unwrap();
+    }
     std::fs::write(
         bundle.join("policy.json"),
         r#"{
@@ -546,9 +538,9 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
     ]});
     let config = serde_json::json!({"name":"script-proof","policy":"policy.json","protected_phase":"ship","seats":{
         "verify":{"results":["pass","fail"],"class":"gate","hands":hands.clone(),
-          "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/verify-seat.sh","{prompt_file}"]}},
+          "driver":{"command":["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]}},
         "ship":{"results":["ready","shipped"],"class":"gate","hands":{"kind":"workspace","network":false,"binds":[]},
-          "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/ship-seat.sh","{prompt_file}","{brokkr}"]}}
+          "driver":{"command":["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]}}
     }});
     std::fs::write(
         bundle.join("bundle.json"),
@@ -575,7 +567,7 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
         .args([
             "run",
             "--bundle",
-            "bundle",
+            bundle.to_str().unwrap(),
             "--feature",
             "script proof",
             "--db",

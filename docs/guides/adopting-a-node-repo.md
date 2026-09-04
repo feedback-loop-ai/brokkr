@@ -21,6 +21,9 @@ Zero really is zero on the Brokkr side: there is nothing to `npx`, no
 package to add to your `devDependencies`, no postinstall hook. Brokkr is
 one native binary written in Rust (decision 0009) that stands *outside*
 your project and drives it. Your `package.json` never learns it exists.
+The verifier script stays in the installed recipe: Brokkr mounts that
+bundle read-only in its exec box, so adopting the recipe requires no
+separate script copy into the repository.
 
 You will need, beyond the spine's requirements:
 

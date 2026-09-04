@@ -206,6 +206,11 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
         shipped.push((format!("bundles/{name}"), root.join("bundles").join(name)));
     }
     for (name, path) in shipped {
+        let source: Value = serde_json::from_slice(
+            &std::fs::read(path.join("bundle.json"))
+                .unwrap_or_else(|error| panic!("{name} source reads: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("{name} source parses: {error}"));
         let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"))
             .unwrap_or_else(|error| panic!("{name} compiles: {error}"));
         for phase in ["verify", "ship"] {
@@ -224,7 +229,24 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             };
             assert!(candidates.is_empty(), "{name}:{phase} seats no model");
             assert_eq!(&command[1..4], ["driver", "exec", "--"], "{name}:{phase}");
-            let script = command.get(5).map(String::as_str);
+            if let Some(source_script) = source
+                .pointer(&format!("/seats/{phase}/driver/command/5"))
+                .and_then(Value::as_str)
+            {
+                assert!(
+                    source_script.starts_with("./"),
+                    "{name}:{phase} script is bundle-relative: {source_script}"
+                );
+            }
+            let script = command
+                .get(5)
+                .and_then(|script| {
+                    bundle
+                        .roots
+                        .iter()
+                        .find_map(|root| Path::new(script).strip_prefix(root).ok())
+                })
+                .and_then(Path::to_str);
             if phase == "ship" {
                 assert_eq!(script, Some("scripts/ship-seat.sh"), "{name}:{phase}");
                 assert!(
@@ -235,16 +257,12 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                 assert!(
                     matches!(
                         script,
-                        Some(
-                            "scripts/verify-seat.sh"
-                                | "recipes/node/roles/verify-seat.sh"
-                                | "recipes/preflight/roles/verify-seat.sh"
-                        )
+                        Some("scripts/verify-seat.sh" | "roles/verify-seat.sh")
                     ),
                     "{name}:{phase} names a shipped verifier script: {script:?}"
                 );
                 let binds = &bundle.hands[phase].binds;
-                if script == Some("recipes/node/roles/verify-seat.sh") {
+                if name == "recipes/node" {
                     assert_eq!(binds.len(), 1, "{name}:{phase}");
                     assert_eq!(binds[0].path, "~/.npm");
                     assert_eq!(binds[0].mode, BindMode::Overlay);

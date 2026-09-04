@@ -22,7 +22,7 @@
           "exec",
           "--",
           "bash",
-          "recipes/preflight/roles/verify-seat.sh",
+          "./roles/verify-seat.sh",
           "{prompt_file}"
         ]
       },

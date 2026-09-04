@@ -880,6 +880,9 @@ pub enum HandsCommand {
     Exec {
         #[arg(long)]
         workdir: PathBuf,
+        /// Strategy root, bound read-only at /runtime/bundle.
+        #[arg(long)]
+        bundle_root: Option<PathBuf>,
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
@@ -914,6 +917,7 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
         }
         HandsCommand::Exec {
             workdir,
+            bundle_root,
             spec,
             command,
         } => {
@@ -924,7 +928,8 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
                 Some("--") => command[1..].to_vec(),
                 _ => command,
             };
-            let code = hands::run_boxed(&spec, &workdir, &command).map_err(anyhow::Error::msg)?;
+            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
+                .map_err(anyhow::Error::msg)?;
             Ok(ExitCode::from(
                 u8::try_from(code.clamp(0, 255)).unwrap_or(1),
             ))

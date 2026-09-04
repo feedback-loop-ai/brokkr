@@ -87,7 +87,7 @@ For completeness, the invariant `bundle.json`:
       "class": "gate",
       "results": ["pass", "fail"],
       "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "scripts/verify-seat.sh", "{prompt_file}"]},
+      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]},
       "hands": {"kind": "workspace", "network": false, "binds": [
         {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
         {"path": "~/.rustup", "mode": "ro"}
@@ -102,7 +102,7 @@ For completeness, the invariant `bundle.json`:
       "class": "gate",
       "results": ["ready", "shipped"],
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
+      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
       "hands": {"kind": "workspace", "network": false, "binds": []}
     }
   }

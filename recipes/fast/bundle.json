@@ -52,7 +52,7 @@
           "exec",
           "--",
           "bash",
-          "scripts/verify-seat.sh",
+          "./scripts/verify-seat.sh",
           "{prompt_file}"
         ]
       },
@@ -115,7 +115,7 @@
           "exec",
           "--",
           "bash",
-          "scripts/ship-seat.sh",
+          "./scripts/ship-seat.sh",
           "{prompt_file}",
           "{brokkr}"
         ]

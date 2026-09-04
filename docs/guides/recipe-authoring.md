@@ -191,11 +191,14 @@ so it cannot smuggle a route around review.
 | `limits` | `max_attempts` and `timeout_seconds`. Defaults: one attempt, 3600 seconds. |
 | `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. The seat's driver must reach a route whose egress class meets the bundle's `egress_minimum`, or compilation refuses (decision 0036 ruling 4). |
 | `driver.confine` | Optional container confinement: `image`, `network`, `mounts`. |
-| `hands` | Decision 0043, Linux only: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). The seat's commands run inside an empty-root box holding only the worktree; a tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
+| `hands` | Decision 0043, Linux only: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). The seat's commands run inside an empty-root box holding the worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`, so its `./` script travels with the strategy. A tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
 
 Two argv tokens are expanded at spawn time: `{brokkr}` becomes this
 engine's own executable (so a bundle can name the built-in adapters),
-and a `./`-prefixed entry is bundle-relative. `{forge}` is the same
+and a `./`-prefixed entry is bundle-relative. For a boxed exec seat that
+entry is expanded to the read-only `/runtime/bundle` mount at spawn, so
+the operated-on repository need not carry or copy the strategy's script.
+`{forge}` is the same
 token under its pre-rename name; it still expands and warns once on
 stderr. The expansion is machine-local, which is why the manifest
 records driver *names*, never resolved argv.

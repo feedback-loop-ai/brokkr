@@ -77,4 +77,6 @@ walk from clone to pull request.
 The verifier is a boxed exec script beside these roles. Cargo runs
 offline from the bound registry cache; an uncached dependency cannot
 reach the network, so the gate fails closed and quotes Cargo's decisive
-offline/cache line in its notes.
+offline/cache line in its notes. The bundle root is mounted read-only in
+the box, so this script travels with the recipe when `--repo` points at
+a foreign repository; the target repository needs no copied gate script.

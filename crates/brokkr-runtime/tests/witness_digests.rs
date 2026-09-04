@@ -108,38 +108,42 @@ fn workspace() -> PathBuf {
 /// This review return moves them once more because deterministic ship gates
 /// shed unused toolchain binds, and Node's verifier retains only its npm
 /// cache. Those least-privilege hands declarations are also identity.
+/// This correction moves them again because every deterministic gate
+/// names its script bundle-relatively, making the strategy's read-only
+/// script mount (rather than the operated-on repository) part of the
+/// command the witness pins.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "75e7839bfd87f0db1fcc1ece1e0077fa5d03031d006f2feeaed044e3c075bb37",
+        "c279eced20598ead18c9c0da430d175cc4ffee8faad293de01782a162cf0177a",
     ),
     (
         "recipes/node",
-        "c528a682480be6890c41d243290d9f8e013f636244182134ff3c679bd81a3b5c",
+        "9a1abfcbcd26611ebae13d9e4701689cb003f6d982c55f34af6359ea6228ec92",
     ),
     (
         "recipes/preflight",
-        "c75f6cf90773e8232a26f51b4e996a158b0d499c3719afb22c8c098577745ccb",
+        "7ce2538f6db6328d4e73185d8d886a17bdb49d682fe252cbe07eb8fa911f5ea2",
     ),
     (
         "recipes/ember",
-        "8d6ec023e691de5463ad39ff498395b5191cd7e0d92e14880b710a456375ea4d",
+        "308fa2277b3887ff4dae3c85db34da2e328d941b596910f50f26114d825cb97a",
     ),
     (
         "recipes/crucible",
-        "942dd53af832c935976e215e3df8c83ab2003acda198620fb1e30cbef867e356",
+        "53067df10a733f25eb3d858e0e264105b853e6504660923577a456995d626a99",
     ),
     (
         "recipes/night-shift",
-        "2056ae4c3ea61ba68647a388b0c0f3702dffb70de63ebae4146d2b42293cb6c0",
+        "e6d5dd1f616eb6cc0a8c3c801c79e577a0323d62866179a0560e949bbfcfc342",
     ),
     (
         "recipes/wager-harness",
-        "869a396289bb936699347e539fdba0df1eb33ed0e8b8effa2823a6b8cc2aede1",
+        "bf6d5c7f7d05fa98ffdec2a85703369c02ea4d4572fab6e987d399c56d29d92f",
     ),
     (
         "bundles/verify",
-        "e30065dc97d80619afdbaf39e90d5b9b68957dc52262882211e2558a533d2fea",
+        "17c381d160c2264a93cc1ebc8683c2c8853b726fa5378ec736e93ad4a6d58528",
     ),
 ];
 

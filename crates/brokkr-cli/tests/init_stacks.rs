@@ -735,6 +735,16 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
 fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
     for (fixture, binary) in [("node-bun", "bun"), ("rust", "cargo")] {
         let (_repo, bundle) = scaffold_from(fixture);
+        let source: Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+        assert_eq!(
+            source["seats"]["verify"]["driver"]["command"][5], "./scripts/verify-seat.sh",
+            "{fixture}"
+        );
+        assert_eq!(
+            source["seats"]["ship"]["driver"]["command"][5], "./scripts/ship-seat.sh",
+            "{fixture}"
+        );
         let compiled = compiles(&bundle);
 
         let prefix = ["driver", "claude", "--", "--permission-mode", "acceptEdits"];
@@ -749,18 +759,14 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         ]);
         assert_eq!(argv(&compiled, "implement"), implement, "{fixture}");
 
+        let verify = argv(&compiled, "verify");
+        assert_eq!(&verify[..4], ["driver", "exec", "--", "bash"], "{fixture}");
         assert_eq!(
-            argv(&compiled, "verify"),
-            [
-                "driver",
-                "exec",
-                "--",
-                "bash",
-                "scripts/verify-seat.sh",
-                "{prompt_file}"
-            ],
+            Path::new(&verify[4]),
+            bundle.join("scripts/verify-seat.sh"),
             "{fixture}"
         );
+        assert_eq!(verify[5], "{prompt_file}", "{fixture}");
     }
 }
 

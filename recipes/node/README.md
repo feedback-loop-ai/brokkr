@@ -76,4 +76,6 @@ say so.
 The verifier is a boxed exec script beside this recipe's roles. Network
 is refused: `npm ci --offline` can use only the bound `~/.npm` cache
 artifacts, and a missing dependency fails closed with npm's decisive
-line quoted in the `fail` notes.
+line quoted in the `fail` notes. The bundle itself is mounted read-only
+inside that box, so the command runs this recipe's script even when
+`--repo` names a different repository; no script-copying step is needed.

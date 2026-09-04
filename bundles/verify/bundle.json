@@ -20,7 +20,7 @@
           "exec",
           "--",
           "bash",
-          "scripts/verify-seat.sh",
+          "./scripts/verify-seat.sh",
           "{prompt_file}"
         ]
       },

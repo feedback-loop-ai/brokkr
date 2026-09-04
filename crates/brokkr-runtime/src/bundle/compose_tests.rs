@@ -774,6 +774,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// disappear, implementers gain `oversized`, and every finding-bearing
 /// table gains its bounded return edges (or, for verify, the read-only
 /// charter and inputs that make the absence of such an edge explicit).
+/// The boxed-gate correction moves the five again because each exec
+/// script is now explicitly bundle-relative and travels through the
+/// read-only bundle mount instead of being mistaken for repository data.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -782,23 +785,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "75e7839bfd87f0db1fcc1ece1e0077fa5d03031d006f2feeaed044e3c075bb37",
+        "c279eced20598ead18c9c0da430d175cc4ffee8faad293de01782a162cf0177a",
     ),
     (
         "recipes/panel-review",
-        "c82798f49de706b3752bf75a2084b04346c0032e406a643fc0a09274651ffe5e",
+        "8f836bfdeface2fcafb1df7877ced6c17521361fa0c1bad26cede6fc4384bbb4",
     ),
     (
         "recipes/sdd",
-        "5436ffa6ac45a76e8347e4081c2a1f709e2d68b83ebccafcd7684b9acccb0ccd",
+        "4cd5f206b0a65bdfee35de62081b21d350a7b7a2e3af97d3eaee68ed9890fc4d",
     ),
     (
         "bundles/self",
-        "167fddfdbf8a90bf37a61c74fc2337b95fc11200725839a8657315426f92a7ad",
+        "90d2e719d695aa9f3aeea674f7c66fd3291aaee7d56830db3ac385b6939ff59b",
     ),
     (
         "bundles/verify",
-        "e30065dc97d80619afdbaf39e90d5b9b68957dc52262882211e2558a533d2fea",
+        "17c381d160c2264a93cc1ebc8683c2c8853b726fa5378ec736e93ad4a6d58528",
     ),
 ];
 
@@ -929,7 +932,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "9d1f5701b384ffce6735e794e25987ffe8bfbc59aa52579597332645cd531d87",
+        "f95c949dbc5f954e9b0dc529e559ac18219cdd8fa6b85a9aac056a852d08c95a",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -948,7 +951,8 @@ fn a_composed_bundles_manifest_is_pinned() {
          validator becomes the gate; this slice moves it because the base's \
          verifier and shipper become boxed exec scripts with no model, and \
          this review return moves it because ship sheds unused toolchain \
-         binds; \
+         binds, and this correction moves it because the inherited exec \
+         scripts become bundle-relative and cross the read-only bundle mount; \
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

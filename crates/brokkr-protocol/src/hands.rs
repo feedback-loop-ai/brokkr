@@ -12,7 +12,14 @@
 //! model may run; the box bounds what running anything can touch.
 //!
 //! The same namespace boxes a deterministic `exec` seat whole, which is
-//! what lets a pinned script hold a gate (ruling 3).
+//! what lets a pinned script hold a gate (ruling 3). The strategy is part
+//! of the bundle, not the repository it operates on: an exec box binds the
+//! bundle root read-only at [`SANDBOX_BUNDLE`] so a bundle-relative script
+//! travels with that strategy without becoming writable project input.
+//!
+//! Every namespace carries [`HANDS_BOX_ENV`]. Tests which themselves open
+//! a box refuse nesting from that marker instead of depending on a kernel's
+//! user-namespace policy or eventual nesting limit.
 //!
 //! Linux only, like the boundary it builds: `bwrap` is refused when
 //! absent, never simulated.
@@ -30,6 +37,10 @@ pub const TOOL_NAME: &str = "workspace";
 /// The workdir is bound at its own path, so the paths a prompt names are
 /// the paths the command sees.
 const SANDBOX_HOME: &str = "/runtime/home";
+/// The stable in-box mount point for the bundle that owns an exec seat.
+pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
+/// Set by the engine in every namespace so box-building tests do not recurse.
+pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
 const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -251,6 +262,7 @@ pub fn box_argv(
     scratch: &Path,
     session: &Path,
     git: &GitFacts,
+    bundle_root: Option<&Path>,
     command: &[String],
 ) -> std::io::Result<Vec<String>> {
     let etc = scratch.join("etc");
@@ -293,6 +305,9 @@ pub fn box_argv(
     }
     argv.extend([
         s("--clearenv"),
+        s("--setenv"),
+        s(HANDS_BOX_ENV),
+        s("1"),
         s("--proc"),
         s("/proc"),
         s("--dev"),
@@ -355,6 +370,9 @@ pub fn box_argv(
         text(workdir),
         text(workdir),
     ]);
+    if let Some(bundle_root) = bundle_root {
+        argv.extend([s("--ro-bind"), text(bundle_root), s(SANDBOX_BUNDLE)]);
+    }
     // Ruling 6: the git directory. A `git worktree`'s lives outside the
     // worktree and is bound so git works at all; either way its `hooks`
     // are hidden behind an empty tmpfs and its `config` is read-only, so
@@ -666,7 +684,7 @@ pub fn execute_in(
         "-lc".to_string(),
         command.to_string(),
     ];
-    let built = box_argv(spec, workdir, home, scratch, session, git, &inner);
+    let built = box_argv(spec, workdir, home, scratch, session, git, None, &inner);
     let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
         .args(&argv[1..])
@@ -711,16 +729,31 @@ pub fn execute_in(
 /// how a deterministic `exec` seat holds a gate (ruling 3). This very
 /// binary is bound read-only so the command may be a `brokkr driver …`
 /// dispatch. Returns the child's exit code.
-pub fn run_boxed(spec: &HandsSpec, workdir: &Path, command: &[String]) -> Result<i32, String> {
+pub fn run_boxed(
+    spec: &HandsSpec,
+    workdir: &Path,
+    bundle_root: Option<&Path>,
+    command: &[String],
+) -> Result<i32, String> {
     let bwrap = require_bwrap_for(spec)?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let session = session_dir("exec")?;
     let git = git_facts(workdir);
-    let result = run_boxed_in(&bwrap, spec, workdir, &home, &session, &git, command);
+    let result = run_boxed_in(
+        &bwrap,
+        spec,
+        workdir,
+        &home,
+        &session,
+        &git,
+        bundle_root,
+        command,
+    );
     let _ = std::fs::remove_dir_all(&session);
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_boxed_in(
     bwrap: &Path,
     spec: &HandsSpec,
@@ -728,6 +761,7 @@ pub fn run_boxed_in(
     home: &Path,
     session: &Path,
     git: &GitFacts,
+    bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
     let mut with_self = spec.clone();
@@ -739,7 +773,16 @@ pub fn run_boxed_in(
             mask: Vec::new(),
         }));
     let scratch = session.join("call");
-    let built = box_argv(&with_self, workdir, home, &scratch, session, git, command);
+    let built = box_argv(
+        &with_self,
+        workdir,
+        home,
+        &scratch,
+        session,
+        git,
+        bundle_root,
+        command,
+    );
     let argv = io_context(built, "namespace")?;
     let ran = Command::new(bwrap)
         .args(&argv[1..])

@@ -3040,6 +3040,9 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
 #[cfg(target_os = "linux")]
 #[test]
 fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return;
+    }
     let namespace = Command::new("bwrap")
         .args(["--ro-bind", "/", "/", "--", "true"])
         .output();
@@ -3053,6 +3056,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
                 "--".into(),
@@ -3074,6 +3078,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
                 "--".into(),
@@ -3096,6 +3101,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let refused = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work,
+            bundle_root: None,
             spec: "{\"kind\":\"mitten\"}".into(),
             command: vec!["true".into()],
         },

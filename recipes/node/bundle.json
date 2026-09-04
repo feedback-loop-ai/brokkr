@@ -52,7 +52,7 @@
           "exec",
           "--",
           "bash",
-          "recipes/node/roles/verify-seat.sh",
+          "./roles/verify-seat.sh",
           "{prompt_file}"
         ]
       },
@@ -110,7 +110,7 @@
           "exec",
           "--",
           "bash",
-          "scripts/ship-seat.sh",
+          "./scripts/ship-seat.sh",
           "{prompt_file}",
           "{brokkr}"
         ]

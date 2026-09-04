@@ -819,6 +819,7 @@ impl Engine {
                 ),
                 runtime_hands.as_ref(),
                 &workdir,
+                &self.bundle.roots,
             )),
             _ => None,
         };
@@ -1178,6 +1179,7 @@ impl Engine {
                             .hands
                             .get(&format!("{driver_seat_prefix}:{}", member.name)),
                         &workdir,
+                        &self.bundle.roots,
                     ),
                     input,
                 }
@@ -1400,6 +1402,7 @@ impl Engine {
                         ),
                         self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
                         &self.workdir(),
+                        &self.bundle.roots,
                     );
                     // A sequence step is not a seat: decision 0030 hands
                     // a session back to the same SEAT of the same run,
@@ -2928,6 +2931,7 @@ pub fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,
+    roots: &[PathBuf],
 ) -> Vec<String> {
     let Some(spec) = hands else {
         return command;
@@ -2935,6 +2939,28 @@ pub fn hands_command(
     let brokkr = std::env::current_exe().unwrap_or_default();
     let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
     if is_exec {
+        let bundle_root = roots
+            .iter()
+            .find(|root| {
+                command
+                    .iter()
+                    .any(|part| Path::new(part).strip_prefix(root).is_ok())
+            })
+            .or_else(|| roots.first());
+        let command = command
+            .into_iter()
+            .map(|part| {
+                bundle_root
+                    .and_then(|root| Path::new(&part).strip_prefix(root).ok())
+                    .map(|relative| {
+                        Path::new(brokkr_protocol::hands::SANDBOX_BUNDLE)
+                            .join(relative)
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .unwrap_or(part)
+            })
+            .collect::<Vec<_>>();
         let mut boxed = vec![
             brokkr.to_string_lossy().into_owned(),
             "hands".to_string(),
@@ -2943,8 +2969,14 @@ pub fn hands_command(
             workdir.to_string_lossy().into_owned(),
             "--spec".to_string(),
             spec.to_value().to_string(),
-            "--".to_string(),
         ];
+        if let Some(root) = bundle_root {
+            boxed.extend([
+                "--bundle-root".to_string(),
+                root.to_string_lossy().into_owned(),
+            ]);
+        }
+        boxed.push("--".to_string());
         boxed.extend(command);
         return boxed;
     }
