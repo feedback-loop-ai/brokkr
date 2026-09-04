@@ -15,3 +15,9 @@ an archive operation, fold the change into the living truth as the final task.
 
 Report completion only with all finished tasks ticked, the relevant tests
 green, and the work committed.
+
+Report `broken` when the work cannot be made to function, naming the specific
+gap another visit must address. Report `blocked` only for something outside
+your control, naming the blocker precisely. Report `oversized` when the work
+exceeds the delivery class triage ruled, naming the mismatch so triage can
+rule again.

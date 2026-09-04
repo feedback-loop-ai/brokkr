@@ -6,11 +6,15 @@
   "override": {
     "bundle": ["description", "cost"],
     "seats": ["implement"],
-    "limits": ["triage", "design", "verify", "review", "ship"]
+    "limits": ["triage", "specify", "clarify", "design", "tasks", "analyze", "verify", "review", "ship"]
   },
   "seats": {
     "triage": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "specify": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "clarify": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "design": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "tasks": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "analyze": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "implement": {
       "role": "roles/implementer.md",
       "results": ["complete", "broken", "blocked", "oversized"],

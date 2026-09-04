@@ -122,7 +122,7 @@ const TRIAGE: &Roster = &[
     (
         "implement:design",
         "claude-opus-5",
-        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
+        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
     ),
     (
         "review:design:positions:spec-compliance",
@@ -147,17 +147,17 @@ const TRIAGE: &Roster = &[
     (
         "tasks:author",
         "claude-opus-5",
-        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
+        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
     ),
     (
         "clarify:judge",
         "claude-opus-5",
-        "d6a29b7aed9bec3460469ad812bf0cfe7f53381b17f7b1c537f04beb91c6515b",
+        "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
     ),
     (
         "analyze:judge",
         "claude-fable-5-1",
-        "cb0bb2ee61d718481d3032025b114e8ea63298026fb4bfad18661c37648b30a2",
+        "964414f4d6e6f4bc871e793707197eb38b3aa6005051fe5012187a160d1f44e0",
     ),
     (
         "design:positions:simplicity",

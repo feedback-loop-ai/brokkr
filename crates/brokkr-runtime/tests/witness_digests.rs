@@ -141,8 +141,12 @@ fn workspace() -> PathBuf {
 /// Decision 0042's second slice moves the two triage descendants again: the
 /// design route is now five phases, its new judges and validators are pinned,
 /// and the dialect-free SDD smith replaces the generic design implementer.
-/// The returned review moves those descendants once more: spec compliance's
-/// complete typed contract and intake's boxed hands are agent identity.
+/// The returned reviews move those descendants once more: spec compliance's
+/// complete typed contract and intake's boxed hands are agent identity, then
+/// the loop judges bind their deterministic checks and closed `drift_in`
+/// vocabulary while the smith regains its complete result semantics.
+/// Night-shift moves independently because its one-attempt override now names
+/// every phase in the SDD route.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
@@ -158,7 +162,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "bb386ed656de7991b03212923de18f89630758ce67686161661a975067a09041",
+        "1fa050796f20a064b48f17b3ac4d24308322e399a8ac4c61ecb3dfb57ddeebf2",
     ),
     (
         "recipes/wager-harness",
@@ -166,7 +170,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "ffd8b3090b16b3b88192ee5dcb4cff30d4b1517c69b8e5e8ecd41dccb71166f3",
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
     ),
     (
         "recipes/research",

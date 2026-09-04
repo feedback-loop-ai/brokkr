@@ -1057,9 +1057,10 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // Decision 0042's five SDD phases and the returned review's restored
-        // spec-compliance contract and boxed intake are all bundle identity.
-        "ffd8b3090b16b3b88192ee5dcb4cff30d4b1517c69b8e5e8ecd41dccb71166f3",
+        // Decision 0042's five SDD phases and the returned reviews' restored
+        // contracts are bundle identity: judges consume the deterministic
+        // check and closed drift vocabulary, and the smith names every result.
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

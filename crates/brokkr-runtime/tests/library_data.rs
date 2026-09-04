@@ -34,7 +34,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "implementer-sdd.md",
-        "720152f35e0190566eb39716ba554fa3ceec705be29b41479cfcb9e464114949",
+        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
     ),
     (
         "implementer.md",
@@ -173,6 +173,23 @@ fn the_library_holds_the_decision_0041_roster() {
             library.agent(name).unwrap().inputs.is_none(),
             "{name} should not declare inputs"
         );
+    }
+}
+
+#[test]
+fn sdd_offices_name_the_closed_return_contracts() {
+    let charters = workspace().join("agents/charters");
+    let analyst = std::fs::read_to_string(charters.join("analyst.md")).unwrap();
+    let clarifier = std::fs::read_to_string(charters.join("clarifier.md")).unwrap();
+    let smith = std::fs::read_to_string(charters.join("implementer-sdd.md")).unwrap();
+
+    assert!(analyst.contains("context.prior_results.check"));
+    for owner in ["`specify`", "`design`", "`tasks`"] {
+        assert!(analyst.contains(owner), "analyst omits drift owner {owner}");
+    }
+    assert!(clarifier.contains("context.prior_results.check"));
+    for result in ["`broken`", "`blocked`", "`oversized`"] {
+        assert!(smith.contains(result), "SDD smith omits result {result}");
     }
 }
 

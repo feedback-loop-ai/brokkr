@@ -447,7 +447,7 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
 }
 
 #[test]
-fn night_shift_keeps_one_attempt_on_every_roster_gate() {
+fn night_shift_keeps_one_attempt_on_every_phase() {
     let root = workspace();
     let bundle = Bundle::compile_with(
         &root.join("recipes/night-shift"),
@@ -455,10 +455,21 @@ fn night_shift_keeps_one_attempt_on_every_roster_gate() {
         &root.join("adapters"),
     )
     .expect("night-shift compiles");
-    for gate in ["verify", "review", "ship"] {
+    for phase in [
+        "triage",
+        "specify",
+        "clarify",
+        "design",
+        "tasks",
+        "analyze",
+        "implement",
+        "verify",
+        "review",
+        "ship",
+    ] {
         assert_eq!(
-            bundle.seats[gate].limits.max_attempts, 1,
-            "night-shift's {gate} gate must park after its first failed attempt"
+            bundle.seats[phase].limits.max_attempts, 1,
+            "night-shift's {phase} seat must park after its first failed attempt"
         );
     }
 }

@@ -27,22 +27,24 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-fast	dd0548e10976	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	9b46eb325f1a	8 phases	design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
-node	ce597ea15947	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	48cb2cc5b98b	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	7ce2538f6db6	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-triage	de34f9323580	8 phases	design[positions>chief>validate], implement{chore=implementer;design=implementer;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
-wager-harness	f76cb46fcf8f	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
-wager-harness-dsh	9692a115cf1c	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-self	082703fbd780	7 phases	implement, intake, review, ship, verify			./bundles/self
-verify	23614b7adb2b	4 phases	review, verify			./bundles/verify
+fast	e0c1eb0757cd	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+night-shift	1fa050796f20	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
+node	7abfe34bba48	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	1bf81bd7249f	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	d28c15ee4994	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+research	b9a38128ef56	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
+research-dsh	78a785cface7	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
+triage	2bc18b05f87a	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
+wager-harness	57de5240560b	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	9ef87077a982	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+self	d06e486c3ef8	7 phases	implement, intake, review, ship, verify			./bundles/self
+verify	8054a434cc74	4 phases	review, verify			./bundles/verify
 ```
 
 | Recipe | Reach for it when | The difference it states |
 |---|---|---|
 | [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
-| [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later implement and review offices, with the design council included for the classes that need it |
+| [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
 | [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
@@ -50,7 +52,7 @@ verify	23614b7adb2b	4 phases	review, verify			./bundles/verify
 | [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
 | [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
 
-Seven entries carry pinned manifest digests in
+Nine entries carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs`; the rest are covered
 by the tree-wide compile test but not pinned. The cost bands printed by
 the library are relative strategy labels for the sixty-second
@@ -81,7 +83,7 @@ it has to say both changes out loud.
   "extends": "triage",
   "override": {
     "seats": ["implement"],
-    "limits": ["triage", "design", "verify", "review", "ship"]
+    "limits": ["triage", "specify", "clarify", "design", "tasks", "analyze", "verify", "review", "ship"]
   },
   "seats": {
     "implement": { "…": "the replacement dsh seat" },
@@ -128,9 +130,9 @@ Two worked shapes are in the tree:
 - `bundles/self/bundle.json` — the flat case. Five seats, each one agent
   reference, nothing else.
 - `recipes/triage/bundle.json` — the full case. Strategy-selected
-  single, panel, and sequence bodies; a design sequence with a nested
-  panel; declared inputs; and an inline shell-script step alongside
-  agent-backed ones.
+  single, panel, and sequence bodies; the five-phase SDD route with a nested
+  design panel and deterministic checks; declared inputs; and inline
+  shell-script steps alongside agent-backed ones.
 
 ## `bundle.json` anatomy
 
@@ -299,11 +301,14 @@ non-final step's aggregate output never reaches the rule table, so only
 the final step's vocabulary is checked against the seat's declared
 `results`.
 
-The design sequence's final gate is resolved from the realm's dialect at
-compile time. It is boxed as a deterministic exec with no model, and its
-`{change}` token comes from the nearest preceding typed result. A realm that
-does not declare a dialect cannot compile a bundle with a design phase.
-Ordinary inline seats remain first-class for work that is not dialect-owned.
+Each SDD artifact sequence (`specify`, `design`, and `tasks`) ends in a
+`validate` gate resolved from the realm's dialect at compile time. It is boxed
+as a deterministic exec with no model, and its `{change}` token comes from the
+nearest preceding typed result. The `clarify` and `analyze` loop sequences run
+their dialect check before the read-only judge, which receives that output as
+`prior_results`. A realm that does not declare a dialect cannot compile a
+bundle containing these dialect-owned steps. Ordinary inline seats remain
+first-class for work that is not dialect-owned.
 
 **Select** — the engine chooses a complete single, panel, or sequence
 body from the journaled delivery strategy:
@@ -392,7 +397,7 @@ other named seats.
   "override": {
     "bundle": ["description", "cost"],
     "seats": ["implement"],
-    "limits": ["triage", "design", "verify", "review", "ship"]
+    "limits": ["triage", "specify", "clarify", "design", "tasks", "analyze", "verify", "review", "ship"]
   },
   "seats": {
     "implement": {
@@ -409,8 +414,8 @@ other named seats.
 }
 ```
 
-It has no `policy.json`, design body, review selector, verifier body, or
-shipper body of its own because it redefines none of them. Those values
+It has no `policy.json`, SDD bodies, review selector, verifier body, or shipper
+body of its own because it redefines none of them. Those values
 and the whole phase machine, including the protected review gate, are
 inherited.
 
@@ -486,15 +491,17 @@ metadata; the digest is identity.
 $ brokkr compile --bundle recipes/night-shift
 {
   "bundle": "night-shift",
-  "digest": "c729d441611b…",
-  "phases": ["triage", "design", "implement", "verify", "review", "ship", "done", "stop"],
-  "seats": ["design", "implement", "review", "ship", "triage", "verify"],
+  "digest": "1fa050796f20…",
+  "phases": ["triage", "specify", "clarify", "design", "tasks", "analyze",
+             "implement", "verify", "review", "ship", "done", "stop"],
+  "seats": ["analyze", "clarify", "design", "implement", "review", "ship",
+            "specify", "tasks", "triage", "verify"],
   "manifest": {
     "…": "one sha256 per bundle file",
     "select": { "review": { "…": "every resolved case" } }
   },
   "composed_from": [
-    { "recipe": "triage", "digest": "6a1928fc4486…", "dir": "…/recipes/triage" },
+    { "recipe": "triage", "digest": "4488af3d1165…", "dir": "…/recipes/triage" },
     { "recipe": "fast", "digest": "8d3e5dc7acfb…", "dir": "…/recipes/fast" }
   ]
 }
