@@ -135,7 +135,7 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         ),
         (
             "contracts/phase-entered-case.v1.schema.json",
-            "Forge phase entered selected case v1",
+            "Forge phase-entered selected case v1",
         ),
     ] {
         let body: serde_json::Value =
