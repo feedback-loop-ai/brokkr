@@ -740,7 +740,9 @@ fn the_seat_resolves_through_the_agent_library_and_pins_its_deadline() {
     assert_eq!(resolved.deadline, Duration::from_secs(900));
     assert_eq!(resolved.model, "opus");
     assert_eq!(resolved.provider, "test");
-    assert!(resolved.charter.ends_with("charters/muninn.md"));
+    assert!(resolved
+        .charter
+        .ends_with(Path::new("charters").join("muninn.md")));
     assert_eq!(
         resolved.command[1..],
         [

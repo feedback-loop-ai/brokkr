@@ -1,5 +1,6 @@
 use super::*;
 use crate::transcript::{dsh_home, dsh_home_from};
+use std::path::Path;
 use std::sync::Mutex;
 
 static ADAPTER_ENV: Mutex<()> = Mutex::new(());
@@ -1770,7 +1771,10 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(transcript["home"], dir.path().to_string_lossy().as_ref());
     let locator = transcript["locator"].as_str().unwrap();
     assert_eq!(dir.path().join(locator), kept[0].path());
-    assert!(locator.contains("sessions/brokkr/"), "{locator}");
+    assert!(
+        Path::new(locator).starts_with(Path::new("sessions").join("brokkr")),
+        "{locator}"
+    );
     assert!(locator.chars().count() <= 80, "{locator}");
     let turns: Vec<&Value> = emitted
         .iter()

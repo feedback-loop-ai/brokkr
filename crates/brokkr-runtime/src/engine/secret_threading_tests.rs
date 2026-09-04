@@ -96,13 +96,16 @@ fn declared_names_and_store_path_ride_the_driver_input() {
     let input = work_input(&engine);
     assert_eq!(input["secrets"], json!(["GH_TOKEN", "API_KEY"]));
     let store_path = input["secrets_file"].as_str().unwrap();
+    let store_path = std::path::Path::new(store_path);
     assert!(
-        std::path::Path::new(store_path).ends_with(".forge/secrets.env"),
-        "default store path under the workdir: {store_path}"
+        store_path.ends_with(std::path::Path::new(".forge").join("secrets.env")),
+        "default store path under the workdir: {}",
+        store_path.display()
     );
     assert!(
-        store_path.starts_with(dir.path().join("work").to_str().unwrap()),
-        "workdir-relative default: {store_path}"
+        store_path.starts_with(dir.path().join("work")),
+        "workdir-relative default: {}",
+        store_path.display()
     );
 }
 

@@ -2283,9 +2283,17 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     let hands = engine.runtime_hands("ship").unwrap();
     assert_eq!(hands.binds.len(), 1);
     assert_eq!(hands.binds[0].mode, BindMode::Ro);
+    // The store helper's temp-path rule applies: runtime_hands deliberately
+    // reports a canonical mount, so canonicalize the expectation too.
     assert_eq!(
         Path::new(&hands.binds[0].path),
-        engine.store.path().parent().unwrap()
+        engine
+            .store
+            .path()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
     );
 
     let workdir = dir.path().join("work");

@@ -782,8 +782,9 @@ impl Engine {
         // input digest. Only the deterministic ship script receives it.
         let mut input = input;
         if phase == "ship" {
-            input["context"]["journal"] =
-                Value::String(self.store.path().to_string_lossy().into_owned());
+            let journal =
+                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
+            input["context"]["journal"] = Value::String(journal.to_string_lossy().into_owned());
         }
 
         let seat = self.bundle.seats[seat_name].clone();
@@ -912,9 +913,10 @@ impl Engine {
         let mut spec = self.bundle.hands.get(seat_name)?.clone();
         if seat_name == "ship" {
             let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
-            let journal = self.store.path();
+            let journal =
+                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
             if !journal.starts_with(&workdir) {
-                let parent = journal.parent().unwrap_or(journal);
+                let parent = journal.parent().unwrap_or(&journal);
                 spec.binds.push(brokkr_protocol::hands::Bind {
                     path: parent.to_string_lossy().into_owned(),
                     mode: brokkr_protocol::hands::BindMode::Ro,
@@ -2953,10 +2955,10 @@ pub fn hands_command(
                 bundle_root
                     .and_then(|root| Path::new(&part).strip_prefix(root).ok())
                     .map(|relative| {
-                        Path::new(brokkr_protocol::hands::SANDBOX_BUNDLE)
-                            .join(relative)
-                            .to_string_lossy()
-                            .into_owned()
+                        brokkr_protocol::hands::namespace_join(
+                            brokkr_protocol::hands::SANDBOX_BUNDLE,
+                            relative,
+                        )
                     })
                     .unwrap_or(part)
             })

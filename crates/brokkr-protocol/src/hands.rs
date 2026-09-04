@@ -249,6 +249,23 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
     GitFacts { git_dir, identity }
 }
 
+/// Render a host path as a path inside the box. Paths inside the namespace
+/// are POSIX paths, never host paths.
+fn namespace_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+/// Append a host-relative path below a fixed path inside the box without
+/// letting the host choose the separator.
+pub fn namespace_join(root: &str, relative: &Path) -> String {
+    format!(
+        "{}/{}",
+        root.trim_end_matches('/'),
+        namespace_path(relative).trim_start_matches('/')
+    )
+}
+
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
 /// the environment, then `--` and the command. `scratch` holds this
 /// call's generated identity files and private home and tmp; `session`
@@ -288,7 +305,7 @@ pub fn box_argv(
     }
 
     let s = |text: &str| text.to_string();
-    let text = |path: &Path| path.to_string_lossy().into_owned();
+    let host_path = |path: &Path| path.to_string_lossy().into_owned();
     let mut argv = vec![
         s("bwrap"),
         s("--die-with-parent"),
@@ -354,24 +371,28 @@ pub fn box_argv(
         ("hosts", "/etc/hosts"),
         ("nsswitch.conf", "/etc/nsswitch.conf"),
     ] {
-        argv.extend([s("--ro-bind"), text(&etc.join(name)), s(target)]);
+        argv.extend([s("--ro-bind"), host_path(&etc.join(name)), s(target)]);
     }
     // The private home and tmp go in BEFORE the worktree, so a worktree
     // that itself lives under /tmp is mounted on top of the private /tmp
     // rather than hidden beneath it.
     argv.extend([
         s("--bind"),
-        text(&private_home),
+        host_path(&private_home),
         s(SANDBOX_HOME),
         s("--bind"),
-        text(&private_tmp),
+        host_path(&private_tmp),
         s("/tmp"),
         s("--bind"),
-        text(workdir),
-        text(workdir),
+        host_path(workdir),
+        namespace_path(workdir),
     ]);
     if let Some(bundle_root) = bundle_root {
-        argv.extend([s("--ro-bind"), text(bundle_root), s(SANDBOX_BUNDLE)]);
+        argv.extend([
+            s("--ro-bind"),
+            host_path(bundle_root),
+            namespace_path(Path::new(SANDBOX_BUNDLE)),
+        ]);
     }
     // Ruling 6: the git directory. A `git worktree`'s lives outside the
     // worktree and is bound so git works at all; either way its `hooks`
@@ -380,17 +401,26 @@ pub fn box_argv(
     // on its next git invocation.
     if let Some(git_dir) = &git.git_dir {
         if !git_dir.starts_with(workdir) {
-            argv.extend([s("--bind"), text(git_dir), text(git_dir)]);
+            argv.extend([s("--bind"), host_path(git_dir), namespace_path(git_dir)]);
         }
-        argv.extend([s("--tmpfs"), text(&git_dir.join("hooks"))]);
+        argv.extend([
+            s("--tmpfs"),
+            namespace_join(&namespace_path(git_dir), Path::new("hooks")),
+        ]);
         let config = git_dir.join("config");
-        argv.extend([s("--ro-bind-try"), text(&config), text(&config)]);
+        argv.extend([
+            s("--ro-bind-try"),
+            host_path(&config),
+            namespace_path(&config),
+        ]);
     }
     for (index, bind) in spec.binds.iter().enumerate() {
         let host = expand_home(&bind.path, home);
         match bind.mode {
-            BindMode::Ro => argv.extend([s("--ro-bind-try"), text(&host), text(&host)]),
-            BindMode::Rw => argv.extend([s("--bind-try"), text(&host), text(&host)]),
+            BindMode::Ro => {
+                argv.extend([s("--ro-bind-try"), host_path(&host), namespace_path(&host)])
+            }
+            BindMode::Rw => argv.extend([s("--bind-try"), host_path(&host), namespace_path(&host)]),
             BindMode::Overlay => {
                 let layer = session.join("overlay").join(index.to_string());
                 let upper = layer.join("upper");
@@ -399,11 +429,11 @@ pub fn box_argv(
                 std::fs::create_dir_all(&work)?;
                 argv.extend([
                     s("--overlay-src"),
-                    text(&host),
+                    host_path(&host),
                     s("--overlay"),
-                    text(&upper),
-                    text(&work),
-                    text(&host),
+                    host_path(&upper),
+                    host_path(&work),
+                    namespace_path(&host),
                 ]);
             }
         }
@@ -413,7 +443,7 @@ pub fn box_argv(
             // create it on the host to mount over; only what exists is
             // hidden.
             if masked.exists() {
-                argv.extend([s("--ro-bind"), s("/dev/null"), text(&masked)]);
+                argv.extend([s("--ro-bind"), s("/dev/null"), namespace_path(&masked)]);
             }
         }
     }
@@ -422,7 +452,7 @@ pub fn box_argv(
     let npm_cache = home.join(".npm");
     let sandbox_path = format!(
         "/runtime:{}:/usr/local/bin:/usr/bin:/bin",
-        cargo_home.join("bin").display()
+        namespace_join(&namespace_path(&cargo_home), Path::new("bin"))
     );
     let mut environment = vec![
         ("HOME", SANDBOX_HOME.to_string()),
@@ -451,21 +481,21 @@ pub fn box_argv(
         .iter()
         .any(|bind| expand_home(&bind.path, home) == cargo_home)
     {
-        environment.push(("CARGO_HOME", cargo_home.display().to_string()));
+        environment.push(("CARGO_HOME", namespace_path(&cargo_home)));
     }
     if spec
         .binds
         .iter()
         .any(|bind| expand_home(&bind.path, home) == rustup_home)
     {
-        environment.push(("RUSTUP_HOME", rustup_home.display().to_string()));
+        environment.push(("RUSTUP_HOME", namespace_path(&rustup_home)));
     }
     if spec
         .binds
         .iter()
         .any(|bind| expand_home(&bind.path, home) == npm_cache)
     {
-        environment.push(("NPM_CONFIG_CACHE", npm_cache.display().to_string()));
+        environment.push(("NPM_CONFIG_CACHE", namespace_path(&npm_cache)));
     }
     for (key, value) in environment {
         argv.extend([s("--setenv"), s(key), value]);
@@ -473,7 +503,7 @@ pub fn box_argv(
     for (key, value) in &git.identity {
         argv.extend([s("--setenv"), s(key), s(value)]);
     }
-    argv.extend([s("--chdir"), text(workdir), s("--")]);
+    argv.extend([s("--chdir"), namespace_path(workdir), s("--")]);
     argv.extend(command.iter().cloned());
     Ok(argv)
 }

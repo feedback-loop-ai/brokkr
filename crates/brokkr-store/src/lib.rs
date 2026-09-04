@@ -267,10 +267,6 @@ pub struct Store {
     patience: std::time::Duration,
 }
 
-fn opened_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
 const MIGRATION_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -596,7 +592,7 @@ impl Store {
         patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
         Ok(Store {
             conn,
-            path: opened_path(path),
+            path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
         })
     }
@@ -712,7 +708,7 @@ impl Store {
         schema_supported(found.parse().unwrap_or(0))?;
         Ok(Store {
             conn,
-            path: opened_path(path),
+            path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
         })
     }
