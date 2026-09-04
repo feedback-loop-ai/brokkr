@@ -405,6 +405,14 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
     damaged["realms"]["dialect"]
         .as_object_mut()
         .unwrap()
+        .remove("instructions");
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("carries no instructions"), "{message}");
+
+    let mut damaged = first.clone();
+    damaged["realms"]["dialect"]
+        .as_object_mut()
+        .unwrap()
         .remove("instructions_sha256");
     let message = refusal(World::from_manifest(&damaged));
     assert!(
@@ -465,10 +473,24 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
         dir.path().join("brokkr/dialect.json"),
     )
     .unwrap();
+    for base in [dir.path().join("brokkr/spec"), dir.path().join("brokkr")] {
+        std::fs::create_dir_all(base.join("openspec")).unwrap();
+        for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+            std::fs::copy(
+                dir.path().join(format!("dialects/openspec/{name}.md")),
+                base.join(format!("openspec/{name}.md")),
+            )
+            .unwrap();
+        }
+    }
     let world = World::load(&dir.path().join("realms.json")).unwrap();
     let repo = dir.path().join("brokkr");
     let manifest = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
     assert_eq!(manifest["realms"]["dialect"]["content"]["name"], "openspec");
+    assert!(manifest["realms"]["dialect"]["instructions"]["specify"]
+        .as_str()
+        .unwrap()
+        .contains("OpenSpec"));
     assert!(World::from_manifest(&manifest).unwrap().is_some());
     let unselected = world.pinned(&json!({"files": {}}), None).unwrap();
     let rehydrated_unselected = World::from_manifest(&unselected).unwrap().unwrap();

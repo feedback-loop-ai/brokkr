@@ -868,19 +868,13 @@ impl Bundle {
         let mut dialect_prompts = BTreeMap::new();
         if uses_dialect {
             if let Some(dialect) = dialect {
-                let instruction_root = library_root.parent().unwrap_or(Path::new(""));
                 for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
-                    let rendered = match dialect.rendered.get(phase) {
-                        Some(rendered) => rendered.clone(),
-                        None => dialect
-                            .prompt_for(instruction_root, phase)
-                            .map_err(|error| {
-                                CompileError::Invalid(format!(
-                                "dialect '{}' cannot render phase '{phase}' instructions: {error}",
-                                dialect.name
-                            ))
-                            })?,
-                    };
+                    let rendered = dialect.rendered.get(phase).cloned().ok_or_else(|| {
+                        CompileError::Invalid(format!(
+                            "dialect '{}' pin carries no rendered instructions for phase '{phase}'",
+                            dialect.name
+                        ))
+                    })?;
                     dialect_prompts.insert(phase.to_string(), rendered);
                 }
             }

@@ -226,9 +226,10 @@ fn dialect_site_vocabulary_and_support_fail_closed() {
         serde_json::from_slice(&std::fs::read(root.join("dialects/openspec.json")).unwrap())
             .unwrap();
     value["phases"]["design"]["validate"] = json!({"unsupported":"no validator"});
-    let unsupported = Dialect::parse("unsupported.json", &value.to_string())
+    let mut unsupported = Dialect::parse("unsupported.json", &value.to_string())
         .unwrap()
         .0;
+    unsupported.render(&root.join("dialects")).unwrap();
     let (config, policy) = dialect_config(verify);
     assert!(error(compile_dialect_fixture(
         &fixture,

@@ -1496,6 +1496,15 @@ impl Engine {
     ) -> Result<(), EngineError> {
         let mut prior_results = Map::new();
         let mut nearest_change = nearest_change(&seq_input["context"]);
+        let declares_change = self
+            .bundle
+            .seats
+            .get(seat_name)
+            .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change"));
+        let final_results = steps
+            .last()
+            .map(|step| step.results.as_slice())
+            .unwrap_or_default();
         for (index, step) in steps.iter().enumerate() {
             let step_meta = &seq_input["steps"][index];
             let context = {
@@ -1758,11 +1767,22 @@ impl Engine {
                     )?;
                     return Ok(());
                 }
-                // An artifact author can discover that the preceding
-                // artifact is at fault. `upstream` is the phase boundary,
-                // so its final validator must not run against an artifact
-                // the author has just refused as downstream of the defect.
-                if result.get("result").and_then(Value::as_str) == Some("upstream") {
+                // An intermediate result which belongs to the enclosing
+                // phase but not its final step is a declared sequence-ending
+                // boundary (the SDD artifact phases call theirs `upstream`).
+                // Read that boundary from the two vocabularies: the engine
+                // does not own the dialect's word.
+                let ends_sequence =
+                    result
+                        .get("result")
+                        .and_then(Value::as_str)
+                        .is_some_and(|word| {
+                            seq_input["allowed_results"]
+                                .as_array()
+                                .is_some_and(|allowed| allowed.iter().any(|value| value == word))
+                                && !final_results.iter().any(|allowed| allowed == word)
+                        });
+                if ends_sequence {
                     return self.append(
                         EventType::EffectSucceeded,
                         json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
@@ -1775,8 +1795,27 @@ impl Engine {
                 .and_then(Value::as_str)
                 .unwrap_or("not reported")
                 .to_string();
-            if let Some(change) = result.pointer("/inputs/change").and_then(Value::as_str) {
-                nearest_change = Some(change.to_string());
+            if let Some(value) = result.pointer("/inputs/change") {
+                let change = value.as_str();
+                if declares_change && !change.is_some_and(brokkr_core::policy::is_identifier) {
+                    self.append(
+                        EventType::EffectIndeterminate,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "reason": format!(
+                                "sequence step '{}': declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {}",
+                                step.name,
+                                value
+                            ),
+                        }),
+                        Some(attempt_id.to_string()),
+                    )?;
+                    return Ok(());
+                }
+                if let Some(change) = change {
+                    nearest_change = Some(change.to_string());
+                }
             }
             if index + 1 == steps.len() {
                 self.append(

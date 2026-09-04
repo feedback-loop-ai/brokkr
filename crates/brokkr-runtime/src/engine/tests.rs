@@ -489,6 +489,135 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
 }
 
 #[test]
+fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
+    let first = SequenceStep {
+        name: "author".into(),
+        results: vec!["drafted".into()],
+        class: SeatClass::Work,
+        body: StepBody::Single {
+            role_path: "role.md".into(),
+            command: driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({
+                        "result":"drafted",
+                        "inputs":{"change":42}
+                    }),
+                },
+            ),
+            confine: None,
+            candidates: Vec::new(),
+        },
+    };
+    let validate = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["validator".into(), "{change}".into()],
+                state: None,
+            },
+        },
+    };
+    let input = json!({
+        "feature":"feature", "phase":"design", "workdir":".",
+        "allowed_results":["drafted", "fail"], "context":{},
+        "steps":[
+            {"role_path":"role.md", "result_path":"author.json", "allowed_results":["drafted"]},
+            {"role_path":"", "result_path":"validate.json", "allowed_results":["drafted", "fail"]}
+        ]
+    });
+    let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
+    runtime.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("validate".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"drafted"}),
+                },
+            ),
+        },
+    );
+    let steps = [first, validate];
+    runtime
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .unwrap();
+
+    let events = runtime.store.load(&runtime.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("must match"));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.payload["checkpoint"]["step"] == "live")
+            .count(),
+        1,
+        "only the author ran; validate never received an argv"
+    );
+
+    let (_kept, mut undeclared) = engine(single_body(vec!["driver".into()]));
+    undeclared
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .unwrap();
+    let events = undeclared.store.load(&undeclared.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate,
+        "an input the seat did not declare is ignored, leaving no change to expand"
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
+
+    let (_kept, mut storage_error) = engine_failing("effect/indeterminate");
+    storage_error.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
+    assert!(storage_error
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .is_err());
+}
+
+#[test]
 fn process_recovery_resumes_the_case_pinned_by_the_triage_journal() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("work");
@@ -4026,6 +4155,8 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
     let (_dir, mut engine) = engine(SeatBody::Sequence {
         steps: steps.clone(),
     });
+    engine.bundle.seats.get_mut("work").unwrap().results =
+        vec!["drafted".into(), "fail".into(), "upstream".into()];
     let input = engine
         .seat_input(
             &state(Some("work"), Cursor::Idle),

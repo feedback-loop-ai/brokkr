@@ -3253,6 +3253,14 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         dir.path().join("dialects/openspec.json"),
     )
     .unwrap();
+    std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
+    for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+        std::fs::copy(
+            root.join(format!("dialects/openspec/{name}.md")),
+            dir.path().join(format!("dialects/openspec/{name}.md")),
+        )
+        .unwrap();
+    }
     let map = json!({
         "schema":"forge.realms/v3",
         "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],

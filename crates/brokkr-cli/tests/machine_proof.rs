@@ -183,6 +183,8 @@ const SDD_PROOF_POLICY: &str = r#"{
   "initial":"triage","terminal":["done","stop"],"shippable_from":["review"],
   "rules":[
     {"id":"T","from":"triage","result":"engine","next":"specify","reason":"design route"},
+    {"id":"SF2","from":"specify","result":"fail","when":{"visits_specify_gte":2},"next":"stop","severity":"hard","reason":"two validation failures"},
+    {"id":"SFR","from":"specify","result":"fail","next":"specify","reason":"retry validation once"},
     {"id":"S","from":"specify","result":"drafted","next":"clarify","reason":"drafted"},
     {"id":"CA","from":"clarify","result":"ambiguous","next":"specify","reason":"answer"},
     {"id":"CC","from":"clarify","result":"clear","next":"design","reason":"clear"},
@@ -382,7 +384,7 @@ impl Workspace {
             "name":"sdd-proof", "policy":"policy.json", "protected_phase":"review",
             "seats":{
                 "triage":single(vec!["engine"]),
-                "specify":single(vec!["drafted"]),
+                "specify":single(vec!["drafted","fail"]),
                 "clarify":{"results":["clear","ambiguous"],"sequence":[
                     step("check", vec!["clear"]),
                     {"name":"judge","role":"roles/role.md","driver":driver()}
@@ -872,6 +874,48 @@ fn sdd_machine_revisits_ambiguity_and_design_drift_before_implementation() {
         assert!(input["context"]["prior_results"]["check"].is_object());
         assert!(input["spec_dialect"].as_str().unwrap().contains("#"));
     }
+}
+
+#[test]
+fn sdd_validate_failure_reenters_once_then_the_real_visit_fold_stops_it() {
+    let script = json!({"seats":{
+        "triage":[{"behavior":"succeed","result":{"result":"engine"}}],
+        "specify:author":[
+            {"behavior":"succeed","result":{"result":"drafted","inputs":{"change":"proof-change"}}},
+            {"behavior":"succeed","result":{"result":"drafted","inputs":{"change":"proof-change"}}}
+        ],
+        "specify:validate":[
+            {"behavior":"succeed","result":{"result":"fail"}},
+            {"behavior":"succeed","result":{"result":"fail"}}
+        ]
+    }});
+    let ws = Workspace::sdd(script);
+    ws.make_sequence(
+        "specify",
+        &[
+            json!({"name":"author", "results":["drafted"]}),
+            json!({"name":"validate"}),
+        ],
+    );
+
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(3), "summary: {summary}; stderr: {stderr}");
+    assert_eq!(summary["status"], "stopped");
+    assert_eq!(summary["phase"], "stop");
+    assert_eq!(summary["last_decision"]["rule_id"], "SF2");
+
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let specify_visits = events
+        .iter()
+        .filter(|event| event["type"] == "phase/entered" && event["payload"]["phase"] == "specify")
+        .count();
+    assert_eq!(specify_visits, 2, "one re-entry, then stop");
+    let rules: Vec<&str> = events
+        .iter()
+        .filter(|event| event["type"] == "transition/decided")
+        .filter_map(|event| event["payload"]["rule_id"].as_str())
+        .collect();
+    assert!(rules.ends_with(&["SFR", "SF2"]), "{rules:?}");
 }
 
 #[cfg(target_os = "linux")]

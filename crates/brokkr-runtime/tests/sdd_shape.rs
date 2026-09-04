@@ -41,12 +41,12 @@ fn artifact_work_refuses_the_bootstrap_realm_and_accepts_a_declared_dialect() {
     let mut value: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root().join("dialects/openspec.json")).unwrap())
             .unwrap();
-    value["phases"]["specify"]["steps"][0]["instructions"] = json!("dialects/openspec/missing.md");
+    value["phases"]["specify"]["steps"][0]["instructions"] = json!("openspec/missing.md");
     let missing = Dialect::parse("missing-instructions.json", &value.to_string())
         .unwrap()
         .0;
     let message = compile(Some(&missing)).unwrap_err().to_string();
-    assert!(message.contains("cannot render phase 'specify' instructions"));
+    assert!(message.contains("pin carries no rendered instructions for phase 'specify'"));
 }
 
 #[test]
@@ -134,9 +134,10 @@ fn a_loop_check_is_skipped_only_when_the_dialect_declares_it_unsupported() {
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     value["phases"]["clarify"]["check"] =
         json!({"unsupported": "this test dialect has no deterministic count"});
-    let dialect = Dialect::parse("unsupported-check.json", &value.to_string())
+    let mut dialect = Dialect::parse("unsupported-check.json", &value.to_string())
         .unwrap()
         .0;
+    dialect.render(&root().join("dialects")).unwrap();
     let bundle = compile(Some(&dialect)).unwrap();
     let SeatBody::Sequence { steps } = &bundle.seats["clarify"].body else {
         panic!("clarify remains an executable sequence");

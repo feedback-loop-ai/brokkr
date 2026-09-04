@@ -19,6 +19,11 @@ pub enum DialectError {
         path: String,
         source: std::io::Error,
     },
+    #[error("reading dialect instruction {path}: {source}")]
+    UnreadableInstruction {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("dialect {path} is malformed: {detail}")]
     Malformed { path: String, detail: String },
     #[error("dialect {path} is not usable: {problem}")]
@@ -163,16 +168,11 @@ impl Dialect {
             source,
         })?;
         let (mut dialect, value) = Self::parse(&path.display().to_string(), &text)?;
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let root = if parent.file_name().and_then(|name| name.to_str()) == Some("dialects") {
-            parent.parent().unwrap_or(parent)
-        } else {
-            parent
-        };
-        // Loading the dialect data stays useful to doctor and realm reads even
-        // when its prompt assets are not installed. A bundle that actually
-        // seats an artifact phase resolves them strictly during compilation.
-        let _ = dialect.render(root);
+        // Instruction paths belong to the dialect file, not to whichever
+        // library or realm happened to name it. Load pins every instruction
+        // now; compilation and resume must never recover missing prose from
+        // mutable files on disk.
+        dialect.render(path.parent().unwrap_or(Path::new("")))?;
         Ok((dialect, value))
     }
 
@@ -259,8 +259,43 @@ impl Dialect {
                 return Err(invalid(format!("phase '{phase}' has no taxonomy")));
             }
         }
+        for instruction in self.instruction_paths() {
+            let candidate = Path::new(instruction);
+            if candidate.is_absolute()
+                || instruction
+                    .split(['/', '\\'])
+                    .any(|component| component == "..")
+            {
+                return Err(invalid(format!(
+                    "instruction path '{instruction}' must be relative and remain beside its dialect"
+                )));
+            }
+        }
         check_command_tokens(self, path)?;
         Ok(())
+    }
+
+    fn instruction_paths(&self) -> Vec<&str> {
+        ARTIFACT_PHASES
+            .iter()
+            .flat_map(|name| {
+                self.phases
+                    .artifact(name)
+                    .expect("closed artifact phase")
+                    .steps
+                    .iter()
+                    .flat_map(|step| {
+                        [
+                            step.instructions.as_str(),
+                            step.return_instructions.as_str(),
+                        ]
+                    })
+            })
+            .chain([
+                self.phases.clarify.taxonomy.as_str(),
+                self.phases.analyze.taxonomy.as_str(),
+            ])
+            .collect()
     }
 
     pub fn validation(&self, phase: &str) -> Option<&Command> {
@@ -278,10 +313,10 @@ impl Dialect {
     }
 
     /// Read the dialect-owned prose which is spliced into a model prompt.
-    /// Paths are repository-relative in the shipped dialects; the caller
-    /// supplies the library workspace root so the bytes do not depend on the
-    /// target realm's current directory.
-    pub fn prompt_for(&self, root: &Path, phase: &str) -> Result<String, std::io::Error> {
+    /// Paths are relative to the dialect file's own directory; the caller
+    /// supplies that directory so a library name and realm path have exactly
+    /// the same pinning semantics.
+    pub fn prompt_for(&self, root: &Path, phase: &str) -> Result<String, DialectError> {
         let paths: Vec<&str> = match phase {
             "specify" | "design" | "tasks" => self
                 .phases
@@ -329,7 +364,13 @@ impl Dialect {
         };
         let mut rendered = Vec::new();
         for relative in paths {
-            let text = std::fs::read_to_string(root.join(relative))?;
+            let path = root.join(relative);
+            let text = std::fs::read_to_string(&path).map_err(|source| {
+                DialectError::UnreadableInstruction {
+                    path: path.display().to_string(),
+                    source,
+                }
+            })?;
             if !rendered.iter().any(|known| known == text.trim()) {
                 rendered.push(text.trim().to_string());
             }
@@ -354,12 +395,7 @@ impl Dialect {
     pub fn render(&mut self, root: &Path) -> Result<(), DialectError> {
         let mut rendered = BTreeMap::new();
         for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
-            let prompt =
-                self.prompt_for(root, phase)
-                    .map_err(|source| DialectError::Unreadable {
-                        path: root.display().to_string(),
-                        source,
-                    })?;
+            let prompt = self.prompt_for(root, phase)?;
             rendered.insert(phase.to_string(), prompt);
         }
         self.rendered = rendered;

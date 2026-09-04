@@ -12,8 +12,8 @@
         "artifacts": ["spec"],
         "office": "chief",
         "optional": false,
-        "instructions": "dialects/speckit/specify.md",
-        "return_instructions": "dialects/speckit/return.md"
+        "instructions": "speckit/specify.md",
+        "return_instructions": "speckit/return.md"
       }],
       "validate": {"argv": ["brokkr", "dialect", "check", "speckit", "specify", "{change}"]}
     },
@@ -24,16 +24,16 @@
           "artifacts": ["plan"],
           "office": "council",
           "optional": false,
-          "instructions": "dialects/speckit/design.md",
-          "return_instructions": "dialects/speckit/return.md"
+        "instructions": "speckit/design.md",
+        "return_instructions": "speckit/return.md"
         },
         {
           "name": "checklist",
           "artifacts": ["checklist"],
           "office": "chief",
           "optional": true,
-          "instructions": "dialects/speckit/checklist.md",
-          "return_instructions": "dialects/speckit/return.md"
+          "instructions": "speckit/checklist.md",
+          "return_instructions": "speckit/return.md"
         }
       ],
       "validate": {"argv": [".specify/scripts/bash/check-prerequisites.sh"]}
@@ -44,17 +44,17 @@
         "artifacts": ["tasks"],
         "office": "smith",
         "optional": false,
-        "instructions": "dialects/speckit/tasks.md",
-        "return_instructions": "dialects/speckit/return.md"
+        "instructions": "speckit/tasks.md",
+        "return_instructions": "speckit/return.md"
       }],
       "validate": {"argv": [".specify/scripts/bash/check-prerequisites.sh", "--require-tasks"]}
     },
     "clarify": {
-      "taxonomy": "dialects/speckit/clarify.md",
+      "taxonomy": "speckit/clarify.md",
       "check": {"argv": ["brokkr", "dialect", "check", "speckit", "clarify", "{change}"]}
     },
     "analyze": {
-      "taxonomy": "dialects/speckit/analyze.md",
+      "taxonomy": "speckit/analyze.md",
       "check": {"argv": [".specify/scripts/bash/check-prerequisites.sh", "--require-tasks"]}
     }
   },
