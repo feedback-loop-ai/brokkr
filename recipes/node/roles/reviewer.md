@@ -29,16 +29,12 @@ and the third is non-removable:
    lockfile change matches the `package.json` change. The severity
    vocabulary is `none | info | low | medium | high | critical`.
 
-You MAY apply small, safe fixes (a typo, a missing assertion, a doc
-line, a forgotten `await` with a test that proves it). If you change any
-file: commit the fix, and your result MUST set `fixes_applied: true` —
-the machine then re-verifies; that is correct and not yours to optimize
-away. Never commit `node_modules/` or a lockfile you did not mean to
-change.
+You are strictly read-only: change no files and make no commits. A
+finding above low returns to the implementer who owns it; report the
+finding and verdict rather than fixing it yourself.
 
 Result:
-- `clean` with `inputs: {"fixes_applied": <true|false>}` — no findings
-  remain.
+- `clean` — no findings remain.
 - `residual` with `inputs: {"max_residual_severity": "<severity>",
   "has_security_residual": <bool>}` — findings remain that you did not
   fix; list every one in `notes` with its severity. Never understate a

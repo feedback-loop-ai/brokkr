@@ -13,6 +13,7 @@ fn bundle_with_sequence() -> Bundle {
     seats.insert(
         "review".into(),
         Seat {
+            has_gate: false,
             results: vec!["clean".into()],
             limits: Limits::default(),
             inputs: Vec::new(),
@@ -21,6 +22,7 @@ fn bundle_with_sequence() -> Bundle {
                 steps: vec![
                     SequenceStep {
                         name: "draft".into(),
+                        class: brokkr_runtime::SeatClass::Work,
                         body: StepBody::Single {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],
@@ -30,6 +32,7 @@ fn bundle_with_sequence() -> Bundle {
                     },
                     SequenceStep {
                         name: "verify".into(),
+                        class: brokkr_runtime::SeatClass::Work,
                         body: StepBody::Single {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],

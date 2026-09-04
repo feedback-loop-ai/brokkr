@@ -67,6 +67,10 @@ pub fn is_engine_owned(name: &str) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct Seat {
+    /// True when every invocation site in this seat is a gate. The runtime
+    /// uses the compiled fact to enforce a stable repository HEAD around the
+    /// whole effect; mixed sequences carry the same fact per step instead.
+    pub has_gate: bool,
     pub results: Vec<String>,
     pub limits: Limits,
     /// Typed facts this seat may supply (decision 0007). Anything else a
@@ -123,6 +127,7 @@ pub enum SeatBody {
 #[derive(Debug, Clone)]
 pub struct SequenceStep {
     pub name: String,
+    pub class: SeatClass,
     pub body: StepBody,
 }
 
@@ -198,6 +203,19 @@ impl SeatClass {
             _ => None,
         }
     }
+}
+
+/// Compilation has already validated every `class` occurrence. Preserve the
+/// whole-effect fact ruling 4 needs without mistaking a mixed sequence for a
+/// gate: its work steps may move HEAD before its gate step judges them.
+fn is_gate_class(value: &Value) -> bool {
+    if let Some(members) = value.get("panel").and_then(Value::as_object) {
+        return !members.is_empty() && members.values().all(is_gate_class);
+    }
+    if let Some(steps) = value.get("sequence").and_then(Value::as_array) {
+        return !steps.is_empty() && steps.iter().all(is_gate_class);
+    }
+    value.get("class").and_then(Value::as_str) == Some("gate")
 }
 
 /// Per-seat autonomy limits (decision 0006). Defaults keep the old
@@ -755,7 +773,15 @@ impl Bundle {
                     .rules
                     .iter()
                     .any(|rule| rule.from == *phase && rule.result == *result);
-                if !covered {
+                // Decision 0041 reserves the implementer's `oversized`
+                // verdict before ruling 6 seats triage. Until that phase
+                // exists there can be no edge to it; the unmatched verdict
+                // parks fail-closed. Once triage exists, ordinary coverage
+                // is mandatory and the roster test pins both bounded arms.
+                let reserved_oversized = phase == "implement"
+                    && result == "oversized"
+                    && !machine.phases.iter().any(|known| known == "triage");
+                if !covered && !reserved_oversized {
                     return Err(CompileError::Invalid(format!(
                         "seat '{phase}' may emit '{result}' but no rule covers it; \
                          result variants without an outer rule are rejected"
@@ -918,6 +944,7 @@ impl Bundle {
             seats.insert(
                 phase.clone(),
                 Seat {
+                    has_gate: is_gate_class(raw),
                     results,
                     limits,
                     inputs,
@@ -1248,7 +1275,7 @@ fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), Co
 
 /// A panel or a sequence has no driver of its own, so it has no class of
 /// its own: `recipes/sdd`'s `design` seat is a panel of work positions,
-/// a gate chief and a work check, and a single word on the seat could
+/// a work chief and a gate check, and a single word on the seat could
 /// only be an approximation of all three. Refused rather than averaged.
 fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileError> {
     match raw.get("class") {
@@ -1766,6 +1793,11 @@ fn parse_sequence(
         }
         steps.push(SequenceStep {
             name: name.to_string(),
+            class: if is_gate_class(step_raw) {
+                SeatClass::Gate
+            } else {
+                SeatClass::Work
+            },
             body,
         });
     }

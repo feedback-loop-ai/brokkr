@@ -16,7 +16,8 @@
       "results": [
         "complete",
         "broken",
-        "blocked"
+        "blocked",
+        "oversized"
       ],
       "class": "work",
       "agent": "implementer"
@@ -36,7 +37,6 @@
         "security-hold"
       ],
       "inputs": [
-        "fixes_applied",
         "has_security_residual",
         "max_residual_severity"
       ],

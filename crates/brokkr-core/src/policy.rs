@@ -35,9 +35,12 @@ pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
 /// visits, a seat never claims one.
 pub const VISIT_PREFIX: &str = "visits_";
 
-pub const BOOLEAN_INPUTS: [&str; 7] = [
+pub const BOOLEAN_INPUTS: [&str; 8] = [
     "skip_verify",
     "fixes_applied",
+    // Decision 0041: a review panel may return a defective specification
+    // to design. Seat-declarable; unlike visit counts, the judge observes it.
+    "spec_defect",
     "has_security_residual",
     "high_risk_uncovered",
     "drift_detected",

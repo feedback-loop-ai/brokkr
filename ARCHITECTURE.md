@@ -154,17 +154,18 @@ stateDiagram-v2
   [*] --> implement
   implement --> implement: broken, once
   implement --> verify: complete
+  implement --> review: docs-only returned fix
   verify --> review: pass
-  review --> ship: clean · docs-only fixes · residual at or below medium
-  review --> verify: clean, fixes applied
-  review --> implement: security residual — reforge, bounded by visits_implement
+  verify --> implement: fail, bounded by visits_implement
+  review --> ship: clean · low/info residual as named debt
+  review --> implement: residual above low, bounded by visits_implement
   review --> parked: reforging exhausted
   ship --> ship: ready
   ship --> review: HEAD drifted
   ship --> done: shipped
   implement --> stop: blocked · broken twice
-  verify --> stop: fail
-  review --> stop: security-hold · residual above medium
+  verify --> stop: fail at exhaustion
+  review --> stop: security-hold · above-medium residual at exhaustion
   ship --> stop: dirty tree
   parked --> [*]: awaiting_operator
   done --> [*]

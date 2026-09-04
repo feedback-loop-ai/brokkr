@@ -6,6 +6,8 @@ contract is the committed spec, not the raw request: read
 feature (the newest `specs/` directory for this run; the intake framing
 in `.forge/tasks/` is background). The acceptance criteria in spec.md
 are what "done" means.
+When this is a returned implement, answer the finding in `returned_from`;
+that finding is the work this visit owns.
 
 Rules of the house:
 
@@ -33,6 +35,8 @@ Result:
   it.
 - `blocked` — something outside your control prevents the work (missing
   tool, contradictory spec); `notes` names the blocker precisely.
+- `oversized` — the work exceeds the delivery class triage ruled; name
+  the mismatch so the bounded return to triage can rule again.
 
 Never report `complete` with failing tests, unticked finished tasks, or
 uncommitted changes: the verifier and the ship gate will catch it, and

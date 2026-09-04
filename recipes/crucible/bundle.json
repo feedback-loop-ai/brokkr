@@ -22,7 +22,8 @@
       "results": [
         "complete",
         "broken",
-        "blocked"
+        "blocked",
+        "oversized"
       ]
     },
     "verify": {
@@ -40,7 +41,6 @@
         "security-hold"
       ],
       "inputs": [
-        "fixes_applied",
         "has_security_residual",
         "max_residual_severity"
       ],

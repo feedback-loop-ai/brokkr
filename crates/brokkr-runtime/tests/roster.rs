@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, SeatBody, SeatClass};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -188,6 +188,35 @@ fn shipped_claude_implementer_can_commit() {
 }
 
 #[test]
+fn shipped_sdd_gate_scope_stops_at_the_judging_sites() {
+    let root = workspace();
+    let bundle = Bundle::compile_with(
+        &root.join("recipes/sdd"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .expect("sdd bundle compiles");
+
+    for phase in ["review", "verify", "ship"] {
+        assert!(bundle.seats[phase].has_gate, "{phase} must remain a gate");
+    }
+    for phase in ["implement", "design"] {
+        assert!(
+            !bundle.seats[phase].has_gate,
+            "{phase} includes work and must not guard the whole effect"
+        );
+    }
+
+    let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
+        panic!("sdd design remains a sequence")
+    };
+    assert_eq!(steps[1].name, "chief");
+    assert_eq!(steps[1].class, SeatClass::Work);
+    assert_eq!(steps.last().unwrap().name, "speckit-check");
+    assert_eq!(steps.last().unwrap().class, SeatClass::Gate);
+}
+
+#[test]
 fn every_shipped_panel_seats_at_least_two_model_families() {
     let root = workspace();
     for entry in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
@@ -265,5 +294,80 @@ fn night_shift_keeps_one_attempt_on_every_roster_gate() {
             bundle.seats[gate].limits.max_attempts, 1,
             "night-shift's {gate} gate must park after its first failed attempt"
         );
+    }
+}
+
+#[test]
+fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
+    let root = workspace();
+    for parent in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
+            let bundle_path = entry.path().join("bundle.json");
+            if !bundle_path.is_file() {
+                continue;
+            }
+            let bundle = json(&bundle_path);
+            let compiled =
+                Bundle::compile_with(&entry.path(), &root.join("agents"), &root.join("adapters"))
+                    .unwrap_or_else(|error| panic!("{}: {error}", bundle_path.display()));
+            if let Some(implement) = compiled.seats.get("implement") {
+                assert!(
+                    implement.results.iter().any(|result| result == "oversized"),
+                    "{} does not give implementer the oversized verdict",
+                    bundle_path.display()
+                );
+            }
+            let policy_path = entry
+                .path()
+                .join(bundle["policy"].as_str().unwrap_or("policy.json"));
+            walk(&bundle, &mut Vec::new(), &mut |path, value| {
+                assert_ne!(
+                    value.as_str(),
+                    Some("fixes_applied"),
+                    "{} declares fixes_applied at {}",
+                    bundle_path.display(),
+                    path.join(".")
+                );
+            });
+            if !policy_path.is_file() {
+                continue;
+            }
+            let policy = json(&policy_path);
+            walk(&policy, &mut Vec::new(), &mut |path, value| {
+                assert_ne!(
+                    value.as_str(),
+                    Some("fixes_applied"),
+                    "{} reads fixes_applied at {}",
+                    policy_path.display(),
+                    path.join(".")
+                );
+            });
+
+            let has_triage = policy["phases"]
+                .as_array()
+                .is_some_and(|phases| phases.iter().any(|phase| phase == "triage"));
+            if has_triage {
+                let rules = policy["rules"].as_array().unwrap();
+                assert!(
+                    rules.iter().any(|rule| {
+                        rule["from"] == "implement"
+                            && rule["result"] == "oversized"
+                            && rule["next"] == "triage"
+                    }),
+                    "{} has triage but no oversized return edge",
+                    policy_path.display()
+                );
+                assert!(
+                    rules.iter().any(|rule| {
+                        rule["from"] == "implement"
+                            && rule["result"] == "oversized"
+                            && rule["when"]["visits_triage_gte"] == 2
+                            && rule["park"] == true
+                    }),
+                    "{} has triage but no exhausted oversized park",
+                    policy_path.display()
+                );
+            }
+        }
     }
 }

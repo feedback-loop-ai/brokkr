@@ -108,6 +108,7 @@ fn received(dir: &Path, tag: &str) -> Vec<Value> {
 
 fn seat(body: SeatBody, results: &[&str], max_attempts: u64) -> Seat {
     Seat {
+        has_gate: false,
         results: results.iter().map(|r| r.to_string()).collect(),
         limits: Limits {
             max_attempts,

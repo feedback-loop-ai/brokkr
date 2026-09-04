@@ -39,12 +39,13 @@
         {
           "name": "chief",
           "agent": "chief-architect",
-          "class": "gate"
+          "class": "work"
         },
         {
           "name": "speckit-check",
           "role": "roles/speckit-check.md",
-          "class": "work",
+          "class": "gate",
+          "hands": "workspace",
           "driver": {
             "command": [
               "{brokkr}",
@@ -63,7 +64,8 @@
       "results": [
         "complete",
         "broken",
-        "blocked"
+        "blocked",
+        "oversized"
       ],
       "class": "work",
       "agent": "implementer-speckit"
@@ -83,7 +85,7 @@
         "security-hold"
       ],
       "inputs": [
-        "fixes_applied",
+        "spec_defect",
         "has_security_residual",
         "max_residual_severity"
       ],

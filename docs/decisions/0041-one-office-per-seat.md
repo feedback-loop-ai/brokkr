@@ -386,3 +386,9 @@ enactment's evidence and the operator's later word.
   `panel-review`'s flat join survives as a case or retires; and the
   effort figures themselves, which are pins the operator amends by
   evidence the way 0021 amends a tier.
+
+## Addendum — 2026-09-04, the enactment's reading, operator ruling pending
+
+Ruling 2 classed the design chief as a gate while ruling 4 forbade gates from making the commits that the chief's accepted charter requires.
+The enactment reads an artifact author as a work seat and its boxed validator as the gate, so the chief keeps its chain but the engine guards only the judging step.
+Decision 0042 ruling 6 grounds this reading by assigning the `specify` and `design` artifacts and exactly those commits to the chief while forbidding every gate from touching an artifact.

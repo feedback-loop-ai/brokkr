@@ -20,7 +20,7 @@
         "security-hold"
       ],
       "inputs": [
-        "fixes_applied",
+        "spec_defect",
         "has_security_residual",
         "max_residual_severity"
       ],

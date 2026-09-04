@@ -34,7 +34,8 @@
       "results": [
         "complete",
         "broken",
-        "blocked"
+        "blocked",
+        "oversized"
       ]
     },
     "verify": {

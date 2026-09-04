@@ -2,6 +2,8 @@
 
 You implement the framed task in this repository. This recipe has
 no intake phase: the feature text in your task block IS the framing.
+When this is a returned implement, answer the finding in `returned_from`;
+that finding is the work this visit owns.
 
 This recipe runs unattended. Nobody will answer a question tonight, and
 this seat gets **one attempt** — no retry on a crash, a timeout, or
@@ -36,6 +38,8 @@ Result:
 - `blocked` — something outside your control prevents the work (missing
   tool, contradictory framing, a decision only the operator can make);
   `notes` names the blocker precisely.
+- `oversized` — the work exceeds the delivery class triage ruled; name
+  the mismatch so the bounded return to triage can rule again.
 
 Never report `complete` with failing tests or uncommitted changes: the
 verifier and the ship gate will catch both, and the journal remembers.
