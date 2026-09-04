@@ -1,0 +1,19 @@
+{
+  "name": "research-dsh",
+  "description": "The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.",
+  "cost": "low",
+  "extends": "research",
+  "override": {
+    "bundle": ["description", "cost"],
+    "seats": ["research"]
+  },
+  "seats": {
+    "research": {
+      "role": "roles/researcher.md",
+      "results": ["intake", "nothing-new", "escalate"],
+      "class": "work",
+      "limits": {"max_attempts": 1, "timeout_seconds": 5400},
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "dashscope/qwen3.8-max", "--effort", "high", "--patch", "recipes/research-dsh/drivers/research-web.yml"]}
+    }
+  }
+}

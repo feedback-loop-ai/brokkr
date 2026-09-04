@@ -1,0 +1,90 @@
+# Decision 0044 ruling 7: the weekly research sweep, on the dsh lane the
+# operator ruled. The workflow is only the trigger; the stop condition,
+# the budget, the cap and the fetch grant live in recipes/research-dsh.
+# It fails loudly without the Model Studio and DeepSeek credentials
+# (the model's and the search's) rather than running unauthenticated.
+# Decision 0025's standing operator takes this schedule over when it
+# exists.
+name: research weekly
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sweep:
+    name: the researcher reads the week
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - name: the credentials are granted, or nothing runs
+        run: |
+          for key in DASHSCOPE_API_KEY DEEPSEEK_API_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not set; the researcher does not run unauthenticated (decision 0044 ruling 7)"
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The registry gate is a boxed exec seat (decision 0043): the same
+      # bubblewrap CI builds for the hands tests, for the same reasons.
+      - name: bubblewrap for the boxed gate
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: the harness is the one the adapter measured
+        run: |
+          npm install -g @deepseek-ai/dsh@0.1.0-rc.6
+          dsh -V
+          dsh --profile headless --dump-default-config >/dev/null
+      - name: the engine
+        run: cargo build --release --locked -p brokkr-cli
+      - name: the seat commits as the researcher
+        run: |
+          git config user.name "brokkr-researcher"
+          git config user.email "researcher@users.noreply.github.com"
+      - name: the run
+        id: run
+        run: |
+          set +e
+          target/release/brokkr run --recipe research-dsh --repo . --feature "$(cat recipes/research/commissions/weekly-sweep.md)"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          target/release/brokkr inspect --run latest > .forge/research-inspect.txt 2>&1 || true
+      - name: the branch and the Research issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="$(git branch --list 'research/*' --format '%(refname:short)' | tail -n 1)"
+          today="$(date -u +%Y-%m-%d)"
+          if [ -n "$branch" ] && [ -n "$(git log --oneline main.."$branch")" ]; then
+            git push origin "$branch"
+          fi
+          body="$(printf 'Weekly research sweep, %s, on the dsh lane.\n\nRun exit: %s (0 done, 2 parked, 3 stopped).\nBranch: %s\n\n```\n%s\n```\n\nThe classifications on the branch are proposals (decision 0044 ruling 3). Rule them, then deliver the branch.' "$today" "${{ steps.run.outputs.exit }}" "${branch:-none}" "$(head -c 60000 .forge/research-inspect.txt)")"
+          gh api "repos/${GITHUB_REPOSITORY}/issues" \
+            -f title="Research sweep $today" \
+            -f body="$body" \
+            -f type="Research" >/dev/null
+      - name: the run's verdict is the job's
+        if: steps.run.outputs.exit != '0'
+        run: |
+          echo "::error::the research run did not reach done (exit ${{ steps.run.outputs.exit }}); the Research issue carries the readout"
+          exit 1

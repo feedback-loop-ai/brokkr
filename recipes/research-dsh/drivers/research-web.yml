@@ -1,0 +1,27 @@
+# Decision 0044 ruling 5, the dsh shape of the fetch grant, and the hire
+# the operator ruled for this office: Qwen3.8-Max on Model Studio.
+#
+# dsh's headless profile ships web search on and page fetch off; the
+# researcher reads articles, so this overlay turns fetch on for this seat
+# and nothing else. The default profile also names no Model Studio
+# route, so the provider is stated here, keyed from the environment
+# (DASHSCOPE_API_KEY) and never holding a value, exactly as the
+# operator's own profile layer states it; where that layer exists the
+# two agree. Search keeps its own key (DEEPSEEK_API_KEY). The file is
+# part of the bundle, so it is part of the recipe's digest. The path is
+# read from the repository root, where the sweep runs.
+- id: tool-web
+  config:
+    fetch: true
+- id: llm-pi-ai
+  config:
+    providers:
+      dashscope:
+        displayName: Model Studio (Token Plan)
+        apiKeyEnv: DASHSCOPE_API_KEY
+        api: openai-completions
+        baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: qwen3.8-max

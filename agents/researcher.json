@@ -1,0 +1,26 @@
+{
+  "description": "Reads the articles a commission names or finds, and proposes registry entries with cited classifications; rules nothing.",
+  "charter": "charters/researcher.md",
+  "models": [
+    "fable",
+    "opus"
+  ],
+  "efforts": {
+    "fable": "high",
+    "opus": "high"
+  },
+  "tools": {
+    "allow": [
+      "webfetch",
+      "websearch",
+      "git",
+      "ls",
+      "rg"
+    ],
+    "mcp": []
+  },
+  "limits": {
+    "max_attempts": 1,
+    "timeout_seconds": 5400
+  }
+}

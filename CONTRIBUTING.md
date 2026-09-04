@@ -40,6 +40,8 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 | `node` | Node and TypeScript repositories using JavaScript-specific seats and tools. | implement, review, ship, verify | medium |
 | `panel-review` | General delivery needing independent correctness and security reviewers. | implement, intake, review[correctness+security], ship, verify | high |
 | `preflight` | Verify and review an existing branch without implementing or shipping it. | review, verify | medium |
+| `research` | Read articles and propose registry entries with cited classifications; the operator rules them. | research, verify | low |
+| `research-dsh` | The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on. | research, verify | low |
 | `triage` | Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled. | design[positions>chief>speckit-check], implement{chore=implementer;design=implementer;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify | variable |
 | `wager-harness` | Driver evaluation that swaps only implementation to Codex for a fair wager. | implement, review, ship, verify | medium |
 | `wager-harness-dsh` | Driver evaluation that swaps only implementation to DSH for a fair wager. | implement, review, ship, verify | medium |

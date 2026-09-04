@@ -928,19 +928,19 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
+        "e0c1eb0757cdf1f8be55ab977be802303e158ad5433f216c3714c9ae2782df43",
     ),
     (
         "recipes/panel-review",
-        "f10908e59552ce806b6dc4380bcee40486c10ddd2889a8fa13022d6e3c28fefa",
+        "1bf81bd7249fd3da442f8aabc69d0b0bbe9cf9358fad64e65817e15ee4574a92",
     ),
     (
         "bundles/self",
-        "b93244881944f64970cbc05119a59c10cdacd73928a38e1f1f5a92b697b74474",
+        "d06e486c3ef8b7684990dcae5e49fe712320ac0232a26b4b5085f84e4c82aa41",
     ),
     (
         "bundles/verify",
-        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
+        "8054a434cc74786ba8a3c41302fc495353269cf604a739ff5070d627934fe1df",
     ),
 ];
 
@@ -1053,7 +1053,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        "0716d4eefad660f5f01a440874588b780151182f98b5192aa7f8c2b848762892",
+        "980a14a894a4834310b6b066b7fd62a925062fbdbe051fed8d21a8a97a509f5b",
         "ruling 8 pins every selected sequence step's effective results"
     );
 

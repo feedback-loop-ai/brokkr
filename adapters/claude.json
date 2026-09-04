@@ -43,7 +43,9 @@
       "mkdir": "Bash(mkdir:*)",
       "specify": "Bash(specify:*)",
       "codex": "Bash(codex:*)",
-      "dsh": "Bash(dsh:*)"
+      "dsh": "Bash(dsh:*)",
+      "webfetch": "WebFetch",
+      "websearch": "WebSearch"
     }
   },
   "mcp": {
