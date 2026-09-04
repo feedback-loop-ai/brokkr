@@ -15,7 +15,7 @@ use crate::policy::STRATEGIES;
 
 /// Results that count toward the consecutive-failure counter, matching
 /// the production table's retry/hard-stop rules.
-pub const FAILURE_RESULTS: [&str; 2] = ["failed", "broken"];
+pub const FAILURE_RESULTS: [&str; 3] = ["failed", "broken", "fail"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

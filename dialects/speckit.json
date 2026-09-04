@@ -15,7 +15,7 @@
         "instructions": "speckit/specify.md",
         "return_instructions": "speckit/return.md"
       }],
-      "validate": {"argv": ["brokkr", "dialect", "check", "speckit", "specify", "{change}"]}
+      "validate": {"unsupported": "spec-kit 0.8.7 has no content validator, and the brokkr CLI has no dialect check subcommand"}
     },
     "design": {
       "steps": [
@@ -51,7 +51,7 @@
     },
     "clarify": {
       "taxonomy": "speckit/clarify.md",
-      "check": {"argv": ["brokkr", "dialect", "check", "speckit", "clarify", "{change}"]}
+      "check": {"unsupported": "spec-kit 0.8.7 exposes no deterministic clarification count command, and the brokkr CLI has no dialect check subcommand"}
     },
     "analyze": {
       "taxonomy": "speckit/analyze.md",

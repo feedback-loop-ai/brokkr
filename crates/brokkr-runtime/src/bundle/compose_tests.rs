@@ -1060,7 +1060,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "1f928672cb3f926815c8f85ffa3ede1cf987a699c835bbfa628cf70e44e29d4e",
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

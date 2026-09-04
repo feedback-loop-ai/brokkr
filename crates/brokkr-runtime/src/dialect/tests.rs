@@ -32,6 +32,11 @@ fn both_shipped_dialects_load_and_satisfy_the_contract() {
         let (_, value) = Dialect::load(&path).unwrap();
         assert!(validator.is_valid(&value), "{name} is outside dialect/v1");
     }
+    let speckit = Dialect::load(&root().join("dialects/speckit.json"))
+        .unwrap()
+        .0;
+    assert!(speckit.validation("specify").is_none());
+    assert!(speckit.validation("clarify").is_none());
 }
 
 #[test]

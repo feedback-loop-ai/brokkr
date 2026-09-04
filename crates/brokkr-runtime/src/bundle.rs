@@ -2311,7 +2311,7 @@ fn parse_sequence(
                 "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
             )));
         }
-        let step_results = if final_step {
+        let mut step_results = if final_step {
             results.to_vec()
         } else if step_raw.get("results").is_some() {
             step_raw
@@ -2414,6 +2414,19 @@ fn parse_sequence(
                 candidates: Vec::new(),
             }
         };
+        // A final dialect step emits the deterministic adapter's two
+        // outcomes, not every result the enclosing seat accepts. Keeping
+        // that actual vocabulary on the compiled step lets the engine see
+        // an earlier author result which no remaining step can produce
+        // (notably `upstream`) and end the sequence at that boundary.
+        if has_dialect {
+            step_results = match phase {
+                "clarify" => vec!["clear".into(), "ambiguous".into()],
+                "analyze" => vec!["consistent".into(), "drift".into()],
+                "verify" => vec!["pass".into(), "fail".into()],
+                _ => vec!["drafted".into(), "fail".into()],
+            };
+        }
         match &body {
             StepBody::Single { candidates, .. } => {
                 enforce_model_policy(&what, step_raw, candidates, secrets, agents)?;

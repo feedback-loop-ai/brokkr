@@ -124,6 +124,11 @@ fn consecutive_failures_count_and_reset() {
     );
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.consecutive_failures.get("implement"), Some(&0));
+    assert_eq!(
+        computed_inputs(&state, "specify", "fail").get("consecutive_failures"),
+        Some(&Value::from(1)),
+        "the SDD validator's result word is a phase failure too"
+    );
 }
 
 #[test]

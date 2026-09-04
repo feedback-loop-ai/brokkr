@@ -28,13 +28,13 @@ content digest. The library is a directory of them.
 ```
 $ brokkr recipes list
 fast	e0c1eb0757cd	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	6a7d55986d48	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
+night-shift	1fa050796f20	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
 node	7abfe34bba48	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
 panel-review	1bf81bd7249f	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
 preflight	d28c15ee4994	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-research	b9a38128ef56	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
-research-dsh	78a785cface7	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
-triage	1f928672cb3f	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
+research	50c7db63c6f5	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
+research-dsh	2095631397be	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
+triage	2bc18b05f87a	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
 wager-harness	57de5240560b	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
 wager-harness-dsh	9ef87077a982	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
 self	d06e486c3ef8	7 phases	implement, intake, review, ship, verify			./bundles/self
@@ -497,7 +497,7 @@ metadata; the digest is identity.
 $ brokkr compile --bundle recipes/night-shift
 {
   "bundle": "night-shift",
-  "digest": "6a7d55986d48…",
+  "digest": "1fa050796f20…",
   "phases": ["triage", "specify", "clarify", "design", "tasks", "analyze",
              "implement", "verify", "review", "ship", "done", "stop"],
   "seats": ["analyze", "clarify", "design", "implement", "review", "ship",

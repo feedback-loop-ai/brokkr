@@ -147,6 +147,9 @@ fn workspace() -> PathBuf {
 /// vocabulary while the smith regains its complete result semantics.
 /// Night-shift moves independently because its one-attempt override now names
 /// every phase in the SDD route.
+/// This correction moves the two triage descendants together: artifact
+/// validation retries now bind to journal-counted failures instead of every
+/// return into the phase.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
@@ -162,7 +165,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "6a7d55986d48833c661e6ae1e3547fe0816d4122cac1a820d322c2b7d8ae18f2",
+        "1fa050796f20a064b48f17b3ac4d24308322e399a8ac4c61ecb3dfb57ddeebf2",
     ),
     (
         "recipes/wager-harness",
@@ -170,7 +173,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "1f928672cb3f926815c8f85ffa3ede1cf987a699c835bbfa628cf70e44e29d4e",
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
     ),
     (
         "recipes/research",

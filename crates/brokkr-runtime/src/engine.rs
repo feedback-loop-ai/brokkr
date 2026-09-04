@@ -55,6 +55,15 @@ fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
     }
 }
 
+fn dialect_results(phase: Option<&str>) -> (&'static str, &'static str) {
+    match phase {
+        Some("clarify") => ("clear", "ambiguous"),
+        Some("analyze") => ("consistent", "drift"),
+        Some("verify") => ("pass", "fail"),
+        _ => ("drafted", "fail"),
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error(transparent)]
@@ -1501,10 +1510,6 @@ impl Engine {
             .seats
             .get(seat_name)
             .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change"));
-        let final_results = steps
-            .last()
-            .map(|step| step.results.as_slice())
-            .unwrap_or_default();
         for (index, step) in steps.iter().enumerate() {
             let step_meta = &seq_input["steps"][index];
             let context = {
@@ -1674,18 +1679,8 @@ impl Engine {
                         "house_rules": seq_input["house_rules"],
                         "context": context,
                         "dialect_exec": {
-                            "success_result": match seq_input["phase"].as_str() {
-                                Some("clarify") => "clear",
-                                Some("analyze") => "consistent",
-                                Some("verify") => "pass",
-                                _ => "drafted",
-                            },
-                            "failure_result": match seq_input["phase"].as_str() {
-                                Some("clarify") => "ambiguous",
-                                Some("analyze") => "drift",
-                                Some("verify") => "fail",
-                                _ => "fail",
-                            },
+                            "success_result": dialect_results(seq_input["phase"].as_str()).0,
+                            "failure_result": dialect_results(seq_input["phase"].as_str()).1,
                             "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
                             "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
                         },
@@ -1767,20 +1762,31 @@ impl Engine {
                     )?;
                     return Ok(());
                 }
-                // An intermediate result which belongs to the enclosing
-                // phase but not its final step is a declared sequence-ending
-                // boundary (the SDD artifact phases call theirs `upstream`).
-                // Read that boundary from the two vocabularies: the engine
-                // does not own the dialect's word.
+                // A seat result which no remaining compiled step can emit is
+                // a declared sequence-ending boundary. The comparison is
+                // against the remaining steps' actual vocabularies, not the
+                // enclosing seat vocabulary inherited by the old final-step
+                // representation. A deterministic loop check's non-zero
+                // result is also final: a later judge may find more, but may
+                // never erase a count the framework already proved.
                 let ends_sequence =
                     result
                         .get("result")
                         .and_then(Value::as_str)
                         .is_some_and(|word| {
-                            seq_input["allowed_results"]
+                            let seat_declares = seq_input["allowed_results"]
                                 .as_array()
-                                .is_some_and(|allowed| allowed.iter().any(|value| value == word))
-                                && !final_results.iter().any(|allowed| allowed == word)
+                                .is_some_and(|allowed| allowed.iter().any(|value| value == word));
+                            let later_can_emit = steps[index + 1..]
+                                .iter()
+                                .any(|later| later.results.iter().any(|allowed| allowed == word));
+                            let failed_check = matches!(step.body, StepBody::Dialect { .. })
+                                && matches!(
+                                    seq_input["phase"].as_str(),
+                                    Some("clarify" | "analyze")
+                                )
+                                && word == dialect_results(seq_input["phase"].as_str()).1;
+                            seat_declares && (!later_can_emit || failed_check)
                         });
                 if ends_sequence {
                     return self.append(
@@ -1795,26 +1801,26 @@ impl Engine {
                 .and_then(Value::as_str)
                 .unwrap_or("not reported")
                 .to_string();
-            if let Some(value) = result.pointer("/inputs/change") {
-                let change = value.as_str();
-                if declares_change && !change.is_some_and(brokkr_core::policy::is_identifier) {
-                    self.append(
-                        EventType::EffectIndeterminate,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!(
-                                "sequence step '{}': declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {}",
-                                step.name,
-                                value
-                            ),
-                        }),
-                        Some(attempt_id.to_string()),
-                    )?;
-                    return Ok(());
-                }
-                if let Some(change) = change {
-                    nearest_change = Some(change.to_string());
+            if declares_change {
+                if let Some(value) = result.pointer("/inputs/change") {
+                    let change = value.as_str();
+                    if !change.is_some_and(brokkr_core::policy::is_identifier) {
+                        self.append(
+                            EventType::EffectIndeterminate,
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!(
+                                    "sequence step '{}': declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {}",
+                                    step.name,
+                                    value
+                                ),
+                            }),
+                            Some(attempt_id.to_string()),
+                        )?;
+                        return Ok(());
+                    }
+                    nearest_change = change.map(str::to_string);
                 }
             }
             if index + 1 == steps.len() {

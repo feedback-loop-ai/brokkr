@@ -589,22 +589,21 @@ fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
     };
 
     for phase in ["specify", "design", "tasks"] {
-        let visits = |count| {
-            Value::Object(
-                [(format!("visits_{phase}"), json!(count))]
-                    .into_iter()
-                    .collect(),
-            )
+        let failures_after_other_returns = |count| {
+            json!({
+                "consecutive_failures": count,
+                format!("visits_{phase}"): 9
+            })
         };
         assert_eq!(
-            ruling(&machine, phase, "fail", visits(1)),
+            ruling(&machine, phase, "fail", failures_after_other_returns(1)),
             (
                 format!("{}-RETRY", phase.to_ascii_uppercase()),
                 phase.into()
             )
         );
         assert_eq!(
-            ruling(&machine, phase, "fail", visits(2)),
+            ruling(&machine, phase, "fail", failures_after_other_returns(2)),
             (
                 format!("{}-FAIL-TWICE", phase.to_ascii_uppercase()),
                 "stop".into()
