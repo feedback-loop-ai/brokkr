@@ -727,27 +727,30 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
     std::fs::write(&bundle_path, bundle.to_string()).unwrap();
     let policy_path = ws.bundle_dir().join("policy.json");
     let mut policy: Value = serde_json::from_slice(&std::fs::read(&policy_path).unwrap()).unwrap();
-    policy["rules"]
+    let design_ok = policy["rules"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
         .find(|rule| rule["id"] == "DESIGN-OK")
-        .unwrap()["result"] = json!("drafted");
+        .unwrap();
+    design_ok["result"] = json!("drafted");
+    design_ok.as_object_mut().unwrap().remove("next");
+    design_ok["park"] = json!(true);
     std::fs::write(&policy_path, policy.to_string()).unwrap();
 
     let dialect_path = ws.path().join("dialects/speckit.json");
     let mut dialect: Value =
         serde_json::from_slice(&std::fs::read(&dialect_path).unwrap()).unwrap();
     dialect["phases"]["design"]["validate"] = json!({
-        "argv":["sh","-c","cat >/dev/null; test \"$1\" = change-42; printf validated","sh","{change}"],
+        "argv":["sh","-c","cat >/dev/null; printf %s \"$1\"","sh","{change}"],
         "state":["sh","-c","printf framework-state"]
     });
     std::fs::write(&dialect_path, dialect.to_string()).unwrap();
 
     let (code, summary, stderr) = ws.run();
-    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(code, Some(2), "summary: {summary}; stderr: {stderr}");
     assert!(!stderr.contains(" is adopted "), "stderr: {stderr}");
-    assert_eq!(summary["status"], "completed");
+    assert_eq!(summary["status"], "awaiting_operator");
     let run_id = Workspace::run_id(&stderr);
     let events = brokkr_store::Store::open(&ws.db())
         .unwrap()
@@ -757,7 +760,7 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
         .iter()
         .find_map(|event| {
             (event.event_type == brokkr_core::EventType::EffectSucceeded
-                && event.payload["result"]["notes"] == "validated")
+                && event.payload["result"]["notes"] == "change-42")
                 .then_some(&event.payload["result"])
         })
         .expect("dialect validator result");
