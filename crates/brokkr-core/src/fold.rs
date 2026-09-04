@@ -13,9 +13,11 @@ use thiserror::Error;
 use crate::envelope::{EventEnvelope, EventType};
 use crate::policy::STRATEGIES;
 
-/// Results that count toward the consecutive-failure counter, matching
-/// the production table's retry/hard-stop rules.
-pub const FAILURE_RESULTS: [&str; 3] = ["failed", "broken", "fail"];
+/// Results that universally count toward the consecutive-failure counter,
+/// matching the production table's retry/hard-stop rules. A strategy-local
+/// result such as SDD's `fail` counts only when its decision records that
+/// phase's engine-computed counter.
+pub const FAILURE_RESULTS: [&str; 2] = ["failed", "broken"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -379,7 +381,12 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             if from == "triage" && STRATEGIES.contains(&result.as_str()) {
                 state.strategy = Some(result.clone());
             }
-            if FAILURE_RESULTS.contains(&result.as_str()) {
+            let scoped_failure = result == "fail"
+                && event
+                    .payload
+                    .pointer("/inputs/consecutive_failures")
+                    .is_some();
+            if FAILURE_RESULTS.contains(&result.as_str()) || scoped_failure {
                 *state.consecutive_failures.entry(from.clone()).or_insert(0) += 1;
             } else {
                 state.consecutive_failures.insert(from.clone(), 0);

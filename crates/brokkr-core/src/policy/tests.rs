@@ -191,6 +191,16 @@ fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
     assert!(many.visit_phases("done").is_empty());
 }
 
+#[test]
+fn counter_introspection_is_scoped_to_the_rules_phase() {
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"consecutive_failures_gte": 2});
+    let machine = Machine::from_table(&value).unwrap();
+    assert!(machine.reads_counter("work", "consecutive_failures"));
+    assert!(!machine.reads_counter("review", "consecutive_failures"));
+    assert!(!machine.reads_counter("work", "another_counter"));
+}
+
 /// Decision 0041 ruling 6's enumerated condition: every class has a
 /// matching arm, while absence, another class, malformed runtime data,
 /// and malformed table vocabulary all fail closed.

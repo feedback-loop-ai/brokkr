@@ -141,6 +141,21 @@ fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
         compiled.seats["verify"].body,
         SeatBody::Sequence { .. }
     ));
+    let (mut extended_config, mut extended_policy) = dialect_config(single.clone());
+    extended_config["seats"]["verify"]["results"] = json!(["pass", "fail", "manual"]);
+    extended_policy["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":"VM", "from":"verify", "result":"manual", "next":"review", "reason":"manual"
+        }));
+    let extended =
+        compile_dialect_fixture(&fixture, &extended_config, &extended_policy, Some(&dialect))
+            .unwrap();
+    let SeatBody::Sequence { steps } = &extended.seats["verify"].body else {
+        panic!("dialect verification is synthesized as a sequence");
+    };
+    assert_eq!(steps.last().unwrap().results, ["pass", "fail"]);
     assert_eq!(
         body_manifest(&SeatBody::Sequence {
             steps: vec![SequenceStep {

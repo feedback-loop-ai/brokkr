@@ -183,7 +183,7 @@ const SDD_PROOF_POLICY: &str = r#"{
   "initial":"triage","terminal":["done","stop"],"shippable_from":["review"],
   "rules":[
     {"id":"T","from":"triage","result":"engine","next":"specify","reason":"design route"},
-    {"id":"SF2","from":"specify","result":"fail","when":{"visits_specify_gte":2},"next":"stop","severity":"hard","reason":"two validation failures"},
+    {"id":"SF2","from":"specify","result":"fail","when":{"consecutive_failures_gte":2},"next":"stop","severity":"hard","reason":"two validation failures"},
     {"id":"SFR","from":"specify","result":"fail","next":"specify","reason":"retry validation once"},
     {"id":"S","from":"specify","result":"drafted","next":"clarify","reason":"drafted"},
     {"id":"CA","from":"clarify","result":"ambiguous","next":"specify","reason":"answer"},
@@ -877,7 +877,7 @@ fn sdd_machine_revisits_ambiguity_and_design_drift_before_implementation() {
 }
 
 #[test]
-fn sdd_validate_failure_reenters_once_then_the_real_visit_fold_stops_it() {
+fn sdd_validate_failure_reenters_once_then_the_failure_fold_stops_it() {
     let script = json!({"seats":{
         "triage":[{"behavior":"succeed","result":{"result":"engine"}}],
         "specify:author":[

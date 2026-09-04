@@ -124,11 +124,18 @@ fn consecutive_failures_count_and_reset() {
     );
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.consecutive_failures.get("implement"), Some(&0));
-    assert_eq!(
-        computed_inputs(&state, "specify", "fail").get("consecutive_failures"),
-        Some(&Value::from(1)),
-        "the SDD validator's result word is a phase failure too"
+    assert!(computed_inputs(&state, "verify", "fail")
+        .get("consecutive_failures")
+        .is_none());
+
+    effect_cycle(&mut journal, "verify", json!({"result": "fail"}));
+    journal.append(
+        EventType::TransitionDecided,
+        json!({"from": "verify", "result": "fail", "rule_id": "VERIFY-FAIL",
+               "next": "verify", "severity": "normal", "inputs": {}, "problem": null}),
     );
+    let state = fold(&journal.events).unwrap();
+    assert_eq!(state.consecutive_failures.get("verify"), Some(&0));
 }
 
 #[test]

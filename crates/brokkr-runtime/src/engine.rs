@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass, SequenceStep,
-    StepBody, ENGINE_VERSION, REALM_FACTS,
+    dialect_results, Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass,
+    SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -52,15 +52,6 @@ fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
         DriverRun::Ran(report) => report.outcome,
-    }
-}
-
-fn dialect_results(phase: Option<&str>) -> (&'static str, &'static str) {
-    match phase {
-        Some("clarify") => ("clear", "ambiguous"),
-        Some("analyze") => ("consistent", "drift"),
-        Some("verify") => ("pass", "fail"),
-        _ => ("drafted", "fail"),
     }
 }
 
@@ -1510,6 +1501,7 @@ impl Engine {
             .seats
             .get(seat_name)
             .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change"));
+        let mut deterministic_failure: Option<(String, String)> = None;
         for (index, step) in steps.iter().enumerate() {
             let step_meta = &seq_input["steps"][index];
             let context = {
@@ -1679,8 +1671,8 @@ impl Engine {
                         "house_rules": seq_input["house_rules"],
                         "context": context,
                         "dialect_exec": {
-                            "success_result": dialect_results(seq_input["phase"].as_str()).0,
-                            "failure_result": dialect_results(seq_input["phase"].as_str()).1,
+                            "success_result": dialect_results(seq_input["phase"].as_str().unwrap_or(""))[0],
+                            "failure_result": dialect_results(seq_input["phase"].as_str().unwrap_or(""))[1],
                             "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
                             "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
                         },
@@ -1766,9 +1758,7 @@ impl Engine {
                 // a declared sequence-ending boundary. The comparison is
                 // against the remaining steps' actual vocabularies, not the
                 // enclosing seat vocabulary inherited by the old final-step
-                // representation. A deterministic loop check's non-zero
-                // result is also final: a later judge may find more, but may
-                // never erase a count the framework already proved.
+                // representation.
                 let ends_sequence =
                     result
                         .get("result")
@@ -1780,13 +1770,7 @@ impl Engine {
                             let later_can_emit = steps[index + 1..]
                                 .iter()
                                 .any(|later| later.results.iter().any(|allowed| allowed == word));
-                            let failed_check = matches!(step.body, StepBody::Dialect { .. })
-                                && matches!(
-                                    seq_input["phase"].as_str(),
-                                    Some("clarify" | "analyze")
-                                )
-                                && word == dialect_results(seq_input["phase"].as_str()).1;
-                            seat_declares && (!later_can_emit || failed_check)
+                            seat_declares && !later_can_emit
                         });
                 if ends_sequence {
                     return self.append(
@@ -1794,6 +1778,16 @@ impl Engine {
                         json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
                         Some(attempt_id.to_string()),
                     ).map(drop);
+                }
+                let phase = seq_input["phase"].as_str().unwrap_or("");
+                if matches!(step.body, StepBody::Dialect { .. })
+                    && matches!(phase, "clarify" | "analyze")
+                    && result["result"] == dialect_results(phase)[1]
+                {
+                    deterministic_failure = Some((
+                        step.name.clone(),
+                        result["result"].as_str().unwrap().to_string(),
+                    ));
                 }
             }
             let model = result
@@ -1824,6 +1818,23 @@ impl Engine {
                 }
             }
             if index + 1 == steps.len() {
+                let phase = seq_input["phase"].as_str().unwrap_or("");
+                if let Some((check, failure)) = &deterministic_failure {
+                    if result["result"] == dialect_results(phase)[0] {
+                        return self.append(
+                            EventType::EffectIndeterminate,
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!(
+                                    "sequence step '{}': result '{}' contradicts deterministic step '{}' result '{}'",
+                                    step.name, result["result"], check, failure
+                                ),
+                            }),
+                            Some(attempt_id.to_string()),
+                        ).map(drop);
+                    }
+                }
                 self.append(
                     EventType::EffectSucceeded,
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
@@ -1922,6 +1933,15 @@ impl Engine {
         // Journal-computed inputs overlay (never accepted from the seat).
         for (key, value) in computed_inputs(state, &phase, &result) {
             inputs.insert(key, value);
+        }
+        if result == "fail"
+            && self
+                .bundle
+                .machine
+                .reads_counter(&phase, "consecutive_failures")
+        {
+            let prior = state.consecutive_failures.get(&phase).copied().unwrap_or(0);
+            inputs.insert("consecutive_failures".into(), Value::from(prior + 1));
         }
         // The phase-visit predicate (decision 0022), supplied for exactly
         // the phases this phase's rules ask about — counted from

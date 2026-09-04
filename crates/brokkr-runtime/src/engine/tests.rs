@@ -4236,8 +4236,8 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
 }
 
 /// A deterministic non-zero loop check is evidence a later judge cannot
-/// overrule. The compiled check ends the sequence even when that judge's
-/// scripted answer would have been `clear`.
+/// overrule. Clarify parks on a contradictory `clear`; analyze still lets
+/// its judge classify the finding and routes on the returned `drift_in`.
 #[test]
 fn compiled_loop_check_failure_cannot_be_judged_away() {
     let (_dir, mut engine) = compiled_triage_engine();
@@ -4297,14 +4297,146 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         )
         .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
-    let succeeded = events
+    let contradiction = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectIndeterminate)
+        .unwrap_or_else(|| panic!("the contradictory judge advanced: {events:#?}"));
+    assert!(contradiction.payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("contradicts deterministic step 'check' result 'ambiguous'"));
+
+    let (_dir, mut engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
+        panic!("compiled triage clarify is a sequence");
+    };
+    let StepBody::Single {
+        command,
+        candidates,
+        ..
+    } = &mut steps[1].body
+    else {
+        panic!("the compiled judge is a single step");
+    };
+    *command = driver_command(
+        "clean-effect",
+        "clean-attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"clear"}),
+        },
+    );
+    candidates.clear();
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("check".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "clean-effect",
+                "clean-attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"clear"}),
+                },
+            ),
+        },
+    );
+    let mut current = state(Some("clarify"), Cursor::Idle);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    );
+    let input = engine
+        .seat_input(&current, "clarify", "clean-effect")
+        .unwrap();
+    engine
+        .execute_sequence(
+            "clean-effect",
+            "clean-attempt",
+            "clarify",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &selection,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(events.iter().any(|event| {
+        event.event_type == EventType::EffectSucceeded
+            && event.payload["result"]["result"] == "clear"
+    }));
+
+    let (_dir, mut engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats["analyze"].body.clone() else {
+        panic!("compiled triage analyze is a sequence");
+    };
+    let StepBody::Single {
+        command,
+        candidates,
+        ..
+    } = &mut steps[1].body
+    else {
+        panic!("the compiled analyst is a single step");
+    };
+    *command = driver_command(
+        "analyze-effect",
+        "analyze-attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"drift", "inputs":{"drift_in":"design"}}),
+        },
+    );
+    candidates.clear();
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("check".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "analyze-effect",
+                "analyze-attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"drift"}),
+                },
+            ),
+        },
+    );
+    let mut current = state(Some("analyze"), Cursor::Idle);
+    current.visits.insert("analyze".into(), 1);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    );
+    let input = engine
+        .seat_input(&current, "analyze", "analyze-effect")
+        .unwrap();
+    engine
+        .execute_sequence(
+            "analyze-effect",
+            "analyze-attempt",
+            "analyze",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &selection,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let result = events
         .iter()
         .find(|event| event.event_type == EventType::EffectSucceeded)
-        .unwrap_or_else(|| panic!("check did not succeed: {events:#?}"));
-    assert_eq!(succeeded.payload["result"]["result"], "ambiguous");
-    assert!(!events
-        .iter()
-        .any(|event| event.payload["checkpoint"]["step_name"] == "judge"));
+        .unwrap_or_else(|| panic!("the analyst did not classify drift: {events:#?}"))
+        .payload["result"]
+        .clone();
+    assert_eq!(result["inputs"]["drift_in"], "design");
+    engine.decide(&current, "analyze-effect", result).unwrap();
+    let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+    assert_eq!(decided.payload["rule_id"], "ANALYZE-DRIFT-DESIGN");
+    assert_eq!(decided.payload["next"], "design");
 }
 
 /// Triage's design and engine routes review with a sequence: a positions panel, then

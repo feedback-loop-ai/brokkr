@@ -66,6 +66,18 @@ pub const REALM_FACTS: &str = "realm_facts";
 /// pure policy evaluator whenever a ruling reads them.
 pub const ENUM_INPUTS: [&str; 1] = ["drift_in"];
 
+/// The two results synthesized by a dialect exec for each phase. This is
+/// also the vocabulary recorded on every compiled dialect step, so dispatch
+/// and sequence-boundary reasoning cannot drift apart.
+pub(crate) fn dialect_results(phase: &str) -> [&'static str; 2] {
+    match phase {
+        "clarify" => ["clear", "ambiguous"],
+        "analyze" => ["consistent", "drift"],
+        "verify" => ["pass", "fail"],
+        _ => ["drafted", "fail"],
+    }
+}
+
 /// The same law over the phase-visit family (decision 0022): every
 /// `visits_<phase>` is counted by the fold from `phase/entered` events,
 /// so no seat may declare one and no seat may claim one.
@@ -1133,7 +1145,10 @@ impl Bundle {
                             SequenceStep {
                                 name: "dialect-verify".into(),
                                 class: SeatClass::Gate,
-                                results: results.clone(),
+                                results: dialect_results(phase)
+                                    .into_iter()
+                                    .map(str::to_string)
+                                    .collect(),
                                 body: StepBody::Dialect {
                                     execution: DialectExecution {
                                         argv: command.argv.clone(),
@@ -2420,12 +2435,10 @@ fn parse_sequence(
         // an earlier author result which no remaining step can produce
         // (notably `upstream`) and end the sequence at that boundary.
         if has_dialect {
-            step_results = match phase {
-                "clarify" => vec!["clear".into(), "ambiguous".into()],
-                "analyze" => vec!["consistent".into(), "drift".into()],
-                "verify" => vec!["pass".into(), "fail".into()],
-                _ => vec!["drafted".into(), "fail".into()],
-            };
+            step_results = dialect_results(phase)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
         }
         match &body {
             StepBody::Single { candidates, .. } => {

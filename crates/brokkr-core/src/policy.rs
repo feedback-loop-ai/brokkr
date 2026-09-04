@@ -258,6 +258,17 @@ impl Machine {
         }
         names
     }
+
+    /// Whether rules leaving `from` read one engine-owned counter. Runtime
+    /// uses this to compute strategy-local failure words without changing
+    /// unrelated journals that happen to use the same word.
+    pub fn reads_counter(&self, from: &str, counter: &str) -> bool {
+        self.rules.iter().filter(|rule| rule.from == from).any(|rule| {
+            rule.when.iter().any(
+                |condition| matches!(condition, Condition::CounterGte { name, .. } if name == counter),
+            )
+        })
+    }
 }
 
 fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
