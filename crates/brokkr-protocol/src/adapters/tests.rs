@@ -2327,8 +2327,9 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
 }
 
 /// A codex that announces its thread, files its rollout, and concludes
-/// without ever completing a turn — the shape of an attempt killed on
-/// its deadline, and of any release that folds no `turn.completed`.
+/// without ever completing a turn — the shape of a release that folds no
+/// `turn.completed`, and of a codex that exits before its first turn
+/// finishes.
 const CODEX_NO_TURN_SHIM: &str = r#"#!/bin/sh
 cat >/dev/null
 thread="$CODEX_HOME/sessions/2026/09/04"
@@ -2341,8 +2342,14 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 /// A seat that never reached a `turn.completed` has read the thread
 /// record not at all, because reading it is what a completed turn does.
 /// Asked once more on the way out, the record still answers — so an
-/// attempt killed on its deadline names what served it instead of
-/// carrying dsh's sentinel into the journal for a harness that echoes.
+/// attempt that concludes folding no turn names what served it instead
+/// of carrying dsh's sentinel into the journal for a harness that
+/// echoes.
+///
+/// This is NOT the deadline case: that kill lands on the whole driver
+/// process, so nothing after `child.wait` runs for a seat that parks,
+/// and what it ran under reaches the journal from its `turn-completed`
+/// checkpoints instead.
 #[cfg(unix)]
 #[test]
 fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
@@ -2391,6 +2398,69 @@ fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
     let meta = &invocation.session_meta;
     assert_eq!(meta["model"], "gpt-5.6-sol");
     assert_eq!(meta["effort"], "xhigh");
+}
+
+/// A rollout whose NEWEST record names an effort the clamp refuses
+/// (`seat-record.v2` wants a level starting with an alphanumeric), over
+/// an older record that names one it admits — and two different models,
+/// so a fallback that took the older record whole would be visible.
+const CODEX_REFUSED_EFFORT_SHIM: &str = r#"#!/bin/sh
+cat >/dev/null
+thread="$CODEX_HOME/sessions/2026/09/04"
+mkdir -p "$thread"
+rollout="$thread/rollout-2026-09-04T00-00-00-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl"
+printf '{"timestamp":"2026-09-04T00:00:01Z","ordinal":1,"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.5-sol","reasoning_effort":"high"}}}\n' > "$rollout"
+printf '{"timestamp":"2026-09-04T00:00:02Z","ordinal":2,"type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5.6-sol","effort":"_high"}}\n' >> "$rollout"
+printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3aec1"}\n'
+"#;
+
+/// The clamp is OUR filter, not codex's shape, so a value it refuses
+/// leaves that field unanswered by the record that carried it — and the
+/// walk keeps going for that field alone rather than reporting `not
+/// reported` for a level the thread names one record up. The model is
+/// still the newest one: the fallback is per field, not a step back to
+/// an older record whole.
+#[cfg(unix)]
+#[test]
+fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("codex-home");
+    let fake = executable(dir.path(), "codex", CODEX_REFUSED_EFFORT_SHIM);
+    let prior = std::env::var_os("BROKKR_CODEX_BIN");
+    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
+    let prior_home = std::env::var_os("CODEX_HOME");
+    std::env::set_var("BROKKR_CODEX_BIN", &fake);
+    std::env::remove_var("FORGE_CODEX_BIN");
+    std::env::set_var("CODEX_HOME", &home);
+
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Codex,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| emitted.push(event.clone()),
+    )
+    .unwrap();
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
+        None => std::env::remove_var("BROKKR_CODEX_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_CODEX_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("CODEX_HOME", value),
+        None => std::env::remove_var("CODEX_HOME"),
+    }
+
+    let meta = &invocation.session_meta;
+    assert_eq!(meta["model"], "gpt-5.6-sol", "{emitted:?}");
+    assert_eq!(meta["effort"], "high", "{emitted:?}");
 }
 
 /// A codex whose thread opens long before its first turn does, and which

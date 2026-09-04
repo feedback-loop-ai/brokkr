@@ -256,6 +256,23 @@ fn effort_in_json(event: &Value) -> Option<String> {
 /// rollout is codex's file, not ours. Only the two shapes a rollout
 /// actually writes are addressed — a pointer for a shape no codex has
 /// ever produced is how the reader this replaces came to be wrong.
+/// A rollout line worth PARSING, decided on its raw text before any
+/// JSON is built: only the two record types above can name a model or an
+/// effort, and each spells its own name in the line that carries it.
+///
+/// The filter is not an optimisation for its own sake. A rollout holds
+/// every message payload of the whole thread — thousands of records,
+/// megabytes — and the newest record naming either field can sit near
+/// its TOP, because a release that applies its thread settings once
+/// writes one such record and never another. Parsing each line to find
+/// that out parsed essentially the whole file, once per turn, for the
+/// whole life of a seat. A false positive here costs one parse the
+/// pointers then refuse; a false negative is impossible, because a
+/// record cannot be of a type it does not name.
+fn names_thread_settings(line: &str) -> bool {
+    line.contains("turn_context") || line.contains("thread_settings")
+}
+
 fn model_in_thread(line: &Value) -> Option<String> {
     ["/payload/model", "/payload/thread_settings/model"]
         .into_iter()
@@ -617,17 +634,40 @@ impl CodexThreadEcho {
         // `turn_context` and its `thread_settings_applied` each carry
         // the model beside the effort, and nothing in between carries
         // one alone. Taking the pair off ONE record is what keeps the
-        // two from being spliced together out of different turns.
-        body.lines()
-            .rev()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find_map(
-                |line| match (model_in_thread(&line), effort_in_thread(&line)) {
-                    (None, None) => None,
-                    named => Some(named),
-                },
-            )
-            .unwrap_or((None, None))
+        // two from being spliced together out of different turns, and
+        // in every rollout codex actually writes that is what happens:
+        // the walk stops at the first record it reaches.
+        //
+        // A field that record cannot ANSWER is the one exception, and it
+        // has a single cause: the clamp above refused the value. That
+        // clamp is ours, not codex's shape — `_high` is the case its own
+        // doc names — so halting there would record `not reported` for a
+        // level the thread spells plainly one record up, and would spell
+        // it the same way as a harness that echoes nothing at all, which
+        // is the distinction ruling 3 makes load-bearing. So a field the
+        // anchor leaves empty keeps walking for the newest record that
+        // can answer it. The pair still binds every field one record
+        // answers; only a refusal splits it.
+        let mut model = None;
+        let mut effort = None;
+        for line in body.lines().rev() {
+            if model.is_some() && effort.is_some() {
+                break;
+            }
+            if !names_thread_settings(line) {
+                continue;
+            }
+            let Ok(line) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            if model.is_none() {
+                model = model_in_thread(&line);
+            }
+            if effort.is_none() {
+                effort = effort_in_thread(&line);
+            }
+        }
+        (model, effort)
     }
 }
 
@@ -1558,10 +1598,22 @@ fn invoke_codex(
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
     let stderr = stderr_thread.join().unwrap_or_default();
-    // An attempt that never reached a `turn.completed` — killed on its
-    // deadline, or concluded by a release that folds none — has read the
-    // thread record not at all. Ask it once more here, on the way out,
-    // before falling back to the launch header. Asked unconditionally
+    // An attempt that concluded without ever reaching a `turn.completed`
+    // — a release that folds none, or a codex that exits before its
+    // first turn finishes — has read the thread record not at all. Ask
+    // it once more here, on the way out, before falling back to the
+    // launch header.
+    //
+    // NOT the deadline case, though it reads like one: a deadline is
+    // enforced one process up, where the watchdog SIGKILLs this whole
+    // driver (`process.rs::kill_driver`), so nothing after `child.wait`
+    // runs for a seat that parks. What a parked codex ran under reaches
+    // the journal from the other direction — the `turn-completed`
+    // checkpoint each folded turn already emitted names its model and
+    // effort as it goes, and a seat killed before its first turn has no
+    // fact to carry.
+    //
+    // Asked unconditionally
     // and inserted only where nothing stands: a turn that already read
     // the record wrote the same pair, and `or_insert` is what keeps a
     // stream's more direct report of the model from being overwritten.
