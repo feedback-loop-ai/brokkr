@@ -17,3 +17,6 @@
 # holds it equal to the decision files), so two branches appending rows merge
 # without a conflict; a duplicated or stale row fails the test, never the merge.
 docs/decisions/README.md merge=union
+
+# Decision 0044 ruling 1: the research index is derived the same way.
+docs/research/README.md merge=union

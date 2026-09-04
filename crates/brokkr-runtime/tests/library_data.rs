@@ -84,12 +84,14 @@ const CHARTERS: [(&str, &str); 13] = [
 /// Charters authored here rather than moved: they have no pre-move
 /// bytes to be compared against, and are listed so the accounting below
 /// stays exact instead of merely permissive.
-const AUTHORED_CHARTERS: [&str; 2] = ["muninn.md", "triage.md"];
+const AUTHORED_CHARTERS: [&str; 3] = ["muninn.md", "researcher.md", "triage.md"];
 
 /// Decision 0041's remaining model library roster after decision 0043.
 /// `implementer-engine` temporarily shares the implementer charter until
-/// strategy-selected seats land.
-const AGENTS: [&str; 16] = [
+/// strategy-selected seats land. Decision 0044 ruling 4 seats the
+/// researcher: the one office that reads the field and holds the fetch
+/// grant, authored here like muninn and triage.
+const AGENTS: [&str; 17] = [
     "chief-architect",
     "implementer",
     "implementer-engine",
@@ -99,6 +101,7 @@ const AGENTS: [&str; 16] = [
     "muninn",
     "position-robustness",
     "position-simplicity",
+    "researcher",
     "review-adversarial",
     "review-chief",
     "review-correctness",

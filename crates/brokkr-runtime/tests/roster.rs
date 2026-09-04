@@ -122,14 +122,17 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             }
             // Ruling 7 leaves inline model sites only where a recipe must
             // force its crew: the parity wagers, fast's quickstart, the
-            // Node reference, preflight's explicit gates, and night-shift's
-            // dsh lane. The retired strategy directories no longer need an
+            // Node reference, preflight's explicit gates, night-shift's
+            // dsh lane, and the research sweep's dsh lane (decision 0044
+            // ruling 5: dsh expresses no tool list, so the grant is an
+            // overlay the inline site names). The retired strategy directories no longer need an
             // exception because their crews are selected from the roster.
             let allowed = recipe.starts_with("wager-harness")
                 || recipe == "fast"
                 || recipe == "node"
                 || recipe == "preflight"
-                || (recipe == "night-shift" && path.iter().any(|part| part == "implement"));
+                || (recipe == "night-shift" && path.iter().any(|part| part == "implement"))
+                || (recipe == "research-dsh" && path.iter().any(|part| part == "research"));
             assert!(
                 allowed,
                 "{recipe} has inline model site at {}",
@@ -500,4 +503,114 @@ fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
             }
         }
     }
+}
+
+/// Decision 0044 ruling 5: the fetch tools are an explicit grant held by
+/// one office. `WebFetch` and `WebSearch` appear on `researcher` and on no
+/// other agent, never beside a bindings block, and never at a gate site
+/// in a shipped recipe.
+#[test]
+fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
+    let root = workspace();
+    const FETCH: [&str; 2] = ["webfetch", "websearch"];
+    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let agent = json(&entry.path());
+        let holds = agent
+            .pointer("/tools/allow")
+            .and_then(Value::as_array)
+            .is_some_and(|allow| {
+                allow
+                    .iter()
+                    .any(|t| FETCH.contains(&t.as_str().unwrap_or("")))
+            });
+        let is_researcher = entry.file_name() == "researcher.json";
+        assert_eq!(
+            holds,
+            is_researcher,
+            "{}: the fetch grant belongs to researcher.json alone (decision 0044 ruling 5)",
+            entry.path().display()
+        );
+        if holds {
+            assert!(
+                agent.get("bindings").is_none(),
+                "the researcher may not hold secret bindings beside the fetch grant"
+            );
+        }
+    }
+    for parent in ["recipes", "bundles"] {
+        for dir in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
+            let bundle = dir.path().join("bundle.json");
+            if !bundle.is_file() {
+                continue;
+            }
+            let mut path = Vec::new();
+            walk(&json(&bundle), &mut path, &mut |site, value| {
+                let Some(object) = value.as_object() else {
+                    return;
+                };
+                if object.get("class").and_then(Value::as_str) != Some("gate") {
+                    return;
+                }
+                let site = format!("{}:{}", bundle.display(), site.join("/"));
+                assert_ne!(
+                    object.get("agent").and_then(Value::as_str),
+                    Some("researcher"),
+                    "{site}: a gate site seats the researcher, which holds the fetch grant"
+                );
+                let inline: Vec<&str> = value
+                    .pointer("/driver/command")
+                    .and_then(Value::as_array)
+                    .map(|c| c.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                assert!(
+                    !inline
+                        .iter()
+                        .any(|arg| ["WebFetch", "WebSearch"].iter().any(|f| arg.contains(f))),
+                    "{site}: a gate site holds a fetch tool inline"
+                );
+            });
+        }
+    }
+}
+
+/// Decision 0044 ruling 5, the dsh shape: a `--patch` overlay on a dsh site
+/// is the fetch grant, and it appears in `research-dsh` alone; that
+/// recipe's role file is the library charter's bytes, so the configurable
+/// prompt stays one text.
+#[test]
+fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter() {
+    let root = workspace();
+    for parent in ["recipes", "bundles"] {
+        for dir in std::fs::read_dir(root.join(parent)).unwrap().flatten() {
+            let bundle = dir.path().join("bundle.json");
+            if !bundle.is_file() {
+                continue;
+            }
+            let name = dir.file_name().to_string_lossy().into_owned();
+            walk(&json(&bundle), &mut Vec::new(), &mut |site, value| {
+                let Some(command) = value
+                    .get("driver")
+                    .and_then(|d| d.get("command"))
+                    .and_then(Value::as_array)
+                else {
+                    return;
+                };
+                let patched = command.iter().any(|arg| arg.as_str() == Some("--patch"));
+                assert!(
+                    !patched || name == "research-dsh",
+                    "{name}:{} carries a dsh overlay; only research-dsh may (decision 0044 ruling 5)",
+                    site.join("/")
+                );
+            });
+        }
+    }
+    let charter = std::fs::read(root.join("agents/charters/researcher.md")).unwrap();
+    let role = std::fs::read(root.join("recipes/research-dsh/roles/researcher.md")).unwrap();
+    assert_eq!(
+        charter, role,
+        "recipes/research-dsh/roles/researcher.md is a copy of agents/charters/researcher.md"
+    );
 }

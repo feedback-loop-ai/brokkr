@@ -1,0 +1,52 @@
+{
+  "name": "research",
+  "description": "Read articles and propose registry entries with cited classifications; the operator rules them.",
+  "cost": "low",
+  "policy": "policy.json",
+  "protected_phase": "verify",
+  "seats": {
+    "research": {
+      "results": [
+        "intake",
+        "nothing-new",
+        "escalate"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 5400
+      },
+      "agent": "researcher"
+    },
+    "verify": {
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "exec",
+          "--",
+          "bash",
+          "./roles/verify-seat.sh",
+          "{prompt_file}"
+        ]
+      },
+      "hands": {
+        "kind": "workspace",
+        "network": false,
+        "binds": [
+          {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+          {"path": "~/.rustup", "mode": "ro"}
+        ]
+      }
+    }
+  }
+}

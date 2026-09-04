@@ -1,0 +1,45 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "description": "Research intake (decision 0044): one work seat reads the articles a commission names or finds and proposes registry entries; one boxed gate proves the registry still parses, every citation resolves, and the operator's cap of ten entries per run held. Nothing ships from this table: the entries reach main through a delivery run, and the classifications stand as proposals until the operator rules them.",
+  "phases": ["research", "verify", "done", "stop"],
+  "initial": "research",
+  "terminal": ["done", "stop"],
+  "rules": [
+    {
+      "id": "RESEARCH-INTAKE",
+      "from": "research",
+      "result": "intake",
+      "next": "verify",
+      "reason": "Entries were written; the registry test and the cap decide whether they are well-formed proposals."
+    },
+    {
+      "id": "RESEARCH-NOTHING-NEW",
+      "from": "research",
+      "result": "nothing-new",
+      "next": "verify",
+      "reason": "Every article was already in the index; the gate still proves the tree is as it was."
+    },
+    {
+      "id": "RESEARCH-ESCALATE",
+      "from": "research",
+      "result": "escalate",
+      "park": true,
+      "reason": "The commission or a source could not be read as given; the question is in the notes for the operator."
+    },
+    {
+      "id": "VERIFY-FAIL",
+      "from": "verify",
+      "result": "fail",
+      "next": "stop",
+      "severity": "hard",
+      "reason": "The entries do not parse, a citation does not resolve, or more than ten were written; the report names which. Nothing is proposed until it does."
+    },
+    {
+      "id": "VERIFY-PASS",
+      "from": "verify",
+      "result": "pass",
+      "next": "done",
+      "reason": "Well-formed proposals on a branch. The operator reads, rules the classifications, and delivers them."
+    }
+  ]
+}
