@@ -156,7 +156,16 @@ fn every_checked_dialect_boundary_is_named() {
     unmatched["verify"]["argv"][0] = json!("unknown}");
     assert!(refusal(unmatched).contains("unknown placeholder"));
 
-    for instruction in ["/absolute.md", "../outside.md", "safe/../../outside.md"] {
+    // Spellings a host might not call absolute: the leading separator in
+    // either direction and a Windows prefix are refused everywhere, so the
+    // boundary reads the same on every platform.
+    for instruction in [
+        "/absolute.md",
+        "\\\\absolute.md",
+        "C:/absolute.md",
+        "../outside.md",
+        "safe/../../outside.md",
+    ] {
         let mut value = openspec();
         value["phases"]["specify"]["steps"][0]["instructions"] = json!(instruction);
         let message = refusal(value);
