@@ -157,6 +157,15 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
         ExitCode::SUCCESS
     );
     assert!(dir.path().join(".forge/ledger/ledger-run.md").is_file());
+
+    let missing = dir.path().join("missing.db");
+    assert!(run(cli(Cmd::Ledger {
+        run: "ledger-run".into(),
+        db: missing.clone(),
+        repo: None,
+    }))
+    .is_err());
+    assert!(!missing.exists(), "a ledger read never creates a journal");
 }
 
 /// A shipped recipe, compiled against the tree it ships in. Since
@@ -3031,6 +3040,13 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
 #[cfg(target_os = "linux")]
 #[test]
 fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    let namespace = Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .output();
+    if !namespace.is_ok_and(|output| output.status.success()) {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();

@@ -25,16 +25,38 @@ fn a_known_journal_renders_a_known_ledger() {
         event(1, EventType::RunStarted, json!({"feature": "boxed seats"})),
         event(
             2,
-            EventType::EffectSucceeded,
-            json!({"result": {
-                "result": "pass", "notes": "12 tests passed"
-            }}),
+            EventType::EffectRequested,
+            json!({"effect_id": "verify-effect", "phase": "verify"}),
         ),
         event(
             3,
             EventType::EffectSucceeded,
-            json!({"result": {
+            json!({"effect_id": "verify-effect", "result": {
+                "result": "pass", "notes": "12 tests passed"
+            }}),
+        ),
+        event(
+            4,
+            EventType::EffectRequested,
+            json!({"effect_id": "review-effect", "phase": "review"}),
+        ),
+        event(
+            5,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "review-effect", "result": {
                 "result": "residual", "notes": "one low documentation debt"
+            }}),
+        ),
+        event(
+            6,
+            EventType::EffectRequested,
+            json!({"effect_id": "design-effect", "phase": "design"}),
+        ),
+        event(
+            7,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "design-effect", "result": {
+                "result": "fail", "notes": "design asked for another pass"
             }}),
         ),
     ];

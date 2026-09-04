@@ -1603,7 +1603,12 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Ledger { run, db, repo } => {
-            let store = Store::open(&db)?;
+            anyhow::ensure!(
+                db.is_file(),
+                "journal does not exist: {}; ledger reads never create one",
+                db.display()
+            );
+            let store = Store::open_read_only(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             match repo {

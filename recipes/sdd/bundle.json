@@ -118,10 +118,7 @@
       "class": "gate",
       "limits": {"max_attempts": 2, "timeout_seconds": 1800},
       "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
-      "hands": {"kind": "workspace", "network": false, "binds": [
-        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
-        {"path": "~/.rustup", "mode": "ro"}
-      ]}
+      "hands": {"kind": "workspace", "network": false, "binds": []}
     }
   }
 }

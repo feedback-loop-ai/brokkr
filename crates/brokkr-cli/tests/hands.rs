@@ -5,7 +5,7 @@
 #![cfg(target_os = "linux")]
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
@@ -14,8 +14,37 @@ fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
 
+fn workspace() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Finding `bwrap` is not enough inside an existing hands box: the binary is
+/// visible there but the kernel refuses the nested namespace. Ask the boundary
+/// itself, quietly, before a test claims it can build another box.
+fn namespace_probe(program: &str) -> bool {
+    Command::new(program)
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn can_create_namespace() -> bool {
+    namespace_probe("bwrap")
+}
+
+#[test]
+fn namespace_probe_requires_a_successful_namespace_not_only_a_binary() {
+    assert!(!namespace_probe("/bin/false"));
+    assert!(!namespace_probe("/definitely/not/a/binary"));
+}
+
 #[test]
 fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
+    if !can_create_namespace() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
@@ -61,6 +90,9 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
 
 #[test]
 fn hands_exec_runs_the_command_whole_and_returns_its_code() {
+    if !can_create_namespace() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
@@ -185,7 +217,7 @@ fn verifier_workspace(failing: bool) -> tempfile::TempDir {
 
 #[test]
 fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
-    if Command::new("bwrap").arg("--version").output().is_err() {
+    if !can_create_namespace() {
         return;
     }
     let home = std::env::var("HOME").unwrap();
@@ -231,6 +263,64 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
 }
 
 #[test]
+fn this_workspaces_verifier_passes_inside_its_real_box() {
+    if !can_create_namespace() {
+        return;
+    }
+    let root = workspace().canonicalize().unwrap();
+    let scratch = root
+        .join(".forge")
+        .join(format!("boxed-self-verify-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let result = scratch.join("result.json");
+    let prompt = scratch.join("prompt.md");
+    std::fs::write(
+        &prompt,
+        format!("result contract\n\n    {}\n", result.display()),
+    )
+    .unwrap();
+    let home = std::env::var("HOME").unwrap();
+    let spec = serde_json::json!({
+        "kind": "workspace", "network": false,
+        "binds": [
+            {"path": format!("{home}/.cargo"), "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+            {"path": format!("{home}/.rustup"), "mode": "ro"}
+        ]
+    })
+    .to_string();
+    let output = Command::new(brokkr_bin())
+        .args([
+            "hands",
+            "exec",
+            "--workdir",
+            root.to_str().unwrap(),
+            "--spec",
+            &spec,
+            "--",
+            "bash",
+            "scripts/verify-seat.sh",
+            prompt.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let parsed = std::fs::read(&result)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        parsed.as_ref().and_then(|value| value["result"].as_str()),
+        Some("pass"),
+        "{parsed:?}"
+    );
+}
+
+#[test]
 fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
     let work = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(work.path().join("scripts")).unwrap();
@@ -268,12 +358,162 @@ fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
     );
 }
 
+fn closeout_result(recorded: Option<&str>, dirty: bool) -> Value {
+    let work = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(work.path().join("scripts")).unwrap();
+    std::fs::copy(
+        workspace().join("scripts/ship-seat.sh"),
+        work.path().join("scripts/ship-seat.sh"),
+    )
+    .unwrap();
+    for args in [
+        ["init", "-q"].as_slice(),
+        ["config", "user.email", "proof@example.invalid"].as_slice(),
+        ["config", "user.name", "Proof"].as_slice(),
+    ] {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(work.path())
+            .status()
+            .unwrap()
+            .success());
+    }
+    std::fs::write(work.path().join("tracked"), "clean\n").unwrap();
+    std::fs::write(
+        work.path().join(".gitignore"),
+        ".forge/\nprompt.md\nresult.json\nscripts/\n",
+    )
+    .unwrap();
+    assert!(Command::new("git")
+        .args(["add", "tracked", ".gitignore"])
+        .current_dir(work.path())
+        .status()
+        .unwrap()
+        .success());
+    assert!(Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "commit", "-qm", "base"])
+        .current_dir(work.path())
+        .status()
+        .unwrap()
+        .success());
+    let head = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(work.path())
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    if let Some(recorded) = recorded {
+        let recorded = if recorded == "HEAD" {
+            head.trim()
+        } else {
+            recorded
+        };
+        std::fs::create_dir_all(work.path().join(".forge/ledger")).unwrap();
+        std::fs::write(
+            work.path().join(".forge/ledger/known-run.md"),
+            format!("Repository head: `{recorded}`\n"),
+        )
+        .unwrap();
+    }
+    if dirty {
+        std::fs::write(work.path().join("tracked"), "dirty\n").unwrap();
+    }
+    let result = work.path().join("result.json");
+    std::fs::write(
+        work.path().join("prompt.md"),
+        format!(
+            "Run context (journal-derived, read-only):\n```json\n{{\n  \"last_decision\": {{\n    \"rule_id\": \"SHIP-READY\"\n  }},\n  \"run_id\": \"known-run\"\n}}\n```\n\n    {}\n",
+            result.display()
+        ),
+    )
+    .unwrap();
+    let output = Command::new("bash")
+        .args(["scripts/ship-seat.sh", "prompt.md"])
+        .current_dir(work.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    serde_json::from_slice(&std::fs::read(result).unwrap()).unwrap()
+}
+
+#[test]
+fn ship_closeout_states_every_discrepancy_plainly() {
+    for (recorded, dirty, phrase) in [
+        (None, false, "ledger .forge/ledger/known-run.md is missing"),
+        (Some("0000000"), true, "close-out discrepancies"),
+        (Some("HEAD"), true, "HEAD still matches ledger"),
+        (Some("0000000"), false, "worktree is clean"),
+        (Some("HEAD"), false, "close-out confirmed"),
+    ] {
+        let result = closeout_result(recorded, dirty);
+        assert_eq!(result["result"], "shipped");
+        assert!(
+            result["notes"].as_str().unwrap().contains(phrase),
+            "{result}"
+        );
+    }
+}
+
+#[test]
+fn ship_first_entry_records_a_dirty_tree_after_writing_the_ledger() {
+    let work = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(work.path().join("scripts")).unwrap();
+    std::fs::copy(
+        workspace().join("scripts/ship-seat.sh"),
+        work.path().join("scripts/ship-seat.sh"),
+    )
+    .unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(work.path())
+        .status()
+        .unwrap()
+        .success());
+    std::fs::write(work.path().join("dirty"), "yes\n").unwrap();
+    let fake = work.path().join("ledger-command");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\nmkdir -p .forge/ledger\nprintf 'Repository head: `none`\\n' > .forge/ledger/known-run.md\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&fake).unwrap().permissions();
+    use std::os::unix::fs::PermissionsExt;
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake, permissions).unwrap();
+    let result = work.path().join("result.json");
+    std::fs::write(
+        work.path().join("prompt.md"),
+        format!(
+            "```json\n{{\n  \"journal\": \"journal.db\",\n  \"last_decision\": {{\n    \"rule_id\": \"REVIEW-CLEAN\"\n  }},\n  \"run_id\": \"known-run\"\n}}\n```\n\n    {}\n",
+            result.display()
+        ),
+    )
+    .unwrap();
+    let output = Command::new("bash")
+        .args(["scripts/ship-seat.sh", "prompt.md", fake.to_str().unwrap()])
+        .current_dir(work.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&std::fs::read(result).unwrap()).unwrap();
+    assert_eq!(result["result"], "ready");
+    assert!(result["notes"]
+        .as_str()
+        .unwrap()
+        .contains("worktree discrepancy"));
+}
+
 #[test]
 fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
-    if Command::new("bwrap").arg("--version").output().is_err() {
+    if !can_create_namespace() {
         return;
     }
     let work = verifier_workspace(false);
+    let journal = tempfile::tempdir().unwrap();
+    let journal_db = journal.path().join("canonical.db");
     std::fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ship-seat.sh"),
         work.path().join("scripts/ship-seat.sh"),
@@ -307,7 +547,7 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
     let config = serde_json::json!({"name":"script-proof","policy":"policy.json","protected_phase":"ship","seats":{
         "verify":{"results":["pass","fail"],"class":"gate","hands":hands.clone(),
           "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/verify-seat.sh","{prompt_file}"]}},
-        "ship":{"results":["ready","shipped"],"class":"gate","hands":hands,
+        "ship":{"results":["ready","shipped"],"class":"gate","hands":{"kind":"workspace","network":false,"binds":[]},
           "driver":{"command":["{brokkr}","driver","exec","--","bash","scripts/ship-seat.sh","{prompt_file}","{brokkr}"]}}
     }});
     std::fs::write(
@@ -339,7 +579,7 @@ fn a_machine_proof_runs_the_boxed_verify_and_ship_scripts_end_to_end() {
             "--feature",
             "script proof",
             "--db",
-            "state/custom.db",
+            journal_db.to_str().unwrap(),
             "--repo",
             work.path().to_str().unwrap(),
         ])

@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use brokkr_protocol::hands::BindMode;
 use brokkr_runtime::{Bundle, SeatBody, SeatClass};
 use serde_json::Value;
 
@@ -226,6 +227,10 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             let script = command.get(5).map(String::as_str);
             if phase == "ship" {
                 assert_eq!(script, Some("scripts/ship-seat.sh"), "{name}:{phase}");
+                assert!(
+                    bundle.hands[phase].binds.is_empty(),
+                    "{name}:{phase} needs no toolchain or credential-bearing bind"
+                );
             } else {
                 assert!(
                     matches!(
@@ -238,6 +243,12 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                     ),
                     "{name}:{phase} names a shipped verifier script: {script:?}"
                 );
+                let binds = &bundle.hands[phase].binds;
+                if script == Some("recipes/node/roles/verify-seat.sh") {
+                    assert_eq!(binds.len(), 1, "{name}:{phase}");
+                    assert_eq!(binds[0].path, "~/.npm");
+                    assert_eq!(binds[0].mode, BindMode::Overlay);
+                }
             }
         }
     }

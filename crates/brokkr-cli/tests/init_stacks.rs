@@ -1,8 +1,8 @@
 //! `brokkr init` looks before it scaffolds: the repository it is invoked
 //! from is read for the manifests and lockfiles at its root, and the two
-//! charters that tell a seat to build and to prove name that stack's own
-//! commands. What is asserted here is what an operator would read in
-//! `agents/charters/`, per stack — and, for a repository carrying no marker
+//! charter and verifier script that tell seats to build and prove name that
+//! stack's own commands. What is asserted here is what an operator would
+//! read in the generated files — and, for a repository carrying no marker
 //! init knows, that the charter says so in those words instead of dressing
 //! a placeholder as a choice.
 //!
@@ -256,6 +256,21 @@ fn charter(bundle: &Path, name: &str) -> String {
     std::fs::read_to_string(bundle.join(DEFAULT_AGENTS_DIR).join("charters").join(name)).unwrap()
 }
 
+fn verifier(bundle: &Path) -> String {
+    std::fs::read_to_string(bundle.join("scripts/verify-seat.sh")).unwrap()
+}
+
+fn verifier_commands(script: &str) -> Vec<&str> {
+    script
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("test_command='")
+                .or_else(|| line.strip_prefix("lint_command='"))
+                .and_then(|command| command.strip_suffix('\''))
+        })
+        .collect()
+}
+
 fn read_json(path: &Path) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
@@ -326,24 +341,39 @@ fn each_recognized_stack_gets_its_own_commands_and_no_others() {
     for (fixture, name, build, test, lint) in RECOGNIZED {
         let (_repo, bundle) = scaffold_from(fixture);
         let implementer = charter(&bundle, "implementer.md");
-        let verifier = charter(&bundle, "verifier.md");
+        let verifier = verifier(&bundle);
+
+        assert!(!bundle.join("agents/verifier.json").exists());
+        assert!(!bundle.join("agents/shipper.json").exists());
+        assert!(!bundle.join("agents/charters/verifier.md").exists());
+        assert!(!bundle.join("agents/charters/shipper.md").exists());
+        assert!(bundle.join("adapters/exec.json").is_file());
+        assert!(bundle.join("scripts/ship-seat.sh").is_file());
 
         // The seat that builds is told to build and to test; the seat
         // that proves is told to test and to lint.
         assert_eq!(commands(&implementer), vec![*build, *test], "{fixture}");
-        assert_eq!(commands(&verifier), vec![*test, *lint], "{fixture}");
+        assert_eq!(
+            verifier_commands(&verifier),
+            vec![*test, *lint],
+            "{fixture}"
+        );
 
         // Named in the stack's own vocabulary, with the evidence quoted
         // back so the guess can be checked — and not marked generic.
-        for text in [&implementer, &verifier] {
-            assert!(text.contains(&format!("a {name} project")), "{text}");
-            assert!(!text.contains("NO STACK WAS RECOGNIZED"), "{text}");
-        }
+        assert!(
+            implementer.contains(&format!("a {name} project")),
+            "{implementer}"
+        );
+        assert!(
+            !implementer.contains("NO STACK WAS RECOGNIZED"),
+            "{implementer}"
+        );
 
         // Nobody else's tooling arrived with it.
         let named: Vec<&str> = commands(&implementer)
             .into_iter()
-            .chain(commands(&verifier))
+            .chain(verifier_commands(&verifier))
             .collect();
         for (other, _, other_build, other_test, other_lint) in RECOGNIZED.iter().chain(MONOREPOS) {
             if other == fixture {
@@ -366,7 +396,7 @@ fn each_recognized_stack_gets_its_own_commands_and_no_others() {
 fn an_unrecognized_repository_gets_a_charter_that_says_so() {
     let (_repo, bundle) = scaffold_from("generic");
     let implementer = charter(&bundle, "implementer.md");
-    let verifier = charter(&bundle, "verifier.md");
+    let verifier = verifier(&bundle);
 
     assert_eq!(
         commands(&implementer),
@@ -375,20 +405,29 @@ fn an_unrecognized_repository_gets_a_charter_that_says_so() {
             "<this project's test command>"
         ]
     );
-    assert_eq!(
-        commands(&verifier),
-        vec![
-            "<this project's test command>",
-            "<this project's lint command>"
-        ]
+    assert_eq!(verifier_commands(&verifier), ["", ""]);
+    assert!(
+        implementer.contains("NO STACK WAS RECOGNIZED"),
+        "{implementer}"
     );
-    for text in [&implementer, &verifier] {
-        assert!(text.contains("NO STACK WAS RECOGNIZED"), "{text}");
-        assert!(text.contains("GENERIC placeholders"), "{text}");
-        for (_, _, build, test, lint) in RECOGNIZED.iter().chain(MONOREPOS) {
-            for command in [build, test, lint] {
-                assert!(!text.contains(command), "unrecognized, yet names {command}");
-            }
+    assert!(
+        implementer.contains("GENERIC placeholders"),
+        "{implementer}"
+    );
+    assert!(
+        verifier.contains("no stack was recognized; fill in scripts/verify-seat.sh"),
+        "{verifier}"
+    );
+    for (_, _, build, test, lint) in RECOGNIZED.iter().chain(MONOREPOS) {
+        for command in [build, test, lint] {
+            assert!(
+                !implementer.contains(command),
+                "unrecognized, yet names {command}"
+            );
+            assert!(
+                !verifier.contains(command),
+                "unrecognized, yet names {command}"
+            );
         }
     }
 }
@@ -401,23 +440,25 @@ fn an_unrecognized_repository_gets_a_charter_that_says_so() {
 fn a_manifest_outranks_the_makefile_that_wraps_it() {
     let (_repo, bundle) = scaffold_from("rust-and-make");
     let implementer = charter(&bundle, "implementer.md");
-    let verifier = charter(&bundle, "verifier.md");
+    let verifier = verifier(&bundle);
 
     assert_eq!(
         commands(&implementer),
         vec!["cargo build --workspace", "cargo test --workspace"]
     );
     assert_eq!(
-        commands(&verifier),
+        verifier_commands(&verifier),
         vec![
             "cargo test --workspace",
             "cargo clippy --workspace --all-targets -- -D warnings"
         ]
     );
-    for text in [&implementer, &verifier] {
-        for command in ["make build", "make test", "make lint"] {
-            assert!(!commands(text).contains(&command), "{text}");
-        }
+    for command in ["make build", "make test", "make lint"] {
+        assert!(!commands(&implementer).contains(&command), "{implementer}");
+        assert!(
+            !verifier_commands(&verifier).contains(&command),
+            "{verifier}"
+        );
     }
 }
 
@@ -431,17 +472,18 @@ fn a_manifest_outranks_the_makefile_that_wraps_it() {
 fn bun_out_votes_the_npm_fallback() {
     let (_repo, bundle) = scaffold_from("node-bun");
     let implementer = charter(&bundle, "implementer.md");
-    let verifier = charter(&bundle, "verifier.md");
+    let verifier = verifier(&bundle);
 
     assert_eq!(
         commands(&implementer),
         vec!["bun install --frozen-lockfile", "bun run test"]
     );
     assert_eq!(
-        commands(&verifier),
+        verifier_commands(&verifier),
         vec!["bun run test", "bun run typecheck"]
     );
-    for text in [&implementer, &verifier] {
+    {
+        let text = &implementer;
         assert!(text.contains("a node/bun project"), "{text}");
         // The evidence quoted back names the lockfile that decided it.
         assert!(text.contains("`package.json` + `bun.lock`"), "{text}");
@@ -459,14 +501,15 @@ fn bun_out_votes_the_npm_fallback() {
 fn uv_out_votes_the_pip_fallback() {
     let (_repo, bundle) = scaffold_from("python-uv");
     let implementer = charter(&bundle, "implementer.md");
-    let verifier = charter(&bundle, "verifier.md");
+    let verifier = verifier(&bundle);
 
     assert_eq!(commands(&implementer), vec!["uv sync", "uv run pytest"]);
     assert_eq!(
-        commands(&verifier),
+        verifier_commands(&verifier),
         vec!["uv run pytest", "uv run ruff check ."]
     );
-    for text in [&implementer, &verifier] {
+    {
+        let text = &implementer;
         assert!(text.contains("a python/uv project"), "{text}");
         assert!(text.contains("`pyproject.toml` + `uv.lock`"), "{text}");
         for fallback in ["python3 -m build", "python3 -m pytest", "python3 -m ruff"] {
@@ -483,12 +526,17 @@ fn a_monorepo_scaffold_names_the_orchestrators_own_commands() {
     for (fixture, name, build, test, lint) in MONOREPOS {
         let (_repo, bundle) = scaffold_from(fixture);
         let implementer = charter(&bundle, "implementer.md");
-        let verifier = charter(&bundle, "verifier.md");
+        let verifier = verifier(&bundle);
 
         assert_eq!(commands(&implementer), vec![*build, *test], "{fixture}");
-        assert_eq!(commands(&verifier), vec![*test, *lint], "{fixture}");
+        assert_eq!(
+            verifier_commands(&verifier),
+            vec![*test, *lint],
+            "{fixture}"
+        );
 
-        for text in [&implementer, &verifier] {
+        {
+            let text = &implementer;
             assert!(text.contains(&format!("a {name} project")), "{fixture}");
             // Saying so is half the deliverable: a charter that ran the
             // right command and never told the seat it was in a monorepo
@@ -520,10 +568,8 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
     ];
     for (fixture, claim) in workspaces {
         let (_repo, bundle) = scaffold_from(fixture);
-        for role in ["implementer.md", "verifier.md"] {
-            let text = charter(&bundle, role);
-            assert!(text.contains(claim), "{fixture}/{role}: {text}");
-        }
+        let text = charter(&bundle, "implementer.md");
+        assert!(text.contains(claim), "{fixture}: {text}");
     }
 
     // The commands did not change, because they were already right.
@@ -549,19 +595,17 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
         ("node-npm", "MONOREPO"),
     ] {
         let (_repo, bundle) = scaffold_from(fixture);
-        for role in ["implementer.md", "verifier.md"] {
-            let text = charter(&bundle, role);
-            assert!(!text.contains(claim), "{fixture}/{role} claims {claim}");
-        }
+        let text = charter(&bundle, "implementer.md");
+        assert!(!text.contains(claim), "{fixture} claims {claim}");
     }
 }
 
 /// The tool-grant half of the table: every recognized stack scaffolds an
 /// adapter whose `tool_permissions.names` maps exactly the granted names
-/// to their `Bash(...)` expressions, and agents sized by decision 0021
-/// ruling 1's classes — the two work agents (intake, implement) carry the
-/// full set, the three gate agents (verify, review, ship) carry the
-/// read-only subset and never the write tool. The class is read from the
+/// to their `Bash(...)` expressions, and model offices sized by decision
+/// 0021 ruling 1's classes — the two work agents carry the full set and
+/// review carries the read-only subset. Verify and ship are exec scripts.
+/// The class is read from the
 /// scaffolded `bundle.json`, not assumed, so the roster the seats declare
 /// and the roster the allowances were written for cannot drift apart
 /// without failing here. The test style is the file's own: the table
@@ -585,7 +629,10 @@ fn each_stack_grants_its_own_tools_by_seat_class() {
         let seats = read_json(&bundle.join("bundle.json"));
         let seats = seats["seats"].as_object().unwrap();
         for (seat, declared) in seats {
-            let agent_name = declared["agent"].as_str().unwrap();
+            let Some(agent_name) = declared["agent"].as_str() else {
+                assert!(matches!(seat.as_str(), "verify" | "ship"));
+                continue;
+            };
             let definition = agent(&bundle, agent_name);
             let wanted = match declared["class"].as_str().unwrap() {
                 "work" => work,
@@ -640,21 +687,37 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
             "{fixture}: implement argv {command:?} lacks {allowed:?}"
         );
 
+        let SeatBody::Single { command, .. } = &compiled.seats["review"].body else {
+            panic!("review is a single-agent seat")
+        };
+        let allowed: Vec<String> = gate.iter().map(|name| expr(name)).collect();
+        assert!(
+            command
+                .windows(2)
+                .any(|pair| pair[0] == "--allowedTools" && pair[1] == allowed.join(",")),
+            "{fixture}/review: argv {command:?} lacks {allowed:?}"
+        );
         for gate_seat in ["verify", "review", "ship"] {
             let SeatBody::Single { command, .. } = &compiled.seats[gate_seat].body else {
-                panic!("{gate_seat} is a single-agent seat")
+                panic!("{gate_seat} is a single seat")
             };
-            let allowed: Vec<String> = gate.iter().map(|name| expr(name)).collect();
-            assert!(
-                command
-                    .windows(2)
-                    .any(|pair| pair[0] == "--allowedTools" && pair[1] == allowed.join(",")),
-                "{fixture}/{gate_seat}: argv {command:?} lacks {allowed:?}"
-            );
             assert!(
                 !command.iter().any(|part| part.contains("mkdir")),
                 "{fixture}/{gate_seat}: a gate carries the write tool: {command:?}"
             );
+        }
+        for exec_seat in ["verify", "ship"] {
+            let SeatBody::Single {
+                command,
+                candidates,
+                ..
+            } = &compiled.seats[exec_seat].body
+            else {
+                panic!("{exec_seat} is a single exec seat")
+            };
+            assert!(candidates.is_empty(), "{fixture}/{exec_seat} seats a model");
+            assert_eq!(&command[1..4], ["driver", "exec", "--"]);
+            assert!(compiled.hands.contains_key(exec_seat));
         }
     }
 }
@@ -664,7 +727,7 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
 /// implement seat's resolved argv ends in exactly the stack's
 /// `--allowedTools` list — the driver prefix, the pinned model, the
 /// pinned effort, and the list, in the order the work allowance names
-/// them — and the verify seat's ends in the gate subset. A grant that
+/// them — while verify resolves to the exec script. A grant that
 /// reached the adapter map and the agent file but never the argv would
 /// fail here, and so would a hire that named a model without the effort
 /// decision 0035 ruling 5 pairs with it.
@@ -686,16 +749,18 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         ]);
         assert_eq!(argv(&compiled, "implement"), implement, "{fixture}");
 
-        let mut verify: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
-        verify.extend([
-            "--model".to_string(),
-            "claude-fable-5-1".to_string(),
-            "--effort".to_string(),
-            "high".to_string(),
-            "--allowedTools".to_string(),
-            format!("Bash({binary}:*),Bash(git:*),Bash(ls:*),Bash(rg:*)"),
-        ]);
-        assert_eq!(argv(&compiled, "verify"), verify, "{fixture}");
+        assert_eq!(
+            argv(&compiled, "verify"),
+            [
+                "driver",
+                "exec",
+                "--",
+                "bash",
+                "scripts/verify-seat.sh",
+                "{prompt_file}"
+            ],
+            "{fixture}"
+        );
     }
 }
 
@@ -714,7 +779,7 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
         serde_json::json!({}),
         "generic grants were invented"
     );
-    for name in ["intake", "implementer", "verifier", "reviewer", "shipper"] {
+    for name in ["intake", "implementer", "reviewer"] {
         let definition = agent(&bundle, name);
         assert!(
             definition.get("tools").is_none(),
@@ -737,7 +802,7 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
     // A scaffold that declares nothing still compiles, with no seat
     // handed a Bash grant it was never given.
     let compiled = compiles(&bundle);
-    for seat in ["intake", "implement", "verify", "review", "ship"] {
+    for seat in ["intake", "implement", "review"] {
         let command = argv(&compiled, seat);
         assert!(
             !command.iter().any(|part| part == "--allowedTools"),
@@ -748,16 +813,20 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
             "{seat}: {command:?}"
         );
     }
+    for seat in ["verify", "ship"] {
+        let command = argv(&compiled, seat);
+        assert_eq!(&command[..3], ["driver", "exec", "--"]);
+        assert!(!command.iter().any(|part| part == "--model"));
+    }
 }
 
 /// Introspection rewrote prose and grants, not the roster. Every
 /// scaffold — each recognized stack and the fallback alike — still
 /// compiles, and what it compiles to still carries decision 0021 ruling
 /// 1's division: the three judging seats declare `gate`, the two working
-/// seats declare `work`. Every seat now resolves through an agent, so the
-/// manifest pins each seat's resolution record — five of them, all
-/// served by the scaffold's own `claude` adapter — and a seat that had
-/// quietly stayed inline would show up here as a record missing.
+/// seats declare `work`. The manifest pins the three model offices under
+/// `agents`; verify and ship are pinned separately under `drivers` and
+/// `hands` as deterministic exec sites.
 #[test]
 fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
     let fixtures = RECOGNIZED
@@ -784,7 +853,7 @@ fn every_scaffolded_recipe_compiles_with_its_gates_still_gates() {
         let seated: Vec<&String> = records.keys().collect();
         assert_eq!(
             seated,
-            ["implement", "intake", "review", "ship", "verify"],
+            ["implement", "intake", "review"],
             "{fixture}: {stdout}"
         );
         for (seat, record) in records {

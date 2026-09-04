@@ -61,27 +61,11 @@ Result: `complete` (implemented, tests green, committed) · `broken`
 report `complete` with failing tests or uncommitted changes.
 ```
 
-### `agents/charters/verifier.md`
+### `scripts/verify-seat.sh`
 
-```markdown
-# Verifier seat — prove it, fix nothing
-
-Run the project's full test and lint suites from the repository root.
-
-This repository reads as a python/uv project (`pyproject.toml` + `uv.lock`), so use its own
-tooling:
-
-    uv run pytest
-    uv run ruff check .
-
-`brokkr init` chose those from the files at the repository root —
-it ran nothing to find out. Correct them here if they are wrong.
-
-You change no code, fix nothing, commit nothing: one honest run is the
-signal. Result: `pass` (everything green; `notes` lists commands and
-counts) or `fail` (`notes` quotes the failing output's decisive lines
-exactly — never soften a failure).
-```
+The deterministic boxed verifier pins `uv run pytest` and
+`uv run ruff check .`. It runs both with network denied, types `pass` only
+when both exit zero, and quotes decisive output on `fail`.
 
 Annotated:
 
@@ -121,7 +105,7 @@ initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d58
 run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tool grants its seats run under
 ```
 
-`agents/charters/implementer.md` and `agents/charters/verifier.md`, the
+`agents/charters/implementer.md` and `scripts/verify-seat.sh`, the
 changed part only:
 
 ```markdown

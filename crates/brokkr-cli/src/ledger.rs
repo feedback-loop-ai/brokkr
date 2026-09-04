@@ -1,6 +1,6 @@
 //! Deterministic delivery ledger rendered from journal evidence and git.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -20,11 +20,29 @@ fn git(repo: &Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn result_notes(events: &[EventEnvelope], vocabulary: &[&str]) -> Vec<(String, String)> {
+fn result_notes(
+    events: &[EventEnvelope],
+    phase: &str,
+    vocabulary: &[&str],
+) -> Vec<(String, String)> {
+    let requested: BTreeMap<&str, &str> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectRequested)
+        .filter_map(|event| {
+            Some((
+                event.payload.get("effect_id")?.as_str()?,
+                event.payload.get("phase")?.as_str()?,
+            ))
+        })
+        .collect();
     events
         .iter()
         .filter(|event| event.event_type == EventType::EffectSucceeded)
         .filter_map(|event| {
+            let effect_id = event.payload.get("effect_id")?.as_str()?;
+            if requested.get(effect_id).copied() != Some(phase) {
+                return None;
+            }
             let result = event.payload.pointer("/result/result")?.as_str()?;
             vocabulary.contains(&result).then(|| {
                 (
@@ -95,8 +113,8 @@ pub fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<Str
         .unwrap_or("no delivery description recorded");
     let head = git(repo, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unavailable".to_string());
     let commits = commit_ids(events, repo);
-    let verify = result_notes(events, &["pass", "fail"]);
-    let review = result_notes(events, &["clean", "residual", "security-hold"]);
+    let verify = result_notes(events, "verify", &["pass", "fail"]);
+    let review = result_notes(events, "review", &["clean", "residual", "security-hold"]);
 
     let mut ledger = format!(
         "# Delivery ledger — {run_id}\n\n## Delivered\n\n{feature}\n\n\

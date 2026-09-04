@@ -105,38 +105,41 @@ fn workspace() -> PathBuf {
 /// shipper are no longer model-backed agents. Their inline exec commands,
 /// boxed hands and recipe-owned verifier scripts are bundle identity, and
 /// every wager inherits the same gates from `fast` by construction.
+/// This review return moves them once more because deterministic ship gates
+/// shed unused toolchain binds, and Node's verifier retains only its npm
+/// cache. Those least-privilege hands declarations are also identity.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "d1ec8b3ab21140fb23c3eaae5b9aec970f9c71d79aa159eda91e1dad09450fc6",
+        "75e7839bfd87f0db1fcc1ece1e0077fa5d03031d006f2feeaed044e3c075bb37",
     ),
     (
         "recipes/node",
-        "4f4d2773f223228361cdf0dcb44df9e0385c608e58e3c5c7c950ca8695a673aa",
+        "c528a682480be6890c41d243290d9f8e013f636244182134ff3c679bd81a3b5c",
     ),
     (
         "recipes/preflight",
-        "a186560e364513467a989fa1e20d513a2c48e68b0a78ee36a6183eee7bafd715",
+        "c75f6cf90773e8232a26f51b4e996a158b0d499c3719afb22c8c098577745ccb",
     ),
     (
         "recipes/ember",
-        "fda02a55ce9b119f73c6257d9b5513b2ab5cf3a0136049ba6e3d31cb9cdf87cb",
+        "8d6ec023e691de5463ad39ff498395b5191cd7e0d92e14880b710a456375ea4d",
     ),
     (
         "recipes/crucible",
-        "b42f0118c8a9e755e03081a619c450b7b7a0fb972ae262e6d47f24a15f0d91c9",
+        "942dd53af832c935976e215e3df8c83ab2003acda198620fb1e30cbef867e356",
     ),
     (
         "recipes/night-shift",
-        "c807e27ad2086d90f38b5890da884d4269903fd00f5d86717d67ff240643fd52",
+        "2056ae4c3ea61ba68647a388b0c0f3702dffb70de63ebae4146d2b42293cb6c0",
     ),
     (
         "recipes/wager-harness",
-        "75b3dec5dfb7dd81830a154b69c9559fdb3c0b3d7172cc8d595e59d4bc9002e7",
+        "869a396289bb936699347e539fdba0df1eb33ed0e8b8effa2823a6b8cc2aede1",
     ),
     (
         "bundles/verify",
-        "ba5428fc3bd48a35e3a2f8cc3ccb50dd3e0d32e843cab0e37ca45ff4d4324efb",
+        "e30065dc97d80619afdbaf39e90d5b9b68957dc52262882211e2558a533d2fea",
     ),
 ];
 

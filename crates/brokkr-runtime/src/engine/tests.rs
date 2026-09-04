@@ -2266,6 +2266,36 @@ fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
     )
 }
 
+#[test]
+fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
+    use brokkr_protocol::hands::{BindMode, HandsSpec};
+
+    let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .hands
+        .insert("ship".into(), HandsSpec::default());
+    let input = engine
+        .seat_input(&state(Some("ship"), Cursor::Idle), "ship", "effect")
+        .unwrap();
+    assert!(input["context"].get("journal").is_none());
+
+    let hands = engine.runtime_hands("ship").unwrap();
+    assert_eq!(hands.binds.len(), 1);
+    assert_eq!(hands.binds[0].mode, BindMode::Ro);
+    assert_eq!(
+        Path::new(&hands.binds[0].path),
+        engine.store.path().parent().unwrap()
+    );
+
+    let workdir = dir.path().join("work");
+    engine.store = Store::open(&workdir.join("journal.db")).unwrap();
+    assert!(engine.runtime_hands("ship").unwrap().binds.is_empty());
+    engine.repo = Some(dir.path().join("not-created"));
+    assert_eq!(engine.runtime_hands("ship").unwrap().binds.len(), 1);
+    assert!(engine.runtime_hands("missing").is_none());
+}
+
 fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
     let capabilities = wire(Body::Capabilities {
         driver: "test".into(),

@@ -21,7 +21,7 @@ marker set and so the last one tried:
 Two things to check before step 3:
 
 - **`npm run lint` is a guess with a name on it.** If your
-  `package.json` has no `lint` script, edit `agents/charters/verifier.md` — that
+  `package.json` has no `lint` script, edit `scripts/verify-seat.sh` — that
   is a five-second fix, and a lint that silently does not run is not.
 - **No install step is scaffolded.** What `npm ci` should do in your
   repository depends on your CI and your network posture, and a charter

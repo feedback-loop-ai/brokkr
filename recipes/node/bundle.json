@@ -57,8 +57,6 @@
         ]
       },
       "hands": {"kind": "workspace", "network": false, "binds": [
-        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
-        {"path": "~/.rustup", "mode": "ro"},
         {"path": "~/.npm", "mode": "overlay"}
       ]}
     },
@@ -117,10 +115,7 @@
           "{brokkr}"
         ]
       },
-      "hands": {"kind": "workspace", "network": false, "binds": [
-        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
-        {"path": "~/.rustup", "mode": "ro"}
-      ]}
+      "hands": {"kind": "workspace", "network": false, "binds": []}
     }
   }
 }

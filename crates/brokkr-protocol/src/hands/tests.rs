@@ -9,6 +9,19 @@ fn one(text: &str) -> Vec<String> {
     vec![text.to_string()]
 }
 
+#[cfg(target_os = "linux")]
+fn can_create_namespace() -> bool {
+    let Ok(bwrap) = require_bwrap() else {
+        return false;
+    };
+    Command::new(bwrap)
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 #[test]
 fn the_spec_vocabulary_is_closed_and_the_string_is_the_default() {
     assert_eq!(spec_of(json!("workspace")), HandsSpec::default());
@@ -545,8 +558,9 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 #[cfg(target_os = "linux")]
 #[test]
 fn the_box_hides_the_host_and_holds_the_worktree() {
-    if require_bwrap().is_err() {
-        panic!("bubblewrap is required on Linux for the hands tests: install bwrap");
+    if !can_create_namespace() {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
     }
     let dir = tempfile::tempdir().unwrap();
     let workdir = dir.path().join("work");
@@ -683,6 +697,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 #[cfg(target_os = "linux")]
 #[test]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
+    if !can_create_namespace() {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -729,6 +747,12 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .identity
         .iter()
         .any(|(k, v)| k == "GIT_COMMITTER_EMAIL" && v == "host@example.invalid"));
+    git(&main, &["config", "user.name", ""]);
+    assert!(!git_facts(&worktree)
+        .identity
+        .iter()
+        .any(|(key, _)| key == "GIT_AUTHOR_NAME"));
+    git(&main, &["config", "user.name", "Host Operator"]);
     // Not a repository: no git dir to mask (the identity is the host's
     // global one either way).
     assert_eq!(git_facts(dir.path()).git_dir, None);

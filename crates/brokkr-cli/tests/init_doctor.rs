@@ -84,6 +84,31 @@ fn init_refuses_to_overwrite_an_operators_trust_declaration() {
     assert!(!bundle.join("bundle.json").exists());
 }
 
+#[test]
+fn init_refuses_to_overwrite_exec_trust_or_deterministic_seat_scripts() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let exec_bundle = dir.path().join("exec-bundle");
+    std::fs::create_dir_all(exec_bundle.join("adapters")).unwrap();
+    let exec = exec_bundle.join("adapters/exec.json");
+    std::fs::write(&exec, "operator-owned\n").unwrap();
+    let (code, _, stderr) = brokkr(&["init", exec_bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains(&exec.display().to_string()), "{stderr}");
+    assert_eq!(std::fs::read_to_string(exec).unwrap(), "operator-owned\n");
+
+    for script in ["verify-seat.sh", "ship-seat.sh"] {
+        let bundle = dir.path().join(script);
+        std::fs::create_dir_all(bundle.join("scripts")).unwrap();
+        let path = bundle.join("scripts").join(script);
+        std::fs::write(&path, "operator-owned\n").unwrap();
+        let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+        assert_eq!(code, Some(1), "stderr: {stderr}");
+        assert!(stderr.contains(&path.display().to_string()), "{stderr}");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "operator-owned\n");
+    }
+}
+
 /// Decision 0021, from the operator's side: the scaffold's gate seats
 /// stand on a declaration in the operator's own tree, so demoting the
 /// tier there refuses the very next compile — naming the seat and the

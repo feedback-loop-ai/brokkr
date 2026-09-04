@@ -596,9 +596,6 @@ impl Engine {
         let mut context = Map::new();
         context.insert("run_id".into(), json!(self.run_id));
         context.insert("last_decision".into(), json!(state.last_decision));
-        if phase == "ship" {
-            context.insert("journal".into(), json!(self.store.path().to_string_lossy()));
-        }
         // Reforging (decision 0022): a seat the run RETURNS to receives
         // the result that sent it back — the review's findings,
         // severities and notes reach the implementer who has to answer
@@ -780,6 +777,15 @@ impl Engine {
             return Ok(());
         }
 
+        // The journal is an execution resource, not part of the durable seat
+        // request: equivalent --db spellings on resume must rebuild the same
+        // input digest. Only the deterministic ship script receives it.
+        let mut input = input;
+        if phase == "ship" {
+            input["context"]["journal"] =
+                Value::String(self.store.path().to_string_lossy().into_owned());
+        }
+
         let seat = self.bundle.seats[seat_name].clone();
         let attempt_id = Uuid::new_v4().to_string();
         let driver_label = match &seat.body {
@@ -800,6 +806,7 @@ impl Engine {
         // start, because the session question is asked of it: which
         // instance this attempt resolves to is part of what decides
         // whether a prior session may be handed back to it.
+        let runtime_hands = self.runtime_hands(seat_name);
         let single = match &seat.body {
             SeatBody::Single {
                 command, confine, ..
@@ -810,7 +817,7 @@ impl Engine {
                     &workdir,
                     &self.bundle.roots,
                 ),
-                self.bundle.hands.get(seat_name),
+                runtime_hands.as_ref(),
                 &workdir,
             )),
             _ => None,
@@ -894,6 +901,27 @@ impl Engine {
                 self.conclude_single(effect_id, &attempt_id, run, &selection)
             }
         }
+    }
+
+    /// A ship seat reads the already-open journal. When that journal is
+    /// outside the worktree (the ordinary same-realm fire), mount only its
+    /// parent and mount it read-only. This run-time resource is deliberately
+    /// absent from the manifest and the requested-input digest.
+    fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
+        let mut spec = self.bundle.hands.get(seat_name)?.clone();
+        if seat_name == "ship" {
+            let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
+            let journal = self.store.path();
+            if !journal.starts_with(&workdir) {
+                let parent = journal.parent().unwrap_or(journal);
+                spec.binds.push(brokkr_protocol::hands::Bind {
+                    path: parent.to_string_lossy().into_owned(),
+                    mode: brokkr_protocol::hands::BindMode::Ro,
+                    mask: Vec::new(),
+                });
+            }
+        }
+        Some(spec)
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
