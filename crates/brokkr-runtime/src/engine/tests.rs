@@ -2484,6 +2484,31 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     assert!(engine.runtime_hands("missing").is_none());
 }
 
+#[test]
+fn selected_ship_site_receives_the_runtime_journal_bind() {
+    use brokkr_protocol::hands::{BindMode, HandsSpec};
+
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .hands
+        .insert("ship:feature".into(), HandsSpec::default());
+
+    let hands = engine.runtime_hands("ship:feature").unwrap();
+    assert_eq!(hands.binds.len(), 1);
+    assert_eq!(hands.binds[0].mode, BindMode::Ro);
+    assert_eq!(
+        Path::new(&hands.binds[0].path),
+        engine
+            .store
+            .path()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+    );
+}
+
 fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
     let capabilities = wire(Body::Capabilities {
         driver: "test".into(),

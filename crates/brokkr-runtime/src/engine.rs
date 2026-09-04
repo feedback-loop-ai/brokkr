@@ -963,7 +963,10 @@ impl Engine {
     /// absent from the manifest and the requested-input digest.
     fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
         let mut spec = self.bundle.hands.get(seat_name)?.clone();
-        if seat_name == "ship" {
+        let phase = seat_name
+            .split_once(':')
+            .map_or(seat_name, |(phase, _)| phase);
+        if phase == "ship" {
             let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
             let journal =
                 std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());

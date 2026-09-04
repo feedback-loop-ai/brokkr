@@ -119,7 +119,7 @@ reducer decisions never read it.
 
 ```
 run/started            payload: { feature, manifest }
-phase/entered          payload: { phase, case? }
+phase/entered          payload: { phase }
 effect/requested       payload: { effect_id, phase, seat, idempotency_key, input_digest }
 effect/started         payload: { effect_id, attempt_id, driver }
 effect/checkpointed    payload: { effect_id, attempt_id, checkpoint }
