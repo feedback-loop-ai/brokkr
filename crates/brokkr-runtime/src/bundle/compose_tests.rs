@@ -170,11 +170,12 @@ fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
             "work": {"results":["complete"], "limits":{"max_attempts":1}, "select": {"on":"strategy", "cases": {
                 "chore": body("chore"), "feature": body("feature"),
                 "design": body("design"), "engine": body("engine")
-            }}},
+            }, "default":{"role":"roles/default.md", "driver":{"command":["default"]}}}},
             "review": seat(vec!["clean"])
         }
     });
-    library.recipe("base", &base, Some(&base_policy()));
+    let base_dir = library.recipe("base", &base, Some(&base_policy()));
+    std::fs::write(base_dir.join("roles/default.md"), "# base default\n").unwrap();
     let leaf = library.recipe(
         "derived",
         &derived(json!({
@@ -195,6 +196,21 @@ fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
     assert_ne!(
         resolved.case_origin["work:feature"], resolved.case_origin["work:chore"],
         "case provenance follows the layer that wrote that case"
+    );
+    assert_eq!(
+        resolved.seat_origin["work"], 1,
+        "a case-only override does not move the inherited seat or default"
+    );
+    let compiled = Bundle::compile(&leaf).unwrap();
+    let (selected, selected_case) = compiled.seats["work"].body.selected(None).unwrap();
+    assert_eq!(selected_case, Some("default"));
+    let ExecutableBody::Single { role_path, .. } = selected else {
+        panic!("the inherited default must stay a single seat")
+    };
+    assert_eq!(
+        role_path,
+        base_dir.join("roles/default.md"),
+        "the inherited default resolves against the layer that wrote it"
     );
 
     for (extra, expected) in [
@@ -218,6 +234,22 @@ fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
             json!({"override":{"limits":["work"]}, "seats":{"work":{"select":{"cases":{"feature":body("x")}}}}}),
             "does not redefine it",
         ),
+        (
+            json!({"override":{"cases":["work:chore"]}, "seats":{"work":{"select":{"cases":{"chore":body("x"), "feature":body("y")}}}}}),
+            "case 'feature' is not named by override.cases",
+        ),
+        (
+            json!({"override":{"cases":["work:feature"]}, "seats":{"work":{"select":{"on":"strategy", "cases":{"feature":body("x")}}}}}),
+            "partial case override may contain only select.cases",
+        ),
+        (
+            json!({"override":{"cases":["work:feature"]}, "seats":{"work":{"select":{"cases":{"feature":body("x")}}, "limits":{"max_attempts":3}}}}),
+            "member 'limits' is not covered by its partial override",
+        ),
+        (
+            json!({"override":{"limits":["work"]}, "seats":{"work":{"limits":{"max_attempts":3}, "select":{"cases":{"feature":body("x")}}}}}),
+            "member 'select' is not covered by its partial override",
+        ),
     ] {
         let bad = library.recipe("derived", &derived(extra), None);
         assert!(error(resolve(&bad)).contains(expected));
@@ -234,6 +266,22 @@ fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
     assert_eq!(
         resolve(&limits).unwrap().seats["work"]["limits"]["max_attempts"],
         3
+    );
+
+    let both = library.recipe(
+        "derived",
+        &derived(json!({
+            "override":{"cases":["work:feature"], "limits":["work"]},
+            "seats":{"work":{"select":{"cases":{"feature":body("replacement")}},
+                               "limits":{"max_attempts":4}}}
+        })),
+        None,
+    );
+    let both = resolve(&both).unwrap();
+    assert_eq!(both.seats["work"]["limits"]["max_attempts"], 4);
+    assert_eq!(
+        both.seats["work"].pointer("/select/cases/feature/driver/command/0"),
+        Some(&json!("replacement"))
     );
 
     let whole = library.recipe(

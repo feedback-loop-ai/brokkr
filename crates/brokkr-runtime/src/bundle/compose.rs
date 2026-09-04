@@ -635,6 +635,42 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
             if (!case_overrides.is_empty() || limits_override)
                 && !markers.overrides_name("seats", name)
             {
+                let own = value
+                    .as_object()
+                    .expect("validated partial override has an object seat");
+                for key in own.keys() {
+                    let covered = (key == "select" && !case_overrides.is_empty())
+                        || (key == "limits" && limits_override);
+                    if !covered {
+                        return Err(invalid(format!(
+                            "{}: seat '{name}' member '{key}' is not covered by its partial override; mark override.seats to replace the whole seat",
+                            layer.file.display()
+                        )));
+                    }
+                }
+                if !case_overrides.is_empty() {
+                    let own_select = own["select"]
+                        .as_object()
+                        .expect("validated case override has a select object");
+                    if own_select.keys().any(|key| key != "cases") {
+                        return Err(invalid(format!(
+                            "{}: seat '{name}' partial case override may contain only select.cases; mark override.seats to replace the whole seat",
+                            layer.file.display()
+                        )));
+                    }
+                    let own_cases = own_select["cases"]
+                        .as_object()
+                        .expect("validated case override has own cases");
+                    if let Some(case) = own_cases
+                        .keys()
+                        .find(|case| !case_overrides.contains(&case.as_str()))
+                    {
+                        return Err(invalid(format!(
+                            "{}: seat '{name}' case '{case}' is not named by override.cases; mark it or replace the whole seat",
+                            layer.file.display()
+                        )));
+                    }
+                }
                 let mut inherited = merged.seats[name].clone();
                 if !case_overrides.is_empty() {
                     let inherited_cases = inherited
@@ -663,8 +699,6 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
                         merged.case_from.insert(format!("{name}:{case}"), index);
                     }
                 }
-            }
-            if !limits_override || markers.overrides_name("seats", name) {
                 merged.seat_from.insert(name.clone(), index);
             }
         }
