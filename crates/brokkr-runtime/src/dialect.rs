@@ -260,21 +260,17 @@ impl Dialect {
             }
         }
         for instruction in self.instruction_paths() {
-            let candidate = Path::new(instruction);
             // A dialect is data that travels between machines, so this
-            // boundary is judged by the SPELLING, not by the host: on
-            // Windows `Path::is_absolute` is false for "/absolute.md"
-            // (no drive prefix), and a rule that reads differently on
-            // two platforms is not a boundary at all. `has_root` catches
-            // the leading separator everywhere, a `Prefix` component
-            // catches "C:\" and UNC, and the split catches "..".
+            // boundary is judged by the SPELLING, never by the host.
+            // `Path::is_absolute` answers differently on two platforms —
+            // "/absolute.md" is absolute on Linux and relative on Windows,
+            // which needs a drive prefix — and a boundary that reads two
+            // ways is not one. Every spelling below is refused everywhere.
             let first = instruction.split(['/', '\\']).next().unwrap_or_default();
             let drive_letter = first.len() == 2
                 && first.ends_with(':')
                 && first.starts_with(|c: char| c.is_ascii_alphabetic());
-            if candidate.is_absolute()
-                || candidate.has_root()
-                || instruction.starts_with('/')
+            if instruction.starts_with('/')
                 || instruction.starts_with('\\')
                 || drive_letter
                 || instruction
