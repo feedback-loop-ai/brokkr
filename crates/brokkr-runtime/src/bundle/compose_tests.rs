@@ -922,6 +922,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// nothing. A move here means composition changed a bundle it was never
 /// asked to touch — or the engine version did, which is the other thing
 /// a bundle's identity legitimately covers.
+/// Decision 0041 ruling 8 moves the agent-backed entries because their
+/// charters now contain only office text, and moves triage again because
+/// non-final sequence vocabularies are pinned in its manifest.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -929,11 +932,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "48cb2cc5b98b13dc8e3d82d5079ba4a758cc5a54c4cc83a0f2c1ee62fe809872",
+        "f10908e59552ce806b6dc4380bcee40486c10ddd2889a8fa13022d6e3c28fefa",
     ),
     (
         "bundles/self",
-        "082703fbd780eca8cc35b5faf037b3476782566b408c39145467e614e0ed8b3e",
+        "b93244881944f64970cbc05119a59c10cdacd73928a38e1f1f5a92b697b74474",
     ),
     (
         "bundles/verify",
@@ -1050,7 +1053,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        "7196ca0d79894058fd613ae64b48daf7e31079c0815f1927a1ce4cfabce8850d",
+        "612613375122a4d6a8cac4bcc07fbcb9d7ae892c50a34d051b3012c1b2ba9a55",
         "ruling 7 pins every selected case in triage's identity"
     );
 

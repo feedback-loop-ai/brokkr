@@ -34,6 +34,8 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 path: ".".to_string(),
                 default_branch: "main".to_string(),
                 journal: None,
+                house: None,
+                dialect: None,
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -90,13 +92,14 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v3"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v4"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v3'"),
+        refusal.contains("it calls itself 'forge.realms/v4'"),
         "{refusal}"
     );
     assert!(refusal.contains(SCHEMA_V1), "{refusal}");
     assert!(refusal.contains(SCHEMA_V2), "{refusal}");
+    assert!(refusal.contains(SCHEMA_V3), "{refusal}");
 }
 
 #[test]
@@ -233,6 +236,65 @@ fn a_v2_realm_with_an_empty_journal_is_refused() {
         refusal.contains("realm 'alpha' has an empty journal"),
         "{refusal}"
     );
+}
+
+#[test]
+fn a_v3_map_loads_both_realm_text_declarations_while_v2_stays_unchanged() {
+    let v3 = json!({
+        "schema": SCHEMA_V3,
+        "realms": [{"name": "app", "path": ".", "default_branch": "main",
+                    "house": "HOUSE.md", "dialect": "openspec"}],
+        "journal": ".forge/forge.db"
+    });
+    let map = RealmMap::of("realms.json", v3).unwrap().0;
+    assert_eq!(map.realms[0].house.as_deref(), Some("HOUSE.md"));
+    assert_eq!(map.realms[0].dialect.as_deref(), Some("openspec"));
+
+    let v2 = many();
+    assert!(v2
+        .realms
+        .iter()
+        .all(|realm| realm.house.is_none() && realm.dialect.is_none()));
+}
+
+#[test]
+fn house_and_dialect_are_v3_vocabulary_and_may_not_be_empty() {
+    for field in ["house", "dialect"] {
+        let refusal = with(|map| map["realms"][0][field] = json!("value"));
+        assert!(refusal.contains(SCHEMA_V3), "{field}: {refusal}");
+
+        let mut v3: Value = serde_json::from_str(MAP).unwrap();
+        v3["schema"] = json!(SCHEMA_V3);
+        v3["realms"][0][field] = json!("  ");
+        let refusal = RealmMap::of("realms.json", v3).unwrap_err().to_string();
+        assert!(refusal.contains(&format!("empty {field}")), "{refusal}");
+    }
+}
+
+#[test]
+fn realm_text_declarations_cannot_leave_the_repository() {
+    for value in [
+        "/house.md",
+        "\\house.md",
+        "C:/house.md",
+        "C:\\house.md",
+        "../house.md",
+        "docs/../house.md",
+    ] {
+        for field in ["house", "dialect"] {
+            let mut map = json!({
+                "schema": SCHEMA_V3,
+                "realms": [{"name": "app", "path": ".", "default_branch": "main"}],
+                "journal": "forge.db"
+            });
+            map["realms"][0][field] = json!(value);
+            let refusal = RealmMap::of("realms.json", map).unwrap_err().to_string();
+            assert!(
+                refusal.contains(&format!("non-repository-relative {field}")),
+                "{value:?}: {refusal}"
+            );
+        }
+    }
 }
 
 /// Names, paths and branches are held to the same rules under v2 — the

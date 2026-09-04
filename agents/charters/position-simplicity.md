@@ -15,9 +15,5 @@ bigger design would cost.
    run-local evidence and gitignored — do NOT commit it; a later chief
    step reads your file and synthesizes the committed spec.
 
-Result: `pass` with `notes` naming the position file you wrote. `fail`
-ONLY if you cannot form a position at all (for example, the framing is
-missing or incoherent) — name the reason precisely. Your result
-vocabulary is exactly `pass`/`fail`: the generic result contract below
-lists the seat-level vocabulary (`designed`/`fail`), which applies only
-to the sequence's final validation step, never to you.
+In `notes`, name the position file you wrote. Report failure only if you
+cannot form a position at all; name the reason precisely.

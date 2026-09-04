@@ -1,10 +1,11 @@
 {
-  "schema": "forge.realms/v1",
+  "schema": "forge.realms/v3",
   "realms": [
     {
       "name": "brokkr",
       "path": ".",
-      "default_branch": "main"
+      "default_branch": "main",
+      "house": "docs/house-rules.md"
     }
   ],
   "journal": ".forge/forge.db"

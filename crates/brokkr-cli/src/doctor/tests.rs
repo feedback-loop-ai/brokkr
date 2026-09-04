@@ -49,6 +49,79 @@ fn shipped(dir: &Path, probe: fn(&str) -> Option<String>) -> Report {
 }
 
 #[test]
+fn doctor_reports_a_declared_house_that_cannot_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        serde_json::to_vec(&json!({
+            "schema": "forge.realms/v3",
+            "realms": [{"name": "app", "path": ".", "default_branch": "main",
+                        "house": "missing.md"}],
+            "journal": ".forge/forge.db"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house(&mut report, dir.path());
+    assert!(!report.healthy);
+    assert!(report
+        .render()
+        .contains("MISSING  house rules: realm 'app' names house"));
+}
+
+#[test]
+fn doctor_reports_readable_and_absent_house_declarations() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house(&mut report, dir.path());
+    assert_eq!(
+        report.render(),
+        "ok       house rules: no realms map; none declared"
+    );
+
+    std::fs::write(dir.path().join("HOUSE.md"), "A readable house.\n").unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        serde_json::to_vec(&json!({
+            "schema": "forge.realms/v3",
+            "realms": [{"name": "app", "path": ".", "default_branch": "main",
+                        "house": "HOUSE.md"}],
+            "journal": ".forge/forge.db"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house(&mut report, dir.path());
+    assert!(report.healthy);
+    assert_eq!(
+        report.render(),
+        "ok       house rules: 1 realm declaration(s) readable"
+    );
+}
+
+#[test]
+fn public_doctor_includes_the_workspace_house_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = doctor(
+        None,
+        &dir.path().join("forge.db"),
+        &dir.path().join("secrets.env"),
+    );
+    assert!(report.render().contains("house rules:"));
+}
+
+#[test]
 fn report_and_tool_probe_expose_all_health_states() {
     let mut report = Report {
         healthy: true,

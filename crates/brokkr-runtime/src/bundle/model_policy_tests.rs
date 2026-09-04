@@ -1607,7 +1607,7 @@ fn a_seat_that_bears_no_driver_may_not_carry_a_class() {
     let refusal = fixture.refusal(json!({
         "results": ["pass", "fail"],
         "sequence": [
-            {"name": "first", "role": "roles/role.md",
+            {"name": "first", "results": ["pass", "fail"], "role": "roles/role.md",
              "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
             {"name": "second", "class": "gate", "aggregate": "unanimous-pass",
              "panel": {
@@ -1687,7 +1687,7 @@ fn a_panel_member_and_a_sequence_step_have_their_own_narrower_vocabulary() {
     let refusal = fixture.refusal(json!({
         "results": ["pass", "fail"],
         "sequence": [
-            {"name": "first", "role": "roles/role.md",
+            {"name": "first", "results": ["pass", "fail"], "role": "roles/role.md",
              "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
             {"name": "second", "clas": "gate", "role": "roles/role.md",
              "driver": {"command": ["{brokkr}", "driver", "judge", "--", "true"]}},
@@ -1747,7 +1747,7 @@ fn a_sequence_step_is_classed_and_refused_on_its_own() {
     let refusal = fixture.refusal(json!({
         "results": ["pass", "fail"],
         "sequence": [
-            {"name": "positions", "class": "work", "role": "roles/role.md",
+            {"name": "positions", "results": ["pass", "fail"], "class": "work", "role": "roles/role.md",
              "driver": {"command": ["{brokkr}", "driver", "newcomer", "--", "true"]}},
             {"name": "chief", "class": "gate", "role": "roles/role.md",
              "driver": {"command": ["{brokkr}", "driver", "newcomer", "--", "true"]}},
@@ -2349,6 +2349,7 @@ fn hands_are_recorded_under_the_sites_the_engine_labels() {
     let exec = |name: &str| {
         json!({
             "name": name,
+            "results": ["pass", "fail"],
             "role": "roles/role.md",
             "class": "gate",
             "hands": "workspace",

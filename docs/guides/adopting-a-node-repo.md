@@ -11,7 +11,7 @@ copy to keep true. What is Node-specific is on this page:
 
 - [What you are granting](#what-you-are-granting) — read this before
   anything else
-- [The four files your repo needs](#the-four-files-your-repo-needs)
+- [The five files your repo needs](#the-five-files-your-repo-needs)
 - [Your `realms.json`](#your-realmsjson) — flow 3's one added step
 - [What each seat runs](#what-each-seat-runs)
 - [Fitting the recipe to your repo](#fitting-the-recipe-to-your-repo)
@@ -63,7 +63,7 @@ Two consequences worth holding:
 Run it against a repository whose dependency tree you would install by
 hand.
 
-## The four files your repo needs
+## The five files your repo needs
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
@@ -73,6 +73,7 @@ your-node-repo/
 ├── recipes/node/          # the recipe: bundle.json, policy.json, roles/
 ├── adapters/claude.json   # which drivers your world trusts
 ├── realms.json            # the world this invocation opens
+├── docs/house-rules.md     # this repository's conventions
 └── .gitignore             # + a line for .forge/
 ```
 
@@ -135,25 +136,30 @@ pays nothing for the shape. Write this at your repository root:
 
 ```json
 {
-  "schema": "forge.realms/v1",
+  "schema": "forge.realms/v3",
   "realms": [
     {
       "name": "my-app",
       "path": ".",
-      "default_branch": "main"
+      "default_branch": "main",
+      "house": "docs/house-rules.md"
     }
   ],
   "journal": ".forge/forge.db"
 }
 ```
 
-Three fields per realm, all required: a `name` (lowercase, the key every
+Three fields per realm remain required: a `name` (lowercase, the key every
 per-realm fact is recorded under), a `path` (relative to the map file,
 so the map travels with the workspace), and the `default_branch` this
 realm's work is measured against. Paths and the `journal` are relative
-to the map file's own directory. The schema refuses unknown fields —
-`contracts/realms.v1.schema.json` is frozen, and a later addition
-arrives as a new version, never as drift.
+to the map file's own directory. The v3 map adds optional `house` and
+`dialect` fields without changing v1 or v2. Copy
+[the Node house starter](starters/node-house-rules.md) to
+`docs/house-rules.md` and tailor its commands to the scripts your repository
+actually exposes. A named house is required to exist; `brokkr doctor` reports
+it as a realm defect before a seat starts. The engine pins its digest and
+renders its text between the portable charter and run context.
 
 `brokkr run` and the read surfaces default to `./realms.json` when there
 is one. Check what yours says:

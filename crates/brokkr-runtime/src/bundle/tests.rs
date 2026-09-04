@@ -246,7 +246,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             dir,
             "review",
             &raw,
-            Some(&results),
+            &results,
             &[],
             &mut None,
             &mut BTreeMap::new()
@@ -264,7 +264,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         "review",
         &panel,
-        Some(&[]),
+        &[],
         &[],
         &mut None,
         &mut BTreeMap::new()
@@ -275,7 +275,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             dir,
             "review",
             &panel,
-            Some(&results),
+            &results,
             &[],
             &mut None,
             &mut BTreeMap::new()

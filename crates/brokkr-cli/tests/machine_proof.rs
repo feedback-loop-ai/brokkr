@@ -397,13 +397,15 @@ impl Workspace {
         let mut config: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let driver = config["seats"][phase]["driver"].clone();
+        let seat_results = config["seats"][phase]["results"].clone();
         let steps: Vec<Value> = specs
             .iter()
             .map(|spec| {
                 let name = spec["name"].as_str().unwrap();
                 match spec.get("members") {
                     None => json!({
-                        "name": name, "role": "roles/role.md", "driver": driver.clone(),
+                        "name": name, "results": seat_results.clone(),
+                        "role": "roles/role.md", "driver": driver.clone(),
                     }),
                     Some(members) => {
                         let mut panel = serde_json::Map::new();
@@ -415,6 +417,10 @@ impl Workspace {
                         }
                         json!({
                             "name": name,
+                            "results": match spec["aggregate"].as_str() {
+                                Some("review-panel") => json!(["clean", "residual", "security-hold"]),
+                                _ => json!(["pass", "fail"]),
+                            },
                             "panel": panel,
                             "aggregate": spec["aggregate"],
                         })

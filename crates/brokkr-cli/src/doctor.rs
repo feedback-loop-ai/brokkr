@@ -269,7 +269,7 @@ fn ambient_variable(name: &str) -> bool {
 }
 
 pub fn doctor(bundle: Option<&Path>, db: &Path, secrets_store: &Path) -> Report {
-    doctor_with_probe(
+    let mut report = doctor_with_probe(
         bundle,
         db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
@@ -277,7 +277,29 @@ pub fn doctor(bundle: Option<&Path>, db: &Path, secrets_store: &Path) -> Report 
         secrets_store,
         tool_version,
         ambient_variable,
-    )
+    );
+    let workspace = std::env::current_dir().unwrap_or_default();
+    report_realm_house(&mut report, &workspace);
+    report
+}
+
+fn report_realm_house(report: &mut Report, workspace: &Path) {
+    match brokkr_runtime::realms::World::discover(workspace, None) {
+        Ok(Some(world)) => {
+            let houses = world
+                .map
+                .realms
+                .iter()
+                .filter(|realm| realm.house.is_some())
+                .count();
+            report.ok(
+                "house rules",
+                format!("{houses} realm declaration(s) readable"),
+            );
+        }
+        Ok(None) => report.ok("house rules", "no realms map; none declared".into()),
+        Err(error) => report.missing("house rules", error.to_string()),
+    }
 }
 
 fn doctor_with_probe(

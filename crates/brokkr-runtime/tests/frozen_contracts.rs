@@ -108,6 +108,7 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         // `forge.realms/v2`, a new file beside v1 — whose bytes are
         // pinned below and did not move.
         ("contracts/realms.v2.schema.json", "Forge realms map v2"),
+        ("contracts/realms.v3.schema.json", "Forge realms map v3"),
         // Decision 0034 freezes the previously conventional accounting
         // record as its own v1 contract; no older frozen file moves.
         (
@@ -132,6 +133,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/run-manifest.v7.schema.json",
             "Forge run manifest v7",
+        ),
+        (
+            "contracts/run-manifest.v8.schema.json",
+            "Forge run manifest v8",
         ),
         (
             "contracts/phase-entered-case.v1.schema.json",

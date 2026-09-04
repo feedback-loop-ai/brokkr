@@ -23,35 +23,37 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// The current bytes of every shared charter.
+/// The current bytes of every shared charter. Decision 0041 ruling 8 moves
+/// the affected witnesses because repository rules left the office text and
+/// the three sequence disclaimers disappeared.
 const CHARTERS: [(&str, &str); 13] = [
     (
         "chief-architect.md",
-        "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
+        "e19bd5d3315c1b8de910c83b810ef5a4d038918588a78f4b7473608d743683fa",
     ),
     (
         "implementer-speckit.md",
-        "5853f85c7e8ee053b8085af1610c59dd455d15216b70490e80bae533835039a0",
+        "b25c9887f64c526f3e544bd2cba6d8aae504a1b6b85c09bfd1214d07dd556a3a",
     ),
     (
         "implementer.md",
-        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
+        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
         "intake-speckit.md",
-        "2fb2a1685da166fc0c4dc519a711913f81fff451a441f6f3572abac73ddf23d1",
+        "c2827f036df66b99ad8c33f3956728d255064297be052ccbfcf57ec2fa60a6b6",
     ),
     (
         "intake.md",
-        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
+        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
     ),
     (
         "position-robustness.md",
-        "f96e146711c0567ef7c93511a13d5bfbc1414ef7335f3df447ccbc6d83b79927",
+        "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
     ),
     (
         "position-simplicity.md",
-        "d00dfc71d5fbcfd619f72b554747dbc1b2cd318c4b1fee4678dbd6a710a9cddf",
+        "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
     ),
     (
         "review-correctness.md",
@@ -63,7 +65,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "review-chief.md",
-        "313c247e6c7b187423a7f47b17e655bde827982688939bd4c5fc8bfe3f367297",
+        "72aa9dcee51170ef932661db045a3acc40e7af47fc9f68271c00fa15f943ddec",
     ),
     (
         "review-security.md",

@@ -92,6 +92,19 @@ many-hearth world is several append-only truths read side by side, so `runs`
 groups by realm, `tui` tabs by realm, and `muninn` cites the realm each fact
 came from — and no fold ever crosses a journal boundary.
 
+Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
+
+`forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
+house is a repository-relative Markdown file; its content and digest are
+pinned inside the run's realms pin and rendered into every seat prompt. A
+dialect is a library name or repository-relative path. This slice accepts and
+pins that declaration but does not interpret it. A v2 map remains byte- and
+behavior-compatible.
+
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six
 named keys, so the pin would be dropped in silence. `brokkr run` refuses
@@ -184,7 +197,20 @@ above:
 | Contract | File | Consumers |
 |---|---|---|
 | Run manifest with the boxed-hands sites | `run-manifest.v6.schema.json` | brokkr-runtime, every bundle whose seats declare `hands` |
+
+Decision 0041 adds two further manifest versions, again beside the frozen
+ones:
+
+| Contract | File | Consumers |
+|---|---|---|
 | Run manifest with strategy-selected cases | `run-manifest.v7.schema.json` | brokkr-runtime, every bundle whose seats declare `select` |
+| Run manifest with per-step result vocabularies | `run-manifest.v8.schema.json` | brokkr-runtime, prompt assembly for sequence steps |
+
+The house and dialect pins fit additively inside v7's deliberately open
+`realms` object. The manifest version advances because v7 closes each sequence
+step and cannot carry a non-final step's new `results` array. Under v8, a
+non-final step receives that vocabulary; a final step receives the enclosing
+seat's vocabulary.
 
 `forge.phase-machine/v2` is `v1` plus exactly one thing: a rule may rule a
 PARK instead of naming a `next` phase. The event vocabulary needs nothing —

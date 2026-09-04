@@ -47,7 +47,7 @@
           },
           "design": {
             "sequence": [
-              {"name": "positions", "aggregate": "review-panel", "panel": {
+              {"name": "positions", "results": ["clean", "residual", "security-hold"], "aggregate": "review-panel", "panel": {
                 "correctness": {"agent": "review-correctness", "class": "gate"},
                 "security": {"agent": "review-security", "class": "gate"},
                 "spec-compliance": {"agent": "review-spec-compliance", "class": "gate"}
@@ -57,7 +57,7 @@
           },
           "engine": {
             "sequence": [
-              {"name": "positions", "aggregate": "review-panel", "panel": {
+              {"name": "positions", "results": ["clean", "residual", "security-hold"], "aggregate": "review-panel", "panel": {
                 "adversarial": {"agent": "review-adversarial", "class": "gate"},
                 "correctness": {"agent": "review-correctness", "class": "gate"},
                 "security": {"agent": "review-security", "class": "gate"},
@@ -81,6 +81,7 @@
       "sequence": [
         {
           "name": "positions",
+          "results": ["pass", "fail"],
           "aggregate": "unanimous-pass",
           "panel": {
             "simplicity": {
@@ -95,6 +96,7 @@
         },
         {
           "name": "chief",
+          "results": ["drafted"],
           "agent": "chief-architect",
           "class": "work"
         },

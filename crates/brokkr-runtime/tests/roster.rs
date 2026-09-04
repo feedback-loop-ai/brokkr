@@ -25,6 +25,34 @@ fn names_word(text: &str, word: &str) -> bool {
         .any(|candidate| candidate == word)
 }
 
+/// A charter is an office; the house is the realm's. Library charters
+/// therefore cannot smuggle this repository's paths or commands into every
+/// adopter's prompt. Recipe-local roles are intentionally outside this walk.
+#[test]
+fn library_charters_name_no_repository_tokens() {
+    let root = workspace().join("agents/charters");
+    let forbidden = [
+        "cargo",
+        "crates/",
+        "bundles/self",
+        "decision 00",
+        "policy/",
+        "fixtures/",
+        "contracts/",
+    ];
+    for entry in std::fs::read_dir(&root).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        let lowered = text.to_ascii_lowercase();
+        for token in forbidden {
+            assert!(
+                !lowered.contains(token),
+                "{} names repository token {token:?}",
+                entry.path().display()
+            );
+        }
+    }
+}
+
 fn walk<'a>(
     value: &'a Value,
     path: &mut Vec<String>,
@@ -112,6 +140,7 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         "max" => 6,
         other => panic!("unknown effort {other}"),
     };
+    let house = std::fs::read_to_string(root.join("docs/house-rules.md")).unwrap();
     for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
         if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
@@ -136,7 +165,7 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         if let Some(allow) = agent.pointer("/tools/allow").and_then(Value::as_array) {
             for tool in allow.iter().filter_map(Value::as_str) {
                 assert!(
-                    names_word(&charter, tool),
+                    names_word(&charter, tool) || names_word(&house, tool),
                     "{} grants unused tool {tool}",
                     entry.path().display()
                 );
@@ -260,6 +289,9 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                 );
             } else {
                 let scripts = Path::new("scripts").join("verify-seat.sh");
+                // The recipe-local exception is Node's verifier: its npm
+                // sequence is a different office, not a library charter with
+                // house prose left in it.
                 let roles = Path::new("roles").join("verify-seat.sh");
                 assert!(
                     script == Some(scripts.as_path()) || script == Some(roles.as_path()),

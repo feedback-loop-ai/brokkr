@@ -5,6 +5,8 @@
 //! Rulings 4 and 5 move the charter witnesses again: judges no longer fix,
 //! implementers answer returned findings, and spec compliance can return a
 //! defective specification to design.
+//! Ruling 8 moves the affected charter witnesses once more: repository rules
+//! now come from the realm's house rather than the portable office.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -96,12 +98,12 @@ const PANEL_REVIEW: &Roster = &[
     (
         "intake",
         "claude-sonnet-5",
-        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
+        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
     ),
     (
         "implement",
         "claude-opus-5",
-        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
+        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
         "review:correctness",
@@ -119,7 +121,7 @@ const TRIAGE: &Roster = &[
     (
         "implement:design",
         "claude-opus-5",
-        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
+        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
         "review:design:positions:spec-compliance",
@@ -134,29 +136,29 @@ const TRIAGE: &Roster = &[
     (
         "design:chief",
         "claude-fable-5-1",
-        "757657c88e0f0b6f48763b836e1e2648e794d5408452dc030138401a5820d60d",
+        "e19bd5d3315c1b8de910c83b810ef5a4d038918588a78f4b7473608d743683fa",
     ),
     (
         "design:positions:simplicity",
         "claude-opus-5",
-        "d00dfc71d5fbcfd619f72b554747dbc1b2cd318c4b1fee4678dbd6a710a9cddf",
+        "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
     ),
     (
         "design:positions:robustness",
         "gpt-5.6-sol",
-        "f96e146711c0567ef7c93511a13d5bfbc1414ef7335f3df447ccbc6d83b79927",
+        "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
     ),
 ];
 const SELF: &Roster = &[
     (
         "intake",
         "claude-sonnet-5",
-        "2ee39f00481d3650d945174fc0aabe11ccd82057352116c5c112ef224b1b4168",
+        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
     ),
     (
         "implement",
         "claude-opus-5",
-        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
+        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
         "review",

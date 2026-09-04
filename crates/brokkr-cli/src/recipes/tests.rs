@@ -22,6 +22,7 @@ fn bundle_with_sequence() -> Bundle {
                 steps: vec![
                     SequenceStep {
                         name: "draft".into(),
+                        results: vec!["drafted".into()],
                         class: brokkr_runtime::SeatClass::Work,
                         body: StepBody::Single {
                             role_path: "role.md".into(),
@@ -32,6 +33,7 @@ fn bundle_with_sequence() -> Bundle {
                     },
                     SequenceStep {
                         name: "verify".into(),
+                        results: vec!["pass".into()],
                         class: brokkr_runtime::SeatClass::Work,
                         body: StepBody::Single {
                             role_path: "role.md".into(),

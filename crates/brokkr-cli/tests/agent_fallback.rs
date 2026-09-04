@@ -443,7 +443,7 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
             "results": ["complete"],
             "limits": {"max_attempts": 1, "timeout_seconds": 60},
             "sequence": [
-                {"name": "think", "agent": "thinker"},
+                {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
                 {"name": "check", "role": "../agents/charters/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "driver", "exec", "--",
@@ -502,7 +502,7 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
             "results": ["complete"],
             "limits": {"max_attempts": 2, "timeout_seconds": 60},
             "sequence": [
-                {"name": "think", "agent": "thinker"},
+                {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
                 {"name": "echo", "role": "../agents/charters/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "fake-driver",

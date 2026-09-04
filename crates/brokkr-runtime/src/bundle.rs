@@ -213,6 +213,9 @@ impl SeatBody {
 pub struct SequenceStep {
     pub name: String,
     pub class: SeatClass,
+    /// A non-final step's own closed vocabulary. The final step is the
+    /// seat boundary and therefore receives the seat's vocabulary.
+    pub results: Vec<String>,
     pub body: StepBody,
 }
 
@@ -934,15 +937,8 @@ impl Bundle {
                     candidates: agent_seat.candidates.clone(),
                 }
             } else if has_panel {
-                let (members, aggregate) = parse_panel(
-                    dir,
-                    phase,
-                    raw,
-                    Some(&results),
-                    &secrets,
-                    &mut agents,
-                    &mut hands,
-                )?;
+                let (members, aggregate) =
+                    parse_panel(dir, phase, raw, &results, &secrets, &mut agents, &mut hands)?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
@@ -1418,6 +1414,7 @@ const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands"];
 /// the two a step needs to be a panel of its own.
 const STEP_KEYS: &[&str] = &[
     "name",
+    "results",
     "class",
     "agent",
     "role",
@@ -1831,8 +1828,7 @@ fn parse_selected_body(
         };
         Ok(body)
     } else if has_panel {
-        let (members, aggregate) =
-            parse_panel(dir, what, raw, Some(results), secrets, agents, hands)?;
+        let (members, aggregate) = parse_panel(dir, what, raw, results, secrets, agents, hands)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
@@ -1954,7 +1950,7 @@ fn parse_panel(
     dir: &Path,
     what: &str,
     raw: &Value,
-    declared_results: Option<&[String]>,
+    declared_results: &[String],
     secrets: &[String],
     agents: &mut Option<AgentContext>,
     hands: &mut BTreeMap<String, HandsSpec>,
@@ -1997,14 +1993,12 @@ fn parse_panel(
              unanimous-pass, review-panel"
         ))
     })?;
-    if let Some(results) = declared_results {
-        for required in aggregate.required_results() {
-            if !results.iter().any(|r| r == required) {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' aggregate '{aggregate_name}' can emit \
-                     '{required}' but the seat does not declare it"
-                )));
-            }
+    for required in aggregate.required_results() {
+        if !declared_results.iter().any(|r| r == required) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' aggregate '{aggregate_name}' can emit \
+                 '{required}' but the seat does not declare it"
+            )));
         }
     }
     let mut members = Vec::with_capacity(members_raw.len());
@@ -2113,6 +2107,37 @@ fn parse_sequence(
             )));
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
+        let final_step = index + 1 == steps_raw.len();
+        let step_results = if final_step {
+            results.to_vec()
+        } else if let Some(aggregate) = step_raw
+            .get("aggregate")
+            .and_then(Value::as_str)
+            .and_then(Aggregate::parse)
+        {
+            aggregate
+                .required_results()
+                .iter()
+                .map(|result| (*result).to_string())
+                .collect()
+        } else {
+            step_raw
+                .get("results")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|values| !values.is_empty())
+                .ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "sequence step '{what}' needs its own non-empty 'results' vocabulary"
+                    ))
+                })?
+        };
         let mut agent_hands = None;
         let body = if has_agent {
             let resolved =
@@ -2125,16 +2150,8 @@ fn parse_sequence(
                 candidates: resolved.candidates,
             }
         } else if has_panel {
-            let final_step = index + 1 == steps_raw.len();
-            let (members, aggregate) = parse_panel(
-                dir,
-                &what,
-                step_raw,
-                final_step.then_some(results),
-                secrets,
-                agents,
-                hands,
-            )?;
+            let (members, aggregate) =
+                parse_panel(dir, &what, step_raw, &step_results, secrets, agents, hands)?;
             StepBody::Panel { members, aggregate }
         } else {
             StepBody::Single {
@@ -2158,6 +2175,7 @@ fn parse_sequence(
             } else {
                 SeatClass::Work
             },
+            results: step_results,
             body,
         });
     }

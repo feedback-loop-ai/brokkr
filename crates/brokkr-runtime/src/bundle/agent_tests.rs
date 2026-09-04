@@ -359,7 +359,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
         config["seats"]["work"] = json!({
             "results": ["complete"],
             "sequence": [
-                {"name": "first", "agent": agent},
+            {"name": "first", "results": ["complete"], "agent": agent},
                 {"name": "second", "role": "../agents/charters/work.md",
                  "driver": {"command": ["driver"]}},
             ],
@@ -374,7 +374,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
     config["seats"]["work"] = json!({
         "results": ["complete"],
         "sequence": [
-            {"name": "first", "agent": "worker", "panel": {}},
+            {"name": "first", "results": ["complete"], "agent": "worker", "panel": {}},
             {"name": "second", "role": "../agents/charters/work.md",
              "driver": {"command": ["driver"]}},
         ],
@@ -385,7 +385,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
     config["seats"]["work"] = json!({
         "results": ["complete"],
         "sequence": [
-            {"name": "first", "agent": "worker", "role": "x"},
+            {"name": "first", "results": ["complete"], "agent": "worker", "role": "x"},
             {"name": "second", "role": "../agents/charters/work.md",
              "driver": {"command": ["driver"]}},
         ],

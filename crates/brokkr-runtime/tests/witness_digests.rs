@@ -119,6 +119,9 @@ fn workspace() -> PathBuf {
 /// Decision 0041 ruling 6 adds the routing witness: the routing recipe's
 /// identity includes the triage office, routing table, current design
 /// council, and Fast as its composed base.
+/// Ruling 8 moves the routing descendants because triage now pins each
+/// non-final sequence step's result vocabulary. House rules do not move a
+/// bundle identity: they belong to the realm pin.
 const WITNESSES: [(&str, &str); 7] = [
     (
         "recipes/fast",
@@ -134,7 +137,7 @@ const WITNESSES: [(&str, &str); 7] = [
     ),
     (
         "recipes/night-shift",
-        "c729d441611b30c9567f91b5b6ac5ea4657447de7988488e158b577d2c1ff182",
+        "d7c8b29698572b8861ec670f865ebe9bd571ddaa5edfd5f5aef8ef6c0fda3f0c",
     ),
     (
         "recipes/wager-harness",
@@ -142,7 +145,7 @@ const WITNESSES: [(&str, &str); 7] = [
     ),
     (
         "recipes/triage",
-        "7196ca0d79894058fd613ae64b48daf7e31079c0815f1927a1ce4cfabce8850d",
+        "612613375122a4d6a8cac4bcc07fbcb9d7ae892c50a34d051b3012c1b2ba9a55",
     ),
     (
         "bundles/verify",

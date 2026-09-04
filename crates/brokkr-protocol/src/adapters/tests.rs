@@ -103,6 +103,21 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert!(prompt.contains("clean, residual"));
     assert!(prompt.contains("\"fact\": true"));
 
+    let housed = compose_prompt(&json!({
+        "role_path": role,
+        "house_rules": "Keep the tree green.",
+        "feature": "feature",
+        "phase": "review",
+        "workdir": "/work",
+        "result_path": "/result.json",
+        "context": {},
+        "allowed_results": ["clean"],
+    }));
+    assert_eq!(housed.matches("## House rules").count(), 1);
+    assert!(housed.find("trusted role").unwrap() < housed.find("## House rules").unwrap());
+    assert!(housed.find("## House rules").unwrap() < housed.find("## Task").unwrap());
+    assert!(!prompt.contains("## House rules"));
+
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted = Vec::new();
