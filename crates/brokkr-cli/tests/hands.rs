@@ -307,6 +307,44 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
     }
 }
 
+/// Compile and execute a shipped exec site, not a hand-built `hands exec`
+/// argv. The repository deliberately has no scripts directory: reaching the
+/// terminal verify-fail rule proves the `./` entry resolved through the
+/// shipped bundle root inside the box and wrote a valid result.
+#[test]
+fn a_shipped_compiled_exec_site_runs_its_script_outside_the_worktree() {
+    if !can_create_namespace() {
+        return;
+    }
+    let work = verifier_workspace();
+    std::fs::remove_dir_all(work.path().join("scripts")).unwrap();
+    std::fs::write(work.path().join("FAIL"), "select the named failing test\n").unwrap();
+    let journal = tempfile::tempdir().unwrap();
+    let root = workspace().canonicalize().unwrap();
+    let output = Command::new(brokkr_bin())
+        .args([
+            "run",
+            "--bundle",
+            root.join("bundles/verify").to_str().unwrap(),
+            "--feature",
+            "prove the shipped bundle script mount",
+            "--db",
+            journal.path().join("canonical.db").to_str().unwrap(),
+            "--repo",
+            work.path().to_str().unwrap(),
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn ship_seat_exits_nonzero_when_ledger_generation_fails() {
     let work = tempfile::tempdir().unwrap();

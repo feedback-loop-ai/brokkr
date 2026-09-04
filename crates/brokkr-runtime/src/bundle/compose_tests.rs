@@ -777,6 +777,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// The boxed-gate correction moves the five again because each exec
 /// script is now explicitly bundle-relative and travels through the
 /// read-only bundle mount instead of being mistaken for repository data.
+/// The returned implementation moves them once more because the scripts
+/// themselves now live under, and are digested with, the roots that own
+/// those commands.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -785,23 +788,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "c279eced20598ead18c9c0da430d175cc4ffee8faad293de01782a162cf0177a",
+        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
     ),
     (
         "recipes/panel-review",
-        "8f836bfdeface2fcafb1df7877ced6c17521361fa0c1bad26cede6fc4384bbb4",
+        "48cb2cc5b98b13dc8e3d82d5079ba4a758cc5a54c4cc83a0f2c1ee62fe809872",
     ),
     (
         "recipes/sdd",
-        "4cd5f206b0a65bdfee35de62081b21d350a7b7a2e3af97d3eaee68ed9890fc4d",
+        "e39e4993379cccb512c00e2f19bac280b96d3802ad300a885c5774147a82119c",
     ),
     (
         "bundles/self",
-        "90d2e719d695aa9f3aeea674f7c66fd3291aaee7d56830db3ac385b6939ff59b",
+        "082703fbd780eca8cc35b5faf037b3476782566b408c39145467e614e0ed8b3e",
     ),
     (
         "bundles/verify",
-        "17c381d160c2264a93cc1ebc8683c2c8853b726fa5378ec736e93ad4a6d58528",
+        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
     ),
 ];
 
@@ -932,7 +935,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "f95c949dbc5f954e9b0dc529e559ac18219cdd8fa6b85a9aac056a852d08c95a",
+        "488518ab6551de3ba49329f851acc094e7022810872404590d34d8455f82a4b0",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -953,6 +956,8 @@ fn a_composed_bundles_manifest_is_pinned() {
          this review return moves it because ship sheds unused toolchain \
          binds, and this correction moves it because the inherited exec \
          scripts become bundle-relative and cross the read-only bundle mount; \
+         the returned implementation moves it again because those inherited \
+         scripts now exist inside, and are digested with, the base root; \
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

@@ -229,6 +229,16 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             };
             assert!(candidates.is_empty(), "{name}:{phase} seats no model");
             assert_eq!(&command[1..4], ["driver", "exec", "--"], "{name}:{phase}");
+            let resolved_script = Path::new(
+                command
+                    .get(5)
+                    .unwrap_or_else(|| panic!("{name}:{phase} has no script argv")),
+            );
+            assert!(
+                resolved_script.is_file(),
+                "{name}:{phase} resolved script exists: {}",
+                resolved_script.display()
+            );
             if let Some(source_script) = source
                 .pointer(&format!("/seats/{phase}/driver/command/5"))
                 .and_then(Value::as_str)
@@ -238,14 +248,10 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                     "{name}:{phase} script is bundle-relative: {source_script}"
                 );
             }
-            let script = command
-                .get(5)
-                .and_then(|script| {
-                    bundle
-                        .roots
-                        .iter()
-                        .find_map(|root| Path::new(script).strip_prefix(root).ok())
-                })
+            let script = bundle
+                .roots
+                .iter()
+                .find_map(|root| resolved_script.strip_prefix(root).ok())
                 .and_then(Path::to_str);
             if phase == "ship" {
                 assert_eq!(script, Some("scripts/ship-seat.sh"), "{name}:{phase}");

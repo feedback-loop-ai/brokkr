@@ -112,14 +112,18 @@ fn workspace() -> PathBuf {
 /// names its script bundle-relatively, making the strategy's read-only
 /// script mount (rather than the operated-on repository) part of the
 /// command the witness pins.
+/// The returned implementation moves every script-owning witness again:
+/// the verifier and shipper bytes now live inside those bundle roots and
+/// therefore enter the manifest identity. Preflight already owned its
+/// verifier under `roles/`, so it does not move.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "c279eced20598ead18c9c0da430d175cc4ffee8faad293de01782a162cf0177a",
+        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
     ),
     (
         "recipes/node",
-        "9a1abfcbcd26611ebae13d9e4701689cb003f6d982c55f34af6359ea6228ec92",
+        "ce597ea15947b9d6ede64250021e731f9495e797775a83e5103f45031aac6c11",
     ),
     (
         "recipes/preflight",
@@ -127,23 +131,23 @@ const WITNESSES: [(&str, &str); 8] = [
     ),
     (
         "recipes/ember",
-        "308fa2277b3887ff4dae3c85db34da2e328d941b596910f50f26114d825cb97a",
+        "45b7f258775cf3786f0c392e3fceca387fafe146949441d6d60f62419230133c",
     ),
     (
         "recipes/crucible",
-        "53067df10a733f25eb3d858e0e264105b853e6504660923577a456995d626a99",
+        "19406456be6994db6f49dd9908faec78da28899ad6457586c32f195c0117b0e9",
     ),
     (
         "recipes/night-shift",
-        "e6d5dd1f616eb6cc0a8c3c801c79e577a0323d62866179a0560e949bbfcfc342",
+        "8c9949dacbf73b40bc0a7c447fd0a602f1df316b6eef123dcd1133fc0850f963",
     ),
     (
         "recipes/wager-harness",
-        "bf6d5c7f7d05fa98ffdec2a85703369c02ea4d4572fab6e987d399c56d29d92f",
+        "f76cb46fcf8f0e30dcb9d5349fd40848bd06cce670ecaa16d32b6fcd1e2307d2",
     ),
     (
         "bundles/verify",
-        "17c381d160c2264a93cc1ebc8683c2c8853b726fa5378ec736e93ad4a6d58528",
+        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
     ),
 ];
 
