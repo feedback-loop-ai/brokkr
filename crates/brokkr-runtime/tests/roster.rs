@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use brokkr_protocol::hands::BindMode;
 use brokkr_runtime::{Bundle, SeatBody, SeatClass};
 use serde_json::Value;
 
@@ -185,6 +186,97 @@ fn shipped_claude_implementer_can_commit() {
         allowed_tools.split(',').any(|tool| tool == "Bash(git:*)"),
         "the shipped claude implementer must be able to commit with git"
     );
+}
+
+#[test]
+fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
+    let root = workspace();
+    let mut shipped = Vec::new();
+    for entry in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
+        let bundle_path = entry.path().join("bundle.json");
+        if !bundle_path.is_file() {
+            continue;
+        }
+        shipped.push((
+            format!("recipes/{}", entry.file_name().to_string_lossy()),
+            entry.path(),
+        ));
+    }
+    for name in ["self", "verify"] {
+        shipped.push((format!("bundles/{name}"), root.join("bundles").join(name)));
+    }
+    for (name, path) in shipped {
+        let source: Value = serde_json::from_slice(
+            &std::fs::read(path.join("bundle.json"))
+                .unwrap_or_else(|error| panic!("{name} source reads: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("{name} source parses: {error}"));
+        let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{name} compiles: {error}"));
+        for phase in ["verify", "ship"] {
+            let Some(seat) = bundle.seats.get(phase) else {
+                continue;
+            };
+            assert!(seat.has_gate, "{name}:{phase} is gate-class");
+            assert!(bundle.hands.contains_key(phase), "{name}:{phase} is boxed");
+            let SeatBody::Single {
+                command,
+                candidates,
+                ..
+            } = &seat.body
+            else {
+                panic!("{name}:{phase} is one deterministic script")
+            };
+            assert!(candidates.is_empty(), "{name}:{phase} seats no model");
+            assert_eq!(&command[1..4], ["driver", "exec", "--"], "{name}:{phase}");
+            let resolved_script = Path::new(
+                command
+                    .get(5)
+                    .unwrap_or_else(|| panic!("{name}:{phase} has no script argv")),
+            );
+            assert!(
+                resolved_script.is_file(),
+                "{name}:{phase} resolved script exists: {}",
+                resolved_script.display()
+            );
+            if let Some(source_script) = source
+                .pointer(&format!("/seats/{phase}/driver/command/5"))
+                .and_then(Value::as_str)
+            {
+                assert!(
+                    source_script.starts_with("./"),
+                    "{name}:{phase} script is bundle-relative: {source_script}"
+                );
+            }
+            let script = bundle
+                .roots
+                .iter()
+                .find_map(|root| resolved_script.strip_prefix(root).ok());
+            // Follow the store helper's temp-path rule: compare Paths in the
+            // spelling the product promises, without baking in a host separator.
+            if phase == "ship" {
+                let shipped = Path::new("scripts").join("ship-seat.sh");
+                assert_eq!(script, Some(shipped.as_path()), "{name}:{phase}");
+                assert!(
+                    bundle.hands[phase].binds.is_empty(),
+                    "{name}:{phase} needs no toolchain or credential-bearing bind"
+                );
+            } else {
+                let scripts = Path::new("scripts").join("verify-seat.sh");
+                let roles = Path::new("roles").join("verify-seat.sh");
+                assert!(
+                    script == Some(scripts.as_path()) || script == Some(roles.as_path()),
+                    "{name}:{phase} names a shipped verifier script: {script:?}"
+                );
+                let binds = &bundle.hands[phase].binds;
+                if name == "recipes/node" {
+                    assert_eq!(binds.len(), 1, "{name}:{phase}");
+                    assert_eq!(binds[0].path, "~/.npm");
+                    assert_eq!(binds[0].mode, BindMode::Overlay);
+                }
+            }
+        }
+    }
 }
 
 #[test]

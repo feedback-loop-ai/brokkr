@@ -9,6 +9,22 @@ fn one(text: &str) -> Vec<String> {
     vec![text.to_string()]
 }
 
+#[cfg(target_os = "linux")]
+fn can_create_namespace() -> bool {
+    if std::env::var_os(HANDS_BOX_ENV).is_some() {
+        return false;
+    }
+    let Ok(bwrap) = require_bwrap() else {
+        return false;
+    };
+    Command::new(bwrap)
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 #[test]
 fn the_spec_vocabulary_is_closed_and_the_string_is_the_default() {
     assert_eq!(spec_of(json!("workspace")), HandsSpec::default());
@@ -103,10 +119,14 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let cargo = home.join(".cargo");
+    let npm = home.join(".npm");
     std::fs::create_dir_all(&cargo).unwrap();
+    std::fs::create_dir_all(&npm).unwrap();
     std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
     let workdir = dir.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(&bundle).unwrap();
     let scratch = dir.path().join("scratch");
     let session = dir.path().join("session");
     let spec = spec_of(json!({
@@ -114,7 +134,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         "binds": [
             {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "absent.toml"]},
             {"path": "~/.rustup", "mode": "ro"},
-            {"path": "/opt/scratchpad", "mode": "rw"}
+            {"path": "/opt/scratchpad", "mode": "rw"},
+            {"path": "~/.npm", "mode": "overlay"}
         ]
     }));
     let none = GitFacts::default();
@@ -125,6 +146,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &scratch,
         &session,
         &none,
+        Some(&bundle),
         &one("true"),
     )
     .unwrap();
@@ -132,8 +154,10 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     assert_eq!(argv[0], "bwrap");
     assert!(text.contains("--unshare-net"), "no network by default");
     assert!(text.contains("--clearenv"));
+    assert!(text.contains("--setenv BROKKR_HANDS_BOX 1"));
     assert!(!text.contains("--bind / /"), "never the host root");
     assert!(text.contains(&format!("--bind {w} {w}", w = workdir.display())));
+    assert!(text.contains(&format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display())));
     let upper = session.join("overlay/0/upper");
     let work = session.join("overlay/0/work");
     assert!(
@@ -162,6 +186,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         r = home.join(".rustup").display()
     )));
     assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
+    assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
     assert!(
         text.contains("--setenv GIT_CONFIG_KEY_0 commit.gpgsign --setenv GIT_CONFIG_VALUE_0 false")
     );
@@ -183,6 +208,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &scratch,
         &session,
         &inside,
+        None,
         &one("true"),
     )
     .unwrap();
@@ -211,6 +237,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &scratch,
         &session,
         &outside,
+        None,
         &one("true"),
     )
     .unwrap();
@@ -226,6 +253,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &scratch,
         &session,
         &none,
+        None,
         &one("true"),
     )
     .unwrap();
@@ -242,6 +270,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &blocked.join("etc"),
         &session,
         &none,
+        None,
         &one("true")
     )
     .is_err());
@@ -254,6 +283,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         &scratch,
         &blocked.join("session"),
         &none,
+        None,
         &one("true")
     )
     .is_err());
@@ -541,8 +571,9 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 #[cfg(target_os = "linux")]
 #[test]
 fn the_box_hides_the_host_and_holds_the_worktree() {
-    if require_bwrap().is_err() {
-        panic!("bubblewrap is required on Linux for the hands tests: install bwrap");
+    if !can_create_namespace() {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
     }
     let dir = tempfile::tempdir().unwrap();
     let workdir = dir.path().join("work");
@@ -679,6 +710,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 #[cfg(target_os = "linux")]
 #[test]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
+    if !can_create_namespace() {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -725,6 +760,12 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .identity
         .iter()
         .any(|(k, v)| k == "GIT_COMMITTER_EMAIL" && v == "host@example.invalid"));
+    git(&main, &["config", "user.name", ""]);
+    assert!(!git_facts(&worktree)
+        .identity
+        .iter()
+        .any(|(key, _)| key == "GIT_AUTHOR_NAME"));
+    git(&main, &["config", "user.name", "Host Operator"]);
     // Not a repository: no git dir to mask (the identity is the host's
     // global one either way).
     assert_eq!(git_facts(dir.path()).git_dir, None);

@@ -3,9 +3,9 @@
 //! `witness_digests.rs` proves the recipe compiles against the SHIPPED
 //! adapters, which is the weaker claim: it holds only as long as the
 //! incumbent keeps its tier. What this file proves is the refusal — that
-//! the Node recipe's three judging seats stand on a *declaration*, one
-//! gate at a time, and that a driver without the trusted tier cannot sit
-//! in any of them.
+//! the Node recipe's model-backed review seat stands on a *declaration*
+//! and that a driver without the trusted tier cannot sit in it. Verify
+//! and ship are boxed exec gates and are pinned by the roster test.
 //!
 //! Every provider here is invented — `steward`, `apprentice`. The recipe
 //! on disk names some real one; this test rewrites that token and never
@@ -17,9 +17,8 @@ use std::path::{Path, PathBuf};
 use brokkr_runtime::{Adapters, Bundle};
 use serde_json::{json, Value};
 
-/// The seats `recipes/node` declares `class: "gate"`, and the order a
-/// manifest's `drivers` object lists them in.
-const GATES: [&str; 3] = ["review", "ship", "verify"];
+/// The model-backed seat `recipes/node` declares `class: "gate"`.
+const GATES: [&str; 1] = ["review"];
 
 /// The one seat that works rather than judges.
 const WORK: &str = "implement";
@@ -76,6 +75,11 @@ impl Fixture {
             )
             .unwrap();
         }
+        std::fs::copy(
+            workspace().join("adapters/exec.json"),
+            root.join("adapters/exec.json"),
+        )
+        .unwrap();
 
         copy_tree(&workspace().join("recipes/node"), &root.join("bundle"));
         let path = root.join("bundle/bundle.json");
@@ -91,12 +95,15 @@ impl Fixture {
                 .position(|token| token == "driver")
                 .expect("the seat dispatches a named driver")
                 + 1;
-            shipped.push(command[at].as_str().expect("a provider name").to_string());
-            command[at] = json!(provider_for(seat));
+            let provider = command[at].as_str().expect("a provider name");
+            if provider == "claude" {
+                shipped.push(provider.to_string());
+                command[at] = json!(provider_for(seat));
+            }
         }
         // Not WHICH provider ships — that is `adapters/` data and a
         // ruling, not an engine fact — only that the recipe speaks with
-        // one voice, so re-pointing it seat by seat is a fair rewrite.
+        // one voice, so re-pointing its model sites seat by seat is a fair rewrite.
         assert!(
             shipped.windows(2).all(|pair| pair[0] == pair[1]),
             "the recipe seats more than one provider: {shipped:?}"
@@ -171,11 +178,20 @@ fn the_node_recipes_gates_compile_on_a_trusted_driver_and_pin_it() {
         .expect("the gates witness what authorised them");
     let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
     assert_eq!(
-        seats, GATES,
+        seats,
+        ["review", "ship", "verify"],
         "exactly the gate-class seats consulted a declaration"
     );
     for gate in GATES {
         assert_eq!(witnessed[gate], json!({ "steward": steward }));
+    }
+    let exec = Adapters::load(&fixture.dir.path().join("adapters"))
+        .unwrap()
+        .digest("exec")
+        .unwrap()
+        .to_string();
+    for gate in ["ship", "verify"] {
+        assert_eq!(witnessed[gate], json!({ "exec": exec }));
     }
 }
 

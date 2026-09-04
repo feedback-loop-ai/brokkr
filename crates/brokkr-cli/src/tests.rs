@@ -132,6 +132,42 @@ fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
+#[test]
+fn ledger_command_renders_to_stdout_or_the_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("journal.db");
+    running_store(&db, "ledger-run");
+
+    assert_eq!(
+        run(cli(Cmd::Ledger {
+            run: "ledger-run".into(),
+            db: db.clone(),
+            repo: None,
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    assert_eq!(
+        run(cli(Cmd::Ledger {
+            run: "ledger-run".into(),
+            db,
+            repo: Some(dir.path().to_path_buf()),
+        }))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+    assert!(dir.path().join(".forge/ledger/ledger-run.md").is_file());
+
+    let missing = dir.path().join("missing.db");
+    assert!(run(cli(Cmd::Ledger {
+        run: "ledger-run".into(),
+        db: missing.clone(),
+        repo: None,
+    }))
+    .is_err());
+    assert!(!missing.exists(), "a ledger read never creates a journal");
+}
+
 /// A shipped recipe, compiled against the tree it ships in. Since
 /// decision 0021 a compile reads the adapter data even for a bundle that
 /// names no agent — a gate seat's trust tier lives there — and a test
@@ -149,16 +185,20 @@ fn stage_adapters(workspace_dir: &std::path::Path) {
     }
 }
 
-/// A copy of `recipes/fast` whose judging seats are declared work-class,
-/// so no seat consults an adapter declaration and the manifest carries
-/// no `drivers` witness — the shape a bundle must have to ride the
-/// Looper-bound v2 lineage since the reforging of run
-/// implement-decision-0021 (remedy ii). Lawful, if unwise: 0021 ruling 1
-/// leaves the class division as bundle data, and this test needs the
-/// dispatchable shape, not the wise one.
-fn stage_declassed_fast(workspace_dir: &std::path::Path) -> std::path::PathBuf {
+/// A hands-free fake-driver copy of `recipes/fast`, for CLI mechanics
+/// tests that must run on every platform. Nothing in these tests reaches
+/// a seat: the fake command is only the same inert fixture shape used by
+/// the machine-proof suite. `keep_review_gate` retains the model-backed
+/// review gate (which needs no hands) when a test needs the resulting
+/// `drivers` witness; otherwise every seat is work-class and the bundle
+/// can ride the Looper-bound v2 lineage.
+fn stage_hands_free_fast(
+    workspace_dir: &std::path::Path,
+    name: &str,
+    keep_review_gate: bool,
+) -> std::path::PathBuf {
     let from = workspace().join("recipes/fast");
-    let to = workspace_dir.join("fast-declassed");
+    let to = workspace_dir.join(name);
     std::fs::create_dir_all(to.join("roles")).unwrap();
     for name in ["policy.json", "shipper.md"] {
         std::fs::copy(from.join(name), to.join(name)).unwrap();
@@ -167,10 +207,25 @@ fn stage_declassed_fast(workspace_dir: &std::path::Path) -> std::path::PathBuf {
         let entry = entry.unwrap();
         std::fs::copy(entry.path(), to.join("roles").join(entry.file_name())).unwrap();
     }
-    let manifest = std::fs::read_to_string(from.join("bundle.json"))
-        .unwrap()
-        .replace("\"class\": \"gate\"", "\"class\": \"work\"");
-    std::fs::write(to.join("bundle.json"), manifest).unwrap();
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(from.join("bundle.json")).unwrap()).unwrap();
+    for (phase, seat) in manifest["seats"].as_object_mut().unwrap() {
+        if !(keep_review_gate && phase == "review") {
+            if seat.get("class").and_then(Value::as_str) == Some("gate") {
+                seat["class"] = json!("work");
+                seat.as_object_mut().unwrap().remove("hands");
+            }
+            if seat.get("role").is_none() {
+                seat["role"] = json!("shipper.md");
+            }
+            seat["driver"] = json!({"command": ["{brokkr}", "fake-driver"]});
+        }
+    }
+    std::fs::write(
+        to.join("bundle.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
     to
 }
 
@@ -780,7 +835,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // there. Copied from the tree rather than invented, for the same
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
-    let bundle_path = workspace().join("recipes/fast");
+    let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
     let recipes_dir = workspace().join("recipes");
     let base = |dispatch| Cmd::Run {
         bundle: Some(bundle_path.clone()),
@@ -821,10 +876,10 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let unmapped = dir.path().join("unmapped");
     std::fs::create_dir_all(&unmapped).unwrap();
     stage_adapters(&unmapped);
-    assert!(run_in(&unmapped, cli(base(Some(missing))))
+    let refusal = run_in(&unmapped, cli(base(Some(missing))))
         .unwrap_err()
-        .to_string()
-        .contains("reading dispatch"));
+        .to_string();
+    assert!(refusal.contains("reading dispatch"), "{refusal}");
     let malformed = dir.path().join("malformed.json");
     std::fs::write(&malformed, "not json").unwrap();
     assert!(run_in(&unmapped, cli(base(Some(malformed))))
@@ -838,11 +893,32 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // dispatch is refused out loud — naming the key — rather than the
     // witness dropped in silence and the run left unresumable (the
     // reforging of run implement-decision-0021, remedy ii).
-    let gated = compiled_recipe("recipes/fast");
+    let gated_path = stage_hands_free_fast(dir.path(), "fast-gated-hands-free", true);
+    let gated = Bundle::compile_with(
+        &gated_path,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
     let gated_dispatch = dispatch_for(&gated, "bound-run-gated", "https://dogfood.example");
-    let gated_path = dir.path().join("dispatch-gated.json");
-    std::fs::write(&gated_path, serde_json::to_string(&gated_dispatch).unwrap()).unwrap();
-    let refusal = run_in(&unmapped, cli(base(Some(gated_path))))
+    let gated_dispatch_path = dir.path().join("dispatch-gated.json");
+    std::fs::write(
+        &gated_dispatch_path,
+        serde_json::to_string(&gated_dispatch).unwrap(),
+    )
+    .unwrap();
+    let gated = |dispatch| Cmd::Run {
+        bundle: Some(gated_path.clone()),
+        recipe: None,
+        recipes_dir: recipes_dir.clone(),
+        feature: "feature".into(),
+        realms: None,
+        db: Some(dir.path().join("dispatch.db")),
+        repo: None,
+        dispatch,
+        secrets_file: None,
+    };
+    let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("'drivers'"), "{refusal}");
@@ -850,9 +926,8 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
 
     // A bundle that consulted no declaration still dispatches: the
     // de-classed copy pins no witness, so the v2 round-trip is lossless.
-    let declassed = stage_declassed_fast(dir.path());
     let bundle = Bundle::compile_with(
-        &declassed,
+        &bundle_path,
         &workspace().join("agents"),
         &workspace().join("adapters"),
     )
@@ -865,7 +940,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
     let accept = |dispatch_path| Cmd::Run {
-        bundle: Some(declassed.clone()),
+        bundle: Some(bundle_path.clone()),
         recipe: None,
         recipes_dir: recipes_dir.clone(),
         feature: "feature".into(),
@@ -2133,8 +2208,16 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
 fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    let bundle_path = workspace().join("recipes/fast");
-    let bundle = compiled_recipe("recipes/fast");
+    // Resume concludes the already accepted operator command before it
+    // spawns a seat. Use the hands-free fake-driver fixture so this proof
+    // remains about recovery mechanics on machines without bubblewrap.
+    let bundle_path = stage_hands_free_fast(dir.path(), "resume-hands-free", false);
+    let bundle = Bundle::compile_with(
+        &bundle_path,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
     stopped_mid_flight_run(&db, "stopped-mid-flight", &bundle.manifest);
 
     assert_eq!(
@@ -2995,12 +3078,23 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
 #[cfg(target_os = "linux")]
 #[test]
 fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return;
+    }
+    let namespace = Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .output();
+    if !namespace.is_ok_and(|output| output.status.success()) {
+        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
                 "--".into(),
@@ -3022,6 +3116,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
                 "--".into(),
@@ -3044,6 +3139,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let refused = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work,
+            bundle_root: None,
             spec: "{\"kind\":\"mitten\"}".into(),
             command: vec!["true".into()],
         },

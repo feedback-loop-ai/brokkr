@@ -2266,6 +2266,44 @@ fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
     )
 }
 
+#[test]
+fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
+    use brokkr_protocol::hands::{BindMode, HandsSpec};
+
+    let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .hands
+        .insert("ship".into(), HandsSpec::default());
+    let input = engine
+        .seat_input(&state(Some("ship"), Cursor::Idle), "ship", "effect")
+        .unwrap();
+    assert!(input["context"].get("journal").is_none());
+
+    let hands = engine.runtime_hands("ship").unwrap();
+    assert_eq!(hands.binds.len(), 1);
+    assert_eq!(hands.binds[0].mode, BindMode::Ro);
+    // The store helper's temp-path rule applies: runtime_hands deliberately
+    // reports a canonical mount, so canonicalize the expectation too.
+    assert_eq!(
+        Path::new(&hands.binds[0].path),
+        engine
+            .store
+            .path()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+    );
+
+    let workdir = dir.path().join("work");
+    engine.store = Store::open(&workdir.join("journal.db")).unwrap();
+    assert!(engine.runtime_hands("ship").unwrap().binds.is_empty());
+    engine.repo = Some(dir.path().join("not-created"));
+    assert_eq!(engine.runtime_hands("ship").unwrap().binds.len(), 1);
+    assert!(engine.runtime_hands("missing").is_none());
+}
+
 fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
     let capabilities = wire(Body::Capabilities {
         driver: "test".into(),
@@ -3707,7 +3745,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
 fn a_site_without_hands_spawns_its_command_untouched() {
     let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
     assert_eq!(
-        hands_command(command.clone(), None, Path::new("/work")),
+        hands_command(command.clone(), None, Path::new("/work"), &[]),
         command
     );
 }
@@ -3731,6 +3769,7 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
         ],
         Some(&spec),
         Path::new("/work"),
+        &[],
     );
     let exe = std::env::current_exe()
         .unwrap()
@@ -3756,17 +3795,17 @@ fn only_an_exec_dispatch_is_boxed_whole() {
     let spec = brokkr_protocol::hands::HandsSpec::default();
     let short = vec!["true".to_string()];
     assert_eq!(
-        hands_command(short.clone(), Some(&spec), Path::new("/w")),
+        hands_command(short.clone(), Some(&spec), Path::new("/w"), &[]),
         short
     );
     let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
     assert_eq!(
-        hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w")),
+        hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w"), &[],),
         not_a_dispatch
     );
     let other_driver = vec!["x".to_string(), "driver".to_string(), "claude".to_string()];
     assert_eq!(
-        hands_command(other_driver.clone(), Some(&spec), Path::new("/w")),
+        hands_command(other_driver.clone(), Some(&spec), Path::new("/w"), &[],),
         other_driver
     );
 }
@@ -3780,10 +3819,15 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         "exec".to_string(),
         "--".to_string(),
         "bash".to_string(),
-        "verify.sh".to_string(),
+        "/bundle/scripts/verify.sh".to_string(),
         "{prompt_file}".to_string(),
     ];
-    let argv = hands_command(inner.clone(), Some(&spec), Path::new("/work"));
+    let argv = hands_command(
+        inner,
+        Some(&spec),
+        Path::new("/work"),
+        &[PathBuf::from("/bundle")],
+    );
     let exe = std::env::current_exe()
         .unwrap()
         .to_string_lossy()
@@ -3791,6 +3835,22 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
     assert_eq!(&argv[..3], [exe.as_str(), "hands", "exec"]);
     assert_eq!(&argv[3..5], ["--workdir", "/work"]);
     assert_eq!(argv[5], "--spec");
-    assert_eq!(argv[7], "--");
-    assert_eq!(&argv[8..], &inner[..]);
+    assert_eq!(&argv[7..9], ["--bundle-root", "/bundle"]);
+    assert_eq!(argv[9], "--");
+    assert_eq!(argv[10], "/usr/local/bin/brokkr");
+    assert_eq!(argv[15], "/runtime/bundle/scripts/verify.sh");
+    assert_eq!(argv[16], "{prompt_file}");
+
+    // The helper also remains total for an invented bundle with no
+    // roots; production bundles always carry at least their leaf root.
+    let rootless_inner = vec![
+        "/usr/local/bin/brokkr".to_string(),
+        "driver".to_string(),
+        "exec".to_string(),
+        "--".to_string(),
+        "true".to_string(),
+    ];
+    let rootless = hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]);
+    assert_eq!(rootless[7], "--");
+    assert_eq!(&rootless[8..], &rootless_inner);
 }

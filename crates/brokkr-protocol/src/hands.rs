@@ -12,7 +12,14 @@
 //! model may run; the box bounds what running anything can touch.
 //!
 //! The same namespace boxes a deterministic `exec` seat whole, which is
-//! what lets a pinned script hold a gate (ruling 3).
+//! what lets a pinned script hold a gate (ruling 3). The strategy is part
+//! of the bundle, not the repository it operates on: an exec box binds the
+//! bundle root read-only at [`SANDBOX_BUNDLE`] so a bundle-relative script
+//! travels with that strategy without becoming writable project input.
+//!
+//! Every namespace carries [`HANDS_BOX_ENV`]. Tests which themselves open
+//! a box refuse nesting from that marker instead of depending on a kernel's
+//! user-namespace policy or eventual nesting limit.
 //!
 //! Linux only, like the boundary it builds: `bwrap` is refused when
 //! absent, never simulated.
@@ -30,7 +37,10 @@ pub const TOOL_NAME: &str = "workspace";
 /// The workdir is bound at its own path, so the paths a prompt names are
 /// the paths the command sees.
 const SANDBOX_HOME: &str = "/runtime/home";
-const SANDBOX_PATH: &str = "/runtime:/usr/local/bin:/usr/bin:/bin";
+/// The stable in-box mount point for the bundle that owns an exec seat.
+pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
+/// Set by the engine in every namespace so box-building tests do not recurse.
+pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
 const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -239,6 +249,23 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
     GitFacts { git_dir, identity }
 }
 
+/// Render a host path as a path inside the box. Paths inside the namespace
+/// are POSIX paths, never host paths.
+fn namespace_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+/// Append a host-relative path below a fixed path inside the box without
+/// letting the host choose the separator.
+pub fn namespace_join(root: &str, relative: &Path) -> String {
+    format!(
+        "{}/{}",
+        root.trim_end_matches('/'),
+        namespace_path(relative).trim_start_matches('/')
+    )
+}
+
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
 /// the environment, then `--` and the command. `scratch` holds this
 /// call's generated identity files and private home and tmp; `session`
@@ -252,6 +279,7 @@ pub fn box_argv(
     scratch: &Path,
     session: &Path,
     git: &GitFacts,
+    bundle_root: Option<&Path>,
     command: &[String],
 ) -> std::io::Result<Vec<String>> {
     let etc = scratch.join("etc");
@@ -277,7 +305,7 @@ pub fn box_argv(
     }
 
     let s = |text: &str| text.to_string();
-    let text = |path: &Path| path.to_string_lossy().into_owned();
+    let host_path = |path: &Path| path.to_string_lossy().into_owned();
     let mut argv = vec![
         s("bwrap"),
         s("--die-with-parent"),
@@ -294,6 +322,9 @@ pub fn box_argv(
     }
     argv.extend([
         s("--clearenv"),
+        s("--setenv"),
+        s(HANDS_BOX_ENV),
+        s("1"),
         s("--proc"),
         s("/proc"),
         s("--dev"),
@@ -340,22 +371,29 @@ pub fn box_argv(
         ("hosts", "/etc/hosts"),
         ("nsswitch.conf", "/etc/nsswitch.conf"),
     ] {
-        argv.extend([s("--ro-bind"), text(&etc.join(name)), s(target)]);
+        argv.extend([s("--ro-bind"), host_path(&etc.join(name)), s(target)]);
     }
     // The private home and tmp go in BEFORE the worktree, so a worktree
     // that itself lives under /tmp is mounted on top of the private /tmp
     // rather than hidden beneath it.
     argv.extend([
         s("--bind"),
-        text(&private_home),
+        host_path(&private_home),
         s(SANDBOX_HOME),
         s("--bind"),
-        text(&private_tmp),
+        host_path(&private_tmp),
         s("/tmp"),
         s("--bind"),
-        text(workdir),
-        text(workdir),
+        host_path(workdir),
+        namespace_path(workdir),
     ]);
+    if let Some(bundle_root) = bundle_root {
+        argv.extend([
+            s("--ro-bind"),
+            host_path(bundle_root),
+            namespace_path(Path::new(SANDBOX_BUNDLE)),
+        ]);
+    }
     // Ruling 6: the git directory. A `git worktree`'s lives outside the
     // worktree and is bound so git works at all; either way its `hooks`
     // are hidden behind an empty tmpfs and its `config` is read-only, so
@@ -363,17 +401,26 @@ pub fn box_argv(
     // on its next git invocation.
     if let Some(git_dir) = &git.git_dir {
         if !git_dir.starts_with(workdir) {
-            argv.extend([s("--bind"), text(git_dir), text(git_dir)]);
+            argv.extend([s("--bind"), host_path(git_dir), namespace_path(git_dir)]);
         }
-        argv.extend([s("--tmpfs"), text(&git_dir.join("hooks"))]);
+        argv.extend([
+            s("--tmpfs"),
+            namespace_join(&namespace_path(git_dir), Path::new("hooks")),
+        ]);
         let config = git_dir.join("config");
-        argv.extend([s("--ro-bind-try"), text(&config), text(&config)]);
+        argv.extend([
+            s("--ro-bind-try"),
+            host_path(&config),
+            namespace_path(&config),
+        ]);
     }
     for (index, bind) in spec.binds.iter().enumerate() {
         let host = expand_home(&bind.path, home);
         match bind.mode {
-            BindMode::Ro => argv.extend([s("--ro-bind-try"), text(&host), text(&host)]),
-            BindMode::Rw => argv.extend([s("--bind-try"), text(&host), text(&host)]),
+            BindMode::Ro => {
+                argv.extend([s("--ro-bind-try"), host_path(&host), namespace_path(&host)])
+            }
+            BindMode::Rw => argv.extend([s("--bind-try"), host_path(&host), namespace_path(&host)]),
             BindMode::Overlay => {
                 let layer = session.join("overlay").join(index.to_string());
                 let upper = layer.join("upper");
@@ -382,11 +429,11 @@ pub fn box_argv(
                 std::fs::create_dir_all(&work)?;
                 argv.extend([
                     s("--overlay-src"),
-                    text(&host),
+                    host_path(&host),
                     s("--overlay"),
-                    text(&upper),
-                    text(&work),
-                    text(&host),
+                    host_path(&upper),
+                    host_path(&work),
+                    namespace_path(&host),
                 ]);
             }
         }
@@ -396,34 +443,67 @@ pub fn box_argv(
             // create it on the host to mount over; only what exists is
             // hidden.
             if masked.exists() {
-                argv.extend([s("--ro-bind"), s("/dev/null"), text(&masked)]);
+                argv.extend([s("--ro-bind"), s("/dev/null"), namespace_path(&masked)]);
             }
         }
     }
-    for (key, value) in [
-        ("HOME", SANDBOX_HOME),
-        ("USER", "runner"),
-        ("LOGNAME", "runner"),
-        ("TMPDIR", "/tmp"),
-        ("PATH", SANDBOX_PATH),
-        ("LANG", "C.UTF-8"),
-        ("LC_ALL", "C.UTF-8"),
-        ("CI", "true"),
-        ("DISABLE_AUTOUPDATER", "1"),
-        ("DISABLE_TELEMETRY", "1"),
+    let cargo_home = home.join(".cargo");
+    let rustup_home = home.join(".rustup");
+    let npm_cache = home.join(".npm");
+    let sandbox_path = format!(
+        "/runtime:{}:/usr/local/bin:/usr/bin:/bin",
+        namespace_join(&namespace_path(&cargo_home), Path::new("bin"))
+    );
+    let mut environment = vec![
+        ("HOME", SANDBOX_HOME.to_string()),
+        ("USER", "runner".to_string()),
+        ("LOGNAME", "runner".to_string()),
+        ("TMPDIR", "/tmp".to_string()),
+        ("PATH", sandbox_path),
+        ("LANG", "C.UTF-8".to_string()),
+        ("LC_ALL", "C.UTF-8".to_string()),
+        ("CI", "true".to_string()),
+        ("DISABLE_AUTOUPDATER", "1".to_string()),
+        ("DISABLE_TELEMETRY", "1".to_string()),
         // Seat commits are unsigned (CONTRIBUTING); the signing wrapper
         // and its key are not in the box, and the repository config that
         // names them is outranked by this environment entry.
-        ("GIT_CONFIG_COUNT", "1"),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
-        ("GIT_CONFIG_VALUE_0", "false"),
-    ] {
-        argv.extend([s("--setenv"), s(key), s(value)]);
+        ("GIT_CONFIG_COUNT", "1".to_string()),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign".to_string()),
+        ("GIT_CONFIG_VALUE_0", "false".to_string()),
+    ];
+    // On rustup installations cargo and rustc are proxies below
+    // ~/.cargo/bin. A declared toolchain bind must therefore be both
+    // executable and discoverable; the private HOME must not redirect the
+    // proxy to an empty ~/.rustup inside the box.
+    if spec
+        .binds
+        .iter()
+        .any(|bind| expand_home(&bind.path, home) == cargo_home)
+    {
+        environment.push(("CARGO_HOME", namespace_path(&cargo_home)));
+    }
+    if spec
+        .binds
+        .iter()
+        .any(|bind| expand_home(&bind.path, home) == rustup_home)
+    {
+        environment.push(("RUSTUP_HOME", namespace_path(&rustup_home)));
+    }
+    if spec
+        .binds
+        .iter()
+        .any(|bind| expand_home(&bind.path, home) == npm_cache)
+    {
+        environment.push(("NPM_CONFIG_CACHE", namespace_path(&npm_cache)));
+    }
+    for (key, value) in environment {
+        argv.extend([s("--setenv"), s(key), value]);
     }
     for (key, value) in &git.identity {
         argv.extend([s("--setenv"), s(key), s(value)]);
     }
-    argv.extend([s("--chdir"), text(workdir), s("--")]);
+    argv.extend([s("--chdir"), namespace_path(workdir), s("--")]);
     argv.extend(command.iter().cloned());
     Ok(argv)
 }
@@ -634,7 +714,7 @@ pub fn execute_in(
         "-lc".to_string(),
         command.to_string(),
     ];
-    let built = box_argv(spec, workdir, home, scratch, session, git, &inner);
+    let built = box_argv(spec, workdir, home, scratch, session, git, None, &inner);
     let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
         .args(&argv[1..])
@@ -679,16 +759,31 @@ pub fn execute_in(
 /// how a deterministic `exec` seat holds a gate (ruling 3). This very
 /// binary is bound read-only so the command may be a `brokkr driver …`
 /// dispatch. Returns the child's exit code.
-pub fn run_boxed(spec: &HandsSpec, workdir: &Path, command: &[String]) -> Result<i32, String> {
+pub fn run_boxed(
+    spec: &HandsSpec,
+    workdir: &Path,
+    bundle_root: Option<&Path>,
+    command: &[String],
+) -> Result<i32, String> {
     let bwrap = require_bwrap_for(spec)?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let session = session_dir("exec")?;
     let git = git_facts(workdir);
-    let result = run_boxed_in(&bwrap, spec, workdir, &home, &session, &git, command);
+    let result = run_boxed_in(
+        &bwrap,
+        spec,
+        workdir,
+        &home,
+        &session,
+        &git,
+        bundle_root,
+        command,
+    );
     let _ = std::fs::remove_dir_all(&session);
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_boxed_in(
     bwrap: &Path,
     spec: &HandsSpec,
@@ -696,6 +791,7 @@ pub fn run_boxed_in(
     home: &Path,
     session: &Path,
     git: &GitFacts,
+    bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
     let mut with_self = spec.clone();
@@ -707,7 +803,16 @@ pub fn run_boxed_in(
             mask: Vec::new(),
         }));
     let scratch = session.join("call");
-    let built = box_argv(&with_self, workdir, home, &scratch, session, git, command);
+    let built = box_argv(
+        &with_self,
+        workdir,
+        home,
+        &scratch,
+        session,
+        git,
+        bundle_root,
+        command,
+    );
     let argv = io_context(built, "namespace")?;
     let ran = Command::new(bwrap)
         .args(&argv[1..])

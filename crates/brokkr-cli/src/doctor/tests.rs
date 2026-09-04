@@ -655,7 +655,28 @@ fn doctor_still_compiles_a_named_bundle() {
         always_present,
         never_ambient,
     );
-    assert!(report.render().contains("ok       bundle: 'fast' compiles"));
+    let rendered = report.render();
+    assert!(rendered.contains("ok       bundle: 'fast' compiles"));
+    assert!(
+        rendered.contains("seats [\"ship\", \"verify\"] declare hands and can run"),
+        "{rendered}"
+    );
+
+    let report = doctor_with_probe(
+        Some(&workspace().join("recipes/fast")),
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_missing,
+        never_ambient,
+    );
+    let rendered = report.render();
+    assert!(
+        rendered
+            .contains("bubblewrap (bwrap) not found — seats [\"ship\", \"verify\"] declare hands"),
+        "{rendered}"
+    );
 
     let report = doctor_with_probe(
         Some(&dir.path().join("absent")),
@@ -726,4 +747,9 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
         "{rendered}"
     );
     assert!(rendered.contains("--effort <level>"), "{rendered}");
+}
+
+#[test]
+fn the_posix_shell_probe_executes_a_portable_shell_operation() {
+    assert_eq!(tool_version("sh").as_deref(), Some("POSIX shell"));
 }

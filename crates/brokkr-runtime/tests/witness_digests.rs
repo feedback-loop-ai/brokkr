@@ -101,38 +101,53 @@ fn workspace() -> PathBuf {
 /// reserved `oversized` verdict, and tables with an implement phase gain
 /// bounded finding returns. The two verdict-only strategies move because
 /// their reviewer charter and declared inputs become honestly read-only.
+/// This slice moves all eight again for one named reason: verifier and
+/// shipper are no longer model-backed agents. Their inline exec commands,
+/// boxed hands and recipe-owned verifier scripts are bundle identity, and
+/// every wager inherits the same gates from `fast` by construction.
+/// This review return moves them once more because deterministic ship gates
+/// shed unused toolchain binds, and Node's verifier retains only its npm
+/// cache. Those least-privilege hands declarations are also identity.
+/// This correction moves them again because every deterministic gate
+/// names its script bundle-relatively, making the strategy's read-only
+/// script mount (rather than the operated-on repository) part of the
+/// command the witness pins.
+/// The returned implementation moves every script-owning witness again:
+/// the verifier and shipper bytes now live inside those bundle roots and
+/// therefore enter the manifest identity. Preflight already owned its
+/// verifier under `roles/`, so it does not move.
 const WITNESSES: [(&str, &str); 8] = [
     (
         "recipes/fast",
-        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
+        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
     ),
     (
         "recipes/node",
-        "d165e301c73b2840bf963b5434524bfba399521304898debe405846f13ff4cf9",
+        "ce597ea15947b9d6ede64250021e731f9495e797775a83e5103f45031aac6c11",
     ),
     (
         "recipes/preflight",
-        "1b36ccdcdd4d88d5bd3278b4a7f690bada5b84f38d4d2e3c8aa2c1b225ca7115",
+        "7ce2538f6db6328d4e73185d8d886a17bdb49d682fe252cbe07eb8fa911f5ea2",
     ),
     (
         "recipes/ember",
-        "fd7458aa3b823cb4c76bb241fdc43ede78e7f8eb084bbe4ee05e1657d4366937",
+        "45b7f258775cf3786f0c392e3fceca387fafe146949441d6d60f62419230133c",
     ),
     (
         "recipes/crucible",
-        "1980125c1910fdc1e2cc5e272645c03d1154fdc976f434deb8f1d66ded321ecd",
+        "19406456be6994db6f49dd9908faec78da28899ad6457586c32f195c0117b0e9",
     ),
     (
         "recipes/night-shift",
-        "28eff5305ca53951687d2b1ed8d9e1a5a49539b41bf4bff20ef043d7f7602e21",
+        "8c9949dacbf73b40bc0a7c447fd0a602f1df316b6eef123dcd1133fc0850f963",
     ),
     (
         "recipes/wager-harness",
-        "2b4d5dc5f4520785f0ee0404a0fe3e5c363035b080e42fe8a9e40ea483b45125",
+        "f76cb46fcf8f0e30dcb9d5349fd40848bd06cce670ecaa16d32b6fcd1e2307d2",
     ),
     (
         "bundles/verify",
-        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
+        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
     ),
 ];
 
@@ -185,6 +200,9 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
     let claude = adapters
         .digest("claude")
         .expect("the incumbent adapter is declared");
+    let exec = adapters
+        .digest("exec")
+        .expect("the deterministic adapter is declared");
     for (relative, gates) in INLINE_GATES {
         let bundle = Bundle::compile_with(
             &root.join(relative),
@@ -198,9 +216,14 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
         let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
         assert_eq!(seats, gates, "{relative} witnessed the wrong seats");
         for seat in gates {
+            let (driver, digest) = if matches!(*seat, "verify" | "ship") {
+                ("exec", exec)
+            } else {
+                ("claude", claude)
+            };
             assert_eq!(
                 witnessed[*seat],
-                serde_json::json!({ "claude": claude }),
+                serde_json::json!({ (driver): digest }),
                 "{relative} seat '{seat}' pins the wrong adapter"
             );
         }

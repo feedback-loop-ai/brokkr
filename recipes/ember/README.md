@@ -4,13 +4,13 @@
 of it and the shared roster behind it: docs, chores, small fixes — the
 work that makes up most days.
 
-| Phase | Agent | `max_attempts` | `timeout_seconds` | Class |
+| Phase | Office | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
 | `intake` | `intake` | 2 | 1800 | work |
 | `implement` | `implementer` | 2 | 5400 | work |
-| `verify` | `verifier` | 2 | 3600 | gate |
+| `verify` | boxed `verify-seat.sh` | 2 | 3600 | gate |
 | `review` | `reviewer` | 2 | 3600 | gate |
-| `ship` | `shipper` | 2 | 1800 | gate |
+| `ship` | boxed `ship-seat.sh` | 2 | 1800 | gate |
 
 ## When to use it
 
@@ -96,3 +96,8 @@ shipped adapters, its gate seats' trust tiers are checked at compile
 time, and its manifest digest is pinned in
 `crates/brokkr-runtime/tests/witness_digests.rs`; that is the claim, and
 the only one.
+
+Its verifier and shipper are boxed exec scripts inherited in contract
+from `fast`. Cargo runs offline from the bound registry cache; an
+uncached dependency fails closed and the verifier quotes Cargo's
+decisive offline/cache line in its `fail` notes.

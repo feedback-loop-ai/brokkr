@@ -87,32 +87,16 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `agents/charters/verifier.md`
+## `scripts/verify-seat.sh`
 
-```markdown
-# Verifier seat — prove it, fix nothing
-
-Run the project's full test and lint suites from the repository root.
-
-This repository reads as a node/bun project (`package.json` + `bun.lock`), so use its own
-tooling:
-
-    bun run test
-    bun run typecheck
-
-`brokkr init` chose those from the files at the repository root —
-it ran nothing to find out. Correct them here if they are wrong.
-
-You change no code, fix nothing, commit nothing: one honest run is the
-signal. Result: `pass` (everything green; `notes` lists commands and
-counts) or `fail` (`notes` quotes the failing output's decisive lines
-exactly — never soften a failure).
-```
+The deterministic boxed verifier pins `bun run test` and
+`bun run typecheck`. It runs both with network denied, types `pass` only
+when both exit zero, and quotes decisive output on `fail`.
 
 - **`bun run typecheck` sits where the other node arms put `lint`.** The
   seat's slot is "the second proving command", and for a bun/TypeScript
   repository a type check is the one that catches more. If your
-  repository lints too, add the line — this file is yours.
+  repository lints too, add the command — this script is yours.
 
 ## The tool grant
 

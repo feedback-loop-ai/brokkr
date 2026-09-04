@@ -2,7 +2,8 @@
 
 A **recipe** is a delivery strategy written as data: a `bundle.json`
 naming seats, a policy table naming phases and rules, and a `roles/`
-directory of charters. It has no code in it. The engine compiles it into
+directory of charters and, where a deterministic office needs one, a
+script. The engine compiles it into
 one flat pinned object identified by a content digest, and runs that.
 
 This guide is the anatomy. It assumes you have read
@@ -26,25 +27,25 @@ content digest. The library is a directory of them.
 
 ```
 $ brokkr recipes list
-crucible	b955888721e0	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing a review panel and chief.	recipes/crucible
-ember	c3572a9a0543	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
-fast	f6f960da0503	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	e008816de894	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
-node	2ebd5ac5ad6a	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	80374e3fc58b	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	ffa8c3a07b99	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-sdd	0a1671eef112	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
-sdd-paranoid	5776aad40cb5	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
-wager-harness	6ea8645805e3	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
-wager-harness-dsh	02c227af9917	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-self	ac0fc14129a4	7 phases	implement, intake, review, ship, verify			./bundles/self
-verify	162fef593349	4 phases	review, verify			./bundles/verify
+crucible	b42f0118c8a9	6 phases	implement, review[positions>chief], ship, verify	high	Engine, store, protocol, or contract changes needing a review panel and chief.	recipes/crucible
+ember	fda02a55ce9b	7 phases	implement, intake, review, ship, verify	low	Docs, chores, and small fixes using the shared agent roster.	recipes/ember
+fast	d1ec8b3ab211	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+night-shift	c807e27ad208	6 phases	implement, review, ship, verify	medium-high	Unattended work that should park on the first unusual result instead of retrying.	recipes/night-shift
+node	4f4d2773f223	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	00d6c2481728	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	a186560e3645	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+sdd	533d3fcd2473	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	high	Spec-driven work that needs a design panel, chief synthesis, and spec-kit check.	recipes/sdd
+sdd-paranoid	4934cfc732fa	8 phases	design[positions>chief>speckit-check], implement, intake, review[adversarial+security], ship, verify	very high	Spec-driven high-risk work needing adversarial and security review.	recipes/sdd-paranoid
+wager-harness	75b3dec5dfb7	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	57cf316e0bfe	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+self	e07b27f406c3	7 phases	implement, intake, review, ship, verify			./bundles/self
+verify	ba5428fc3bd4	4 phases	review, verify			./bundles/verify
 ```
 
 | Recipe | Reach for it when | The difference it states |
 |---|---|---|
 | [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base every recipe below extends |
-| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: adds intake and seats the shared roster on all five phases |
+| [`ember`](../../recipes/ember/README.md) | docs, chores, small fixes | `extends fast`: adds intake, uses the shared model roster, and preserves the boxed gates |
 | [`crucible`](../../recipes/crucible/README.md) | engine, store, protocol or contract changes | `extends fast`: seats `implementer-engine`, then a correctness+security panel whose verdict `review-chief` synthesises |
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends fast`: `max_attempts: 1` on every seat, so anything unusual parks for morning instead of retrying |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
@@ -69,6 +70,13 @@ Node/TypeScript repository instead of this Rust one: the phase table is
 identical, only the seats' driver commands and role charters are
 JavaScript. [Adopting a Node repo](adopting-a-node-repo.md)
 walks a stranger from an unmodified repo to a first run.
+
+Every shipped `verify` and `ship` seat is an inline gate-class `exec`
+site with workspace hands. No model reports evidence that a script can
+measure: the verifier writes `pass` only after every fixed command exits
+zero, and the shipper calls `brokkr ledger` and writes no commit. A
+recipe with different gates, such as Node or preflight, keeps its own
+verifier script beside its roles under the same `pass`/`fail` contract.
 
 Recipes **compose** (decision 0017). `recipes/sdd-paranoid` is sixty
 lines: it extends `sdd` and replaces exactly one seat, and it has to say
@@ -183,11 +191,14 @@ so it cannot smuggle a route around review.
 | `limits` | `max_attempts` and `timeout_seconds`. Defaults: one attempt, 3600 seconds. |
 | `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. The seat's driver must reach a route whose egress class meets the bundle's `egress_minimum`, or compilation refuses (decision 0036 ruling 4). |
 | `driver.confine` | Optional container confinement: `image`, `network`, `mounts`. |
-| `hands` | Decision 0043, Linux only: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). The seat's commands run inside an empty-root box holding only the worktree; a tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
+| `hands` | Decision 0043, Linux only: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). The seat's commands run inside an empty-root box holding the worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`, so its `./` script travels with the strategy. A tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
 
 Two argv tokens are expanded at spawn time: `{brokkr}` becomes this
 engine's own executable (so a bundle can name the built-in adapters),
-and a `./`-prefixed entry is bundle-relative. `{forge}` is the same
+and a `./`-prefixed entry is bundle-relative. For a boxed exec seat that
+entry is expanded to the read-only `/runtime/bundle` mount at spawn, so
+the operated-on repository need not carry or copy the strategy's script.
+`{forge}` is the same
 token under its pre-rename name; it still expands and warns once on
 stderr. The expansion is machine-local, which is why the manifest
 records driver *names*, never resolved argv.

@@ -433,11 +433,15 @@ fn conformance_across_all_builtin_adapters() {
                 "{label}/{case}: paths or ids only: {transcript}"
             );
             if dsh {
+                let locator_path = Path::new(locator);
                 assert!(
-                    locator.starts_with("sessions/brokkr/seat-"),
+                    locator_path.starts_with(Path::new("sessions").join("brokkr"))
+                        && locator_path
+                            .file_name()
+                            .is_some_and(|name| name.to_string_lossy().starts_with("seat-")),
                     "{label}/{case}: {locator}"
                 );
-                assert!(!locator.starts_with('/'), "{label}/{case}: {locator}");
+                assert!(!locator_path.is_absolute(), "{label}/{case}: {locator}");
             } else if exec || case == "silent" {
                 assert_eq!(locator, "", "{label}/{case}");
             } else if codex {

@@ -4,7 +4,6 @@
   "protected_phase": "review",
   "seats": {
     "verify": {
-      "role": "roles/verifier.md",
       "results": [
         "pass",
         "fail"
@@ -18,18 +17,17 @@
         "command": [
           "{brokkr}",
           "driver",
-          "claude",
+          "exec",
           "--",
-          "--model",
-          "claude-fable-5-1",
-          "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"
+          "bash",
+          "./scripts/verify-seat.sh",
+          "{prompt_file}"
         ]
-      }
+      },
+      "hands": {"kind": "workspace", "network": false, "binds": [
+        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+        {"path": "~/.rustup", "mode": "ro"}
+      ]}
     },
     "review": {
       "role": "roles/reviewer.md",

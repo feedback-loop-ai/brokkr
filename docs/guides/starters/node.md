@@ -32,14 +32,13 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 
 ## What it wrote
 
-The same fourteen files as every stack: `agents/README.md`, `bundle.json`,
-`policy.json`, `adapters/claude.json`, five agent definitions under
-`agents/` and their five charters under `agents/charters/`. The
-invariant `bundle.json` — five seats each naming an agent — is in
+The same scaffold shape as every stack: `agents/README.md`, `bundle.json`,
+`policy.json`, model and exec adapters, three model definitions and
+charters, plus verify and ship scripts. The invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote), and so are the fixed parts of the
 agent files. What this repository changed is the stack's own data:
-the two charters below, `adapters/claude.json`'s tool map and every
-agent's `tools.allow` (shown after the charters).
+the implementer charter and verifier script below, plus the model adapter's
+tool map and model agents' `tools.allow` (shown after them).
 
 ## `agents/charters/implementer.md`
 
@@ -83,32 +82,22 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `agents/charters/verifier.md`
+## `scripts/verify-seat.sh`
 
-```markdown
-# Verifier seat — prove it, fix nothing
+The deterministic boxed verifier contains these detected command pins:
 
-Run the project's full test and lint suites from the repository root.
-
-This repository reads as a node/npm project (`package.json`), so use its own
-tooling:
-
-    npm test
-    npm run lint
-
-`brokkr init` chose those from the files at the repository root —
-it ran nothing to find out. Correct them here if they are wrong.
-
-You change no code, fix nothing, commit nothing: one honest run is the
-signal. Result: `pass` (everything green; `notes` lists commands and
-counts) or `fail` (`notes` quotes the failing output's decisive lines
-exactly — never soften a failure).
+```bash
+test_command='npm test'
+lint_command='npm run lint'
 ```
+
+It runs both from the repository root with network denied, writes `pass`
+only when both exit zero, and writes `fail` with decisive output otherwise.
 
 - **`npm run lint`** — a guess with a name on it. If your
   `package.json` has no `lint` script this command fails loudly at the
   verify gate, which is the correct failure: it is a five-second edit to
-  this file, and a silently-skipped lint is not.
+  this script, and a silently-skipped lint is not.
 
 ## The tool grant
 

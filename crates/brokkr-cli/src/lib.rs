@@ -7,6 +7,7 @@ mod agents;
 mod compare;
 mod doctor;
 mod init;
+mod ledger;
 mod muninn;
 mod realms;
 mod recipes;
@@ -77,6 +78,16 @@ enum Cmd {
         run: String,
         #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
+    },
+    /// Render the shipper's delivery ledger from journal and repository evidence.
+    Ledger {
+        #[arg(long)]
+        run: String,
+        #[arg(long, default_value = DEFAULT_DB)]
+        db: PathBuf,
+        /// Write `.forge/ledger/<run>.md` here; without it, print the ledger.
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
@@ -869,6 +880,9 @@ pub enum HandsCommand {
     Exec {
         #[arg(long)]
         workdir: PathBuf,
+        /// Strategy root, bound read-only at /runtime/bundle.
+        #[arg(long)]
+        bundle_root: Option<PathBuf>,
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
@@ -903,6 +917,7 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
         }
         HandsCommand::Exec {
             workdir,
+            bundle_root,
             spec,
             command,
         } => {
@@ -913,7 +928,8 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
                 Some("--") => command[1..].to_vec(),
                 _ => command,
             };
-            let code = hands::run_boxed(&spec, &workdir, &command).map_err(anyhow::Error::msg)?;
+            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
+                .map_err(anyhow::Error::msg)?;
             Ok(ExitCode::from(
                 u8::try_from(code.clamp(0, 255)).unwrap_or(1),
             ))
@@ -1575,6 +1591,15 @@ fn run_with(
                  the trust tier and the tool grants its seats run under",
                 dir.display()
             );
+            if let Err(reason) =
+                brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
+            {
+                eprintln!(
+                    "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
+                     declare hands and will refuse to run here — the shipped gates \
+                     require Linux with bubblewrap on PATH"
+                );
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Costs { run, db } => {
@@ -1589,6 +1614,21 @@ fn run_with(
                     "total_cost_usd": total,
                 }))?
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Ledger { run, db, repo } => {
+            anyhow::ensure!(
+                db.is_file(),
+                "journal does not exist: {}; ledger reads never create one",
+                db.display()
+            );
+            let store = Store::open_read_only(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
+            let events = store.load(&run)?;
+            match repo {
+                Some(repo) => println!("{}", ledger::write(&run, &events, &repo)?.display()),
+                None => print!("{}", ledger::render(&run, &events, workspace)?),
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Anchor {

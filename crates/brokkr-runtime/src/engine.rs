@@ -777,6 +777,16 @@ impl Engine {
             return Ok(());
         }
 
+        // The journal is an execution resource, not part of the durable seat
+        // request: equivalent --db spellings on resume must rebuild the same
+        // input digest. Only the deterministic ship script receives it.
+        let mut input = input;
+        if phase == "ship" {
+            let journal =
+                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
+            input["context"]["journal"] = Value::String(journal.to_string_lossy().into_owned());
+        }
+
         let seat = self.bundle.seats[seat_name].clone();
         let attempt_id = Uuid::new_v4().to_string();
         let driver_label = match &seat.body {
@@ -797,6 +807,7 @@ impl Engine {
         // start, because the session question is asked of it: which
         // instance this attempt resolves to is part of what decides
         // whether a prior session may be handed back to it.
+        let runtime_hands = self.runtime_hands(seat_name);
         let single = match &seat.body {
             SeatBody::Single {
                 command, confine, ..
@@ -807,8 +818,9 @@ impl Engine {
                     &workdir,
                     &self.bundle.roots,
                 ),
-                self.bundle.hands.get(seat_name),
+                runtime_hands.as_ref(),
                 &workdir,
+                &self.bundle.roots,
             )),
             _ => None,
         };
@@ -891,6 +903,28 @@ impl Engine {
                 self.conclude_single(effect_id, &attempt_id, run, &selection)
             }
         }
+    }
+
+    /// A ship seat reads the already-open journal. When that journal is
+    /// outside the worktree (the ordinary same-realm fire), mount only its
+    /// parent and mount it read-only. This run-time resource is deliberately
+    /// absent from the manifest and the requested-input digest.
+    fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
+        let mut spec = self.bundle.hands.get(seat_name)?.clone();
+        if seat_name == "ship" {
+            let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
+            let journal =
+                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
+            if !journal.starts_with(&workdir) {
+                let parent = journal.parent().unwrap_or(&journal);
+                spec.binds.push(brokkr_protocol::hands::Bind {
+                    path: parent.to_string_lossy().into_owned(),
+                    mode: brokkr_protocol::hands::BindMode::Ro,
+                    mask: Vec::new(),
+                });
+            }
+        }
+        Some(spec)
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
@@ -1147,6 +1181,7 @@ impl Engine {
                             .hands
                             .get(&format!("{driver_seat_prefix}:{}", member.name)),
                         &workdir,
+                        &self.bundle.roots,
                     ),
                     input,
                 }
@@ -1369,6 +1404,7 @@ impl Engine {
                         ),
                         self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
                         &self.workdir(),
+                        &self.bundle.roots,
                     );
                     // A sequence step is not a seat: decision 0030 hands
                     // a session back to the same SEAT of the same run,
@@ -2897,6 +2933,7 @@ pub fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,
+    roots: &[PathBuf],
 ) -> Vec<String> {
     let Some(spec) = hands else {
         return command;
@@ -2904,6 +2941,28 @@ pub fn hands_command(
     let brokkr = std::env::current_exe().unwrap_or_default();
     let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
     if is_exec {
+        let bundle_root = roots
+            .iter()
+            .find(|root| {
+                command
+                    .iter()
+                    .any(|part| Path::new(part).strip_prefix(root).is_ok())
+            })
+            .or_else(|| roots.first());
+        let command = command
+            .into_iter()
+            .map(|part| {
+                bundle_root
+                    .and_then(|root| Path::new(&part).strip_prefix(root).ok())
+                    .map(|relative| {
+                        brokkr_protocol::hands::namespace_join(
+                            brokkr_protocol::hands::SANDBOX_BUNDLE,
+                            relative,
+                        )
+                    })
+                    .unwrap_or(part)
+            })
+            .collect::<Vec<_>>();
         let mut boxed = vec![
             brokkr.to_string_lossy().into_owned(),
             "hands".to_string(),
@@ -2912,8 +2971,14 @@ pub fn hands_command(
             workdir.to_string_lossy().into_owned(),
             "--spec".to_string(),
             spec.to_value().to_string(),
-            "--".to_string(),
         ];
+        if let Some(root) = bundle_root {
+            boxed.extend([
+                "--bundle-root".to_string(),
+                root.to_string_lossy().into_owned(),
+            ]);
+        }
+        boxed.push("--".to_string());
         boxed.extend(command);
         return boxed;
     }

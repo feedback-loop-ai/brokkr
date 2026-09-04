@@ -20,9 +20,7 @@ review-correctness	sol → opus	Review panel member: does the change do what it 
 review-security	fable → opus → sol	Review panel member: the adversarial security read of the change.
 review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
 reviewer	fable → opus → sol	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
-shipper	fable → opus	Closes a delivery out: ledger, gates, and the report the operator reads before merging.
 triage	fable → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
-verifier	fable → opus	Runs the suites and gates and reports pass or fail on evidence, never on intent.
 ```
 
 ```
@@ -36,6 +34,11 @@ configuration, its decision-0006 limits and its decision-0007 declared
 inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
 Inline seats stay first-class — `recipes/sdd`'s `speckit-check` step is
 a shell script with no model, and it stays inline.
+
+Verifier and shipper are deliberately absent from the agent library.
+They are boxed, inline `exec` scripts with no model: verification runs a
+recipe's fixed checks, and shipping renders journal evidence through
+`brokkr ledger` before confirming the recorded head and clean tree.
 
 Resolution happens at compile time, is pinned into the run manifest, and
 is a pure function of *(library, adapters, availability)* — availability

@@ -62,6 +62,36 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
 }
 
+#[test]
+fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    let empty_path = dir.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["init", bundle.to_str().unwrap()])
+        .env("PATH", &empty_path)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains(
+            "hands need bubblewrap: no `bwrap` on PATH, and the boundary is never simulated"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("scaffolded seats [\"ship\", \"verify\"] declare hands"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("require Linux with bubblewrap on PATH"),
+        "{stderr}"
+    );
+}
+
 /// The other half of that: the scaffold WRITES a trust declaration, and
 /// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
 /// its bundle against clobbering; the declaration is workspace data and
@@ -82,6 +112,31 @@ fn init_refuses_to_overwrite_an_operators_trust_declaration() {
     let kept = std::fs::read_to_string(&declaration).unwrap();
     assert!(kept.contains("untrusted"), "{kept}");
     assert!(!bundle.join("bundle.json").exists());
+}
+
+#[test]
+fn init_refuses_to_overwrite_exec_trust_or_deterministic_seat_scripts() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let exec_bundle = dir.path().join("exec-bundle");
+    std::fs::create_dir_all(exec_bundle.join("adapters")).unwrap();
+    let exec = exec_bundle.join("adapters").join("exec.json");
+    std::fs::write(&exec, "operator-owned\n").unwrap();
+    let (code, _, stderr) = brokkr(&["init", exec_bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains(&exec.display().to_string()), "{stderr}");
+    assert_eq!(std::fs::read_to_string(exec).unwrap(), "operator-owned\n");
+
+    for script in ["verify-seat.sh", "ship-seat.sh"] {
+        let bundle = dir.path().join(script);
+        std::fs::create_dir_all(bundle.join("scripts")).unwrap();
+        let path = bundle.join("scripts").join(script);
+        std::fs::write(&path, "operator-owned\n").unwrap();
+        let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+        assert_eq!(code, Some(1), "stderr: {stderr}");
+        assert!(stderr.contains(&path.display().to_string()), "{stderr}");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "operator-owned\n");
+    }
 }
 
 /// Decision 0021, from the operator's side: the scaffold's gate seats

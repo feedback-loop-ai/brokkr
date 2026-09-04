@@ -46,29 +46,24 @@ correct.
 
 ```
 my-bundle/adapters/claude.json
+my-bundle/adapters/exec.json
 my-bundle/agents/README.md
 my-bundle/agents/charters/implementer.md
 my-bundle/agents/charters/intake.md
 my-bundle/agents/charters/reviewer.md
-my-bundle/agents/charters/shipper.md
-my-bundle/agents/charters/verifier.md
 my-bundle/agents/implementer.json
 my-bundle/agents/intake.json
 my-bundle/agents/reviewer.json
-my-bundle/agents/shipper.json
-my-bundle/agents/verifier.json
 my-bundle/bundle.json
 my-bundle/policy.json
+my-bundle/scripts/ship-seat.sh
+my-bundle/scripts/verify-seat.sh
 ```
 
-**`bundle.json`, `policy.json`, the intake / reviewer / shipper charters
-and the fixed parts of every agent file do not vary by stack.** The seat
-roster, the phase table, the three charters that frame, read and close
-out, and each agent's charter link, model chain and limits are
-byte-identical for every repository `init` has ever been run in. What
-varies is the stack's own data: the implementer's and verifier's
-charters, the adapter's tool map, and the tool allowance each agent
-carries.
+**The policy, intake/reviewer charters, ship script, and fixed model-agent
+fields do not vary by stack.** What varies is the stack's own data: the
+implementer charter, verifier script, model adapter tool map, model-agent
+allowances, and the verifier's cache binds.
 
 For completeness, the invariant `bundle.json`:
 
@@ -89,9 +84,14 @@ For completeness, the invariant `bundle.json`:
       "results": ["complete", "broken", "blocked"]
     },
     "verify": {
-      "agent": "verifier",
       "class": "gate",
-      "results": ["pass", "fail"]
+      "results": ["pass", "fail"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]},
+      "hands": {"kind": "workspace", "network": false, "binds": [
+        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+        {"path": "~/.rustup", "mode": "ro"}
+      ]}
     },
     "review": {
       "agent": "reviewer",
@@ -99,20 +99,20 @@ For completeness, the invariant `bundle.json`:
       "results": ["clean", "residual", "security-hold"]
     },
     "ship": {
-      "agent": "shipper",
       "class": "gate",
-      "results": ["ready", "shipped"]
+      "results": ["ready", "shipped"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 1800},
+      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
+      "hands": {"kind": "workspace", "network": false, "binds": []}
     }
   }
 }
 ```
 
-Every seat names an agent and nothing else about what the agent IS: an
-agent reference is total, so the charter, the model chain, the 0006
-`limits` and the tool grant all live in the agent's own file under
-`agents/`, where `brokkr agents show <name>` reads them back. The class
-written here is the seat's authority, never the agent's (decision 0021
-ruling 1) — which is why the scaffold's tests cross-check the two.
+The three model offices name agents; their charter, model chain, limits and
+tool grant live under `agents/`, where `brokkr agents show <name>` reads
+them back. Verify and ship are deterministic scripts with their limits and
+boxed hands declared at the site. Class remains the seat's authority.
 
 Every other page in this directory omits this file and points here.
 
@@ -208,31 +208,18 @@ Line by line, the parts that were chosen rather than fixed:
   presence and, for the workspace line, one `[workspace]` line read out
   of `Cargo.toml`. No `cargo` subprocess is spawned.
 
-## `agents/charters/verifier.md`
+## `scripts/verify-seat.sh`
 
-```markdown
-# Verifier seat — prove it, fix nothing
+The deterministic boxed verifier contains these detected command pins:
 
-Run the project's full test and lint suites from the repository root.
-
-This repository reads as a rust project (`Cargo.toml`), so use its own
-tooling:
-
-    cargo test --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
-
-This is a CARGO WORKSPACE (`[workspace]` in `Cargo.toml`). The
-`--workspace` flag above already spans every member crate — there
-is no per-crate command to go looking for.
-
-`brokkr init` chose those from the files at the repository root —
-it ran nothing to find out. Correct them here if they are wrong.
-
-You change no code, fix nothing, commit nothing: one honest run is the
-signal. Result: `pass` (everything green; `notes` lists commands and
-counts) or `fail` (`notes` quotes the failing output's decisive lines
-exactly — never soften a failure).
+```bash
+test_command='cargo test --workspace'
+lint_command='cargo clippy --workspace --all-targets -- -D warnings'
 ```
+
+It runs both with network denied, using the bound Cargo registry cache,
+types `pass` only when both exit zero, and quotes decisive output on
+`fail`.
 
 - **`cargo test --workspace`** — the same command the implementer was
   given, on purpose. The implementer runs it to know it is done; the
@@ -271,7 +258,7 @@ promise.
 
 All of it is ordinary JSON or Markdown in your tree. If your suite is
 `cargo nextest run` or your lint carries `--all-features`, edit
-`agents/charters/implementer.md` and `agents/charters/verifier.md`; if a
+`agents/charters/implementer.md` and `scripts/verify-seat.sh`; if a
 seat needs a narrower or wider grant, edit its `tools.allow` in
 `agents/<name>.json` AND the matching entry in the adapter's map — the
 scaffold's own compile is the check that the two still agree. Every edit

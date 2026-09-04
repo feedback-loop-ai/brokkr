@@ -774,6 +774,12 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// disappear, implementers gain `oversized`, and every finding-bearing
 /// table gains its bounded return edges (or, for verify, the read-only
 /// charter and inputs that make the absence of such an edge explicit).
+/// The boxed-gate correction moves the five again because each exec
+/// script is now explicitly bundle-relative and travels through the
+/// read-only bundle mount instead of being mistaken for repository data.
+/// The returned implementation moves them once more because the scripts
+/// themselves now live under, and are digested with, the roots that own
+/// those commands.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
@@ -782,23 +788,23 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/fast",
-        "1ab5d83344bdb0b974419dc996e9d2618bad298e6f23d4e47d2982ebab334d5f",
+        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
     ),
     (
         "recipes/panel-review",
-        "cebbbe0625ed02cc5a8770fa00af465f4bc7ddfdee8bd4c2b3b2285047867a20",
+        "48cb2cc5b98b13dc8e3d82d5079ba4a758cc5a54c4cc83a0f2c1ee62fe809872",
     ),
     (
         "recipes/sdd",
-        "043868cea055088796d1d3fbb081d0b2934f587d65111d47d2a6742ee78f3df4",
+        "e39e4993379cccb512c00e2f19bac280b96d3802ad300a885c5774147a82119c",
     ),
     (
         "bundles/self",
-        "123bb389c43ad1804459093211bb03cc985d5cc75914c493109fcae3f65bef31",
+        "082703fbd780eca8cc35b5faf037b3476782566b408c39145467e614e0ed8b3e",
     ),
     (
         "bundles/verify",
-        "9f070273c9ce952c1927692726628a913036d35501ad4ad37ae66a3052678420",
+        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
     ),
 ];
 
@@ -929,7 +935,7 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         bundle.manifest_digest(),
-        "bb8e680d078083376a43e57322871bc047e38c6b436bbbc31174fdfa592cd40b",
+        "488518ab6551de3ba49329f851acc094e7022810872404590d34d8455f82a4b0",
         "the composed golden — it moved when the base adopted agents, \
          again when the base's table gained the reforging back-edge \
          (decision 0022), again when the base's argv token was renamed \
@@ -945,7 +951,13 @@ fn a_composed_bundles_manifest_is_pinned() {
          judges to the adapters, then the ruling-2 review correction makes \
          Git explicit in the intake and implementer charters and grants, \
          and the 0041 addendum makes the design chief work while its boxed \
-         validator becomes the gate; \
+         validator becomes the gate; this slice moves it because the base's \
+         verifier and shipper become boxed exec scripts with no model, and \
+         this review return moves it because ship sheds unused toolchain \
+         binds, and this correction moves it because the inherited exec \
+         scripts become bundle-relative and cross the read-only bundle mount; \
+         the returned implementation moves it again because those inherited \
+         scripts now exist inside, and are digested with, the base root; \
          which is this test's own principle: changing a \
          base changes the digest of everything derived from it"
     );

@@ -26,14 +26,13 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 
 ## What it wrote
 
-The same fourteen files as every stack: `agents/README.md`, `bundle.json`,
-`policy.json`, `adapters/claude.json`, five agent definitions under
-`agents/` and their five charters under `agents/charters/`. The
-invariant `bundle.json` — five seats each naming an agent — is in
+The same scaffold shape as every stack: three model offices and two boxed
+exec gates, with model and exec adapters and verify/ship scripts. The
+invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
 files. What this repository changed is the stack's own data:
 
-- `agents/charters/implementer.md` and `agents/charters/verifier.md`
+- `agents/charters/implementer.md` and `scripts/verify-seat.sh`
   below;
 - `adapters/claude.json`'s tool map and every agent's `tools.allow`,
   sized to this stack's commands (shown after the charters).
@@ -74,32 +73,22 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `agents/charters/verifier.md`
+## `scripts/verify-seat.sh`
 
-```markdown
-# Verifier seat — prove it, fix nothing
+The deterministic boxed verifier contains these detected command pins:
 
-Run the project's full test and lint suites from the repository root.
-
-This repository reads as a go project (`go.mod`), so use its own
-tooling:
-
-    go test ./...
-    go vet ./...
-
-`brokkr init` chose those from the files at the repository root —
-it ran nothing to find out. Correct them here if they are wrong.
-
-You change no code, fix nothing, commit nothing: one honest run is the
-signal. Result: `pass` (everything green; `notes` lists commands and
-counts) or `fail` (`notes` quotes the failing output's decisive lines
-exactly — never soften a failure).
+```bash
+test_command='go test ./...'
+lint_command='go vet ./...'
 ```
+
+It runs both from the repository root with network denied, types `pass`
+only when both exit zero, and quotes decisive output on `fail`.
 
 - **`go vet ./...`** is the arm's `lint`, and it is the honest default
   because it ships with the toolchain: `golangci-lint` would be a better
   gate in most repositories and a broken command in a repository that
-  never installed it. Swap it in this file if you have it.
+  never installed it. Swap it into this script if you have it.
 
 ## The tool grant
 

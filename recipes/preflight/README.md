@@ -53,18 +53,16 @@ way.
 
 ## Why both seats declare `class: "gate"`
 
-Decision 0021: a judging seat stands on an adapter's declared trust
-tier, checked when the bundle compiles, before any prompt exists. Both
-seats here judge, so both declare `"class": "gate"` and both name the
-`claude` driver, the one shipped adapter declared trusted. The compiler
-refuses an untrusted driver at a gate.
+Decision 0021: a judging seat stands on a compile-time gate check. Both
+seats here declare `"class": "gate"`: verify uses boxed `exec`, while
+review names the trusted model driver.
 
 ## The two checks a preflight cannot give you
 
 The RustSec advisory audit runs in CI against its own database, and the
 test matrix runs on three operating systems. A preflight run has one
-machine and no advisory database of CI's vintage. The verifier's charter
-tells it to name both as unrun rather than imply they passed.
+machine and no advisory database of CI's vintage. The verifier script
+names both as unrun rather than imply they passed.
 
 ## The terminal shape is a test, not a comment
 
@@ -75,3 +73,10 @@ rule names `intake`, `implement` or `ship`; and that every rule from
 
 See [CONTRIBUTING.md](../../CONTRIBUTING.md) for where this sits in the
 walk from clone to pull request.
+
+The verifier is a boxed exec script beside these roles. Cargo runs
+offline from the bound registry cache; an uncached dependency cannot
+reach the network, so the gate fails closed and quotes Cargo's decisive
+offline/cache line in its notes. The bundle root is mounted read-only in
+the box, so this script travels with the recipe when `--repo` points at
+a foreign repository; the target repository needs no copied gate script.

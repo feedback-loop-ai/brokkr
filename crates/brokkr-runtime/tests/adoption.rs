@@ -88,16 +88,6 @@ const PANEL_REVIEW: &Roster = &[
         "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
-        "verify",
-        "claude-fable-5-1",
-        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
-    ),
-    (
-        "ship",
-        "claude-fable-5-1",
-        "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
-    ),
-    (
         "review:correctness",
         "gpt-5.6-sol",
         "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
@@ -119,16 +109,6 @@ const SDD: &Roster = &[
         "implement",
         "claude-opus-5",
         "5853f85c7e8ee053b8085af1610c59dd455d15216b70490e80bae533835039a0",
-    ),
-    (
-        "verify",
-        "claude-fable-5-1",
-        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
-    ),
-    (
-        "ship",
-        "claude-fable-5-1",
-        "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
     (
         "review:spec-compliance",
@@ -168,19 +148,9 @@ const SELF: &Roster = &[
         "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
-        "verify",
-        "claude-fable-5-1",
-        "4cf73af1d979b54cb4026c301bbc7ffa86a4cf7149d037f8d14d05ac714076d0",
-    ),
-    (
         "review",
         "claude-fable-5-1",
         "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
-    ),
-    (
-        "ship",
-        "claude-fable-5-1",
-        "df94781f03b42a9b2186c914c92e4fef85aa8db65a664afaeadecd9d9211b1b9",
     ),
 ];
 
@@ -202,7 +172,7 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
     };
     let effort = match site {
         "design:chief" => "max",
-        "verify" | "ship" | "review" | "review:security" => "xhigh",
+        "review" | "review:security" => "xhigh",
         _ => "high",
     };
     argv.extend(["--model", model, "--effort", effort]);
@@ -230,8 +200,7 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
     } else {
         let tools = match site {
             "implement" => Some("Bash(cargo:*),Bash(git:*)"),
-            "verify" => Some("Bash(cargo:*)"),
-            "intake" | "ship" => Some("Bash(git:*)"),
+            "intake" => Some("Bash(git:*)"),
             "design:chief" => Some("Bash(git:*),Bash(specify:*)"),
             _ => None,
         };

@@ -31,3 +31,7 @@ results, class, the phase table, and every gate are `fast`'s, inherited.
 Run as the harness README says: `brokkr run --recipe fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.
+
+The harness inherits `fast`'s boxed verifier and shipper by construction.
+Cargo verification runs offline from the bound registry cache; an
+uncached dependency fails closed and its decisive line is quoted.

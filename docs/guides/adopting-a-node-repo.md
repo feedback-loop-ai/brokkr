@@ -21,6 +21,9 @@ Zero really is zero on the Brokkr side: there is nothing to `npx`, no
 package to add to your `devDependencies`, no postinstall hook. Brokkr is
 one native binary written in Rust (decision 0009) that stands *outside*
 your project and drives it. Your `package.json` never learns it exists.
+The verifier script stays in the installed recipe: Brokkr mounts that
+bundle read-only in its exec box, so adopting the recipe requires no
+separate script copy into the repository.
 
 You will need, beyond the spine's requirements:
 
@@ -33,7 +36,7 @@ You will need, beyond the spine's requirements:
   Without a local install `npx` resolves the name outward to the
   registry instead, which is not what you want a gate seat doing. A
   plain-JavaScript repo should drop the type-check step from
-  `roles/verifier.md` and `roles/implementer.md` rather than let it
+  `roles/verify-seat.sh` and `roles/implementer.md` rather than let it
   reach out; see [below](#fitting-the-recipe-to-your-repo).
 - `node` and `npm` on your `PATH`. The recipe is wired for npm because
   npm ships with Node — nothing to install before the first seat can
@@ -216,16 +219,16 @@ come up.
 [`recipes/node/README.md`](../../recipes/node/README.md) names every
 swap point for pnpm and yarn: the `--allowedTools` list in each seat's
 driver, and the install/type-check/test commands plus the lockfile name
-in the four charters. There is deliberately no second bundle to keep in
+  in the implementer charter and verifier script. There is deliberately no second bundle to keep in
 sync. For bun, [cards/bun.md](cards/bun.md) names the same three
 command swaps.
 
 **Your repo's own scripts.** If your suite is `npm run test:ci`, or your
-type check is `npm run typecheck`, edit `roles/verifier.md` and
+type check is `npm run typecheck`, edit `roles/verify-seat.sh` and
 `roles/implementer.md` to say so. A charter naming a script that exists
 beats a charter naming a command a seat has to guess at. A repository
 with no TypeScript at all deletes the `npx tsc --noEmit` step from both
-charters for the same reason — one step short beats a step that resolves
+files for the same reason — one step short beats a step that resolves
 to something the repo never installed.
 
 **Limits.** `max_attempts` is 2 everywhere; the timeouts (4800s to

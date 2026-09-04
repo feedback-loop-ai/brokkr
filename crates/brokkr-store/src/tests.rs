@@ -3,7 +3,12 @@ use serde_json::json;
 
 fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let path = dir.path().join("forge.db");
+    let store = Store::open(&path).unwrap();
+    // Temp roots may be symlinks on macOS and canonical paths may gain a
+    // verbatim prefix on Windows. Compare Paths in the spelling the product
+    // promises; when it promises canonical paths, canonicalize both sides.
+    assert_eq!(store.path(), path);
     (dir, store)
 }
 
@@ -765,6 +770,7 @@ fn read_only_open_reads_the_journal_and_refuses_every_write() {
     drop(store);
 
     let mut reader = Store::open_read_only(&db).unwrap();
+    assert_eq!(reader.path(), db);
     assert_eq!(reader.list_runs().unwrap().len(), 1);
     assert_eq!(reader.load("r1").unwrap().len(), 1);
     // The refusal is SQLite's, not this module's discipline.

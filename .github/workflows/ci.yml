@@ -129,7 +129,7 @@ jobs:
           bwrap --version
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
-      - run: cargo test --workspace --all-features --locked
+      - run: cargo test --workspace --all-features --locked --no-fail-fast
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
@@ -230,6 +230,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The benchmark runs the boxed gates from the real init scaffold.
+      # Decision 0043 never simulates their bubblewrap boundary.
+      - name: bubblewrap for the hands tests
+        # The runner image restricts unprivileged user namespaces through
+        # AppArmor, and Ubuntu's package is 0.9; overlay binds need 0.10+.
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: cargo build --release --locked -p brokkr-cli
       - name: install and first-run budgets hold
         run: bash scripts/bootstrap-bench.sh --binary target/release/brokkr

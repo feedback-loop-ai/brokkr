@@ -1,9 +1,10 @@
 //! `brokkr init <dir>` — scaffold a minimal reviewable bundle and prove it
 //! compiles. The template carries the tightened ship taxonomy (`ready` →
 //! `shipped` as the sole entry into `done`), the protected review phase,
-//! one agent-defined seat per phase, the work/gate division of decision
-//! 0021 ruling 1, and the bundled headless Claude Code driver. Everything
-//! written is ordinary text meant to be reviewed and edited in git.
+//! model-backed work and review offices, deterministic boxed verify and
+//! ship offices, and the bundled headless Claude Code and exec drivers.
+//! Everything written is ordinary text meant to be reviewed and edited in
+//! git.
 //!
 //! The scaffold is a WORKSPACE, not only a bundle: it carries its own
 //! `adapters/` and `agents/` trees, because since decision 0021 the tier
@@ -25,11 +26,11 @@
 //! repository to "run the project's test suite" told none of them
 //! anything. So the repository being delivered — the workspace `brokkr`
 //! was invoked from, not the directory the recipe lands in — is read for
-//! the manifests and lockfiles at its root, and the implementer's and
-//! verifier's charters name that stack's own commands. Nothing is
+//! the manifests and lockfiles at its root, and the implementer charter and
+//! verifier script name that stack's own commands. Nothing is
 //! executed to find out: file presence is the whole of the evidence, and
 //! a guess that says which files it was read from is one an operator can
-//! correct. Where no marker is recognized, the charters say so in those
+//! correct. Where no marker is recognized, the generated files say so in those
 //! words rather than dressing a placeholder as a choice.
 //!
 //! Detection reads two tables, both data, in this order:
@@ -52,20 +53,21 @@
 //! SAYING it is a workspace, so a seat does not go hunting for a
 //! per-crate or per-module command that nobody needed.
 //!
-//! The same stack decides the scaffold's TOOL GRANTS. A headless seat
+//! The same stack decides the scaffold's MODEL TOOL GRANTS. A headless seat
 //! runs under `--allowedTools`: a claude session that may run anything
 //! stops at every shell prompt it is not allowed to answer. So the tools
 //! the stack's own commands need — the binary each command leads with —
 //! are written into the scaffolded `adapters/claude.json`
 //! `tool_permissions.names` as `Bash(<bin>:*)` entries and granted, by
-//! name, in the scaffolded agents' `tools.allow` lists: an allowance the
+//! name, in the scaffolded model agents' `tools.allow` lists: an allowance the
 //! adapter cannot express is a compile refusal, so the two files are ONE
 //! grant, not two. The split is decision 0021 ruling 1's: the WORK-class
 //! seats (intake, implement) may run the full set — the stack's runners
 //! plus `git`, `ls`, `rg` and `mkdir` — so a seat may run exactly the
-//! commands its charter names and nothing broader; the GATE-class seats
-//! (verify, review, ship) may run the test runner's tools plus the read
-//! trio, and never `mkdir`. The grant is per BINARY, not per subcommand:
+//! commands its charter names and nothing broader; the model-backed review
+//! gate may run the test runner's tools plus the read trio, and never
+//! `mkdir`. Verify and ship are boxed scripts and carry no model grants.
+//! The grant is per BINARY, not per subcommand:
 //! `Bash(cargo:*)` answers to `cargo build` as readily as to `cargo
 //! test`, so it is each gate's charter — prove it, fix nothing — and not
 //! the grant that keeps a gate from building, and the README says so
@@ -145,48 +147,106 @@ const POLICY: &str = r#"{
 }
 "#;
 
-/// Every seat names an agent and nothing about what the agent IS: an
-/// agent reference is total (the compiler refuses `role`, `limits` or a
-/// `driver.command` beside it), so the seat carries only what is the
-/// seat's own — its class, which is the seat's authority and never the
-/// agent's (decision 0021 ruling 1), and its result vocabulary. The
-/// charter, the model chain, the 0006 bounds and the tool grant are the
-/// agent's, in `agents/`, where `brokkr agents show` can read them back.
-/// This file is byte-identical for every repository: what varies by
-/// stack lives in the adapter's tool map and the agents' allowances, not
-/// here.
-const BUNDLE: &str = r#"{
-  "name": "starter",
-  "policy": "policy.json",
-  "protected_phase": "review",
-  "seats": {
-    "intake": {
-      "agent": "intake",
-      "class": "work",
-      "results": ["resolved"]
-    },
-    "implement": {
-      "agent": "implementer",
-      "class": "work",
-      "results": ["complete", "broken", "blocked"]
-    },
-    "verify": {
-      "agent": "verifier",
-      "class": "gate",
-      "results": ["pass", "fail"]
-    },
-    "review": {
-      "agent": "reviewer",
-      "class": "gate",
-      "results": ["clean", "residual", "security-hold"]
-    },
-    "ship": {
-      "agent": "shipper",
-      "class": "gate",
-      "results": ["ready", "shipped"]
+/// The scaffold follows the shipped roster: work and review are model
+/// offices, while verify and ship are deterministic boxed exec scripts.
+fn bundle_json(detected: Option<&Detected>) -> String {
+    let mut verify_binds = Vec::new();
+    if detected.is_some_and(|stack| leading_word(&stack.test) == "cargo") {
+        verify_binds.extend([
+            json!({"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]}),
+            json!({"path": "~/.rustup", "mode": "ro"}),
+        ]);
     }
-  }
+    let bundle = json!({
+        "name": "starter",
+        "policy": "policy.json",
+        "protected_phase": "review",
+        "seats": {
+            "intake": {"agent": "intake", "class": "work", "results": ["resolved"]},
+            "implement": {"agent": "implementer", "class": "work", "results": ["complete", "broken", "blocked"]},
+            "verify": {
+                "class": "gate",
+                "results": ["pass", "fail"],
+                "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]},
+                "hands": {"kind": "workspace", "network": false, "binds": verify_binds},
+            },
+            "review": {"agent": "reviewer", "class": "gate", "results": ["clean", "residual", "security-hold"]},
+            "ship": {
+                "class": "gate",
+                "results": ["ready", "shipped"],
+                "limits": {"max_attempts": 2, "timeout_seconds": 1800},
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
+                "hands": {"kind": "workspace", "network": false, "binds": []},
+            },
+        }
+    });
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&bundle).expect("bundle serializes")
+    )
 }
+
+const EXEC_ADAPTER: &str = r#"{
+  "provider": "exec",
+  "trust_tier": "untrusted",
+  "binding_grant": true,
+  "binary": "sh",
+  "driver": ["{brokkr}", "driver", "exec", "--"],
+  "models": {},
+  "judges": [],
+  "model_flag": "unsupported",
+  "efforts": [],
+  "effort_flag": "unsupported",
+  "tool_permissions": "unsupported",
+  "mcp": "unsupported",
+  "hands": {"workspace": []}
+}
+"#;
+
+const SHIP_SCRIPT: &str = r#"#!/usr/bin/env bash
+set -u
+prompt_file="${1:-}"
+brokkr="${2:-brokkr}"
+[ -f "$prompt_file" ] || { echo "ship-seat: prompt file missing" >&2; exit 2; }
+result_path=""; run_id=""; rule_id=""; journal=""; in_context=false
+while IFS= read -r line; do
+  trimmed="${line#"${line%%[![:space:]]*}"}"; trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  if [ "$line" = '```json' ]; then in_context=true; continue
+  elif [ "$in_context" = true ] && [ "$line" = '```' ]; then in_context=false; continue; fi
+  case "$trimmed" in /*.json) result_path="$trimmed" ;; esac
+  if [ "$in_context" = true ]; then
+    case "$line" in
+      '  "journal": '*) journal="$(printf '%s' "$line" | sed -n 's/^  "journal": "\([^"]*\)".*/\1/p')" ;;
+      '  "run_id": '*) run_id="$(printf '%s' "$line" | sed -n 's/^  "run_id": "\([^"]*\)".*/\1/p')" ;;
+      '    "rule_id": '*) rule_id="$(printf '%s' "$line" | sed -n 's/^    "rule_id": "\([^"]*\)".*/\1/p')" ;;
+    esac
+  fi
+done < "$prompt_file"
+[ -n "$result_path" ] && [ -n "$run_id" ] || { echo "ship-seat: prompt lacks result path or run id" >&2; exit 2; }
+mkdir -p "$(dirname "$result_path")"
+notes="$(dirname "$result_path")/ship-notes.$$"; trap 'rm -f "$notes"' EXIT
+write_result() { awk -v result="$1" '
+  function json(text,out,i,byte,c){for(i=1;i<=length(text);i++){c=substr(text,i,1);if(c=="\\")out=out "\\\\";else if(c=="\"")out=out "\\\"";else{for(byte=1;byte<32&&c!=sprintf("%c",byte);byte++){}out=out (byte<32?sprintf("\\u%04x",byte):c)}}return out}
+  BEGIN{printf "{\"result\": \"%s\", \"notes\": \"",result}{if(NR>1)printf "\\n";printf "%s",json($0)}END{print "\"}"}' "$notes" > "$result_path"; }
+ledger=".forge/ledger/$run_id.md"
+if [ "$rule_id" != "SHIP-READY" ]; then
+  [ -n "$journal" ] || { echo "ship-seat: prompt lacks journal path" >&2; exit 2; }
+  dirty="$(git status --porcelain 2>&1 || true)"
+  output="$("$brokkr" ledger --run "$run_id" --db "$journal" --repo . 2>&1)"; status=$?
+  [ "$status" -eq 0 ] || { printf 'ship-seat: ledger generation failed: %s\n' "$output" >&2; exit "$status"; }
+  if [ -n "$dirty" ]; then printf 'ledger written to %s; worktree discrepancy before close-out: %s' "$ledger" "$dirty" > "$notes"
+  else printf 'ledger written to %s; review the recorded commits and evidence, then push and merge' "$ledger" > "$notes"; fi
+  write_result ready; exit 0
+fi
+dirty="$(git status --porcelain 2>&1 || true)"; head="$(git rev-parse HEAD 2>&1 || true)"
+recorded="$(sed -n 's/^Repository head: `\([^`]*\)`.*/\1/p' "$ledger" 2>/dev/null | head -n 1)"
+if [ ! -f "$ledger" ]; then printf 'close-out discrepancy: ledger %s is missing' "$ledger" > "$notes"
+elif [ -n "$dirty" ] && [ "$head" != "$recorded" ]; then printf 'close-out discrepancies: worktree is dirty (%s); HEAD is %s but ledger records %s' "$dirty" "$head" "$recorded" > "$notes"
+elif [ -n "$dirty" ]; then printf 'close-out discrepancy: worktree is dirty (%s); HEAD still matches ledger at %s' "$dirty" "$head" > "$notes"
+elif [ "$head" != "$recorded" ]; then printf 'close-out discrepancy: HEAD is %s but ledger records %s; worktree is clean' "$head" "$recorded" > "$notes"
+else printf 'close-out confirmed at %s with a clean worktree; ledger %s records the delivery; review, push, and merge next' "$head" "$ledger" > "$notes"; fi
+write_result shipped
 "#;
 
 /// One scaffolded agent's fixed identity: the name `bundle.json` seats it
@@ -238,28 +298,12 @@ const SEATS: &[AgentSpec] = &[
         timeout_seconds: 5400,
     },
     AgentSpec {
-        agent: "verifier",
-        class: Class::Gate,
-        description: "Runs the suites and gates and reports pass or fail on evidence, never on intent.",
-        models: ["fable", "opus"],
-        max_attempts: 2,
-        timeout_seconds: 3600,
-    },
-    AgentSpec {
         agent: "reviewer",
         class: Class::Gate,
         description: "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
         models: ["fable", "opus"],
         max_attempts: 2,
         timeout_seconds: 3600,
-    },
-    AgentSpec {
-        agent: "shipper",
-        class: Class::Gate,
-        description: "Closes a delivery out: ledger, gates, and the report the operator reads before merging.",
-        models: ["fable", "opus"],
-        max_attempts: 2,
-        timeout_seconds: 1800,
     },
 ];
 
@@ -551,17 +595,16 @@ fn readme(detected: Option<&Detected>) -> String {
                  as a {name} project ({evidence}). Everything here is ordinary text:\n\
                  read it, edit it, commit it.\n\n\
                  ## What is here\n\n\
-                 - `bundle.json` — five seats, each naming an agent, with the class\n\
-                   the seat declares (decision 0021 ruling 1: work or gate) and its\n\
-                   results. This file does not vary by stack.\n\
+                 - `bundle.json` — three model offices plus boxed exec verify and\n\
+                   ship gates, with each seat's results and limits.\n\
                  - `policy.json` — the phase table; `review` is the protected phase.\n\
-                 - `adapters/claude.json` — the one driver: its trust tier, and the\n\
-                   tool map (`tool_permissions.names`) the allowances below are\n\
-                   expressed through.\n\
-                 - `agents/*.json` — one agent per seat: charter, model chain,\n\
+                 - `adapters/claude.json` and `adapters/exec.json` — the model and\n\
+                   deterministic drivers, including their trust tiers.\n\
+                 - `agents/*.json` — one agent per model office: charter, model chain,\n\
                    tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
-                 - `agents/charters/*.md` — the charters; the implementer's and the\n\
-                   verifier's name this repository's own commands.\n\n\
+                 - `agents/charters/*.md` — the three model-office charters.\n\
+                 - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
+                   names this repository's own commands and runs without network.\n\n\
                  ## Tool grants\n\n\
                  `adapters/claude.json` maps each tool the seats are granted below\n\
                  to the `Bash(...)` expression the claude CLI reads — the stack's\n\
@@ -570,9 +613,9 @@ fn readme(detected: Option<&Detected>) -> String {
                  Work-class seats (intake, implement) are granted the whole set, so\n\
                  a seat may run exactly the commands its charter names:\n\
                  {work_list}.\n\n\
-                 Gate-class seats (verify, review, ship) are granted the read-only\n\
-                 subset — the test runner's tools, and the tools that read — and\n\
-                 never `mkdir`: {gate_list}.\n\n\
+                 The model-backed review gate is granted the read-only subset — the\n\
+                 test runner's tools and the tools that read — and never `mkdir`:\n\
+                 {gate_list}. Verify and ship are boxed scripts with no model grant.\n\n\
                  The grant is per BINARY, not per subcommand: the test runner's\n\
                  binary also answers to its build and install subcommands, so it is\n\
                  each gate's charter (prove it, fix nothing) and not the grant that\n\
@@ -602,9 +645,9 @@ fn readme(detected: Option<&Detected>) -> String {
         None => "# starter — scaffolded by `brokkr init`\n\n\
                  NO STACK WAS RECOGNIZED at the repository `init` was run in:\n\
                  none of the manifests or lockfiles it looks for were at that root,\n\
-                 so the implement and verify charters\n\
-                 (`agents/charters/`) carry GENERIC placeholders rather than\n\
-                 commands that would be guesses. Fill them in before the first run.\n\n\
+                 so the implement charter carries GENERIC placeholders and\n\
+                 `scripts/verify-seat.sh` fails closed until its commands are filled\n\
+                 in. Fill them in before the first run.\n\n\
                  The tool map was scaffolded EMPTY for the same reason:\n\
                  `adapters/claude.json` → `tool_permissions.names` names nothing,\n\
                  and no agent under `agents/` declares a `tools` restriction.\n\
@@ -614,9 +657,8 @@ fn readme(detected: Option<&Detected>) -> String {
                  lint commands and grant them by name: add each binary to the\n\
                  adapter's `tool_permissions.names` as `Bash(<bin>:*)`, then list\n\
                  the names in each agent's `tools.allow` — the work-class seats\n\
-                 (intake, implement) get the whole set, the gate-class seats\n\
-                 (verify, review, ship) the read-only subset (git, ls, rg and the\n\
-                 test runner).\n"
+                 (intake, implement) get the whole set and the model-backed review\n\
+                 gate gets the read-only subset (git, ls, rg and the test runner).\n"
             .to_string(),
     }
 }
@@ -956,35 +998,65 @@ fn implementer(stack: Option<&Detected>) -> String {
     )
 }
 
-fn verifier(stack: Option<&Detected>) -> String {
+fn shell_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn verify_script(stack: Option<&Detected>) -> String {
+    let (test, lint) = stack
+        .map(|stack| (stack.test.as_str(), stack.lint.as_str()))
+        .unwrap_or(("", ""));
     format!(
-        "# Verifier seat — prove it, fix nothing\n\n\
-         Run the project's full test and lint suites from the repository root.\n\n\
-         {}\n\
-         You change no code, fix nothing, commit nothing: one honest run is the\n\
-         signal. Result: `pass` (everything green; `notes` lists commands and\n\
-         counts) or `fail` (`notes` quotes the failing output's decisive lines\n\
-         exactly — never soften a failure).\n",
-        commands(
-            stack.map(|s| (s, s.test.as_str(), s.lint.as_str())),
-            [
-                "<this project's test command>",
-                "<this project's lint command>"
-            ],
-        )
+        r#"#!/usr/bin/env bash
+set -u
+prompt_file="${{1:-}}"
+[ -f "$prompt_file" ] || {{ echo "verify-seat: prompt file missing" >&2; exit 2; }}
+result_path=""
+while IFS= read -r line; do
+  line="${{line#"${{line%%[![:space:]]*}}"}}"; line="${{line%"${{line##*[![:space:]]}}"}}"
+  case "$line" in /*.json) result_path="$line" ;; esac
+done < "$prompt_file"
+[ -n "$result_path" ] || {{ echo "verify-seat: result path missing" >&2; exit 2; }}
+mkdir -p "$(dirname "$result_path")"
+output="$(dirname "$result_path")/verify-output.$$"
+notes="$(dirname "$result_path")/verify-notes.$$"
+trap 'rm -f "$output" "$notes"' EXIT
+write_result() {{ awk -v result="$1" '
+  function json(text,out,i,byte,c){{for(i=1;i<=length(text);i++){{c=substr(text,i,1);if(c=="\\")out=out "\\\\";else if(c=="\"")out=out "\\\"";else{{for(byte=1;byte<32&&c!=sprintf("%c",byte);byte++){{}}out=out (byte<32?sprintf("\\u%04x",byte):c)}}}}return out}}
+  BEGIN{{printf "{{\"result\": \"%s\", \"notes\": \"",result}}{{if(NR>1)printf "\\n";printf "%s",json($0)}}END{{print "\"}}"}}' "$notes" > "$result_path"; }}
+run() {{
+  label="$1"; command="$2"
+  if ! bash -lc "$command" > "$output" 2>&1 </dev/null; then
+    printf '%s failed; decisive output follows verbatim:\n' "$label" > "$notes"
+    grep -E '(error|Error|ERROR|fail|FAIL|not found|offline)' "$output" | tail -n 20 >> "$notes" || true
+    [ "$(wc -l < "$notes")" -gt 1 ] || tail -n 20 "$output" >> "$notes"
+    write_result fail; exit 0
+  fi
+}}
+test_command={test}
+lint_command={lint}
+if [ -z "$test_command" ] || [ -z "$lint_command" ]; then
+  printf 'no stack was recognized; fill in scripts/verify-seat.sh before running this gate' > "$notes"
+  write_result fail; exit 0
+fi
+run "$test_command" "$test_command"
+run "$lint_command" "$lint_command"
+printf '%s and %s passed with network denied' "$test_command" "$lint_command" > "$notes"
+write_result pass
+"#,
+        test = shell_literal(test),
+        lint = shell_literal(lint),
     )
 }
 
-/// The charters, three of them fixed and two of them written to the
-/// stack that was found. Intake, review and ship name no build tooling:
-/// framing a task, reading a diff and closing out read the same in every
-/// repository, and a charter that pretended otherwise would be padding.
+/// The three model charters. The implementer is written to the stack that
+/// was found; intake and review name no build tooling because framing a task
+/// and reading a diff are the same in every repository.
 /// They live under `agents/charters/`, because an agent's charter must
 /// stay inside the library that names it.
-fn charters(stack: Option<&Detected>) -> [(&'static str, String); 5] {
+fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
     [
         ("implementer.md", implementer(stack)),
-        ("verifier.md", verifier(stack)),
         (
             "intake.md",
             "# Intake seat — frame the task\n\nRead the feature description and the repository until you can state\nthe task precisely. Write a short framing (goal, files you expect to\nchange, the tests that must prove it, non-goals) to\n`.forge/tasks/<slug>.md` in the working directory — run-local evidence,\nnot committed. Result: `resolved`, with `notes` naming the framing file.\nYou never decide the run's fate; the policy table does.\n".to_string(),
@@ -992,10 +1064,6 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 5] {
         (
             "reviewer.md",
             "# Reviewer seat — adversarial review, security riding along\n\nReview everything changed since the run began (`git log`/`git diff`).\nDimensions: correctness, simplicity, and SECURITY (non-removable;\nseverity vocabulary `none|info|low|medium|high|critical`). You may\napply small safe fixes — commit them and set `fixes_applied: true`\n(the machine then re-verifies; that is correct).\n\nResult: `clean` with `inputs: {\"fixes_applied\": <bool>}` · `residual`\nwith `inputs: {\"max_residual_severity\": \"<severity>\",\n\"has_security_residual\": <bool>}` (list every finding in `notes`;\nnever understate severity — the table decides what ships) ·\n`security-hold` for any unresolved high/critical security finding.\n".to_string(),
-        ),
-        (
-            "shipper.md",
-            "# Shipper seat — close out, hand to the operator\n\nYou do NOT push, merge, or open PRs — the operator holds that\nauthority. Make no commits in this phase: the drift gate compares HEADs\nagainst review time.\n\nStep 2 (`context.last_decision.rule_id == \"SHIP-READY\"`): confirm the\ntree is still clean and HEAD unchanged, then report `shipped` with a\nclose-out summary for the operator.\n\nStep 1 (anything else): confirm the tree is clean, write the delivery\nledger to `.forge/ledger/<run-id>.md` (what shipped, commits, test\nevidence, residual debt, operator next steps — run-local, not\ncommitted), and report `ready`.\n".to_string(),
         ),
     ]
 }
@@ -1028,6 +1096,23 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             declaration.display()
         );
     }
+    let exec_declaration = dir.join(DEFAULT_ADAPTERS_DIR).join("exec.json");
+    if exec_declaration.exists() {
+        bail!(
+            "{} already declares a trust tier; refusing to overwrite — a tier \
+             is an operator's ruling, not a scaffold's",
+            exec_declaration.display()
+        );
+    }
+    for script in ["verify-seat.sh", "ship-seat.sh"] {
+        let path = dir.join("scripts").join(script);
+        if path.exists() {
+            bail!(
+                "{} already defines a seat script; refusing to overwrite",
+                path.display()
+            );
+        }
+    }
     // The agent library is workspace data on the same terms: a grant an
     // operator narrowed, or a chain they re-ordered, is theirs, and a
     // scaffolder that wrote over it would widen a permission by accident.
@@ -1048,13 +1133,17 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
     let grants = grants(detected);
     std::fs::create_dir_all(library.join("charters"))?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
+    std::fs::create_dir_all(dir.join("scripts"))?;
     std::fs::write(dir.join("policy.json"), POLICY)?;
-    std::fs::write(dir.join("bundle.json"), BUNDLE)?;
+    std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
     // The scaffold's notes live inside the library it wrote, never at the
     // target's own README.md: `brokkr init .` runs at a project's root, and
     // a project's README is the operator's file, not a scaffold's.
     std::fs::write(library.join("README.md"), readme(detected))?;
     std::fs::write(&declaration, adapter_json(&grants))?;
+    std::fs::write(exec_declaration, EXEC_ADAPTER)?;
+    std::fs::write(dir.join("scripts/verify-seat.sh"), verify_script(detected))?;
+    std::fs::write(dir.join("scripts/ship-seat.sh"), SHIP_SCRIPT)?;
     for spec in SEATS {
         let allowance = allowance(spec, &grants);
         let definition = library.join(format!("{}.json", spec.agent));

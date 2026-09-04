@@ -150,7 +150,7 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
     else {
         panic!("an agent reference resolves to a single seat");
     };
-    assert!(role_path.ends_with("charters/work.md"));
+    assert!(role_path.ends_with(Path::new("charters").join("work.md")));
     assert_eq!(
         &command[1..],
         [

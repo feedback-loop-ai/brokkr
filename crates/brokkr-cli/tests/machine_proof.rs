@@ -2573,7 +2573,9 @@ fn expose_for_spawn_has_exactly_one_production_call_site() {
         "exactly one call site outside secret.rs: {call_sites:?}"
     );
     assert!(
-        call_sites[0].0.ends_with("brokkr-protocol/src/adapters.rs"),
+        call_sites[0]
+            .0
+            .ends_with(Path::new("brokkr-protocol").join("src").join("adapters.rs")),
         "the one call site is the exec spawn injector: {call_sites:?}"
     );
 }

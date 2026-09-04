@@ -85,6 +85,12 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
+The shipped verify and ship gates also require Linux with bubblewrap
+0.10 or newer on `PATH` (`bwrap --version`). Their boundary is never
+simulated: a run refuses at start when bubblewrap is unavailable. macOS
+and Windows adopters need a Linux box for those gates until a ruling says
+otherwise.
+
 ```
 $ brokkr --version
 brokkr 0.8.0
@@ -122,10 +128,10 @@ the result, and `--db <path>` chooses the workspace journal (default
 
 ### Step 2 — `brokkr init .`
 
-A **recipe** is a delivery strategy as reviewable data: a phase table, a
-seat per phase, and — since decision 0016 — an agent per seat, where
-the charter, the model chain, the per-seat limits and the tool grant
-live. `brokkr init` writes one you are meant to open and edit.
+A **recipe** is a delivery strategy as reviewable data: a phase table and a
+seat per phase. Model offices carry an agent definition with their charter,
+model chain and tool grant; deterministic offices carry a boxed exec script.
+`brokkr init` writes one you are meant to open and edit.
 
 ```
 $ brokkr init .
@@ -135,7 +141,8 @@ run brokkr from inside . — its adapters/ and agents/ declare the trust tier an
 
 `init` takes the directory as a **positional argument**, not a flag. It
 refuses rather than overwriting a directory that already has a
-`bundle.json`, an `adapters/claude.json`, or an agent definition under
+`bundle.json`, either adapter declaration, an agent definition, or a seat
+script
 `agents/` — a trust tier and a tool grant are operator rulings, not a
 scaffold's — and it compiles the bundle before printing the digest, so
 what you were handed is a thing that runs.
@@ -143,44 +150,43 @@ what you were handed is a thing that runs.
 What it wrote:
 
 ```
-./bundle.json          # name, policy path, protected_phase, five seats — each names an agent
+./bundle.json          # five seats: three model offices and two boxed exec gates
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
+./adapters/exec.json   # the deterministic boxed driver
 ./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
-./agents/intake.json   # one agent per seat: charter, model chain, tool grant, limits
+./agents/intake.json   # model offices: charter, model chain, tool grant, limits
 ./agents/implementer.json
-./agents/verifier.json
 ./agents/reviewer.json
-./agents/shipper.json
 ./agents/charters/intake.md
 ./agents/charters/implementer.md
-./agents/charters/verifier.md
 ./agents/charters/reviewer.md
-./agents/charters/shipper.md
+./scripts/verify-seat.sh # detected test and lint commands, boxed without network
+./scripts/ship-seat.sh   # deterministic ledger and closeout
 ```
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
 the protected phase: compilation rejects any table with a path to a
 non-`stop` terminal that skips it. Each seat declares its class — work
-or gate (decision 0021 ruling 1) — and its result vocabulary, and names
-the agent that fills it; the agent carries the charter, the `limits`
-(attempts and a deadline in seconds), the model chain and the tool
-grant, and `brokkr agents show <name>` reads one back.
+or gate (decision 0021 ruling 1) — and its result vocabulary. Intake,
+implement and review name agents; verify and ship name boxed exec scripts.
+Limits remain on every seat, while the model chain and tool grant belong
+only to agent-backed seats. `brokkr agents show <name>` reads an agent back.
 
 **The seats are granted the tools their charters name.** The same
 detection below decides what the seats may *run*: the binary each
 command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and
 `mkdir` go into the adapter's `tool_permissions.names` as
-`Bash(<bin>:*)` entries, and each agent's `tools.allow` names them —
-the whole set for the work seats, the read-only subset (the test
-runner's tools, `git`, `ls`, `rg` — never `mkdir`) for the gates. A
+`Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —
+the whole set for the work seats and the read-only subset for review. The
+verify and ship gates are scripts with no model grant. A
 repository `init` does not recognize gets an EMPTY map and a README
 that says so, rather than a guessed permission.
 
 **`init` looks before it scaffolds.** The repository you ran it from is
-read for the manifests and lockfiles at its root, and the implementer's
-and verifier's charters name *that stack's* build, test and lint
+read for the manifests and lockfiles at its root, and the implementer
+charter and verifier script name *that stack's* build, test and lint
 commands, quoting back which files the guess came from. Nothing is
 executed to find out. Which files it reads, and what it concludes, is
 your [card](#per-stack-cards) — and
@@ -667,14 +673,15 @@ apart without parsing anything.
 
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
-gate constitutionally protected and one agent-defined seat per working
-phase. The seats name agents; the agent files in the scaffold's own
-`agents/` carry each seat's charter, model chain, per-seat limits
-(decision 0006) and tool grant. It compiles the bundle before printing
+gate constitutionally protected, three model offices, and boxed exec verify
+and ship gates. The agent files in the scaffold's own `agents/` carry each
+model office's charter, model chain and tool grant; all seat limits remain
+in `bundle.json`. It compiles the bundle before printing
 the digest, so the thing you were handed is a thing that runs. It also
 reads the repository you ran it from — the manifests and lockfiles at
 that root, nothing executed — so the implementer's and verifier's
-charters name that stack's own build, test and lint commands, and say
+charter and verifier script name that stack's own build, test and lint
+commands, and say
 plainly when no stack was recognized. Lockfiles have the deciding vote
 where a manifest is ambiguous (`bun.lock` out-votes the npm fallback,
 `uv.lock` out-votes pip), a monorepo orchestrator (`turbo.json`,
