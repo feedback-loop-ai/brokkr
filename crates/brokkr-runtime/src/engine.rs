@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    Aggregate, Bundle, Confine, PanelMember, SeatBody, SeatClass, SequenceStep, StepBody,
-    ENGINE_VERSION, REALM_FACTS,
+    Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass, SequenceStep,
+    StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -108,10 +108,8 @@ fn verify_dispatch_bundle_bounds(
         .map(|seat| seat.limits.max_attempts)
         .max()
         .unwrap_or(1);
-    let max_parallel = bundle
-        .seats
-        .values()
-        .map(|seat| match &seat.body {
+    fn body_parallel(body: &SeatBody) -> usize {
+        match body {
             SeatBody::Single { .. } => 1,
             SeatBody::Panel { members, .. } => members.len(),
             SeatBody::Sequence { steps } => steps
@@ -122,7 +120,18 @@ fn verify_dispatch_bundle_bounds(
                 })
                 .max()
                 .unwrap_or(1),
-        })
+            SeatBody::Select { cases, default, .. } => cases
+                .values()
+                .chain(default.iter().map(Box::as_ref))
+                .map(body_parallel)
+                .max()
+                .unwrap_or(1),
+        }
+    }
+    let max_parallel = bundle
+        .seats
+        .values()
+        .map(|seat| body_parallel(&seat.body))
         .max()
         .unwrap_or(1);
     if max_attempts > u64::from(dispatch.bounds.max_attempts)
@@ -139,6 +148,28 @@ pub struct DriveEnd {
 }
 
 impl Engine {
+    fn enter_phase(&mut self, phase: &str, state: &RunState) -> Result<(), EngineError> {
+        let seat = self.bundle.seats.get(phase);
+        if let Some(seat) = seat {
+            if seat.body.selected(state.strategy.as_deref()).is_none() {
+                self.append(
+                    EventType::RunParked,
+                    json!({
+                        "reason": format!(
+                            "SELECT-NO-DEFAULT: seat '{phase}' selects on strategy, but the journal carries no matching triage result and the seat has no default"
+                        ),
+                        "evidence": {}
+                    }),
+                    None,
+                )?;
+                return Ok(());
+            }
+        }
+        let payload = self.phase_entered_payload(phase, state);
+        self.append(EventType::PhaseEntered, payload, None)?;
+        Ok(())
+    }
+
     pub fn start(
         store: Store,
         bundle: Bundle,
@@ -378,12 +409,10 @@ impl Engine {
         match state.cursor.clone() {
             Cursor::Start => {
                 let initial = self.bundle.machine.initial.clone();
-                let payload = self.phase_entered_payload(&initial, &state);
-                self.append(EventType::PhaseEntered, payload, None)?;
+                self.enter_phase(&initial, &state)?;
             }
             Cursor::EnterPhase { phase } => {
-                let payload = self.phase_entered_payload(&phase, &state);
-                self.append(EventType::PhaseEntered, payload, None)?;
+                self.enter_phase(&phase, &state)?;
             }
             Cursor::RequestEffect => self.request_or_finish(&state)?,
             Cursor::ExecuteEffect {
@@ -592,6 +621,12 @@ impl Engine {
                 "no seat for phase '{phase}' (compile enforces this)"
             ))
         })?;
+        let (body, _) = seat
+            .body
+            .selected(state.strategy.as_deref())
+            .ok_or_else(|| {
+                EngineError::Other(format!("seat '{phase}' selector has no resolved body"))
+            })?;
         let workdir = self.workdir();
         let mut context = Map::new();
         context.insert("run_id".into(), json!(self.run_id));
@@ -618,8 +653,8 @@ impl Engine {
             );
         }
         let context = Value::Object(context);
-        let mut input = match &seat.body {
-            SeatBody::Single { role_path, .. } => json!({
+        let mut input = match body {
+            ExecutableBody::Single { role_path, .. } => json!({
                 "feature": self.feature,
                 "phase": phase,
                 "seat": phase,
@@ -632,7 +667,7 @@ impl Engine {
                 "allowed_results": seat.results,
                 "context": context,
             }),
-            SeatBody::Panel { members, aggregate } => {
+            ExecutableBody::Panel { members, aggregate } => {
                 let mut member_map = Map::new();
                 for member in members {
                     member_map.insert(
@@ -657,7 +692,7 @@ impl Engine {
                     "context": context,
                 })
             }
-            SeatBody::Sequence { steps } => {
+            ExecutableBody::Sequence { steps } => {
                 // The requested-time input enumerates the WHOLE sequence;
                 // per-step driver inputs are derived from it
                 // deterministically at execution time. Step ORDER is
@@ -793,33 +828,42 @@ impl Engine {
         }
 
         let seat = self.bundle.seats[seat_name].clone();
+        // `seat_input` above has already refused an unresolved selector
+        // against this same folded state.
+        let (body, selected_case) = seat
+            .body
+            .selected(state.strategy.as_deref())
+            .expect("seat input resolved the selector");
+        let site_name = selected_case
+            .map(|case| format!("{seat_name}:{case}"))
+            .unwrap_or_else(|| seat_name.to_string());
         let attempt_id = Uuid::new_v4().to_string();
-        let driver_label = match &seat.body {
-            SeatBody::Single { command, .. } => command[0].clone(),
-            SeatBody::Panel { members, aggregate } => {
+        let driver_label = match body {
+            ExecutableBody::Single { command, .. } => command[0].clone(),
+            ExecutableBody::Panel { members, aggregate } => {
                 format!("panel[{}]:{aggregate:?}", members.len())
             }
-            SeatBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
+            ExecutableBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
         };
         // Which link of each agent's chain runs this attempt, decided
         // from journaled facts before anything spawns. The existing
         // `driver` label is untouched: a display string is not a control
         // channel, and five consumers plus the engine would otherwise
         // have to parse a packed grammar to make a control decision.
-        let (selection, provenance) = select_candidates(events, effect_id, &seat.body);
+        let (selection, provenance) = select_candidates(events, effect_id, body);
         let workdir = self.workdir();
         // The single-driver argv is composed HERE, ahead of the durable
         // start, because the session question is asked of it: which
         // instance this attempt resolves to is part of what decides
         // whether a prior session may be handed back to it.
-        let runtime_hands = self.runtime_hands(seat_name);
-        let single = match &seat.body {
-            SeatBody::Single {
+        let runtime_hands = self.runtime_hands(&site_name);
+        let single = match body {
+            ExecutableBody::Single {
                 command, confine, ..
             } => Some(hands_command(
                 confined_command(
                     argv_for(&selection, &None, command),
-                    confine.as_ref(),
+                    confine,
                     &workdir,
                     &self.bundle.roots,
                 ),
@@ -861,7 +905,10 @@ impl Engine {
         };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
-        if seat.has_gate {
+        if seat
+            .body
+            .selected_is_gate(state.strategy.as_deref(), seat.has_gate)
+        {
             self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
@@ -869,21 +916,21 @@ impl Engine {
         std::fs::create_dir_all(workdir.join(".forge/results")).ok();
         let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
 
-        match &seat.body {
-            SeatBody::Panel { members, aggregate } => self.execute_panel(
+        match body {
+            ExecutableBody::Panel { members, aggregate } => self.execute_panel(
                 effect_id,
                 &attempt_id,
-                seat_name,
+                &site_name,
                 members,
-                *aggregate,
+                aggregate,
                 &input,
                 deadline,
                 &selection,
             ),
-            SeatBody::Sequence { steps } => self.execute_sequence(
+            ExecutableBody::Sequence { steps } => self.execute_sequence(
                 effect_id,
                 &attempt_id,
-                seat_name,
+                &site_name,
                 steps,
                 &input,
                 deadline,
@@ -893,12 +940,12 @@ impl Engine {
             // decides what is mounted — a composed bundle spans every
             // recipe directory in its chain, not one dir. Both were
             // settled above, where the session question needed them.
-            SeatBody::Single { .. } => {
+            ExecutableBody::Single { .. } => {
                 let command = single.expect("a single seat composed its command");
                 let run = self.run_driver(
                     effect_id,
                     &attempt_id,
-                    seat_name,
+                    &site_name,
                     &command,
                     input,
                     deadline,
@@ -2452,7 +2499,7 @@ type Selection = BTreeMap<Site, Candidate>;
 
 /// Every invocation site of a seat body, with the site's fallback chain.
 /// Inline sites carry an empty chain.
-fn invocation_sites(body: &SeatBody) -> Vec<(Site, &[Candidate])> {
+fn invocation_sites(body: ExecutableBody<'_>) -> Vec<(Site, &[Candidate])> {
     fn panel<'a>(members: &'a [PanelMember], prefix: Option<&str>) -> Vec<(Site, &'a [Candidate])> {
         members
             .iter()
@@ -2466,9 +2513,9 @@ fn invocation_sites(body: &SeatBody) -> Vec<(Site, &[Candidate])> {
             .collect()
     }
     match body {
-        SeatBody::Single { candidates, .. } => vec![(None, candidates.as_slice())],
-        SeatBody::Panel { members, .. } => panel(members, None),
-        SeatBody::Sequence { steps } => steps
+        ExecutableBody::Single { candidates, .. } => vec![(None, candidates)],
+        ExecutableBody::Panel { members, .. } => panel(members, None),
+        ExecutableBody::Sequence { steps } => steps
             .iter()
             .flat_map(|step| match &step.body {
                 StepBody::Single { candidates, .. } => {
@@ -2519,7 +2566,7 @@ fn site_matches(entry: &Value, site: &Site) -> bool {
 fn select_candidates(
     events: &[EventEnvelope],
     effect_id: &str,
-    body: &SeatBody,
+    body: ExecutableBody<'_>,
 ) -> (Selection, Option<Value>) {
     let mut selection = Selection::new();
     let mut provenance = Vec::new();
@@ -3097,6 +3144,14 @@ impl Engine {
     /// never reads it.
     fn phase_entered_payload(&self, phase: &str, state: &RunState) -> Value {
         let mut payload = json!({"phase": phase});
+        if let Some((_, Some(case))) = self
+            .bundle
+            .seats
+            .get(phase)
+            .and_then(|seat| seat.body.selected(state.strategy.as_deref()))
+        {
+            payload["case"] = Value::String(case.to_string());
+        }
         let returning_implement =
             phase == "implement" && state.visits.get("implement").copied().unwrap_or(0) > 0;
         if phase == self.bundle.protected_phase || returning_implement {

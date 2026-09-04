@@ -31,8 +31,9 @@ brokkr compare <a> <b>                              # journal-backed A/B
   re-run a past feature under another recipe, compare outcomes —
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
-  Recipes **compose**: `extends: "sdd"` plus one override is a whole
-  strategy (`recipes/sdd-paranoid`, sixty lines against SDD's 103).
+  Recipes **compose**: `night-shift` extends `triage`, overriding only
+  its attempt limits and dsh implement seat. A derived selector may
+  override one named case with `override.cases`.
   Named things merge by name; redefining one the base has needs an
   explicit marker, so an accidental collision fails compilation instead
   of silently winning. Composition resolves at compile time into ONE

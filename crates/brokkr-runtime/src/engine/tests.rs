@@ -92,6 +92,64 @@ fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
     (dir, engine)
 }
 
+fn selecting(default: bool) -> SeatBody {
+    let cases = [
+        (
+            "chore".to_string(),
+            single_body(vec!["chore-driver".into()]),
+        ),
+        (
+            "feature".to_string(),
+            single_body(vec!["feature-driver".into()]),
+        ),
+        (
+            "design".to_string(),
+            single_body(vec!["design-driver".into()]),
+        ),
+        (
+            "engine".to_string(),
+            single_body(vec!["engine-driver".into()]),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    SeatBody::Select {
+        cases,
+        default: default.then(|| Box::new(single_body(vec!["default-driver".into()]))),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    }
+}
+
+#[test]
+fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
+    let (dir, mut runtime) = engine(selecting(false));
+    let mut ruled = state(None, Cursor::Start);
+    ruled.strategy = Some("engine".into());
+    let payload = runtime.phase_entered_payload("work", &ruled);
+    assert_eq!(payload, json!({"phase":"work", "case":"engine"}));
+    let first = runtime.seat_input(&ruled, "work", "effect").unwrap();
+    let resumed = runtime.seat_input(&ruled, "work", "effect").unwrap();
+    assert_eq!(first, resumed, "resume rebuilds from the same journal fact");
+    assert!(first["role_path"].as_str().unwrap().ends_with("role.md"));
+
+    runtime.drive_once().unwrap();
+    let parked = fold(&runtime.store.load(&runtime.run_id).unwrap()).unwrap();
+    assert_eq!(parked.status, Status::AwaitingOperator);
+    assert!(parked.park_reason.unwrap().contains("SELECT-NO-DEFAULT"));
+
+    let unresolved = state(None, Cursor::Idle);
+    assert!(runtime.seat_input(&unresolved, "work", "effect").is_err());
+
+    let (_kept, with_default) = engine(selecting(true));
+    let state = state(None, Cursor::Start);
+    assert_eq!(
+        with_default.phase_entered_payload("work", &state),
+        json!({"phase":"work", "case":"default"})
+    );
+    drop(dir);
+}
+
 pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
     RunState {
         run_id: "run".into(),
@@ -508,6 +566,9 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
         },
     );
     assert_eq!(verify_dispatch_bundle_bounds(&base, &sequence), Ok(()));
+
+    let selected = bundle(dir.path(), selecting(true));
+    assert_eq!(verify_dispatch_bundle_bounds(&base, &selected), Ok(()));
 
     let mut too_many_attempts = single.clone();
     too_many_attempts
@@ -2096,6 +2157,12 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
         .append(EventType::PhaseEntered, json!({"phase":"work"}), None)
         .is_err());
 
+    let (kept, mut selected) = engine(selecting(false));
+    fail_event(&kept.path().join("forge.db"), "run/parked");
+    assert!(selected
+        .enter_phase("work", &state(None, Cursor::Start))
+        .is_err());
+
     let (_kept, mut requested) = engine_failing("effect/requested");
     assert!(requested
         .request_or_finish(&state(Some("work"), Cursor::RequestEffect))
@@ -3186,7 +3253,7 @@ fn capturing_driver_command(
     ]
 }
 
-/// `recipes/crucible` reviews with a sequence: a `positions` panel, then
+/// Triage's design and engine routes review with a sequence: a positions panel, then
 /// a single `chief` gate step. Because `positions` is NOT the final step
 /// its `review-panel` output never reaches `decide()` — so the shape is
 /// only safe if the panel's verdict arrives at the chief intact and the

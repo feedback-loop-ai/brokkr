@@ -2,9 +2,7 @@
 //! over recipe sources, so every test here is a library of small JSON
 //! documents on disk and an assertion about the ONE flat bundle they
 //! resolve to — or about the refusal that names the file and the key.
-use std::collections::BTreeMap;
-
-use super::compose::{resolve, Ancestor};
+use super::compose::resolve;
 use super::*;
 use serde_json::json;
 
@@ -160,6 +158,97 @@ fn resolution_is_pure_and_walks_the_chain_to_arbitrary_depth() {
     assert_eq!(deep.seat_origin["work"], 2);
     // The base's table is inherited whole: only the base declared one.
     assert_eq!(deep.table["initial"], json!("work"));
+}
+
+#[test]
+fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
+    let library = Library::new();
+    let body = |driver: &str| json!({"role":"roles/role.md", "driver":{"command":[driver]}});
+    let base = json!({
+        "name":"base", "policy":"policy.json",
+        "seats": {
+            "work": {"results":["complete"], "limits":{"max_attempts":1}, "select": {"on":"strategy", "cases": {
+                "chore": body("chore"), "feature": body("feature"),
+                "design": body("design"), "engine": body("engine")
+            }}},
+            "review": seat(vec!["clean"])
+        }
+    });
+    library.recipe("base", &base, Some(&base_policy()));
+    let leaf = library.recipe(
+        "derived",
+        &derived(json!({
+            "override":{"cases":["work:feature"]},
+            "seats":{"work":{"select":{"cases":{"feature":body("replacement")}}}}
+        })),
+        None,
+    );
+    let resolved = resolve(&leaf).unwrap();
+    assert_eq!(
+        resolved.seats["work"].pointer("/select/cases/feature/driver/command/0"),
+        Some(&json!("replacement"))
+    );
+    assert_eq!(
+        resolved.seats["work"].pointer("/select/cases/chore/driver/command/0"),
+        Some(&json!("chore"))
+    );
+    assert_ne!(
+        resolved.case_origin["work:feature"], resolved.case_origin["work:chore"],
+        "case provenance follows the layer that wrote that case"
+    );
+
+    for (extra, expected) in [
+        (
+            json!({"override":{"cases":["work"]}, "seats":{"work":{"select":{"cases":{"feature":body("x")}}}}}),
+            "must be '<seat>:<case>'",
+        ),
+        (
+            json!({"override":{"cases":["review:feature"]}, "seats":{"review":{"select":{"cases":{"feature":body("x")}}}}}),
+            "no ancestor defines it",
+        ),
+        (
+            json!({"override":{"cases":["work:design"]}, "seats":{"work":{"select":{"cases":{"feature":body("x")}}}}}),
+            "does not redefine it",
+        ),
+        (
+            json!({"override":{"limits":["review"]}, "seats":{"review":{"limits":{"max_attempts":2}}}}),
+            "no ancestor defines it",
+        ),
+        (
+            json!({"override":{"limits":["work"]}, "seats":{"work":{"select":{"cases":{"feature":body("x")}}}}}),
+            "does not redefine it",
+        ),
+    ] {
+        let bad = library.recipe("derived", &derived(extra), None);
+        assert!(error(resolve(&bad)).contains(expected));
+    }
+
+    let limits = library.recipe(
+        "derived",
+        &derived(json!({
+            "override":{"limits":["work"]},
+            "seats":{"work":{"limits":{"max_attempts":3}}}
+        })),
+        None,
+    );
+    assert_eq!(
+        resolve(&limits).unwrap().seats["work"]["limits"]["max_attempts"],
+        3
+    );
+
+    let whole = library.recipe(
+        "derived",
+        &derived(json!({
+            "override":{"seats":["work"], "limits":["work"]},
+            "seats":{"work":{"results":["complete"], "limits":{"max_attempts":2},
+                "role":"roles/role.md", "driver":{"command":["whole"]}}}
+        })),
+        None,
+    );
+    assert_eq!(resolve(&whole).unwrap().seat_origin["work"], 0);
+
+    std::fs::write(library.path().join("base/secrets.env"), "SECRET=value").unwrap();
+    assert!(error(resolve(&whole)).contains("secrets store"));
 }
 
 #[test]
@@ -761,7 +850,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0035 ruling 5 moved all five: every model pin now carries an
 /// effort pin, whether the pin lives in an inline argv (`recipes/fast`,
 /// `bundles/verify`) or in the agent library a bundle resolves against
-/// (`recipes/panel-review`, `recipes/sdd`, `bundles/self`, whose agents
+/// (`recipes/panel-review`, `recipes/triage`, `bundles/self`, whose agents
 /// now name the effort they hire beside the model). A hire that gained
 /// half its terms is a different hire, and therefore a different bundle.
 /// Decision 0041 moves all five again: ruling 1 advances the fable
@@ -785,7 +874,7 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// nothing. A move here means composition changed a bundle it was never
 /// asked to touch — or the engine version did, which is the other thing
 /// a bundle's identity legitimately covers.
-const UNCOMPOSED: [(&str, &str); 5] = [
+const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
         "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
@@ -793,10 +882,6 @@ const UNCOMPOSED: [(&str, &str); 5] = [
     (
         "recipes/panel-review",
         "48cb2cc5b98b13dc8e3d82d5079ba4a758cc5a54c4cc83a0f2c1ee62fe809872",
-    ),
-    (
-        "recipes/sdd",
-        "e39e4993379cccb512c00e2f19bac280b96d3802ad300a885c5774147a82119c",
     ),
     (
         "bundles/self",
@@ -897,9 +982,8 @@ fn the_chain_rides_in_the_manifest_and_a_base_change_moves_the_digest() {
 
 #[test]
 fn a_composed_bundles_manifest_is_pinned() {
-    // AC-22: the golden. `recipes/sdd-paranoid` is SDD with a different
-    // review panel; its manifest names its own files and, under the
-    // reserved prefix, the base it was composed from.
+    // Decision 0041 ruling 7 retires the crew recipes into triage cases;
+    // night-shift remains a recipe because its limits and dsh lane differ.
     let compiled = |path: &str| {
         Bundle::compile_with(
             &workspace().join(path),
@@ -908,63 +992,6 @@ fn a_composed_bundles_manifest_is_pinned() {
         )
         .unwrap()
     };
-    let bundle = compiled("recipes/sdd-paranoid");
-    let sdd = compiled("recipes/sdd");
-    // A chain entry pins the base's FILES as a layer. That is not the
-    // base's standalone compile digest any more: since agents landed
-    // (decision 0016) a standalone compile also folds in its agent
-    // resolution, which belongs to the composed bundle rather than to
-    // any layer of it.
-    let layer_digest = brokkr_core::canonical::sha256_hex(
-        &super::manifest_for(&sdd.dir, "sdd", &[], None, None, &BTreeMap::new()).unwrap(),
-    );
-    assert_eq!(
-        bundle.chain,
-        vec![Ancestor {
-            reached_as: Some("sdd".to_string()),
-            name: "sdd".into(),
-            dir: sdd.dir.clone(),
-            digest: layer_digest,
-        }]
-    );
-    // The same layer digest rides in `files`, so the chain survives the
-    // dispatch manifest round-trip.
-    assert_eq!(
-        bundle.manifest["files"]["@compose/0000/sdd"],
-        json!(bundle.chain[0].digest)
-    );
-    assert_eq!(
-        bundle.manifest_digest(),
-        "488518ab6551de3ba49329f851acc094e7022810872404590d34d8455f82a4b0",
-        "the composed golden — it moved when the base adopted agents, \
-         again when the base's table gained the reforging back-edge \
-         (decision 0022), again when the base's argv token was renamed \
-         (decision 0019), again when its inline review panel began \
-         pinning the adapter declarations that authorise it to judge, \
-         (decision 0021), then when the closing 0019 sweep changed the \
-         base charters, then when decision 0033 gave both layers \
-         contributor-facing description and cost data, and now that \
-         decision 0035 ruling 5 makes every model pin carry an effort \
-         pin — in this layer's own argv and in the agents its base \
-         resolves — and decision 0041 moves it again because ruling 1 \
-         advances fable, ruling 2 moves the roster, and ruling 3 adds \
-         judges to the adapters, then the ruling-2 review correction makes \
-         Git explicit in the intake and implementer charters and grants, \
-         and the 0041 addendum makes the design chief work while its boxed \
-         validator becomes the gate; this slice moves it because the base's \
-         verifier and shipper become boxed exec scripts with no model, and \
-         this review return moves it because ship sheds unused toolchain \
-         binds, and this correction moves it because the inherited exec \
-         scripts become bundle-relative and cross the read-only bundle mount; \
-         the returned implementation moves it again because those inherited \
-         scripts now exist inside, and are digested with, the base root; \
-         which is this test's own principle: changing a \
-         base changes the digest of everything derived from it"
-    );
-
-    // Ruling 6's routing form is composed deliberately: Fast remains the
-    // constitution below its new front gate. Pin both the moved compose
-    // edge and the resulting identity so neither can flatten silently.
     let triage = compiled("recipes/triage");
     assert_eq!(triage.chain.len(), 1);
     assert_eq!(triage.chain[0].reached_as.as_deref(), Some("fast"));
@@ -975,9 +1002,22 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        "cdf869d85be5eab8dd03e21187c6b11a175b6a58c38dbdc009c22acfd8bd5ce9",
-        "decision 0041 ruling 6 adds triage as Fast's routing form"
+        "7196ca0d79894058fd613ae64b48daf7e31079c0815f1927a1ce4cfabce8850d",
+        "ruling 7 pins every selected case in triage's identity"
     );
+
+    let night = compiled("recipes/night-shift");
+    assert_eq!(
+        night
+            .chain
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
+        ["triage", "fast"]
+    );
+    assert!(night.manifest["files"]
+        .get("@compose/0000/triage")
+        .is_some());
 }
 
 /// Symlinks are a unix concept here; Windows has no equivalent to

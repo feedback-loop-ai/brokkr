@@ -1,5 +1,5 @@
 {
-  "description": "Temporary engine-class implementer: builds the framed task at the engine-class hire until strategy selection lands.",
+  "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
   "charter": "charters/implementer.md",
   "models": [
     "fable",

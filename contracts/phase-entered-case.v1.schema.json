@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/phase-entered-case.v1.json",
+  "title": "Forge phase-entered selected case v1 (an additive payload extension at event_schema 1)",
+  "description": "The optional, absent-by-default payload field decision 0041 ruling 7 adds to phase/entered for a selecting seat. Legal at event_schema 1 under the amended rule in contracts/README.md, and never read by fold. Resume derives the same selection from the journaled strategy fact.",
+  "type": "object",
+  "properties": {
+    "case": {
+      "enum": ["chore", "feature", "design", "engine", "default"],
+      "description": "The strategy case resolved when this phase was entered, or default when the journal carried no matching triage result. Absent for a seat that does not select."
+    }
+  }
+}

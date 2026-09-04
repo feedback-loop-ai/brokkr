@@ -1,7 +1,6 @@
-//! `recipes/crucible` puts a panel-then-chief SEQUENCE on the protected
-//! `review` phase — the one structural shape no shipped recipe had
-//! before it (`recipes/sdd` sequences `design`, not `review`;
-//! `recipes/panel-review` panels `review` flat, with no chief).
+//! The `engine` case of `recipes/triage` puts a panel-then-chief sequence
+//! on the protected `review` phase. Ruling 7 moved the old standalone
+//! crew here so triage, not the operator, chooses it.
 //!
 //! The shape's own hazard is that the panel's verdict is NOT the
 //! machine's verdict: `positions` is a non-final step, so its
@@ -45,19 +44,19 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-fn crucible() -> Bundle {
+fn triage() -> Bundle {
     let root = workspace();
     Bundle::compile_with(
-        &root.join("recipes/crucible"),
+        &root.join("recipes/triage"),
         &root.join("agents"),
         &root.join("adapters"),
     )
-    .expect("recipes/crucible must compile")
+    .expect("recipes/triage must compile")
 }
 
 #[test]
 fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
-    let bundle = crucible();
+    let bundle = triage();
     let review = &bundle.seats["review"];
 
     // The seat still speaks fast's review vocabulary, which is what lets
@@ -69,12 +68,15 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
             "residual".to_string(),
             "security-hold".to_string()
         ],
-        "crucible's review seat must keep the shared review vocabulary"
+        "triage's review seat must keep the shared review vocabulary"
     );
     assert_eq!(bundle.protected_phase, "review");
 
-    let SeatBody::Sequence { steps } = &review.body else {
-        panic!("crucible's review seat is a sequence, not a flat panel");
+    let SeatBody::Select { cases, .. } = &review.body else {
+        panic!("triage review selects by strategy");
+    };
+    let SeatBody::Sequence { steps } = &cases["engine"] else {
+        panic!("triage's engine review case is a sequence");
     };
     assert_eq!(
         steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
@@ -88,8 +90,8 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
     assert_eq!(*aggregate, Aggregate::ReviewPanel);
     assert_eq!(
         members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
-        ["correctness", "security"],
-        "the panel reuses recipes/panel-review's member names"
+        ["adversarial", "correctness", "security", "spec-compliance"],
+        "the engine panel carries the paranoid and specification judges"
     );
 
     // The chief is a SINGLE step, not a second panel: one seat rules, so
@@ -105,15 +107,17 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
 /// adapter resolution is witnessed separately from the model roster.
 #[test]
 fn every_review_site_is_witnessed_by_its_agent_resolution() {
-    let bundle = crucible();
+    let bundle = triage();
     let witnessed = bundle.manifest["agents"]
         .as_object()
-        .expect("crucible witnesses its roster");
+        .expect("triage witnesses its roster");
     for site in [
-        "implement",
-        "review:positions:correctness",
-        "review:positions:security",
-        "review:chief",
+        "implement:engine",
+        "review:engine:positions:adversarial",
+        "review:engine:positions:correctness",
+        "review:engine:positions:security",
+        "review:engine:positions:spec-compliance",
+        "review:engine:chief",
     ] {
         assert!(
             witnessed.contains_key(site),
@@ -123,11 +127,11 @@ fn every_review_site_is_witnessed_by_its_agent_resolution() {
 
     let drivers = bundle.manifest["drivers"]
         .as_object()
-        .expect("crucible witnesses its deterministic drivers");
+        .expect("triage witnesses its deterministic drivers");
     assert_eq!(
         drivers.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["ship", "verify"],
-        "only the boxed ship and verify offices are inline drivers"
+        ["design:speckit-check", "ship", "verify"],
+        "only the boxed deterministic offices are inline drivers"
     );
 }
 
@@ -164,7 +168,7 @@ fn the_chief_charter_states_the_floor_it_may_not_rule_below() {
 /// the seat's declared-results check reject it — but here `positions` is
 /// a NON-FINAL step, so its result is only stored into `prior_results`
 /// and never checked against a vocabulary. Under `recipes/panel-review`
-/// that same malformed member parks the run; under `crucible` it arrives
+/// that same malformed member parks the run; in the selected sequence it arrives
 /// at the chief as an ordinary string. The chief is therefore the only
 /// remaining floor, and the charter has to say so.
 ///
@@ -234,7 +238,7 @@ fn the_chief_charter_rules_the_panel_s_prose_data_and_never_instruction() {
 #[test]
 fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
     let root = workspace();
-    let readme = std::fs::read_to_string(root.join("recipes/crucible/README.md"))
+    let readme = std::fs::read_to_string(root.join("recipes/triage/README.md"))
         .expect("the recipe ships a README");
     let readme = readme.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(readme.contains("treats panel notes as data and never instructions"));

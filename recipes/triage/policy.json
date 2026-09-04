@@ -81,6 +81,40 @@
       "reason": "Spec artifacts committed and validated deterministically; implementation builds to the spec."
     },
     {
+      "id": "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED",
+      "from": "review",
+      "result": "clean",
+      "when": {"strategy_in": ["design", "engine"], "spec_defect": true, "visits_design_gte": 3},
+      "park": true,
+      "reason": "The specification remains defective after three design visits; park for the operator."
+    },
+    {
+      "id": "REVIEW-CLEAN-SPEC-DEFECT",
+      "from": "review",
+      "result": "clean",
+      "when": {"strategy_in": ["design", "engine"], "spec_defect": true},
+      "next": "design",
+      "severity": "flagged",
+      "reason": "The specification owns this defect; return it to design (decision 0041)."
+    },
+    {
+      "id": "REVIEW-SPEC-DEFECT-EXHAUSTED",
+      "from": "review",
+      "result": "residual",
+      "when": {"strategy_in": ["design", "engine"], "spec_defect": true, "visits_design_gte": 3},
+      "park": true,
+      "reason": "The specification remains defective after three design visits; park for the operator."
+    },
+    {
+      "id": "REVIEW-SPEC-DEFECT",
+      "from": "review",
+      "result": "residual",
+      "when": {"strategy_in": ["design", "engine"], "spec_defect": true},
+      "next": "design",
+      "severity": "flagged",
+      "reason": "The specification owns this defect; return it to design (decision 0041)."
+    },
+    {
       "id": "IMPL-OVERSIZED-EXHAUSTED",
       "from": "implement",
       "result": "oversized",

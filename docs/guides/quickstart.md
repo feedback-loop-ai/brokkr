@@ -205,7 +205,7 @@ $ brokkr recipes list
 fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
 node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
 panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-sdd	ed604f45bfce	8 phases	design[positions>chief>speckit-check], implement, intake, review[security+spec-compliance], ship, verify	recipes/sdd
+triage	<digest>	8 phases	design[positions>chief>speckit-check], implement{cases}, review{cases}, ship, triage, verify	recipes/triage
 …
 ```
 
@@ -479,7 +479,7 @@ and leaves only through one of the two commands above.
 
 ```
 brokkr resume --run <id> --bundle .
-brokkr resume --run <id> --recipe sdd
+brokkr resume --run <id> --recipe triage
 ```
 
 Resume continues a parked or crashed run under **its exact pinned

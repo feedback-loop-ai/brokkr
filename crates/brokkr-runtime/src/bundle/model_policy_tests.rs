@@ -1588,7 +1588,7 @@ fn whole_gate_class_rejects_empty_and_driverless_shapes() {
 
 #[test]
 fn a_seat_that_bears_no_driver_may_not_carry_a_class() {
-    // `recipes/sdd`'s design seat is the reason: a panel of work
+    // `recipes/triage`'s design seat is the reason: a panel of work
     // positions, a work chief and a gate check cannot share one word.
     let fixture = Fixture::new();
     let refusal = fixture.refusal(json!({

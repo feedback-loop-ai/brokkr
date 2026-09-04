@@ -116,7 +116,22 @@ fn oversized_returns_once_then_parks_and_review_stays_fasts_gate() {
             })
             .collect::<Vec<_>>()
     };
-    assert_eq!(review_shape(&bundle), review_shape(&fast));
+    let routed = review_shape(&bundle);
+    assert_eq!(
+        routed
+            .iter()
+            .take(4)
+            .map(|rule| rule.0.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED",
+            "REVIEW-CLEAN-SPEC-DEFECT",
+            "REVIEW-SPEC-DEFECT-EXHAUSTED",
+            "REVIEW-SPEC-DEFECT",
+        ],
+        "design-bearing routes keep the specification return edges"
+    );
+    assert_eq!(&routed[4..], review_shape(&fast).as_slice());
 }
 
 #[test]

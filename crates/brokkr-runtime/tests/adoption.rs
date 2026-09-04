@@ -43,14 +43,19 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
             );
         }
     };
-    for (name, seat) in &bundle.seats {
-        match &seat.body {
+    fn add_body(
+        out: &mut BTreeMap<String, (PathBuf, Vec<String>)>,
+        name: &str,
+        body: &SeatBody,
+        member: &impl Fn(&mut BTreeMap<String, (PathBuf, Vec<String>)>, &str, &[PanelMember]),
+    ) {
+        match body {
             SeatBody::Single {
                 role_path, command, ..
             } => {
-                out.insert(name.clone(), (role_path.clone(), command.clone()));
+                out.insert(name.to_string(), (role_path.clone(), command.clone()));
             }
-            SeatBody::Panel { members, .. } => member(&mut out, &format!("{name}:"), members),
+            SeatBody::Panel { members, .. } => member(out, &format!("{name}:"), members),
             SeatBody::Sequence { steps } => {
                 for step in steps {
                     match &step.body {
@@ -63,12 +68,23 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
                             );
                         }
                         StepBody::Panel { members, .. } => {
-                            member(&mut out, &format!("{name}:{}:", step.name), members)
+                            member(out, &format!("{name}:{}:", step.name), members)
                         }
                     }
                 }
             }
+            SeatBody::Select { cases, default, .. } => {
+                for (case, body) in cases {
+                    add_body(out, &format!("{name}:{case}"), body, member);
+                }
+                if let Some(body) = default {
+                    add_body(out, &format!("{name}:default"), body, member);
+                }
+            }
         }
+    }
+    for (name, seat) in &bundle.seats {
+        add_body(&mut out, name, &seat.body, &member);
     }
     out
 }
@@ -99,24 +115,19 @@ const PANEL_REVIEW: &Roster = &[
     ),
 ];
 
-const SDD: &Roster = &[
+const TRIAGE: &Roster = &[
     (
-        "intake",
-        "claude-sonnet-5",
-        "2fb2a1685da166fc0c4dc519a711913f81fff451a441f6f3572abac73ddf23d1",
-    ),
-    (
-        "implement",
+        "implement:design",
         "claude-opus-5",
-        "5853f85c7e8ee053b8085af1610c59dd455d15216b70490e80bae533835039a0",
+        "f032a871a3bcb4cd2cbd0836098189eca2dbb0c11599a0b237a95169d8a24055",
     ),
     (
-        "review:spec-compliance",
+        "review:design:positions:spec-compliance",
         "claude-opus-5",
         "8eef2c37b4cd882ca4af4138372506c6bb15f58a46f9c57a7aea3afd127a9c40",
     ),
     (
-        "review:security",
+        "review:design:positions:security",
         "claude-fable-5-1",
         "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
     ),
@@ -172,7 +183,8 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
     };
     let effort = match site {
         "design:chief" => "max",
-        "review" | "review:security" => "xhigh",
+        "review" => "xhigh",
+        site if site.ends_with(":security") || site.ends_with(":chief") => "xhigh",
         _ => "high",
     };
     argv.extend(["--model", model, "--effort", effort]);
@@ -200,6 +212,7 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
     } else {
         let tools = match site {
             "implement" => Some("Bash(cargo:*),Bash(git:*)"),
+            site if site.starts_with("implement:") => Some("Bash(cargo:*),Bash(git:*)"),
             "intake" => Some("Bash(git:*)"),
             "design:chief" => Some("Bash(git:*),Bash(specify:*)"),
             _ => None,
@@ -251,8 +264,8 @@ fn panel_review_resolves_to_what_it_used_to_inline() {
 }
 
 #[test]
-fn sdd_resolves_to_what_it_used_to_inline() {
-    assert_adopted("recipes/sdd", SDD);
+fn triage_cases_resolve_to_the_roster() {
+    assert_adopted("recipes/triage", TRIAGE);
 }
 
 #[test]
@@ -260,13 +273,13 @@ fn self_resolves_to_what_it_used_to_inline() {
     assert_adopted("bundles/self", SELF);
 }
 
-/// `recipes/sdd`'s boxed `speckit-check` gate stays INLINE. It is
+/// Triage's boxed `speckit-check` gate stays inline. It is
 /// `driver exec -- bash …` — a deterministic shell script with no model
 /// and no charter-as-prompt semantics — and it is the case that proves
 /// the library is an option and not a mandate.
 #[test]
 fn the_speckit_check_step_stays_inline() {
-    let bundle = compile("recipes/sdd");
+    let bundle = compile("recipes/triage");
     let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
         panic!("design is a sequence")
     };
@@ -302,7 +315,7 @@ fn adopting_review_seats_declare_only_the_findings_their_tables_can_read() {
             vec!["has_security_residual", "max_residual_severity"],
         ),
         (
-            "recipes/sdd",
+            "recipes/triage",
             vec![
                 "spec_defect",
                 "has_security_residual",
@@ -332,7 +345,7 @@ fn adoption_did_not_change_any_seats_limits() {
     ]
     .into_iter()
     .collect();
-    for relative in ["bundles/self", "recipes/panel-review", "recipes/sdd"] {
+    for relative in ["bundles/self", "recipes/panel-review"] {
         let bundle = compile(relative);
         for (phase, (attempts, seconds)) in &expected {
             let limits = bundle.seats[*phase].limits;

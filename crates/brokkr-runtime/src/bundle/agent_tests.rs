@@ -264,7 +264,7 @@ fn a_seat_is_exactly_one_of_role_agent_panel_or_sequence() {
     let mut config = fixture.config();
     config["seats"]["work"]["panel"] = json!({});
     assert!(error(fixture.compile(config))
-        .contains("exactly one of role+driver, agent, panel, or sequence"));
+        .contains("exactly one of role+driver, agent, panel, sequence, or select"));
 
     let mut config = fixture.config();
     config["seats"]["work"]["agent"] = json!("");

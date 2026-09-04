@@ -1,88 +1,25 @@
 {
   "name": "night-shift",
-  "description": "Unattended work that should park on the first unusual result instead of retrying.",
+  "description": "Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.",
   "cost": "medium-high",
-  "extends": "fast",
+  "extends": "triage",
   "override": {
-    "bundle": [
-      "description",
-      "cost"
-    ],
-    "seats": [
-      "implement",
-      "verify",
-      "review",
-      "ship"
-    ]
+    "bundle": ["description", "cost"],
+    "seats": ["implement"],
+    "limits": ["triage", "design", "verify", "review", "ship"]
   },
   "seats": {
+    "triage": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "design": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "implement": {
       "role": "roles/implementer.md",
-      "results": [
-        "complete",
-        "broken",
-        "blocked",
-        "oversized"
-      ],
+      "results": ["complete", "broken", "blocked", "oversized"],
       "class": "work",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 7200
-      },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "dsh",
-          "--",
-          "--model",
-          "deepseek/deepseek-v4-flash",
-          "--effort",
-          "medium"
-        ]
-      }
+      "limits": {"max_attempts": 1, "timeout_seconds": 7200},
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "deepseek/deepseek-v4-flash", "--effort", "medium"]}
     },
-    "verify": {
-      "class": "gate",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 3600
-      },
-      "results": [
-        "pass",
-        "fail"
-      ],
-      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]},
-      "hands": {"kind": "workspace", "network": false, "binds": [
-        {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
-        {"path": "~/.rustup", "mode": "ro"}
-      ]}
-    },
-    "review": {
-      "agent": "reviewer",
-      "class": "gate",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 3600
-      },
-      "results": [
-        "clean",
-        "residual",
-        "security-hold"
-      ]
-    },
-    "ship": {
-      "class": "gate",
-      "limits": {
-        "max_attempts": 1,
-        "timeout_seconds": 1800
-      },
-      "results": [
-        "ready",
-        "shipped"
-      ],
-      "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
-      "hands": {"kind": "workspace", "network": false, "binds": []}
-    }
+    "verify": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "review": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
+    "ship": {"limits": {"max_attempts": 1, "timeout_seconds": 1800}}
   }
 }

@@ -33,7 +33,7 @@ const MAX_LAYERS: usize = 8;
 const RESOLVER_KEYS: [&str; 4] = ["extends", "override", "remove", "policy"];
 
 /// Member kinds `override` may be keyed by.
-const OVERRIDE_KINDS: [&str; 4] = ["seats", "rules", "table", "bundle"];
+const OVERRIDE_KINDS: [&str; 6] = ["seats", "cases", "limits", "rules", "table", "bundle"];
 
 /// Member kinds `remove` may be keyed by.
 const REMOVE_KINDS: [&str; 3] = ["seats", "rules", "phases"];
@@ -77,6 +77,9 @@ pub struct Resolved {
     /// Seat name -> index into `roots`. NAME-level only: never derived
     /// from anything inside a seat value.
     pub seat_origin: BTreeMap<String, usize>,
+    /// `<seat>:<case>` -> layer which wrote that case. Unlike ordinary
+    /// opaque seats, marked case overrides may have mixed provenance.
+    pub case_origin: BTreeMap<String, usize>,
     /// Ancestors, nearest first. Empty for a recipe that composed
     /// nothing.
     pub chain: Vec<Ancestor>,
@@ -306,6 +309,7 @@ struct Merged {
     document_from: BTreeMap<String, usize>,
     seats: Map<String, Value>,
     seat_from: BTreeMap<String, usize>,
+    case_from: BTreeMap<String, usize>,
     seats_declared: bool,
     table: Map<String, Value>,
     table_declared: bool,
@@ -438,6 +442,66 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
     }
 
     let own_seats = layer.document.get("seats");
+    for named in markers.overriding("cases") {
+        let Some((seat, case)) = named.split_once(':') else {
+            return Err(invalid(format!(
+                "{}: 'override.cases' entry '{named}' must be '<seat>:<case>'",
+                layer.file.display()
+            )));
+        };
+        let inherited = merged
+            .seats
+            .get(seat)
+            .and_then(|value| value.pointer("/select/cases"))
+            .and_then(Value::as_object);
+        if !inherited.is_some_and(|cases| cases.contains_key(case)) {
+            return Err(stale(
+                layer,
+                "override.cases",
+                named,
+                "no ancestor defines it",
+            ));
+        }
+        let own = own_seats
+            .and_then(Value::as_object)
+            .and_then(|seats| seats.get(seat))
+            .and_then(|value| value.pointer("/select/cases"))
+            .and_then(Value::as_object);
+        if !own.is_some_and(|cases| cases.contains_key(case)) {
+            return Err(stale(
+                layer,
+                "override.cases",
+                named,
+                "this recipe does not redefine it",
+            ));
+        }
+    }
+    for seat in markers.overriding("limits") {
+        if !merged
+            .seats
+            .get(seat)
+            .is_some_and(|value| value.get("limits").is_some())
+        {
+            return Err(stale(
+                layer,
+                "override.limits",
+                seat,
+                "no ancestor defines it",
+            ));
+        }
+        if !own_seats
+            .and_then(Value::as_object)
+            .and_then(|seats| seats.get(seat))
+            .is_some_and(|value| value.get("limits").is_some())
+        {
+            return Err(stale(
+                layer,
+                "override.limits",
+                seat,
+                "this recipe does not redefine it",
+            ));
+        }
+    }
     for name in markers.overriding("seats") {
         if !merged.seats.contains_key(name) {
             return Err(stale(
@@ -548,7 +612,18 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
         })?;
         merged.seats_declared = true;
         for (name, value) in seats {
-            if merged.seats.contains_key(name) && !markers.overrides_name("seats", name) {
+            let case_overrides: Vec<&str> = markers
+                .overriding("cases")
+                .iter()
+                .filter_map(|entry| entry.split_once(':'))
+                .filter_map(|(seat, case)| (seat == name).then_some(case))
+                .collect();
+            let limits_override = markers.overrides_name("limits", name);
+            if merged.seats.contains_key(name)
+                && !markers.overrides_name("seats", name)
+                && case_overrides.is_empty()
+                && !limits_override
+            {
                 return Err(redefined(
                     &layer.file,
                     "seat",
@@ -557,11 +632,41 @@ fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<()
                     "override.seats",
                 ));
             }
-            // The value is copied, never inspected: a seat that
-            // references anything the resolver has never heard of
-            // survives inheritance byte-identically.
-            merged.seats.insert(name.clone(), value.clone());
-            merged.seat_from.insert(name.clone(), index);
+            if (!case_overrides.is_empty() || limits_override)
+                && !markers.overrides_name("seats", name)
+            {
+                let mut inherited = merged.seats[name].clone();
+                if !case_overrides.is_empty() {
+                    let inherited_cases = inherited
+                        .pointer_mut("/select/cases")
+                        .and_then(Value::as_object_mut)
+                        .expect("validated case override has inherited cases");
+                    let own_cases = value
+                        .pointer("/select/cases")
+                        .and_then(Value::as_object)
+                        .expect("validated case override has own cases");
+                    for case in case_overrides {
+                        inherited_cases.insert(case.to_string(), own_cases[case].clone());
+                        merged.case_from.insert(format!("{name}:{case}"), index);
+                    }
+                }
+                if limits_override {
+                    inherited["limits"] = value["limits"].clone();
+                }
+                merged.seats.insert(name.clone(), inherited);
+            } else {
+                // Ordinary seat values remain opaque. Only the explicitly
+                // marked named cases above are opened by the resolver.
+                merged.seats.insert(name.clone(), value.clone());
+                if let Some(cases) = value.pointer("/select/cases").and_then(Value::as_object) {
+                    for case in cases.keys() {
+                        merged.case_from.insert(format!("{name}:{case}"), index);
+                    }
+                }
+            }
+            if !limits_override || markers.overrides_name("seats", name) {
+                merged.seat_from.insert(name.clone(), index);
+            }
         }
     }
 
@@ -682,7 +787,15 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         // declarations that authorised its gates, both of which belong
         // to the composed bundle rather than to any layer.
         let no_hands = BTreeMap::new();
-        let manifest = super::manifest_for(&layer.dir, &layer.name, &chain, None, None, &no_hands)?;
+        let manifest = super::manifest_for(
+            &layer.dir,
+            &layer.name,
+            &chain,
+            None,
+            None,
+            &no_hands,
+            &Map::new(),
+        )?;
         chain.insert(
             0,
             Ancestor {
@@ -702,6 +815,7 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         seats: merged.seats,
         table: Value::Object(merged.table),
         seat_origin: merged.seat_from,
+        case_origin: merged.case_from,
         chain,
         roots: layers.into_iter().map(|layer| layer.dir).collect(),
     })

@@ -191,7 +191,7 @@ fn every_shipped_agent_resolves_at_compile_time() {
 
 /// T4: `exec` is the honest degenerate case. It declares all three
 /// capabilities unsupported and maps no model, so nothing can select it
-/// by accident — which is also why `recipes/sdd`'s `speckit-check` step
+/// by accident — which is also why `recipes/triage`'s `speckit-check` step
 /// stays inline and proves the library is an option, not a mandate.
 #[test]
 fn the_exec_adapter_declares_every_capability_unsupported() {
