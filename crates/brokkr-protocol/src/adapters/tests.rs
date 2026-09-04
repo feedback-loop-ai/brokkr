@@ -2463,6 +2463,73 @@ fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
     assert_eq!(meta["effort"], "high", "{emitted:?}");
 }
 
+/// The mirror, and the two lines a rollout can carry that no fixture
+/// built to be read ever does: a NEWEST record whose model the clamp
+/// refuses (a spelling with spaces is not an id) over an older record
+/// that names one, and between them a line that announces a record type
+/// but is not JSON at all — a rollout truncated mid-write, which is what
+/// a codex killed while filing one leaves behind.
+const CODEX_REFUSED_MODEL_SHIM: &str = r#"#!/bin/sh
+cat >/dev/null
+thread="$CODEX_HOME/sessions/2026/09/04"
+mkdir -p "$thread"
+rollout="$thread/rollout-2026-09-04T00-00-00-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl"
+printf '{"timestamp":"2026-09-04T00:00:01Z","ordinal":1,"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.5-sol","reasoning_effort":"medium"}}}\n' > "$rollout"
+printf '{"timestamp":"2026-09-04T00:00:02Z","ordinal":2,"type":"turn_context","payload":{"turn_id"\n' >> "$rollout"
+printf '{"timestamp":"2026-09-04T00:00:03Z","ordinal":3,"type":"turn_context","payload":{"turn_id":"t2","model":"gpt 5.6 sol","effort":"xhigh"}}\n' >> "$rollout"
+printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3aec1"}\n'
+"#;
+
+/// The fallback is per field in BOTH directions: the newest effort
+/// stands while the model walks back to the newest record that spells
+/// one the clamp admits. The truncated line in between is skipped for
+/// what it is — a line that cannot be parsed answers nothing — and does
+/// not end the walk, which is the difference between a record that names
+/// what served and one that reports dsh's sentinel because codex was
+/// interrupted mid-write.
+#[cfg(unix)]
+#[test]
+fn a_refused_model_walks_back_while_the_newest_effort_stands() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("codex-home");
+    let fake = executable(dir.path(), "codex", CODEX_REFUSED_MODEL_SHIM);
+    let prior = std::env::var_os("BROKKR_CODEX_BIN");
+    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
+    let prior_home = std::env::var_os("CODEX_HOME");
+    std::env::set_var("BROKKR_CODEX_BIN", &fake);
+    std::env::remove_var("FORGE_CODEX_BIN");
+    std::env::set_var("CODEX_HOME", &home);
+
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Codex,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| emitted.push(event.clone()),
+    )
+    .unwrap();
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
+        None => std::env::remove_var("BROKKR_CODEX_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_CODEX_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("CODEX_HOME", value),
+        None => std::env::remove_var("CODEX_HOME"),
+    }
+
+    let meta = &invocation.session_meta;
+    assert_eq!(meta["model"], "gpt-5.5-sol", "{emitted:?}");
+    assert_eq!(meta["effort"], "xhigh", "{emitted:?}");
+}
+
 /// A codex whose thread opens long before its first turn does, and which
 /// refuses to finish until the driver has already said so. Exit 9 is its
 /// verdict that the thread id reached the journal only at the end.
