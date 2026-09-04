@@ -251,20 +251,21 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             let script = bundle
                 .roots
                 .iter()
-                .find_map(|root| resolved_script.strip_prefix(root).ok())
-                .and_then(Path::to_str);
+                .find_map(|root| resolved_script.strip_prefix(root).ok());
+            // Follow the store helper's temp-path rule: compare Paths in the
+            // spelling the product promises, without baking in a host separator.
             if phase == "ship" {
-                assert_eq!(script, Some("scripts/ship-seat.sh"), "{name}:{phase}");
+                let shipped = Path::new("scripts").join("ship-seat.sh");
+                assert_eq!(script, Some(shipped.as_path()), "{name}:{phase}");
                 assert!(
                     bundle.hands[phase].binds.is_empty(),
                     "{name}:{phase} needs no toolchain or credential-bearing bind"
                 );
             } else {
+                let scripts = Path::new("scripts").join("verify-seat.sh");
+                let roles = Path::new("roles").join("verify-seat.sh");
                 assert!(
-                    matches!(
-                        script,
-                        Some("scripts/verify-seat.sh" | "roles/verify-seat.sh")
-                    ),
+                    script == Some(scripts.as_path()) || script == Some(roles.as_path()),
                     "{name}:{phase} names a shipped verifier script: {script:?}"
                 );
                 let binds = &bundle.hands[phase].binds;
