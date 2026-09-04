@@ -421,7 +421,7 @@ read -r done
             result
         )
     };
-    let chief_driver = driver(true, "pass");
+    let chief_driver = driver(true, "drafted");
     let validator_driver = driver(gate_commits, "complete");
     std::fs::write(
         adapters.join("judge.json"),
@@ -2858,7 +2858,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                     "effect",
                     "attempt",
                     AttemptOutcome::Succeeded {
-                        result: json!({"result":"complete"}),
+                        result: json!({"result":"first-result"}),
                     },
                 ),
                 confine: None,
@@ -2894,6 +2894,57 @@ fn panel_and_sequence_storage_failures_propagate() {
             "work",
             &steps,
             &input,
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .is_err());
+
+    let invalid_steps = [
+        SequenceStep {
+            name: "invalid".into(),
+            results: vec!["declared".into()],
+            class: SeatClass::Work,
+            body: StepBody::Single {
+                role_path: "role.md".into(),
+                command: driver_command(
+                    "effect",
+                    "attempt",
+                    AttemptOutcome::Succeeded {
+                        result: json!({"result":"invented"}),
+                    },
+                ),
+                confine: None,
+                candidates: Vec::new(),
+            },
+        },
+        SequenceStep {
+            name: "never".into(),
+            results: vec!["complete".into()],
+            class: SeatClass::Work,
+            body: StepBody::Single {
+                role_path: "role.md".into(),
+                command: vec!["must-not-run".into()],
+                confine: None,
+                candidates: Vec::new(),
+            },
+        },
+    ];
+    let invalid_input = json!({
+        "feature":"feature", "phase":"work", "workdir":".",
+        "allowed_results":["complete"], "context":{},
+        "steps":[
+            {"role_path":"role.md", "result_path":"first.json"},
+            {"role_path":"role.md", "result_path":"second.json"}
+        ],
+    });
+    let (_kept, mut invalid_sequence) = engine_failing("effect/failed");
+    assert!(invalid_sequence
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &invalid_steps,
+            &invalid_input,
             std::time::Duration::from_secs(2),
             &Selection::new(),
         )
@@ -3466,19 +3517,17 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
             },
         },
     ];
-    let seq_input = json!({
-        "feature": "feature", "phase": "work", "workdir": ".",
-        "allowed_results": ["pass", "fail"], "context": {},
-        "steps": [
-            {"name": "draft", "role_path": "draft.md", "result_path": "draft.json",
-             "allowed_results": ["drafted", "blocked"]},
-            {"name": "finish", "members": {
-                "final": {"role_path": "finish.md", "result_path": "finish.json"},
-                "peer": {"role_path": "peer.md", "result_path": "peer.json"}
-             }, "allowed_results": ["pass", "fail"]}
-        ]
+    let (_dir, mut engine) = engine(SeatBody::Sequence {
+        steps: steps.clone(),
     });
-    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine.bundle.seats.get_mut("work").unwrap().results = vec!["pass".into(), "fail".into()];
+    let seq_input = engine
+        .seat_input(
+            &state(Some("work"), Cursor::Idle),
+            "work",
+            "vocabulary-effect",
+        )
+        .unwrap();
     engine
         .execute_sequence(
             "vocabulary-effect",
@@ -3502,6 +3551,85 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
         final_step["input"]["allowed_results"],
         json!(["pass", "fail"])
     );
+    let first_prompt = brokkr_protocol::adapters::render_prompt(&first["input"]);
+    let final_prompt = brokkr_protocol::adapters::render_prompt(&final_step["input"]);
+    assert!(first_prompt.contains("<one of: drafted, blocked>"));
+    assert!(!first_prompt.contains("<one of: pass, fail>"));
+    assert!(final_prompt.contains("<one of: pass, fail>"));
+}
+
+#[test]
+fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
+    for (result, expected) in [
+        (
+            json!({"result": "invented"}),
+            "outside its declared results",
+        ),
+        (json!({"notes": "missing word"}), "has no 'result' string"),
+    ] {
+        let steps = vec![
+            SequenceStep {
+                name: "draft".into(),
+                class: SeatClass::Work,
+                results: vec!["drafted".into()],
+                body: StepBody::Single {
+                    role_path: "draft.md".into(),
+                    command: driver_command(
+                        "vocabulary-effect",
+                        "vocabulary-attempt",
+                        AttemptOutcome::Succeeded { result },
+                    ),
+                    confine: None,
+                    candidates: Vec::new(),
+                },
+            },
+            SequenceStep {
+                name: "finish".into(),
+                class: SeatClass::Work,
+                results: vec!["complete".into()],
+                body: StepBody::Single {
+                    role_path: "finish.md".into(),
+                    command: vec!["must-not-run".into()],
+                    confine: None,
+                    candidates: Vec::new(),
+                },
+            },
+        ];
+        let (_dir, mut engine) = engine(SeatBody::Sequence {
+            steps: steps.clone(),
+        });
+        let input = engine
+            .seat_input(
+                &state(Some("work"), Cursor::Idle),
+                "work",
+                "vocabulary-effect",
+            )
+            .unwrap();
+        engine
+            .execute_sequence(
+                "vocabulary-effect",
+                "vocabulary-attempt",
+                "work",
+                &steps,
+                &input,
+                std::time::Duration::from_secs(10),
+                &Selection::new(),
+            )
+            .unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        let failure = events
+            .iter()
+            .find(|event| event.event_type == EventType::EffectFailed)
+            .expect("the invalid intermediate result fails its effect");
+        assert!(failure.payload["error"]
+            .as_str()
+            .unwrap()
+            .contains(expected));
+        assert!(!events.iter().any(|event| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "draft"
+        }));
+    }
 }
 
 /// Triage's design and engine routes review with a sequence: a positions panel, then

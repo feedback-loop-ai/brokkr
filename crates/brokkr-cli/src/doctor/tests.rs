@@ -74,6 +74,20 @@ fn doctor_reports_a_declared_house_that_cannot_be_read() {
 }
 
 #[test]
+fn doctor_reports_a_broken_map_as_the_map_not_as_missing_house_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("realms.json"), "{not json").unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house(&mut report, dir.path());
+    let rendered = report.render();
+    assert!(rendered.contains("MISSING  realms map:"), "{rendered}");
+    assert!(!rendered.contains("MISSING  house rules:"), "{rendered}");
+}
+
+#[test]
 fn doctor_reports_readable_and_absent_house_declarations() {
     let dir = tempfile::tempdir().unwrap();
     let mut report = Report {

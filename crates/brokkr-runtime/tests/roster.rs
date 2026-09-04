@@ -25,6 +25,18 @@ fn names_word(text: &str, word: &str) -> bool {
         .any(|candidate| candidate == word)
 }
 
+fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
+    matches!(
+        (agent, tool),
+        ("chief-architect", "git")
+            | ("implementer-engine", "cargo" | "git")
+            | ("implementer-speckit", "cargo" | "git")
+            | ("implementer", "cargo" | "git")
+            | ("intake-speckit", "git")
+            | ("intake", "git")
+    )
+}
+
 /// A charter is an office; the house is the realm's. Library charters
 /// therefore cannot smuggle this repository's paths or commands into every
 /// adopter's prompt. Recipe-local roles are intentionally outside this walk.
@@ -128,7 +140,7 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
 }
 
 #[test]
-fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
+fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
     let root = workspace();
     let rank = |effort: &str| match effort {
         "none" => 0,
@@ -140,7 +152,6 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         "max" => 6,
         other => panic!("unknown effort {other}"),
     };
-    let house = std::fs::read_to_string(root.join("docs/house-rules.md")).unwrap();
     for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
         if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
             continue;
@@ -149,9 +160,10 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         let charter =
             std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
                 .unwrap();
-        // Forced readings from the 0041 review: a charter invokes a tool
-        // only when it names that tool as a word in the work it orders; a
-        // substring such as "commit" is not an invocation of `git`.
+        // A portable charter names only office tools. House tools are an
+        // explicit property of the shipped agent, independent of whichever
+        // realm happens to use that agent; a substring such as "commit" is
+        // not an invocation of `git`.
         // Decision 0043 ruling 2 makes `hands` replace the allow-list, so
         // ruling 5's historical grants live in the journal, not a dead
         // `tools` field beside `hands`.
@@ -163,10 +175,12 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
             );
         }
         if let Some(allow) = agent.pointer("/tools/allow").and_then(Value::as_array) {
+            let agent_path = entry.path();
+            let agent_name = agent_path.file_stem().unwrap().to_str().unwrap();
             for tool in allow.iter().filter_map(Value::as_str) {
                 assert!(
-                    names_word(&charter, tool) || names_word(&house, tool),
-                    "{} grants unused tool {tool}",
+                    is_house_tool_grant(agent_name, tool) || names_word(&charter, tool),
+                    "{} grants an unaccounted tool {tool}",
                     entry.path().display()
                 );
             }

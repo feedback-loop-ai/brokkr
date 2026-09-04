@@ -1,6 +1,8 @@
 This realm is a Rust workspace. Production code is Rust under `crates/`; the
 Rust-only architecture is recorded by decision 0009. Semantic changes carry a
 decision document with status `proposed` because only the operator accepts one.
+Intake seats read `README.md` and decisions 0004 and 0005 before framing a
+commission, along with the code and history it touches.
 
 The frozen v1 contracts under `contracts/`, the production table at
 `policy/phase-machine.json`, `policy/schemas/`, and `reference/` are read-only.

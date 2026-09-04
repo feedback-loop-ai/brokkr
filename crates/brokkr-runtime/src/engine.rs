@@ -1575,6 +1575,30 @@ impl Engine {
                     return Ok(());
                 }
             };
+            if index + 1 != steps.len() {
+                let vocabulary_problem = match result.get("result").and_then(Value::as_str) {
+                    None => Some("has no 'result' string".to_string()),
+                    Some(word) if !step.results.iter().any(|allowed| allowed == word) => {
+                        Some(format!(
+                            "reported '{word}', outside its declared results {:?}",
+                            step.results
+                        ))
+                    }
+                    Some(_) => None,
+                };
+                if let Some(problem) = vocabulary_problem {
+                    self.append(
+                        EventType::EffectFailed,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "error": format!("sequence step '{}': {problem}", step.name),
+                        }),
+                        Some(attempt_id.to_string()),
+                    )?;
+                    return Ok(());
+                }
+            }
             let model = result
                 .get("model")
                 .and_then(Value::as_str)

@@ -5,8 +5,8 @@
 | [`ARCHITECTURE.md`](../../ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |
 | [`CONTRIBUTING.md`](../../CONTRIBUTING.md) | The mandatory sixty-second path: choose a recipe, run Brokkr, publish its evidence, and name the run in the pull request. |
 | `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
-| `contracts/` | Frozen v1 contracts plus additive dispatch, manifest, phase-machine, seat-record and realms versions. `forge.realms/v3` adds optional house and dialect declarations; run-manifest v8 pins per-step result vocabularies. |
-| `realms.json` | This repository's own map: its repository, journal, and optional `house` and `dialect`. A workspace of many projects is another file, named with `--realms`. |
+| `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), `forge.realms/v1` (the world's map, decision 0023), `forge.realms/v2` (a realm may name its own journal — many hearths, decision 0026), and the new `forge.realms/v3` and run-manifest v8 contracts for house, dialect, and per-step result vocabulary. |
+| `realms.json` | This repository's own map (decision 0023): one realm — this repository — its journal, and its optional `house` and `dialect`. A workspace of many projects is another file, named with `--realms`. |
 | `docs/house-rules.md` | This realm's repository-specific prompt text: toolchain, frozen surfaces, gates and delivery conventions. The map names it; the engine pins and renders it. |
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `triage` — the routing form with selected chore, feature, design, and engine crews — `night-shift`, `node`, `panel-review`, `preflight`, the explicit wager harnesses, and yours). |

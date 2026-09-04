@@ -262,16 +262,21 @@ impl World {
         });
         if let Some(realm) = repo.and_then(|repo| self.realm_for(repo)) {
             pin["realm"] = json!(realm.name);
-            let (house, dialect) = &self.texts[&realm.name];
-            if let Some(house) = house {
-                pin["house"] = json!({"source": house.source, "sha256": house.sha256, "content": house.content});
-            }
-            if let Some(dialect) = dialect {
-                pin["dialect"] = json!({
-                    "source": dialect.source,
-                    "sha256": dialect.sha256,
-                    "content": dialect.content
-                });
+            if let Some((house, dialect)) = self.texts.get(&realm.name) {
+                if let Some(house) = house {
+                    pin["house"] = json!({
+                        "source": house.source,
+                        "sha256": house.sha256,
+                        "content": house.content
+                    });
+                }
+                if let Some(dialect) = dialect {
+                    pin["dialect"] = json!({
+                        "source": dialect.source,
+                        "sha256": dialect.sha256,
+                        "content": dialect.content
+                    });
+                }
             }
         }
         pin

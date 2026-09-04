@@ -298,7 +298,10 @@ fn report_realm_house(report: &mut Report, workspace: &Path) {
             );
         }
         Ok(None) => report.ok("house rules", "no realms map; none declared".into()),
-        Err(error) => report.missing("house rules", error.to_string()),
+        Err(error @ brokkr_runtime::realms::WorldError::RealmText { .. }) => {
+            report.missing("house rules", error.to_string())
+        }
+        Err(error) => report.missing("realms map", error.to_string()),
     }
 }
 

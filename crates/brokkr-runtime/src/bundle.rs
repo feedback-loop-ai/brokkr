@@ -2110,17 +2110,7 @@ fn parse_sequence(
         let final_step = index + 1 == steps_raw.len();
         let step_results = if final_step {
             results.to_vec()
-        } else if let Some(aggregate) = step_raw
-            .get("aggregate")
-            .and_then(Value::as_str)
-            .and_then(Aggregate::parse)
-        {
-            aggregate
-                .required_results()
-                .iter()
-                .map(|result| (*result).to_string())
-                .collect()
-        } else {
+        } else if step_raw.get("results").is_some() {
             step_raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -2137,6 +2127,20 @@ fn parse_sequence(
                         "sequence step '{what}' needs its own non-empty 'results' vocabulary"
                     ))
                 })?
+        } else if let Some(aggregate) = step_raw
+            .get("aggregate")
+            .and_then(Value::as_str)
+            .and_then(Aggregate::parse)
+        {
+            aggregate
+                .required_results()
+                .iter()
+                .map(|result| (*result).to_string())
+                .collect()
+        } else {
+            return Err(CompileError::Invalid(format!(
+                "sequence step '{what}' needs its own non-empty 'results' vocabulary"
+            )));
         };
         let mut agent_hands = None;
         let body = if has_agent {

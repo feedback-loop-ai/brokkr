@@ -404,7 +404,8 @@ impl Workspace {
                 let name = spec["name"].as_str().unwrap();
                 match spec.get("members") {
                     None => json!({
-                        "name": name, "results": seat_results.clone(),
+                        "name": name,
+                        "results": spec.get("results").unwrap_or(&seat_results).clone(),
                         "role": "roles/role.md", "driver": driver.clone(),
                     }),
                     Some(members) => {
@@ -1650,7 +1651,10 @@ fn sequence_final_step_decides_and_steps_checkpoint_in_order() {
     let ws = Workspace::new(script);
     ws.make_sequence(
         "implement",
-        &[json!({"name": "draft"}), json!({"name": "chief"})],
+        &[
+            json!({"name": "draft", "results": ["drafted"]}),
+            json!({"name": "chief"}),
+        ],
     );
     let (code, summary, stderr) = ws.run();
     assert_eq!(code, Some(0), "stderr: {stderr}");
@@ -1711,7 +1715,10 @@ fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
     let ws = Workspace::new(script);
     ws.make_sequence(
         "implement",
-        &[json!({"name": "one"}), json!({"name": "two"})],
+        &[
+            json!({"name": "one", "results": ["first"]}),
+            json!({"name": "two"}),
+        ],
     );
     ws.set_seat_limits("implement", 2, 3600);
     let (code, summary, stderr) = ws.run();

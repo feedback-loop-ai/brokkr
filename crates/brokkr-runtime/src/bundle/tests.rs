@@ -298,6 +298,10 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             {"name":"one", "role":"roles/role.md", "driver":{"command":["driver"]}, "panel":{}},
             {"name":"two", "role":"roles/role.md", "driver":{"command":["driver"]}},
         ]}),
+        json!({"sequence": [
+            {"name":"one", "results":[], "role":"roles/role.md", "driver":{"command":["driver"]}},
+            {"name":"two", "role":"roles/role.md", "driver":{"command":["driver"]}},
+        ]}),
     ] {
         assert!(parse_sequence(
             dir,
@@ -310,6 +314,25 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         )
         .is_err());
     }
+
+    let mismatch = json!({"sequence": [
+        {"name":"panel", "results":["clean"], "aggregate":"unanimous-pass",
+         "panel": {
+            "a":{"role":"roles/role.md", "driver":{"command":["driver"]}},
+            "b":{"role":"roles/role.md", "driver":{"command":["driver"]}}
+         }},
+        {"name":"final", "role":"roles/role.md", "driver":{"command":["driver"]}}
+    ]});
+    let refusal = error(parse_sequence(
+        dir,
+        "review",
+        &mismatch,
+        &results,
+        &[],
+        &mut None,
+        &mut BTreeMap::new(),
+    ));
+    assert!(refusal.contains("can emit 'pass'"), "{refusal}");
 }
 
 #[test]

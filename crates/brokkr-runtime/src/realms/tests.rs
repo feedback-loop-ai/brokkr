@@ -392,11 +392,12 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
     let manifest = world.pinned(&json!({"files": {}}), Some(&repo));
     assert_eq!(manifest["realms"]["dialect"]["content"], "spec/dialect.md");
     assert!(World::from_manifest(&manifest).unwrap().is_some());
-    assert!(
-        World::from_manifest(&world.pinned(&json!({"files": {}}), None))
-            .unwrap()
-            .is_some()
-    );
+    let unselected = world.pinned(&json!({"files": {}}), None);
+    let rehydrated_unselected = World::from_manifest(&unselected).unwrap().unwrap();
+    let repinned = rehydrated_unselected.pin(Some(&repo));
+    assert_eq!(repinned["realm"], "brokkr");
+    assert!(repinned.get("house").is_none());
+    assert!(repinned.get("dialect").is_none());
 
     for (field, expected) in [
         ("source", "carries no source"),

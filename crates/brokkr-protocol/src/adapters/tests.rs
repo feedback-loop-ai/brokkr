@@ -90,7 +90,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     let dir = tempfile::tempdir().unwrap();
     let role = dir.path().join("role.md");
     std::fs::write(&role, "trusted role").unwrap();
-    let prompt = compose_prompt(&json!({
+    let prompt = render_prompt(&json!({
         "role_path": role,
         "feature": "feature",
         "phase": "review",
@@ -103,7 +103,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert!(prompt.contains("clean, residual"));
     assert!(prompt.contains("\"fact\": true"));
 
-    let housed = compose_prompt(&json!({
+    let housed = render_prompt(&json!({
         "role_path": role,
         "house_rules": "Keep the tree green.",
         "feature": "feature",

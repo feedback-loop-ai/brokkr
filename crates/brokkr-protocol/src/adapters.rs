@@ -104,7 +104,9 @@ impl AdapterKind {
     }
 }
 
-fn compose_prompt(input: &Value) -> String {
+/// Render the model-facing prompt from the three independently owned texts in
+/// one engine input: charter, optional realm house, and site result contract.
+pub fn render_prompt(input: &Value) -> String {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let role = input
         .get("role_path")
@@ -2021,7 +2023,7 @@ fn run_seat(
         }
     };
 
-    let prompt = compose_prompt(&input);
+    let prompt = render_prompt(&input);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(
