@@ -60,6 +60,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         );
     }
     Bundle {
+        dialect_prompts: Default::default(),
         name: "test".into(),
         description: String::new(),
         cost: String::new(),
@@ -171,6 +172,36 @@ fn forward_context_carries_only_typed_phase_facts() {
 }
 
 #[test]
+fn implement_receives_dialect_instructions_only_after_a_change_exists() {
+    let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
+    let implement = runtime.bundle.seats.remove("work").unwrap();
+    runtime.bundle.seats.insert("implement".into(), implement);
+    runtime.bundle.machine.phases[0] = "specify".into();
+    runtime.bundle.machine.phases.insert(1, "implement".into());
+    runtime
+        .bundle
+        .dialect_prompts
+        .insert("implement".into(), "Archive the dialect change.".into());
+
+    let without_change = runtime
+        .seat_input(
+            &state(Some("implement"), Cursor::Idle),
+            "implement",
+            "fast-effect",
+        )
+        .unwrap();
+    assert!(without_change.get("spec_dialect").is_none());
+
+    let mut sdd = state(Some("implement"), Cursor::Idle);
+    sdd.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"decision-0042"}}),
+    );
+    let with_change = runtime.seat_input(&sdd, "implement", "sdd-effect").unwrap();
+    assert_eq!(with_change["spec_dialect"], "Archive the dialect change.");
+}
+
+#[test]
 fn an_undeclared_change_claim_is_dropped() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime
@@ -260,6 +291,48 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         )
         .unwrap();
     let events = absent.store.load(&absent.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
+
+    let (_kept, mut verify_without_change) = engine(single_body(vec!["driver".into()]));
+    let verify_input = json!({
+        "feature":"feature", "phase":"verify", "workdir":".",
+        "allowed_results":["pass", "fail"],
+        "context":{},
+        "steps":[{"role_path":"", "result_path":"result.json", "allowed_results":["pass", "fail"]}],
+    });
+    let verify_steps = [SequenceStep {
+        name: "dialect-verify".into(),
+        results: vec!["pass".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["validator".into(), "{change}".into()],
+                state: None,
+            },
+        },
+    }];
+    verify_without_change
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "verify",
+            &verify_steps,
+            &verify_input,
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+    let events = verify_without_change
+        .store
+        .load(&verify_without_change.run_id)
+        .unwrap();
     assert_eq!(
         events.last().unwrap().event_type,
         EventType::EffectIndeterminate
@@ -409,6 +482,135 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             "work",
             &[failing_step],
             &input(json!({})),
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .is_err());
+}
+
+#[test]
+fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
+    let first = SequenceStep {
+        name: "author".into(),
+        results: vec!["drafted".into()],
+        class: SeatClass::Work,
+        body: StepBody::Single {
+            role_path: "role.md".into(),
+            command: driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({
+                        "result":"drafted",
+                        "inputs":{"change":"--config=../../.."}
+                    }),
+                },
+            ),
+            confine: None,
+            candidates: Vec::new(),
+        },
+    };
+    let validate = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["validator".into(), "{change}".into()],
+                state: None,
+            },
+        },
+    };
+    let input = json!({
+        "feature":"feature", "phase":"design", "workdir":".",
+        "allowed_results":["drafted", "fail"], "context":{},
+        "steps":[
+            {"role_path":"role.md", "result_path":"author.json", "allowed_results":["drafted"]},
+            {"role_path":"", "result_path":"validate.json", "allowed_results":["drafted", "fail"]}
+        ]
+    });
+    let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
+    runtime.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("validate".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"drafted"}),
+                },
+            ),
+        },
+    );
+    let steps = [first, validate];
+    runtime
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .unwrap();
+
+    let events = runtime.store.load(&runtime.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("must match"));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.payload["checkpoint"]["step"] == "live")
+            .count(),
+        1,
+        "only the author ran; validate never received an argv"
+    );
+
+    let (_kept, mut undeclared) = engine(single_body(vec!["driver".into()]));
+    undeclared
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .unwrap();
+    let events = undeclared.store.load(&undeclared.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate,
+        "an input the seat did not declare is ignored, leaving no change to expand"
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
+
+    let (_kept, mut storage_error) = engine_failing("effect/indeterminate");
+    storage_error.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
+    assert!(storage_error
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &steps,
+            &input,
             std::time::Duration::from_secs(2),
             &selection,
         )
@@ -3919,6 +4121,322 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                 && event.payload["checkpoint"]["step_name"] == "draft"
         }));
     }
+}
+
+fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let dialect = crate::dialect::Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let mut bundle = Bundle::compile_with_realm(
+        &root.join("recipes/triage"),
+        &root.join("agents"),
+        &root.join("adapters"),
+        Some("brokkr"),
+        Some(&dialect),
+    )
+    .unwrap();
+    // These unit scenarios replace the compiled commands with the protocol
+    // fake below; confinement itself has its dedicated boxed proof.
+    bundle.hands.clear();
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
+    (dir, engine)
+}
+
+/// The real compiled triage design route records the dialect validator's
+/// actual vocabulary. Therefore a chief's `upstream` ends the sequence,
+/// reaches policy, returns to specify below the bound, and parks at it.
+#[test]
+fn compiled_design_upstream_reenters_specify_then_exhausts() {
+    for (visits, expected_rule, expected_next) in [
+        (2, "DESIGN-UPSTREAM", Some("specify")),
+        (3, "DESIGN-UPSTREAM-EXHAUSTED", None),
+    ] {
+        let (_dir, mut engine) = compiled_triage_engine();
+        let SeatBody::Sequence { mut steps } = engine.bundle.seats["design"].body.clone() else {
+            panic!("compiled triage design is a sequence");
+        };
+        assert_eq!(steps.last().unwrap().results, ["drafted", "fail"]);
+        for step in &mut steps {
+            match (&step.name[..], &mut step.body) {
+                ("positions", StepBody::Panel { members, .. }) => {
+                    for member in members {
+                        member.command = driver_command(
+                            "upstream-effect",
+                            "upstream-attempt",
+                            AttemptOutcome::Succeeded {
+                                result: json!({"result":"pass"}),
+                            },
+                        );
+                        member.candidates.clear();
+                    }
+                }
+                (
+                    "chief",
+                    StepBody::Single {
+                        command,
+                        candidates,
+                        ..
+                    },
+                ) => {
+                    *command = driver_command(
+                        "upstream-effect",
+                        "upstream-attempt",
+                        AttemptOutcome::Succeeded {
+                            result: json!({"result":"upstream", "notes":"the specification is at fault"}),
+                        },
+                    );
+                    candidates.clear();
+                }
+                _ => {}
+            }
+        }
+        let mut current = state(Some("design"), Cursor::Idle);
+        current.visits.insert("specify".into(), visits);
+        let input = engine
+            .seat_input(&current, "design", "upstream-effect")
+            .unwrap();
+        engine
+            .execute_sequence(
+                "upstream-effect",
+                "upstream-attempt",
+                "design",
+                &steps,
+                &input,
+                std::time::Duration::from_secs(10),
+                &Selection::new(),
+            )
+            .unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        let result = events
+            .iter()
+            .find(|event| event.event_type == EventType::EffectSucceeded)
+            .unwrap()
+            .payload["result"]
+            .clone();
+        assert_eq!(result["result"], "upstream");
+        assert!(!events
+            .iter()
+            .any(|event| event.payload["checkpoint"]["step_name"] == "validate"));
+
+        engine.decide(&current, "upstream-effect", result).unwrap();
+        let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+        assert_eq!(decided.payload["rule_id"], expected_rule);
+        assert_eq!(decided.payload["next"].as_str(), expected_next);
+    }
+}
+
+/// A deterministic non-zero loop check is evidence a later judge cannot
+/// overrule. Clarify parks on a contradictory `clear`; analyze still lets
+/// its judge classify the finding and routes on the returned `drift_in`.
+#[test]
+fn compiled_loop_check_failure_cannot_be_judged_away() {
+    let (_dir, mut engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
+        panic!("compiled triage clarify is a sequence");
+    };
+    let StepBody::Single {
+        command,
+        candidates,
+        ..
+    } = &mut steps[1].body
+    else {
+        panic!("the compiled judge is a single step");
+    };
+    *command = driver_command(
+        "check-effect",
+        "check-attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"clear"}),
+        },
+    );
+    candidates.clear();
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("check".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "check-effect",
+                "check-attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"ambiguous"}),
+                },
+            ),
+        },
+    );
+    let mut current = state(Some("clarify"), Cursor::Idle);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    );
+    let input = engine
+        .seat_input(&current, "clarify", "check-effect")
+        .unwrap();
+    engine
+        .execute_sequence(
+            "check-effect",
+            "check-attempt",
+            "clarify",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &selection,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let contradiction = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectIndeterminate)
+        .unwrap_or_else(|| panic!("the contradictory judge advanced: {events:#?}"));
+    assert!(contradiction.payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("contradicts deterministic step 'check' result 'ambiguous'"));
+
+    let (_dir, mut engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
+        panic!("compiled triage clarify is a sequence");
+    };
+    let StepBody::Single {
+        command,
+        candidates,
+        ..
+    } = &mut steps[1].body
+    else {
+        panic!("the compiled judge is a single step");
+    };
+    *command = driver_command(
+        "clean-effect",
+        "clean-attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"clear"}),
+        },
+    );
+    candidates.clear();
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("check".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "clean-effect",
+                "clean-attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"clear"}),
+                },
+            ),
+        },
+    );
+    let mut current = state(Some("clarify"), Cursor::Idle);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    );
+    let input = engine
+        .seat_input(&current, "clarify", "clean-effect")
+        .unwrap();
+    engine
+        .execute_sequence(
+            "clean-effect",
+            "clean-attempt",
+            "clarify",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &selection,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(events.iter().any(|event| {
+        event.event_type == EventType::EffectSucceeded
+            && event.payload["result"]["result"] == "clear"
+    }));
+
+    let (_dir, mut engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats["analyze"].body.clone() else {
+        panic!("compiled triage analyze is a sequence");
+    };
+    let StepBody::Single {
+        command,
+        candidates,
+        ..
+    } = &mut steps[1].body
+    else {
+        panic!("the compiled analyst is a single step");
+    };
+    *command = driver_command(
+        "analyze-effect",
+        "analyze-attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"drift", "inputs":{"drift_in":"design"}}),
+        },
+    );
+    candidates.clear();
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("check".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "analyze-effect",
+                "analyze-attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"drift"}),
+                },
+            ),
+        },
+    );
+    let mut current = state(Some("analyze"), Cursor::Idle);
+    current.visits.insert("analyze".into(), 1);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    );
+    let input = engine
+        .seat_input(&current, "analyze", "analyze-effect")
+        .unwrap();
+    engine
+        .execute_sequence(
+            "analyze-effect",
+            "analyze-attempt",
+            "analyze",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &selection,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let result = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectSucceeded)
+        .unwrap_or_else(|| panic!("the analyst did not classify drift: {events:#?}"))
+        .payload["result"]
+        .clone();
+    assert_eq!(result["inputs"]["drift_in"], "design");
+    engine.decide(&current, "analyze-effect", result).unwrap();
+    let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+    assert_eq!(decided.payload["rule_id"], "ANALYZE-DRIFT-DESIGN");
+    assert_eq!(decided.payload["next"], "design");
 }
 
 /// Triage's design and engine routes review with a sequence: a positions panel, then

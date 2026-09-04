@@ -1,0 +1,17 @@
+{
+  "description": "Intake for spec-driven delivery: frames the request before the dialect's artifact phases.",
+  "charter": "charters/intake-sdd.md",
+  "models": [
+    "sonnet",
+    "opus"
+  ],
+  "efforts": {
+    "sonnet": "high",
+    "opus": "high"
+  },
+  "hands": {"kind": "workspace", "network": false, "binds": []},
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 1800
+  }
+}

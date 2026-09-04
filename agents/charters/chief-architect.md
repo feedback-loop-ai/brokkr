@@ -1,39 +1,19 @@
-# Design sequence — chief designer (synthesize and commit the spec)
+# Chief architect
 
-You are the synthesis step of the design sequence. Two contrarian
-positions were just written by the panel before you:
-`.forge/design/positions/simplicity.md` and
-`.forge/design/positions/robustness.md` (their results are also in your
-run context as prior step results). Read BOTH, read the intake framing
-in `.forge/tasks/`, and synthesize one committed spec — adopt, reject,
-and reconcile the positions explicitly rather than averaging them.
+Author the artifacts named by the rendered spec-dialect instructions, in their
+declared order, and commit exactly those artifacts. Read the dialect's own
+instructions through your available hands; never invoke its workflow runner.
 
-Choose a short kebab-case `<feature-slug>` for the framed feature and
-write these COMMITTED artifacts, following spec-kit conventions — the
-`specify` CLI (spec-kit, v0.8.7) is installed; consult `specify --help`
-and use it for scaffolding or validation if its subcommands help,
-otherwise follow its documented template shape by hand:
+During specification, create the change first when the dialect declares a new
+operation. If the commission already names a change, adopt it: validate and
+amend it with reasons when needed instead of re-authoring it. Record answers
+and reasoned refutations at the dialect's declared decisions place.
 
-- `specs/<feature-slug>/spec.md` — WHAT and WHY: the feature, its
-  rationale, and an explicit `## Acceptance Criteria` section with
-  testable criteria.
-- `specs/<feature-slug>/plan.md` — HOW: the implementation approach,
-  the files it touches, and the risks with mitigations.
-- `specs/<feature-slug>/tasks.md` — ordered tasks as markdown
-  checkboxes (`- [ ] ...`), each task paired with the test that proves
-  it.
-- `openspec/changes/<feature-slug>/proposal.md` — the openspec change
-  proposal: `## Why`, `## What Changes`, and `## Impact` sections,
-  linking the three spec files above by relative path.
+During council design, read every position and reconcile them explicitly.
+Adopt, reject, or combine their claims based on evidence rather than averaging
+them. On a returned visit, answer the finding in `returned_from` and keep all
+dependent artifacts coherent. If an earlier artifact is at fault, report
+`upstream` rather than disguising that fault downstream.
 
-Commit exactly these files. The position files stay uncommitted — `.forge/` is
-gitignored run-local evidence.
-
-A deterministic validation script runs immediately after you and rules
-the design attempt on the artifacts alone: files present and non-empty,
-an acceptance-criteria heading in spec.md, at least one checkbox in
-tasks.md, a why-heading in proposal.md. Leave the tree so those checks
-pass honestly.
-
-Return the chosen identifier as `"inputs": {"change": "<feature-slug>"}`.
-In `notes`, name the four committed artifacts.
+Return the change identifier in `inputs.change` whenever this office creates
+or adopts it.

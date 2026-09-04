@@ -202,10 +202,10 @@ the library ships several:
 
 ```
 $ brokkr recipes list
-fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
-node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
-panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-triage	<digest>	8 phases	design[positions>chief>validate], implement{cases}, review{cases}, ship, triage, verify[checks>dialect-verify]	recipes/triage
+fast	e0c1eb0757cd	6 phases	implement, review, ship, verify	recipes/fast
+node	7abfe34bba48	6 phases	implement, review, ship, verify	recipes/node
+panel-review	1bf81bd7249f	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
+triage	<digest>	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{cases}, review{cases}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	recipes/triage
 …
 ```
 

@@ -1057,11 +1057,11 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // The design validator and post-check verifier now come from the
-        // pinned dialect, the chief charter hands off the typed change id,
-        // and decision 0044 adds the web tools to its pinned claude adapter.
-        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
-        "ruling 8 pins every selected sequence step's effective results"
+        // Decision 0042's five SDD phases and the returned reviews' restored
+        // contracts are bundle identity: judges consume the deterministic
+        // check and closed drift vocabulary, and the smith names every result.
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
+        "the five-phase SDD sequence and every resolved office are pinned"
     );
 
     let night = compiled("recipes/night-shift");

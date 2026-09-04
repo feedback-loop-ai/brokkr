@@ -1,136 +1,50 @@
 {
   "schema": "forge.phase-machine/v2",
-  "description": "Decision 0041 ruling 6 routing form: triage rules a delivery class before Fast's constitution, with the existing design council and every bounded finding return.",
-  "phases": [
-    "triage",
-    "design",
-    "implement",
-    "verify",
-    "review",
-    "ship",
-    "done",
-    "stop"
-  ],
+  "description": "Decision 0042 SDD routing: triage selects Fast or the five-phase dialect-driven design machine before implementation.",
+  "phases": ["triage", "specify", "clarify", "design", "tasks", "analyze", "implement", "verify", "review", "ship", "done", "stop"],
   "initial": "triage",
-  "terminal": [
-    "done",
-    "stop"
-  ],
-  "shippable_from": [
-    "review"
-  ],
+  "terminal": ["done", "stop"],
+  "shippable_from": ["review"],
   "rules": [
-    {
-      "id": "TRIAGE-CHORE",
-      "from": "triage",
-      "result": "chore",
-      "next": "implement",
-      "reason": "A bounded maintenance task enters Fast's implementation path."
-    },
-    {
-      "id": "TRIAGE-FEATURE",
-      "from": "triage",
-      "result": "feature",
-      "next": "implement",
-      "reason": "Ordinary product work enters Fast's implementation path."
-    },
-    {
-      "id": "TRIAGE-DESIGN",
-      "from": "triage",
-      "result": "design",
-      "next": "design",
-      "reason": "The commission needs the design council before implementation."
-    },
-    {
-      "id": "TRIAGE-ENGINE",
-      "from": "triage",
-      "result": "engine",
-      "next": "design",
-      "reason": "Core, store, contract, or policy work needs the design council before implementation."
-    },
-    {
-      "id": "TRIAGE-ESCALATE",
-      "from": "triage",
-      "result": "escalate",
-      "park": true,
-      "reason": "Triage escalated the commission for operator judgment."
-    },
-    {
-      "id": "DESIGN-FAIL-TWICE",
-      "from": "design",
-      "result": "fail",
-      "when": {
-        "consecutive_failures_gte": 2
-      },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "Two consecutive failed design attempts; stop and report rather than thrash."
-    },
-    {
-      "id": "DESIGN-RETRY",
-      "from": "design",
-      "result": "fail",
-      "next": "design",
-      "reason": "First failed design attempt; one re-run with the validation findings named is permitted."
-    },
-    {
-      "id": "DESIGN-OK",
-      "from": "design",
-      "result": "drafted",
-      "next": "implement",
-      "reason": "Spec artifacts committed and validated deterministically; implementation builds to the spec."
-    },
-    {
-      "id": "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED",
-      "from": "review",
-      "result": "clean",
-      "when": {"strategy_in": ["design", "engine"], "spec_defect": true, "visits_design_gte": 3},
-      "park": true,
-      "reason": "The specification remains defective after three design visits; park for the operator."
-    },
-    {
-      "id": "REVIEW-CLEAN-SPEC-DEFECT",
-      "from": "review",
-      "result": "clean",
-      "when": {"strategy_in": ["design", "engine"], "spec_defect": true},
-      "next": "design",
-      "severity": "flagged",
-      "reason": "The specification owns this defect; return it to design (decision 0041)."
-    },
-    {
-      "id": "REVIEW-SPEC-DEFECT-EXHAUSTED",
-      "from": "review",
-      "result": "residual",
-      "when": {"strategy_in": ["design", "engine"], "spec_defect": true, "visits_design_gte": 3},
-      "park": true,
-      "reason": "The specification remains defective after three design visits; park for the operator."
-    },
-    {
-      "id": "REVIEW-SPEC-DEFECT",
-      "from": "review",
-      "result": "residual",
-      "when": {"strategy_in": ["design", "engine"], "spec_defect": true},
-      "next": "design",
-      "severity": "flagged",
-      "reason": "The specification owns this defect; return it to design (decision 0041)."
-    },
-    {
-      "id": "IMPL-OVERSIZED-EXHAUSTED",
-      "from": "implement",
-      "result": "oversized",
-      "when": {
-        "visits_triage_gte": 2
-      },
-      "park": true,
-      "reason": "The work still exceeds its ruled class after the bounded return to triage; park for the operator."
-    },
-    {
-      "id": "IMPL-OVERSIZED",
-      "from": "implement",
-      "result": "oversized",
-      "next": "triage",
-      "severity": "flagged",
-      "reason": "The work exceeds the class triage ruled; return once for a new ruling (decision 0041)."
-    }
+    {"id":"TRIAGE-CHORE","from":"triage","result":"chore","next":"implement","reason":"A bounded maintenance task enters Fast's implementation path."},
+    {"id":"TRIAGE-FEATURE","from":"triage","result":"feature","next":"implement","reason":"Ordinary product work enters Fast's implementation path."},
+    {"id":"TRIAGE-DESIGN","from":"triage","result":"design","next":"specify","reason":"The commission needs the dialect-driven SDD machine before implementation."},
+    {"id":"TRIAGE-ENGINE","from":"triage","result":"engine","next":"specify","reason":"Core, store, contract, or policy work needs the dialect-driven SDD machine before implementation."},
+    {"id":"TRIAGE-ESCALATE","from":"triage","result":"escalate","park":true,"reason":"Triage escalated the commission for operator judgment."},
+
+    {"id":"SPECIFY-FAIL-TWICE","from":"specify","result":"fail","when":{"consecutive_failures_gte":2},"next":"stop","severity":"hard","reason":"Specification validation failed twice; stop rather than thrash."},
+    {"id":"SPECIFY-RETRY","from":"specify","result":"fail","next":"specify","reason":"The first failed specification validation returns to its author once."},
+    {"id":"SPECIFY-UPSTREAM","from":"specify","result":"upstream","park":true,"reason":"The commission itself cannot support a sound specification; park for triage's operator."},
+    {"id":"SPECIFY-DRAFTED","from":"specify","result":"drafted","next":"clarify","reason":"The what is drafted and validated; ambiguity is judged next."},
+
+    {"id":"CLARIFY-AMBIGUOUS-EXHAUSTED","from":"clarify","result":"ambiguous","when":{"visits_clarify_gte":3},"park":true,"reason":"Three clarification passes leave open questions; park with those questions for the operator."},
+    {"id":"CLARIFY-AMBIGUOUS","from":"clarify","result":"ambiguous","next":"specify","severity":"flagged","reason":"Open questions return to the specification author with the judge's evidence."},
+    {"id":"CLARIFY-CLEAR","from":"clarify","result":"clear","next":"design","reason":"No ambiguity remains; proceed to high-level design."},
+
+    {"id":"DESIGN-FAIL-TWICE","from":"design","result":"fail","when":{"consecutive_failures_gte":2},"next":"stop","severity":"hard","reason":"Design validation failed twice; stop rather than thrash."},
+    {"id":"DESIGN-RETRY","from":"design","result":"fail","next":"design","reason":"The first failed design validation returns to its author once."},
+    {"id":"DESIGN-UPSTREAM-EXHAUSTED","from":"design","result":"upstream","when":{"visits_specify_gte":3},"park":true,"reason":"Three specification visits did not settle the upstream design defect; park for the operator."},
+    {"id":"DESIGN-UPSTREAM","from":"design","result":"upstream","next":"specify","severity":"flagged","reason":"The specification owns this design defect; return one artifact phase."},
+    {"id":"DESIGN-DRAFTED","from":"design","result":"drafted","next":"tasks","reason":"The high-level design is drafted and validated; break it into work."},
+
+    {"id":"TASKS-FAIL-TWICE","from":"tasks","result":"fail","when":{"consecutive_failures_gte":2},"next":"stop","severity":"hard","reason":"Task validation failed twice; stop rather than thrash."},
+    {"id":"TASKS-RETRY","from":"tasks","result":"fail","next":"tasks","reason":"The first failed task validation returns to its author once."},
+    {"id":"TASKS-UPSTREAM-EXHAUSTED","from":"tasks","result":"upstream","when":{"visits_design_gte":3},"park":true,"reason":"Three design visits did not settle the upstream task defect; park for the operator."},
+    {"id":"TASKS-UPSTREAM","from":"tasks","result":"upstream","next":"design","severity":"flagged","reason":"The design owns this breakdown defect; return one artifact phase."},
+    {"id":"TASKS-DRAFTED","from":"tasks","result":"drafted","next":"analyze","reason":"The work breakdown is drafted and validated; analyze the complete change."},
+
+    {"id":"ANALYZE-DRIFT-EXHAUSTED","from":"analyze","result":"drift","when":{"visits_analyze_gte":3},"park":true,"reason":"Three analysis passes leave residual drift; park with the findings for the operator."},
+    {"id":"ANALYZE-DRIFT-SPECIFY","from":"analyze","result":"drift","when":{"drift_in":["specify"]},"next":"specify","severity":"flagged","reason":"Analysis found the earliest defect in the specification."},
+    {"id":"ANALYZE-DRIFT-DESIGN","from":"analyze","result":"drift","when":{"drift_in":["design"]},"next":"design","severity":"flagged","reason":"Analysis found the earliest defect in the design."},
+    {"id":"ANALYZE-DRIFT-TASKS","from":"analyze","result":"drift","when":{"drift_in":["tasks"]},"next":"tasks","severity":"flagged","reason":"Analysis found the earliest defect in the work breakdown."},
+    {"id":"ANALYZE-CONSISTENT","from":"analyze","result":"consistent","next":"implement","reason":"All six analysis dimensions are at zero findings; implementation may begin."},
+
+    {"id":"REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED","from":"review","result":"clean","when":{"strategy_in":["design","engine"],"spec_defect":true,"visits_specify_gte":3},"park":true,"reason":"The specification remains defective after three specification visits; park for the operator."},
+    {"id":"REVIEW-CLEAN-SPEC-DEFECT","from":"review","result":"clean","when":{"strategy_in":["design","engine"],"spec_defect":true},"next":"specify","severity":"flagged","reason":"The earliest artifact owns this defect; return it to specify."},
+    {"id":"REVIEW-SPEC-DEFECT-EXHAUSTED","from":"review","result":"residual","when":{"strategy_in":["design","engine"],"spec_defect":true,"visits_specify_gte":3},"park":true,"reason":"The specification remains defective after three specification visits; park for the operator."},
+    {"id":"REVIEW-SPEC-DEFECT","from":"review","result":"residual","when":{"strategy_in":["design","engine"],"spec_defect":true},"next":"specify","severity":"flagged","reason":"The earliest artifact owns this defect; return it to specify."},
+
+    {"id":"IMPL-OVERSIZED-EXHAUSTED","from":"implement","result":"oversized","when":{"visits_triage_gte":2},"park":true,"reason":"The work still exceeds its ruled class after the bounded return to triage; park for the operator."},
+    {"id":"IMPL-OVERSIZED","from":"implement","result":"oversized","next":"triage","severity":"flagged","reason":"The work exceeds the class triage ruled; return once for a new ruling."}
   ]
 }

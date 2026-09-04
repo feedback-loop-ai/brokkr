@@ -91,7 +91,7 @@ fn living_surfaces(root: &Path) -> Vec<(PathBuf, Surface)> {
 
     for relative in [
         "docs/guides",
-        "specs",
+        "openspec/specs",
         "recipes",
         "bundles",
         "agents/charters",

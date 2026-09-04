@@ -138,6 +138,18 @@ fn workspace() -> PathBuf {
 /// boxed registry gate and proposal-only table are its identity. Its dsh lane
 /// is the ninth: it pins the same charter, the Qwen3.8-Max hire and the overlay
 /// that enables page fetch and names its route.
+/// Decision 0042's second slice moves the two triage descendants again: the
+/// design route is now five phases, its new judges and validators are pinned,
+/// and the dialect-free SDD smith replaces the generic design implementer.
+/// The returned reviews move those descendants once more: spec compliance's
+/// complete typed contract and intake's boxed hands are agent identity, then
+/// the loop judges bind their deterministic checks and closed `drift_in`
+/// vocabulary while the smith regains its complete result semantics.
+/// Night-shift moves independently because its one-attempt override now names
+/// every phase in the SDD route.
+/// This correction moves the two triage descendants together: artifact
+/// validation retries now bind to journal-counted failures instead of every
+/// return into the phase.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
@@ -153,7 +165,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "0bccae5970e7642b240a37b11a4aac82a69ac6c27ac27660ba595e0a67ec23e9",
+        "1fa050796f20a064b48f17b3ac4d24308322e399a8ac4c61ecb3dfb57ddeebf2",
     ),
     (
         "recipes/wager-harness",
@@ -161,7 +173,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
+        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
     ),
     (
         "recipes/research",

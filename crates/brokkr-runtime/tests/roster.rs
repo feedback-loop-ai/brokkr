@@ -30,9 +30,8 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
         (agent, tool),
         ("chief-architect", "git")
             | ("implementer-engine", "cargo" | "git")
-            | ("implementer-speckit", "cargo" | "git")
+            | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
-            | ("intake-speckit", "git")
             | ("intake", "git")
     )
 }
@@ -51,6 +50,9 @@ fn library_charters_name_no_repository_tokens() {
         "policy/",
         "fixtures/",
         "contracts/",
+        "specs/",
+        "openspec/",
+        ".specify/",
     ];
     for entry in std::fs::read_dir(&root).unwrap().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
@@ -160,6 +162,14 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
             continue;
         }
         let agent = json(&entry.path());
+        assert!(
+            !agent
+                .pointer("/tools/allow")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| tools.iter().any(|tool| tool == "specify")),
+            "{} still grants the retired specify tool",
+            entry.path().display()
+        );
         let charter =
             std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
                 .unwrap();
@@ -437,7 +447,7 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
 }
 
 #[test]
-fn night_shift_keeps_one_attempt_on_every_roster_gate() {
+fn night_shift_keeps_one_attempt_on_every_phase() {
     let root = workspace();
     let bundle = Bundle::compile_with(
         &root.join("recipes/night-shift"),
@@ -445,10 +455,21 @@ fn night_shift_keeps_one_attempt_on_every_roster_gate() {
         &root.join("adapters"),
     )
     .expect("night-shift compiles");
-    for gate in ["verify", "review", "ship"] {
+    for phase in [
+        "triage",
+        "specify",
+        "clarify",
+        "design",
+        "tasks",
+        "analyze",
+        "implement",
+        "verify",
+        "review",
+        "ship",
+    ] {
         assert_eq!(
-            bundle.seats[gate].limits.max_attempts, 1,
-            "night-shift's {gate} gate must park after its first failed attempt"
+            bundle.seats[phase].limits.max_attempts, 1,
+            "night-shift's {phase} seat must park after its first failed attempt"
         );
     }
 }

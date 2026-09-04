@@ -25,7 +25,7 @@
         "cases": {
           "chore": {"agent": "implementer", "class": "work"},
           "feature": {"agent": "implementer", "class": "work"},
-          "design": {"agent": "implementer", "class": "work"},
+          "design": {"agent": "implementer-sdd", "class": "work"},
           "engine": {"agent": "implementer-engine", "class": "work"}
         }
       }
@@ -69,11 +69,25 @@
         }
       }
     },
+    "specify": {
+      "results": ["drafted", "fail", "upstream"],
+      "inputs": ["change"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+      "sequence": [
+        {"name": "author", "results": ["drafted", "upstream"], "agent": "chief-architect", "class": "work"},
+        {"name": "validate", "dialect": "validate"}
+      ]
+    },
+    "clarify": {
+      "results": ["clear", "ambiguous"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+      "sequence": [
+        {"name": "check", "results": ["clear", "ambiguous"], "dialect": "check"},
+        {"name": "judge", "agent": "clarifier", "class": "gate"}
+      ]
+    },
     "design": {
-      "results": [
-        "drafted",
-        "fail"
-      ],
+      "results": ["drafted", "fail", "upstream"],
       "inputs": ["change"],
       "limits": {
         "max_attempts": 2,
@@ -97,7 +111,7 @@
         },
         {
           "name": "chief",
-          "results": ["drafted"],
+          "results": ["drafted", "upstream"],
           "agent": "chief-architect",
           "class": "work"
         },
@@ -105,6 +119,24 @@
           "name": "validate",
           "dialect": "validate"
         }
+      ]
+    },
+    "tasks": {
+      "results": ["drafted", "fail", "upstream"],
+      "inputs": ["change"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+      "sequence": [
+        {"name": "author", "results": ["drafted", "upstream"], "agent": "implementer-sdd", "class": "work"},
+        {"name": "validate", "dialect": "validate"}
+      ]
+    },
+    "analyze": {
+      "results": ["consistent", "drift"],
+      "inputs": ["drift_in"],
+      "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+      "sequence": [
+        {"name": "check", "results": ["consistent", "drift"], "dialect": "check"},
+        {"name": "judge", "agent": "analyst", "class": "gate"}
       ]
     }
   },

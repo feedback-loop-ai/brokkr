@@ -1,5 +1,5 @@
 {
-  "description": "Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.",
+  "description": "Authors the dialect artifacts assigned to the chief and reconciles council positions during design.",
   "charter": "charters/chief-architect.md",
   "models": [
     "fable",
@@ -9,11 +9,5 @@
     "fable": "max",
     "opus": "max"
   },
-  "tools": {
-    "allow": [
-      "git",
-      "specify"
-    ],
-    "mcp": []
-  }
+  "hands": {"kind": "workspace", "network": false, "binds": []}
 }

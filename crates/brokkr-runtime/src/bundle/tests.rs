@@ -141,6 +141,21 @@ fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
         compiled.seats["verify"].body,
         SeatBody::Sequence { .. }
     ));
+    let (mut extended_config, mut extended_policy) = dialect_config(single.clone());
+    extended_config["seats"]["verify"]["results"] = json!(["pass", "fail", "manual"]);
+    extended_policy["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":"VM", "from":"verify", "result":"manual", "next":"review", "reason":"manual"
+        }));
+    let extended =
+        compile_dialect_fixture(&fixture, &extended_config, &extended_policy, Some(&dialect))
+            .unwrap();
+    let SeatBody::Sequence { steps } = &extended.seats["verify"].body else {
+        panic!("dialect verification is synthesized as a sequence");
+    };
+    assert_eq!(steps.last().unwrap().results, ["pass", "fail"]);
     assert_eq!(
         body_manifest(&SeatBody::Sequence {
             steps: vec![SequenceStep {
@@ -226,9 +241,10 @@ fn dialect_site_vocabulary_and_support_fail_closed() {
         serde_json::from_slice(&std::fs::read(root.join("dialects/openspec.json")).unwrap())
             .unwrap();
     value["phases"]["design"]["validate"] = json!({"unsupported":"no validator"});
-    let unsupported = Dialect::parse("unsupported.json", &value.to_string())
+    let mut unsupported = Dialect::parse("unsupported.json", &value.to_string())
         .unwrap()
         .0;
+    unsupported.render(&root.join("dialects")).unwrap();
     let (config, policy) = dialect_config(verify);
     assert!(error(compile_dialect_fixture(
         &fixture,

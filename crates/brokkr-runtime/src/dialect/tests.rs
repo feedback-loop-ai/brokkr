@@ -32,6 +32,11 @@ fn both_shipped_dialects_load_and_satisfy_the_contract() {
         let (_, value) = Dialect::load(&path).unwrap();
         assert!(validator.is_valid(&value), "{name} is outside dialect/v1");
     }
+    let speckit = Dialect::load(&root().join("dialects/speckit.json"))
+        .unwrap()
+        .0;
+    assert!(speckit.validation("specify").is_none());
+    assert!(speckit.validation("clarify").is_none());
 }
 
 #[test]
@@ -155,6 +160,59 @@ fn every_checked_dialect_boundary_is_named() {
     let mut unmatched = openspec();
     unmatched["verify"]["argv"][0] = json!("unknown}");
     assert!(refusal(unmatched).contains("unknown placeholder"));
+
+    // Spellings a host might not call absolute: the leading separator in
+    // either direction and a Windows prefix are refused everywhere, so the
+    // boundary reads the same on every platform.
+    for instruction in [
+        "/absolute.md",
+        "\\\\absolute.md",
+        "C:/absolute.md",
+        "../outside.md",
+        "safe/../../outside.md",
+    ] {
+        let mut value = openspec();
+        value["phases"]["specify"]["steps"][0]["instructions"] = json!(instruction);
+        let message = refusal(value);
+        assert!(message.contains(instruction), "{message}");
+        assert!(message.contains("must be relative"), "{message}");
+    }
+}
+
+#[test]
+fn a_realm_path_dialect_loads_beside_its_instructions_and_missing_prose_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let dialect_dir = dir.path().join(".brokkr");
+    std::fs::create_dir_all(dialect_dir.join("instructions")).unwrap();
+    std::fs::write(
+        dialect_dir.join("instructions/prompt.md"),
+        "Realm prompt.\n",
+    )
+    .unwrap();
+    let mut value = openspec();
+    for phase in ARTIFACT_PHASES {
+        for step in value["phases"][phase]["steps"].as_array_mut().unwrap() {
+            step["instructions"] = json!("instructions/prompt.md");
+            step["return_instructions"] = json!("instructions/prompt.md");
+        }
+    }
+    value["phases"]["clarify"]["taxonomy"] = json!("instructions/prompt.md");
+    value["phases"]["analyze"]["taxonomy"] = json!("instructions/prompt.md");
+    let path = dialect_dir.join("openspec.json");
+    std::fs::write(&path, value.to_string()).unwrap();
+
+    let dialect = Dialect::load(&path).unwrap().0;
+    assert_eq!(dialect.rendered["specify"], "Realm prompt.");
+    assert_eq!(dialect.rendered["review"], "Realm prompt.");
+
+    std::fs::remove_file(dialect_dir.join("instructions/prompt.md")).unwrap();
+    let missing = dialect_dir.join("instructions/prompt.md");
+    match Dialect::load(&path).unwrap_err() {
+        DialectError::UnreadableInstruction { path, .. } => {
+            assert_eq!(Path::new(&path), missing)
+        }
+        other => panic!("expected missing instruction refusal, got {other}"),
+    }
 }
 
 #[test]
@@ -177,4 +235,26 @@ fn validation_is_total_over_the_closed_phase_vocabulary() {
     assert!(dialect.validation("analyze").is_none());
     assert!(dialect.phases.artifact("unknown").is_none());
     assert!(dialect.phases.loop_phase("unknown").is_none());
+}
+
+#[test]
+fn rendered_instructions_cover_every_seated_phase_and_ignore_no_phase() {
+    let dialect = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+        assert!(
+            !dialect
+                .prompt_for(&root().join("dialects"), phase)
+                .unwrap()
+                .is_empty(),
+            "{phase}"
+        );
+    }
+    assert_eq!(
+        dialect
+            .prompt_for(&root().join("dialects"), "ship")
+            .unwrap(),
+        ""
+    );
 }

@@ -12,8 +12,8 @@
         "artifacts": ["proposal", "specs"],
         "office": "chief",
         "optional": false,
-        "instructions": "dialects/openspec/specify.md",
-        "return_instructions": "dialects/openspec/return.md"
+        "instructions": "openspec/specify.md",
+        "return_instructions": "openspec/return.md"
       }],
       "validate": {
         "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
@@ -26,8 +26,8 @@
         "artifacts": ["design"],
         "office": "council",
         "optional": false,
-        "instructions": "dialects/openspec/design.md",
-        "return_instructions": "dialects/openspec/return.md"
+        "instructions": "openspec/design.md",
+        "return_instructions": "openspec/return.md"
       }],
       "validate": {
         "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
@@ -40,8 +40,8 @@
         "artifacts": ["tasks"],
         "office": "smith",
         "optional": false,
-        "instructions": "dialects/openspec/tasks.md",
-        "return_instructions": "dialects/openspec/return.md"
+        "instructions": "openspec/tasks.md",
+        "return_instructions": "openspec/return.md"
       }],
       "validate": {
         "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
@@ -49,11 +49,11 @@
       }
     },
     "clarify": {
-      "taxonomy": "dialects/openspec/clarify.md",
+      "taxonomy": "openspec/clarify.md",
       "check": {"argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"]}
     },
     "analyze": {
-      "taxonomy": "dialects/openspec/analyze.md",
+      "taxonomy": "openspec/analyze.md",
       "check": {"argv": ["openspec", "status", "--change", "{change}", "--json"]}
     }
   },

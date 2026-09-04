@@ -191,6 +191,16 @@ fn the_phase_visit_predicate_is_closed_over_the_tables_own_phases() {
     assert!(many.visit_phases("done").is_empty());
 }
 
+#[test]
+fn counter_introspection_is_scoped_to_the_rules_phase() {
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"consecutive_failures_gte": 2});
+    let machine = Machine::from_table(&value).unwrap();
+    assert!(machine.reads_counter("work", "consecutive_failures"));
+    assert!(!machine.reads_counter("review", "consecutive_failures"));
+    assert!(!machine.reads_counter("work", "another_counter"));
+}
+
 /// Decision 0041 ruling 6's enumerated condition: every class has a
 /// matching arm, while absence, another class, malformed runtime data,
 /// and malformed table vocabulary all fail closed.
@@ -233,6 +243,49 @@ fn strategy_in_has_one_table_arm_for_every_triage_class() {
     let machine = Machine::from_table(&value).unwrap();
     for malformed in [json!(7), json!("unknown")] {
         let inputs = json!({"strategy": malformed}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &inputs),
+            Outcome::NoRule { problem: Some(_) }
+        ));
+    }
+}
+
+/// Decision 0042's analysis return is data, not a match arm in the engine:
+/// each artifact phase is selected by the same closed enum condition.
+#[test]
+fn drift_in_has_one_table_arm_for_every_artifact_phase() {
+    for phase in DRIFT_PHASES {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"drift_in": [phase]});
+        let machine = Machine::from_table(&value).unwrap();
+        let matching = json!({"drift_in": phase}).as_object().unwrap().clone();
+        assert!(matches!(
+            machine.evaluate("work", "complete", &matching),
+            Outcome::Ruling { .. }
+        ));
+        let other = DRIFT_PHASES
+            .iter()
+            .copied()
+            .find(|candidate| *candidate != phase)
+            .unwrap();
+        let nonmatching = json!({"drift_in": other}).as_object().unwrap().clone();
+        assert_eq!(
+            machine.evaluate("work", "complete", &nonmatching),
+            Outcome::NoRule { problem: None }
+        );
+    }
+
+    for invalid in [json!([]), json!(["implement"]), json!("design")] {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({"drift_in": invalid});
+        assert!(Machine::from_table(&value).is_err(), "accepted {invalid}");
+    }
+
+    let mut value = table(rule());
+    value["rules"][0]["when"] = json!({"drift_in": ["design"]});
+    let machine = Machine::from_table(&value).unwrap();
+    for malformed in [json!(7), json!("implement")] {
+        let inputs = json!({"drift_in": malformed}).as_object().unwrap().clone();
         assert!(matches!(
             machine.evaluate("work", "complete", &inputs),
             Outcome::NoRule { problem: Some(_) }
@@ -492,17 +545,17 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
             &sdd,
             "review",
             "residual",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 2,
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 2,
                    "visits_implement": 3, "max_residual_severity": "critical"})
         )
         .1,
-        "design"
+        "specify"
     );
     assert!(matches!(
         sdd.evaluate(
             "review",
             "residual",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 3})
                 .as_object()
                 .unwrap()
         ),
@@ -513,21 +566,135 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
             &sdd,
             "review",
             "clean",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 2})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 2})
         ),
-        ("REVIEW-CLEAN-SPEC-DEFECT".into(), "design".into())
+        ("REVIEW-CLEAN-SPEC-DEFECT".into(), "specify".into())
     );
     assert!(matches!(
         sdd.evaluate(
             "review",
             "clean",
-            json!({"strategy": "design", "spec_defect": true, "visits_design": 3})
+            json!({"strategy": "design", "spec_defect": true, "visits_specify": 3})
                 .as_object()
                 .unwrap()
         ),
         Outcome::Park { ref rule_id, .. }
             if rule_id == "REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED"
     ));
+}
+
+/// Decision 0042's shipped table is evaluated arm by arm. These are not
+/// shape assertions: each pair proves first-match ordering on either side of
+/// its literal bound, and each `drift_in` value drives the real table.
+#[test]
+fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
+    let machine = shipped_machine("../../recipes/triage/policy.json");
+    let park = |phase: &str, result: &str, inputs: Value| match machine.evaluate(
+        phase,
+        result,
+        inputs.as_object().unwrap(),
+    ) {
+        Outcome::Park { rule_id, .. } => rule_id,
+        other => panic!("expected park for ({phase}, {result}), got {other:?}"),
+    };
+
+    for phase in ["specify", "design", "tasks"] {
+        let failures_after_other_returns = |count| {
+            json!({
+                "consecutive_failures": count,
+                format!("visits_{phase}"): 9
+            })
+        };
+        assert_eq!(
+            ruling(&machine, phase, "fail", failures_after_other_returns(1)),
+            (
+                format!("{}-RETRY", phase.to_ascii_uppercase()),
+                phase.into()
+            )
+        );
+        assert_eq!(
+            ruling(&machine, phase, "fail", failures_after_other_returns(2)),
+            (
+                format!("{}-FAIL-TWICE", phase.to_ascii_uppercase()),
+                "stop".into()
+            )
+        );
+    }
+
+    assert_eq!(park("specify", "upstream", json!({})), "SPECIFY-UPSTREAM");
+    assert_eq!(
+        ruling(&machine, "specify", "drafted", json!({})),
+        ("SPECIFY-DRAFTED".into(), "clarify".into())
+    );
+    assert_eq!(
+        ruling(&machine, "design", "upstream", json!({"visits_specify": 2})),
+        ("DESIGN-UPSTREAM".into(), "specify".into())
+    );
+    assert_eq!(
+        park("design", "upstream", json!({"visits_specify": 3})),
+        "DESIGN-UPSTREAM-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "design", "drafted", json!({})),
+        ("DESIGN-DRAFTED".into(), "tasks".into())
+    );
+    assert_eq!(
+        ruling(&machine, "tasks", "upstream", json!({"visits_design": 2})),
+        ("TASKS-UPSTREAM".into(), "design".into())
+    );
+    assert_eq!(
+        park("tasks", "upstream", json!({"visits_design": 3})),
+        "TASKS-UPSTREAM-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "tasks", "drafted", json!({})),
+        ("TASKS-DRAFTED".into(), "analyze".into())
+    );
+
+    assert_eq!(
+        ruling(
+            &machine,
+            "clarify",
+            "ambiguous",
+            json!({"visits_clarify": 2})
+        ),
+        ("CLARIFY-AMBIGUOUS".into(), "specify".into())
+    );
+    assert_eq!(
+        park("clarify", "ambiguous", json!({"visits_clarify": 3})),
+        "CLARIFY-AMBIGUOUS-EXHAUSTED"
+    );
+    assert_eq!(
+        ruling(&machine, "clarify", "clear", json!({})),
+        ("CLARIFY-CLEAR".into(), "design".into())
+    );
+
+    for drift_in in ["specify", "design", "tasks"] {
+        assert_eq!(
+            ruling(
+                &machine,
+                "analyze",
+                "drift",
+                json!({"visits_analyze": 2, "drift_in": drift_in})
+            ),
+            (
+                format!("ANALYZE-DRIFT-{}", drift_in.to_ascii_uppercase()),
+                drift_in.into()
+            )
+        );
+        assert_eq!(
+            park(
+                "analyze",
+                "drift",
+                json!({"visits_analyze": 3, "drift_in": drift_in})
+            ),
+            "ANALYZE-DRIFT-EXHAUSTED"
+        );
+    }
+    assert_eq!(
+        ruling(&machine, "analyze", "consistent", json!({})),
+        ("ANALYZE-CONSISTENT".into(), "implement".into())
+    );
 }
 
 /// Every arm of the at-most predicate, point-blank against a synthetic

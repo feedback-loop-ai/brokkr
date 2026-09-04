@@ -3,25 +3,31 @@
 A seat used to inline everything it was: charter text, driver argv,
 limits, declared inputs. Decision 0016 lets it name an agent instead.
 
-Every model prompt is assembled from three texts with separate owners. The
+Every model prompt is assembled from independently owned texts. The
 library charter under `agents/charters/` is the portable office: what the seat
 does and must not do. The realm may name repository-specific Markdown through
 `house` in `forge.realms/v3`; the engine inserts it once under `## House rules`
-after the charter. Finally, the engine renders the result-file contract from
-the current site. A non-final sequence step receives its own `results`; the
-final step and an ordinary single seat receive the enclosing seat's results.
+after the charter. On an SDD artifact or loop phase, the engine then inserts
+the realm's dialect instructions under `## Spec dialect`; implementation gets
+them only after an earlier typed result establishes a change, and only the
+spec-compliance member receives them during review. Finally, the engine renders
+the result-file contract from the current site. A non-final sequence step
+receives its own `results`; the final step and an ordinary single seat receive
+the enclosing seat's results.
 House and dialect declarations and their content digests ride inside the
 realms manifest pin, so changing a house changes the run identity without
 changing an agent or recipe digest.
 
 ```
 $ brokkr agents list
-chief-architect	fable → opus	Synthesises the panel's positions into the committed spec, plan and tasks, and rules on the open questions.
+analyst	fable → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
+chief-architect	fable → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
+clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
 implementer-engine	fable → opus	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
-implementer-speckit	opus → sonnet	Implementer for spec-driven delivery: builds to the committed spec, ticking tasks.md as it goes.
+implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
-intake-speckit	sonnet → opus	Intake for spec-driven delivery: frames the request before the design phase opens the feature's spec directory.
+intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request before the dialect's artifact phases.
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.

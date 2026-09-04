@@ -19,6 +19,11 @@ pub enum DialectError {
         path: String,
         source: std::io::Error,
     },
+    #[error("reading dialect instruction {path}: {source}")]
+    UnreadableInstruction {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("dialect {path} is malformed: {detail}")]
     Malformed { path: String, detail: String },
     #[error("dialect {path} is not usable: {problem}")]
@@ -152,6 +157,8 @@ pub struct Dialect {
     pub verify: CommandOrUnsupported,
     pub archive: CommandOrUnsupported,
     pub house: PathOrUnsupported,
+    #[serde(skip)]
+    pub rendered: BTreeMap<String, String>,
 }
 
 impl Dialect {
@@ -160,7 +167,13 @@ impl Dialect {
             path: path.display().to_string(),
             source,
         })?;
-        Self::parse(&path.display().to_string(), &text)
+        let (mut dialect, value) = Self::parse(&path.display().to_string(), &text)?;
+        // Instruction paths belong to the dialect file, not to whichever
+        // library or realm happened to name it. Load pins every instruction
+        // now; compilation and resume must never recover missing prose from
+        // mutable files on disk.
+        dialect.render(path.parent().unwrap_or(Path::new("")))?;
+        Ok((dialect, value))
     }
 
     pub fn parse(path: &str, text: &str) -> Result<(Self, Value), DialectError> {
@@ -246,8 +259,54 @@ impl Dialect {
                 return Err(invalid(format!("phase '{phase}' has no taxonomy")));
             }
         }
+        for instruction in self.instruction_paths() {
+            // A dialect is data that travels between machines, so this
+            // boundary is judged by the SPELLING, never by the host.
+            // `Path::is_absolute` answers differently on two platforms —
+            // "/absolute.md" is absolute on Linux and relative on Windows,
+            // which needs a drive prefix — and a boundary that reads two
+            // ways is not one. Every spelling below is refused everywhere.
+            let first = instruction.split(['/', '\\']).next().unwrap_or_default();
+            let drive_letter = first.len() == 2
+                && first.ends_with(':')
+                && first.starts_with(|c: char| c.is_ascii_alphabetic());
+            if instruction.starts_with('/')
+                || instruction.starts_with('\\')
+                || drive_letter
+                || instruction
+                    .split(['/', '\\'])
+                    .any(|component| component == "..")
+            {
+                return Err(invalid(format!(
+                    "instruction path '{instruction}' must be relative and remain beside its dialect"
+                )));
+            }
+        }
         check_command_tokens(self, path)?;
         Ok(())
+    }
+
+    fn instruction_paths(&self) -> Vec<&str> {
+        ARTIFACT_PHASES
+            .iter()
+            .flat_map(|name| {
+                self.phases
+                    .artifact(name)
+                    .expect("closed artifact phase")
+                    .steps
+                    .iter()
+                    .flat_map(|step| {
+                        [
+                            step.instructions.as_str(),
+                            step.return_instructions.as_str(),
+                        ]
+                    })
+            })
+            .chain([
+                self.phases.clarify.taxonomy.as_str(),
+                self.phases.analyze.taxonomy.as_str(),
+            ])
+            .collect()
     }
 
     pub fn validation(&self, phase: &str) -> Option<&Command> {
@@ -262,6 +321,96 @@ impl Dialect {
             },
             _ => None,
         }
+    }
+
+    /// Read the dialect-owned prose which is spliced into a model prompt.
+    /// Paths are relative to the dialect file's own directory; the caller
+    /// supplies that directory so a library name and realm path have exactly
+    /// the same pinning semantics.
+    pub fn prompt_for(&self, root: &Path, phase: &str) -> Result<String, DialectError> {
+        let paths: Vec<&str> = match phase {
+            "specify" | "design" | "tasks" => self
+                .phases
+                .artifact(phase)
+                .expect("closed artifact phase")
+                .steps
+                .iter()
+                .flat_map(|step| {
+                    [
+                        step.instructions.as_str(),
+                        step.return_instructions.as_str(),
+                    ]
+                })
+                .collect(),
+            "clarify" | "analyze" => vec![self
+                .phases
+                .loop_phase(phase)
+                .expect("closed loop phase")
+                .taxonomy
+                .as_str()],
+            "implement" => self
+                .phases
+                .tasks
+                .steps
+                .iter()
+                .flat_map(|step| {
+                    [
+                        step.instructions.as_str(),
+                        step.return_instructions.as_str(),
+                    ]
+                })
+                .collect(),
+            "review" => ARTIFACT_PHASES
+                .iter()
+                .flat_map(|name| {
+                    self.phases
+                        .artifact(name)
+                        .expect("closed artifact phase")
+                        .steps
+                        .iter()
+                        .map(|step| step.instructions.as_str())
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut rendered = Vec::new();
+        for relative in paths {
+            let path = root.join(relative);
+            let text = std::fs::read_to_string(&path).map_err(|source| {
+                DialectError::UnreadableInstruction {
+                    path: path.display().to_string(),
+                    source,
+                }
+            })?;
+            if !rendered.iter().any(|known| known == text.trim()) {
+                rendered.push(text.trim().to_string());
+            }
+        }
+        if phase == "implement" {
+            let archive = match &self.archive {
+                CommandOrUnsupported::Command(command) => {
+                    serde_json::to_string(&command.argv).unwrap_or_default()
+                }
+                CommandOrUnsupported::Unsupported(reason) => {
+                    format!("unsupported: {}", reason.unsupported)
+                }
+            };
+            rendered.push(format!(
+                "Change location: `{}`. Archive operation: {archive}.",
+                self.change
+            ));
+        }
+        Ok(rendered.join("\n\n"))
+    }
+
+    pub fn render(&mut self, root: &Path) -> Result<(), DialectError> {
+        let mut rendered = BTreeMap::new();
+        for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+            let prompt = self.prompt_for(root, phase)?;
+            rendered.insert(phase.to_string(), prompt);
+        }
+        self.rendered = rendered;
+        Ok(())
     }
 }
 

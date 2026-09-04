@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass, SequenceStep,
-    StepBody, ENGINE_VERSION, REALM_FACTS,
+    dialect_results, Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass,
+    SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -698,6 +698,7 @@ impl Engine {
             );
         }
         let context = Value::Object(context);
+        let has_change = nearest_change(&context).is_some();
         let mut input = match body {
             ExecutableBody::Single { role_path, .. } => json!({
                 "feature": self.feature,
@@ -816,6 +817,11 @@ impl Engine {
         if let (Some(world), Some(repo)) = (&self.world, self.repo.as_deref()) {
             if let Some(house) = world.house_for(repo)? {
                 input["house_rules"] = json!(house);
+            }
+        }
+        if phase != "review" && (phase != "implement" || has_change) {
+            if let Some(instructions) = self.bundle.dialect_prompts.get(phase) {
+                input["spec_dialect"] = json!(instructions);
             }
         }
         Ok(input)
@@ -1284,6 +1290,15 @@ impl Engine {
                     "house_rules": seat_input["house_rules"],
                     "context": context,
                 });
+                if seat_input["phase"] == "review" && member.name == "spec-compliance" {
+                    input["spec_dialect"] = self
+                        .bundle
+                        .dialect_prompts
+                        .get("review")
+                        .map_or(Value::Null, |text| json!(text));
+                } else if !seat_input["spec_dialect"].is_null() {
+                    input["spec_dialect"] = seat_input["spec_dialect"].clone();
+                }
                 copy_secret_binding_facts(&mut input, seat_input);
                 MemberRun {
                     name: member.name.clone(),
@@ -1481,6 +1496,12 @@ impl Engine {
     ) -> Result<(), EngineError> {
         let mut prior_results = Map::new();
         let mut nearest_change = nearest_change(&seq_input["context"]);
+        let declares_change = self
+            .bundle
+            .seats
+            .get(seat_name)
+            .is_some_and(|seat| seat.inputs.iter().any(|input| input == "change"));
+        let mut deterministic_failure: Option<(String, String)> = None;
         for (index, step) in steps.iter().enumerate() {
             let step_meta = &seq_input["steps"][index];
             let context = {
@@ -1518,6 +1539,9 @@ impl Engine {
                         "house_rules": seq_input["house_rules"],
                         "context": context,
                     });
+                    if !seq_input["spec_dialect"].is_null() {
+                        input["spec_dialect"] = seq_input["spec_dialect"].clone();
+                    }
                     copy_secret_binding_facts(&mut input, seq_input);
                     let command = hands_command(
                         confined_command(
@@ -1647,18 +1671,8 @@ impl Engine {
                         "house_rules": seq_input["house_rules"],
                         "context": context,
                         "dialect_exec": {
-                            "success_result": match seq_input["phase"].as_str() {
-                                Some("clarify") => "clear",
-                                Some("analyze") => "consistent",
-                                Some("verify") => "pass",
-                                _ => "drafted",
-                            },
-                            "failure_result": match seq_input["phase"].as_str() {
-                                Some("clarify") => "ambiguous",
-                                Some("analyze") => "drift",
-                                Some("verify") => "fail",
-                                _ => "fail",
-                            },
+                            "success_result": dialect_results(seq_input["phase"].as_str().unwrap_or(""))[0],
+                            "failure_result": dialect_results(seq_input["phase"].as_str().unwrap_or(""))[1],
                             "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
                             "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
                         },
@@ -1740,16 +1754,87 @@ impl Engine {
                     )?;
                     return Ok(());
                 }
+                // A seat result which no remaining compiled step can emit is
+                // a declared sequence-ending boundary. The comparison is
+                // against the remaining steps' actual vocabularies, not the
+                // enclosing seat vocabulary inherited by the old final-step
+                // representation.
+                let ends_sequence =
+                    result
+                        .get("result")
+                        .and_then(Value::as_str)
+                        .is_some_and(|word| {
+                            let seat_declares = seq_input["allowed_results"]
+                                .as_array()
+                                .is_some_and(|allowed| allowed.iter().any(|value| value == word));
+                            let later_can_emit = steps[index + 1..]
+                                .iter()
+                                .any(|later| later.results.iter().any(|allowed| allowed == word));
+                            seat_declares && !later_can_emit
+                        });
+                if ends_sequence {
+                    return self.append(
+                        EventType::EffectSucceeded,
+                        json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+                        Some(attempt_id.to_string()),
+                    ).map(drop);
+                }
+                let phase = seq_input["phase"].as_str().unwrap_or("");
+                if matches!(step.body, StepBody::Dialect { .. })
+                    && matches!(phase, "clarify" | "analyze")
+                    && result["result"] == dialect_results(phase)[1]
+                {
+                    deterministic_failure = Some((
+                        step.name.clone(),
+                        result["result"].as_str().unwrap().to_string(),
+                    ));
+                }
             }
             let model = result
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or("not reported")
                 .to_string();
-            if let Some(change) = result.pointer("/inputs/change").and_then(Value::as_str) {
-                nearest_change = Some(change.to_string());
+            if declares_change {
+                if let Some(value) = result.pointer("/inputs/change") {
+                    let change = value.as_str();
+                    if !change.is_some_and(brokkr_core::policy::is_identifier) {
+                        self.append(
+                            EventType::EffectIndeterminate,
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!(
+                                    "sequence step '{}': declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {}",
+                                    step.name,
+                                    value
+                                ),
+                            }),
+                            Some(attempt_id.to_string()),
+                        )?;
+                        return Ok(());
+                    }
+                    nearest_change = change.map(str::to_string);
+                }
             }
             if index + 1 == steps.len() {
+                let phase = seq_input["phase"].as_str().unwrap_or("");
+                if let Some((check, failure)) = &deterministic_failure {
+                    if result["result"] == dialect_results(phase)[0] {
+                        return self.append(
+                            EventType::EffectIndeterminate,
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!(
+                                    "sequence step '{}': result '{}' contradicts deterministic step '{}' result '{}'",
+                                    step.name, result["result"], check, failure
+                                ),
+                            }),
+                            Some(attempt_id.to_string()),
+                        ).map(drop);
+                    }
+                }
                 self.append(
                     EventType::EffectSucceeded,
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
@@ -1848,6 +1933,15 @@ impl Engine {
         // Journal-computed inputs overlay (never accepted from the seat).
         for (key, value) in computed_inputs(state, &phase, &result) {
             inputs.insert(key, value);
+        }
+        if result == "fail"
+            && self
+                .bundle
+                .machine
+                .reads_counter(&phase, "consecutive_failures")
+        {
+            let prior = state.consecutive_failures.get(&phase).copied().unwrap_or(0);
+            inputs.insert("consecutive_failures".into(), Value::from(prior + 1));
         }
         // The phase-visit predicate (decision 0022), supplied for exactly
         // the phases this phase's rules ask about — counted from

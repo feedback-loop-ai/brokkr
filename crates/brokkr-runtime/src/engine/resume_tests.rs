@@ -131,6 +131,7 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
 
 fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
     Bundle {
+        dialect_prompts: Default::default(),
         name: "resume".into(),
         description: String::new(),
         cost: String::new(),

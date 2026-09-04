@@ -130,8 +130,13 @@ pub fn render_prompt(input: &Value) -> String {
         .and_then(Value::as_str)
         .map(|text| format!("\n\n## House rules\n\n{}", text.trim()))
         .unwrap_or_default();
+    let dialect = input
+        .get("spec_dialect")
+        .and_then(Value::as_str)
+        .map(|text| format!("\n\n## Spec dialect\n\n{}", text.trim()))
+        .unwrap_or_default();
     format!(
-        "{role}{house}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
+        "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
          — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly \
@@ -144,6 +149,7 @@ pub fn render_prompt(input: &Value) -> String {
          on your typed result.\n",
         role = role,
         house = house,
+        dialect = dialect,
         feature = get("feature"),
         phase = get("phase"),
         workdir = get("workdir"),
