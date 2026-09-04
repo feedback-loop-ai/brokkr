@@ -68,6 +68,24 @@ jobs:
           target/release/brokkr run --recipe research-dsh --repo . --feature "$(cat recipes/research/commissions/weekly-sweep.md)"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           target/release/brokkr inspect --run latest > .forge/research-inspect.txt 2>&1 || true
+          # The journal is the evidence and the runner is gone in an hour:
+          # export the run beside the journal, and pull the seat's own
+          # notes out of it, because a park's question lives there and
+          # nowhere the readout prints.
+          mkdir -p .forge/export
+          target/release/brokkr export --run latest --out .forge/export >/dev/null 2>&1 || true
+          python3 - > .forge/research-notes.txt <<'PY' || true
+          import glob, json
+          for path in glob.glob('.forge/export/*.ndjson'):
+              for line in open(path):
+                  event = json.loads(line)
+                  if event.get('type') != 'effect/succeeded':
+                      continue
+                  result = event.get('payload', {}).get('result', {})
+                  notes = result.get('notes')
+                  if notes:
+                      print(f"seat result `{result.get('result')}`; notes:\n\n{notes}\n")
+          PY
       - name: the branch and the Research issue
         if: always()
         env:
@@ -78,11 +96,25 @@ jobs:
           if [ -n "$branch" ] && [ -n "$(git log --oneline main.."$branch")" ]; then
             git push origin "$branch"
           fi
-          body="$(printf 'Weekly research sweep, %s, on the dsh lane.\n\nRun exit: %s (0 done, 2 parked, 3 stopped).\nBranch: %s\n\n```\n%s\n```\n\nThe classifications on the branch are proposals (decision 0044 ruling 3). Rule them, then deliver the branch.' "$today" "${{ steps.run.outputs.exit }}" "${branch:-none}" "$(head -c 60000 .forge/research-inspect.txt)")"
+          body="$(printf 'Weekly research sweep, %s, on the dsh lane.\n\nRun exit: %s (0 done, 2 parked, 3 stopped).\nBranch: %s\nEvidence: the `research-sweep-evidence` artifact on this workflow run carries the journal, the export, the seat result files and the dsh session transcript.\n\n## The seat said\n\n%s\n\n## The readout\n\n```\n%s\n```\n\nThe classifications on the branch are proposals (decision 0044 ruling 3). Rule them, then deliver the branch.' "$today" "${{ steps.run.outputs.exit }}" "${branch:-none}" "$(head -c 20000 .forge/research-notes.txt)" "$(head -c 30000 .forge/research-inspect.txt)")"
           gh api "repos/${GITHUB_REPOSITORY}/issues" \
             -f title="Research sweep $today" \
             -f body="$body" \
             -f type="Research" >/dev/null
+      - name: the evidence outlives the runner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-sweep-evidence
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            .forge/forge.db
+            .forge/export/
+            .forge/results/
+            .forge/research-inspect.txt
+            .forge/research-notes.txt
+            ~/.dsh/sessions/
       - name: the run's verdict is the job's
         if: steps.run.outputs.exit != '0'
         run: |
