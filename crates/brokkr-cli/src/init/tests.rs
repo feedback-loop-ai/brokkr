@@ -8,10 +8,43 @@
 //! synthetic `Detected` can reach.
 
 use super::{
-    allowance, command_tools, grants, leading_word, runner_tools, tools_for, AgentSpec, Class,
-    Detected, Tool,
+    allowance, command_tools, detect, grants, leading_word, runner_tools, tools_for, AgentSpec,
+    Class, Detected, DialectDetection, Tool,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+#[test]
+fn dialect_detection_covers_each_marker_combination() {
+    for (speckit, openspec, expected) in [
+        (true, false, "speckit"),
+        (false, true, "openspec"),
+        (true, true, "ambiguous"),
+        (false, false, "absent"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        if speckit {
+            std::fs::create_dir(dir.path().join(".specify")).unwrap();
+        }
+        if openspec {
+            std::fs::create_dir(dir.path().join("openspec")).unwrap();
+            std::fs::write(
+                dir.path().join("openspec/config.yaml"),
+                "schema: spec-driven\n",
+            )
+            .unwrap();
+        }
+        let detection = detect(dir.path());
+        let actual = match detection.dialect {
+            DialectDetection::Detected(choice, dialect) => {
+                assert_eq!(choice.name, dialect.name);
+                choice.name
+            }
+            DialectDetection::Ambiguous => "ambiguous",
+            DialectDetection::Absent => "absent",
+        };
+        assert_eq!(actual, expected);
+    }
+}
 
 /// The leading word is the binary that runs: whole command, flag-heavy
 /// command, or a bare single-token command.

@@ -10,6 +10,166 @@ fn always_present(_: &str) -> Option<String> {
     Some("1.0.0".into())
 }
 
+fn openspec_present(program: &str) -> Option<String> {
+    (program == "openspec").then(|| "OpenSpec 1.12.0".into())
+}
+
+fn install_openspec_dialect(dir: &Path) {
+    std::fs::create_dir_all(dir.join("dialects/openspec")).unwrap();
+    std::fs::copy(
+        workspace().join("dialects/openspec.json"),
+        dir.join("dialects/openspec.json"),
+    )
+    .unwrap();
+    for entry in std::fs::read_dir(workspace().join("dialects/openspec")).unwrap() {
+        let source = entry.unwrap().path();
+        std::fs::copy(
+            &source,
+            dir.join("dialects/openspec")
+                .join(source.file_name().unwrap()),
+        )
+        .unwrap();
+    }
+}
+
+fn dialect_world(dir: &Path, with_dialect: bool) -> brokkr_runtime::realms::World {
+    let realm = if with_dialect {
+        json!({"name": "app", "path": "app", "default_branch": "main", "dialect": "openspec"})
+    } else {
+        json!({"name": "app", "path": "app", "default_branch": "main"})
+    };
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    std::fs::write(
+        dir.join("realms.json"),
+        serde_json::to_vec(&json!({
+            "schema": "forge.realms/v3",
+            "realms": [realm],
+            "journal": ".forge/forge.db"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    brokkr_runtime::realms::World::load(&dir.join("realms.json")).unwrap()
+}
+
+#[test]
+fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let world = dialect_world(dir.path(), true);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, &world, openspec_present);
+    let rendered = report.render();
+    assert!(
+        rendered.contains(
+            "ok       dialect app: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect app requires openspec/config.yaml: present at"),
+        "{rendered}"
+    );
+    assert!(report.healthy);
+}
+
+#[test]
+fn doctor_reports_a_realm_without_a_dialect() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = dialect_world(dir.path(), false);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, &world, always_missing);
+    assert_eq!(report.render(), "ok       dialect app: none declared");
+    assert!(report.healthy);
+}
+
+#[test]
+fn doctor_reports_a_broken_realm_map_and_an_unusable_dialect() {
+    let broken = tempfile::tempdir().unwrap();
+    std::fs::write(broken.path().join("realms.json"), "{").unwrap();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm(&mut report, broken.path(), None, always_missing);
+    assert!(report.render().contains("MISSING  realms map:"));
+
+    let invalid = tempfile::tempdir().unwrap();
+    std::fs::create_dir(invalid.path().join("dialects")).unwrap();
+    std::fs::write(invalid.path().join("dialects/openspec.json"), "{").unwrap();
+    let world = dialect_world(invalid.path(), true);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, &world, always_missing);
+    assert!(report
+        .render()
+        .contains("MISSING  dialect app: realm 'app' dialect is unusable"));
+}
+
+#[test]
+fn doctor_checks_requires_beneath_an_absolute_realm_path() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let mut world = dialect_world(dir.path(), true);
+    world.map.realms[0].path = dir.path().join("app").display().to_string();
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, &world, openspec_present);
+    assert!(report
+        .render()
+        .contains("requires openspec/config.yaml: present"));
+}
+
+#[test]
+fn doctor_warns_for_a_missing_dialect_tool_but_fails_a_missing_required_file() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    let world = dialect_world(dir.path(), true);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, &world, always_missing);
+    let rendered = report.render();
+    assert!(rendered.contains("warn     dialect app: openspec · tool binary 'openspec' not found · pinned 1.12.0 — the design route will refuse to run"), "{rendered}");
+    assert!(
+        rendered.contains("MISSING  dialect app requires openspec/config.yaml: missing at"),
+        "{rendered}"
+    );
+    assert!(!report.healthy);
+
+    let mut mismatch = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut mismatch, &world, always_present);
+    assert!(mismatch
+        .render()
+        .contains("pinned 1.12.0 (version differs)"));
+}
+
 /// The workspace's own `agents/` and `adapters/` trees: doctor's default
 /// roots, and the ones that must show up in its report.
 fn workspace() -> PathBuf {

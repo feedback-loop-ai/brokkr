@@ -24,3 +24,13 @@ A seat prompt is assembled from the portable office in
 `agents/charters/`, the realm-owned house file, and the engine-owned result
 contract. Recipe-local `roles/` remain appropriate when the office itself is
 recipe-specific, such as a verifier script.
+
+`brokkr doctor` reads that same map and makes the specification side visible:
+
+```text
+ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
+```
+
+One line names the realm's dialect, installed tool and pinned version; the
+following lines report every file the dialect requires as present or missing.

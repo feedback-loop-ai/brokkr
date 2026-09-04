@@ -113,6 +113,53 @@ fn doctor_checks_the_map_named_by_realms() {
     assert!(stdout.contains("missing-house.md"), "{stdout}");
 }
 
+#[test]
+fn doctor_prints_scaffolded_dialect_absence_and_missing_tool_warning() {
+    let absent = tempfile::tempdir().unwrap();
+    let (code, _, stderr) = brokkr(&["init", "."], absent.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    let (_, stdout, _) = brokkr(&["doctor"], absent.path());
+    assert!(
+        stdout.contains("ok       dialect starter: none declared"),
+        "{stdout}"
+    );
+
+    let openspec = tempfile::tempdir().unwrap();
+    std::fs::create_dir(openspec.path().join("openspec")).unwrap();
+    std::fs::write(
+        openspec.path().join("openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = brokkr(&["init", "."], openspec.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    let empty_path = openspec.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .arg("doctor")
+        .env("PATH", &empty_path)
+        .current_dir(openspec.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("warn     dialect starter: openspec"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("tool binary 'openspec' not found"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("the design route will refuse to run"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("dialect starter requires openspec/config.yaml: present"),
+        "{stdout}"
+    );
+}
+
 /// The other half of that: the scaffold WRITES a trust declaration, and
 /// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
 /// its bundle against clobbering; the declaration is workspace data and
@@ -133,6 +180,32 @@ fn init_refuses_to_overwrite_an_operators_trust_declaration() {
     let kept = std::fs::read_to_string(&declaration).unwrap();
     assert!(kept.contains("untrusted"), "{kept}");
     assert!(!bundle.join("bundle.json").exists());
+}
+
+#[test]
+fn init_refuses_an_existing_realm_map_and_surfaces_an_unwritable_dialect_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("realm-map");
+    std::fs::create_dir(&bundle).unwrap();
+    let map = bundle.join("realms.json");
+    std::fs::write(&map, "operator-owned\n").unwrap();
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("realms.json") && stderr.contains("refusing to overwrite"));
+    assert_eq!(std::fs::read_to_string(map).unwrap(), "operator-owned\n");
+
+    let openspec = tempfile::tempdir().unwrap();
+    std::fs::create_dir(openspec.path().join("openspec")).unwrap();
+    std::fs::write(
+        openspec.path().join("openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let bundle = openspec.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("dialects/openspec.json")).unwrap();
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], openspec.path());
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(!stderr.trim().is_empty());
 }
 
 #[test]

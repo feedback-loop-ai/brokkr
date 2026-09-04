@@ -284,39 +284,122 @@ pub fn doctor(
         ambient_variable,
     );
     let workspace = std::env::current_dir().unwrap_or_default();
-    report_realm_house(&mut report, &workspace, realms);
+    report_realm(&mut report, &workspace, realms, tool_version);
     report
 }
 
-fn report_realm_house(report: &mut Report, workspace: &Path, named: Option<&Path>) {
+fn report_realm(
+    report: &mut Report,
+    workspace: &Path,
+    named: Option<&Path>,
+    probe: fn(&str) -> Option<String>,
+) {
     match brokkr_runtime::realms::World::discover(workspace, named) {
         Ok(Some(world)) => {
-            let mut houses = 0;
-            let mut failures = Vec::new();
-            for realm in world
-                .map
-                .realms
-                .iter()
-                .filter(|realm| realm.house.is_some())
-            {
-                match world.house_for_realm(realm) {
-                    Ok(_) => houses += 1,
-                    Err(error) => failures.push(error),
-                }
-            }
-            if failures.is_empty() {
-                report.ok(
-                    "house rules",
-                    format!("{houses} realm declaration(s) readable"),
-                );
-            } else {
-                for error in failures {
-                    report.missing("house rules", error.to_string());
-                }
-            }
+            report_realm_house_for_world(report, &world);
+            report_realm_dialects(report, &world, probe);
         }
+        Ok(None) => {
+            report.ok("house rules", "no realms map; none declared".into());
+            report.ok("dialect", "no realms map; none declared".into());
+        }
+        Err(error) => report.missing("realms map", error.to_string()),
+    }
+}
+
+#[cfg(test)]
+fn report_realm_house(report: &mut Report, workspace: &Path, named: Option<&Path>) {
+    match brokkr_runtime::realms::World::discover(workspace, named) {
+        Ok(Some(world)) => report_realm_house_for_world(report, &world),
         Ok(None) => report.ok("house rules", "no realms map; none declared".into()),
         Err(error) => report.missing("realms map", error.to_string()),
+    }
+}
+
+fn report_realm_house_for_world(report: &mut Report, world: &brokkr_runtime::realms::World) {
+    let mut houses = 0;
+    let mut failures = Vec::new();
+    for realm in world
+        .map
+        .realms
+        .iter()
+        .filter(|realm| realm.house.is_some())
+    {
+        match world.house_for_realm(realm) {
+            Ok(_) => houses += 1,
+            Err(error) => failures.push(error),
+        }
+    }
+    if failures.is_empty() {
+        report.ok(
+            "house rules",
+            format!("{houses} realm declaration(s) readable"),
+        );
+    } else {
+        for error in failures {
+            report.missing("house rules", error.to_string());
+        }
+    }
+}
+
+fn report_realm_dialects(
+    report: &mut Report,
+    world: &brokkr_runtime::realms::World,
+    probe: fn(&str) -> Option<String>,
+) {
+    let base = world.source.parent().unwrap_or(Path::new(""));
+    for realm in &world.map.realms {
+        let what = format!("dialect {}", realm.name);
+        let dialect = match world.dialect_for_realm(realm) {
+            Ok(Some(dialect)) => dialect,
+            Ok(None) => {
+                report.ok(&what, "none declared".into());
+                continue;
+            }
+            Err(error) => {
+                report.missing(&what, error.to_string());
+                continue;
+            }
+        };
+        match probe(&dialect.tool.binary) {
+            Some(version) if version.contains(&dialect.tool.version) => report.ok(
+                &what,
+                format!(
+                    "{} · tool '{}' {version} · pinned {}",
+                    dialect.name, dialect.tool.binary, dialect.tool.version
+                ),
+            ),
+            Some(version) => report.warn(
+                &what,
+                format!(
+                    "{} · tool '{}' {version} · pinned {} (version differs)",
+                    dialect.name, dialect.tool.binary, dialect.tool.version
+                ),
+            ),
+            None => report.warn(
+                &what,
+                format!(
+                    "{} · tool binary '{}' not found · pinned {} — the design route will refuse to run",
+                    dialect.name, dialect.tool.binary, dialect.tool.version
+                ),
+            ),
+        }
+
+        let declared_root = Path::new(&realm.path);
+        let realm_root = if declared_root.is_relative() {
+            base.join(declared_root)
+        } else {
+            declared_root.to_path_buf()
+        };
+        for required in &dialect.requires {
+            let path = realm_root.join(required);
+            let required_what = format!("dialect {} requires {required}", realm.name);
+            if path.is_file() {
+                report.ok(&required_what, format!("present at {}", path.display()));
+            } else {
+                report.missing(&required_what, format!("missing at {}", path.display()));
+            }
+        }
     }
 }
 
