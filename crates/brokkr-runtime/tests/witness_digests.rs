@@ -130,34 +130,50 @@ fn workspace() -> PathBuf {
 /// heading check is replaced by the realm dialect's validate command, verify
 /// gains the dialect's archive check, and the chief now hands off `change` as
 /// a typed input. Those commands and charter bytes are manifest identity.
-const WITNESSES: [(&str, &str); 7] = [
+/// Decision 0044 ruling 5 then moves every witness: the claude adapter's tool
+/// vocabulary gains the explicit web-fetch and web-search grant, and every
+/// bundle here pins that adapter through an agent or an inline gate. The two
+/// design-bearing descendants therefore carry both legitimate movements.
+/// The research recipe joins as the eighth witness because its researcher,
+/// boxed registry gate and proposal-only table are its identity. Its dsh lane
+/// is the ninth: it pins the same charter, the Qwen3.8-Max hire and the overlay
+/// that enables page fetch and names its route.
+const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
-        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
+        "e0c1eb0757cdf1f8be55ab977be802303e158ad5433f216c3714c9ae2782df43",
     ),
     (
         "recipes/node",
-        "f6a73dcf7269dc03d7a5c6c42b411c99aade187597778c47b4d003837d98b64b",
+        "7abfe34bba4805e573b89685846debb7e672106cef1d10521da694de94b46f65",
     ),
     (
         "recipes/preflight",
-        "7ce2538f6db6328d4e73185d8d886a17bdb49d682fe252cbe07eb8fa911f5ea2",
+        "d28c15ee4994c24eb1a3a3936e791bb702b6b9dc671a1e2fde13e639c8825afc",
     ),
     (
         "recipes/night-shift",
-        "9b46eb325f1a42e73a2f9741d7b358e70b15837e08c7a8b34f16dcc864cc3ff2",
+        "0bccae5970e7642b240a37b11a4aac82a69ac6c27ac27660ba595e0a67ec23e9",
     ),
     (
         "recipes/wager-harness",
-        "f76cb46fcf8f0e30dcb9d5349fd40848bd06cce670ecaa16d32b6fcd1e2307d2",
+        "57de5240560b66ed2fe80e0b925a79a0a36daeaafcd0df3d5b1c5cf4132e6680",
     ),
     (
         "recipes/triage",
-        "de34f9323580b08996043b258f033e3a43ae111ce728e4a671f5151a9e944608",
+        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
+    ),
+    (
+        "recipes/research",
+        "b9a38128ef567d0bb305ff16c7cd3319e62a677d6938d6486d67b8601a01f7a5",
+    ),
+    (
+        "recipes/research-dsh",
+        "78a785cface7aec1bb20069dd0597d24fbca17094c00ed371432acd1bd4c6820",
     ),
     (
         "bundles/verify",
-        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
+        "8054a434cc74786ba8a3c41302fc495353269cf604a739ff5070d627934fe1df",
     ),
 ];
 
