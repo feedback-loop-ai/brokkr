@@ -1,0 +1,73 @@
+{
+  "schema": "brokkr.dialect/v1",
+  "name": "openspec",
+  "tool": {"binary": "openspec", "version": "1.12.0"},
+  "requires": ["openspec/config.yaml"],
+  "change": "openspec/changes/{change}",
+  "truth": "openspec/specs",
+  "phases": {
+    "specify": {
+      "steps": [{
+        "name": "propose",
+        "artifacts": ["proposal", "specs"],
+        "office": "chief",
+        "optional": false,
+        "instructions": "dialects/openspec/specify.md",
+        "return_instructions": "dialects/openspec/return.md"
+      }],
+      "validate": {
+        "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
+        "state": ["openspec", "status", "--change", "{change}", "--json"]
+      }
+    },
+    "design": {
+      "steps": [{
+        "name": "design",
+        "artifacts": ["design"],
+        "office": "council",
+        "optional": false,
+        "instructions": "dialects/openspec/design.md",
+        "return_instructions": "dialects/openspec/return.md"
+      }],
+      "validate": {
+        "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
+        "state": ["openspec", "status", "--change", "{change}", "--json"]
+      }
+    },
+    "tasks": {
+      "steps": [{
+        "name": "tasks",
+        "artifacts": ["tasks"],
+        "office": "smith",
+        "optional": false,
+        "instructions": "dialects/openspec/tasks.md",
+        "return_instructions": "dialects/openspec/return.md"
+      }],
+      "validate": {
+        "argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"],
+        "state": ["openspec", "status", "--change", "{change}", "--json"]
+      }
+    },
+    "clarify": {
+      "taxonomy": "dialects/openspec/clarify.md",
+      "check": {"argv": ["openspec", "validate", "{change}", "--strict", "--no-interactive"]}
+    },
+    "analyze": {
+      "taxonomy": "dialects/openspec/analyze.md",
+      "check": {"argv": ["openspec", "status", "--change", "{change}", "--json"]}
+    }
+  },
+  "decisions": {
+    "clarify": {"artifact": "specs", "section": "scenarios"},
+    "analyze": {"artifact": "design", "section": "## Decisions"}
+  },
+  "order": [
+    {"before": "proposal", "after": "specs"},
+    {"before": "proposal", "after": "design"},
+    {"before": "specs", "after": "tasks"},
+    {"before": "design", "after": "tasks"}
+  ],
+  "verify": {"argv": ["openspec", "validate", "--archived", "--strict", "--no-interactive"]},
+  "archive": {"argv": ["openspec", "archive", "{change}", "--yes"]},
+  "house": {"unsupported": "OpenSpec ships no constitution; the realm house is authoritative"}
+}

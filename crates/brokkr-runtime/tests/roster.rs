@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
-use brokkr_runtime::{Bundle, SeatBody, SeatClass};
+use brokkr_runtime::{Bundle, SeatBody, SeatClass, StepBody};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -261,14 +261,32 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                 continue;
             };
             assert!(seat.has_gate, "{name}:{phase} is gate-class");
-            assert!(bundle.hands.contains_key(phase), "{name}:{phase} is boxed");
-            let SeatBody::Single {
-                command,
-                candidates,
-                ..
-            } = &seat.body
-            else {
-                panic!("{name}:{phase} is one deterministic script")
+            let (command, candidates) = match &seat.body {
+                SeatBody::Single {
+                    command,
+                    candidates,
+                    ..
+                } => {
+                    assert!(bundle.hands.contains_key(phase), "{name}:{phase} is boxed");
+                    (command, candidates)
+                }
+                SeatBody::Sequence { steps } if phase == "verify" => {
+                    assert_eq!(steps.len(), 2, "{name}:{phase} checks then dialect verify");
+                    assert_eq!(steps[0].name, "checks");
+                    assert!(matches!(steps[1].body, StepBody::Dialect { .. }));
+                    assert!(bundle.hands.contains_key("verify:checks"));
+                    assert!(bundle.hands.contains_key("verify:dialect-verify"));
+                    let StepBody::Single {
+                        command,
+                        candidates,
+                        ..
+                    } = &steps[0].body
+                    else {
+                        panic!("{name}:{phase}:checks is one deterministic script")
+                    };
+                    (command, candidates)
+                }
+                _ => panic!("{name}:{phase} is a deterministic script or dialect sequence"),
             };
             assert!(candidates.is_empty(), "{name}:{phase} seats no model");
             assert_eq!(&command[1..4], ["driver", "exec", "--"], "{name}:{phase}");
@@ -314,7 +332,12 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                     script == Some(scripts.as_path()) || script == Some(roles.as_path()),
                     "{name}:{phase} names a shipped verifier script: {script:?}"
                 );
-                let binds = &bundle.hands[phase].binds;
+                let hands_name = if matches!(seat.body, SeatBody::Sequence { .. }) {
+                    "verify:checks"
+                } else {
+                    phase
+                };
+                let binds = &bundle.hands[hands_name].binds;
                 if name == "recipes/node" {
                     assert_eq!(binds.len(), 1, "{name}:{phase}");
                     assert_eq!(binds[0].path, "~/.npm");
@@ -350,7 +373,7 @@ fn shipped_triage_gate_scope_stops_at_the_judging_sites() {
     };
     assert_eq!(steps[1].name, "chief");
     assert_eq!(steps[1].class, SeatClass::Work);
-    assert_eq!(steps.last().unwrap().name, "speckit-check");
+    assert_eq!(steps.last().unwrap().name, "validate");
     assert_eq!(steps.last().unwrap().class, SeatClass::Gate);
 }
 

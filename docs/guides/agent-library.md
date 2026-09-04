@@ -43,8 +43,9 @@ An agent is one file in `agents/`: a description, a charter, an ORDERED
 preference chain of abstract model names, abstract tool and MCP
 configuration, its decision-0006 limits and its decision-0007 declared
 inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
-Inline seats stay first-class — `recipes/triage`'s `speckit-check` step is
-a shell script with no model, and it stays inline.
+Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
+`validate` step are also model-free execs, but their checked argv comes from
+the realm's pinned dialect rather than from an agent definition.
 
 Verifier and shipper are deliberately absent from the agent library.
 They are boxed, inline `exec` scripts with no model: verification runs a

@@ -97,13 +97,16 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 | Contract | File | Consumers |
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
+| Specification dialect | `dialect.v1.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are
 pinned inside the run's realms pin and rendered into every seat prompt. A
-dialect is a library name or repository-relative path. This slice accepts and
-pins that declaration but does not interpret it. A v2 map remains byte- and
-behavior-compatible.
+dialect is a library name or repository-relative path. Its closed v1 shape
+maps artifact and judge phases to framework artifacts, instructions,
+validators, dependency order and lifecycle commands. The loader checks the
+map and pins the resolved JSON content, not merely its declaration. A v2 map
+remains byte- and behavior-compatible.
 
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six

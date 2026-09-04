@@ -76,7 +76,7 @@
     {
       "id": "DESIGN-OK",
       "from": "design",
-      "result": "designed",
+      "result": "drafted",
       "next": "implement",
       "reason": "Spec artifacts committed and validated deterministically; implementation builds to the spec."
     },

@@ -30,6 +30,7 @@ fn state(cursor: Cursor) -> RunState {
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,

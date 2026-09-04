@@ -1560,6 +1560,60 @@ pub(crate) fn compile_in(workspace: &std::path::Path, dir: &std::path::Path) -> 
     )?)
 }
 
+fn compile_in_realm(
+    workspace: &std::path::Path,
+    dir: &std::path::Path,
+    world: Option<&World>,
+    repo: &std::path::Path,
+) -> Result<Bundle> {
+    let realm = world.and_then(|world| world.realm_for(repo));
+    let realm_name = realm
+        .map(|realm| realm.name.as_str())
+        .unwrap_or("<unmapped>");
+    let dialect = match (world, realm) {
+        (Some(world), Some(realm)) => world.dialect_for_realm(realm)?,
+        _ => None,
+    };
+    Ok(Bundle::compile_with_realm(
+        dir,
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        Some(realm_name),
+        dialect,
+    )?)
+}
+
+/// Resume compiles against the dialect embedded in the run, never against
+/// whatever the workspace's map or library happens to contain today.
+fn compile_from_manifest(
+    workspace: &std::path::Path,
+    dir: &std::path::Path,
+    manifest: &Value,
+) -> Result<Bundle> {
+    let Some(world) = World::from_manifest(manifest)? else {
+        return compile_in(workspace, dir);
+    };
+    let realm_name = manifest
+        .pointer("/realms/realm")
+        .and_then(Value::as_str)
+        .unwrap_or("<unmapped>");
+    let dialect = world
+        .map
+        .realms
+        .iter()
+        .find(|realm| realm.name == realm_name)
+        .map(|realm| world.dialect_for_realm(realm))
+        .transpose()?
+        .flatten();
+    Ok(Bundle::compile_with_realm(
+        dir,
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
+        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        Some(realm_name),
+        dialect,
+    )?)
+}
+
 fn run_with(
     cli: Cli,
     // The directory `realms.json`, `agents/` and `adapters/` are
@@ -1691,7 +1745,8 @@ fn run_with(
             })
         }
         Cmd::Compile { bundle } => {
-            let bundle = compile_in(workspace, &bundle)?;
+            let world = World::discover(workspace, None)?;
+            let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
             println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
             Ok(ExitCode::SUCCESS)
         }
@@ -1730,7 +1785,13 @@ fn run_with(
                  believed in. Run without --dispatch, or without --realms, until a \
                  jointly agreed v2-lineage manifest version exists"
             );
-            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            let operated_repo = repo.as_deref().unwrap_or(workspace);
+            let bundle = compile_in_realm(
+                workspace,
+                &recipes::resolve(bundle, recipe, &recipes_dir)?,
+                world.as_ref(),
+                operated_repo,
+            )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
             let mut engine = if let Some(path) = dispatch {
@@ -1769,9 +1830,14 @@ fn run_with(
             repo,
             secrets_file,
         } => {
-            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
-            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let store = Store::open(&db)?;
+            let manifest = store.manifest(&run)?;
+            let bundle = compile_from_manifest(
+                workspace,
+                &recipes::resolve(bundle, recipe, &recipes_dir)?,
+                &manifest,
+            )?;
+            refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             engine.secrets_file = secrets_file;
             let end = engine.drive()?;

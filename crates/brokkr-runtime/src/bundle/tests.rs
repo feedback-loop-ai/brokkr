@@ -67,6 +67,249 @@ impl Fixture {
     }
 }
 
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn dialect_config(verify: Value) -> (Value, Value) {
+    let policy = json!({
+        "phases":["design","verify","review","done"], "initial":"design", "terminal":["done"],
+        "rules":[
+            {"id":"D","from":"design","result":"drafted","next":"verify","reason":"drafted"},
+            {"id":"DF","from":"design","result":"fail","next":"design","reason":"retry"},
+            {"id":"V","from":"verify","result":"pass","next":"review","reason":"pass"},
+            {"id":"VF","from":"verify","result":"fail","next":"verify","reason":"retry"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"}
+        ]
+    });
+    let config = json!({
+        "name":"dialect-fixture", "policy":"policy.json", "protected_phase":"review",
+        "seats":{
+            "design":{"results":["drafted","fail"],"sequence":[
+                {"name":"author","results":["drafted"],"role":"roles/role.md","driver":{"command":["driver"]}},
+                {"name":"validate","dialect":"validate"}
+            ]},
+            "verify":verify,
+            "review":{"results":["clean"],"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    (config, policy)
+}
+
+fn compile_dialect_fixture(
+    fixture: &Fixture,
+    config: &Value,
+    policy: &Value,
+    dialect: Option<&Dialect>,
+) -> Result<Bundle, CompileError> {
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.dir.path().join("policy.json"),
+        serde_json::to_vec(policy).unwrap(),
+    )
+    .unwrap();
+    let root = workspace_root();
+    Bundle::compile_with_realm(
+        fixture.dir.path(),
+        &root.join("agents"),
+        &root.join("adapters"),
+        None,
+        dialect,
+    )
+}
+
+#[test]
+fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let single = json!({"results":["pass","fail"],"class":"gate","hands":"workspace","role":"roles/role.md","driver":{"command":["{brokkr}","driver","exec","--","true"]}});
+    let (config, policy) = dialect_config(single.clone());
+    let compiled = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    assert!(matches!(
+        compiled.seats["verify"].body,
+        SeatBody::Sequence { .. }
+    ));
+    assert_eq!(
+        body_manifest(&SeatBody::Sequence {
+            steps: vec![SequenceStep {
+                name: "dialect".into(),
+                results: vec!["drafted".into()],
+                class: SeatClass::Gate,
+                body: StepBody::Dialect {
+                    execution: DialectExecution {
+                        argv: vec!["validate".into()],
+                        state: None,
+                    },
+                },
+            }],
+        })["sequence"][0]["body"]["dialect"]["argv"][0],
+        "validate"
+    );
+    let (mut invalid_hands, invalid_policy) = dialect_config(single.clone());
+    invalid_hands["seats"]["verify"]["hands"] = json!({"kind":"unknown"});
+    assert!(
+        compile_dialect_fixture(&fixture, &invalid_hands, &invalid_policy, Some(&dialect)).is_err()
+    );
+
+    let work_verify =
+        json!({"results":["pass","fail"],"role":"roles/role.md","driver":{"command":["driver"]}});
+    let (config, policy) = dialect_config(work_verify);
+    assert!(compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).is_ok());
+
+    let panel = json!({
+        "results":["pass","fail"], "aggregate":"unanimous-pass", "panel":{
+            "one":{"role":"roles/role.md","driver":{"command":["driver"]}},
+            "two":{"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    let (config, policy) = dialect_config(panel);
+    assert!(compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).is_ok());
+
+    let sequence = json!({
+        "results":["pass","fail"], "sequence":[
+            {"name":"one","results":["pass"],"role":"roles/role.md","driver":{"command":["driver"]}},
+            {"name":"two","role":"roles/role.md","driver":{"command":["driver"]}}
+        ]
+    });
+    let (config, policy) = dialect_config(sequence);
+    assert!(error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&dialect)
+    ))
+    .contains("requires a single or panel verify seat"));
+}
+
+#[test]
+fn dialect_site_vocabulary_and_support_fail_closed() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify =
+        json!({"results":["pass","fail"],"role":"roles/role.md","driver":{"command":["driver"]}});
+    for (site, expected) in [
+        (json!(3), "must be 'validate'"),
+        (json!("check"), "needs 'validate'"),
+    ] {
+        let (mut config, policy) = dialect_config(verify.clone());
+        config["seats"]["design"]["sequence"][1]["dialect"] = site;
+        assert!(error(compile_dialect_fixture(
+            &fixture,
+            &config,
+            &policy,
+            Some(&dialect)
+        ))
+        .contains(expected));
+    }
+    let (config, policy) = dialect_config(verify.clone());
+    assert!(
+        error(compile_dialect_fixture(&fixture, &config, &policy, None))
+            .contains("needs a realm dialect")
+    );
+
+    let mut value: Value =
+        serde_json::from_slice(&std::fs::read(root.join("dialects/openspec.json")).unwrap())
+            .unwrap();
+    value["phases"]["design"]["validate"] = json!({"unsupported":"no validator"});
+    let unsupported = Dialect::parse("unsupported.json", &value.to_string())
+        .unwrap()
+        .0;
+    let (config, policy) = dialect_config(verify);
+    assert!(error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&unsupported)
+    ))
+    .contains("validate unsupported"));
+
+    let loop_policy = json!({
+        "phases":["clarify","review","done"], "initial":"clarify", "terminal":["done"],
+        "rules":[
+            {"id":"C","from":"clarify","result":"clear","next":"review","reason":"clear"},
+            {"id":"CA","from":"clarify","result":"ambiguous","next":"clarify","reason":"retry"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"}
+        ]
+    });
+    let loop_config = json!({
+        "name":"loop", "policy":"policy.json", "protected_phase":"review", "seats":{
+            "clarify":{"results":["clear","ambiguous"],"sequence":[
+                {"name":"count","results":["clear"],"dialect":"check"},
+                {"name":"judge","role":"roles/role.md","driver":{"command":["driver"]}}
+            ]},
+            "review":{"results":["clean"],"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    assert!(compile_dialect_fixture(&fixture, &loop_config, &loop_policy, Some(&dialect)).is_ok());
+}
+
+#[test]
+fn a_malformed_default_dialect_is_a_compile_refusal() {
+    assert!(!needs_adapters(&json!({"plain":true})));
+    assert!(needs_adapters(&json!({"dialect":"validate"})));
+    let fixture = Fixture::new();
+    let policy = Fixture::policy();
+    let config = Fixture::config();
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.dir.path().join("policy.json"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    let library = tempfile::tempdir().unwrap();
+    std::fs::create_dir(library.path().join("agents")).unwrap();
+    std::fs::create_dir(library.path().join("dialects")).unwrap();
+    std::fs::write(library.path().join("dialects/openspec.json"), "{").unwrap();
+    let message = error(Bundle::compile_with(
+        fixture.dir.path(),
+        &library.path().join("agents"),
+        &workspace_root().join("adapters"),
+    ));
+    assert!(message.contains("malformed"), "{message}");
+}
+
+#[test]
+fn an_ordinary_verify_sequence_does_not_gain_a_dialect_check() {
+    let fixture = Fixture::new();
+    let policy = json!({
+        "phases":["verify","review","done"], "initial":"verify", "terminal":["done"],
+        "rules":[
+            {"id":"V","from":"verify","result":"pass","next":"review","reason":"pass"},
+            {"id":"VF","from":"verify","result":"fail","next":"verify","reason":"retry"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"}
+        ]
+    });
+    let config = json!({
+        "name":"plain-verify", "policy":"policy.json", "protected_phase":"review", "seats":{
+            "verify":{"results":["pass","fail"],"sequence":[
+                {"name":"one","results":["pass"],"role":"roles/role.md","driver":{"command":["driver"]}},
+                {"name":"two","role":"roles/role.md","driver":{"command":["driver"]}}
+            ]},
+            "review":{"results":["clean"],"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    assert!(fixture.compile(&config, &policy).is_ok());
+}
+
 #[test]
 fn compiler_refuses_invalid_phase_seat_limit_and_input_shapes() {
     let fixture = Fixture::new();
@@ -307,10 +550,13 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             dir,
             "review",
             &raw,
-            &results,
-            &[],
             &mut None,
-            &mut BTreeMap::new()
+            &mut BTreeMap::new(),
+            BodyCompile {
+                results: &results,
+                secrets: &[],
+                dialect: None
+            }
         )
         .is_err());
     }
@@ -327,10 +573,13 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         "review",
         &mismatch,
-        &results,
-        &[],
         &mut None,
         &mut BTreeMap::new(),
+        BodyCompile {
+            results: &results,
+            secrets: &[],
+            dialect: None,
+        },
     ));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
 
@@ -344,10 +593,13 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         "review",
         &final_vocabulary,
-        &results,
-        &[],
         &mut None,
         &mut BTreeMap::new(),
+        BodyCompile {
+            results: &results,
+            secrets: &[],
+            dialect: None,
+        },
     ));
     assert!(
         refusal.contains("final and receives the seat's results"),
@@ -363,10 +615,13 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         dir,
         "review",
         &valid,
-        &results,
-        &[],
         &mut None,
         &mut BTreeMap::new(),
+        BodyCompile {
+            results: &results,
+            secrets: &[],
+            dialect: None,
+        },
     )
     .unwrap();
     let pinned = body_manifest(&SeatBody::Sequence { steps });

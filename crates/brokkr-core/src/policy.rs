@@ -57,6 +57,17 @@ pub const BOOLEAN_INPUTS: [&str; 8] = [
 ];
 pub const COUNTER_INPUTS: [&str; 1] = ["consecutive_failures"];
 pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
+/// Typed handoff identifiers. Seats may declare these, but policy may never
+/// branch on them: identity is data passed to effects, not a control signal.
+pub const IDENTIFIER_INPUTS: [&str; 1] = ["change"];
+
+pub fn is_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c))
+}
 
 #[derive(Debug, Error)]
 #[error("malformed phase machine table: {0}")]
@@ -383,6 +394,15 @@ fn parse_condition(
     expected: &Value,
     phases: &[String],
 ) -> Result<Condition, PolicyError> {
+    if IDENTIFIER_INPUTS.contains(&key)
+        || key
+            .strip_suffix("_in")
+            .is_some_and(|name| IDENTIFIER_INPUTS.contains(&name))
+    {
+        return Err(PolicyError(format!(
+            "rule {rule_id}: identifier input '{key}' may be declared by a seat but never used as a condition key"
+        )));
+    }
     if key == "strategy_in" {
         let allowed = string_array(expected, &format!("rule {rule_id} condition '{key}'"))?;
         if allowed.is_empty() {

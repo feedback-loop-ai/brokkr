@@ -925,6 +925,10 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0041 ruling 8 moves the agent-backed entries because their
 /// charters now contain only office text, and moves triage again because
 /// non-final sequence vocabularies are pinned in its manifest.
+/// Decision 0044 ruling 5 moves all four entries: the claude adapter's
+/// declared tool vocabulary gained `webfetch` and `websearch`, and every
+/// bundle here pins that adapter through an agent or an inline gate. No
+/// recipe charter, table or hire moved.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -1053,7 +1057,10 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        "980a14a894a4834310b6b066b7fd62a925062fbdbe051fed8d21a8a97a509f5b",
+        // The design validator and post-check verifier now come from the
+        // pinned dialect, the chief charter hands off the typed change id,
+        // and decision 0044 adds the web tools to its pinned claude adapter.
+        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
         "ruling 8 pins every selected sequence step's effective results"
     );
 

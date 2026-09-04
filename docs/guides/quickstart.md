@@ -205,7 +205,7 @@ $ brokkr recipes list
 fast	6324f76f7bfa	6 phases	implement, review, ship, verify	recipes/fast
 node	ed3c623bceaa	6 phases	implement, review, ship, verify	recipes/node
 panel-review	39bb61a43c1c	7 phases	implement, intake, review[correctness+security], ship, verify	recipes/panel-review
-triage	<digest>	8 phases	design[positions>chief>speckit-check], implement{cases}, review{cases}, ship, triage, verify	recipes/triage
+triage	<digest>	8 phases	design[positions>chief>validate], implement{cases}, review{cases}, ship, triage, verify[checks>dialect-verify]	recipes/triage
 …
 ```
 

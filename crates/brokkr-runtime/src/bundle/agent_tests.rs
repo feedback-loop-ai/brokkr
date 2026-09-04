@@ -379,7 +379,8 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
              "driver": {"command": ["driver"]}},
         ],
     });
-    assert!(error(fixture.compile(config)).contains("exactly one of role+driver, agent, or panel"));
+    assert!(error(fixture.compile(config))
+        .contains("exactly one of role+driver, agent, panel, or dialect"));
 
     let mut config = fixture.config();
     config["seats"]["work"] = json!({

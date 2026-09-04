@@ -40,9 +40,18 @@ write_result() {
 failure_notes() {
     command_name="$1"
     printf '%s failed; decisive output follows verbatim:\n' "$command_name" > "$notes_file"
-    grep -E '(^|[[:space:]])(error|Error|ERROR|fail|FAILED|Caused by|not found|offline)' "$output" \
+    grep -E '^test .+ \.\.\. FAILED$' "$output" | tail -n 20 >> "$notes_file" || true
+    awk '/panicked at/ { print; if (getline > 0) print }' "$output" \
+        | tail -n 20 >> "$notes_file" || true
+    grep -E '^test result: FAILED|^error: test failed' "$output" \
+        | tail -n 20 >> "$notes_file" || true
+    grep -E '(^|[[:space:]])(error|Error|ERROR|Caused by|not found|offline)' "$output" \
         | tail -n 20 >> "$notes_file" || true
     [ "$(wc -l < "$notes_file")" -gt 1 ] || tail -n 20 "$output" >> "$notes_file"
+    successful_summaries="$(grep -c '^test result: ok' "$output" || true)"
+    failed_summaries="$(grep -c '^test result: FAILED' "$output" || true)"
+    printf 'counts: %s successful test-suite summaries, %s failed\n' \
+        "$successful_summaries" "$failed_summaries" >> "$notes_file"
     write_result fail
     exit 0
 }

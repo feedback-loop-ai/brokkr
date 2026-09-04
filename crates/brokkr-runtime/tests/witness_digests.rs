@@ -126,18 +126,18 @@ fn workspace() -> PathBuf {
 /// now actually emits the promised vocabulary fields. Node moves separately:
 /// its duplicated repository rules left the role and now live only in the
 /// adopter's house file.
-/// Decision 0044 ruling 5 moves every witness once more, for one named
-/// reason: the claude adapter's tool vocabulary gains `webfetch` and
-/// `websearch`, the explicit grant one office holds, and the adapter's
-/// bytes are pinned by every bundle that names an agent or seats a gate.
-/// No charter, table or hire moved. The research recipe joins as the
-/// eighth witness: its identity is the researcher office, the boxed
-/// registry gate and the two-phase table that proposes and never ships.
-/// Its dsh lane, `recipes/research-dsh`, is the ninth: the operator ruled
-/// the weekly sweep runs on dsh, and that lane's identity is the same
-/// charter bytes as a role file, the Qwen3.8-Max hire, and the one
-/// overlay that turns page fetch on and names the route, because dsh
-/// expresses no tool list.
+/// Decision 0042 moves the two design-bearing descendants: the old local
+/// heading check is replaced by the realm dialect's validate command, verify
+/// gains the dialect's archive check, and the chief now hands off `change` as
+/// a typed input. Those commands and charter bytes are manifest identity.
+/// Decision 0044 ruling 5 then moves every witness: the claude adapter's tool
+/// vocabulary gains the explicit web-fetch and web-search grant, and every
+/// bundle here pins that adapter through an agent or an inline gate. The two
+/// design-bearing descendants therefore carry both legitimate movements.
+/// The research recipe joins as the eighth witness because its researcher,
+/// boxed registry gate and proposal-only table are its identity. Its dsh lane
+/// is the ninth: it pins the same charter, the Qwen3.8-Max hire and the overlay
+/// that enables page fetch and names its route.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
@@ -153,7 +153,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "22538a41fa414a40978ea0958d10e300a3cee0789bc52c69ee32b083a18b9b65",
+        "0bccae5970e7642b240a37b11a4aac82a69ac6c27ac27660ba595e0a67ec23e9",
     ),
     (
         "recipes/wager-harness",
@@ -161,7 +161,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "980a14a894a4834310b6b066b7fd62a925062fbdbe051fed8d21a8a97a509f5b",
+        "66052f121e2e02c052417b06259f0263b832d5803f2c1da8e9af128f4757de8f",
     ),
     (
         "recipes/research",

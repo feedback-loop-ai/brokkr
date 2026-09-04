@@ -12,7 +12,9 @@ offices. Operators choose this recipe once; they do not choose a crew by hand.
 | `engine` | design → implement → verify → review → ship | `implementer-engine` | adversarial + correctness + security + spec-compliance panel, then `review-chief` |
 | `escalate` | park with triage's reasoning | — | — |
 
-The `design` council remains positions → chief → deterministic spec-kit check.
+The `design` council remains positions → chief → deterministic dialect
+validator. The realm must declare a dialect; Brokkr resolves and pins that
+dialect, then supplies its validate argv to the final boxed gate.
 The selected review sequences deliberately expose one trust boundary: the chief
 treats panel notes as data and never instructions. Every selected panel keeps
 at least two model families, and every office is resolved from `agents/`.

@@ -31,6 +31,30 @@ use crate::bundle::{
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
 
+fn nearest_change(context: &Value) -> Option<String> {
+    ["tasks", "design", "specify", "triage", "intake"]
+        .iter()
+        .find_map(|phase| {
+            context
+                .pointer(&format!("/results/{phase}/inputs/change"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+}
+
+fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
+    argv.iter()
+        .map(|token| token.replace("{change}", change))
+        .collect()
+}
+
+fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
+    match run {
+        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
+        DriverRun::Ran(report) => report.outcome,
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error(transparent)]
@@ -117,6 +141,7 @@ fn verify_dispatch_bundle_bounds(
                 .map(|step| match &step.body {
                     StepBody::Single { .. } => 1,
                     StepBody::Panel { members, .. } => members.len(),
+                    StepBody::Dialect { .. } => 1,
                 })
                 .max()
                 .unwrap_or(1),
@@ -636,6 +661,26 @@ impl Engine {
         if phase != "triage" {
             context.insert("last_decision".into(), json!(state.last_decision));
         }
+        let current = self
+            .bundle
+            .machine
+            .phases
+            .iter()
+            .position(|known| known == phase)
+            .unwrap_or_default();
+        let results: Map<String, Value> = self.bundle.machine.phases[..current]
+            .iter()
+            .filter_map(|earlier| {
+                state
+                    .phase_results
+                    .get(earlier)
+                    .cloned()
+                    .map(|result| (earlier.clone(), result))
+            })
+            .collect();
+        if !results.is_empty() {
+            context.insert("results".into(), Value::Object(results));
+        }
         // Reforging (decision 0022): a seat the run RETURNS to receives
         // the result that sent it back — the review's findings,
         // severities and notes reach the implementer who has to answer
@@ -735,6 +780,16 @@ impl Engine {
                                 "members": Value::Object(member_map),
                             })
                         }
+                        StepBody::Dialect { execution } => json!({
+                            "name": step.name,
+                            "allowed_results": step.results,
+                            "role_path": "",
+                            "result_path": workdir
+                                .join(".forge/results")
+                                .join(format!("{effect_id}-{}.json", step.name))
+                                .to_string_lossy(),
+                            "dialect": {"argv": execution.argv, "state": execution.state},
+                        }),
                     })
                     .collect();
                 json!({
@@ -1425,6 +1480,7 @@ impl Engine {
         selection: &Selection,
     ) -> Result<(), EngineError> {
         let mut prior_results = Map::new();
+        let mut nearest_change = nearest_change(&seq_input["context"]);
         for (index, step) in steps.iter().enumerate() {
             let step_meta = &seq_input["steps"][index];
             let context = {
@@ -1539,6 +1595,92 @@ impl Engine {
                     start_failures = start_failure_sites(&reports, &tag_prefix);
                     panel_outcome(*aggregate, reports)
                 }
+                StepBody::Dialect { execution } => {
+                    let needs_change = execution
+                        .argv
+                        .iter()
+                        .any(|token| token.contains("{change}"))
+                        || execution
+                            .state
+                            .iter()
+                            .flatten()
+                            .any(|token| token.contains("{change}"));
+                    if needs_change && nearest_change.is_none() {
+                        return self.append(
+                            EventType::EffectIndeterminate,
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!(
+                                    "sequence step '{}': cannot expand {{change}} because no preceding successful result carries it",
+                                    step.name
+                                ),
+                            }),
+                            Some(attempt_id.to_string()),
+                        ).map(|_| ());
+                    }
+                    let change = nearest_change.as_deref().unwrap_or("");
+                    let argv = expand_dialect_argv(&execution.argv, change);
+                    let command = std::iter::once(
+                        std::env::current_exe()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
+                    .chain(["driver", "exec", "--"].into_iter().map(str::to_string))
+                    .chain(argv)
+                    .collect::<Vec<_>>();
+                    let site = Some(step.name.clone());
+                    let driver_seat = format!("{seat_name}:{}", step.name);
+                    let mut input = json!({
+                        "feature": seq_input["feature"],
+                        "phase": seq_input["phase"],
+                        "seat": driver_seat,
+                        "role_path": "",
+                        "workdir": seq_input["workdir"],
+                        "result_path": step_meta["result_path"],
+                        "allowed_results": if index + 1 == steps.len() {
+                            &seq_input["allowed_results"]
+                        } else {
+                            &step_meta["allowed_results"]
+                        },
+                        "house_rules": seq_input["house_rules"],
+                        "context": context,
+                        "dialect_exec": {
+                            "success_result": match seq_input["phase"].as_str() {
+                                Some("clarify") => "clear",
+                                Some("analyze") => "consistent",
+                                Some("verify") => "pass",
+                                _ => "drafted",
+                            },
+                            "failure_result": match seq_input["phase"].as_str() {
+                                Some("clarify") => "ambiguous",
+                                Some("analyze") => "drift",
+                                Some("verify") => "fail",
+                                _ => "fail",
+                            },
+                            "state": execution.state.as_ref().map(|state| expand_dialect_argv(state, change)),
+                            "change": if change.is_empty() { Value::Null } else { Value::String(change.to_string()) },
+                        },
+                    });
+                    copy_secret_binding_facts(&mut input, seq_input);
+                    let command = hands_command(
+                        argv_for(selection, &site, &command).to_vec(),
+                        self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
+                        &self.workdir(),
+                        &self.bundle.roots,
+                    );
+                    dialect_attempt_outcome(self.run_driver(
+                        effect_id,
+                        attempt_id,
+                        &driver_seat,
+                        &command,
+                        input,
+                        deadline,
+                        Some(&step.name),
+                        None,
+                    )?)
+                }
             };
             if self
                 .finish_gate_head_check(effect_id, Some(attempt_id.to_string()))?
@@ -1604,6 +1746,9 @@ impl Engine {
                 .and_then(Value::as_str)
                 .unwrap_or("not reported")
                 .to_string();
+            if let Some(change) = result.pointer("/inputs/change").and_then(Value::as_str) {
+                nearest_change = Some(change.to_string());
+            }
             if index + 1 == steps.len() {
                 self.append(
                     EventType::EffectSucceeded,
@@ -1654,7 +1799,17 @@ impl Engine {
                     "seat result '{r}' is not among declared results {:?}",
                     seat.results
                 )),
-                Some(_) => None,
+                Some(_) => object
+                    .get("inputs")
+                    .and_then(Value::as_object)
+                    .and_then(|inputs| inputs.get("change"))
+                    .filter(|_| seat.inputs.iter().any(|input| input == "change"))
+                    .and_then(|value| match value.as_str() {
+                        Some(change) if brokkr_core::policy::is_identifier(change) => None,
+                        _ => Some(format!(
+                            "declared input 'change' must match ^[a-z0-9][a-z0-9._-]*$, got {value}"
+                        )),
+                    }),
             },
         };
         if let Some(problem) = schema_problem {
@@ -2568,6 +2723,9 @@ fn invocation_sites(body: ExecutableBody<'_>) -> Vec<(Site, &[Candidate])> {
                     vec![(Some(step.name.clone()), candidates.as_slice())]
                 }
                 StepBody::Panel { members, .. } => panel(members, Some(&step.name)),
+                StepBody::Dialect { .. } => {
+                    vec![(Some(step.name.clone()), &[] as &[Candidate])]
+                }
             })
             .collect(),
     }

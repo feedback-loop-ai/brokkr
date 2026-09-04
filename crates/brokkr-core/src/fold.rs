@@ -82,6 +82,9 @@ pub struct RunState {
     /// the run RETURNS to receives it (decision 0022): the finding
     /// travels with the run, not just the boolean it was reduced to.
     pub last_result: Option<Value>,
+    /// Typed forward handoff: the last ruled successful result per phase,
+    /// reduced to its verdict and filtered inputs by transition/decided.
+    pub phase_results: BTreeMap<String, Value>,
     pub reviewed_heads: Option<Value>,
     pub last_decision: Option<Value>,
     pub park_reason: Option<String>,
@@ -181,6 +184,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
@@ -365,6 +369,13 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             }
             let from = payload_str(event, "from")?;
             let result = payload_str(event, "result")?;
+            state.phase_results.insert(
+                from.clone(),
+                serde_json::json!({
+                    "result": result.clone(),
+                    "inputs": event.payload.get("inputs").cloned().unwrap_or_else(|| serde_json::json!({})),
+                }),
+            );
             if from == "triage" && STRATEGIES.contains(&result.as_str()) {
                 state.strategy = Some(result.clone());
             }

@@ -10,6 +10,18 @@ const MAP: &str = r#"{
 fn workspace(text: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("brokkr")).unwrap();
+    std::fs::create_dir(dir.path().join("dialects")).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    std::fs::copy(
+        root.join("dialects/openspec.json"),
+        dir.path().join("dialects/openspec.json"),
+    )
+    .unwrap();
     std::fs::write(dir.path().join("realms.json"), text).unwrap();
     dir
 }
@@ -355,10 +367,25 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
     std::fs::write(&house, "First rule.\n").unwrap();
     let world = World::load(&dir.path().join("realms.json")).unwrap();
     let repo = dir.path().join("brokkr");
+    assert_eq!(world.dialect_for(&repo).unwrap().unwrap().name, "openspec");
+    assert!(world.dialect_for(dir.path()).unwrap().is_none());
+    let known = &world.map.realms[0];
+    let unknown = Realm {
+        name: "unknown".into(),
+        path: known.path.clone(),
+        default_branch: known.default_branch.clone(),
+        journal: known.journal.clone(),
+        house: known.house.clone(),
+        dialect: known.dialect.clone(),
+    };
+    assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
     assert_eq!(world.house_for(&repo).unwrap(), Some("First rule.\n"));
     assert_eq!(first["realms"]["house"]["content"], "First rule.\n");
-    assert_eq!(first["realms"]["dialect"]["source"], "openspec");
+    assert_eq!(
+        Path::new(first["realms"]["dialect"]["source"].as_str().unwrap()),
+        dir.path().join("dialects/openspec.json")
+    );
 
     let rehydrated = World::from_manifest(&first).unwrap().unwrap();
     assert_eq!(rehydrated.house_for(&repo).unwrap(), Some("First rule.\n"));
@@ -392,10 +419,21 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
 }"#;
     let dir = workspace(map);
     std::fs::write(dir.path().join("brokkr/HOUSE.md"), "House.\n").unwrap();
+    std::fs::create_dir_all(dir.path().join("brokkr/spec")).unwrap();
+    std::fs::copy(
+        dir.path().join("dialects/openspec.json"),
+        dir.path().join("brokkr/spec/dialect.md"),
+    )
+    .unwrap();
+    std::fs::copy(
+        dir.path().join("dialects/openspec.json"),
+        dir.path().join("brokkr/dialect.json"),
+    )
+    .unwrap();
     let world = World::load(&dir.path().join("realms.json")).unwrap();
     let repo = dir.path().join("brokkr");
     let manifest = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
-    assert_eq!(manifest["realms"]["dialect"]["content"], "spec/dialect.md");
+    assert_eq!(manifest["realms"]["dialect"]["content"]["name"], "openspec");
     assert!(World::from_manifest(&manifest).unwrap().is_some());
     let unselected = world.pinned(&json!({"files": {}}), None).unwrap();
     let rehydrated_unselected = World::from_manifest(&unselected).unwrap().unwrap();
@@ -405,24 +443,39 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
     assert!(repinned.get("house").is_none());
     assert!(repinned.get("dialect").is_none());
 
-    for (field, expected) in [
-        ("source", "carries no source"),
-        ("sha256", "carries no sha256"),
-        ("content", "carries no content"),
-    ] {
-        let mut damaged = manifest.clone();
-        damaged["realms"]["house"]
-            .as_object_mut()
-            .unwrap()
-            .remove(field);
-        let message = refusal(World::from_manifest(&damaged));
-        assert!(message.contains(expected), "{message}");
+    for key in ["house", "dialect"] {
+        for (field, expected) in [
+            ("source", "carries no source"),
+            ("sha256", "carries no sha256"),
+            ("content", "carries no content"),
+        ] {
+            let mut damaged = manifest.clone();
+            damaged["realms"][key]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            let message = refusal(World::from_manifest(&damaged));
+            assert!(message.contains(expected), "{key}: {message}");
+        }
     }
+
+    let mut damaged = manifest.clone();
+    damaged["realms"]["house"]["content"] = json!("tampered house");
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("pinned house hashes"), "{message}");
 
     let mut damaged = manifest.clone();
     damaged["realms"]["dialect"]["content"] = json!("moved-dialect");
     let message = refusal(World::from_manifest(&damaged));
     assert!(message.contains("pinned dialect hashes"), "{message}");
+
+    let mut damaged = manifest.clone();
+    damaged["realms"]["dialect"]["content"] = json!({"not":"a dialect"});
+    damaged["realms"]["dialect"]["sha256"] = json!(brokkr_core::canonical::sha256_hex(
+        &damaged["realms"]["dialect"]["content"]
+    ));
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("malformed"), "{message}");
 
     for key in ["house", "dialect"] {
         let mut missing = manifest.clone();
@@ -431,6 +484,30 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
         assert!(message.contains(&format!("names a {key}")), "{message}");
         assert!(message.contains("pins none"), "{message}");
     }
+}
+
+#[test]
+fn a_declared_broken_dialect_is_refused_only_for_its_realm() {
+    let map = r#"{
+  "schema":"forge.realms/v3",
+  "realms":[{"name":"brokkr","path":"brokkr","default_branch":"main",
+             "dialect":"broken.json"}],
+  "journal":"state/forge.db"
+}"#;
+    let dir = workspace(map);
+    std::fs::write(dir.path().join("brokkr/broken.json"), "{").unwrap();
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let realm = &world.map.realms[0];
+    let message = refusal(world.dialect_for_realm(realm));
+    assert!(
+        message.contains("realm 'brokkr' dialect is unusable"),
+        "{message}"
+    );
+    let message = refusal(world.pin(Some(&dir.path().join("brokkr"))));
+    assert!(
+        message.contains("realm 'brokkr' dialect is unusable"),
+        "{message}"
+    );
 }
 
 #[test]

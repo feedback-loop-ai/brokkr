@@ -151,6 +151,271 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
 }
 
 #[test]
+fn forward_context_carries_only_typed_phase_facts() {
+    let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
+    runtime.bundle.machine.phases.insert(0, "specify".into());
+    let mut current = state(Some("work"), Cursor::Idle);
+    current.phase_results.insert(
+        "specify".into(),
+        json!({"result":"drafted", "inputs":{"change":"0042-dialect"}}),
+    );
+    let input = runtime.seat_input(&current, "work", "effect").unwrap();
+    assert_eq!(input["context"]["results"]["specify"]["result"], "drafted");
+    assert_eq!(
+        input["context"]["results"]["specify"]["inputs"]["change"],
+        "0042-dialect"
+    );
+    assert!(input["context"]["results"]["specify"]
+        .get("notes")
+        .is_none());
+}
+
+#[test]
+fn an_undeclared_change_claim_is_dropped() {
+    let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
+    runtime
+        .decide(
+            &state(Some("work"), Cursor::Idle),
+            "effect",
+            json!({"result":"complete", "inputs":{"change":"must-not-pass"}}),
+        )
+        .unwrap();
+    let events = runtime.store.load(&runtime.run_id).unwrap();
+    assert!(events.last().unwrap().payload["inputs"]
+        .get("change")
+        .is_none());
+
+    let (_dir, mut declared) = engine(single_body(vec!["driver".into()]));
+    declared.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
+    declared
+        .decide(
+            &state(Some("work"), Cursor::Idle),
+            "effect",
+            json!({"result":"complete", "inputs":{"change":"Not/a/change"}}),
+        )
+        .unwrap();
+    let events = declared.store.load(&declared.run_id).unwrap();
+    assert!(events.last().unwrap().payload["problem"]
+        .as_str()
+        .unwrap()
+        .contains("must match"));
+}
+
+#[test]
+fn dialect_change_expands_from_typed_history_and_absence_parks() {
+    assert!(matches!(
+        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into())),
+        AttemptOutcome::Failed { error } if error == "gone"
+    ));
+    assert!(matches!(
+        dialect_attempt_outcome(DriverRun::Ran(report(
+            AttemptOutcome::Indeterminate { reason: "lost".into() },
+            ""
+        ))),
+        AttemptOutcome::Indeterminate { reason } if reason == "lost"
+    ));
+    let step = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "test \"$1\" = expected".into(),
+                    "sh".into(),
+                    "{change}".into(),
+                ],
+                state: None,
+            },
+        },
+    };
+    let input = |context: Value| {
+        json!({
+            "feature":"feature", "phase":"design", "workdir":".",
+            "allowed_results":["drafted", "fail"], "context":context,
+            "steps":[{"role_path":"", "result_path":"result.json", "allowed_results":["drafted", "fail"]}],
+        })
+    };
+
+    assert_eq!(
+        expand_dialect_argv(
+            &["openspec".into(), "validate".into(), "{change}".into()],
+            "expected",
+        ),
+        ["openspec", "validate", "expected"]
+    );
+
+    let (_kept, mut absent) = engine(single_body(vec!["driver".into()]));
+    absent
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &[step],
+            &input(json!({})),
+            std::time::Duration::from_secs(5),
+            &Selection::new(),
+        )
+        .unwrap();
+    let events = absent.store.load(&absent.run_id).unwrap();
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
+
+    let metadata_step = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Gate,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["validator".into()],
+                state: Some(vec!["state".into()]),
+            },
+        },
+    };
+    let (_kept, metadata) = engine(SeatBody::Sequence {
+        steps: vec![metadata_step],
+    });
+    let rendered = metadata
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    assert_eq!(rendered["steps"][0]["dialect"]["argv"][0], "validator");
+
+    // Exercise the complete dispatch construction for each dialect result
+    // vocabulary. The unit-test executable is deliberately not the brokkr
+    // CLI, so each child fails after receiving the fully expanded argv; the
+    // exec adapter's successful synthesis is covered in brokkr-protocol.
+    for (phase, allowed) in [
+        ("clarify", vec!["clear", "ambiguous"]),
+        ("analyze", vec!["consistent", "drift"]),
+        ("verify", vec!["pass", "fail"]),
+        ("design", vec!["drafted", "fail"]),
+    ] {
+        let (_kept, mut present) = engine(single_body(vec!["driver".into()]));
+        let dialect_step = SequenceStep {
+            name: "validate".into(),
+            results: allowed.iter().map(|value| value.to_string()).collect(),
+            class: SeatClass::Work,
+            body: StepBody::Dialect {
+                execution: crate::bundle::DialectExecution {
+                    argv: if phase == "clarify" {
+                        vec!["true".into()]
+                    } else {
+                        vec!["true".into(), "{change}".into()]
+                    },
+                    state: Some(vec!["printf".into(), "{change}".into()]),
+                },
+            },
+        };
+        let dispatch = json!({
+            "feature":"feature", "phase":phase, "workdir":present.workdir(),
+            "allowed_results":allowed,
+            "house_rules":"rules",
+            "context":{"results":{"design":{"result":"drafted","inputs":{"change":"expected"}}}},
+            "steps":[{"role_path":"", "result_path":"result.json", "allowed_results":allowed}],
+        });
+        let mut steps = vec![dialect_step];
+        if phase == "clarify" {
+            steps.push(SequenceStep {
+                name: "judge".into(),
+                results: vec!["clear".into(), "ambiguous".into()],
+                class: SeatClass::Work,
+                body: StepBody::Single {
+                    role_path: "role".into(),
+                    command: vec!["missing".into()],
+                    confine: None,
+                    candidates: Vec::new(),
+                },
+            });
+        }
+        present
+            .execute_sequence(
+                "effect",
+                "attempt",
+                "work",
+                &steps,
+                &dispatch,
+                std::time::Duration::from_secs(2),
+                &Selection::new(),
+            )
+            .unwrap();
+        assert!(present.store.load(&present.run_id).unwrap().len() > 1);
+    }
+
+    let (_kept, mut no_token) = engine(single_body(vec!["driver".into()]));
+    let no_token_step = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Work,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["true".into()],
+                state: None,
+            },
+        },
+    };
+    no_token
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &[no_token_step],
+            &input(json!({})),
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+
+    let (_kept, mut storage_error) = engine_failing("effect/checkpointed");
+    let mut selection = Selection::new();
+    selection.insert(
+        Some("validate".into()),
+        Candidate {
+            agent: "dialect".into(),
+            model: "none".into(),
+            effort: None,
+            provider: "exec".into(),
+            argv: driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"drafted"}),
+                },
+            ),
+        },
+    );
+    let failing_step = SequenceStep {
+        name: "validate".into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class: SeatClass::Work,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution {
+                argv: vec!["unused".into()],
+                state: None,
+            },
+        },
+    };
+    assert!(storage_error
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &[failing_step],
+            &input(json!({})),
+            std::time::Duration::from_secs(2),
+            &selection,
+        )
+        .is_err());
+}
+
+#[test]
 fn process_recovery_resumes_the_case_pinned_by_the_triage_journal() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("work");
@@ -247,6 +512,7 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
@@ -649,10 +915,26 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         aggregate: Aggregate::UnanimousPass,
                     },
                 },
+                SequenceStep {
+                    name: "dialect".into(),
+                    results: vec!["drafted".into()],
+                    class: SeatClass::Gate,
+                    body: StepBody::Dialect {
+                        execution: crate::bundle::DialectExecution {
+                            argv: vec!["validate".into()],
+                            state: None,
+                        },
+                    },
+                },
             ],
         },
     );
     assert_eq!(verify_dispatch_bundle_bounds(&base, &sequence), Ok(()));
+    assert!(
+        invocation_sites(sequence.seats["work"].body.selected(None).unwrap().0)
+            .iter()
+            .any(|(site, candidates)| site.as_deref() == Some("dialect") && candidates.is_empty())
+    );
 
     let selected = bundle(dir.path(), selecting(true));
     assert_eq!(verify_dispatch_bundle_bounds(&base, &selected), Ok(()));

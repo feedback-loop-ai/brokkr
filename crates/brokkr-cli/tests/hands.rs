@@ -303,6 +303,13 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
         if failing {
             let notes = result["notes"].as_str().unwrap();
             assert!(notes.contains("DECISIVE\tRED\rLINE"), "{result}");
+            let failed_test = notes.find("named_fail_when_requested").unwrap();
+            let panic = notes.find("panicked at").unwrap();
+            let failed_summary = notes.find("test result: FAILED").unwrap();
+            let counts = notes.find("counts:").unwrap();
+            assert!(failed_test < panic, "{result}");
+            assert!(panic < failed_summary, "{result}");
+            assert!(failed_summary < counts, "{result}");
         }
     }
 }

@@ -28,11 +28,11 @@ content digest. The library is a directory of them.
 ```
 $ brokkr recipes list
 fast	dd0548e10976	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	c729d441611b	8 phases	design[positions>chief>speckit-check], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
+night-shift	9b46eb325f1a	8 phases	design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
 node	ce597ea15947	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
 panel-review	48cb2cc5b98b	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
 preflight	7ce2538f6db6	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-triage	7196ca0d7989	8 phases	design[positions>chief>speckit-check], implement{chore=implementer;design=implementer;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
+triage	de34f9323580	8 phases	design[positions>chief>validate], implement{chore=implementer;design=implementer;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
 wager-harness	f76cb46fcf8f	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
 wager-harness-dsh	9692a115cf1c	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
 self	082703fbd780	7 phases	implement, intake, review, ship, verify			./bundles/self
@@ -277,7 +277,8 @@ the **final** step's result is the effect's single typed result:
 
 ```json
 "design": {
-  "results": ["designed", "fail"],
+  "results": ["drafted", "fail"],
+  "inputs": ["change"],
   "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
   "sequence": [
     { "name": "positions", "results": ["pass", "fail"],
@@ -286,10 +287,7 @@ the **final** step's result is the effect's single typed result:
                  "robustness": {"agent": "position-robustness"} } },
     { "name": "chief", "results": ["drafted"],
       "agent": "chief-architect" },
-    { "name": "speckit-check", "role": "roles/speckit-check.md",
-      "class": "gate", "hands": "workspace",
-      "driver": { "command": ["{brokkr}", "driver", "exec", "--", "bash",
-                              "./drivers/speckit_check.sh", "{prompt_file}"] } }
+    { "name": "validate", "dialect": "validate" }
   ]
 }
 ```
@@ -301,9 +299,11 @@ non-final step's aggregate output never reaches the rule table, so only
 the final step's vocabulary is checked against the seat's declared
 `results`.
 
-The design sequence's `speckit-check` is a shell script with no model
-at all. Inline seats stay first-class; the agent library is an option,
-not a requirement.
+The design sequence's final gate is resolved from the realm's dialect at
+compile time. It is boxed as a deterministic exec with no model, and its
+`{change}` token comes from the nearest preceding typed result. A realm that
+does not declare a dialect cannot compile a bundle with a design phase.
+Ordinary inline seats remain first-class for work that is not dialect-owned.
 
 **Select** — the engine chooses a complete single, panel, or sequence
 body from the journaled delivery strategy:
