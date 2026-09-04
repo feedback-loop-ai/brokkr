@@ -114,6 +114,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         steps: vec![
             SequenceStep {
                 name: "one".into(),
+                results: vec!["one-result".into()],
                 class: SeatClass::Work,
                 body: StepBody::Single {
                     role_path: PathBuf::from("role.md"),
@@ -124,6 +125,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
             },
             SequenceStep {
                 name: "two".into(),
+                results: vec!["two-result".into()],
                 class: SeatClass::Work,
                 body: StepBody::Panel {
                     members: vec![member("m", vec![candidate("left", "opus")])],

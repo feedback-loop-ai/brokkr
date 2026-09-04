@@ -25,6 +25,46 @@ fn names_word(text: &str, word: &str) -> bool {
         .any(|candidate| candidate == word)
 }
 
+fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
+    matches!(
+        (agent, tool),
+        ("chief-architect", "git")
+            | ("implementer-engine", "cargo" | "git")
+            | ("implementer-speckit", "cargo" | "git")
+            | ("implementer", "cargo" | "git")
+            | ("intake-speckit", "git")
+            | ("intake", "git")
+    )
+}
+
+/// A charter is an office; the house is the realm's. Library charters
+/// therefore cannot smuggle this repository's paths or commands into every
+/// adopter's prompt. Recipe-local roles are intentionally outside this walk.
+#[test]
+fn library_charters_name_no_repository_tokens() {
+    let root = workspace().join("agents/charters");
+    let forbidden = [
+        "cargo",
+        "crates/",
+        "bundles/self",
+        "decision 00",
+        "policy/",
+        "fixtures/",
+        "contracts/",
+    ];
+    for entry in std::fs::read_dir(&root).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        let lowered = text.to_ascii_lowercase();
+        for token in forbidden {
+            assert!(
+                !lowered.contains(token),
+                "{} names repository token {token:?}",
+                entry.path().display()
+            );
+        }
+    }
+}
+
 fn walk<'a>(
     value: &'a Value,
     path: &mut Vec<String>,
@@ -100,7 +140,7 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
 }
 
 #[test]
-fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
+fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
     let root = workspace();
     let rank = |effort: &str| match effort {
         "none" => 0,
@@ -120,9 +160,10 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
         let charter =
             std::fs::read_to_string(root.join("agents").join(agent["charter"].as_str().unwrap()))
                 .unwrap();
-        // Forced readings from the 0041 review: a charter invokes a tool
-        // only when it names that tool as a word in the work it orders; a
-        // substring such as "commit" is not an invocation of `git`.
+        // A portable charter names only office tools. House tools are an
+        // explicit property of the shipped agent, independent of whichever
+        // realm happens to use that agent; a substring such as "commit" is
+        // not an invocation of `git`.
         // Decision 0043 ruling 2 makes `hands` replace the allow-list, so
         // ruling 5's historical grants live in the journal, not a dead
         // `tools` field beside `hands`.
@@ -134,10 +175,12 @@ fn tool_grants_are_invoked_by_the_library_and_effort_never_rises_on_fallback() {
             );
         }
         if let Some(allow) = agent.pointer("/tools/allow").and_then(Value::as_array) {
+            let agent_path = entry.path();
+            let agent_name = agent_path.file_stem().unwrap().to_str().unwrap();
             for tool in allow.iter().filter_map(Value::as_str) {
                 assert!(
-                    names_word(&charter, tool),
-                    "{} grants unused tool {tool}",
+                    is_house_tool_grant(agent_name, tool) || names_word(&charter, tool),
+                    "{} grants an unaccounted tool {tool}",
                     entry.path().display()
                 );
             }
@@ -260,6 +303,9 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                 );
             } else {
                 let scripts = Path::new("scripts").join("verify-seat.sh");
+                // The recipe-local exception is Node's verifier: its npm
+                // sequence is a different office, not a library charter with
+                // house prose left in it.
                 let roles = Path::new("roles").join("verify-seat.sh");
                 assert!(
                     script == Some(scripts.as_path()) || script == Some(roles.as_path()),

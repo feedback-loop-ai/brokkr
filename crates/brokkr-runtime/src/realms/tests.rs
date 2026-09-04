@@ -149,7 +149,12 @@ fn a_realm_whose_tree_is_not_there_yet_still_compares() {
 fn a_pinned_world_carries_its_own_answer() {
     let dir = workspace(MAP);
     let world = World::load(&dir.path().join("realms.json")).unwrap();
-    let manifest = world.pinned(&serde_json::json!({"bundle_name": "b", "files": {}}));
+    let manifest = world
+        .pinned(
+            &serde_json::json!({"bundle_name": "b", "files": {}}),
+            Some(&dir.path().join("brokkr")),
+        )
+        .unwrap();
     assert_eq!(manifest["bundle_name"], "b");
     let pin = &manifest["realms"];
     assert_eq!(pin["sha256"], world.sha256);
@@ -168,7 +173,12 @@ fn a_pinned_world_carries_its_own_answer() {
 fn a_run_reads_its_world_back_out_of_its_own_manifest() {
     let dir = workspace(MAP);
     let world = World::load(&dir.path().join("realms.json")).unwrap();
-    let manifest = world.pinned(&serde_json::json!({"bundle_name": "b", "files": {}}));
+    let manifest = world
+        .pinned(
+            &serde_json::json!({"bundle_name": "b", "files": {}}),
+            Some(&dir.path().join("brokkr")),
+        )
+        .unwrap();
 
     let rehydrated = World::from_manifest(&manifest).unwrap().unwrap();
     assert_eq!(rehydrated.sha256, world.sha256);
@@ -329,5 +339,135 @@ fn a_v2_realm_naming_the_worlds_own_journal_adds_no_hearth() {
             realms: vec!["solo".to_string()],
             journal: dir.path().join("state/forge.db"),
         }]
+    );
+}
+
+#[test]
+fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
+    let map = r#"{
+  "schema": "forge.realms/v3",
+  "realms": [{"name": "brokkr", "path": "brokkr", "default_branch": "main",
+              "house": "HOUSE.md", "dialect": "openspec"}],
+  "journal": "state/forge.db"
+}"#;
+    let dir = workspace(map);
+    let house = dir.path().join("brokkr").join("HOUSE.md");
+    std::fs::write(&house, "First rule.\n").unwrap();
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let repo = dir.path().join("brokkr");
+    let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
+    assert_eq!(world.house_for(&repo).unwrap(), Some("First rule.\n"));
+    assert_eq!(first["realms"]["house"]["content"], "First rule.\n");
+    assert_eq!(first["realms"]["dialect"]["source"], "openspec");
+
+    let rehydrated = World::from_manifest(&first).unwrap().unwrap();
+    assert_eq!(rehydrated.house_for(&repo).unwrap(), Some("First rule.\n"));
+
+    std::fs::write(&house, "Changed rule.\n").unwrap();
+    let changed = World::load(&dir.path().join("realms.json"))
+        .unwrap()
+        .pinned(&json!({"files": {}}), Some(&repo))
+        .unwrap();
+    assert_ne!(
+        first, changed,
+        "house content is part of the run's pinned identity"
+    );
+    assert_ne!(
+        first["realms"]["house"]["sha256"],
+        changed["realms"]["house"]["sha256"]
+    );
+}
+
+#[test]
+fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself() {
+    let map = r#"{
+  "schema": "forge.realms/v3",
+  "realms": [
+    {"name": "brokkr", "path": "brokkr", "default_branch": "main",
+     "house": "HOUSE.md", "dialect": "spec/dialect.md"},
+    {"name": "second", "path": "brokkr", "default_branch": "main",
+     "dialect": "dialect.json"}
+  ],
+  "journal": "state/forge.db"
+}"#;
+    let dir = workspace(map);
+    std::fs::write(dir.path().join("brokkr/HOUSE.md"), "House.\n").unwrap();
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let repo = dir.path().join("brokkr");
+    let manifest = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
+    assert_eq!(manifest["realms"]["dialect"]["content"], "spec/dialect.md");
+    assert!(World::from_manifest(&manifest).unwrap().is_some());
+    let unselected = world.pinned(&json!({"files": {}}), None).unwrap();
+    let rehydrated_unselected = World::from_manifest(&unselected).unwrap().unwrap();
+    assert_eq!(rehydrated_unselected.house_for(&repo).unwrap(), None);
+    let repinned = rehydrated_unselected.pin(Some(&repo)).unwrap();
+    assert_eq!(repinned["realm"], "brokkr");
+    assert!(repinned.get("house").is_none());
+    assert!(repinned.get("dialect").is_none());
+
+    for (field, expected) in [
+        ("source", "carries no source"),
+        ("sha256", "carries no sha256"),
+        ("content", "carries no content"),
+    ] {
+        let mut damaged = manifest.clone();
+        damaged["realms"]["house"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        let message = refusal(World::from_manifest(&damaged));
+        assert!(message.contains(expected), "{message}");
+    }
+
+    let mut damaged = manifest.clone();
+    damaged["realms"]["dialect"]["content"] = json!("moved-dialect");
+    let message = refusal(World::from_manifest(&damaged));
+    assert!(message.contains("pinned dialect hashes"), "{message}");
+
+    for key in ["house", "dialect"] {
+        let mut missing = manifest.clone();
+        missing["realms"].as_object_mut().unwrap().remove(key);
+        let message = refusal(World::from_manifest(&missing));
+        assert!(message.contains(&format!("names a {key}")), "{message}");
+        assert!(message.contains("pins none"), "{message}");
+    }
+}
+
+#[test]
+fn a_declared_house_must_be_a_readable_file() {
+    let map = r#"{
+  "schema": "forge.realms/v3",
+  "realms": [{"name": "brokkr", "path": "brokkr", "default_branch": "main",
+              "house": "missing.md"}],
+  "journal": "state/forge.db"
+}"#;
+    let dir = workspace(map);
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let refusal = refusal(world.house_for(&dir.path().join("brokkr")));
+    assert!(refusal.contains("realm 'brokkr' names house"), "{refusal}");
+    assert!(refusal.contains("missing.md"), "{refusal}");
+}
+
+#[test]
+fn an_unreadable_neighbour_house_does_not_refuse_the_selected_realm() {
+    let map = r#"{
+  "schema": "forge.realms/v3",
+  "realms": [
+    {"name": "here", "path": "here", "default_branch": "main",
+     "house": "HOUSE.md"},
+    {"name": "away", "path": "not-checked-out", "default_branch": "main",
+     "house": "HOUSE.md"}
+  ],
+  "journal": "state/forge.db"
+}"#;
+    let dir = workspace(map);
+    std::fs::create_dir_all(dir.path().join("here")).unwrap();
+    std::fs::write(dir.path().join("here/HOUSE.md"), "Here.\n").unwrap();
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let here = dir.path().join("here");
+    assert_eq!(world.house_for(&here).unwrap(), Some("Here.\n"));
+    assert_eq!(
+        world.pinned(&json!({"files": {}}), Some(&here)).unwrap()["realms"]["house"]["content"],
+        "Here.\n"
     );
 }

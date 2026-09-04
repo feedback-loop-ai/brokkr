@@ -397,13 +397,17 @@ impl Workspace {
         let mut config: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let driver = config["seats"][phase]["driver"].clone();
+        let seat_results = config["seats"][phase]["results"].clone();
         let steps: Vec<Value> = specs
             .iter()
-            .map(|spec| {
+            .enumerate()
+            .map(|(index, spec)| {
                 let name = spec["name"].as_str().unwrap();
-                match spec.get("members") {
+                let mut step = match spec.get("members") {
                     None => json!({
-                        "name": name, "role": "roles/role.md", "driver": driver.clone(),
+                        "name": name,
+                        "results": spec.get("results").unwrap_or(&seat_results).clone(),
+                        "role": "roles/role.md", "driver": driver.clone(),
                     }),
                     Some(members) => {
                         let mut panel = serde_json::Map::new();
@@ -415,11 +419,19 @@ impl Workspace {
                         }
                         json!({
                             "name": name,
+                            "results": match spec["aggregate"].as_str() {
+                                Some("review-panel") => json!(["clean", "residual", "security-hold"]),
+                                _ => json!(["pass", "fail"]),
+                            },
                             "panel": panel,
                             "aggregate": spec["aggregate"],
                         })
                     }
+                };
+                if index + 1 == specs.len() {
+                    step.as_object_mut().unwrap().remove("results");
                 }
+                step
             })
             .collect();
         let seat = config["seats"][phase].as_object_mut().unwrap();
@@ -1644,7 +1656,10 @@ fn sequence_final_step_decides_and_steps_checkpoint_in_order() {
     let ws = Workspace::new(script);
     ws.make_sequence(
         "implement",
-        &[json!({"name": "draft"}), json!({"name": "chief"})],
+        &[
+            json!({"name": "draft", "results": ["drafted"]}),
+            json!({"name": "chief"}),
+        ],
     );
     let (code, summary, stderr) = ws.run();
     assert_eq!(code, Some(0), "stderr: {stderr}");
@@ -1705,7 +1720,10 @@ fn sequence_step_failure_fails_attempt_and_retry_restarts_from_step_one() {
     let ws = Workspace::new(script);
     ws.make_sequence(
         "implement",
-        &[json!({"name": "one"}), json!({"name": "two"})],
+        &[
+            json!({"name": "one", "results": ["first"]}),
+            json!({"name": "two"}),
+        ],
     );
     ws.set_seat_limits("implement", 2, 3600);
     let (code, summary, stderr) = ws.run();

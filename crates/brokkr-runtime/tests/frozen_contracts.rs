@@ -108,6 +108,7 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         // `forge.realms/v2`, a new file beside v1 — whose bytes are
         // pinned below and did not move.
         ("contracts/realms.v2.schema.json", "Forge realms map v2"),
+        ("contracts/realms.v3.schema.json", "Forge realms map v3"),
         // Decision 0034 freezes the previously conventional accounting
         // record as its own v1 contract; no older frozen file moves.
         (
@@ -134,6 +135,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "Forge run manifest v7",
         ),
         (
+            "contracts/run-manifest.v8.schema.json",
+            "Forge run manifest v8",
+        ),
+        (
             "contracts/phase-entered-case.v1.schema.json",
             "Forge phase-entered selected case v1",
         ),
@@ -143,6 +148,27 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         assert!(
             body["title"].as_str().unwrap().starts_with(title),
             "{relative} is the published extension schema"
+        );
+    }
+}
+
+#[test]
+fn the_realms_v3_contract_refuses_windows_drive_relative_text_paths() {
+    let schema: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(workspace().join("contracts/realms.v3.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    for field in ["house", "dialect"] {
+        let mut map = serde_json::json!({
+            "schema": "forge.realms/v3",
+            "realms": [{"name": "app", "path": ".", "default_branch": "main"}],
+            "journal": "forge.db"
+        });
+        map["realms"][0][field] = serde_json::json!("C:outside.md");
+        assert!(
+            !validator.is_valid(&map),
+            "the v3 schema admitted a drive-relative {field}"
         );
     }
 }

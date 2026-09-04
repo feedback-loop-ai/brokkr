@@ -105,6 +105,13 @@ brokkr compare <a> <b>                           # trails, first divergence, per
 
 ## The three files
 
+These recipe files choose the office, but they do not carry all prompt text.
+The prompt has three sources: the selected charter (the portable office), the
+selected realm's optional house Markdown (repository conventions), and the
+engine-rendered result contract (the site's closed vocabulary and result-file
+path). Keep toolchain commands and repository paths in the house, not in a
+library charter. Recipe-local roles may remain specific to the recipe.
+
 ```
 recipes/my-recipe/
   bundle.json      # the strategy: seats, limits, drivers, which table
@@ -257,18 +264,28 @@ indeterminate, which parks; otherwise any failed member fails the
 attempt.
 
 **Sequence** — named steps run one after another inside one effect.
-Later steps see earlier steps' result objects as context, and the
-**final** step's result is the effect's single typed result:
+Later steps see earlier steps' result objects as context. The `results` array
+on every non-final step is that step's own prompt vocabulary; the final step
+receives the enclosing seat's vocabulary because its result is what the phase
+machine consumes; declaring `results` on the final step is refused rather than
+silently ignored. The engine refuses an intermediate result outside that
+declared vocabulary before it can become later context. A panel may omit the
+array only because its named aggregate supplies a fixed vocabulary; when the
+array is present, the compiler checks that it covers every aggregate result
+instead of ignoring it. This distinction is pinned by the v8 run-manifest shape;
+the **final** step's result is the effect's single typed result:
 
 ```json
 "design": {
   "results": ["designed", "fail"],
   "limits": { "max_attempts": 2, "timeout_seconds": 3600 },
   "sequence": [
-    { "name": "positions", "aggregate": "unanimous-pass",
+    { "name": "positions", "results": ["pass", "fail"],
+      "aggregate": "unanimous-pass",
       "panel": { "simplicity": {"agent": "position-simplicity"},
                  "robustness": {"agent": "position-robustness"} } },
-    { "name": "chief", "agent": "chief-architect" },
+    { "name": "chief", "results": ["drafted"],
+      "agent": "chief-architect" },
     { "name": "speckit-check", "role": "roles/speckit-check.md",
       "class": "gate", "hands": "workspace",
       "driver": { "command": ["{brokkr}", "driver", "exec", "--", "bash",

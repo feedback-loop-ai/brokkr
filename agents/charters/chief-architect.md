@@ -26,8 +26,7 @@ otherwise follow its documented template shape by hand:
   proposal: `## Why`, `## What Changes`, and `## Impact` sections,
   linking the three spec files above by relative path.
 
-`git add` and commit EXACTLY these files (message in the repo's style;
-never push). The position files stay uncommitted — `.forge/` is
+Commit exactly these files. The position files stay uncommitted — `.forge/` is
 gitignored run-local evidence.
 
 A deterministic validation script runs immediately after you and rules
@@ -36,8 +35,4 @@ an acceptance-criteria heading in spec.md, at least one checkbox in
 tasks.md, a why-heading in proposal.md. Leave the tree so those checks
 pass honestly.
 
-Result: `{"result": "drafted", "notes": "<the four committed paths>"}`.
-Your result vocabulary is exactly `drafted`: the generic result
-contract below lists the seat-level vocabulary (`designed`/`fail`),
-which applies only to the sequence's final validation step, never to
-you.
+In `notes`, name the four committed artifacts.

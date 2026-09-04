@@ -1,5 +1,6 @@
 //! The map of the world (decision 0023, phase 1): `forge.realms/v1`, and
-//! its many-hearth amendment `forge.realms/v2` (decision 0026 ruling 1).
+//! its many-hearth amendment `forge.realms/v2` (decision 0026 ruling 1),
+//! and the realm-owned house and dialect declaration in `forge.realms/v3`.
 //!
 //! A repository is a realm; the map that holds them is the connective
 //! truth and is not itself a realm. This module is the PURE half — the
@@ -36,6 +37,10 @@ pub const SCHEMA_V1: &str = "forge.realms/v1";
 /// `journal`, and nothing else.
 pub const SCHEMA_V2: &str = "forge.realms/v2";
 
+/// The realm's prompt constitution and specification dialect. Both are
+/// declarations here; only the house is acted on by this slice.
+pub const SCHEMA_V3: &str = "forge.realms/v3";
+
 /// The file an invocation defaults to when it names no map.
 pub const DEFAULT_MAP_FILE: &str = "realms.json";
 
@@ -69,6 +74,13 @@ pub struct Realm {
     /// anywhere: see [`RealmMap::journal_of`].
     #[serde(default)]
     pub journal: Option<String>,
+    /// Repository-relative Markdown rendered between charter and run context.
+    #[serde(default)]
+    pub house: Option<String>,
+    /// A library dialect name or repository-relative dialect path. Resolution
+    /// belongs to decision 0042's later slice; this version only records it.
+    #[serde(default)]
+    pub dialect: Option<String>,
 }
 
 /// The map as written: realms, and the journal the world writes.
@@ -89,6 +101,17 @@ fn is_name(value: &str) -> bool {
         .next()
         .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c))
+}
+
+/// House and dialect files are facts inside their realm, never an escape
+/// hatch to another tree. Treat the contract spelling as portable: reject
+/// Unix roots, Windows roots and parent components on every host.
+#[inline(never)]
+fn is_repository_relative(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !matches!(bytes.first(), Some(b'/' | b'\\'))
+        && !(bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+        && !value.split(['/', '\\']).any(|component| component == "..")
 }
 
 impl RealmMap {
@@ -117,9 +140,9 @@ impl RealmMap {
             path: path.to_string(),
             problem,
         };
-        if map.schema != SCHEMA_V1 && map.schema != SCHEMA_V2 {
+        if map.schema != SCHEMA_V1 && map.schema != SCHEMA_V2 && map.schema != SCHEMA_V3 {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1} and {SCHEMA_V2}",
+                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2} and {SCHEMA_V3}",
                 map.schema
             )));
         }
@@ -169,6 +192,28 @@ impl RealmMap {
                     )))
                 }
                 _ => {}
+            }
+            for (field, value) in [("house", &realm.house), ("dialect", &realm.dialect)] {
+                match value {
+                    Some(_) if map.schema != SCHEMA_V3 => {
+                        return Err(invalid(format!(
+                            "realm '{}' names its {field}, which is {SCHEMA_V3} vocabulary in a map calling itself {}",
+                            realm.name, map.schema
+                        )))
+                    }
+                    Some(value) if value.trim().is_empty() => {
+                        return Err(invalid(format!(
+                            "realm '{}' has an empty {field}", realm.name
+                        )))
+                    }
+                    Some(value) if !is_repository_relative(value) => {
+                        return Err(invalid(format!(
+                            "realm '{}' has a non-repository-relative {field}",
+                            realm.name
+                        )))
+                    }
+                    _ => {}
+                }
             }
         }
         Ok((map, content))

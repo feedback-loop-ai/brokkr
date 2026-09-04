@@ -104,7 +104,9 @@ impl AdapterKind {
     }
 }
 
-fn compose_prompt(input: &Value) -> String {
+/// Render the model-facing prompt from the three independently owned texts in
+/// one engine input: charter, optional realm house, and site result contract.
+pub fn render_prompt(input: &Value) -> String {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let role = input
         .get("role_path")
@@ -123,8 +125,13 @@ fn compose_prompt(input: &Value) -> String {
                 .join(", ")
         })
         .unwrap_or_default();
+    let house = input
+        .get("house_rules")
+        .and_then(Value::as_str)
+        .map(|text| format!("\n\n## House rules\n\n{}", text.trim()))
+        .unwrap_or_default();
     format!(
-        "{role}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
+        "{role}{house}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
          — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly \
@@ -136,6 +143,7 @@ fn compose_prompt(input: &Value) -> String {
          result. You never decide the next phase — the engine's policy table rules \
          on your typed result.\n",
         role = role,
+        house = house,
         feature = get("feature"),
         phase = get("phase"),
         workdir = get("workdir"),
@@ -2015,7 +2023,7 @@ fn run_seat(
         }
     };
 
-    let prompt = compose_prompt(&input);
+    let prompt = render_prompt(&input);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(

@@ -11,7 +11,7 @@ copy to keep true. What is Node-specific is on this page:
 
 - [What you are granting](#what-you-are-granting) — read this before
   anything else
-- [The four files your repo needs](#the-four-files-your-repo-needs)
+- [The five files your repo needs](#the-five-files-your-repo-needs)
 - [Your `realms.json`](#your-realmsjson) — flow 3's one added step
 - [What each seat runs](#what-each-seat-runs)
 - [Fitting the recipe to your repo](#fitting-the-recipe-to-your-repo)
@@ -36,7 +36,7 @@ You will need, beyond the spine's requirements:
   Without a local install `npx` resolves the name outward to the
   registry instead, which is not what you want a gate seat doing. A
   plain-JavaScript repo should drop the type-check step from
-  `roles/verify-seat.sh` and `roles/implementer.md` rather than let it
+  `roles/verify-seat.sh` and `docs/house-rules.md` rather than let it
   reach out; see [below](#fitting-the-recipe-to-your-repo).
 - `node` and `npm` on your `PATH`. The recipe is wired for npm because
   npm ships with Node — nothing to install before the first seat can
@@ -63,7 +63,7 @@ Two consequences worth holding:
 Run it against a repository whose dependency tree you would install by
 hand.
 
-## The four files your repo needs
+## The five files your repo needs
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
@@ -73,6 +73,7 @@ your-node-repo/
 ├── recipes/node/          # the recipe: bundle.json, policy.json, roles/
 ├── adapters/claude.json   # which drivers your world trusts
 ├── realms.json            # the world this invocation opens
+├── docs/house-rules.md     # this repository's conventions
 └── .gitignore             # + a line for .forge/
 ```
 
@@ -135,25 +136,30 @@ pays nothing for the shape. Write this at your repository root:
 
 ```json
 {
-  "schema": "forge.realms/v1",
+  "schema": "forge.realms/v3",
   "realms": [
     {
       "name": "my-app",
       "path": ".",
-      "default_branch": "main"
+      "default_branch": "main",
+      "house": "docs/house-rules.md"
     }
   ],
   "journal": ".forge/forge.db"
 }
 ```
 
-Three fields per realm, all required: a `name` (lowercase, the key every
+Three fields per realm remain required: a `name` (lowercase, the key every
 per-realm fact is recorded under), a `path` (relative to the map file,
 so the map travels with the workspace), and the `default_branch` this
 realm's work is measured against. Paths and the `journal` are relative
-to the map file's own directory. The schema refuses unknown fields —
-`contracts/realms.v1.schema.json` is frozen, and a later addition
-arrives as a new version, never as drift.
+to the map file's own directory. The v3 map adds optional `house` and
+`dialect` fields without changing v1 or v2. Copy
+[the Node house starter](starters/node-house-rules.md) to
+`docs/house-rules.md` and tailor its commands to the scripts your repository
+actually exposes. A named house is required to exist; `brokkr doctor` reports
+it as a realm defect before a seat starts. The engine pins its digest and
+renders its text between the portable charter and run context.
 
 `brokkr run` and the read surfaces default to `./realms.json` when there
 is one. Check what yours says:
@@ -196,7 +202,7 @@ write two or three sentences that would let a new colleague start.
 |---|---|---|---|
 | `implement` | work | `npm ci`, writes code and tests, `npx tsc --noEmit`, `npm test` | yes |
 | `verify` | gate | `npm ci`, `npx tsc --noEmit`, `npm test`, and `npm run lint` if you declare one | no — fixes nothing |
-| `review` | gate | reads the diff for correctness, simplicity and security | only small, safe fixes, which force a re-verify |
+| `review` | gate | reads the diff for correctness, simplicity and security | no — reports findings for the implementer |
 | `ship` | gate | writes `.forge/ledger/<run-id>.md`, confirms the tree is clean | no |
 
 Nobody pushes, nobody merges, and nobody publishes — no `npm publish`,
@@ -219,14 +225,14 @@ come up.
 [`recipes/node/README.md`](../../recipes/node/README.md) names every
 swap point for pnpm and yarn: the `--allowedTools` list in each seat's
 driver, and the install/type-check/test commands plus the lockfile name
-  in the implementer charter and verifier script. There is deliberately no second bundle to keep in
+in the house rules and verifier script. There is deliberately no second bundle to keep in
 sync. For bun, [cards/bun.md](cards/bun.md) names the same three
 command swaps.
 
 **Your repo's own scripts.** If your suite is `npm run test:ci`, or your
 type check is `npm run typecheck`, edit `roles/verify-seat.sh` and
-`roles/implementer.md` to say so. A charter naming a script that exists
-beats a charter naming a command a seat has to guess at. A repository
+`docs/house-rules.md` to say so. A house naming a script that exists
+beats a house naming a command a seat has to guess at. A repository
 with no TypeScript at all deletes the `npx tsc --noEmit` step from both
 files for the same reason — one step short beats a step that resolves
 to something the repo never installed.

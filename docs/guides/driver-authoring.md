@@ -111,6 +111,13 @@ The subprocess transport
 (`crates/brokkr-protocol/src/process.rs`) is narrower than the schema,
 and you should build against the narrower shape:
 
+For model-backed built-in adapters, `input` becomes a prompt in three blocks:
+the charter loaded from `role_path`; optional `house_rules`, rendered exactly
+once under `## House rules`; and the run context plus result contract rendered
+from `result_path` and `allowed_results`. Drivers should treat
+`allowed_results` as invocation data. In a sequence it is the non-final step's
+own vocabulary, while the final step receives the enclosing seat's.
+
 - **`hello`, an optional `resume`, and `start` are the only messages
   sent before your result.**
 - **`shutdown` is sent once, after your result or after EOF**, followed

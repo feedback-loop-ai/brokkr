@@ -204,7 +204,7 @@ impl Engine {
         let slug = slug.chars().take(32).collect::<String>();
         let run_id = format!("{slug}-{}", &Uuid::new_v4().to_string()[..8]);
         let manifest = match &world {
-            Some(world) => world.pinned(&bundle.manifest),
+            Some(world) => world.pinned(&bundle.manifest, repo.as_deref())?,
             None => bundle.manifest.clone(),
         };
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
@@ -704,6 +704,7 @@ impl Engine {
                     .map(|step| match &step.body {
                         StepBody::Single { role_path, .. } => json!({
                             "name": step.name,
+                            "allowed_results": step.results,
                             "role_path": role_path.to_string_lossy(),
                             "result_path": workdir
                                 .join(".forge/results")
@@ -729,6 +730,7 @@ impl Engine {
                             }
                             json!({
                                 "name": step.name,
+                                "allowed_results": step.results,
                                 "aggregate": format!("{aggregate:?}"),
                                 "members": Value::Object(member_map),
                             })
@@ -755,6 +757,11 @@ impl Engine {
         if !seat.secrets.is_empty() {
             input["secrets"] = json!(seat.secrets);
             input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
+        }
+        if let (Some(world), Some(repo)) = (&self.world, self.repo.as_deref()) {
+            if let Some(house) = world.house_for(repo)? {
+                input["house_rules"] = json!(house);
+            }
         }
         Ok(input)
     }
@@ -1219,6 +1226,7 @@ impl Engine {
                     "workdir": seat_input["workdir"],
                     "result_path": members_meta[&member.name]["result_path"],
                     "allowed_results": seat_input["allowed_results"],
+                    "house_rules": seat_input["house_rules"],
                     "context": context,
                 });
                 copy_secret_binding_facts(&mut input, seat_input);
@@ -1446,7 +1454,12 @@ impl Engine {
                         "role_path": step_meta["role_path"],
                         "workdir": seq_input["workdir"],
                         "result_path": step_meta["result_path"],
-                        "allowed_results": seq_input["allowed_results"],
+                        "allowed_results": if index + 1 == steps.len() {
+                            &seq_input["allowed_results"]
+                        } else {
+                            &step_meta["allowed_results"]
+                        },
+                        "house_rules": seq_input["house_rules"],
                         "context": context,
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
@@ -1505,11 +1518,17 @@ impl Engine {
                 }
                 StepBody::Panel { members, aggregate } => {
                     let tag_prefix = format!("{}:", step.name);
+                    let mut step_input = seq_input.clone();
+                    step_input["allowed_results"] = if index + 1 == steps.len() {
+                        seq_input["allowed_results"].clone()
+                    } else {
+                        step_meta["allowed_results"].clone()
+                    };
                     let runs = self.member_runs(
                         &format!("{seat_name}:{}", step.name),
                         members,
                         &step_meta["members"],
-                        seq_input,
+                        &step_input,
                         &context,
                         selection,
                         &tag_prefix,
@@ -1556,6 +1575,30 @@ impl Engine {
                     return Ok(());
                 }
             };
+            if index + 1 != steps.len() {
+                let vocabulary_problem = match result.get("result").and_then(Value::as_str) {
+                    None => Some("has no 'result' string".to_string()),
+                    Some(word) if !step.results.iter().any(|allowed| allowed == word) => {
+                        Some(format!(
+                            "reported '{word}', outside its declared results {:?}",
+                            step.results
+                        ))
+                    }
+                    Some(_) => None,
+                };
+                if let Some(problem) = vocabulary_problem {
+                    self.append(
+                        EventType::EffectFailed,
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "error": format!("sequence step '{}': {problem}", step.name),
+                        }),
+                        Some(attempt_id.to_string()),
+                    )?;
+                    return Ok(());
+                }
+            }
             let model = result
                 .get("model")
                 .and_then(Value::as_str)

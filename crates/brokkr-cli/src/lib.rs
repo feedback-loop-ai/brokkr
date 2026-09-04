@@ -147,6 +147,10 @@ enum Cmd {
     Doctor {
         #[arg(long)]
         bundle: Option<PathBuf>,
+        /// The world's map whose realm house declarations doctor checks
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
         #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
         /// Operator-side secrets store, so doctor can say which declared
@@ -1674,10 +1678,11 @@ fn run_with(
         }
         Cmd::Doctor {
             bundle,
+            realms,
             db,
             secrets_file,
         } => {
-            let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file);
+            let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file, realms.as_deref());
             println!("{}", report.render());
             Ok(if report.healthy {
                 ExitCode::SUCCESS

@@ -411,7 +411,7 @@ adopt a repository you did not write:
   the same way your CI does. Run it against a dependency tree you would
   install by hand.
 
-The long form, with the four files a Node repository needs and the three
+The long form, with the five files a Node repository needs and the three
 edits that actually come up, is
 [adopting-a-node-repo.md](adopting-a-node-repo.md).
 

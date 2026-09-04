@@ -216,6 +216,7 @@ dependencies = [
  "brokkr-core",
  "brokkr-protocol",
  "brokkr-store",
+ "jsonschema",
  "regex",
  "rusqlite",
  "serde_json",

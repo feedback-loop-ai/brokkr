@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v3.json",
+  "title": "Forge realms map v3",
+  "description": "The world an invocation opens, with realm-owned house rules and a declared specification dialect. v1 and v2 remain frozen. This version adds two optional properties per realm: house and dialect.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v3" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "path": { "type": "string", "minLength": 1 },
+          "default_branch": { "type": "string", "minLength": 1 },
+          "journal": { "type": "string", "minLength": 1 },
+          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
+          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." }
+        }
+      }
+    },
+    "journal": { "type": "string", "minLength": 1 }
+  }
+}

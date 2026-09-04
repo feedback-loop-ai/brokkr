@@ -92,6 +92,27 @@ fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
     );
 }
 
+#[test]
+fn doctor_checks_the_map_named_by_realms() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("fleet.json");
+    std::fs::write(
+        &map,
+        serde_json::json!({
+            "schema": "forge.realms/v3",
+            "realms": [{"name": "app", "path": ".", "default_branch": "main",
+                        "house": "missing-house.md"}],
+            "journal": "forge.db"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let (code, stdout, stderr) = brokkr(&["doctor", "--realms", map.to_str().unwrap()], dir.path());
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stdout.contains("realm 'app' names house"), "{stdout}");
+    assert!(stdout.contains("missing-house.md"), "{stdout}");
+}
+
 /// The other half of that: the scaffold WRITES a trust declaration, and
 /// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
 /// its bundle against clobbering; the declaration is workspace data and

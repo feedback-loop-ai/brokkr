@@ -119,6 +119,13 @@ fn workspace() -> PathBuf {
 /// Decision 0041 ruling 6 adds the routing witness: the routing recipe's
 /// identity includes the triage office, routing table, current design
 /// council, and Fast as its composed base.
+/// Ruling 8 moves the routing descendants because triage now pins each
+/// non-final sequence step's result vocabulary. House rules do not move a
+/// bundle identity: they belong to the realm pin.
+/// This review correction moves those descendants again because the compiler
+/// now actually emits the promised vocabulary fields. Node moves separately:
+/// its duplicated repository rules left the role and now live only in the
+/// adopter's house file.
 const WITNESSES: [(&str, &str); 7] = [
     (
         "recipes/fast",
@@ -126,7 +133,7 @@ const WITNESSES: [(&str, &str); 7] = [
     ),
     (
         "recipes/node",
-        "ce597ea15947b9d6ede64250021e731f9495e797775a83e5103f45031aac6c11",
+        "f6a73dcf7269dc03d7a5c6c42b411c99aade187597778c47b4d003837d98b64b",
     ),
     (
         "recipes/preflight",
@@ -134,7 +141,7 @@ const WITNESSES: [(&str, &str); 7] = [
     ),
     (
         "recipes/night-shift",
-        "c729d441611b30c9567f91b5b6ac5ea4657447de7988488e158b577d2c1ff182",
+        "13174a33160966820e2096c5ac6647e1acc602b37302bbce691480798ff7c11e",
     ),
     (
         "recipes/wager-harness",
@@ -142,7 +149,7 @@ const WITNESSES: [(&str, &str); 7] = [
     ),
     (
         "recipes/triage",
-        "7196ca0d79894058fd613ae64b48daf7e31079c0815f1927a1ce4cfabce8850d",
+        "0716d4eefad660f5f01a440874588b780151182f98b5192aa7f8c2b848762892",
     ),
     (
         "bundles/verify",
@@ -183,6 +190,28 @@ fn pinned_bundles_keep_their_recorded_digest() {
             bundle.manifest_digest(),
             digest,
             "{relative} manifest digest moved"
+        );
+    }
+}
+
+#[test]
+fn every_witness_manifest_satisfies_the_v8_contract_it_claims() {
+    let root = workspace();
+    let schema: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("contracts/run-manifest.v8.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    for (relative, _) in WITNESSES {
+        let bundle = Bundle::compile_with(
+            &root.join(relative),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap();
+        assert!(
+            validator.is_valid(&bundle.manifest),
+            "{relative} emits a manifest outside run-manifest/v8"
         );
     }
 }

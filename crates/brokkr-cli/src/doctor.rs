@@ -268,8 +268,13 @@ fn ambient_variable(name: &str) -> bool {
     std::env::var_os(name).is_some()
 }
 
-pub fn doctor(bundle: Option<&Path>, db: &Path, secrets_store: &Path) -> Report {
-    doctor_with_probe(
+pub fn doctor(
+    bundle: Option<&Path>,
+    db: &Path,
+    secrets_store: &Path,
+    realms: Option<&Path>,
+) -> Report {
+    let mut report = doctor_with_probe(
         bundle,
         db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
@@ -277,7 +282,42 @@ pub fn doctor(bundle: Option<&Path>, db: &Path, secrets_store: &Path) -> Report 
         secrets_store,
         tool_version,
         ambient_variable,
-    )
+    );
+    let workspace = std::env::current_dir().unwrap_or_default();
+    report_realm_house(&mut report, &workspace, realms);
+    report
+}
+
+fn report_realm_house(report: &mut Report, workspace: &Path, named: Option<&Path>) {
+    match brokkr_runtime::realms::World::discover(workspace, named) {
+        Ok(Some(world)) => {
+            let mut houses = 0;
+            let mut failures = Vec::new();
+            for realm in world
+                .map
+                .realms
+                .iter()
+                .filter(|realm| realm.house.is_some())
+            {
+                match world.house_for_realm(realm) {
+                    Ok(_) => houses += 1,
+                    Err(error) => failures.push(error),
+                }
+            }
+            if failures.is_empty() {
+                report.ok(
+                    "house rules",
+                    format!("{houses} realm declaration(s) readable"),
+                );
+            } else {
+                for error in failures {
+                    report.missing("house rules", error.to_string());
+                }
+            }
+        }
+        Ok(None) => report.ok("house rules", "no realms map; none declared".into()),
+        Err(error) => report.missing("realms map", error.to_string()),
+    }
 }
 
 fn doctor_with_probe(
