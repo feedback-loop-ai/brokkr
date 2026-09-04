@@ -10,6 +10,8 @@ use std::process::Command;
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
 
+use crate::render::Safe;
+
 pub struct Report {
     pub healthy: bool,
     lines: Vec<String>,
@@ -47,14 +49,14 @@ fn tool_version(program: &str) -> Option<String> {
     if !out.status.success() {
         return None;
     }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string(),
-    )
+    Some(safe_version(&out.stdout))
+}
+
+fn safe_version(stdout: &[u8]) -> String {
+    let line = String::from_utf8_lossy(stdout);
+    Safe::new(line.lines().next().unwrap_or_default().trim())
+        .as_str()
+        .to_string()
 }
 
 /// Probe every provider an adapter file declares, reporting its binary,
@@ -347,7 +349,6 @@ fn report_realm_dialects(
     world: &brokkr_runtime::realms::World,
     probe: fn(&str) -> Option<String>,
 ) {
-    let base = world.source.parent().unwrap_or(Path::new(""));
     for realm in &world.map.realms {
         let what = format!("dialect {}", realm.name);
         let dialect = match world.dialect_for_realm(realm) {
@@ -385,12 +386,7 @@ fn report_realm_dialects(
             ),
         }
 
-        let declared_root = Path::new(&realm.path);
-        let realm_root = if declared_root.is_relative() {
-            base.join(declared_root)
-        } else {
-            declared_root.to_path_buf()
-        };
+        let realm_root = world.path_of(realm);
         for required in &dialect.requires {
             let path = realm_root.join(required);
             let required_what = format!("dialect {} requires {required}", realm.name);

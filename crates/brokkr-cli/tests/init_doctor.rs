@@ -183,7 +183,7 @@ fn init_refuses_to_overwrite_an_operators_trust_declaration() {
 }
 
 #[test]
-fn init_refuses_an_existing_realm_map_and_surfaces_an_unwritable_dialect_target() {
+fn init_refuses_an_existing_realm_map_and_operator_owned_dialect_data() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = dir.path().join("realm-map");
     std::fs::create_dir(&bundle).unwrap();
@@ -202,10 +202,30 @@ fn init_refuses_an_existing_realm_map_and_surfaces_an_unwritable_dialect_target(
     )
     .unwrap();
     let bundle = openspec.path().join("bundle");
-    std::fs::create_dir_all(bundle.join("dialects/openspec.json")).unwrap();
+    std::fs::create_dir_all(bundle.join("dialects")).unwrap();
+    let dialect = bundle.join("dialects/openspec.json");
+    std::fs::write(&dialect, "operator-owned\n").unwrap();
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], openspec.path());
     assert_eq!(code, Some(1), "{stderr}");
-    assert!(!stderr.trim().is_empty());
+    assert!(stderr.contains("dialect data") && stderr.contains("refusing to overwrite"));
+    assert_eq!(
+        std::fs::read_to_string(dialect).unwrap(),
+        "operator-owned\n"
+    );
+    assert!(!bundle.join("bundle.json").exists());
+
+    std::fs::remove_file(bundle.join("dialects/openspec.json")).unwrap();
+    std::fs::create_dir(bundle.join("dialects/openspec")).unwrap();
+    let instruction = bundle.join("dialects/openspec/specify.md");
+    std::fs::write(&instruction, "operator-owned instruction\n").unwrap();
+    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], openspec.path());
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("specify.md") && stderr.contains("refusing to overwrite"));
+    assert_eq!(
+        std::fs::read_to_string(instruction).unwrap(),
+        "operator-owned instruction\n"
+    );
+    assert!(!bundle.join("bundle.json").exists());
 }
 
 #[test]

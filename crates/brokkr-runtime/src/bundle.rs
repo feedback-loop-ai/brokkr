@@ -2748,6 +2748,16 @@ fn manifest_for(
     while let Some(current) = stack.pop() {
         for entry in std::fs::read_dir(&current)? {
             let path = entry?.path();
+            // A scaffold may also be the workspace from which Brokkr is
+            // invoked. Its realm map and dialect library are workspace
+            // declarations pinned into the RUN manifest, never bundle files:
+            // changing either must not move the strategy's identity.
+            if current == dir
+                && (path.file_name().and_then(|name| name.to_str()) == Some("realms.json")
+                    || path.file_name().and_then(|name| name.to_str()) == Some("dialects"))
+            {
+                continue;
+            }
             if path.is_dir() {
                 stack.push(path);
             } else if path.is_file() {

@@ -83,7 +83,7 @@
 //! README says so in those words — a tool name is a permission, and one
 //! guessed is one granted.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
@@ -981,7 +981,6 @@ const SPECKIT: DialectChoice = DialectChoice {
     instructions: SPECKIT_INSTRUCTIONS,
 };
 
-#[derive(Clone)]
 enum DialectDetection {
     Detected(DialectChoice, Box<Dialect>),
     Ambiguous,
@@ -1023,32 +1022,48 @@ impl DialectDetection {
 fn detect_dialect(repo: &Path) -> DialectDetection {
     let speckit = repo.join(".specify").is_dir();
     let openspec = repo.join("openspec/config.yaml").is_file();
-    match (speckit, openspec) {
-        (true, false) => DialectDetection::Detected(
-            SPECKIT,
-            Box::new(
-                Dialect::parse(SPECKIT.name, SPECKIT.source)
-                    .expect("the embedded shipped spec-kit dialect is valid")
-                    .0,
-            ),
-        ),
-        (false, true) => DialectDetection::Detected(
-            OPENSPEC,
-            Box::new(
-                Dialect::parse(OPENSPEC.name, OPENSPEC.source)
-                    .expect("the embedded shipped OpenSpec dialect is valid")
-                    .0,
-            ),
-        ),
-        (true, true) => DialectDetection::Ambiguous,
-        (false, false) => DialectDetection::Absent,
-    }
+    let choice = match (speckit, openspec) {
+        (true, false) => SPECKIT,
+        (false, true) => OPENSPEC,
+        (true, true) => return DialectDetection::Ambiguous,
+        (false, false) => return DialectDetection::Absent,
+    };
+    let dialect = Dialect::parse(choice.name, choice.source)
+        .expect("the embedded shipped dialect is valid")
+        .0;
+    DialectDetection::Detected(choice, Box::new(dialect))
 }
 
-fn realms_json(dialect: &DialectDetection) -> String {
+fn relative_realm_path(map_dir: &Path, repo: &Path) -> PathBuf {
+    let map_dir = std::fs::canonicalize(map_dir).unwrap_or_else(|_| map_dir.to_path_buf());
+    let repo = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    let from: Vec<_> = map_dir.components().collect();
+    let to: Vec<_> = repo.components().collect();
+    let common = from
+        .iter()
+        .zip(&to)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        return repo;
+    }
+    let mut relative = PathBuf::new();
+    for _ in &from[common..] {
+        relative.push("..");
+    }
+    for component in &to[common..] {
+        relative.push(component.as_os_str());
+    }
+    if relative.as_os_str().is_empty() {
+        relative.push(".");
+    }
+    relative
+}
+
+fn realms_json(dialect: &DialectDetection, realm_path: &Path) -> String {
     let mut realm = json!({
         "name": "starter",
-        "path": ".",
+        "path": realm_path.to_string_lossy().replace('\\', "/"),
         "default_branch": "main"
     });
     if let Some(choice) = dialect.choice() {
@@ -1072,6 +1087,25 @@ fn write_dialect(dir: &Path, choice: DialectChoice) -> Result<()> {
     )?;
     for (name, contents) in choice.instructions {
         std::fs::write(instructions.join(name), contents)?;
+    }
+    Ok(())
+}
+
+fn refuse_dialect_overwrite(dir: &Path, choice: DialectChoice) -> Result<()> {
+    let dialect = dir.join("dialects").join(format!("{}.json", choice.name));
+    let instructions = dir.join("dialects").join(choice.name);
+    for path in std::iter::once(dialect).chain(
+        choice
+            .instructions
+            .iter()
+            .map(|(name, _)| instructions.join(name)),
+    ) {
+        if path.exists() {
+            bail!(
+                "{} already defines dialect data; refusing to overwrite — a dialect is an operator's ruling",
+                path.display()
+            );
+        }
     }
     Ok(())
 }
@@ -1289,6 +1323,10 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             dir.display()
         );
     }
+    let detection = detect(repo);
+    if let Some(choice) = detection.dialect.choice() {
+        refuse_dialect_overwrite(dir, choice)?;
+    }
     // The scaffold writes a trust declaration too, and that is WORKSPACE
     // data rather than this bundle's own text: an `adapters/` already
     // standing here is an operator's ruling (decision 0021 ruling 3), and
@@ -1336,16 +1374,16 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             );
         }
     }
-    let detection = detect(repo);
     let detected = detection.stack.as_ref();
     let dialect = &detection.dialect;
     let grants = grants(detected);
     std::fs::create_dir_all(library.join("charters"))?;
     std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
     std::fs::create_dir_all(dir.join("scripts"))?;
+    let realm_path = relative_realm_path(dir, repo);
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
-    std::fs::write(dir.join("realms.json"), realms_json(dialect))?;
+    std::fs::write(dir.join("realms.json"), realms_json(dialect, &realm_path))?;
     if let Some(choice) = dialect.choice() {
         write_dialect(dir, choice)?;
     }

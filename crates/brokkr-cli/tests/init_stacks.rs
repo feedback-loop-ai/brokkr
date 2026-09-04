@@ -1041,6 +1041,24 @@ fn init_scaffolds_each_dialect_detection_outcome() {
             expected,
             "{case}"
         );
+        let world = brokkr_runtime::realms::World::load(&bundle.join("realms.json")).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(world.path_of(&world.map.realms[0])).unwrap(),
+            std::fs::canonicalize(repo.path()).unwrap(),
+            "{case}: the scaffolded realm must be the repository detection read"
+        );
+        let compiled = Bundle::compile_with(
+            &bundle,
+            &bundle.join(DEFAULT_AGENTS_DIR),
+            &bundle.join(DEFAULT_ADAPTERS_DIR),
+        )
+        .unwrap();
+        let files = compiled.manifest["files"].as_object().unwrap();
+        assert!(!files.contains_key("realms.json"), "{case}");
+        assert!(
+            !files.keys().any(|path| path.starts_with("dialects/")),
+            "{case}"
+        );
         let scaffold_notes = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
         assert!(scaffold_notes.contains(notes), "{case}: {scaffold_notes}");
 

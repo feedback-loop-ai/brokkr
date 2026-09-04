@@ -14,6 +14,10 @@ fn openspec_present(program: &str) -> Option<String> {
     (program == "openspec").then(|| "OpenSpec 1.12.0".into())
 }
 
+fn unexpected_probe(program: &str) -> Option<String> {
+    panic!("doctor must not execute rejected dialect binary {program}")
+}
+
 fn install_openspec_dialect(dir: &Path) {
     std::fs::create_dir_all(dir.join("dialects/openspec")).unwrap();
     std::fs::copy(
@@ -107,17 +111,24 @@ fn doctor_reports_a_broken_realm_map_and_an_unusable_dialect() {
     assert!(report.render().contains("MISSING  realms map:"));
 
     let invalid = tempfile::tempdir().unwrap();
-    std::fs::create_dir(invalid.path().join("dialects")).unwrap();
-    std::fs::write(invalid.path().join("dialects/openspec.json"), "{").unwrap();
+    install_openspec_dialect(invalid.path());
+    let dialect_path = invalid.path().join("dialects/openspec.json");
+    let mut dialect: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&dialect_path).unwrap()).unwrap();
+    dialect["tool"]["binary"] = json!("/bin/echo");
+    std::fs::write(&dialect_path, serde_json::to_vec(&dialect).unwrap()).unwrap();
     let world = dialect_world(invalid.path(), true);
     let mut report = Report {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_dialects(&mut report, &world, always_missing);
+    report_realm_dialects(&mut report, &world, unexpected_probe);
     assert!(report
         .render()
-        .contains("MISSING  dialect app: realm 'app' dialect is unusable"));
+        .contains("MISSING  dialect app: realm 'app' dialect is unusable: dialect"));
+    assert!(report
+        .render()
+        .contains("tool binary '/bin/echo' must be a bare filename"));
 }
 
 #[test]
@@ -346,6 +357,10 @@ fn report_and_tool_probe_expose_all_health_states() {
     assert_eq!(tool_version("forge-certainly-does-not-exist"), None);
     assert_eq!(tool_version("false"), None);
     assert!(tool_version("true").is_some());
+    assert_eq!(
+        safe_version(b"tool 1.0\x1b[31m\nforged line\n"),
+        "tool 1.0[31m"
+    );
 }
 
 #[test]
