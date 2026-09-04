@@ -893,54 +893,93 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
     assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), root).is_ok());
 }
 
-/// The one fact codex does NOT put on the stream its adapter folds, read
-/// from the thread record through decision 0032's retained locator. The
-/// file is found by the thread id codex itself announced — never by "the
-/// newest file" under the home, so a concurrent seat's thread cannot lend
-/// this one its effort — and the LAST `turn_context` wins, because codex
-/// writes one per turn and a thread may change effort mid-seat.
+/// One line of a codex rollout in the envelope codex actually writes:
+/// `{"timestamp":…,"ordinal":…,"type":<record>,"payload":{…}}`. The
+/// fields a record names live under `payload`, NOT under a key spelled
+/// like the record.
+///
+/// Every fixture below is built from this and from [`thread_settings`],
+/// both copied from a real `codex exec --json` thread record (codex-cli
+/// 0.153.0). The fixtures they replaced were invented to match the
+/// adapter's pointers instead, which is precisely how an adapter that
+/// could never read a real rollout kept a green suite.
+fn turn_context(model: &str, effort: &str) -> String {
+    format!(
+        "{{\"timestamp\":\"2026-09-04T10:45:14.560Z\",\"ordinal\":7,\
+         \"type\":\"turn_context\",\"payload\":{{\
+         \"turn_id\":\"01a06c05-c0fb-75b3-8c49-f0c49038dd88\",\
+         \"approval_policy\":\"never\",\"model\":\"{model}\",\
+         \"personality\":\"pragmatic\",\"effort\":\"{effort}\",\
+         \"summary\":\"auto\"}}}}\n"
+    )
+}
+
+/// The once-per-thread `thread_settings_applied`, which rides inside an
+/// `event_msg` payload and spells its level `reasoning_effort`.
+fn thread_settings(model: &str, effort: &str) -> String {
+    format!(
+        "{{\"timestamp\":\"2026-09-04T10:45:14.512Z\",\"ordinal\":6,\
+         \"type\":\"event_msg\",\"payload\":{{\
+         \"type\":\"thread_settings_applied\",\
+         \"thread_id\":\"01a06c05-c0a6-7991-a277-652d17ace6a6\",\
+         \"thread_settings\":{{\"model\":\"{model}\",\
+         \"model_provider_id\":\"openai\",\
+         \"reasoning_effort\":\"{effort}\"}}}}}}\n"
+    )
+}
+
+/// The two facts codex does NOT put on the stream its adapter folds,
+/// read from the thread record through decision 0032's retained
+/// locator. The file is found by the thread id codex itself announced —
+/// never by "the newest file" under the home, so a concurrent seat's
+/// thread cannot lend this one its model or its effort — and the LAST
+/// `turn_context` wins, because codex writes one per turn and a thread
+/// may change either mid-seat.
 #[test]
-fn the_codex_thread_echo_reads_the_last_effort_by_thread_id_and_never_by_scan() {
+fn the_codex_thread_echo_reads_the_last_model_and_effort_by_id_and_never_by_scan() {
     let home = tempfile::tempdir().unwrap();
     let dated = home.path().join("sessions/2026/09/03");
     std::fs::create_dir_all(&dated).unwrap();
     // A concurrent seat's thread, filed first and named differently.
     std::fs::write(
         dated.join("rollout-0199other.jsonl"),
-        "{\"turn_context\":{\"effort\":\"minimal\"}}\n",
+        turn_context("gpt-5.6-mini", "minimal"),
     )
     .unwrap();
     std::fs::write(
         dated.join("rollout-0199mine.jsonl"),
-        // Two turns: the thread was opened at `low` and raised to
-        // `xhigh`, and the record must say the level that ended up
-        // applying rather than the one it started under.
-        "{\"thread_settings_applied\":{\"reasoning_effort\":\"low\"}}\n\
-         {\"turn_context\":{\"effort\":\"xhigh\"}}\n\
-         not json at all\n",
+        // Two records: the thread's settings were applied at `low` and
+        // a later turn ran at `xhigh`, and the echo must say the level
+        // that ended up applying rather than the one it started under.
+        thread_settings("gpt-5.6-sol", "low")
+            + &turn_context("gpt-5.6-sol", "xhigh")
+            + "not json at all\n",
     )
     .unwrap();
 
     let mut echo = CodexThreadEcho::default();
     echo.locate(home.path(), "0199mine");
-    assert_eq!(echo.effort().as_deref(), Some("xhigh"));
+    let (model, effort) = echo.echo();
+    assert_eq!(model.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(effort.as_deref(), Some("xhigh"));
 
     // The other seat's thread is reachable by ITS id, and only by it.
     let mut other = CodexThreadEcho::default();
     other.locate(home.path(), "0199other");
-    assert_eq!(other.effort().as_deref(), Some("minimal"));
+    assert_eq!(other.echo().0.as_deref(), Some("gpt-5.6-mini"));
+    assert_eq!(other.echo().1.as_deref(), Some("minimal"));
 
     // An id nobody filed, an empty id, and a home with no sessions tree
     // at all each leave the record saying nothing rather than guessing.
     let mut missing = CodexThreadEcho::default();
     missing.locate(home.path(), "0199absent");
-    assert_eq!(missing.effort(), None);
+    assert_eq!(missing.echo(), (None, None));
     let mut empty = CodexThreadEcho::default();
     empty.locate(home.path(), "");
-    assert_eq!(empty.effort(), None);
+    assert_eq!(empty.echo(), (None, None));
     let mut homeless = CodexThreadEcho::default();
     homeless.locate(std::path::Path::new("/nonexistent/codex-home"), "0199mine");
-    assert_eq!(homeless.effort(), None);
+    assert_eq!(homeless.echo(), (None, None));
 
     // The walk is BOUNDED: a thread filed deeper than the depth allows
     // is not found, so a large harness home cannot turn one turn into a
@@ -949,25 +988,25 @@ fn the_codex_thread_echo_reads_the_last_effort_by_thread_id_and_never_by_scan() 
     std::fs::create_dir_all(&deep).unwrap();
     std::fs::write(
         deep.join("rollout-0199deep.jsonl"),
-        "{\"turn_context\":{\"effort\":\"high\"}}\n",
+        turn_context("gpt-5.6-sol", "high"),
     )
     .unwrap();
     let mut too_deep = CodexThreadEcho::default();
     too_deep.locate(home.path(), "0199deep");
-    assert_eq!(too_deep.effort(), None);
+    assert_eq!(too_deep.echo(), (None, None));
 
     // A file that is not a thread record does not answer for one.
     std::fs::write(dated.join("rollout-0199plain.txt"), "effort: high\n").unwrap();
     let mut wrong_suffix = CodexThreadEcho::default();
     wrong_suffix.locate(home.path(), "0199plain");
-    assert_eq!(wrong_suffix.effort(), None);
+    assert_eq!(wrong_suffix.echo(), (None, None));
 
-    // A thread record that names no effort at all reports none rather
-    // than the level of whatever else it could find.
+    // A thread record that names neither reports neither, rather than
+    // the model or level of whatever else it could find.
     std::fs::write(dated.join("rollout-0199quiet.jsonl"), "{\"turn\":1}\n").unwrap();
     let mut quiet = CodexThreadEcho::default();
     quiet.locate(home.path(), "0199quiet");
-    assert_eq!(quiet.effort(), None);
+    assert_eq!(quiet.echo(), (None, None));
 }
 
 /// The id decides which file is read, so it is clamped on this path
@@ -981,7 +1020,7 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     std::fs::create_dir_all(&dated).unwrap();
     std::fs::write(
         dated.join("rollout-0199mine.jsonl"),
-        "{\"turn_context\":{\"effort\":\"xhigh\"}}\n",
+        turn_context("gpt-5.6-sol", "xhigh"),
     )
     .unwrap();
 
@@ -991,8 +1030,8 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
         let mut borrower = CodexThreadEcho::default();
         borrower.locate(home.path(), fragment);
         assert_eq!(
-            borrower.effort(),
-            None,
+            borrower.echo(),
+            (None, None),
             "{fragment:?} is a fragment, not the announced thread"
         );
     }
@@ -1002,13 +1041,13 @@ fn a_thread_id_that_is_not_one_locates_nothing_and_a_fragment_claims_no_file() {
     for refused in ["../../etc", "-flag", "thread id", "a/b", &"a".repeat(129)] {
         let mut clamped = CodexThreadEcho::default();
         clamped.locate(home.path(), refused);
-        assert_eq!(clamped.effort(), None, "{refused:?} must be refused");
+        assert_eq!(clamped.echo(), (None, None), "{refused:?} must be refused");
     }
 
     // And the id codex actually announced still reads its own file.
     let mut mine = CodexThreadEcho::default();
     mine.locate(home.path(), "0199mine");
-    assert_eq!(mine.effort().as_deref(), Some("xhigh"));
+    assert_eq!(mine.echo().1.as_deref(), Some("xhigh"));
 }
 
 /// Codex announces `thread.started` and files the rollout as two
@@ -1026,15 +1065,100 @@ fn a_thread_filed_after_it_was_announced_is_still_found_on_a_later_turn() {
     // effort rather than inventing one.
     let mut echo = CodexThreadEcho::default();
     echo.locate(home.path(), "0199late");
-    assert_eq!(echo.effort(), None);
+    assert_eq!(echo.echo(), (None, None));
 
     // The rollout lands mid-seat, and the next turn reads it.
     std::fs::write(
         dated.join("rollout-0199late.jsonl"),
-        "{\"turn_context\":{\"effort\":\"medium\"}}\n",
+        turn_context("gpt-5.6-sol", "medium"),
     )
     .unwrap();
-    assert_eq!(echo.effort().as_deref(), Some("medium"));
+    let (model, effort) = echo.echo();
+    assert_eq!(model.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(effort.as_deref(), Some("medium"));
+}
+
+/// The envelope, pinned verbatim. This line is copied byte for byte out
+/// of a codex-cli 0.153.0 rollout, and it is the whole reason the
+/// adapter reported `not reported` on a harness that echoes both facts:
+/// a rollout record does NOT nest its fields under a key spelled like
+/// the record, it puts them under `payload`. Pointers written against
+/// an imagined shape passed an imagined fixture and read nothing real.
+#[test]
+fn a_real_codex_rollout_line_names_its_model_and_effort_under_payload() {
+    let real: Value = serde_json::from_str(
+        r#"{"timestamp":"2026-09-04T10:45:14.560Z","ordinal":7,"type":"turn_context","payload":{"turn_id":"01a06c05-c0fb-75b3-8c49-f0c49038dd88","cwd":"/w","current_date":"2026-09-04","approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-5.6-sol","comp_hash":"3000","personality":"pragmatic","effort":"medium","summary":"auto"}}"#,
+    )
+    .unwrap();
+    assert_eq!(model_in_thread(&real).as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(effort_in_thread(&real).as_deref(), Some("medium"));
+
+    let settings: Value = serde_json::from_str(
+        r#"{"timestamp":"2026-09-04T10:45:14.512Z","ordinal":6,"type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"01a06c05-c0a6-7991-a277-652d17ace6a6","thread_settings":{"model":"gpt-5.6-sol","model_provider_id":"openai","approval_policy":"never","reasoning_effort":"medium"}}}"#,
+    )
+    .unwrap();
+    assert_eq!(model_in_thread(&settings).as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(effort_in_thread(&settings).as_deref(), Some("medium"));
+
+    // The record is codex's file, so both values are clamped on the way
+    // across exactly as every other harness report is.
+    let hostile = json!({"payload": {"model": "a model, obviously", "effort": "_high"}});
+    assert_eq!(model_in_thread(&hostile), None);
+    assert_eq!(effort_in_thread(&hostile), None);
+
+    // A line that names neither answers for neither.
+    let quiet = json!({"type": "event_msg", "payload": {"type": "agent_message"}});
+    assert_eq!(model_in_thread(&quiet), None);
+    assert_eq!(effort_in_thread(&quiet), None);
+}
+
+/// Codex's `exec --json` stream carries usage on `turn.completed` and no
+/// model at all (verified against codex-cli 0.153.0), so the served
+/// model has to come off the thread record or a codex seat reaches every
+/// cost and audit surface saying `not reported` — dsh's sentinel, on a
+/// harness that does echo what served it (decision 0031 ruling 1).
+#[test]
+fn a_codex_turn_takes_its_model_from_the_thread_record_when_the_stream_omits_it() {
+    let home = tempfile::tempdir().unwrap();
+    let dated = home.path().join("sessions/2026/09/04");
+    std::fs::create_dir_all(&dated).unwrap();
+    std::fs::write(
+        dated.join("rollout-01a06c05-c0a6-7991-a277-652d17ace6a6.jsonl"),
+        thread_settings("gpt-5.6-sol", "medium") + &turn_context("gpt-5.6-sol", "medium"),
+    )
+    .unwrap();
+
+    let mut echo = CodexThreadEcho::default();
+    echo.locate(home.path(), "01a06c05-c0a6-7991-a277-652d17ace6a6");
+    let mut turn = 0;
+    let mut meta = Map::new();
+    let mut emitted: Vec<Value> = Vec::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::CodexThread).unwrap();
+    fold_codex_event(
+        &json!({"type": "turn.completed", "usage": {"input_tokens": 10}}),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert_eq!(meta["model"], "gpt-5.6-sol");
+    assert_eq!(meta["effort"], "medium");
+    let checkpoint = emitted.last().unwrap();
+    assert_eq!(checkpoint["model"], "gpt-5.6-sol");
+    assert_eq!(checkpoint["effort"], "medium");
+
+    // A stream that DOES name a model outranks the record: it is the
+    // more direct report of the turn that just ran.
+    fold_codex_event(
+        &json!({"type": "turn.completed", "model": "gpt-5.6-sol-preview", "usage": {}}),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert_eq!(emitted.last().unwrap()["model"], "gpt-5.6-sol-preview");
 }
 
 /// The effort clamp, at both edges. A level crosses the driver boundary
@@ -2200,6 +2324,73 @@ fn codex_journals_its_turn_count_and_sums_usage_without_a_result_event() {
     let last = emitted.last().unwrap();
     assert_eq!(last["step"], "turn-completed");
     assert_eq!(last["input_tokens"], 7);
+}
+
+/// A codex that announces its thread, files its rollout, and concludes
+/// without ever completing a turn — the shape of an attempt killed on
+/// its deadline, and of any release that folds no `turn.completed`.
+const CODEX_NO_TURN_SHIM: &str = r#"#!/bin/sh
+cat >/dev/null
+thread="$CODEX_HOME/sessions/2026/09/04"
+mkdir -p "$thread"
+printf '{"timestamp":"2026-09-04T00:00:01Z","ordinal":7,"type":"turn_context","payload":{"turn_id":"t1","model":"gpt-5.6-sol","effort":"xhigh"}}\n' \
+  > "$thread/rollout-2026-09-04T00-00-00-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl"
+printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3aec1"}\n'
+"#;
+
+/// A seat that never reached a `turn.completed` has read the thread
+/// record not at all, because reading it is what a completed turn does.
+/// Asked once more on the way out, the record still answers — so an
+/// attempt killed on its deadline names what served it instead of
+/// carrying dsh's sentinel into the journal for a harness that echoes.
+#[cfg(unix)]
+#[test]
+fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("codex-home");
+    let fake = executable(dir.path(), "codex", CODEX_NO_TURN_SHIM);
+    let prior = std::env::var_os("BROKKR_CODEX_BIN");
+    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
+    let prior_home = std::env::var_os("CODEX_HOME");
+    std::env::set_var("BROKKR_CODEX_BIN", &fake);
+    std::env::remove_var("FORGE_CODEX_BIN");
+    std::env::set_var("CODEX_HOME", &home);
+
+    let mut emitted: Vec<Value> = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Codex,
+        &[],
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| emitted.push(event.clone()),
+    )
+    .unwrap();
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
+        None => std::env::remove_var("BROKKR_CODEX_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_CODEX_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("CODEX_HOME", value),
+        None => std::env::remove_var("CODEX_HOME"),
+    }
+
+    assert_eq!(invocation.exit_code, 0, "{emitted:?}");
+    assert!(
+        !emitted
+            .iter()
+            .any(|event| event["step"] == "turn-completed"),
+        "the shim completes no turn: {emitted:?}"
+    );
+    let meta = &invocation.session_meta;
+    assert_eq!(meta["model"], "gpt-5.6-sol");
+    assert_eq!(meta["effort"], "xhigh");
 }
 
 /// A codex whose thread opens long before its first turn does, and which

@@ -222,26 +222,54 @@ fn effort_token(raw: &str) -> Option<String> {
 }
 
 /// The harness's own echo of the effort it applied (decision 0035
-/// ruling 3), in each of the envelopes a built-in writes it in: claude
-/// puts a top-level `effort` beside every assistant record, codex writes
-/// `turn_context.effort` — and, once per thread,
-/// `thread_settings_applied.reasoning_effort` — into the thread record
-/// decision 0032's locator names.
+/// ruling 3), as it rides a live STREAM: claude puts a top-level
+/// `effort` beside every assistant record, and a codex release that
+/// closes with a `result` nests the turn context it ran under.
+///
+/// It does NOT read the codex thread record — that is a different
+/// envelope with its own reader ([`effort_in_thread`]), and the two are
+/// kept apart so neither one's pointers can quietly stand in for the
+/// other's. A single reader spanning both is how the thread record came
+/// to be addressed as though a rollout nested each record under its own
+/// name, which no rollout has ever done.
 ///
 /// This reads only a string in a named effort field. It never scans
 /// prose, and it never substitutes the configured pin: the pin is what a
 /// bundle ASKED for, and the whole point of reading the echo is that it
 /// is the value that survived every profile and plugin layer.
 fn effort_in_json(event: &Value) -> Option<String> {
+    ["/effort", "/turn_context/effort"]
+        .into_iter()
+        .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+        .and_then(effort_token)
+}
+
+/// The codex thread record's own envelope, which is NOT the stream's:
+/// every rollout line is `{"type": <record>, "payload": {…}}`, so the
+/// fields a record names sit one level under `payload` and never under
+/// a key spelled like the record. `turn_context` carries `model` and
+/// `effort` there; the once-per-thread `thread_settings_applied` event
+/// carries `model` and `reasoning_effort` under `thread_settings`.
+///
+/// Read as a pair because they come off one file read, and clamped by
+/// the same two token rules everything crossing this boundary is: a
+/// rollout is codex's file, not ours. Only the two shapes a rollout
+/// actually writes are addressed — a pointer for a shape no codex has
+/// ever produced is how the reader this replaces came to be wrong.
+fn model_in_thread(line: &Value) -> Option<String> {
+    ["/payload/model", "/payload/thread_settings/model"]
+        .into_iter()
+        .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
+        .and_then(model_token)
+}
+
+fn effort_in_thread(line: &Value) -> Option<String> {
     [
-        "/effort",
-        "/turn_context/effort",
-        "/payload/turn_context/effort",
-        "/thread_settings_applied/reasoning_effort",
-        "/payload/thread_settings_applied/reasoning_effort",
+        "/payload/effort",
+        "/payload/thread_settings/reasoning_effort",
     ]
     .into_iter()
-    .find_map(|pointer| event.pointer(pointer).and_then(Value::as_str))
+    .find_map(|pointer| line.pointer(pointer).and_then(Value::as_str))
     .and_then(effort_token)
 }
 
@@ -564,18 +592,42 @@ impl CodexThreadEcho {
         self.path = find_codex_thread(sessions, thread_id, CODEX_THREAD_DEPTH);
     }
 
-    /// The LAST effort the thread record names. Codex writes a
-    /// `turn_context` per turn, so re-reading here is what makes a
-    /// thread that changed effort mid-seat say so turn by turn.
-    fn effort(&mut self) -> Option<String> {
+    /// The model and effort the thread record LAST named, as one pair
+    /// off one read. Codex writes a `turn_context` per turn, so
+    /// re-reading here is what makes a thread that changed either of
+    /// them mid-seat say so turn by turn.
+    ///
+    /// The model is here for the same reason the effort is: codex's
+    /// `exec --json` stream does not carry it (0.153 puts only `usage`
+    /// on `turn.completed`), and the value is sitting in the record
+    /// decision 0032's locator already names. Reading it is not
+    /// substituting our pin — this is codex's own echo of what served,
+    /// which is exactly what decision 0031 ruling 1 asks the record to
+    /// carry and what ruling 3 refuses to guess.
+    fn echo(&mut self) -> (Option<String>, Option<String>) {
         self.resolve();
-        let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
-        body.lines().rev().find_map(|line| {
-            serde_json::from_str::<Value>(line)
-                .ok()
-                .as_ref()
-                .and_then(effort_in_json)
-        })
+        let Some(body) = self
+            .path
+            .as_ref()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+        else {
+            return (None, None);
+        };
+        // The NEWEST record that names either names both: a rollout's
+        // `turn_context` and its `thread_settings_applied` each carry
+        // the model beside the effort, and nothing in between carries
+        // one alone. Taking the pair off ONE record is what keeps the
+        // two from being spliced together out of different turns.
+        body.lines()
+            .rev()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find_map(
+                |line| match (model_in_thread(&line), effort_in_thread(&line)) {
+                    (None, None) => None,
+                    named => Some(named),
+                },
+            )
+            .unwrap_or((None, None))
     }
 }
 
@@ -669,14 +721,17 @@ fn fold_codex_event(
         }
         Some("turn.completed") => {
             let usage = event.get("usage").unwrap_or(&Value::Null);
-            let model = model_in_json(event);
+            // Neither fact is reliably on this stream, and neither is
+            // ever taken from our pin: both are read from the thread
+            // record codex writes them into (decision 0035 ruling 3),
+            // through decision 0032's retained locator. The stream is
+            // still asked first for the model — a release that does put
+            // it on `turn.completed` is the more direct report.
+            let (thread_model, effort) = echo.echo();
+            let model = model_in_json(event).or(thread_model);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
             }
-            // Not on this stream, and not from our pin: read from the
-            // thread record codex writes it into (decision 0035 ruling
-            // 3), through decision 0032's retained locator.
-            let effort = echo.effort();
             if let Some(effort) = &effort {
                 session_meta.insert("effort".into(), Value::String(effort.clone()));
             }
@@ -1503,6 +1558,24 @@ fn invoke_codex(
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
     let stderr = stderr_thread.join().unwrap_or_default();
+    // An attempt that never reached a `turn.completed` — killed on its
+    // deadline, or concluded by a release that folds none — has read the
+    // thread record not at all. Ask it once more here, on the way out,
+    // before falling back to the launch header. Asked unconditionally
+    // and inserted only where nothing stands: a turn that already read
+    // the record wrote the same pair, and `or_insert` is what keeps a
+    // stream's more direct report of the model from being overwritten.
+    let (model, effort) = echo.echo();
+    if let Some(model) = model {
+        session_meta
+            .entry("model")
+            .or_insert_with(|| Value::String(model));
+    }
+    if let Some(effort) = effort {
+        session_meta
+            .entry("effort")
+            .or_insert_with(|| Value::String(effort));
+    }
     if !session_meta.contains_key("model") {
         if let Some(model) = model_in_header(&stderr) {
             session_meta.insert("model".into(), Value::String(model));
