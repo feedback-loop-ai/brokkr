@@ -130,7 +130,12 @@ fn every_review_site_is_witnessed_by_its_agent_resolution() {
         .expect("triage witnesses its deterministic drivers");
     assert_eq!(
         drivers.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["design:speckit-check", "ship", "verify"],
+        [
+            "design:validate",
+            "ship",
+            "verify:checks",
+            "verify:dialect-verify"
+        ],
         "only the boxed deterministic offices are inline drivers"
     );
 }

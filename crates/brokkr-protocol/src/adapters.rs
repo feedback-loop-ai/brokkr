@@ -156,7 +156,9 @@ pub fn render_prompt(input: &Value) -> String {
 struct Invocation {
     exit_code: i32,
     session_meta: Map<String, Value>,
+    stdout: String,
     stderr: String,
+    state: Option<String>,
 }
 
 /// Provider-reported model ids are journal data, so admit only the
@@ -1146,7 +1148,9 @@ fn invoke_stream_json(
     Ok(Invocation {
         exit_code: status.code().unwrap_or(-1),
         session_meta,
+        stdout: String::new(),
         stderr: stderr_thread.join().unwrap_or_default(),
+        state: None,
     })
 }
 
@@ -1497,7 +1501,9 @@ fn invoke_codex(
     Ok(Invocation {
         exit_code: status.code().unwrap_or(-1),
         session_meta,
+        stdout: String::new(),
         stderr,
+        state: None,
     })
 }
 
@@ -1610,7 +1616,9 @@ fn invoke_dsh_with(
     Ok(Invocation {
         exit_code,
         session_meta,
+        stdout: String::new(),
         stderr: stderr_thread.join().unwrap_or_default(),
+        state: None,
     })
 }
 
@@ -1747,10 +1755,29 @@ fn invoke_with_stager(
             // the path that fires exactly when a credentialed command
             // prints the offending header.
             let stderr = secret::mask_bytes(&out.stderr, bindings);
+            let stdout = secret::mask_bytes(&out.stdout, bindings);
+            let state = input
+                .pointer("/dialect_exec/state")
+                .and_then(Value::as_array)
+                .filter(|argv| !argv.is_empty())
+                .map(|argv| {
+                    let argv = argv
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>();
+                    run_cli(&argv, None, &workdir, bindings).map(|output| {
+                        let bytes = secret::mask_bytes(&output.stdout, bindings);
+                        String::from_utf8_lossy(&bytes).into_owned()
+                    })
+                })
+                .transpose()?;
             Ok(Invocation {
                 exit_code: out.status.code().unwrap_or(-1),
                 session_meta,
+                stdout: String::from_utf8_lossy(&stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                state,
             })
         }
     }
@@ -2089,7 +2116,9 @@ fn run_seat(
     let Invocation {
         exit_code,
         session_meta,
+        stdout,
         stderr,
+        state,
     } = invocation;
     let served_model = if kind == AdapterKind::Exec {
         MODEL_NOT_APPLICABLE.to_string()
@@ -2142,6 +2171,40 @@ fn run_seat(
         attempt_id: attempt_id.clone(),
         data: Value::Object(checkpoint),
     });
+
+    if let Some(dialect) = input.get("dialect_exec") {
+        let success = dialect
+            .get("success_result")
+            .and_then(Value::as_str)
+            .unwrap_or("drafted");
+        let failure = dialect
+            .get("failure_result")
+            .and_then(Value::as_str)
+            .unwrap_or("fail");
+        let notes = [stdout.trim(), stderr.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut result = json!({
+            "result": if exit_code == 0 { success } else { failure },
+            "inputs": {"change": dialect.get("change").cloned().unwrap_or(Value::Null)},
+            "notes": notes,
+            "model": served_model,
+            "effort": applied_effort,
+        });
+        if let Some(state) = state {
+            result["state"] = Value::String(state);
+        }
+        send(Body::Result {
+            effect_id,
+            attempt_id,
+            status: ResultStatus::Succeeded,
+            result: Some(result),
+            error: None,
+        });
+        return;
+    }
 
     if exit_code != 0 {
         send(Body::Result {

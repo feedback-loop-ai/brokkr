@@ -41,6 +41,7 @@ fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> R
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision,
         park_reason: Some("needs a human".to_string()),

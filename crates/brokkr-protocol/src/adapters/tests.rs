@@ -633,6 +633,64 @@ fn adapter_stdio_ignores_noise_and_handles_control_messages() {
 }
 
 #[test]
+fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let start = |dialect: Value| {
+        json!({
+            "effect_id":"fx", "attempt_id":"a1",
+            "input": {
+                "workdir": dir.path(),
+                "result_path": dir.path().join("unused.json"),
+                "allowed_results": ["clear", "ambiguous"],
+                "dialect_exec": dialect,
+            }
+        })
+    };
+    let run = |extra: &[&str], dialect: Value| {
+        let mut bodies = Vec::new();
+        run_seat(
+            AdapterKind::Exec,
+            &extra
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+            &start(dialect),
+            None,
+            &mut |body| bodies.push(body),
+        );
+        bodies
+            .into_iter()
+            .find_map(|body| match body {
+                Body::Result { result, .. } => result,
+                _ => None,
+            })
+            .unwrap()
+    };
+
+    let succeeded = run(
+        &[
+            "sh",
+            "-c",
+            "cat >/dev/null; printf finding; printf warning >&2",
+        ],
+        json!({
+            "success_result":"clear", "failure_result":"ambiguous",
+            "change":"dialect-42", "state":["sh", "-c", "printf state-json"]
+        }),
+    );
+    assert_eq!(succeeded["result"], "clear");
+    assert_eq!(succeeded["inputs"]["change"], "dialect-42");
+    assert_eq!(succeeded["notes"], "finding\nwarning");
+    assert_eq!(succeeded["state"], "state-json");
+
+    let failed = run(&["sh", "-c", "cat >/dev/null; exit 7"], json!({}));
+    assert_eq!(failed["result"], "fail");
+    assert!(failed["inputs"]["change"].is_null());
+    assert!(failed.get("state").is_none());
+}
+
+#[test]
 fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
     // The id used to be stashed for the session-finished checkpoint
     // only, which meant a WORKING seat had no session id in the

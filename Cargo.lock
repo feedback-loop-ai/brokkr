@@ -219,6 +219,7 @@ dependencies = [
  "jsonschema",
  "regex",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

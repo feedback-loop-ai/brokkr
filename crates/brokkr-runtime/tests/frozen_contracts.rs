@@ -109,6 +109,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         // pinned below and did not move.
         ("contracts/realms.v2.schema.json", "Forge realms map v2"),
         ("contracts/realms.v3.schema.json", "Forge realms map v3"),
+        (
+            "contracts/dialect.v1.schema.json",
+            "Brokkr specification dialect v1",
+        ),
         // Decision 0034 freezes the previously conventional accounting
         // record as its own v1 contract; no older frozen file moves.
         (

@@ -234,7 +234,29 @@ impl Workspace {
         };
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
+        std::fs::create_dir_all(ws.path().join("dialects")).unwrap();
+        std::fs::create_dir_all(ws.path().join("adapters")).unwrap();
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::copy(
+            root.join("dialects/speckit.json"),
+            ws.path().join("dialects/speckit.json"),
+        )
+        .unwrap();
+        std::fs::copy(
+            root.join("adapters/exec.json"),
+            ws.path().join("adapters/exec.json"),
+        )
+        .unwrap();
+        std::fs::write(
+            ws.path().join("realms.json"),
+            r#"{"schema":"forge.realms/v3","realms":[{"name":"proof","path":".","default_branch":"main","dialect":"speckit"}],"journal":"forge.db"}"#,
+        ).unwrap();
         std::fs::write(bundle.join("policy.json"), TRIAGE_POLICY).unwrap();
         let script_path = ws.path().join("script.json");
         std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
@@ -665,6 +687,76 @@ fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief()
         event["type"] == "effect/checkpointed"
             && event["payload"]["checkpoint"]["member"] == "chief"
     }));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
+    let script = json!({"seats": {
+        "triage": [{"behavior":"succeed", "result":{"result":"design"}}],
+        "design:author": [{"behavior":"succeed", "result":{
+            "result":"drafted", "inputs":{"change":"change-42"}
+        }}],
+        "implement:design": [{"behavior":"succeed", "result":{"result":"complete"}}],
+        "verify": [{"behavior":"succeed", "result":{"result":"pass"}}],
+        "review:design:positions:correctness": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:design:positions:security": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:design:positions:spec-compliance": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "review:design:chief": [{"behavior":"succeed", "result":{"result":"clean"}}],
+        "ship": [
+            {"behavior":"succeed", "result":{"result":"ready"}},
+            {"behavior":"succeed", "result":{"result":"shipped"}}
+        ]
+    }});
+    let ws = Workspace::triage(script);
+
+    let bundle_path = ws.bundle_dir().join("bundle.json");
+    let mut bundle: Value = serde_json::from_slice(&std::fs::read(&bundle_path).unwrap()).unwrap();
+    let author_driver = bundle["seats"]["design"]["driver"].clone();
+    bundle["seats"]["design"] = json!({
+        "results":["drafted","fail"], "inputs":["change"], "sequence":[
+            {"name":"author", "results":["drafted"], "role":"roles/role.md", "driver":author_driver},
+            {"name":"validate", "dialect":"validate"}
+        ]
+    });
+    std::fs::write(&bundle_path, bundle.to_string()).unwrap();
+    let policy_path = ws.bundle_dir().join("policy.json");
+    let mut policy: Value = serde_json::from_slice(&std::fs::read(&policy_path).unwrap()).unwrap();
+    policy["rules"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|rule| rule["id"] == "DESIGN-OK")
+        .unwrap()["result"] = json!("drafted");
+    std::fs::write(&policy_path, policy.to_string()).unwrap();
+
+    let dialect_path = ws.path().join("dialects/speckit.json");
+    let mut dialect: Value =
+        serde_json::from_slice(&std::fs::read(&dialect_path).unwrap()).unwrap();
+    dialect["phases"]["design"]["validate"] = json!({
+        "argv":["sh","-c","cat >/dev/null; test \"$1\" = change-42; printf validated","sh","{change}"],
+        "state":["sh","-c","printf framework-state"]
+    });
+    std::fs::write(&dialect_path, dialect.to_string()).unwrap();
+
+    let (code, summary, stderr) = ws.run();
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(summary["status"], "completed");
+    let run_id = Workspace::run_id(&stderr);
+    let events = brokkr_store::Store::open(&ws.db())
+        .unwrap()
+        .load(&run_id)
+        .unwrap();
+    let result = events
+        .iter()
+        .find_map(|event| {
+            (event.event_type == brokkr_core::EventType::EffectSucceeded
+                && event.payload["result"]["notes"] == "validated")
+                .then_some(&event.payload["result"])
+        })
+        .expect("dialect validator result");
+    assert_eq!(result["inputs"]["change"], "change-42");
+    assert_eq!(result["state"], "framework-state");
 }
 
 #[test]

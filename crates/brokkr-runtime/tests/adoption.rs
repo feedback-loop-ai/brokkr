@@ -72,6 +72,7 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
                         StepBody::Panel { members, .. } => {
                             member(out, &format!("{name}:{}:", step.name), members)
                         }
+                        StepBody::Dialect { .. } => {}
                     }
                 }
             }
@@ -136,7 +137,7 @@ const TRIAGE: &Roster = &[
     (
         "design:chief",
         "claude-fable-5-1",
-        "e19bd5d3315c1b8de910c83b810ef5a4d038918588a78f4b7473608d743683fa",
+        "9f6b59e43485a8dc04b0cb1b8229a2c59a61d6b26c37b11beff36e5b419445f1",
     ),
     (
         "design:positions:simplicity",
@@ -275,34 +276,24 @@ fn self_resolves_to_what_it_used_to_inline() {
     assert_adopted("bundles/self", SELF);
 }
 
-/// Triage's boxed `speckit-check` gate stays inline. It is
-/// `driver exec -- bash …` — a deterministic shell script with no model
-/// and no charter-as-prompt semantics — and it is the case that proves
-/// the library is an option and not a mandate.
+/// Triage's boxed validator now comes from the realm dialect. It remains a
+/// deterministic exec with no model or charter-as-prompt semantics.
 #[test]
-fn the_speckit_check_step_stays_inline() {
+fn the_design_validator_is_supplied_by_the_dialect() {
     let bundle = compile("recipes/triage");
     let SeatBody::Sequence { steps } = &bundle.seats["design"].body else {
         panic!("design is a sequence")
     };
     let step = steps
         .iter()
-        .find(|step| step.name == "speckit-check")
-        .expect("the speckit-check step");
-    let StepBody::Single {
-        command,
-        candidates,
-        ..
-    } = &step.body
-    else {
-        panic!("speckit-check is a single step")
+        .find(|step| step.name == "validate")
+        .expect("the validate step");
+    let StepBody::Dialect { execution } = &step.body else {
+        panic!("validate is a dialect step")
     };
-    assert!(candidates.is_empty(), "an inline step has no chain");
-    assert_eq!(command[1], "driver");
-    assert_eq!(command[2], "exec");
-    assert!(bundle.manifest["agents"]
-        .get("design:speckit-check")
-        .is_none());
+    assert_eq!(execution.argv[0], "openspec");
+    assert_eq!(execution.argv[1], "validate");
+    assert!(bundle.manifest["agents"].get("design:validate").is_none());
 }
 
 /// Rulings 4 and 5 deliberately change the 0007 declarations: judge-fix

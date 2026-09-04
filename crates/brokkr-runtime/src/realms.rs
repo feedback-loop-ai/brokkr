@@ -16,6 +16,8 @@ use brokkr_core::realms::{Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
 use serde_json::{json, Value};
 use thiserror::Error;
 
+use crate::dialect::{library_path, Dialect};
+
 #[derive(Debug, Error)]
 pub enum WorldError {
     #[error("no realms map at {0}")]
@@ -36,6 +38,8 @@ pub enum WorldError {
         path: String,
         detail: String,
     },
+    #[error("realm '{realm}' dialect is unusable: {detail}")]
+    RealmDialect { realm: String, detail: String },
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +47,14 @@ struct TextPin {
     source: String,
     sha256: String,
     content: String,
+}
+
+#[derive(Debug, Clone)]
+struct DialectPin {
+    source: String,
+    sha256: String,
+    content: Value,
+    dialect: Dialect,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +76,13 @@ impl RealmTextFailure {
     }
 }
 
-type RealmTexts = BTreeMap<String, (Result<Option<TextPin>, RealmTextFailure>, Option<TextPin>)>;
+type RealmTexts = BTreeMap<
+    String,
+    (
+        Result<Option<TextPin>, RealmTextFailure>,
+        Result<Option<DialectPin>, String>,
+    ),
+>;
 
 /// A loaded map, with everything a run needs to answer for it later: the
 /// file it came from, the content verbatim, and the content's digest.
@@ -282,6 +300,26 @@ impl World {
         }
     }
 
+    /// The checked dialect selected for a repository, resolved either from
+    /// Brokkr's library or from the realm itself.
+    pub fn dialect_for(&self, repo: &Path) -> Result<Option<&Dialect>, WorldError> {
+        let Some(realm) = self.realm_for(repo) else {
+            return Ok(None);
+        };
+        self.dialect_for_realm(realm)
+    }
+
+    pub fn dialect_for_realm(&self, realm: &Realm) -> Result<Option<&Dialect>, WorldError> {
+        match self.texts.get(&realm.name).map(|(_, dialect)| dialect) {
+            Some(Ok(dialect)) => Ok(dialect.as_ref().map(|pin| &pin.dialect)),
+            Some(Err(detail)) => Err(WorldError::RealmDialect {
+                realm: realm.name.clone(),
+                detail: detail.clone(),
+            }),
+            None => Ok(None),
+        }
+    }
+
     /// The world as it goes into a run manifest: named, hashed, embedded.
     pub fn pin(&self, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut pin = json!({
@@ -300,6 +338,12 @@ impl World {
                         "content": house.content
                     });
                 }
+                let dialect = dialect
+                    .as_ref()
+                    .map_err(|detail| WorldError::RealmDialect {
+                        realm: realm.name.clone(),
+                        detail: detail.clone(),
+                    })?;
                 if let Some(dialect) = dialect {
                     pin["dialect"] = json!({
                         "source": dialect.source,
@@ -356,19 +400,21 @@ fn load_realm_texts(map_source: &Path, map: &RealmMap) -> RealmTexts {
             Some(path) => read_text(realm, "house", realm_root.join(path)).map(Some),
             None => Ok(None),
         };
-        // This slice opens the declaration but does not resolve a dialect.
-        // Pin the realm's exact value so decision 0042's loader can later
-        // distinguish a library name from a repository-relative path.
-        // Keep the match explicit: the coverage gate treats this tiny map
-        // closure as a separate function even after both arms execute.
-        #[allow(clippy::manual_map)]
         let dialect = match &realm.dialect {
-            Some(value) => Some(TextPin {
-                source: value.clone(),
-                sha256: canonical::sha256_bytes(value.as_bytes()),
-                content: value.clone(),
-            }),
-            None => None,
+            Some(value) => {
+                let path = library_path(base, value, &realm_root);
+                Dialect::load(&path)
+                    .map(|(dialect, content)| {
+                        Some(DialectPin {
+                            source: path.display().to_string(),
+                            sha256: canonical::sha256_hex(&content),
+                            content,
+                            dialect,
+                        })
+                    })
+                    .map_err(|error| error.to_string())
+            }
+            None => Ok(None),
         };
         texts.insert(realm.name.clone(), (house, dialect));
     }
@@ -401,9 +447,42 @@ fn pinned_text(pin: &Value, key: &str) -> Result<Option<TextPin>, WorldError> {
     }))
 }
 
+fn pinned_dialect(pin: &Value) -> Result<Option<DialectPin>, WorldError> {
+    let Some(value) = pin.get("dialect") else {
+        return Ok(None);
+    };
+    let source = value
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no source".into()))?;
+    let sha256 = value
+        .get("sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no sha256".into()))?;
+    let content = value
+        .get("content")
+        .cloned()
+        .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no content".into()))?;
+    let derived = canonical::sha256_hex(&content);
+    if derived != sha256 {
+        return Err(WorldError::Unpinned(format!(
+            "the pinned dialect hashes to {derived}, not the pinned {sha256}"
+        )));
+    }
+    let text = serde_json::to_string(&content).expect("JSON serializes");
+    let (dialect, _) =
+        Dialect::parse(source, &text).map_err(|error| WorldError::Unpinned(error.to_string()))?;
+    Ok(Some(DialectPin {
+        source: source.to_string(),
+        sha256: sha256.to_string(),
+        content,
+        dialect,
+    }))
+}
+
 fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
     let house = pinned_text(pin, "house")?;
-    let dialect = pinned_text(pin, "dialect")?;
+    let dialect = pinned_dialect(pin)?;
     let mut texts = BTreeMap::new();
     if let Some(realm) = pin
         .get("realm")
@@ -420,9 +499,9 @@ fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
                 "its selected realm names a dialect but the manifest pins none".to_string(),
             ));
         }
-        texts.insert(realm.name.clone(), (Ok(house), dialect));
+        texts.insert(realm.name.clone(), (Ok(house), Ok(dialect)));
     } else if map.realms.len() == 1 {
-        texts.insert(map.realms[0].name.clone(), (Ok(house), dialect));
+        texts.insert(map.realms[0].name.clone(), (Ok(house), Ok(dialect)));
     }
     Ok(texts)
 }

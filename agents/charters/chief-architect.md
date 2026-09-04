@@ -35,4 +35,5 @@ an acceptance-criteria heading in spec.md, at least one checkbox in
 tasks.md, a why-heading in proposal.md. Leave the tree so those checks
 pass honestly.
 
+Return the chosen identifier as `"inputs": {"change": "<feature-slug>"}`.
 In `notes`, name the four committed artifacts.

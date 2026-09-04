@@ -21,6 +21,24 @@ fn rule() -> Value {
 }
 
 #[test]
+fn change_identifiers_are_typed_data_and_never_condition_keys() {
+    for accepted in ["a", "0", "change-42", "a.b_c-9"] {
+        assert!(is_identifier(accepted), "{accepted}");
+    }
+    for refused in ["", "-a", "A", "a/b", "a b", "é"] {
+        assert!(!is_identifier(refused), "{refused}");
+    }
+    for condition in [json!({"change": "x"}), json!({"change_in": ["x"]})] {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = condition;
+        assert!(Machine::from_table(&value)
+            .unwrap_err()
+            .0
+            .contains("never used as a condition key"));
+    }
+}
+
+#[test]
 fn loader_refuses_unreachable_phase_and_required_field_defects() {
     assert!(Machine::from_table(&Value::Null)
         .unwrap_err()

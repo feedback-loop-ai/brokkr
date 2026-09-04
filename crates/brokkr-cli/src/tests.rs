@@ -1125,6 +1125,7 @@ fn state_constructor_keeps_the_running_cursor_shape_explicit() {
         visits: Default::default(),
         strategy: None,
         last_result: None,
+        phase_results: Default::default(),
         reviewed_heads: None,
         last_decision: None,
         park_reason: None,
@@ -3233,4 +3234,74 @@ fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
             .to_string(),
     )
     .unwrap();
+}
+
+#[test]
+fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
+    let root = workspace();
+    assert!(compile_from_manifest(
+        &root,
+        &root.join("recipes/triage"),
+        &json!({"bundle_name":"unadopted"}),
+    )
+    .is_ok());
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("dialects")).unwrap();
+    std::fs::copy(
+        root.join("dialects/openspec.json"),
+        dir.path().join("dialects/openspec.json"),
+    )
+    .unwrap();
+    let map = json!({
+        "schema":"forge.realms/v3",
+        "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],
+        "journal":"forge.db"
+    });
+    std::fs::write(dir.path().join("realms.json"), map.to_string()).unwrap();
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let manifest = world
+        .pinned(&json!({"bundle_name":"triage"}), Some(&root))
+        .unwrap();
+    let bundle = compile_from_manifest(&root, &root.join("recipes/triage"), &manifest).unwrap();
+    assert_eq!(bundle.manifest["bundle_name"], "triage");
+    assert!(compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest).is_err());
+
+    let mut broken = manifest;
+    broken["realms"]["sha256"] = json!("0".repeat(64));
+    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
+
+    let refusal = run_in(
+        &root,
+        cli(Cmd::Run {
+            bundle: Some(root.join("recipes/triage")),
+            recipe: None,
+            recipes_dir: root.join("recipes"),
+            feature: "dialect refusal".into(),
+            realms: Some(root.join("realms.json")),
+            db: Some(dir.path().join("never-created.db")),
+            repo: Some(root.clone()),
+            dispatch: None,
+            secrets_file: None,
+        }),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("realm 'brokkr'"), "{refusal}");
+
+    let resume_db = dir.path().join("resume.db");
+    running_store(&resume_db, "resume-missing-bundle");
+    assert!(run_in(
+        &root,
+        cli(Cmd::Resume {
+            bundle: Some(dir.path().join("missing-bundle")),
+            recipe: None,
+            recipes_dir: root.join("recipes"),
+            run: "resume-missing-bundle".into(),
+            db: resume_db,
+            repo: None,
+            secrets_file: None,
+        }),
+    )
+    .is_err());
 }

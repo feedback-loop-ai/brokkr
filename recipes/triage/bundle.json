@@ -71,9 +71,10 @@
     },
     "design": {
       "results": [
-        "designed",
+        "drafted",
         "fail"
       ],
+      "inputs": ["change"],
       "limits": {
         "max_attempts": 2,
         "timeout_seconds": 3600
@@ -101,21 +102,8 @@
           "class": "work"
         },
         {
-          "name": "speckit-check",
-          "role": "roles/speckit-check.md",
-          "class": "gate",
-          "hands": "workspace",
-          "driver": {
-            "command": [
-              "{brokkr}",
-              "driver",
-              "exec",
-              "--",
-              "bash",
-              "./drivers/speckit_check.sh",
-              "{prompt_file}"
-            ]
-          }
+          "name": "validate",
+          "dialect": "validate"
         }
       ]
     }

@@ -126,54 +126,38 @@ fn workspace() -> PathBuf {
 /// now actually emits the promised vocabulary fields. Node moves separately:
 /// its duplicated repository rules left the role and now live only in the
 /// adopter's house file.
-/// Decision 0044 ruling 5 moves every witness once more, for one named
-/// reason: the claude adapter's tool vocabulary gains `webfetch` and
-/// `websearch`, the explicit grant one office holds, and the adapter's
-/// bytes are pinned by every bundle that names an agent or seats a gate.
-/// No charter, table or hire moved. The research recipe joins as the
-/// eighth witness: its identity is the researcher office, the boxed
-/// registry gate and the two-phase table that proposes and never ships.
-/// Its dsh lane, `recipes/research-dsh`, is the ninth: the operator ruled
-/// the weekly sweep runs on dsh, and that lane's identity is the same
-/// charter bytes as a role file, the Qwen3.8-Max hire, and the one
-/// overlay that turns page fetch on and names the route, because dsh
-/// expresses no tool list.
-const WITNESSES: [(&str, &str); 9] = [
+/// Decision 0042 moves the two design-bearing descendants: the old local
+/// heading check is replaced by the realm dialect's validate command, verify
+/// gains the dialect's archive check, and the chief now hands off `change` as
+/// a typed input. Those commands and charter bytes are manifest identity.
+const WITNESSES: [(&str, &str); 7] = [
     (
         "recipes/fast",
-        "e0c1eb0757cdf1f8be55ab977be802303e158ad5433f216c3714c9ae2782df43",
+        "dd0548e109763e7eceddd85d945b1adca5cfe8fa326d3d0d20fbdf93e70131c8",
     ),
     (
         "recipes/node",
-        "7abfe34bba4805e573b89685846debb7e672106cef1d10521da694de94b46f65",
+        "f6a73dcf7269dc03d7a5c6c42b411c99aade187597778c47b4d003837d98b64b",
     ),
     (
         "recipes/preflight",
-        "d28c15ee4994c24eb1a3a3936e791bb702b6b9dc671a1e2fde13e639c8825afc",
+        "7ce2538f6db6328d4e73185d8d886a17bdb49d682fe252cbe07eb8fa911f5ea2",
     ),
     (
         "recipes/night-shift",
-        "22538a41fa414a40978ea0958d10e300a3cee0789bc52c69ee32b083a18b9b65",
+        "9b46eb325f1a42e73a2f9741d7b358e70b15837e08c7a8b34f16dcc864cc3ff2",
     ),
     (
         "recipes/wager-harness",
-        "57de5240560b66ed2fe80e0b925a79a0a36daeaafcd0df3d5b1c5cf4132e6680",
+        "f76cb46fcf8f0e30dcb9d5349fd40848bd06cce670ecaa16d32b6fcd1e2307d2",
     ),
     (
         "recipes/triage",
-        "980a14a894a4834310b6b066b7fd62a925062fbdbe051fed8d21a8a97a509f5b",
-    ),
-    (
-        "recipes/research",
-        "b9a38128ef567d0bb305ff16c7cd3319e62a677d6938d6486d67b8601a01f7a5",
-    ),
-    (
-        "recipes/research-dsh",
-        "78a785cface7aec1bb20069dd0597d24fbca17094c00ed371432acd1bd4c6820",
+        "de34f9323580b08996043b258f033e3a43ae111ce728e4a671f5151a9e944608",
     ),
     (
         "bundles/verify",
-        "8054a434cc74786ba8a3c41302fc495353269cf604a739ff5070d627934fe1df",
+        "23614b7adb2b863cef66ad474f35d2cbbbe94923b58e164463068f825b5da9e2",
     ),
 ];
 

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
-use brokkr_core::policy::{Machine, BOOLEAN_INPUTS, SEVERITY_INPUTS};
+use brokkr_core::policy::{Machine, BOOLEAN_INPUTS, IDENTIFIER_INPUTS, SEVERITY_INPUTS};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
@@ -21,6 +21,7 @@ use compose::{Ancestor, COMPOSE_PREFIX};
 use crate::agents::{
     resolve_route, Adapter, Adapters, Availability, Candidate, EgressClass, Library, TrustTier,
 };
+use crate::dialect::{Dialect, DIALECT_PHASES};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -219,6 +220,12 @@ pub struct SequenceStep {
     pub body: StepBody,
 }
 
+#[derive(Debug, Clone)]
+pub struct DialectExecution {
+    pub argv: Vec<String>,
+    pub state: Option<Vec<String>>,
+}
+
 /// A sequence step's body: one driver, or a panel joined by a declared
 /// aggregate — the same two forms a seat itself may take.
 #[derive(Debug, Clone)]
@@ -233,6 +240,8 @@ pub enum StepBody {
         members: Vec<PanelMember>,
         aggregate: Aggregate,
     },
+    /// A realm-dialect validator or deterministic loop check.
+    Dialect { execution: DialectExecution },
 }
 
 #[derive(Debug, Clone)]
@@ -406,6 +415,10 @@ struct ResolvedSeat {
     hands: Option<HandsSpec>,
 }
 
+fn resolved_hands(seat: &ResolvedSeat) -> Option<HandsSpec> {
+    seat.hands.clone()
+}
+
 /// Does this bundle reference an agent anywhere? A bundle that does not
 /// never opens the library, so a tree without one compiles exactly as it
 /// did before decision 0016.
@@ -428,6 +441,7 @@ fn needs_adapters(value: &Value) -> bool {
     match value {
         Value::Object(map) => {
             map.contains_key("agent")
+                || map.contains_key("dialect")
                 || map.contains_key("secrets")
                 || map.get("class").and_then(Value::as_str) == Some("gate")
                 || map.values().any(needs_adapters)
@@ -757,6 +771,31 @@ impl Bundle {
         library_root: &Path,
         adapters_root: &Path,
     ) -> Result<Bundle, CompileError> {
+        let default_path = library_root
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join("dialects/openspec.json");
+        let default = if default_path.is_file() {
+            Some(
+                Dialect::load(&default_path)
+                    .map_err(|error| CompileError::Invalid(error.to_string()))?
+                    .0,
+            )
+        } else {
+            None
+        };
+        Self::compile_with_realm(dir, library_root, adapters_root, None, default.as_ref())
+    }
+
+    /// Compile in a named realm. Supplying this context makes the dialect
+    /// requirement enforceable before any journal is opened.
+    pub fn compile_with_realm(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        realm_name: Option<&str>,
+        dialect: Option<&Dialect>,
+    ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
@@ -765,7 +804,14 @@ impl Bundle {
         // composition happened (decision 0017).
         let resolved = compose::resolve(&dir)?;
         let note = resolved.chain_note();
-        match Bundle::assemble(&dir, resolved, library_root, adapters_root) {
+        match Bundle::assemble(
+            &dir,
+            resolved,
+            library_root,
+            adapters_root,
+            realm_name,
+            dialect,
+        ) {
             Ok(bundle) => Ok(bundle),
             // Every failure downstream of resolution on a composed
             // bundle is wrapped ONCE with the chain — one arm, rather
@@ -785,6 +831,8 @@ impl Bundle {
         resolved: compose::Resolved,
         library_root: &Path,
         adapters_root: &Path,
+        realm_name: Option<&str>,
+        dialect: Option<&Dialect>,
     ) -> Result<Bundle, CompileError> {
         let config = &resolved.document;
         let name = resolved.name.clone();
@@ -804,6 +852,23 @@ impl Bundle {
         // a composition layer.
         enforce_model_pins(&resolved.seats)?;
         let machine = Machine::from_table(&table)?;
+        let uses_dialect = machine
+            .phases
+            .iter()
+            .any(|phase| DIALECT_PHASES.contains(&phase.as_str()));
+
+        if let Some(phase) = machine
+            .phases
+            .iter()
+            .find(|phase| DIALECT_PHASES.contains(&phase.as_str()))
+        {
+            if realm_name.is_some() && dialect.is_none() {
+                return Err(CompileError::Invalid(format!(
+                    "realm '{}' declares no dialect, but phase '{phase}' needs one",
+                    realm_name.unwrap_or("<unmapped>")
+                )));
+            }
+        }
 
         let egress_minimum = parse_egress_minimum(config)?;
 
@@ -826,7 +891,7 @@ impl Bundle {
         // make an in-flight run unresumable after an `apt install`. The
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
-        let mut agents = match resolved.seats.values().any(needs_adapters) {
+        let mut agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
             false => None,
             true => Some(AgentContext {
                 library: match resolved.seats.values().any(mentions_agent) {
@@ -929,7 +994,7 @@ impl Bundle {
                     Site::Seat,
                 )?),
             };
-            let body = if let Some(agent_seat) = &agent_seat {
+            let mut body = if let Some(agent_seat) = &agent_seat {
                 SeatBody::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
@@ -946,10 +1011,13 @@ impl Bundle {
                         dir,
                         phase,
                         raw,
-                        &results,
-                        &secrets,
                         &mut agents,
                         &mut hands,
+                        BodyCompile {
+                            results: &results,
+                            secrets: &secrets,
+                            dialect,
+                        },
                     )?,
                 }
             } else if has_select {
@@ -964,6 +1032,7 @@ impl Bundle {
                         secrets: &secrets,
                         roots: &resolved.roots,
                         case_origin: &resolved.case_origin,
+                        dialect,
                     },
                 )?
             } else {
@@ -974,6 +1043,85 @@ impl Bundle {
                     candidates: Vec::new(),
                 }
             };
+            if phase == "verify" && uses_dialect {
+                if let Some(command) = dialect.and_then(|dialect| match &dialect.verify {
+                    crate::dialect::CommandOrUnsupported::Command(command) => Some(command),
+                    crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
+                }) {
+                    if let SeatBody::Single { candidates, .. } = &body {
+                        enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?;
+                        record_hands(
+                            phase,
+                            raw,
+                            agent_seat.as_ref().and_then(resolved_hands),
+                            &secrets,
+                            &mut hands,
+                        )?;
+                    }
+                    let prior_body =
+                        match body {
+                            SeatBody::Single {
+                                role_path,
+                                command,
+                                confine,
+                                candidates,
+                            } => StepBody::Single {
+                                role_path,
+                                command,
+                                confine,
+                                candidates,
+                            },
+                            SeatBody::Panel { members, aggregate } => {
+                                StepBody::Panel { members, aggregate }
+                            }
+                            _ => return Err(CompileError::Invalid(
+                                "dialect verify currently requires a single or panel verify seat"
+                                    .into(),
+                            )),
+                        };
+                    let prior = SequenceStep {
+                        name: "checks".into(),
+                        class: if is_gate_class(raw) {
+                            SeatClass::Gate
+                        } else {
+                            SeatClass::Work
+                        },
+                        results: results.clone(),
+                        body: prior_body,
+                    };
+                    if let Some(spec) = hands.remove(phase) {
+                        hands.insert(format!("{phase}:checks"), spec);
+                    }
+                    let context = agents
+                        .as_mut()
+                        .expect("dialect compilation opens the adapter context");
+                    for records in [&mut context.records, &mut context.drivers] {
+                        if let Some(record) = records.remove(phase) {
+                            records.insert(format!("{phase}:checks"), record);
+                        }
+                    }
+                    let dialect_site = format!("{phase}:dialect-verify");
+                    let synthetic = json!({"class":"gate", "hands":"workspace", "driver":{"command":["{brokkr}","driver","exec","--"]}});
+                    enforce_model_policy(&dialect_site, &synthetic, &[], &secrets, &mut agents)?;
+                    record_hands(&dialect_site, &synthetic, None, &secrets, &mut hands)?;
+                    body = SeatBody::Sequence {
+                        steps: vec![
+                            prior,
+                            SequenceStep {
+                                name: "dialect-verify".into(),
+                                class: SeatClass::Gate,
+                                results: results.clone(),
+                                body: StepBody::Dialect {
+                                    execution: DialectExecution {
+                                        argv: command.argv.clone(),
+                                        state: command.state.clone(),
+                                    },
+                                },
+                            },
+                        ],
+                    };
+                }
+            }
             // Decision 0021, at the seat's own driver-bearing site. A
             // panel or a sequence has none: its members and steps were
             // each checked where they were built.
@@ -983,12 +1131,13 @@ impl Bundle {
                     record_hands(
                         phase,
                         raw,
-                        agent_seat.as_ref().and_then(|seat| seat.hands.clone()),
+                        agent_seat.as_ref().and_then(resolved_hands),
                         &secrets,
                         &mut hands,
                     )?;
                 }
                 SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
+                SeatBody::Sequence { .. } if phase == "verify" && uses_dialect => {}
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
             // Decision 0006 bounds belong to the strategy seat, not the
@@ -1142,6 +1291,9 @@ fn body_manifest(body: &SeatBody) -> Value {
                 StepBody::Panel { members, aggregate } => json!({
                     "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
                     "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
+                }),
+                StepBody::Dialect { execution } => json!({
+                    "dialect": {"argv": execution.argv, "state": execution.state},
                 }),
             };
             json!({"name": step.name, "results": step.results, "body": body})
@@ -1422,6 +1574,7 @@ const STEP_KEYS: &[&str] = &[
     "hands",
     "panel",
     "aggregate",
+    "dialect",
 ];
 
 /// The vocabulary of a site object is CLOSED, because since decision
@@ -1789,15 +1942,24 @@ fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
 
 /// Parse one body inside a selector. The label includes the case name, so
 /// every existing refusal identifies both the seat and the bad case.
+#[derive(Clone, Copy)]
+struct BodyCompile<'a> {
+    results: &'a [String],
+    secrets: &'a [String],
+    dialect: Option<&'a Dialect>,
+}
+
 fn parse_selected_body(
     dir: &Path,
     what: &str,
     raw: &Value,
-    results: &[String],
-    secrets: &[String],
     agents: &mut Option<AgentContext>,
     hands: &mut BTreeMap<String, HandsSpec>,
+    compile: BodyCompile<'_>,
 ) -> Result<SeatBody, CompileError> {
+    let BodyCompile {
+        results, secrets, ..
+    } = compile;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
     let has_agent = raw.get("agent").is_some();
     if has_agent {
@@ -1832,7 +1994,7 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
-        let steps = parse_sequence(dir, what, raw, results, secrets, agents, hands)?;
+        let steps = parse_sequence(dir, what, raw, agents, hands, compile)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
@@ -1853,6 +2015,7 @@ struct SelectCompile<'a> {
     secrets: &'a [String],
     roots: &'a [PathBuf],
     case_origin: &'a BTreeMap<String, usize>,
+    dialect: Option<&'a Dialect>,
 }
 
 fn parse_select(
@@ -1915,10 +2078,13 @@ fn parse_select(
                 case_dir,
                 &label,
                 body,
-                compile.results,
-                compile.secrets,
                 agents,
                 hands,
+                BodyCompile {
+                    results: compile.results,
+                    secrets: compile.secrets,
+                    dialect: compile.dialect,
+                },
             )?,
         );
     }
@@ -1929,10 +2095,13 @@ fn parse_select(
                 dir,
                 &format!("{phase}:default"),
                 body,
-                compile.results,
-                compile.secrets,
                 agents,
                 hands,
+                BodyCompile {
+                    results: compile.results,
+                    secrets: compile.secrets,
+                    dialect: compile.dialect,
+                },
             )
             .map(Box::new)
         })
@@ -2053,11 +2222,15 @@ fn parse_sequence(
     dir: &Path,
     phase: &str,
     raw: &Value,
-    results: &[String],
-    secrets: &[String],
     agents: &mut Option<AgentContext>,
     hands: &mut BTreeMap<String, HandsSpec>,
+    compile: BodyCompile<'_>,
 ) -> Result<Vec<SequenceStep>, CompileError> {
+    let BodyCompile {
+        results,
+        secrets,
+        dialect,
+    } = compile;
     let steps_raw = raw
         .get("sequence")
         .and_then(Value::as_array)
@@ -2095,7 +2268,8 @@ fn parse_sequence(
         let has_single =
             !has_agent && (step_raw.get("role").is_some() || step_raw.get("driver").is_some());
         let has_panel = step_raw.get("panel").is_some();
-        if [has_single, has_panel, has_agent]
+        let has_dialect = step_raw.get("dialect").is_some();
+        if [has_single, has_panel, has_agent, has_dialect]
             .iter()
             .filter(|f| **f)
             .count()
@@ -2103,7 +2277,7 @@ fn parse_sequence(
         {
             return Err(CompileError::Invalid(format!(
                 "sequence step '{what}' must be exactly one of role+driver, agent, \
-                 or panel"
+                 panel, or dialect"
             )));
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
@@ -2148,7 +2322,50 @@ fn parse_sequence(
             )));
         };
         let mut agent_hands = None;
-        let body = if has_agent {
+        let body = if has_dialect {
+            let operation = step_raw
+                .get("dialect")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "sequence step '{what}' dialect must be 'validate' or 'check'"
+                    ))
+                })?;
+            let expected = if ["clarify", "analyze"].contains(&phase) {
+                "check"
+            } else {
+                "validate"
+            };
+            if operation != expected {
+                return Err(CompileError::Invalid(format!(
+                    "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
+                )));
+            }
+            let dialect = dialect.ok_or_else(|| {
+                CompileError::Invalid(format!(
+                    "phase '{phase}' needs a realm dialect to resolve step '{name}'"
+                ))
+            })?;
+            let command = dialect.validation(phase).ok_or_else(|| {
+                CompileError::Invalid(format!(
+                    "dialect '{}' declares phase '{phase}' {operation} unsupported",
+                    dialect.name
+                ))
+            })?;
+            let synthetic = json!({
+                "class": "gate",
+                "hands": "workspace",
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--"]}
+            });
+            enforce_model_policy(&what, &synthetic, &[], secrets, agents)?;
+            record_hands(&what, &synthetic, None, secrets, hands)?;
+            StepBody::Dialect {
+                execution: DialectExecution {
+                    argv: command.argv.clone(),
+                    state: command.state.clone(),
+                },
+            }
+        } else if has_agent {
             let resolved =
                 resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;
             agent_hands = resolved.hands;
@@ -2176,10 +2393,11 @@ fn parse_sequence(
                 record_hands(&what, step_raw, agent_hands, secrets, hands)?;
             }
             StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
+            StepBody::Dialect { .. } => {}
         }
         steps.push(SequenceStep {
             name: name.to_string(),
-            class: if is_gate_class(step_raw) {
+            class: if has_dialect || is_gate_class(step_raw) {
                 SeatClass::Gate
             } else {
                 SeatClass::Work
@@ -2397,7 +2615,10 @@ fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileErro
 }
 
 fn declarable_input(name: &str) -> bool {
-    !is_engine_owned(name) && (BOOLEAN_INPUTS.contains(&name) || SEVERITY_INPUTS.contains(&name))
+    !is_engine_owned(name)
+        && (BOOLEAN_INPUTS.contains(&name)
+            || SEVERITY_INPUTS.contains(&name)
+            || IDENTIFIER_INPUTS.contains(&name))
 }
 
 /// The non-engine-owned inputs the phase's rules reference: the default

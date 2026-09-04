@@ -29,7 +29,7 @@ fn workspace() -> PathBuf {
 const CHARTERS: [(&str, &str); 13] = [
     (
         "chief-architect.md",
-        "e19bd5d3315c1b8de910c83b810ef5a4d038918588a78f4b7473608d743683fa",
+        "9f6b59e43485a8dc04b0cb1b8229a2c59a61d6b26c37b11beff36e5b419445f1",
     ),
     (
         "implementer-speckit.md",
@@ -196,8 +196,8 @@ fn every_shipped_agent_resolves_at_compile_time() {
 
 /// T4: `exec` is the honest degenerate case. It declares all three
 /// capabilities unsupported and maps no model, so nothing can select it
-/// by accident — which is also why `recipes/triage`'s `speckit-check` step
-/// stays inline and proves the library is an option, not a mandate.
+/// by accident. Dialect validators also use exec, but are resolved from the
+/// realm's checked dialect instead of pretending to be model-backed agents.
 #[test]
 fn the_exec_adapter_declares_every_capability_unsupported() {
     let adapters = adapters();

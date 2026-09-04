@@ -38,6 +38,7 @@ fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunStat
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: decision,
         park_reason: park.map(str::to_string),

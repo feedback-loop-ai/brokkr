@@ -54,6 +54,7 @@ fn state_of(status: Status) -> RunState {
         visits: BTreeMap::new(),
         strategy: None,
         last_result: None,
+        phase_results: BTreeMap::new(),
         last_decision: Some(json!({"rule_id": "INTAKE-OK", "from": "intake",
                                    "next": "design", "result": "intook"})),
         reviewed_heads: None,
