@@ -54,10 +54,16 @@ printf '{"type":"result","num_turns":2,"total_cost_usd":0.125,"usage":{"input_to
 "#;
 
 // Codex meters its reasoning per turn and reports its cache creation as
-// `cache_write_input_tokens`; it puts its effort NOT on this stream but
-// in the thread record decision 0032's locator names, which this shim
-// writes where a real codex files one — under `$CODEX_HOME/sessions`, in
-// a dated directory, named for the thread it announced.
+// `cache_write_input_tokens`; it puts NEITHER its model NOR its effort
+// on this stream — `turn.completed` carries `usage` and nothing else —
+// and writes both into the thread record decision 0032's locator names.
+// This shim files one where a real codex does: under
+// `$CODEX_HOME/sessions`, in a dated directory, named for the thread it
+// announced, and in the envelope a real rollout uses — every field of a
+// record under `payload`, never under a key spelled like the record.
+// That envelope is the whole test: pointers written against an imagined
+// shape read a real codex not at all, and a shim written to match those
+// pointers is an imagined harness agreeing with itself.
 //
 // The rollout is filed AFTER the thread is announced, deliberately.
 // Announcing and filing are two writes and codex promises no order
@@ -72,12 +78,12 @@ target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 thread="$CODEX_HOME/sessions/2026/09/03"
 printf '{"type":"thread.started","thread_id":"codex-thread-1"}\n'
 mkdir -p "$thread"
-printf '{"type":"turn_context","payload":{"turn_context":{"effort":"xhigh"}}}\n' \
+printf '{"timestamp":"2026-09-03T00:00:01Z","ordinal":7,"type":"turn_context","payload":{"turn_id":"t1","approval_policy":"never","model":"gpt-5.6-sol","effort":"xhigh","summary":"auto"}}\n' \
   > "$thread/rollout-2026-09-03T00-00-00-codex-thread-1.jsonl"
 printf '{"type":"turn.started"}\n'
 printf '{"type":"item.started","item":{"type":"command_execution","command":"secret command"}}\n'
 printf '{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"private output"}}\n'
-printf '{"type":"turn.completed","usage":{"model":"gpt-5.6-sol","input_tokens":21,"cached_input_tokens":8,"output_tokens":5,"cache_write_input_tokens":6,"reasoning_output_tokens":3}}\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens":8,"output_tokens":5,"cache_write_input_tokens":6,"reasoning_output_tokens":3}}\n'
 "#;
 
 /// A dsh that behaves like the installed one: it prints nothing the
@@ -587,10 +593,11 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(out[7]["data"]["input_tokens"], 21);
                 assert_eq!(out[7]["data"]["cache_read_tokens"], 8);
                 assert_eq!(out[7]["data"]["model"], "gpt-5.6-sol");
-                // Read from the thread record, not from the stream and
-                // not from the pin the seat was launched with: the argv
-                // above says `--model gpt-5.6-sol` and no effort at all,
-                // and the record says what the harness echoed.
+                // Both read from the thread record — not from the
+                // stream, which names neither, and not from the pin the
+                // seat was launched with: the argv above says
+                // `--model gpt-5.6-sol` and no effort at all, and the
+                // record is what the harness itself echoed back.
                 assert_eq!(out[7]["data"]["effort"], "xhigh");
                 // The two counts codex reported all along and the fold
                 // dropped until decision 0035 ruling 4 asked for them.

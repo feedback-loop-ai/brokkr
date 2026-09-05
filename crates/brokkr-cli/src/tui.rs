@@ -1698,17 +1698,6 @@ fn column_label(column: &Column) -> &str {
     }
 }
 
-/// Put the provider-reported model directly in a graph node without
-/// changing old-journal geometry: absent model cells keep the historic
-/// label, while reported models lead so the bounded label cannot hide
-/// what the field means.
-fn modelled_label(label: &str, node: Option<&Node>) -> String {
-    match node {
-        Some(node) if !node.model.absent => format!("model {} · {label}", node.model.text),
-        _ => label.to_string(),
-    }
-}
-
 /// A label's footprint beside its node: one space and the text, or
 /// nothing at all when there is no text.
 fn label_span(label: &str) -> usize {
@@ -1949,7 +1938,12 @@ fn place_column(
             true => format!("⑂{members}"),
             false => column_label(column).to_string(),
         };
-        let label = clamp(&modelled_label(&base, chosen), LABEL_MAX);
+        // The label is the work's name and nothing else. The served
+        // model is a leaf's fact, carried by the seats table and the
+        // seat pane; the rail is the abstraction over which work
+        // followed which, and a per-seat field on it both crowds the
+        // 14-column budget and says nothing about the shape.
+        let label = clamp(&base, LABEL_MAX);
         marks.push(Mark {
             x,
             row: ink.rail_row,
@@ -1980,7 +1974,7 @@ fn place_column(
             row,
             class: class_for_node(&member.state_class),
             live: member.state == "active" && ink.status == "running",
-            label: clamp(&modelled_label(&member.label, Some(member)), LABEL_MAX),
+            label: clamp(&member.label, LABEL_MAX),
             selected: ink.node == Some(member.key.as_str()),
         });
     }

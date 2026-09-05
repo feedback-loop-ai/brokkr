@@ -1780,17 +1780,6 @@ fn every_graph_width_is_ratatuis_own_measurement_of_the_sanitized_text() {
     assert_eq!(width_of(&clamp("simplicity", 6)), 6, "the clamp is exact");
     assert_eq!(clamp("設計フェーズ", 5), "設計…");
     assert_eq!(width_of(&clamp("設計フェーズ", 5)), 5);
-    let absent = gnode("implement", "finished", "on-phosphor");
-    assert_eq!(modelled_label("implement", Some(&absent)), "implement");
-    let reported = gnode_with_model("implement", "claude-fable-5-1");
-    assert_eq!(
-        modelled_label("implement", Some(&reported)),
-        "model claude-fable-5-1 · implement"
-    );
-    assert!(
-        clamp(&modelled_label("implement", Some(&reported)), LABEL_MAX).starts_with("model "),
-        "the bounded graph label must retain the field name"
-    );
     assert_eq!(clamp("simplicity", 0), "", "nothing fits in nothing");
     assert_eq!(clamp("a\u{202E}b", 8), "ab", "and it sanitizes on the way");
 
@@ -2071,6 +2060,48 @@ fn the_lens_marks_the_scoped_phase_and_hides_none_of_them() {
 }
 
 // ------------------------------------------------ AC-mode-2, AC-mode-3
+
+/// The rail is an abstraction over which work followed which. The served
+/// model is a leaf's fact — it belongs to the seats table and the seat
+/// pane, which both carry it — and a node that HAS one still draws as
+/// its label alone. Spent on the rail it bought nothing and cost
+/// everything: at `LABEL_MAX` the prefix consumed the whole budget and
+/// the label it was meant to annotate never survived the clamp.
+#[test]
+fn a_graph_node_draws_its_label_and_never_the_served_model() {
+    let phases = vec![gphase(
+        "design",
+        1,
+        true,
+        vec![
+            gcolumn(
+                Some("positions"),
+                vec![
+                    gnode_with_model("simplicity", "claude-fable-5-1"),
+                    gnode_with_model("robustness", "gpt-5.6-sol"),
+                ],
+            ),
+            gcolumn(None, vec![gnode_with_model("solo", "claude-fable-5-1")]),
+        ],
+    )];
+    let plan = plan_of(&phases, None, "running", 120, 12);
+    let labels: Vec<&str> = plan.segments[0]
+        .marks
+        .iter()
+        .map(|mark| mark.label.as_str())
+        .collect();
+    assert_eq!(labels, ["simplicity", "robustness", "solo"]);
+    let drawn = text_of(&paint(&plan, 0, false));
+    assert!(
+        !drawn.contains("model"),
+        "no field name on the rail: {drawn}"
+    );
+    assert!(
+        !drawn.contains("claude-fable") && !drawn.contains("gpt-5.6"),
+        "and no model id either: {drawn}"
+    );
+    assert!(drawn.contains("simplicity"), "the label survives: {drawn}");
+}
 
 #[test]
 fn a_fork_wider_than_its_lane_budget_counts_what_it_could_not_draw() {

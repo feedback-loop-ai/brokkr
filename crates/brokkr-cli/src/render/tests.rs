@@ -591,12 +591,12 @@ trail
 
 graph
   intake ×1
-    → intake · finished · model —
+    → intake · finished
   design ×1  ←current
     ⑂ positions
-      simplicity · finished · model —
-      robustness · finished · model —
-    → chief · active · model —
+      simplicity · finished
+      robustness · finished
+    → chief · active
 "
     );
 }
@@ -659,7 +659,7 @@ trail
 
 graph
   intake ×1
-    → intake · finished · model —
+    → intake · finished
 "
     );
 
@@ -842,7 +842,7 @@ fn a_step_with_a_single_member_still_reads_as_the_step() {
     let view = brokkr_view::run_view(&events, None);
     let out = inspect(&view, None, false, &Style::plain(80));
     assert!(
-        out.contains("    → positions · finished · model —\n"),
+        out.contains("    → positions · finished\n"),
         "the column label wins over the lone node's own: {out}"
     );
 }
