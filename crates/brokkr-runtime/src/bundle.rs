@@ -89,7 +89,9 @@ pub fn is_engine_owned(name: &str) -> bool {
 pub struct Seat {
     /// True when every invocation site in this seat is a gate. The runtime
     /// uses the compiled fact to enforce a stable repository HEAD around the
-    /// whole effect; mixed sequences carry the same fact per step instead.
+    /// whole effect — but only where the effect has no inner spans of its
+    /// own. A sequence, all-gate or mixed, is watched per step instead: a
+    /// step carries its own class, and that step is the gate.
     pub has_gate: bool,
     pub results: Vec<String>,
     pub limits: Limits,

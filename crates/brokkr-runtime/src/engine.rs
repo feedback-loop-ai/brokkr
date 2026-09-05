@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agents::Candidate;
 use crate::bundle::{
-    dialect_results, Aggregate, Bundle, Confine, ExecutableBody, PanelMember, SeatBody, SeatClass,
-    SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    dialect_results, Aggregate, Bundle, Confine, ExecutableBody, PanelMember, Seat, SeatBody,
+    SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -116,9 +116,16 @@ pub struct Engine {
     /// are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
-    /// Present only while this process is executing a gate-bearing site. The
-    /// observations are compared before its terminal event; only a mismatch
-    /// is journaled, as the raw evidence on the resulting park.
+    /// Present only while this process is executing a gate-bearing site,
+    /// and it holds exactly one observation: the head as that site's own
+    /// span began. The span is the gate STEP inside a sequence and the
+    /// whole effect for a gate single seat or panel — never both at once,
+    /// so a sequence's steps are the only observation a sequence makes.
+    /// The observations are compared at the end of the span that armed
+    /// them; only a mismatch is journaled, as the raw evidence on the
+    /// resulting park. A span that ends through an `Err` — appending no
+    /// terminal event — clears it rather than leaving it for the next
+    /// effect to spend.
     active_gate_head: Option<Option<String>>,
 }
 
@@ -478,7 +485,19 @@ impl Engine {
                         None,
                     )?;
                 } else {
-                    self.execute(events, &state, &effect_id, &seat)?
+                    // `execute` is the one place a gate head is armed, for
+                    // every body shape, and an attempt that leaves it
+                    // through an `Err` — a checkpoint that would not
+                    // journal, say — appends no terminal event and so
+                    // never reaches the compare. The observation dies with
+                    // the span that took it: a stale head here would be
+                    // spent on the NEXT effect's terminal event, which
+                    // could then read a park no gate earned.
+                    let dispatched = self.execute(events, &state, &effect_id, &seat);
+                    if dispatched.is_err() {
+                        self.active_gate_head = None;
+                    }
+                    dispatched?
                 }
             }
             Cursor::EffectInFlight {
@@ -976,10 +995,7 @@ impl Engine {
         };
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
-        if seat
-            .body
-            .selected_is_gate(state.strategy.as_deref(), seat.has_gate)
-        {
+        if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
             self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
@@ -1530,6 +1546,11 @@ impl Engine {
             // Which sites of THIS step failed to start, if the step is
             // the one that fails the attempt.
             let mut start_failures: Vec<Site> = Vec::new();
+            // The gate span inside a sequence is THIS step: armed here,
+            // compared and cleared at this step's own end below, before
+            // any later step gets to move the tree lawfully (decision
+            // 0042 reads an author as a work step). Nothing outer arms
+            // for a sequence, so this is the only observation taken.
             if step.class == SeatClass::Gate {
                 self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
             }
@@ -3586,6 +3607,19 @@ fn git_dirty(repo: &std::path::Path) -> bool {
         .output()
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(true) // unreadable repo counts as dirty: fail closed
+}
+
+/// Whether the EFFECT's own span carries the gate-head observation
+/// (decision 0041 ruling 4). A gate single seat or an all-gate panel has
+/// no inner spans, so the effect is the gate and the effect is watched.
+/// A sequence never is: its Gate steps arm and compare at their own
+/// ends, and `has_gate` — true of an all-gate sequence too — would
+/// otherwise put a second, outer observation into the same one field,
+/// an observation nothing compares at the right end and nothing accounts
+/// for. One observation per gate step, and nothing outer.
+fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Option<&str>) -> bool {
+    !matches!(body, ExecutableBody::Sequence { .. })
+        && seat.body.selected_is_gate(strategy, seat.has_gate)
 }
 
 /// Recover the raw observations carried by the most recent gate defect. The
