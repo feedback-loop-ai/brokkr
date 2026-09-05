@@ -18,6 +18,20 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # Decision 0043: the shipped verify and ship seats are boxed exec and the
+      # quickstart bench drives them, so the release's own admission needs the
+      # same bubblewrap CI installs — the release workflow had not run since
+      # v0.8.0, before boxed hands, and v0.9.0's first cut refused here.
+      # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so the
+      # release is built from its tarball.
+      - name: bubblewrap for the boxed seats
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - name: tag matches the workspace release version
         shell: bash
         run: |
@@ -46,6 +60,20 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      # Decision 0043: the shipped verify and ship seats are boxed exec and the
+      # quickstart bench drives them, so the release's own admission needs the
+      # same bubblewrap CI installs — the release workflow had not run since
+      # v0.8.0, before boxed hands, and v0.9.0's first cut refused here.
+      # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so the
+      # release is built from its tarball.
+      - name: bubblewrap for the boxed seats
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
+          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+          bwrap --version
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: bash scripts/coverage-exact.sh
 
   build:
