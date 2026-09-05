@@ -804,14 +804,9 @@ impl Engine {
                 })
             }
         };
-        // Decision 0043: a boxed site is told that it is, because the one
-        // tool the box serves is the only thing that can write its result
-        // file — a harness's own shell runs outside the box and a file
-        // written through it never reaches the engine. The mark is part of
-        // the requested input, so the digest covers it.
-        if matches!(body, ExecutableBody::Single { .. }) && self.bundle.hands.contains_key(phase) {
-            input["hands"] = json!("boxed");
-        }
+        // The mark is part of the requested input, so the digest covers it;
+        // a panel or sequence seat has no hands of its own at this label.
+        self.mark_boxed(phase, &mut input);
         // Sealed secret bindings (decision 0012): the engine threads
         // exactly two facts to the driver — the declared NAMES and the
         // store PATH, both journal-safe. Values are resolved at spawn
@@ -1037,6 +1032,17 @@ impl Engine {
     /// outside the worktree (the ordinary same-realm fire), mount only its
     /// parent and mount it read-only. This run-time resource is deliberately
     /// absent from the manifest and the requested-input digest.
+    /// Decision 0043: a boxed site is told that it is, because the one
+    /// tool the box serves is the only thing that can write its result
+    /// file — a harness's own shell runs outside the box and a file
+    /// written through it never reaches the engine. The first
+    /// astra-judged gate wrote its verdict through that shell twice.
+    fn mark_boxed(&self, label: &str, input: &mut Value) {
+        if self.bundle.hands.contains_key(label) {
+            input["hands"] = json!("boxed");
+        }
+    }
+
     fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
         let mut spec = self.bundle.hands.get(seat_name)?.clone();
         let phase = seat_name
@@ -1308,13 +1314,7 @@ impl Engine {
                     input["spec_dialect"] = seat_input["spec_dialect"].clone();
                 }
                 copy_secret_binding_facts(&mut input, seat_input);
-                if self
-                    .bundle
-                    .hands
-                    .contains_key(&format!("{driver_seat_prefix}:{}", member.name))
-                {
-                    input["hands"] = json!("boxed");
-                }
+                self.mark_boxed(&format!("{driver_seat_prefix}:{}", member.name), &mut input);
                 MemberRun {
                     name: member.name.clone(),
                     driver_seat: format!("{driver_seat_prefix}:{}", member.name),
@@ -1539,6 +1539,7 @@ impl Engine {
                 } => {
                     let site = Some(step.name.clone());
                     let driver_seat = format!("{seat_name}:{}", step.name);
+                    let step_label = driver_seat.clone();
                     let mut input = json!({
                         "feature": seq_input["feature"],
                         "phase": seq_input["phase"],
@@ -1558,10 +1559,7 @@ impl Engine {
                         input["spec_dialect"] = seq_input["spec_dialect"].clone();
                     }
                     copy_secret_binding_facts(&mut input, seq_input);
-                    let step_label = input["seat"].as_str().unwrap_or_default().to_string();
-                    if self.bundle.hands.contains_key(&step_label) {
-                        input["hands"] = json!("boxed");
-                    }
+                    self.mark_boxed(&step_label, &mut input);
                     let command = hands_command(
                         confined_command(
                             argv_for(selection, &site, command),
@@ -1675,6 +1673,7 @@ impl Engine {
                     .collect::<Vec<_>>();
                     let site = Some(step.name.clone());
                     let driver_seat = format!("{seat_name}:{}", step.name);
+                    let step_label = driver_seat.clone();
                     let mut input = json!({
                         "feature": seq_input["feature"],
                         "phase": seq_input["phase"],
@@ -1697,10 +1696,7 @@ impl Engine {
                         },
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
-                    let step_label = input["seat"].as_str().unwrap_or_default().to_string();
-                    if self.bundle.hands.contains_key(&step_label) {
-                        input["hands"] = json!("boxed");
-                    }
+                    self.mark_boxed(&step_label, &mut input);
                     let command = hands_command(
                         argv_for(selection, &site, &command).to_vec(),
                         self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
