@@ -224,8 +224,18 @@ jobs:
             echo "::warning::CARGO_REGISTRY_TOKEN is not set — the crates were not published for ${GITHUB_REF_NAME}"
             exit 0
           fi
+          # Idempotent, so a re-run after a registry refusal (v0.9.0 hit
+          # crates.io's new-crate rate limit at the sixth crate) picks up
+          # where it stopped instead of failing on the first crate that is
+          # already up: a version the index already serves is skipped.
+          version="${GITHUB_REF_NAME#v}"
           for crate in brokkr-core brokkr-store brokkr-protocol brokkr-view \
                        brokkr-runtime brokkr-bridge brokkr-cli; do
+            if curl -fsSL -A "brokkr-release (${GITHUB_REPOSITORY})" \
+                 "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1; then
+              echo "${crate} ${version} is already on crates.io — skipped"
+              continue
+            fi
             cargo publish -p "$crate" --locked
           done
 
