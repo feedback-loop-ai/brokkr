@@ -45,6 +45,7 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 | `triage` | Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | variable |
 | `wager-harness` | Driver evaluation that swaps only implementation to Codex for a fair wager. | implement, review, ship, verify | medium |
 | `wager-harness-dsh` | Driver evaluation that swaps only implementation to DSH for a fair wager. | implement, review, ship, verify | medium |
+| `wager-harness-muse` | Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager. | implement, review, ship, verify | low |
 <!-- recipe-table:end -->
 
 ## 4. Light the run
