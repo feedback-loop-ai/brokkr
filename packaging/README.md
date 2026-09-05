@@ -110,12 +110,16 @@ nothing — it never fails the release, and it never pretends it bumped a
 channel it did not.
 
 The flake-digest pull request against this repository is opened by the
-workflow token, which only works where the organization (or the
-enterprise above it) allows *Actions may create pull requests*. Where
-that policy is off, a third fine-grained token with `contents: write`
-and `pull requests: write` on this repository, held as
-`BROKKR_FLAKE_PR_TOKEN`, is used instead; without it the step falls
-back to the workflow token and fails with the policy's own message.
+`brokkr-release-bot` GitHub App. The App is installed only on this
+repository with `contents: write` and `pull requests: write`; the release
+workflow mints a one-hour installation token and asks
+`peter-evans/create-pull-request` to create a GitHub-verified signed commit.
+That avoids both the enterprise policy that prevents `GITHUB_TOKEN` from
+opening pull requests and the unsigned commits produced when the action is
+given a personal access token. Its credentials are held as:
+
+- repository variable `BROKKR_RELEASE_APP_ID` — the non-secret App ID
+- repository secret `BROKKR_RELEASE_APP_PRIVATE_KEY` — a generated private key
 
 ## Using the channels
 
