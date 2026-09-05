@@ -1,0 +1,43 @@
+{
+  "name": "wager-harness-muse",
+  "description": "Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.",
+  "cost": "low",
+  "extends": "fast",
+  "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
+    "seats": [
+      "implement"
+    ]
+  },
+  "seats": {
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked",
+        "oversized"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "dsh",
+          "--",
+          "--model",
+          "meta-contributor/meta/muse-spark-1.3-contributor",
+          "--effort",
+          "xhigh"
+        ]
+      }
+    }
+  }
+}
