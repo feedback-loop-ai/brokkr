@@ -1,6 +1,6 @@
 # 0045 — Astra is a judge: the codex lane has a peer of fable, and every gate crosses the vendor line
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-05)
 Date: 2026-09-05
 
 ## Context
@@ -98,6 +98,14 @@ Alternatives weighed:
   more: the implementers hold tool allow-lists and no boxed hands, so no
   codex lane can resolve there today. Boxing the smith is decision
   0043's road, not a roster line.
+
+## Ruling — 2026-09-05, operator: accepted as proposed
+
+Accepted in chat the day it was proposed ("accept 0045 and label it
+by-hand"), without amendment. The five rulings and their enforcement
+bindings stand as written; the roster table is the hire from this day
+on, and what the consequences leave deliberately unruled stays open for
+the journal's evidence and the operator's later word.
 
 ## Rulings
 
