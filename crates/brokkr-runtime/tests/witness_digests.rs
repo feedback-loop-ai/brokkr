@@ -186,7 +186,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/research-dsh",
-        "2095631397be952a0149a2fa2ce5856b2f102440934fae7dffeda49c68b55ae8",
+        "8334be1198673a05a8bacfc2f82e7b4ba4462fb9e93c9f8db77abd11f5cc294f",
     ),
     (
         "bundles/verify",

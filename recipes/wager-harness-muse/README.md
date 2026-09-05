@@ -29,16 +29,13 @@ and no gate — the same standing as the deepseek arm.
 - **Same model class?** No, and that is the point: a cheap untrusted
   lane on a third vendor against the incumbent's fable, on the same
   commission, judged by the same gates on the incumbent.
-- **Effort.** The `--effort xhigh` pin is in the bundle and therefore
-  in its digest, and it stops there: the dsh driver forwards no effort
-  (decision 0035; the record says `not reported`). The level Meta
-  actually sees is the route's own `reasoning:` row in the operator's
-  dsh headless profile, ruled `xhigh` on 2026-09-05 and verified in
-  the request header of a headless turn (`reasoningEffort: xhigh`).
-  The incumbent runs `high`. Effort is not a parity item — the wager
-  measures the hire, and the hire includes its effort — but the
-  comparison must name both, and must name that the challenger's is
-  profile data, not recipe data.
+- **Effort.** The `--effort xhigh` pin reaches the wire: the dsh
+  driver writes it into a settings document of the seat's own, dsh
+  reads that over the route's `reasoning:` default, and the request
+  header echoes `reasoningEffort: xhigh` into the record (decision
+  0035 addendum, 2026-09-05). The incumbent runs `high`. Effort is not
+  a parity item — the wager measures the hire, and the hire includes
+  its effort — but the comparison must name both.
 - **Reasoning is encrypted.** Meta returns its reasoning as an
   encrypted block (`reasoning.encrypted`, format `meta-responses-v1`);
   dsh records the signature and an empty text block. The challenger's

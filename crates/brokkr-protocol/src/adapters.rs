@@ -907,6 +907,16 @@ const DSH_USAGE: [(&str, &str); 4] = [
 /// sibling of dsh's own `inputTokens`.
 const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
 
+/// The level dsh's request header last echoed for this seat, or the
+/// sentinel for a row written before any header did.
+fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
+    session_meta
+        .get("effort")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
+}
+
 /// One dsh session-log line folded into bounded live telemetry.
 ///
 /// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
@@ -962,6 +972,22 @@ fn fold_dsh_event(
             // journaled before spawn. Its internal session id is not a
             // second locator shape (decision 0032).
         }
+        Some("request/header") => {
+            // The harness's own echo of the level it applied: the
+            // request it is about to send, after every profile, plugin
+            // and settings layer (decision 0035 ruling 3, for the lane
+            // its addendum brought in). Measured on 0.1.2-rc.1: the
+            // header's `config` carries `reasoningEffort` when a level
+            // applies and omits it when none does, so an absent field
+            // leaves the seat saying `not reported`, honestly.
+            if let Some(effort) = event
+                .pointer("/data/header/config/reasoningEffort")
+                .and_then(Value::as_str)
+                .and_then(effort_token)
+            {
+                session_meta.insert("effort".into(), Value::String(effort));
+            }
+        }
         Some("assistant/message") => {
             *turns += 1;
             session_meta.insert("num_turns".into(), Value::from(*turns));
@@ -980,6 +1006,12 @@ fn fold_dsh_event(
             checkpoint.insert(
                 "model".into(),
                 Value::String(model.unwrap_or_else(|| MODEL_NOT_REPORTED.to_string())),
+            );
+            // The last level the header echoed, on this step as on
+            // every other row (decision 0035 ruling 3).
+            checkpoint.insert(
+                "effort".into(),
+                Value::String(dsh_echoed_effort(session_meta)),
             );
             let usage = event.pointer("/data/usage").unwrap_or(&Value::Null);
             let cache_read = usage
@@ -1020,6 +1052,7 @@ fn fold_dsh_event(
                 "turn": *turns,
                 "harness":"deepseek",
                 "model": model,
+                "effort": dsh_echoed_effort(session_meta),
                 "tool": tool.chars().take(80).collect::<String>(),
             }));
         }
@@ -1704,19 +1737,22 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let (model, passthrough) = split_dsh_model(extra)?;
-    // The effort pin leaves the argv here and goes nowhere else, and
-    // that is the honest state of this lane rather than an oversight.
-    // `dsh --help` (0.1.0-rc.6, and 0.1.2-rc.1 re-measured 2026-09-04)
-    // lists no effort control at all, and the
-    // one place a level could be imposed is the provider row of the
-    // composed profile — which is the `headless` profile finding
-    // decision 0035 deliberately leaves unruled. Forwarding it would
-    // fail the spawn; inventing an overlay key would be this adapter
-    // guessing at somebody else's config grammar. So the pin does its
-    // work where it can be checked — it is in the bundle, and therefore
-    // in the bundle's digest — and the record says `not reported`,
-    // which is precisely what ruling 3 rules for dsh.
-    let (_effort, passthrough) = split_effort(&passthrough);
+    // The effort pin is forwarded, and the seam it rides was measured
+    // rather than guessed (2026-09-05, dsh 0.1.2-rc.1). `dsh --help`
+    // still lists no effort control, and the composition row that pins
+    // the model (`agent-default-model`) refuses to carry a level by that
+    // package's own design. What dsh does read is its SETTINGS layer:
+    // the `agent-default-model` settings section is a complete
+    // selection — provider, model, reasoningEffort — that wins over the
+    // composition entry, and the `settings` row's whole config is the
+    // path of that document. So a seat with an effort gets a settings
+    // document of its own naming the pinned model with the pinned
+    // level, the overlay points the settings row at it, and a real
+    // headless turn then echoed `reasoningEffort` in its
+    // `request/header`, which is what the fold reads back (decision
+    // 0035 addendum of 2026-09-05). The pin is in the bundle either
+    // way, and therefore in its digest.
+    let (effort, passthrough) = split_effort(&passthrough);
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     // The seat's own root under the operator's harness home. Nothing
     // here removes it: the transcript is the operator's (see
@@ -1725,7 +1761,7 @@ fn invoke_dsh_with(
         dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
     })?;
     let root = root_dir.as_path();
-    let overlay = dsh_seat_overlay(model.as_deref(), root)?;
+    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root)?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
     transcript.record(&locator, &mut session_meta, emit);
@@ -1983,8 +2019,15 @@ const DSH_PROVIDER: &str = "deepseek-official";
 /// profile tree and a model id that route serves. `<id>` alone is the
 /// official DeepSeek route; `<provider>/<id>` names another route the
 /// profile declares — `dashscope/qwen3.8-max` for Model Studio. The
-/// split is on the first slash and the id keeps none, so a route name
-/// and a model id are each one plain identifier.
+/// split is on the FIRST slash, exactly as decision 0036 ruling 2 reads
+/// a concrete id: the route is the first segment and everything after
+/// it is the id the route serves. That id may carry slashes of its own,
+/// because an aggregator's catalogue names models as `<vendor>/<name>`
+/// — `meta-contributor/meta/muse-spark-1.3-contributor` is the
+/// `meta-contributor` route serving OpenRouter's `meta/muse-spark-…` —
+/// and the driver has no business reading a vendor's naming as a
+/// second route. Every segment is one plain identifier and none is
+/// empty, so nothing that reaches the YAML overlay can open a row.
 struct DshModel<'a> {
     provider: &'a str,
     model: &'a str,
@@ -2001,9 +2044,10 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
         Some((provider, model)) => (provider, model),
         None => (DSH_PROVIDER, pinned),
     };
-    if !plain(provider) || !plain(model) {
+    if !plain(provider) || !model.split('/').all(plain) {
         return Err(format!(
-            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain identifiers"
+            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain \
+             identifiers (the id may carry slashes between plain segments)"
         ));
     }
     Ok(DshModel { provider, model })
@@ -2111,14 +2155,35 @@ fn dsh_transcript_row(root: &std::path::Path) -> Result<String, String> {
 }
 
 /// One overlay per seat carrying every row this driver pins: the
-/// transcript root always, and the model when one is pinned. It is ONE
-/// file because `--patch` is the launcher's only override channel and
-/// the seat's argv stays as narrow as it was.
+/// transcript root always, the model when one is pinned, and — when an
+/// effort is pinned beside it — the settings row, pointed at a settings
+/// document that is this seat's own. It is ONE patch file because
+/// `--patch` is the launcher's only override channel and the seat's
+/// argv stays as narrow as it was; the settings document is a second
+/// file only because dsh reads a level from its settings layer and from
+/// nowhere else.
+#[derive(Debug)]
+struct DshSeatOverlay {
+    patch: tempfile::NamedTempFile,
+    /// Held for the child's lifetime, never read back by this driver:
+    /// dsh reads the document live, and a path that vanished mid-seat
+    /// would be a level that vanished with it.
+    #[allow(dead_code)]
+    settings: Option<tempfile::NamedTempFile>,
+}
+
+impl DshSeatOverlay {
+    fn path(&self) -> &std::path::Path {
+        self.patch.path()
+    }
+}
+
 fn dsh_seat_overlay(
     model: Option<&str>,
+    effort: Option<&str>,
     root: &std::path::Path,
-) -> Result<tempfile::NamedTempFile, String> {
-    dsh_seat_overlay_in(model, root, || {
+) -> Result<DshSeatOverlay, String> {
+    dsh_seat_overlay_in(model, effort, root, || {
         tempfile::Builder::new()
             .prefix("brokkr-dsh-seat-")
             .suffix(".yml")
@@ -2127,22 +2192,113 @@ fn dsh_seat_overlay(
 }
 
 /// The seat overlay over an injected file, so the ways staging can fail
-/// are reachable from a test without a full disk.
+/// are reachable from a test without a full disk. The injected creator
+/// stages the patch; the settings document, when one is needed, is
+/// staged beside it under its own prefix. Every row after the model's
+/// is composed first and written once, so the one way the write can
+/// fail is the one way a test can make it fail.
 fn dsh_seat_overlay_in(
     model: Option<&str>,
+    effort: Option<&str>,
     root: &std::path::Path,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
-) -> Result<tempfile::NamedTempFile, String> {
-    let row = dsh_transcript_row(root)?;
-    let mut file = match model {
+) -> Result<DshSeatOverlay, String> {
+    let mut rows = dsh_transcript_row(root)?;
+    let settings = match (model, effort) {
+        (Some(model), Some(effort)) => {
+            let settings = dsh_effort_settings_in(model, effort, || {
+                tempfile::Builder::new()
+                    .prefix("brokkr-dsh-seat-settings-")
+                    .suffix(".yaml")
+                    .tempfile()
+            })?;
+            rows.push_str(&dsh_settings_row(settings.path())?);
+            Some(settings)
+        }
+        (None, Some(effort)) => {
+            return Err(format!(
+                "dsh driver: `--effort {effort}` needs a `--model` beside it: the \
+                 level rides the seat's default-model selection, which names its \
+                 provider and model, and this driver does not read the profile's \
+                 default back to restate it"
+            ));
+        }
+        _ => None,
+    };
+    let mut patch = match model {
         Some(model) => dsh_model_overlay_in(model, create)?,
         None => io_context(create(), "could not stage the dsh seat overlay")?,
     };
     io_context(
-        file.write_all(row.as_bytes()),
+        patch.write_all(rows.as_bytes()),
         "could not write the dsh seat overlay",
     )?;
+    Ok(DshSeatOverlay { patch, settings })
+}
+
+/// This seat's settings document: the pinned model restated as a
+/// complete default-model selection with the pinned level on it. dsh's
+/// `agent-default-model` package keeps `reasoningEffort` out of its
+/// composition config on purpose — a later selection that clears an
+/// effort must stay cleared rather than re-inherit one — and reads it
+/// from the settings section instead, where a complete selection wins
+/// over the composition row (measured 2026-09-05 on 0.1.2-rc.1: the
+/// same key written into the composition row was ignored without a
+/// word; written here, the request header echoed it). A level is one
+/// bounded word by `effort_token`'s clamp and is quoted anyway, because
+/// the document is YAML and the discipline is the transcript root's.
+fn dsh_effort_settings_in(
+    model: &str,
+    effort: &str,
+    create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
+) -> Result<tempfile::NamedTempFile, String> {
+    let DshModel { provider, model } = parse_dsh_model(model)?;
+    let Some(effort) = effort_token(effort) else {
+        return Err(format!(
+            "dsh driver: effort {effort:?} is not one bounded word"
+        ));
+    };
+    let mut file = io_context(create(), "could not stage the dsh seat settings")?;
+    let body = format!(
+        "# Written by `brokkr driver dsh` for one seat: the effort pin, in the\n\
+         # settings section dsh reads over its composition. The composition\n\
+         # row that pins the model cannot carry a level by its own design, so\n\
+         # the selection is restated here whole, with the level on it.\n\
+         agent-default-model:\n\
+         \x20 provider: {provider}\n\
+         \x20 model: {model}\n\
+         \x20 reasoningEffort: '{}'\n",
+        effort.replace('\'', "''")
+    );
+    io_context(
+        file.write_all(body.as_bytes()),
+        "could not write the dsh seat settings",
+    )?;
     Ok(file)
+}
+
+/// The overlay row that points dsh's settings provider at this seat's
+/// own document. The row's whole config is its path (measured on
+/// 0.1.2-rc.1: `@deepseek-ai/dsh-settings-file` takes `path`, defaulting
+/// to `<harness home>/settings.yaml`), so replacing it restates nothing
+/// else. It does mean the seat reads no operator settings document,
+/// and that is the point: a seat's level is the seat's, not whatever
+/// the operator's own document last said.
+fn dsh_settings_row(path: &std::path::Path) -> Result<String, String> {
+    let path = path.to_string_lossy();
+    if path.contains('\n') || path.contains('\r') {
+        return Err(format!(
+            "dsh driver: settings path {path:?} spans more than one line"
+        ));
+    }
+    Ok(format!(
+        "# Written by `brokkr driver dsh` for one seat: the settings document\n\
+         # carrying this seat's effort, as the settings row's whole config.\n\
+         - id: settings\n\
+         \x20 config:\n\
+         \x20   path: '{}'\n",
+        path.replace('\'', "''")
+    ))
 }
 
 /// Resolve one exec template part: `{workdir}`, `{prompt_file}`, and
@@ -2274,8 +2430,9 @@ fn run_seat(
             // A fold that read its harness's echo has already written
             // the level; this is what every other row says — `not
             // applicable` for exec, which has no model turn, and `not
-            // reported` for a harness whose lanes carry a real effort
-            // control that nothing echoes back, which is dsh exactly.
+            // reported` for a row its harness echoed no level for: the
+            // rows before the first request goes out, and every row of
+            // a lane that echoes nothing at all.
             checkpoint.entry("effort").or_insert_with(|| {
                 Value::String(
                     if kind == AdapterKind::Exec {
