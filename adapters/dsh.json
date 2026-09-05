@@ -7,8 +7,8 @@
   },
   "credentials": {
     "spark": "SPARK_API_KEY",
-    "meta": "MODEL_API_KEY",
-    "meta-contributor": "MODEL_API_KEY"
+    "meta": "OPENROUTER_API_KEY",
+    "meta-contributor": "OPENROUTER_API_KEY"
   },
   "binary": "dsh",
   "driver": [
@@ -20,8 +20,8 @@
   "models": {
     "flash": "deepseek-v4-flash",
     "glm": "dashscope/glm-5.2",
-    "muse": "meta/muse-spark-1.3",
-    "muse-contributor": "meta-contributor/muse-spark-1.3-contributor",
+    "muse": "meta/meta/muse-spark-1.3",
+    "muse-contributor": "meta-contributor/meta/muse-spark-1.3-contributor",
     "pro": "deepseek-v4-pro",
     "qwen-flash": "dashscope/qwen3.8-flash",
     "qwen-max": "dashscope/qwen3.8-max",
