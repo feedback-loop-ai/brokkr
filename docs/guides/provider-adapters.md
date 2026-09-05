@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.2-rc.1 · serves flash, glm, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.2-rc.1 · serves flash, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ```
 
@@ -32,6 +32,18 @@ headless profile's own patch layer (`$DSH_HOME/profiles/headless/cordis.patch.ym
 The driver turns `--model <lane>` into the one-seat overlay dsh's
 launcher reads; neither key ever enters argv, the recipe, or the
 journal.
+
+The same adapter reaches Meta Model API (`https://api.meta.ai/v1`,
+OpenAI-compatible) as two routes that share one endpoint and one key
+name, `MODEL_API_KEY`: `meta/muse-spark-1.3` and
+`meta-contributor/muse-spark-1.3-contributor`. They are two routes
+because the model id is the terms — the bare id is not used to improve
+Meta's products, the contributor id is, at roughly a twelfth of the
+price — and egress is a property of the route (decision 0036), so the
+two must be tellable apart by prefix. Neither is ruled `contracted`;
+both are `uncontracted` by silence. Muse Spark always reasons, so the
+adapter's `efforts` carries `xhigh` for it and the profile row declares
+no `off` level.
 
 A key taken from the launching environment is the one channel that
 moves no digest and reaches no journal row. It is not forbidden, but an
