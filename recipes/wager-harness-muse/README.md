@@ -49,11 +49,11 @@ and no gate — the same standing as the deepseek arm.
   shape on the same dsh route.
 - **Metering.** dsh reports token usage in its session record on this
   route (verified 2026-09-05), which the driver reads into the
-  checkpoint; dollars need the two price rows in LaneTally, which do
-  not exist yet, so until they do the spend is visible in OpenRouter's
-  dashboard and as tokens in `brokkr costs`. The incumbent's spend is
-  journaled per seat as usual. An asymmetry of evidence, recorded here
-  before the run.
+  checkpoint, so tokens reach `brokkr costs`. LaneTally carries both
+  ids' list rates under the `openrouter` provider key
+  (feedback-loop-ai/lanetally#96), so the arm's tokens price the way
+  the incumbent's do; the spend is also visible in OpenRouter's
+  dashboard. The incumbent's spend is journaled per seat as usual.
 - **Key.** `OPENROUTER_API_KEY` is exported into the challenger engine's
   launching environment only, never into argv, the recipe, or the
   journal (decision 0012). `brokkr doctor` warns, by route, that it is
