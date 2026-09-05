@@ -22,12 +22,12 @@ Pick one channel. Each row is the channel's published command; the availability 
 | Channel | One command | Availability |
 |---|---|---|
 | Release tarball (Linux x86_64) | `curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/brokkr-linux-x86_64.tar.gz && curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/SHA256SUMS && sha256sum --ignore-missing -c SHA256SUMS && tar xzf brokkr-linux-x86_64.tar.gz` | working today |
-| cargo-binstall | `cargo binstall brokkr-cli` | published to crates.io by the release workflow from v0.9.0 |
-| Nix | `nix profile install github:feedback-loop-ai/brokkr` | from the first release with rendered flake digests |
-| apt (repository configured) | `sudo apt-get install brokkr` | wired at the bench |
-| dnf (repository configured) | `sudo dnf install brokkr` | wired at the bench |
-| Homebrew | `brew install feedback-loop-ai/tap/brokkr` | wired at the bench |
-| Scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | wired at the bench |
+| cargo-binstall | `cargo binstall brokkr-cli` | live — the seven crates are on crates.io from v0.9.1, published by the release workflow at each tag |
+| Nix | `nix profile install github:feedback-loop-ai/brokkr` | live from v0.9.0 — the release renders the flake digests and opens their pull request; nix reads the default branch |
+| apt (repository configured) | `sudo apt-get install brokkr` | live from v0.9.0 — a signed repository on GitHub Pages; the one-time keyring and source lines are in [packaging/README.md](packaging/README.md) |
+| dnf (repository configured) | `sudo dnf install brokkr` | live from v0.9.0 — same site, same signature; the repo file is in [packaging/README.md](packaging/README.md) |
+| Homebrew | `brew install feedback-loop-ai/tap/brokkr` | live from v0.9.0 — the tap is bumped by the release and merged by the operator |
+| Scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | live from v0.9.0 — the bucket is bumped by the release and merged by the operator |
 
 ## 60-second bootstrap
 

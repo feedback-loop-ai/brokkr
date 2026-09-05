@@ -1113,14 +1113,13 @@ fn the_install_surfaces_carry_the_manager_matrix() {
                 "no {surface} row for {row}:\n{install}"
             );
         }
-        assert!(install.contains("wired at the bench"), "{install}");
+        // The accuracy law, after v0.9.0 and v0.9.1 exercised every
+        // channel: a row names the release that lit it, and the bench
+        // label that once marked an unexercised channel is gone — a
+        // channel is never written as both live and unfinished.
+        assert!(install.contains("live from v0.9."), "{install}");
+        assert!(!install.contains("wired at the bench"), "{install}");
     }
-    // The accuracy law: nothing that needs the bench's secret or the
-    // sibling repositories is written as if it were tested.
-    assert!(
-        quickstart_install.contains("wired at the bench"),
-        "{quickstart_install}"
-    );
     // The forward note about the bootstrap spine resolved itself: the
     // matrix now lives ON the spine, and the tarball row remains the
     // one the 60-second budget gates — assert the merged reality.
@@ -1152,7 +1151,13 @@ fn the_packaging_readme_names_the_secrets_and_the_out_of_scope_channels() {
             "no {channel} in packaging/README.md"
         );
     }
-    assert!(readme.contains("wired at the bench"), "{readme}");
+    // The accuracy law after v0.9.0 and v0.9.1: rows name the release
+    // that lit them, and the bench label survives only as history.
+    assert!(readme.contains("live from v0.9."), "{readme}");
+    assert!(
+        readme.matches("wired at the bench").count() == 1,
+        "the bench label should remain only in the law's history:\n{readme}"
+    );
     assert!(!readme.contains("BEGIN PGP PRIVATE KEY"), "{readme}");
 }
 
