@@ -1252,3 +1252,45 @@ fn packages_under_test(work: &Path, extension: &str) -> PathBuf {
     }
     debs
 }
+
+/// The crates.io publication the operator ruled on 2026-09-05: one job
+/// after the release is published, the token read from the environment
+/// by name, the seven crates in dependency order so each `cargo publish`
+/// can wait on the index for the one before, and a loud skip when the
+/// secret is not provisioned rather than a red tail.
+#[test]
+fn the_crates_are_published_in_dependency_order_after_the_release() {
+    let workflow = read(".github/workflows/release.yml");
+    let start = workflow.find("\n  crates:\n").expect("a crates job");
+    let job = &workflow[start..];
+    let job = &job[..job.find("\n  pages:\n").unwrap_or(job.len())];
+    assert!(job.contains("needs: publish"), "{job}");
+    assert!(
+        job.contains("CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}"),
+        "{job}"
+    );
+    assert!(
+        job.contains("::warning::CARGO_REGISTRY_TOKEN is not set"),
+        "{job}"
+    );
+    assert!(
+        job.contains(r#"cargo publish -p "$crate" --locked"#),
+        "{job}"
+    );
+    let order = [
+        "brokkr-core",
+        "brokkr-store",
+        "brokkr-protocol",
+        "brokkr-view",
+        "brokkr-runtime",
+        "brokkr-bridge",
+        "brokkr-cli",
+    ];
+    let mut cursor = 0;
+    for crate_name in order {
+        let at = job[cursor..]
+            .find(crate_name)
+            .unwrap_or_else(|| panic!("{crate_name} out of order in:\n{job}"));
+        cursor += at + crate_name.len();
+    }
+}
