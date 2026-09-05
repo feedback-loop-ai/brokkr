@@ -121,6 +121,24 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert!(housed.find("## House rules").unwrap() < housed.find("## Spec dialect").unwrap());
     assert!(housed.find("## Spec dialect").unwrap() < housed.find("## Task").unwrap());
     assert!(!prompt.contains("## House rules"));
+    assert!(!prompt.contains("mcp__brokkr__workspace"));
+
+    // Decision 0043, learned at the first astra-judged gate: a boxed seat
+    // is told which tool can write, inside the mandatory contract.
+    let boxed = render_prompt(&json!({
+        "role_path": role,
+        "hands": "boxed",
+        "feature": "feature",
+        "phase": "review",
+        "workdir": "/work",
+        "result_path": "/result.json",
+        "context": {},
+        "allowed_results": ["clean"],
+    }));
+    assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
+    assert!(
+        boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
+    );
 
     let mut turns = 0;
     let mut meta = Map::new();

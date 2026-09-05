@@ -804,6 +804,14 @@ impl Engine {
                 })
             }
         };
+        // Decision 0043: a boxed site is told that it is, because the one
+        // tool the box serves is the only thing that can write its result
+        // file — a harness's own shell runs outside the box and a file
+        // written through it never reaches the engine. The mark is part of
+        // the requested input, so the digest covers it.
+        if matches!(body, ExecutableBody::Single { .. }) && self.bundle.hands.contains_key(phase) {
+            input["hands"] = json!("boxed");
+        }
         // Sealed secret bindings (decision 0012): the engine threads
         // exactly two facts to the driver — the declared NAMES and the
         // store PATH, both journal-safe. Values are resolved at spawn
@@ -1300,6 +1308,13 @@ impl Engine {
                     input["spec_dialect"] = seat_input["spec_dialect"].clone();
                 }
                 copy_secret_binding_facts(&mut input, seat_input);
+                if self
+                    .bundle
+                    .hands
+                    .contains_key(&format!("{driver_seat_prefix}:{}", member.name))
+                {
+                    input["hands"] = json!("boxed");
+                }
                 MemberRun {
                     name: member.name.clone(),
                     driver_seat: format!("{driver_seat_prefix}:{}", member.name),
@@ -1543,6 +1558,10 @@ impl Engine {
                         input["spec_dialect"] = seq_input["spec_dialect"].clone();
                     }
                     copy_secret_binding_facts(&mut input, seq_input);
+                    let step_label = input["seat"].as_str().unwrap_or_default().to_string();
+                    if self.bundle.hands.contains_key(&step_label) {
+                        input["hands"] = json!("boxed");
+                    }
                     let command = hands_command(
                         confined_command(
                             argv_for(selection, &site, command),
@@ -1678,6 +1697,10 @@ impl Engine {
                         },
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
+                    let step_label = input["seat"].as_str().unwrap_or_default().to_string();
+                    if self.bundle.hands.contains_key(&step_label) {
+                        input["hands"] = json!("boxed");
+                    }
                     let command = hands_command(
                         argv_for(selection, &site, &command).to_vec(),
                         self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),

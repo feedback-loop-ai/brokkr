@@ -522,8 +522,14 @@ The adapters then:
 
 The prompt states plainly that the file is the only channel the engine
 reads, and that printing the JSON instead of writing it counts as
-producing no result. Reuse that framing; it is the difference between a
-seat that works and a seat that parks every run.
+producing no result. When the site's hands are boxed (decision 0043) the
+engine adds `"hands": "boxed"` to the input, and the contract then names
+the one tool that can write — `mcp__brokkr__workspace` — and says that
+the harness's own shell runs outside the box and cannot. The first
+astra-judged gate wrote its verdict through codex's native shell twice
+and met no contract; that sentence is the remedy. Reuse that framing; it
+is the difference between a seat that works and a seat that parks every
+run.
 
 ## Deadlines and kills
 
