@@ -932,19 +932,19 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "e0c1eb0757cdf1f8be55ab977be802303e158ad5433f216c3714c9ae2782df43",
+        "c21c2d29853d401b6f4b0c6596a271621ff256d93eda7472b7d8e7e06e7ecfbf",
     ),
     (
         "recipes/panel-review",
-        "6d51bd4c966836783adb5d7acd1a11be9ee8cb9c5c2a410b2bc2bd7809b443d3",
+        "d9e8fac90cea6588ebf0ec02e43748a8054d9e749ee384ea7384f91f6fbce787",
     ),
     (
         "bundles/self",
-        "90c98b51c126e167ab311759e99a14e37d979425594ecb9c0f37e347ff979754",
+        "b43815571f381ee4872cc711dd489f2928a6cb46d1fa3c882dc9927b1df69b3b",
     ),
     (
         "bundles/verify",
-        "8054a434cc74786ba8a3c41302fc495353269cf604a739ff5070d627934fe1df",
+        "01eab93799ecf2661433243ca661ab3535ec6364feae3719404ab96ebe2a5451",
     ),
 ];
 
@@ -1060,7 +1060,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "96b22ca01069055147e39eeb46a791916817afdcb01593ae8ee1d040800ecb09",
+        "ce0c6e515f0c8968621616d4902abb2f8c97a9b6db290f86b3ae437928d6872e",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

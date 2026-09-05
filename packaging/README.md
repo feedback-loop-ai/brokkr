@@ -25,7 +25,7 @@ step (a secret, a Pages site, a sibling repository) is the operator's.
 | `.deb` / `.rpm` build (nfpm) | working, first published in the next release | CI job `packaging` builds both from the real binary |
 | apt repository (Pages) | **wired at the bench** — needs `BROKKR_APT_SIGNING_KEY` and Pages enabled | `packaging/apt/build-repo.sh` is run against real `.deb` files in CI and its `Release` digests are verified |
 | dnf repository (Pages) | **wired at the bench** — same secret, same site | `packaging/rpm/build-repo.sh` is run in CI; `createrepo_c` produces real repodata |
-| `cargo binstall` | **wired at the bench** — needs `brokkr-cli` published to crates.io | the binstall metadata is resolved against the release matrix in CI |
+| `cargo binstall` | **published from v0.9.0** — the `crates` job publishes the seven crates in dependency order at each tag; needs `CARGO_REGISTRY_TOKEN` | the binstall metadata is resolved against the release matrix in CI; the job's order and its loud skip are pinned by `packaging.rs` |
 | nix flake | evaluates today; installs from the next release's rendered digests | `nix flake check` in CI |
 | homebrew tap | **wired at the bench** — needs `BROKKR_TAP_TOKEN` and the tap repository | the render is tested; the pull request is not opened until the token exists |
 | scoop bucket | **wired at the bench** — needs `BROKKR_BUCKET_TOKEN` and the bucket repository | same |
@@ -176,9 +176,11 @@ cargo binstall brokkr-cli
 
 `cargo binstall` resolves a crate through crates.io first and only then
 reads the `[package.metadata.binstall]` block that points it at our
-release asset. Nothing in this repository publishes `brokkr-cli` to
-crates.io, so this line waits on that — see the follow-ups. The metadata
-itself is tested against the release matrix in CI today.
+release asset. The release workflow's `crates` job publishes the crates
+at each tag from v0.9.0 (the operator ruled it on 2026-09-05), so this
+line works once `CARGO_REGISTRY_TOKEN` is provisioned; until then the
+job skips with a warning. The metadata itself is tested against the
+release matrix in CI today.
 
 **nix**:
 
@@ -267,14 +269,13 @@ None of the scripts carries an executable bit; each is invoked as
    one-line change the bench makes with a network it can see.
    Pinning the module *digest* (a `tools/go.mod` and its `go.sum`) is
    the stricter form, and needs the same network to generate.
-4. **Publishing `brokkr-cli` to crates.io.** `cargo binstall brokkr-cli`
-   cannot resolve a crate the registry has never seen, so the binstall
-   metadata is correct and inert until a release publishes the crate.
-   Whether Brokkr's crates belong on crates.io at all is the operator's
-   call, not this directory's. If ruled yes: the workspace's sibling
-   dependencies already carry the version `cargo publish` requires, and
-   the crates go up in dependency order, each waiting for the registry
-   to index the one before —
+4. **Publishing to crates.io — ruled yes, 2026-09-05, and wired.** The
+   `crates` job in `release.yml` runs the loop below after the release
+   is published; the workspace's sibling dependencies carry the version
+   `cargo publish` requires, and cargo itself waits for the registry to
+   index each crate before the next. What remains is the operator's
+   `CARGO_REGISTRY_TOKEN` secret; the first tag after it exists is the
+   first publication, and `cargo binstall brokkr-cli` works from then.
 
    ```sh
    for crate in brokkr-core brokkr-store brokkr-protocol brokkr-view \

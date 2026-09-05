@@ -22,7 +22,7 @@ Pick one channel. Each row is the channel's published command; the availability 
 | Channel | One command | Availability |
 |---|---|---|
 | Release tarball (Linux x86_64) | `curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/brokkr-linux-x86_64.tar.gz && curl -LO https://github.com/feedback-loop-ai/brokkr/releases/latest/download/SHA256SUMS && sha256sum --ignore-missing -c SHA256SUMS && tar xzf brokkr-linux-x86_64.tar.gz` | working today |
-| cargo-binstall | `cargo binstall brokkr-cli` | wired at the bench; awaits crates.io publication |
+| cargo-binstall | `cargo binstall brokkr-cli` | published to crates.io by the release workflow from v0.9.0 |
 | Nix | `nix profile install github:feedback-loop-ai/brokkr` | from the first release with rendered flake digests |
 | apt (repository configured) | `sudo apt-get install brokkr` | wired at the bench |
 | dnf (repository configured) | `sudo dnf install brokkr` | wired at the bench |
