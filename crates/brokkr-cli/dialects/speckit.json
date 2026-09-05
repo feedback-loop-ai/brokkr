@@ -1,0 +1,72 @@
+{
+  "schema": "brokkr.dialect/v2",
+  "name": "speckit",
+  "tool": {"binary": "specify", "version": "0.8.7", "install": {"manager": "uv", "package": "specify-cli", "source": "git+https://github.com/github/spec-kit.git@v0.8.7"}},
+  "requires": [".specify/templates/spec-template.md", ".specify/scripts/bash/check-prerequisites.sh"],
+  "change": "specs/{change}",
+  "truth": {"unsupported": "the feature directory is the record"},
+  "phases": {
+    "specify": {
+      "steps": [{
+        "name": "specify",
+        "artifacts": ["spec"],
+        "office": "chief",
+        "optional": false,
+        "instructions": "speckit/specify.md",
+        "return_instructions": "speckit/return.md"
+      }],
+      "validate": {"unsupported": "spec-kit 0.8.7 has no content validator, and the brokkr CLI has no dialect check subcommand"}
+    },
+    "design": {
+      "steps": [
+        {
+          "name": "plan",
+          "artifacts": ["plan"],
+          "office": "council",
+          "optional": false,
+        "instructions": "speckit/design.md",
+        "return_instructions": "speckit/return.md"
+        },
+        {
+          "name": "checklist",
+          "artifacts": ["checklist"],
+          "office": "chief",
+          "optional": true,
+          "instructions": "speckit/checklist.md",
+          "return_instructions": "speckit/return.md"
+        }
+      ],
+      "validate": {"argv": [".specify/scripts/bash/check-prerequisites.sh"]}
+    },
+    "tasks": {
+      "steps": [{
+        "name": "tasks",
+        "artifacts": ["tasks"],
+        "office": "smith",
+        "optional": false,
+        "instructions": "speckit/tasks.md",
+        "return_instructions": "speckit/return.md"
+      }],
+      "validate": {"argv": [".specify/scripts/bash/check-prerequisites.sh", "--require-tasks"]}
+    },
+    "clarify": {
+      "taxonomy": "speckit/clarify.md",
+      "check": {"unsupported": "spec-kit 0.8.7 exposes no deterministic clarification count command, and the brokkr CLI has no dialect check subcommand"}
+    },
+    "analyze": {
+      "taxonomy": "speckit/analyze.md",
+      "check": {"argv": [".specify/scripts/bash/check-prerequisites.sh", "--require-tasks"]}
+    }
+  },
+  "decisions": {
+    "clarify": {"artifact": "spec", "section": "## Clarifications"},
+    "analyze": {"artifact": "spec", "section": "## Clarifications"}
+  },
+  "order": [
+    {"before": "spec", "after": "plan"},
+    {"before": "plan", "after": "tasks"}
+  ],
+  "verify": {"unsupported": "spec-kit has no post-implementation validator"},
+  "archive": {"unsupported": "spec-kit has no close-out; the feature directory is the record"},
+  "house": ".specify/memory/constitution.md"
+}

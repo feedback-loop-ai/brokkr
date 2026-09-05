@@ -1301,3 +1301,115 @@ fn the_crates_are_published_in_dependency_order_after_the_release() {
         cursor += at + crate_name.len();
     }
 }
+
+/// `cargo publish` packages one crate directory, so what `brokkr init`
+/// embeds has to live inside `crates/brokkr-cli`. The realm's own
+/// library at the workspace root is what init scaffolds into every
+/// adopter, this repository included, so the two are one text in two
+/// places and this test is the tie: every file, byte for byte, and no
+/// file on either side without its twin. v0.9.0's brokkr-cli could not
+/// be published because the includes reached above the crate.
+#[test]
+fn the_crate_carries_the_dialect_library_it_scaffolds_byte_for_byte() {
+    let root = workspace();
+    let library = root.join("dialects");
+    let embedded = root.join("crates/brokkr-cli/dialects");
+    fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(current) = stack.pop() {
+            for entry in std::fs::read_dir(&current).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    let relative = path
+                        .strip_prefix(dir)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    out.insert(relative, std::fs::read(&path).unwrap());
+                }
+            }
+        }
+        out
+    }
+    let library = files(&library);
+    let embedded = files(&embedded);
+    assert!(!library.is_empty(), "the realm's dialect library is empty");
+    assert_eq!(
+        library.keys().collect::<Vec<_>>(),
+        embedded.keys().collect::<Vec<_>>(),
+        "the crate's dialects and the realm's library name different files"
+    );
+    for (name, bytes) in &library {
+        assert!(
+            embedded[name] == *bytes,
+            "dialects/{name} differs from crates/brokkr-cli/dialects/{name}"
+        );
+    }
+}
+
+/// No `include_str!` or `include_bytes!` in any crate reaches above its
+/// own directory: such a file is absent from the published tarball and
+/// the crate fails to verify at `cargo publish`.
+#[test]
+fn no_crate_includes_a_file_from_outside_itself() {
+    let crates = workspace().join("crates");
+    let mut offenders = Vec::new();
+    for crate_dir in std::fs::read_dir(&crates).unwrap().flatten() {
+        let src = crate_dir.path().join("src");
+        let mut stack = vec![src.clone()];
+        while let Some(current) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&current) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                for line in text.lines() {
+                    let Some(start) = line
+                        .find("include_str!(\"")
+                        .or_else(|| line.find("include_bytes!(\""))
+                    else {
+                        continue;
+                    };
+                    let rest = &line[start..];
+                    let quoted = rest.split('"').nth(1).unwrap_or_default();
+                    // Resolve `..` segments against the including file's directory
+                    // and refuse a path that leaves the crate directory.
+                    let mut depth: i32 = path
+                        .parent()
+                        .unwrap()
+                        .strip_prefix(crate_dir.path())
+                        .unwrap()
+                        .components()
+                        .count() as i32;
+                    for segment in quoted.split('/') {
+                        match segment {
+                            ".." => depth -= 1,
+                            "." | "" => {}
+                            _ => depth += 1,
+                        }
+                        if depth < 0 {
+                            offenders.push(format!("{}: {quoted}", path.display()));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "includes outside their crate:\n{}",
+        offenders.join("\n")
+    );
+}
