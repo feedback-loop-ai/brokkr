@@ -162,12 +162,14 @@ fn two_engines_driver_child() {
     });
     // The live telemetry. Each one becomes an append on the shared
     // journal by the engine's own hand, paced the way a real seat paces
-    // its progress lines.
+    // its progress lines — and each one a record the seat-record fence
+    // admits (decision 0034, ruling 6), because a refused checkpoint
+    // would end the attempt and prove nothing about the lock.
     for step in 0..CHECKPOINTS {
         say(Body::Checkpoint {
             effect_id: effect_id.clone(),
             attempt_id: attempt_id.clone(),
-            data: json!({"step": step, "seat": seat}),
+            data: json!({"step": "seat-turn", "turn": step + 1}),
         });
         std::thread::sleep(std::time::Duration::from_millis(4));
     }

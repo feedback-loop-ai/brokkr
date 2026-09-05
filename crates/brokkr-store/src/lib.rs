@@ -536,6 +536,43 @@ fn append_once(
             });
         }
     }
+    // The seat-record fence (decision 0034, ruling 6): a checkpoint or a
+    // successful result that violates the contract is refused HERE, at
+    // the seq it would have taken, before it is sealed into the chain.
+    // The journal is append-only, so a nonconforming record that landed
+    // could never be corrected — only discovered at export, when the run
+    // was already wanted as evidence, and by then every verb that makes
+    // evidence of it (export, anchor, offline verify) refuses the whole
+    // run forever. Dropping the transaction rolls it back: a refused
+    // record writes nothing, like a fence that fails.
+    if let Some(record) = seat_record::record_of(event_type, &payload) {
+        // Which contract this run writes under is settled once, at
+        // `run/started`, and `runs.manifest` is immutable by trigger —
+        // so the engine named there is the same answer the export and
+        // verify sweeps reach through the journal, read here inside the
+        // same transaction the row would be sealed in. A run whose
+        // manifest names no engine is read under v1, the safe reading:
+        // it admits strictly less.
+        let engine: Option<String> = tx
+            .query_row(
+                "SELECT manifest FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|manifest| {
+                manifest
+                    .pointer("/engine")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        let version = engine
+            .as_deref()
+            .map(SeatRecordVersion::of_engine)
+            .unwrap_or(SeatRecordVersion::V1);
+        seat_record::validate_seat_record(record, last_seq + 1, version)?;
+    }
     let envelope = EventEnvelope {
         run_id: run_id.to_string(),
         seq: last_seq + 1,

@@ -5424,3 +5424,401 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
     assert_eq!(rootless[7], "--");
     assert_eq!(&rootless[8..], &rootless_inner);
 }
+
+/// A driver that streams the given checkpoints, then the terminal
+/// message the outcome calls for — none for an indeterminate one.
+fn checkpointing_command(
+    effect_id: &str,
+    attempt_id: &str,
+    checkpoints: &[Value],
+    outcome: AttemptOutcome,
+) -> Vec<String> {
+    let capabilities = wire(Body::Capabilities {
+        driver: "test".into(),
+        version: "1".into(),
+        supports: vec![],
+    });
+    let accepted = wire(Body::Accepted {
+        effect_id: effect_id.into(),
+        attempt_id: attempt_id.into(),
+        session_ref: Some("session".into()),
+    });
+    let mut script = format!(
+        "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}'"
+    );
+    for data in checkpoints {
+        let checkpoint = wire(Body::Checkpoint {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            data: data.clone(),
+        });
+        script.push_str(&format!("; printf '%s\\n' '{checkpoint}'"));
+    }
+    let terminal = match outcome {
+        AttemptOutcome::Succeeded { result } => Some(wire(Body::Result {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            status: ResultStatus::Succeeded,
+            result: Some(result),
+            error: None,
+        })),
+        AttemptOutcome::Failed { error } => Some(wire(Body::Result {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            status: ResultStatus::Failed,
+            result: None,
+            error: Some(error),
+        })),
+        AttemptOutcome::Indeterminate { .. } => None,
+    };
+    if let Some(terminal) = terminal {
+        script.push_str(&format!("; printf '%s\\n' '{terminal}'; read -r line"));
+    }
+    vec!["sh".into(), "-c".into(), script]
+}
+
+fn prose_checkpoint() -> Value {
+    json!({"step":"seat-turn", "turn":1, "content":"private prose"})
+}
+
+fn refusal_text(error: &str) -> bool {
+    // The refusal names the contract the record was judged against, and
+    // which one that is depends on the engine the run's manifest names
+    // (v1 for journals written before decision 0035's addendum). The
+    // fence is the same fence either way, so the assertion is on the
+    // refusal, not on the version it happens to cite.
+    error.contains("violates contracts/seat-record.v") && !error.contains("private prose")
+}
+
+fn failed_error(driven: &Engine) -> String {
+    let events = driven.store.load(&driven.run_id).unwrap();
+    let trail: Vec<(u64, EventType, Value)> = events
+        .iter()
+        .map(|event| (event.seq, event.event_type, event.payload.clone()))
+        .collect();
+    events
+        .into_iter()
+        .find(|event| event.event_type == EventType::EffectFailed)
+        .unwrap_or_else(|| panic!("no effect/failed in {trail:?}"))
+        .payload["error"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
+    let refusal = SeatRecordError {
+        seq: 9,
+        path: "/".into(),
+        contract: "contracts/seat-record.v1.schema.json",
+    };
+    assert!(matches!(
+        refused_outcome(
+            AttemptOutcome::Succeeded {
+                result: json!({"result":"complete"}),
+            },
+            &refusal,
+        ),
+        AttemptOutcome::Failed { error } if error == refusal.to_string()
+    ));
+    assert!(matches!(
+        refused_outcome(
+            AttemptOutcome::Failed {
+                error: "exited 1".into(),
+            },
+            &refusal,
+        ),
+        AttemptOutcome::Failed { error }
+            if error == format!("{refusal}; the driver then failed: exited 1")
+    ));
+    assert!(matches!(
+        refused_outcome(
+            AttemptOutcome::Indeterminate {
+                reason: "lost".into(),
+            },
+            &refusal,
+        ),
+        AttemptOutcome::Indeterminate { reason } if reason == "lost"
+    ));
+
+    // The driver goes on to succeed after the refused checkpoint; the
+    // attempt does not, and nothing it sent after the refusal is
+    // journaled.
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    let command = checkpointing_command(
+        "effect",
+        "attempt",
+        &[prose_checkpoint(), json!({"step":"seat-turn", "turn":2})],
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"complete"}),
+        },
+    );
+    let DriverRun::Ran(report) = driven
+        .run_driver(
+            "effect",
+            "attempt",
+            "work",
+            &command,
+            json!({}),
+            std::time::Duration::from_secs(2),
+            None,
+            None,
+        )
+        .unwrap()
+    else {
+        panic!("the driver spawned");
+    };
+    let AttemptOutcome::Failed { error } = report.outcome else {
+        panic!("a refused checkpoint fails the attempt");
+    };
+    assert!(refusal_text(&error), "{error}");
+    assert_eq!(
+        driven
+            .store
+            .load(&driven.run_id)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == EventType::EffectCheckpointed)
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_refused_result_ends_a_single_seat_as_a_failed_attempt() {
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    driven
+        .conclude_single(
+            "effect",
+            "attempt",
+            DriverRun::Ran(report(
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"complete", "commits":["see the branch"]}),
+                },
+                "the driver's last words",
+            )),
+            &Selection::new(),
+        )
+        .unwrap();
+    let events = driven.store.load(&driven.run_id).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == EventType::EffectSucceeded));
+    let error = failed_error(&driven);
+    assert!(refusal_text(&error), "{error}");
+    assert!(!error.contains("see the branch"));
+    assert!(error.contains("stderr tail: the driver's last words"));
+
+    // The failed ending itself cannot be written: the storage error
+    // propagates, as every other one does.
+    let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    fail_event(&dir.path().join("forge.db"), "effect/failed");
+    assert!(driven
+        .conclude_single(
+            "effect",
+            "attempt",
+            DriverRun::Ran(report(
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"complete", "commits":[]}),
+                },
+                "",
+            )),
+            &Selection::new(),
+        )
+        .is_err());
+}
+
+#[test]
+fn a_panel_members_refused_checkpoint_fails_that_member_alone() {
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    let refused = checkpointing_command(
+        "effect",
+        "attempt",
+        &[prose_checkpoint(), json!({"step":"seat-turn", "turn":2})],
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"pass"}),
+        },
+    );
+    let clean = driver_command(
+        "effect",
+        "attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"pass"}),
+        },
+    );
+    driven
+        .execute_panel(
+            "effect",
+            "attempt",
+            "work",
+            &[member("refused", refused), member("clean", clean)],
+            Aggregate::UnanimousPass,
+            &panel_input(&["refused", "clean"]),
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+    let error = failed_error(&driven);
+    assert!(refusal_text(&error), "{error}");
+
+    // Ruling 6: the refusal latches, so the conforming checkpoint that
+    // followed it is not journaled either. A member whose record was
+    // refused stops being a witness at the refusal, not at its exit.
+    assert!(!driven
+        .store
+        .load(&driven.run_id)
+        .unwrap()
+        .iter()
+        .any(|event| event.payload["checkpoint"]["turn"] == 2));
+
+    let outcomes: BTreeMap<String, String> = driven
+        .store
+        .load(&driven.run_id)
+        .unwrap()
+        .iter()
+        .filter(|event| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step"] == "panel-member-finished"
+        })
+        .map(|event| {
+            (
+                event.payload["checkpoint"]["member"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+                event.payload["checkpoint"]["outcome"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(outcomes["refused"], "failed");
+    assert_eq!(outcomes["clean"], "succeeded");
+}
+
+fn two_step_input() -> Value {
+    json!({
+        "feature":"feature", "phase":"work", "workdir":".",
+        "allowed_results":["complete"], "context":{},
+        "steps":[
+            {"role_path":"role.md", "result_path":"first.json"},
+            {"role_path":"role.md", "result_path":"second.json"},
+        ],
+    })
+}
+
+fn step(name: &str, command: Vec<String>) -> SequenceStep {
+    SequenceStep {
+        name: name.into(),
+        class: SeatClass::Work,
+        results: vec!["complete".into()],
+        body: StepBody::Single {
+            role_path: "role.md".into(),
+            command,
+            confine: None,
+            candidates: Vec::new(),
+        },
+    }
+}
+
+#[test]
+fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
+    // The last step's result carries a field the contract does not admit.
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    let last = step(
+        "last",
+        driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Succeeded {
+                result: json!({"result":"complete", "commits":["see the branch"]}),
+            },
+        ),
+    );
+    driven
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &[last],
+            &step_input(),
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+    let error = failed_error(&driven);
+    assert!(error.starts_with("sequence step 'last': "), "{error}");
+    assert!(
+        refusal_text(&error) && !error.contains("see the branch"),
+        "{error}"
+    );
+
+    // An intermediate step reports a model no provider would serve; the
+    // step-finished checkpoint is refused, the attempt fails there, and
+    // the step after it never runs.
+    let first_command = driver_command(
+        "effect",
+        "attempt",
+        AttemptOutcome::Succeeded {
+            result: json!({"result":"complete", "model":"a configured guess"}),
+        },
+    );
+    let (_dir, mut driven) = engine(single_body(vec!["driver".into()]));
+    driven
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &[
+                step("first", first_command.clone()),
+                step("second", vec!["missing-driver".into()]),
+            ],
+            &two_step_input(),
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .unwrap();
+    let error = failed_error(&driven);
+    assert!(error.starts_with("sequence step 'first': "), "{error}");
+    assert!(
+        refusal_text(&error) && !error.contains("did not spawn"),
+        "{error}"
+    );
+
+    // The failed ending of a refused step cannot be written, or the
+    // step-finished checkpoint fails for a reason that is not the fence:
+    // both propagate.
+    for needle in ["effect/failed", "sequence-step-finished"] {
+        let (dir, mut driven) = engine(single_body(vec!["driver".into()]));
+        fail_event(&dir.path().join("forge.db"), needle);
+        let first = match needle {
+            "effect/failed" => first_command.clone(),
+            _ => driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"complete"}),
+                },
+            ),
+        };
+        assert!(
+            driven
+                .execute_sequence(
+                    "effect",
+                    "attempt",
+                    "work",
+                    &[
+                        step("first", first),
+                        step("second", vec!["missing-driver".into()]),
+                    ],
+                    &two_step_input(),
+                    std::time::Duration::from_secs(2),
+                    &Selection::new(),
+                )
+                .is_err(),
+            "{needle}"
+        );
+    }
+}

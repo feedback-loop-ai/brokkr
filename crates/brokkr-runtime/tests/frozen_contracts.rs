@@ -135,6 +135,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/seat-record.v2.schema.json",
             "Forge seat record v2",
         ),
+        // Decision 0034's second addendum (ruled 2026-09-05): the dialect
+        // step's `state` is admitted to the typed report as a NEW file
+        // beside v2, whose bytes are pinned above and did not move.
+        (
+            "contracts/seat-record.v3.schema.json",
+            "Forge seat record v3",
+        ),
         // Decision 0043's boxed hands: the manifest's `hands` key arrives
         // as v6 beside v5, whose bytes are pinned above and did not move.
         (

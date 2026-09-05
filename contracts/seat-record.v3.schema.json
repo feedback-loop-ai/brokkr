@@ -1,0 +1,372 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/seat-record.v3.json",
+  "title": "Forge seat record v3",
+  "description": "v2's vocabulary (decisions 0034 and 0035) plus the one field decision 0042's dialect step already writes: state, the dialect's own state command output, captured beside notes on a dialect validator's result. v2 is not edited; this is a new file beside it, and a record is validated against the version its run's engine wrote. state belongs to the separately governed typed report — the family of result, inputs and notes — and not to this contract's accounting vocabulary: the contract admits the field and says nothing about its content, exactly as it does for notes. Everything v2 said about the accounting fields still holds: they are an accounting record, never a transcript. input_tokens includes cache reads; cache_read_tokens is its reported subset and must never be added to input_tokens again by a view. reasoning_output_tokens is the same kind of fact one level down. effort is CONFIGURATION, not a report. Numeric accounting is omitted when unreported and, when present, is strictly greater than zero. Historical journals remain readable: model, transcript, effort and state are optional in the schema because no record-version marker distinguishes rows written before decisions 0031, 0032, 0035 and 0042.",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/checkpoint"
+    },
+    {
+      "$ref": "#/definitions/result"
+    }
+  ],
+  "definitions": {
+    "positive_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "model": {
+      "description": "The harness-reported served model, never a configured pin. The only non-provider values are the two sentinels ruled by decision 0031. It is the provider's claim, not proof (decision 0035 ruling 2): no harness discloses quantization, hardware routing, or a substitution made at peak load, and the same string comes back whichever happened.",
+      "oneOf": [
+        {
+          "enum": [
+            "not reported",
+            "not applicable"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        }
+      ]
+    },
+    "effort": {
+      "description": "The effort configured for the model, as the harness echoes it back (decision 0035 ruling 3). CONFIGURATION, never a report: no harness discloses a served effort, so this is the setting that applied after every profile and plugin layer — read from the harness's own echo, never from the bundle's pin, and never presented as a measurement of what the model did. A harness whose lanes carry a real effort control but echo no value writes decision 0031's 'not reported'; a driver with no model turn writes 'not applicable'. The two sentinels are reused rather than reinvented, and the distinction between them is load-bearing: a control that exists but goes unreported is not a control that does not exist.",
+      "oneOf": [
+        {
+          "enum": [
+            "not reported",
+            "not applicable"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      ]
+    },
+    "transcript": {
+      "description": "Decision 0032's retained, harness-owned locator. It carries an id or path and never transcript content.",
+      "type": "object",
+      "required": [
+        "kind",
+        "locator",
+        "home"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "claude-session",
+            "codex-thread",
+            "dsh-session",
+            "none"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "home": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "const": ""
+              },
+              "home": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    "record_fields": {
+      "model": {
+        "$ref": "#/definitions/model"
+      },
+      "effort": {
+        "$ref": "#/definitions/effort"
+      },
+      "turn": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "num_turns": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "input_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "All reported input tokens, inclusive of cache_read_tokens."
+      },
+      "output_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "All reported output tokens, inclusive of reasoning_output_tokens."
+      },
+      "cache_read_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "The cache-read subset of input_tokens; never a second addend."
+      },
+      "cache_write_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "Tokens the harness reports as written to or created in its cache."
+      },
+      "reasoning_output_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "The reasoning subset of output_tokens, in the way cache_read_tokens is a subset of input_tokens; never a second addend. The three harnesses report it at different granularities and this field admits all three without inventing the others. Where a harness reports no figure for this record the field is ABSENT — never zero, and never back-filled from a run total."
+      },
+      "total_cost_usd": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "session_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      },
+      "transcript": {
+        "$ref": "#/definitions/transcript"
+      },
+      "tool": {
+        "description": "A bounded harness tool identifier, never its arguments or command.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      },
+      "target": {
+        "description": "A bounded file-path-only target for the tool call; never a command, URL, tool argument object, or prose.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": [
+        "step"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "effort": {
+          "$ref": "#/definitions/effort"
+        },
+        "turn": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "reasoning_output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "harness": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "capture": {
+          "enum": [
+            "lanetally"
+          ]
+        },
+        "launch": {
+          "enum": [
+            "cold",
+            "resumed"
+          ]
+        },
+        "resume_refusal": {
+          "enum": [
+            "invalid-session-id",
+            "sandbox-unavailable",
+            "unsupported-sandbox",
+            "incompatible-argv",
+            "harness-refused"
+          ]
+        },
+        "sandbox": {
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "indeterminate"
+          ]
+        },
+        "session_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "inner_checkpoints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "result": {
+          "type": "object"
+        }
+      },
+      "dependencies": {
+        "tool": [
+          "turn"
+        ],
+        "target": [
+          "turn",
+          "tool"
+        ]
+      }
+    },
+    "result": {
+      "description": "A successful typed phase result plus the seat record reported beside it. result, inputs, and notes are phase-machine/report fields, not permission for harness prose in accounting fields.",
+      "type": "object",
+      "required": [
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "notes": {},
+        "state": {
+          "description": "The dialect state command's output for this step, captured by the exec driver beside notes (decision 0042). Part of the separately governed typed report, like result, inputs and notes: this contract admits the field and governs none of its content. Absent on every record but a dialect step's, and on a dialect step whose dialect declares no state command."
+        },
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "effort": {
+          "$ref": "#/definitions/effort"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "reasoning_output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "seat_input": {}
+      }
+    }
+  }
+}

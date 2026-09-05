@@ -18,7 +18,7 @@ use brokkr_core::realms::{recorded_head, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::process::DriverProcess;
 use brokkr_protocol::AttemptOutcome;
-use brokkr_store::Store;
+use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
@@ -1114,11 +1114,13 @@ impl Engine {
         let stderr_tail = stderr_tail(&report.stderr);
         match report.outcome {
             AttemptOutcome::Succeeded { result } => {
-                self.append(
-                    EventType::EffectSucceeded,
-                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-                    Some(attempt_id.to_string()),
-                )?;
+                self.append_succeeded(effect_id, attempt_id, result, |refusal| {
+                    json!({
+                        "effect_id": effect_id,
+                        "attempt_id": attempt_id,
+                        "error": format!("{refusal}; stderr tail: {stderr_tail}"),
+                    })
+                })?;
             }
             AttemptOutcome::Failed { error } => {
                 let mut payload = json!({
@@ -1174,10 +1176,17 @@ impl Engine {
             Ok(process) => process,
         };
         let mut checkpoint_error: Option<EngineError> = None;
+        // A checkpoint the journal refused under the seat-record fence
+        // (decision 0034, ruling 6). The driver keeps running — nothing
+        // here can stop it, and killing it would only lose its stderr —
+        // but the attempt is already lost: no later checkpoint is
+        // journaled, and the refusal becomes the attempt's outcome once
+        // the process ends.
+        let mut refusal: Option<SeatRecordError> = None;
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
-        let report = process.run_attempt_resuming(
+        let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
             attempt_id,
@@ -1185,7 +1194,7 @@ impl Engine {
             input,
             session_ref,
             |data| {
-                if checkpoint_error.is_none() {
+                if checkpoint_error.is_none() && refusal.is_none() {
                     let checkpoint = match member_tag {
                         None => data.clone(),
                         Some(tag) => tag_member(data.clone(), tag),
@@ -1207,6 +1216,7 @@ impl Engine {
                         Ok(envelope) => {
                             *current_cause = Some(envelope.event_id);
                         }
+                        Err(StoreError::SeatRecord(error)) => refusal = Some(error),
                         Err(e) => checkpoint_error = Some(e.into()),
                     }
                 }
@@ -1215,7 +1225,41 @@ impl Engine {
         if let Some(e) = checkpoint_error {
             return Err(e);
         }
+        if let Some(refusal) = refusal {
+            report.outcome = refused_outcome(report.outcome, &refusal);
+        }
         Ok(DriverRun::Ran(report))
+    }
+
+    /// Append the attempt's successful result — or, when the journal
+    /// refuses that result under the seat-record fence (decision 0034,
+    /// ruling 6), the failure the refusal is. The failed payload is the
+    /// caller's to build, because each seat shape carries its own facts
+    /// on a failed attempt (a stderr tail, the sites that failed to
+    /// start); the closure receives the refusal's text and nothing else.
+    fn append_succeeded(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        result: Value,
+        failed: impl FnOnce(String) -> Value,
+    ) -> Result<(), EngineError> {
+        match self.append(
+            EventType::EffectSucceeded,
+            json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
+            Some(attempt_id.to_string()),
+        ) {
+            Ok(_) => Ok(()),
+            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
+                self.append(
+                    EventType::EffectFailed,
+                    failed(refusal.to_string()),
+                    Some(attempt_id.to_string()),
+                )?;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Run a parallel panel INSIDE one effect (decision 0002): members
@@ -1278,6 +1322,13 @@ impl Engine {
                 )?;
             }
             AttemptOutcome::Succeeded { result } => {
+                // The aggregate is the engine's own record — `result`,
+                // `inputs`, `notes` and nothing else, with every member's
+                // evidence under `notes` — so it conforms by
+                // construction and the seat-record fence has nothing to
+                // refuse here. A refusal would be an engine defect, and
+                // it propagates as one, like any other storage error;
+                // it is not dressed as a member's failure.
                 self.append(
                     EventType::EffectSucceeded,
                     json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
@@ -1373,6 +1424,11 @@ impl Engine {
         let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
         let mut checkpoint_error: Option<EngineError> = None;
+        // The member whose checkpoint the fence refused, if one was
+        // (decision 0034, ruling 6): the same latch a single driver
+        // carries, keyed by the tagged member name the checkpoint rode
+        // under, so the refusal lands on that member's report alone.
+        let mut refusal: Option<(String, SeatRecordError)> = None;
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
             let handles: Vec<_> = runs
@@ -1423,7 +1479,7 @@ impl Engine {
             // not deadlock the members.
             drop(sender);
             for (member, checkpoint) in receiver {
-                if checkpoint_error.is_some() {
+                if checkpoint_error.is_some() || refusal.is_some() {
                     continue;
                 }
                 let checkpoint = tag_member(checkpoint, &member);
@@ -1441,6 +1497,7 @@ impl Engine {
                     Ok(envelope) => {
                         *current_cause = Some(envelope.event_id);
                     }
+                    Err(StoreError::SeatRecord(error)) => refusal = Some((member, error)),
                     Err(e) => checkpoint_error = Some(e.into()),
                 }
             }
@@ -1452,7 +1509,18 @@ impl Engine {
         if let Some(e) = checkpoint_error {
             return Err(e);
         }
-        Ok(reports)
+        let Some((refused, refusal)) = refusal else {
+            return Ok(reports);
+        };
+        Ok(reports
+            .into_iter()
+            .map(|(name, mut report)| {
+                if format!("{tag_prefix}{name}") == refused {
+                    report.outcome = refused_outcome(report.outcome, &refusal);
+                }
+                (name, report)
+            })
+            .collect())
     }
 
     /// Journal member outcomes as checkpoint evidence in declared
@@ -1835,6 +1903,18 @@ impl Engine {
                 .and_then(Value::as_str)
                 .unwrap_or("not reported")
                 .to_string();
+            // A step's result the fence refuses (decision 0034, ruling
+            // 6) fails the attempt at that step, with the same facts a
+            // step that failed on its own would carry.
+            let refused = |refusal: String| {
+                let mut payload = json!({
+                    "effect_id": effect_id,
+                    "attempt_id": attempt_id,
+                    "error": format!("sequence step '{}': {refusal}", step.name),
+                });
+                start_failure_fields(&mut payload, selection, start_failures);
+                payload
+            };
             if declares_change {
                 if let Some(value) = result.pointer("/inputs/change") {
                     let change = value.as_str();
@@ -1875,13 +1955,9 @@ impl Engine {
                         ).map(drop);
                     }
                 }
-                self.append(
-                    EventType::EffectSucceeded,
-                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-                    Some(attempt_id.to_string()),
-                )?;
+                self.append_succeeded(effect_id, attempt_id, result, refused)?;
             } else {
-                self.append(
+                match self.append(
                     EventType::EffectCheckpointed,
                     json!({
                         "effect_id": effect_id,
@@ -1894,7 +1970,18 @@ impl Engine {
                         },
                     }),
                     Some(attempt_id.to_string()),
-                )?;
+                ) {
+                    Ok(_) => {}
+                    Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
+                        self.append(
+                            EventType::EffectFailed,
+                            refused(refusal.to_string()),
+                            Some(attempt_id.to_string()),
+                        )?;
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                }
                 prior_results.insert(step.name.clone(), result);
             }
         }
@@ -2818,6 +2905,25 @@ fn apply_fenced_racing(
 enum DriverRun {
     SpawnFailed(String),
     Ran(AttemptReport),
+}
+
+/// The outcome of an attempt whose checkpoint the journal refused
+/// (decision 0034, ruling 6). A driver that went on to succeed did not:
+/// its account is nonconforming, and the attempt fails on the refusal.
+/// A driver that failed on its own keeps its own error beside the
+/// refusal. A driver that was lost stays lost — indeterminate always
+/// parks (decision 0006), and a refused checkpoint is no reason to
+/// retry a process whose end nobody saw.
+fn refused_outcome(outcome: AttemptOutcome, refusal: &SeatRecordError) -> AttemptOutcome {
+    match outcome {
+        AttemptOutcome::Succeeded { .. } => AttemptOutcome::Failed {
+            error: refusal.to_string(),
+        },
+        AttemptOutcome::Failed { error } => AttemptOutcome::Failed {
+            error: format!("{refusal}; the driver then failed: {error}"),
+        },
+        AttemptOutcome::Indeterminate { reason } => AttemptOutcome::Indeterminate { reason },
+    }
 }
 
 /// The invocation-site tag an agent-resolved site is journaled under:

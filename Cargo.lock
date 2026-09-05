@@ -157,6 +157,7 @@ dependencies = [
  "brokkr-core",
  "brokkr-runtime",
  "brokkr-store",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

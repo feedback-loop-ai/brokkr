@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store export/verify, every seat readout (superseded for new runs by `seat-record.v2.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v3.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -367,3 +367,30 @@ measurement of what the model did. `reasoning_output_tokens` is a reported
 subset, on exactly the terms `cache_read_tokens` already had — a view shows
 it and never adds it to a total a second time — and it is absent, never
 zero, where a harness reports no figure for that record.
+
+Decision 0034's second addendum (ruled 2026-09-05) adds one more file and
+changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with the dialect step's state | `seat-record.v3.schema.json` | every driver, brokkr-store append/export/verify, every seat readout |
+
+`seat-record.v3` is `v2`'s vocabulary plus one optional property on the
+successful result: `state`, the output of the dialect's own state command,
+which the exec driver has captured beside `notes` since decision 0042's
+first slice. It is admitted to the **typed report** — the family of
+`result`, `inputs` and `notes` — and not to the accounting vocabulary: this
+contract admits the name and governs none of the content, exactly as it
+already does for `notes`, which carries the same command's stdout and
+stderr. The accounting fields are unchanged and remain what decision 0034
+froze: an accounting record, never a transcript.
+
+`v2` is not edited; its bytes are pinned by the embedded-copy test and did
+not move. The engine boundary for v3 is the same 0.8.0 line v2 landed in,
+because `engine` is the crate version and carries no position within a
+line: both landed after the 0.8.0 tag and cannot be told apart by it. Within
+a line the newest contract wins, which refuses nothing a v2 record could
+have carried — v3 adds an optional property and takes none away. Naming the
+unreleased line instead would judge every record this engine writes under
+v2 and refuse the `state` field it is already writing, which is the defect
+this addendum fixes.
