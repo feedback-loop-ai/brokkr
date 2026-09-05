@@ -245,15 +245,18 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     assert!(exec.models.is_empty());
     // `codex` DOES map models now, and the reason the old pin's "no
     // established mapping" no longer holds is evidence: `codex debug
-    // models` on the installed codex-cli 0.148.0 names these three
-    // slugs with visibility "list" and supported_in_api true. The
-    // abstract names are codex's own family words — deliberately NOT
-    // claude tiers, for the reason `dsh` below spells out.
+    // models` on the installed codex-cli 0.148.0 named the three gpt-5.6
+    // slugs with visibility "list" and supported_in_api true, and the
+    // 0.153.2 catalog lists `gpt-6-astra` beside them at priority 1
+    // (decision 0045). The abstract names are codex's own family words —
+    // deliberately NOT claude tiers, for the reason `dsh` below spells
+    // out.
     let codex = adapters
         .providers()
         .find(|adapter| adapter.provider == "codex")
         .unwrap();
     for (abstract_name, concrete) in [
+        ("astra", "gpt-6-astra"),
         ("sol", "gpt-5.6-sol"),
         ("terra", "gpt-5.6-terra"),
         ("luna", "gpt-5.6-luna"),
@@ -266,8 +269,8 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     }
     assert_eq!(
         codex.models.len(),
-        3,
-        "three catalogued lanes, no invented ones"
+        4,
+        "four catalogued lanes, no invented ones"
     );
     assert_eq!(codex.model_flag.as_deref(), Some("--model"));
     // Still no tool restriction — but now for a MEASURED reason rather

@@ -2,14 +2,14 @@
   "description": "Review panel member: tries to break the delivered change with concrete adversarial cases.",
   "charter": "charters/review-adversarial.md",
   "models": [
+    "astra",
     "fable",
-    "opus",
-    "sol"
+    "opus"
   ],
   "efforts": {
+    "astra": "xhigh",
     "fable": "xhigh",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "opus": "xhigh"
   },
   "hands": {
     "kind": "workspace",

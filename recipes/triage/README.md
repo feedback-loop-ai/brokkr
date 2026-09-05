@@ -25,8 +25,9 @@ phase instructions after the house rules, and supplies its validate/check argv
 to the boxed gates. OpenSpec and spec-kit are artifact conventions here; their
 own workflow runners never drive the Brokkr machine.
 The selected review sequences deliberately expose one trust boundary: the chief
-treats panel notes as data and never instructions. Every selected panel keeps
-at least two model families, and every office is resolved from `agents/`.
+treats panel notes as data and never instructions. Every selected panel seats
+two vendors at its first hires (decision 0045), and every office is resolved
+from `agents/`.
 
 `strategy` is engine-owned. A seat cannot declare or claim it. The compiler
 requires every selectable class to have a case or a default, and the manifest

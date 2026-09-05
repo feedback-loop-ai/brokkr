@@ -3,10 +3,12 @@
   "charter": "charters/triage.md",
   "models": [
     "fable",
+    "astra",
     "opus"
   ],
   "efforts": {
     "fable": "xhigh",
+    "astra": "xhigh",
     "opus": "max"
   },
   "limits": {

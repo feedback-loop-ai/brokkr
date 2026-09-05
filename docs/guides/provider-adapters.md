@@ -13,7 +13,7 @@ machine, and refuses to guess about the rest:
 ```
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
-ok       codex: codex-cli 0.148.0 · serves no abstract model yet
+ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
 ok       dsh: 0.1.2-rc.1 · serves flash, glm, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ```

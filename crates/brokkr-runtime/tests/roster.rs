@@ -387,8 +387,65 @@ fn shipped_triage_gate_scope_stops_at_the_judging_sites() {
     assert_eq!(steps.last().unwrap().class, SeatClass::Gate);
 }
 
+/// The adapter that maps an abstract model name; the test's notion of a
+/// vendor is the adapter file, never a substring of the name.
+fn provider_of(root: &Path, abstract_model: &str) -> String {
+    for entry in std::fs::read_dir(root.join("adapters")).unwrap().flatten() {
+        let adapter = json(&entry.path());
+        if adapter["models"].get(abstract_model).is_some() {
+            return adapter["provider"].as_str().unwrap().to_string();
+        }
+    }
+    panic!("no shipped adapter maps {abstract_model}")
+}
+
+/// Decision 0045 ruling 4: codex declares no per-tool map, so an office
+/// that keeps a tool allow-list can never resolve on `astra` — the
+/// resolver refuses. The roster therefore chains a codex lane only into
+/// offices whose hands are boxed (decision 0043) or absent, and this pin
+/// keeps a later edit from writing a chain the compiler would refuse at
+/// the first bundle that hires it.
 #[test]
-fn every_shipped_panel_seats_at_least_two_model_families() {
+fn a_codex_lane_is_chained_only_into_boxed_or_toolless_offices() {
+    let root = workspace();
+    let codex = json(&root.join("adapters/codex.json"));
+    let lanes: BTreeSet<&str> = codex["models"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(lanes.contains("astra"), "the codex adapter maps astra");
+    let mut chained = 0;
+    for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let agent = json(&entry.path());
+        let names_codex = agent["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|model| lanes.contains(model));
+        if !names_codex {
+            continue;
+        }
+        chained += 1;
+        assert!(
+            agent.get("tools").is_none(),
+            "{} chains a codex lane beside a tool allow-list codex cannot map",
+            entry.path().display()
+        );
+    }
+    assert!(
+        chained >= 8,
+        "the roster chains codex into {chained} offices"
+    );
+}
+
+#[test]
+fn every_shipped_panel_seats_at_least_two_providers() {
     let root = workspace();
     for entry in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
         let bundle_path = entry.path().join("bundle.json");
@@ -406,39 +463,30 @@ fn every_shipped_panel_seats_at_least_two_model_families() {
                 path.join("."),
                 bundle_path.display()
             );
-            let mut families: BTreeSet<String> = BTreeSet::new();
+            // Decision 0045 ruling 3: a panel is diverse when its FIRST
+            // hires cross a vendor line, not when a fallback might. Two
+            // models of one vendor at one effort still argue with
+            // themselves; two vendors do not share a training run.
+            let mut providers: BTreeSet<String> = BTreeSet::new();
             for member in panel.values() {
                 if let Some(agent) = member.get("agent").and_then(Value::as_str) {
                     let definition = json(&root.join("agents").join(format!("{agent}.json")));
-                    families.extend(
-                        definition["models"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string),
-                    );
+                    let first = definition["models"][0].as_str().unwrap();
+                    providers.insert(provider_of(&root, first));
                 } else if let Some(command) =
                     member.pointer("/driver/command").and_then(Value::as_array)
                 {
-                    for token in command.iter().filter_map(Value::as_str) {
-                        if token.contains("fable") {
-                            families.insert("fable".into());
-                        }
-                        if token.contains("opus") {
-                            families.insert("opus".into());
-                        }
-                        if token.contains("gpt-") {
-                            families.insert("sol".into());
-                        }
-                    }
+                    // An inline site names its driver after `driver`.
+                    let position = command
+                        .iter()
+                        .position(|token| token.as_str() == Some("driver"))
+                        .expect("an inline driver names a built-in");
+                    providers.insert(command[position + 1].as_str().unwrap().to_string());
                 }
             }
-            // Ruling 7 keeps every selected panel diverse by construction;
-            // count all of each member's fallback families as the compiler does.
             assert!(
-                families.len() >= 2,
-                "panel {} in {} seats fewer than two model families",
+                providers.len() >= 2,
+                "panel {} in {} seats one vendor at its first hires: {providers:?}",
                 path.join("."),
                 bundle_path.display()
             );

@@ -10,11 +10,13 @@
     "--"
   ],
   "models": {
+    "astra": "gpt-6-astra",
     "sol": "gpt-5.6-sol",
     "terra": "gpt-5.6-terra",
     "luna": "gpt-5.6-luna"
   },
   "judges": [
+    "astra",
     "sol"
   ],
   "model_flag": "--model",
