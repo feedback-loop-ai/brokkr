@@ -37,6 +37,7 @@ research-dsh	2095631397be	4 phases	research, verify	low	The research intake on t
 triage	2bc18b05f87a	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
 wager-harness	57de5240560b	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
 wager-harness-dsh	9ef87077a982	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+wager-harness-muse	a09fac0fa6dd	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	recipes/wager-harness-muse
 self	d06e486c3ef8	7 phases	implement, intake, review, ship, verify			./bundles/self
 verify	8054a434cc74	4 phases	review, verify			./bundles/verify
 ```
@@ -48,6 +49,7 @@ verify	8054a434cc74	4 phases	review, verify			./bundles/verify
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
 | [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
+| [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends fast`: only the implement seat moves, to a third vendor at `xhigh` |
 | [`node`](../../recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
 | [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
 | [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
