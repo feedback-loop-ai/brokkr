@@ -95,6 +95,18 @@ $ brokkr keep-refs plant --run latest            # idempotent; for runs that pre
 $ brokkr keep-refs delete --run <id>             # the exhibits may go — the operator's call alone
 ```
 
+A run parked on **`GATE-MOVED-HEAD`** is saying the repository head moved
+across a gate's own span: a gate reads and reports, it never writes
+([decision 0041](../decisions/0041-one-office-per-seat.md)). The check is
+per gate step, not per effect — the head is observed when a gate step
+starts, or when a gate seat that has no steps of its own starts, and it
+is compared at that same step's end. So an author that lawfully commits
+before or after a gate in one sequence is never charged to the gate, and
+only the step that moved the tree parks. The park's `evidence` carries
+both raw observations, `head_at_start` and `head_at_end`, and the effect
+ends `indeterminate`: what a gate did after it wrote is exactly what the
+engine will not guess at.
+
 `brokkr costs --run <id>` reports per-seat attempts, turns and USD — the
 LaneTally join surface, computed from journal checkpoints with stable
 seat ids.

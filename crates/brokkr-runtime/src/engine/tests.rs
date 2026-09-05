@@ -858,6 +858,31 @@ read -r done
 }
 
 fn compiled_sequence_with_gate(dir: &Path, gate_commits: bool) -> Bundle {
+    compiled_two_step_sequence(dir, StepOrder::WorkThenGate, gate_commits, true)
+}
+
+/// Which way round the two steps of the fixture sequence stand. The
+/// shipped recipes all end on their gate step, so `WorkThenGate` is the
+/// only order the corpus exercises — and `GateThenWork` is the lawful
+/// order (decision 0042 reads an author as a work step) whose committing
+/// tail must not be charged to the gate.
+#[derive(Clone, Copy, PartialEq)]
+enum StepOrder {
+    WorkThenGate,
+    GateThenWork,
+}
+
+/// A compiled two-step sequence `[chief: work] + [validator: gate]` in
+/// the given order, each step committing or leaving the tree alone. The
+/// non-final step declares its own closed vocabulary; the final step is
+/// the seat boundary and inherits the seat's.
+fn compiled_two_step_sequence(
+    dir: &Path,
+    order: StepOrder,
+    gate_commits: bool,
+    work_commits: bool,
+) -> Bundle {
+    let gate_first = order == StepOrder::GateThenWork;
     let bundle_dir = dir.join("bundle");
     let agents = dir.join("agents");
     let adapters = dir.join("adapters");
@@ -868,7 +893,7 @@ fn compiled_sequence_with_gate(dir: &Path, gate_commits: bool) -> Bundle {
     std::fs::write(bundle_dir.join("roles/review.md"), "# review\n").unwrap();
     std::fs::write(agents.join("charters/validator.md"), "# validator\n").unwrap();
 
-    let driver = |commit: bool, result: &str| {
+    let driver = |commit: Option<&str>, result: &str| {
         format!(
             r#"
 read -r hello
@@ -881,16 +906,23 @@ printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effec
 printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{{"result":"{}"}},"error":null}}\n' "$effect_id" "$attempt_id"
 read -r done
 "#,
-            if commit {
-                "git commit -q --allow-empty -m site-moved-head"
-            } else {
-                ":"
+            match commit {
+                Some(message) => format!("git commit -q --allow-empty -m {message}"),
+                None => ":".to_string(),
             },
             result
         )
     };
-    let chief_driver = driver(true, "drafted");
-    let validator_driver = driver(gate_commits, "complete");
+    // Each site's commit says which site made it, so a park can be read
+    // back to the step that earned it.
+    let chief_driver = driver(
+        work_commits.then_some("work-moved-head"),
+        if gate_first { "complete" } else { "drafted" },
+    );
+    let validator_driver = driver(
+        gate_commits.then_some("gate-moved-head"),
+        if gate_first { "reviewed" } else { "complete" },
+    );
     std::fs::write(
         adapters.join("judge.json"),
         serde_json::to_vec_pretty(&json!({
@@ -937,6 +969,16 @@ read -r done
         .unwrap(),
     )
     .unwrap();
+    let mut chief_step = json!({"name": "chief", "class": "work", "role": "roles/chief.md",
+         "driver": {"command": ["sh", "-c", chief_driver]}});
+    let mut validator_step = json!({"name": "validator", "class": "gate", "agent": "validator"});
+    let steps = if gate_first {
+        validator_step["results"] = json!(["reviewed"]);
+        vec![validator_step, chief_step]
+    } else {
+        chief_step["results"] = json!(["drafted"]);
+        vec![chief_step, validator_step]
+    };
     std::fs::write(
         bundle_dir.join("bundle.json"),
         serde_json::to_vec_pretty(&json!({
@@ -948,11 +990,7 @@ read -r done
             "seats": {
                 "work": {
                     "results": ["complete"],
-                    "sequence": [
-                        {"name": "chief", "results": ["drafted"], "class": "work", "role": "roles/chief.md",
-                         "driver": {"command": ["sh", "-c", chief_driver]}},
-                        {"name": "validator", "class": "gate", "agent": "validator"}
-                    ]
+                    "sequence": steps
                 },
                 "review": {"results": ["clean"], "class": "work", "role": "roles/review.md",
                            "driver": {"command": ["missing-review-driver"]}}
@@ -966,8 +1004,9 @@ read -r done
     let SeatBody::Sequence { steps } = &compiled.seats["work"].body else {
         panic!("the fixture must compile as a sequence")
     };
-    assert_eq!(steps[0].class, SeatClass::Work);
-    assert_eq!(steps[1].class, SeatClass::Gate);
+    let (work_at, gate_at) = if gate_first { (1, 0) } else { (0, 1) };
+    assert_eq!(steps[work_at].class, SeatClass::Work);
+    assert_eq!(steps[gate_at].class, SeatClass::Gate);
     compiled
 }
 
@@ -1005,6 +1044,196 @@ fn a_compiled_mixed_sequence_guards_the_gate_step_not_the_work_step() {
             );
         }
     }
+}
+
+/// Every commit subject in the repository, newest first — which sites
+/// actually ran, said by the tree rather than by the journal.
+fn commit_subjects(repo: &Path) -> Vec<String> {
+    let out = Command::new("git")
+        .args(["log", "--format=%s"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_work_step_that_commits_after_a_gate_step_is_not_the_gate_s_doing() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let base = git_commit(&repo, "base");
+    // The gate reads and reports; the author after it writes. Both are
+    // lawful in one sequence, and only the gate's own span is watched.
+    let compiled = compiled_two_step_sequence(dir.path(), StepOrder::GateThenWork, false, true);
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, compiled, "gate then work", Some(repo.clone())).unwrap();
+    let end = engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+
+    assert_ne!(
+        git_head(&repo).as_deref(),
+        Some(base.as_str()),
+        "the work step commits after the gate"
+    );
+    assert!(commit_subjects(&repo).contains(&"work-moved-head".to_string()));
+    assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == EventType::EffectSucceeded),
+        "{events:#?}"
+    );
+}
+
+#[test]
+fn a_gate_step_that_commits_parks_on_its_own_span_before_the_work_step_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let base = git_commit(&repo, "base");
+    let compiled = compiled_two_step_sequence(dir.path(), StepOrder::GateThenWork, true, true);
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, compiled, "gate commits", Some(repo.clone())).unwrap();
+    let end = engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+
+    assert_eq!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    let parked = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunParked)
+        .unwrap();
+    let evidence = &parked.payload["evidence"];
+    // The observed span is the gate step's: it opened on the base commit
+    // and closed on the gate's own, and the work step behind it never
+    // ran to add a second one.
+    assert_eq!(evidence["head_at_start"].as_str(), Some(base.as_str()));
+    assert_eq!(evidence["head_at_end"].as_str(), git_head(&repo).as_deref());
+    assert_eq!(
+        commit_subjects(&repo),
+        vec!["gate-moved-head".to_string(), "base".to_string()]
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == EventType::EffectSucceeded));
+}
+
+#[test]
+fn a_gate_effect_that_errors_out_spends_no_stale_head_on_the_next_effect() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let base = git_commit(&repo, "base");
+    // Commits, THEN checkpoints: by the time the checkpoint refuses to
+    // journal, this gate's span has a head to be wrong about.
+    let script = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+git commit -q --allow-empty -m gate-moved-head
+printf '{"proto":"forge-driver/v1","msg_id":"live","type":"checkpoint","effect_id":"%s","attempt_id":"%s","data":{"step":"live"}}\n' "$effect_id" "$attempt_id"
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"complete"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+    let db = dir.path().join("forge.db");
+    let store = Store::open(&db).unwrap();
+    let mut compiled = bundle(
+        dir.path(),
+        single_body(vec!["sh".into(), "-c".into(), script.into()]),
+    );
+    compiled.seats.get_mut("work").unwrap().has_gate = true;
+    let mut engine = Engine::start(store, compiled, "gate errors out", Some(repo.clone())).unwrap();
+    fail_event(&db, "effect/checkpointed");
+
+    // The real path: a live checkpoint that will not journal aborts the
+    // attempt with an Err, appending no terminal event at all.
+    let error = engine.drive().unwrap_err();
+    assert!(
+        matches!(error, EngineError::Store(_)),
+        "the checkpoint failure propagates: {error:?}"
+    );
+    assert_ne!(
+        git_head(&repo).as_deref(),
+        Some(base.as_str()),
+        "the gate moved the head before it fell over"
+    );
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(!events.iter().any(|event| matches!(
+        event.event_type,
+        EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
+    )));
+
+    // The next effect to reach a terminal event is the in-flight
+    // recovery, and it answers for itself: nothing armed survives to be
+    // spent on it, though the head has moved since the gate started.
+    let end = engine.drive().unwrap();
+    assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(
+        end.state
+            .park_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("engine restarted while the attempt was in flight"),
+        "{:?}",
+        end.state.park_reason
+    );
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|event| serde_json::to_string(&event.payload)
+                .unwrap()
+                .contains("GATE-MOVED-HEAD")),
+        "{events:#?}"
+    );
+}
+
+#[test]
+fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
+    let gate_step = |name: &str| SequenceStep {
+        name: name.into(),
+        class: SeatClass::Gate,
+        results: vec!["complete".into()],
+        body: StepBody::Single {
+            role_path: PathBuf::from("role.md"),
+            command: vec!["driver".into()],
+            confine: None,
+            candidates: Vec::new(),
+        },
+    };
+    let seat = |body: SeatBody| Seat {
+        // Every site in it is a gate — which the compiler says of an
+        // all-gate sequence exactly as it says it of a gate single seat.
+        has_gate: true,
+        results: vec!["complete".into()],
+        limits: Limits::default(),
+        inputs: Vec::new(),
+        secrets: Vec::new(),
+        body,
+    };
+
+    let sequence = seat(SeatBody::Sequence {
+        steps: vec![gate_step("first"), gate_step("second")],
+    });
+    let (body, _) = sequence.body.selected(None).unwrap();
+    assert!(
+        !arms_effect_gate_head(&body, &sequence, None),
+        "a sequence's gate steps are the only observation it makes"
+    );
+
+    let single = seat(single_body(vec!["driver".into()]));
+    let (body, _) = single.body.selected(None).unwrap();
+    assert!(
+        arms_effect_gate_head(&body, &single, None),
+        "a gate single seat has no inner span: the effect is the gate"
+    );
 }
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
