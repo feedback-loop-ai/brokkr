@@ -1277,6 +1277,13 @@ fn the_crates_are_published_in_dependency_order_after_the_release() {
         job.contains(r#"cargo publish -p "$crate" --locked"#),
         "{job}"
     );
+    // Idempotent: a re-run skips a version the registry already serves,
+    // so a refusal mid-list (v0.9.0's rate limit) is resumable.
+    assert!(
+        job.contains(r#""https://crates.io/api/v1/crates/${crate}/${version}""#),
+        "{job}"
+    );
+    assert!(job.contains("is already on crates.io — skipped"), "{job}");
     let order = [
         "brokkr-core",
         "brokkr-store",

@@ -276,6 +276,11 @@ None of the scripts carries an executable bit; each is invoked as
    index each crate before the next. What remains is the operator's
    `CARGO_REGISTRY_TOKEN` secret; the first tag after it exists is the
    first publication, and `cargo binstall brokkr-cli` works from then.
+   The loop skips a version the index already serves, so a re-run after
+   a registry refusal resumes: v0.9.0's first publication stopped at the
+   sixth crate on crates.io's rate limit for new crates (429, "too many
+   new crates in a short period"), with a retry-after of about ten
+   minutes.
 
    ```sh
    for crate in brokkr-core brokkr-store brokkr-protocol brokkr-view \
