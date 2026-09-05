@@ -2,14 +2,14 @@
   "description": "Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.",
   "charter": "charters/review-chief.md",
   "models": [
+    "astra",
     "fable",
-    "opus",
-    "sol"
+    "opus"
   ],
   "efforts": {
+    "astra": "xhigh",
     "fable": "xhigh",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "opus": "xhigh"
   },
   "hands": {
     "kind": "workspace",

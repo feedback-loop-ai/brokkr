@@ -2,14 +2,14 @@
   "description": "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
   "charter": "charters/reviewer.md",
   "models": [
+    "astra",
     "fable",
-    "opus",
-    "sol"
+    "opus"
   ],
   "efforts": {
+    "astra": "xhigh",
     "fable": "xhigh",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "opus": "xhigh"
   },
   "hands": {
     "kind": "workspace",

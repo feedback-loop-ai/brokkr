@@ -1964,7 +1964,7 @@ fn the_shipped_adapters_declare_exactly_the_decision_0041_judges() {
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     for (provider, judges) in [
         ("claude", vec!["fable", "opus"]),
-        ("codex", vec!["sol"]),
+        ("codex", vec!["astra", "sol"]),
         ("dsh", vec![]),
         ("exec", vec![]),
         ("lanetally", vec!["fable-tallied", "opus-tallied"]),
@@ -2068,13 +2068,18 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
 #[test]
 fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // The other adapter-data half: `codex debug models` on the
-    // installed codex-cli 0.148.0 lists these three slugs (visibility
-    // "list", supported_in_api true), so the mapping is transcribed,
-    // not remembered. The abstract names are codex's own family words —
+    // installed codex-cli 0.148.0 listed the three gpt-5.6 slugs, and the
+    // 0.153.2 catalog adds `gpt-6-astra` at priority 1 (visibility
+    // "list", supported_in_api true; decision 0045), so the mapping is
+    // transcribed, not remembered. The abstract names are codex's own family words —
     // NOT claude tiers, so no fallback chain written for one provider
     // can quietly land on the other.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let codex = adapters.adapter("codex").expect("a shipped adapter");
+    assert_eq!(
+        codex.models.get("astra").map(String::as_str),
+        Some("gpt-6-astra")
+    );
     assert_eq!(
         codex.models.get("sol").map(String::as_str),
         Some("gpt-5.6-sol")

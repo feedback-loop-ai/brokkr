@@ -20,8 +20,8 @@ changing an agent or recipe digest.
 
 ```
 $ brokkr agents list
-analyst	fable → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
-chief-architect	fable → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
+analyst	fable → astra → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
+chief-architect	fable → astra → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
 clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
 implementer-engine	fable → opus	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
@@ -31,13 +31,13 @@ intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request b
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
-review-adversarial	fable → opus → sol	Review panel member: tries to break the delivered change with concrete adversarial cases.
-review-chief	fable → opus → sol	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
+review-adversarial	astra → fable → opus	Review panel member: tries to break the delivered change with concrete adversarial cases.
+review-chief	astra → fable → opus	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
-review-security	fable → opus → sol	Review panel member: the adversarial security read of the change.
+review-security	fable → astra → opus	Review panel member: the adversarial security read of the change.
 review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
-reviewer	fable → opus → sol	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
-triage	fable → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
+reviewer	astra → fable → opus	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
+triage	fable → astra → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
 ```
 
 ```
@@ -129,5 +129,10 @@ credentials masked, rustup read-only:
 With hands, the adapter's per-tool map is not consulted; what the adapter
 must express is how its harness's own tools are replaced by the one boxed
 tool (`hands` in the adapter file, or `"unsupported"` with the reason).
-The review agents declare hands, which is what lets `sol` on codex be
-their third link.
+The review agents declare hands, which is what lets a codex lane hold a
+review office at all: `astra` opens the single reviewer, the review
+chief and the adversarial member, and stands second behind `fable` on
+the security member, triage, the analyst and the chief-architect
+(decision 0045). Codex declares no per-tool map, so an office that
+keeps a tool allow-list — the implementers, intake, the researcher —
+cannot chain to it; the resolver refuses, naming the provider.

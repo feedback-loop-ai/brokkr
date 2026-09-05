@@ -7,6 +7,8 @@
 //! defective specification to design.
 //! Ruling 8 moves the affected charter witnesses once more: repository rules
 //! now come from the realm's house rather than the portable office.
+//! Decision 0045 moves the self bundle's review site across the vendor
+//! line: the last judge before ship is hired on codex's `astra`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -183,7 +185,7 @@ const SELF: &Roster = &[
     ),
     (
         "review",
-        "claude-fable-5-1",
+        "gpt-6-astra",
         "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
     ),
 ];

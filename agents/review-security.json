@@ -3,13 +3,13 @@
   "charter": "charters/review-security.md",
   "models": [
     "fable",
-    "opus",
-    "sol"
+    "astra",
+    "opus"
   ],
   "efforts": {
     "fable": "xhigh",
-    "opus": "xhigh",
-    "sol": "xhigh"
+    "astra": "xhigh",
+    "opus": "xhigh"
   },
   "hands": {
     "kind": "workspace",

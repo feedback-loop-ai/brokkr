@@ -31,6 +31,11 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
+/// Decision 0045 moves the bundles that hire a review office, the triage
+/// gate, the analyst or the chief: the codex adapter gained the `astra`
+/// lane and a second judge, and those offices now chain across the vendor
+/// line (`recipes/triage`, `recipes/night-shift`); the inline recipes and
+/// `bundles/verify` pin only the claude adapter and did not move.
 /// Decision 0041 moves every pinned bundle for its three enacted reasons:
 /// ruling 1 advances the fable adapter mapping, ruling 2 moves model sites
 /// onto the roster, and ruling 3 adds each adapter's judges declaration.
@@ -165,7 +170,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "1fa050796f20a064b48f17b3ac4d24308322e399a8ac4c61ecb3dfb57ddeebf2",
+        "720169ff380f595a04606101e3d1bde33015bc482bc712cc4787f0401c523552",
     ),
     (
         "recipes/wager-harness",
@@ -173,7 +178,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "2bc18b05f87ace6846a8fc5aa9659121f71e43b9e816318329e79b06d0193170",
+        "4b2b9dd4bcc460d5b807003c52df137c847e0fbbb43ccbf8aaba10bd3b83ce0f",
     ),
     (
         "recipes/research",
