@@ -11,6 +11,7 @@
 | `bundles/` | System recipes: `self` (self-delivery) and `verify` (the verification agents). |
 | `recipes/` | The user recipe library (`fast`, `triage` — the routing form with selected chore, feature, design, and engine crews — `night-shift`, `node`, `panel-review`, `preflight`, the explicit wager harnesses, and yours). |
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
+| `dialects/` | The dialect library (decision 0042): one JSON declaration and one instruction page per artifact per dialect. `crates/brokkr-cli/dialects/` carries the same bytes, because `brokkr init` embeds them and a published crate can hold only its own directory; the packaging contract ties the two, file for file. |
 | `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |

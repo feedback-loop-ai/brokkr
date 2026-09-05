@@ -91,65 +91,38 @@ use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
 use serde_json::{json, Map};
 
-const OPENSPEC_DIALECT: &str = include_str!("../../../dialects/openspec.json");
-const SPECKIT_DIALECT: &str = include_str!("../../../dialects/speckit.json");
+const OPENSPEC_DIALECT: &str = include_str!("../dialects/openspec.json");
+const SPECKIT_DIALECT: &str = include_str!("../dialects/speckit.json");
 
 const OPENSPEC_INSTRUCTIONS: &[(&str, &str)] = &[
     (
         "analyze.md",
-        include_str!("../../../dialects/openspec/analyze.md"),
+        include_str!("../dialects/openspec/analyze.md"),
     ),
     (
         "clarify.md",
-        include_str!("../../../dialects/openspec/clarify.md"),
+        include_str!("../dialects/openspec/clarify.md"),
     ),
-    (
-        "design.md",
-        include_str!("../../../dialects/openspec/design.md"),
-    ),
-    (
-        "return.md",
-        include_str!("../../../dialects/openspec/return.md"),
-    ),
+    ("design.md", include_str!("../dialects/openspec/design.md")),
+    ("return.md", include_str!("../dialects/openspec/return.md")),
     (
         "specify.md",
-        include_str!("../../../dialects/openspec/specify.md"),
+        include_str!("../dialects/openspec/specify.md"),
     ),
-    (
-        "tasks.md",
-        include_str!("../../../dialects/openspec/tasks.md"),
-    ),
+    ("tasks.md", include_str!("../dialects/openspec/tasks.md")),
 ];
 
 const SPECKIT_INSTRUCTIONS: &[(&str, &str)] = &[
-    (
-        "analyze.md",
-        include_str!("../../../dialects/speckit/analyze.md"),
-    ),
+    ("analyze.md", include_str!("../dialects/speckit/analyze.md")),
     (
         "checklist.md",
-        include_str!("../../../dialects/speckit/checklist.md"),
+        include_str!("../dialects/speckit/checklist.md"),
     ),
-    (
-        "clarify.md",
-        include_str!("../../../dialects/speckit/clarify.md"),
-    ),
-    (
-        "design.md",
-        include_str!("../../../dialects/speckit/design.md"),
-    ),
-    (
-        "return.md",
-        include_str!("../../../dialects/speckit/return.md"),
-    ),
-    (
-        "specify.md",
-        include_str!("../../../dialects/speckit/specify.md"),
-    ),
-    (
-        "tasks.md",
-        include_str!("../../../dialects/speckit/tasks.md"),
-    ),
+    ("clarify.md", include_str!("../dialects/speckit/clarify.md")),
+    ("design.md", include_str!("../dialects/speckit/design.md")),
+    ("return.md", include_str!("../dialects/speckit/return.md")),
+    ("specify.md", include_str!("../dialects/speckit/specify.md")),
+    ("tasks.md", include_str!("../dialects/speckit/tasks.md")),
 ];
 
 // Drivers are built into the brokkr binary itself (decision 0009):
