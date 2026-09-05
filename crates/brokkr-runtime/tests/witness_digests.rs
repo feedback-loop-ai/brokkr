@@ -158,39 +158,39 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
-        "c21c2d29853d401b6f4b0c6596a271621ff256d93eda7472b7d8e7e06e7ecfbf",
+        "3595ea973dc9413c40c702273a919a4b288dcdb8696ef5f6719f44a16ea45fbc",
     ),
     (
         "recipes/node",
-        "534890724245800410ce215367aa8394e247fc57932f4457a5180e4631714fd8",
+        "e7d433f1a4de6b3037470a2380cebfbf1dedd88b1aa431da0dbf6ff2bf84c4b0",
     ),
     (
         "recipes/preflight",
-        "7f6ac233dba23923e974599c82782e6bdf31c20129e46d89df7aa2096a7116f0",
+        "51f6d5183133ba4ef84eff8bd45d7830178323583db28bb28cdd0b29ab522444",
     ),
     (
         "recipes/night-shift",
-        "f4558bb8e0757d42cf06bd7d912e8e90a8202cc232c4de3ad4a29d18eef4ddef",
+        "edbf254a1377019321e4ee037efeac62bd9faa7400d40fd66fdd15817bcd186d",
     ),
     (
         "recipes/wager-harness",
-        "31316ab4e36afb829730ee1b3c2e456e692bcc27aefd14b3e6e7ac3f7102474b",
+        "e581c3fbb03e1c408602060e32a96d7e108093e58905609a03389fb86d3015a4",
     ),
     (
         "recipes/triage",
-        "ce0c6e515f0c8968621616d4902abb2f8c97a9b6db290f86b3ae437928d6872e",
+        "b8484cf5de6e5f18db5cfd85e9c32c9be9eda498a5d4739752c47b7200ea52a9",
     ),
     (
         "recipes/research",
-        "771a16cc62cbe0c488e37b8376e241727a144a718ce30ebe340b3d87814e3b86",
+        "332882b60cbb61f2034060a1b909cb7f8d10c6095522da9f72f44d80b129cb66",
     ),
     (
         "recipes/research-dsh",
-        "90aca484bf82eaba1dc1277493a5eb75406fa4d86ead6d1bdcdedfca32c6c8b3",
+        "8dbc090bc9fb615f488ecf8268cff832d0c51ca7c9a3054cd4e8a33e6dbc6f6e",
     ),
     (
         "bundles/verify",
-        "01eab93799ecf2661433243ca661ab3535ec6364feae3719404ab96ebe2a5451",
+        "44a2ccf25aa39dfae777e56848edc9cbb0f24afc439cada1b2d6efebde4b1b13",
     ),
 ];
 
