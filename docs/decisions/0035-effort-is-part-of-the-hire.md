@@ -280,3 +280,53 @@ than be amended in flight. Every record written between that merge and
 v2's landing names a model without its effort, and cannot be repaired
 afterwards — the journal is append-only. That window is the reason this
 decision is worth its own number rather than a footnote.
+
+## Addendum — 2026-09-05, the operator's ruling: the effort reaches dsh
+
+Ruling 3 recorded dsh's lanes as `not reported` on the strength of a
+measurement: neither the harness nor the providers behind it echoed a
+level, and the one place a level could be imposed was a profile row
+this decision left unruled. On 2026-09-05 the operator ruled in chat
+that the pin should reach dsh, and the seam was measured the same day
+on 0.1.2-rc.1 before anything was written:
+
+- **The composition row cannot carry it.** `agent-default-model`, the
+  row the seat overlay already writes to pin provider and model, keeps
+  `reasoningEffort` out of its config by that package's own design: a
+  selection that clears a level must stay cleared rather than
+  re-inherit one. A `reasoningEffort` written into that row was
+  ignored without a word (a headless turn ran; its header carried the
+  route's default).
+- **The settings layer does carry it, per document.** The same package
+  reads its `agent-default-model` *settings* section as a complete
+  selection — provider, model, `reasoningEffort` — that wins over the
+  composition entry, and `@deepseek-ai/dsh-settings-file`'s whole
+  config is the document's `path`. A settings document naming the
+  pinned model with `reasoningEffort: low`, pointed at by an overlay
+  row replacing `settings`, put `"reasoningEffort":"low"` on the wire
+  over a route whose own `reasoning:` said `xhigh`.
+- **The harness echoes it.** dsh's `request/header` event carries the
+  applied level in `data.header.config.reasoningEffort` — the value
+  after every profile, plugin and settings layer, which is exactly the
+  echo ruling 3 asks a fold to read and dsh was recorded as lacking.
+
+**Rulings.** The dsh driver forwards a seat's `--effort` by writing a
+settings document of the seat's own — the pinned selection restated
+whole, with the level on it — and pointing the `settings` row at it in
+the same overlay that pins the model; a real dsh reads a level from
+that layer and from nowhere else. An effort pinned with no model beside
+it is refused at spawn, not dropped: the driver does not read the
+profile's default back to invent a selection. The fold reads the level
+from the request header, never from the pin, and the rows written
+before the first header say `not reported`, which is now what that
+sentinel means on a dsh row. The seat reads no operator settings
+document while it runs, and that is the point of the design rather
+than a cost of it: a seat's level is the seat's.
+
+**Enforcement binding:** `invoke_dsh_with`, `dsh_seat_overlay_in`,
+`dsh_effort_settings_in`, `dsh_settings_row` and the `request/header`
+arm of `fold_dsh_event` in `brokkr-protocol::adapters`; their unit
+tests; driver conformance, whose dsh shim reads the level off the
+document the overlay names and fails on an `--effort` in its argv.
+Ruling 3's text above is left as written, since it was true when
+written; this addendum is what a dsh row means from here.

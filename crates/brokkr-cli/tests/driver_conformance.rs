@@ -89,21 +89,36 @@ printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens
 /// A dsh that behaves like the installed one: it prints nothing the
 /// driver reads on stdout and writes its session transcript under the
 /// root the seat overlay pins, naming the model that served each
-/// message the way the JSONL backend does (`data.message.source.model`).
+/// message the way the JSONL backend does (`data.message.source.model`)
+/// and, before it, the request header echoing the level it applied
+/// (`data.header.config.reasoningEffort`) — read from the settings
+/// document the overlay's `settings` row points at, which is where a
+/// real 0.1.2-rc.1 reads it (decision 0035 addendum). A real launcher
+/// has no `--effort` flag, so one reaching this shim's argv is a
+/// driver that forwarded the pin the wrong way, and the shim fails.
 const DSH_USAGE_SHIM: &str = r#"#!/bin/sh
 prompt=$*
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
 root=
+sp=
 prev=
 for a in "$@"; do
-  if [ "$prev" = --patch ]; then root=$(awk -F"'" '/^    root: /{print $2}' "$a"); fi
+  [ "$a" = --effort ] && exit 3
+  if [ "$prev" = --patch ]; then
+    root=$(awk -F"'" '/^    root: /{print $2}' "$a")
+    sp=$(awk -F"'" '/^    path: /{print $2}' "$a")
+  fi
   prev=$a
 done
 d="$root/--conformance--/session-served"
 mkdir -p "$d"
 f="$d/session.jsonl"
 printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
+if [ -n "$sp" ]; then
+  lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
+  printf '{"type":"request/header","data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"%s"}}}}\n' "$lvl" >> "$f"
+fi
 printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
 "#;
 
@@ -240,6 +255,8 @@ fn all_adapters(shim: &Path) -> Vec<(&'static str, Vec<String>)> {
                 "--".into(),
                 "--model".into(),
                 "deepseek/deepseek-v4-flash".into(),
+                "--effort".into(),
+                "medium".into(),
             ],
         ),
         (
@@ -634,12 +651,23 @@ fn conformance_across_all_builtin_adapters() {
                         "not reported"
                     }
                 );
-                // Decision 0035 ruling 3's dsh arm, on every row: the
-                // lanes carry a real effort control and neither dsh nor
-                // the providers behind it echo any value, so the record
-                // says so rather than repeating the pin back.
-                for row in out.iter().filter(|m| m["type"] == "checkpoint") {
-                    assert_eq!(row["data"]["effort"], "not reported", "{label}: {row}");
+                // Decision 0035 ruling 3, as its addendum reads it for
+                // dsh: the rows written before the first request went
+                // out say `not reported`, and every row after carries
+                // the level the harness's own header echoed — which is
+                // the pin above only because the shim read it from the
+                // seat's settings document, never because the driver
+                // copied it. The silent shim echoes nothing, and says so
+                // on every row.
+                let echoed = if case == "obedient" {
+                    "medium"
+                } else {
+                    "not reported"
+                };
+                assert_eq!(out[2]["data"]["effort"], "not reported", "{label}");
+                assert_eq!(out[3]["data"]["effort"], "not reported", "{label}");
+                for row in out[4..].iter().filter(|m| m["type"] == "checkpoint") {
+                    assert_eq!(row["data"]["effort"], echoed, "{label}: {row}");
                 }
                 assert!(
                     out.iter()
@@ -692,7 +720,10 @@ fn conformance_across_all_builtin_adapters() {
                 } else if codex {
                     "xhigh"
                 } else if dsh {
-                    "not reported"
+                    // Off the request header the shim echoed, which
+                    // read it from the seat's settings document — the
+                    // pin's whole road, walked (decision 0035 addendum).
+                    "medium"
                 } else {
                     "not applicable"
                 };

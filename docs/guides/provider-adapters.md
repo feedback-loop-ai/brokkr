@@ -45,10 +45,12 @@ so the two must be tellable apart by prefix. The route is the first
 segment only; the second `meta/` is OpenRouter's name for the model.
 Neither is ruled `contracted`; both are `uncontracted` by silence.
 Muse Spark always reasons, so the adapter's `efforts` carries `xhigh`
-for it and the profile row declares no `off` level. The level that
-reaches the wire is the route's own `reasoning:` in the profile, since
-the dsh driver forwards no effort pin (decision 0035); the reasoning
-comes back encrypted, so the record carries its signature and no text.
+for it and the profile row declares no `off` level. A seat's `--effort`
+reaches the wire: the driver writes it into a settings document of the
+seat's own, which dsh reads over its composition and over the route's
+`reasoning:` default (decision 0035 addendum), and the request header
+echoes the level back into the record. The reasoning itself comes back
+encrypted, so the record carries its signature and no text.
 
 A key taken from the launching environment is the one channel that
 moves no digest and reaches no journal row. It is not forbidden, but an
