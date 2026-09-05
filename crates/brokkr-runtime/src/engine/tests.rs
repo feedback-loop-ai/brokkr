@@ -2934,6 +2934,64 @@ fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
     )
 }
 
+/// Decision 0043, after the first astra-judged gate met no result
+/// contract twice: a site whose hands are boxed carries `hands: boxed`
+/// in its driver input — the single seat in the requested input, a panel
+/// member in the input derived for it — and an unboxed site carries no
+/// such key, so its digest is what it always was.
+#[test]
+fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
+    use brokkr_protocol::hands::HandsSpec;
+
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let plain = engine
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    assert!(plain.get("hands").is_none());
+
+    engine
+        .bundle
+        .hands
+        .insert("work".into(), HandsSpec::default());
+    let boxed = engine
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    assert_eq!(boxed["hands"], "boxed");
+
+    // A panel member is marked by its own label, never by the seat's.
+    engine
+        .bundle
+        .hands
+        .insert("review:security".into(), HandsSpec::default());
+    let member = |name: &str| PanelMember {
+        name: name.into(),
+        role_path: PathBuf::from(format!("{name}.md")),
+        command: vec!["driver".into()],
+        confine: None,
+        candidates: Vec::new(),
+    };
+    let members = vec![member("security"), member("correctness")];
+    let meta = json!({
+        "security": {"role_path": "security.md", "result_path": "/r/s.json"},
+        "correctness": {"role_path": "correctness.md", "result_path": "/r/c.json"},
+    });
+    let seat_input = json!({
+        "feature": "f", "phase": "review", "workdir": "/w",
+        "allowed_results": ["clean"], "house_rules": Value::Null, "spec_dialect": Value::Null,
+    });
+    let runs = engine.member_runs(
+        "review",
+        &members,
+        &meta,
+        &seat_input,
+        &json!({}),
+        &Selection::default(),
+        "",
+    );
+    assert_eq!(runs[0].input["hands"], "boxed");
+    assert!(runs[1].input.get("hands").is_none());
+}
+
 #[test]
 fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     use brokkr_protocol::hands::{BindMode, HandsSpec};

@@ -135,6 +135,19 @@ pub fn render_prompt(input: &Value) -> String {
         .and_then(Value::as_str)
         .map(|text| format!("\n\n## Spec dialect\n\n{}", text.trim()))
         .unwrap_or_default();
+    // Decision 0043: a boxed seat's harness keeps its own shell outside
+    // the box, read-only or worse, and the first astra-judged gate wrote
+    // its verdict through that shell twice and met no result contract.
+    // The contract therefore names the one tool that can write.
+    let hands = if input.get("hands").and_then(Value::as_str) == Some("boxed") {
+        "\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
+         harness's own shell runs outside the box and cannot write here — a \
+         file written through it never reaches the engine. Write the result \
+         file with the workspace tool."
+    } else {
+        ""
+    };
     format!(
         "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
@@ -146,7 +159,7 @@ pub fn render_prompt(input: &Value) -> String {
          you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. \
          Printing the JSON instead of writing the file counts as producing no \
          result. You never decide the next phase — the engine's policy table rules \
-         on your typed result.\n",
+         on your typed result.{hands}\n",
         role = role,
         house = house,
         dialect = dialect,
@@ -156,6 +169,7 @@ pub fn render_prompt(input: &Value) -> String {
         context = context,
         result_path = get("result_path"),
         allowed = allowed,
+        hands = hands,
     )
 }
 
