@@ -2,28 +2,34 @@
 
 ## Why
 
-Decision 0043 put the model's hands in one tool and ran that tool in an
-empty root built by bubblewrap, and its ruling 7 refuses a boxed bundle at
-run start on a machine without bubblewrap. Since the verifier and shipper
-became boxed `exec` scripts, that refusal reaches every shipped delivery
-recipe and the quickstart itself: macOS and Windows compile every bundle
-and run none of them.
+Decision 0043 boxed the model's hands in a bubblewrap namespace and
+refuses a boxed bundle at run start on a machine without bubblewrap.
+Since the verifier and shipper became boxed `exec` scripts, that refusal
+reaches every shipped delivery recipe and the quickstart itself: macOS
+and Windows compile every bundle and run none of them.
 
 Decision 0046 (accepted 2026-09-05) names the axis instead of adding a
-flag. A box has a `boundary` — `namespace`, `seatbelt`, `container`,
-`harness` or `open` — declared by the realm, because the machine a realm
-runs on is the realm's fact and never a bundle's; absent, it reads
-`namespace`, which is what every bundle meant until today. The manifest
-pins the resolved boundary per site, so a run under one boundary and a
-run under another are two identities (0043 ruling 4; 0021 ruling 5). The
-record says which boundary stood, every readout that names a seat's
-model names its boundary, and a run whose gate stood under `harness` or
-`open` is rendered *unboxed* wherever the run is summarised — the
-delivery gate's check summary included. `driver.confine` retires into
-the `container` boundary and is refused until slice (iii) measures it.
+flag: a box has a `boundary`, declared by the realm, pinned in the
+manifest, refused where the machine cannot build it, recorded in the
+journal, and shown wherever the model is shown, with a run judged under
+`harness` or `open` rendered *unboxed*. This change is ruling 6's slice
+(i), the word and the pin.
 
-Ruling 6 orders the enactment; this change is slice (i), the word and
-the pin. After it a macOS operator runs every shipped bundle, the review
+## Context
+
+A `boundary` is one of `namespace`, `seatbelt`, `container`, `harness` or
+`open`, declared by the realm, because the machine a realm runs on is the
+realm's fact and never a bundle's; absent, it reads `namespace`, which is
+what every bundle meant until today. The manifest pins the resolved
+boundary per site, so a run under one boundary and a run under another
+are two identities (0043 ruling 4; 0021 ruling 5). The record says which
+boundary stood, every readout that names a seat's model names its
+boundary, and a run whose gate stood under `harness` or `open` is
+rendered *unboxed* wherever the run is summarised — the delivery gate's
+check summary included. `driver.confine` retires into the `container`
+boundary and is refused until slice (iii) measures it.
+
+After this slice a macOS operator runs every shipped bundle, the review
 offices under their harness's own sandbox, and every readout says so.
 
 A specification is worth writing because the commission leaves facts to
@@ -33,11 +39,12 @@ rulings 6 and 7; the installed claude has no `read-only` permission
 mode, so `hands.harness` is measured rather than copied from the
 decision's prose; the journal does not carry a site's class, which the
 *unboxed* rule needs; the seat box that authors this change holds no
-`claude` binary, so that measurement is the operator's; and three
-readings the decision leaves open — work seats with hands under
-`harness`, dialect validate steps under `harness`, and how a read-only
-judge delivers its result file — are ruled below with their reasons, so
-the next judge reads the refutation instead of raising the finding.
+`claude` binary, so that measurement is the operator's; and the readings
+the decision leaves open — work seats with hands under `harness`,
+dialect validate steps under `harness`, how a read-only judge delivers
+its result file, and what the seat input says when no box stands — are
+ruled below with their reasons, so the next judge reads the refutation
+instead of raising the finding.
 
 ## What Changes
 
@@ -51,9 +58,11 @@ In the commission's order of value:
    exactly when the manifest has `hands`. The realms loader reads v4 and
    refuses the word under an older label. The bundle parser refuses
    `boundary` at any site and inside `hands`, naming the realm as its
-   home. `brokkr compile` prints the boundary under each hands site.
-   This repository's `realms.json` is untouched: its absence means
-   `namespace`.
+   home. `brokkr compile` prints the manifest, which under v9 carries
+   `boundary` keyed by the same site labels as `hands`, so each boxed
+   site's boundary is read off the printout beside its box spec; the
+   printout gains no second copy of the map. This repository's
+   `realms.json` is untouched: its absence means `namespace`.
 2. **Refusal and doctor (ruling 2).** `refuse_unboxable` speaks the
    whole vocabulary — `namespace` needs bubblewrap 0.10 or newer,
    `seatbelt` needs `sandbox-exec`, `container` needs `docker` or
@@ -68,10 +77,10 @@ In the commission's order of value:
    finishing checkpoint and the successful result, stamped by the engine,
    `not applicable` for a site without hands. `brokkr-view` exposes the
    boundary in the model's row and as a run-level fact; `inspect`,
-   `watch`, the TUI and the web console render it; a run in which a gate
-   site stood under `harness` or `open` is rendered *unboxed*, in the
-   delivery gate's check summary too. Old journals render an explicit
-   absence, never a default.
+   `watch`, the TUI and the web console render it; `export` carries it as
+   data; a run in which a gate site stood under `harness` or `open` is
+   rendered *unboxed*, in the delivery gate's check summary too. Old
+   journals render an explicit absence, never a default.
 4. **Which boundaries may hold a gate (ruling 4).** `adapters/codex.json`
    and `adapters/claude.json` gain `hands.harness`; dsh and lanetally
    declare none. `enforce_model_policy` gains the boundary axis for
@@ -108,11 +117,12 @@ with 0046 as the stated reason.
 - `boundary-record`: the journal's answer — `effect/started.boundary` as
   a numbered extension schema, `seat-record.v4`, the engine's stamping of
   finishing checkpoints and results, the store's dispatch by engine line,
-  and the seat prompt that names the boundary a seat stands under.
+  and the seat input and prompt that name the boundary a seat stands
+  under.
 - `boundary-readouts`: the rendering — the view's boundary cell beside
   the model and its run-level unboxed fact, `inspect`, `watch`, the TUI,
-  the web console, explicit absence for old journals, and the delivery
-  gate's check summary.
+  the web console, `export` as data, explicit absence for old journals,
+  and the delivery gate's check summary.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
   bundle-pinned-script reading for exec gates and dialect steps, the
@@ -143,13 +153,14 @@ that authorises it.
   the map loader), `brokkr-runtime` (bundle parser and `manifest_for`,
   `enforce_model_policy`, the agent resolver's fragment choice, the
   engine's effect-start path, argv composition and record stamping,
-  `World`'s boundary resolution; `Confine` and `confined_command`
-  deleted), `brokkr-protocol` (adapter loader's `hands.harness`, the seat
-  prompt paragraph, the unboxed exec wrapper beside `hands`),
-  `brokkr-store` (seat-record v4 embedded and dispatched), `brokkr-view`
-  (boundary cells, run-level fact, `VIEW_VERSION` 9), `brokkr-cli`
-  (`compile`, `run`/`resume`/`rerun`, `doctor`, `init`, `render.rs`,
-  `tui.rs`, `ui.html`).
+  `World`'s boundary resolution, `manifest_diff` naming `boundary` when
+  it is the non-file field that differs; `Confine` and
+  `confined_command` deleted), `brokkr-protocol` (adapter loader's
+  `hands.harness`, the seat prompt paragraph, the unboxed exec wrapper
+  beside `hands`), `brokkr-store` (seat-record v4 embedded and
+  dispatched), `brokkr-view` (boundary cells, run-level fact,
+  `VIEW_VERSION` 9), `brokkr-cli` (`compile`, `run`/`resume`/`rerun`,
+  `doctor`, `init`, `render.rs`, `tui.rs`, `ui.html`).
 - **Data:** `adapters/codex.json` and `adapters/claude.json` gain
   `hands.harness`; `realms.json` is untouched.
 - **Identity:** every pinned bundle that declares hands moves once,
@@ -174,9 +185,11 @@ that authorises it.
 
 ## Decisions taken at specify
 
-Each is a reading the decision leaves open, ruled here with its reason so
-that a judge reads the refutation as part of the artifact rather than
-raising the finding again (decision 0042 ruling 2).
+Each is a reading the decision leaves open, ruled here with its reason
+and encoded as a scenario in the owning delta — the dialect's place for
+an answered ambiguity — so that a judge reads the refutation as part of
+the artifact rather than raising the finding again (decision 0042 ruling
+6: a change handed in is adopted, validated and amended with reasons).
 
 - **D1 — The axis is scoped to sites that declare hands.** A site
   without hands has no box whose boundary could be named: it keeps
@@ -218,14 +231,21 @@ raising the finding again (decision 0042 ruling 2).
   `tool_permissions` already uses. A work site under `harness` whose
   adapter declares no `work` fragment is refused at compile as the
   capability gap it is.
-- **D6 — Dialect steps are pinned bytes.** A dialect validate or check
-  step is an exec gate whose argv is the dialect's own, pinned in the run
-  manifest by the dialect's content digest (0042 ruling 1). Under
-  `harness` or `open` it is admitted on the same terms as a
-  bundle-pinned script — the argument ruling 4 makes, that what pinned
-  bytes do is the digest's fact — and runs with the same cleared
-  environment and network treatment. Otherwise every artifact phase
-  would refuse on macOS and the slice's promise would fail.
+- **D6 — Dialect steps are admitted under `harness` and `open` as pinned
+  argv, and this is the reading most in need of the operator's word.** A
+  dialect validate or check step is an exec gate whose argv is the
+  dialect's own, pinned in the run manifest by the dialect's content
+  digest (0042 ruling 1) together with the tool's name and version
+  (dialect v2). The bytes that run — the `openspec` or `specify` binary —
+  are not pinned by digest, so this is weaker than ruling 4's
+  bundle-pinned script, and the proposal says so rather than dressing it
+  up. It is admitted anyway, on the same cleared-environment and network
+  terms and with the run marked unboxed, because the alternative refuses
+  every artifact phase on macOS and breaks ruling 6's own promise that a
+  macOS operator runs every shipped bundle. If the operator refuses this
+  reading, the scenario "A dialect step under harness is admitted" is
+  the one line to delete, and `recipes/sdd` and `recipes/triage` then
+  compile only under a boxed boundary.
 - **D7 — A judge under `harness` still delivers its result file.** The
   result file is the only channel the engine reads, and a read-only
   harness sandbox leaves nothing writable. The `gate` fragment must
@@ -236,7 +256,10 @@ raising the finding again (decision 0042 ruling 2).
   honest outcome rather than a judge that cannot speak.
 - **D8 — `brokkr seats` is the seats table.** No verb of that name
   exists in this tree; the decision's "`brokkr seats`" is read as the
-  seats table `brokkr inspect` and `brokkr watch` render.
+  seats table `brokkr inspect` and `brokkr watch` render. `brokkr
+  export` writes the journal and its manifest as data and renders no
+  prose, so its part of ruling 3 is the record itself: the exported
+  journal carries the word and `verify-run` accepts it.
 - **D9 — Seat-record v4 dispatches by the 0.9 line.** `engine` carries
   no position within a line, so v4's boundary is the line this slice
   lands in: an engine at or after `0.9.0` reads v4, the `0.8` line keeps
@@ -259,10 +282,29 @@ raising the finding again (decision 0042 ruling 2).
 - **D13 — `rerun` compiles without a world today.** It therefore
   compiles under `namespace`; widening `rerun` to take a map is a
   change of its own and is not made here.
-- **D14 — The extension field is absent by default.** `boundary` rides
-  `effect/started` only for an attempt with at least one boxed site, on
-  the exact terms `provenance` set: a run over a bundle that boxes
-  nothing journals byte-identical payloads.
+- **D14 — The extension field is absent by default, which is what makes
+  it legal at event_schema 1.** The contracts README's amended rule
+  (decision 0016) admits an additive payload field at `event_schema: 1`
+  only when it is optional, absent by default and published as a
+  numbered extension schema; a field on every `effect/started` would
+  fail the second condition and be a v2 event, which the closed `type`
+  enum and the frozen manifest schemas forbid. `boundary` therefore
+  rides `effect/started` on the exact terms `provenance` set: for an
+  attempt with at least one boxed site, and a run over a bundle that
+  boxes nothing journals byte-identical payloads. Ruling 3's "every" is
+  honoured where the record can afford it: the seat record carries
+  `boundary` on every finishing checkpoint and successful result, `not
+  applicable` for a site without hands.
+- **D15 — The seat input's `hands: boxed` marker stays true.** The
+  marker exists to tell a seat that the workspace tool is its only
+  writer. Under `namespace`, `seatbelt` and `container` it stays, byte
+  for byte; under `harness` and `open` no box of Brokkr's stands and no
+  workspace tool is served, so the marker is absent rather than false,
+  and the input's `boundary` field — present for every site with hands,
+  under every boundary — carries the word the prompt paragraph keys off.
+  A site without hands carries neither, as today. The data stays the
+  plain word; a marker that read `boxed` over an open seat would be the
+  false statement in the record that ruling 3 exists to prevent.
 
 ## Measurements the seat box cannot make
 

@@ -101,8 +101,12 @@ script — a bare program, an absolute path, a `{brokkr}` verb, or a
 `../` that escapes the root — SHALL be refused naming decision 0046
 ruling 4 and decision 0021. A dialect validate or check step, whose
 argv is the dialect's own and pinned by the dialect's content digest in
-the run manifest, SHALL be admitted on the same terms as pinned bytes
-(decision 0046 ruling 4; decision 0042 rulings 1 and 4).
+the run manifest beside the tool's declared name and version, SHALL be
+admitted on the same cleared-environment and network terms, the run
+marked unboxed all the same; the tool's binary is not pinned by digest,
+which makes this the weaker of the two readings, recorded as such in
+the proposal's D6 for the operator to confirm or refuse (decision 0046
+ruling 4; decision 0042 rulings 1 and 4).
 
 #### Scenario: The shipped verifier under open is admitted
 - **WHEN** a bundle whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands compiles under `open`

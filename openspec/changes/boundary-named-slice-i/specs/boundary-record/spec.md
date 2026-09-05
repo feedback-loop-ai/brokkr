@@ -20,7 +20,12 @@ the site is gate class. An attempt with no boxed site SHALL carry no
 byte-identical payloads. The field SHALL be published as
 `contracts/effect-boundary.v1.schema.json` under the contracts README's
 amended rule: optional, absent by default, never read by `fold`, and
-`RunState` gains nothing from it (decision 0046 ruling 3; the extension
+`RunState` gains nothing from it. It is absent by default because the
+README's rule admits an extension field at `event_schema: 1` only on
+that condition — a key on every `effect/started` would be a v2 event,
+which the closed `type` enum forbids — and ruling 3's *every* is carried
+by the seat record instead, which carries `boundary` on every finishing
+checkpoint and successful result (decision 0046 ruling 3; the extension
 rule of decision 0016).
 
 #### Scenario: A boxed single seat
@@ -79,26 +84,34 @@ rulings 1, 5 and 6; decision 0031 ruling 1 for the sentinel).
 - **WHEN** the frozen-contracts test and the store's embedded-copy test run
 - **THEN** `contracts/seat-record.v4.schema.json` exists with the title `Forge seat record v4`, the embedded copy equals it byte for byte, the v1, v2 and v3 files keep their bytes, and the contracts README carries a v4 row
 
-### Requirement: The seat prompt names the boundary the seat stands under
-The seat input of a site with hands SHALL carry `boundary` beside the
-existing `hands: boxed` marker, and the rendered prompt paragraph SHALL
-follow the boundary: under `namespace`, `seatbelt` and `container`
-exactly today's paragraph, which names the `mcp__brokkr__workspace` tool
-as the only writer; under `harness` a paragraph that names the word,
-says the seat runs under its harness's own sandbox with no workspace
-tool served, and says how the result file reaches the engine as the
-adapter's measured fragment requires; under `open` the same with the
-word `open`. A site without hands SHALL carry neither field and today's
-prompt unchanged (decision 0046 rulings 1 and 4; decision 0043 as
-amended by the boxed-marker fix).
+### Requirement: The seat input and prompt name the boundary the seat stands under
+The seat input of a site with hands SHALL carry `boundary`, the realm's
+word, under every boundary, and SHALL carry the `hands: boxed` marker
+exactly when Brokkr builds the box — under `namespace`, `seatbelt` and
+`container` — so the marker is never a false statement: under `harness`
+and `open` no box of Brokkr's stands and no workspace tool is served,
+and the marker is absent. The rendered prompt paragraph SHALL follow
+`boundary`: under `namespace`, `seatbelt` and `container` exactly
+today's paragraph, which names the `mcp__brokkr__workspace` tool as the
+only writer; under `harness` a paragraph that names the word, says the
+seat runs under its harness's own sandbox with no workspace tool served,
+and says how the result file reaches the engine as the adapter's
+measured fragment requires; under `open` the same with the word `open`.
+A site without hands SHALL carry neither field and today's prompt
+unchanged (decision 0046 rulings 1, 3 and 4; decision 0043 as amended by
+the boxed-marker fix).
 
 #### Scenario: namespace keeps today's words
-- **WHEN** a boxed site's prompt is rendered under `namespace`
-- **THEN** the paragraph is byte-identical to today's, naming the workspace tool as the only writer
+- **WHEN** a boxed site's input and prompt are rendered under `namespace`
+- **THEN** the input carries `hands: boxed` and `boundary: namespace`, and the paragraph is byte-identical to today's, naming the workspace tool as the only writer
 
 #### Scenario: harness does not claim the workspace tool
-- **WHEN** a boxed site's prompt is rendered under `harness`
-- **THEN** the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says how the result file is written
+- **WHEN** a boxed site's input and prompt are rendered under `harness`
+- **THEN** the input carries `boundary: harness` and no `hands` marker, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says how the result file is written
+
+#### Scenario: open carries the word and no marker
+- **WHEN** a boxed site's input is rendered under `open`
+- **THEN** it carries `boundary: open` and no `hands` marker
 
 #### Scenario: A site without hands carries neither
 - **WHEN** a site without hands is rendered under `harness`

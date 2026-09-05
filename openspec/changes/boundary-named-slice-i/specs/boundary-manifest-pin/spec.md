@@ -62,10 +62,13 @@ absent by default.
 ### Requirement: The pinned boundary survives resume and is refused by the Looper lineage
 `bundle_manifest_from_run` SHALL carry `boundary` through the resume
 comparison unchanged, so a run resumes only under the boundary it was
-started with, and `build_run_manifest_v2` SHALL refuse a bundle manifest
-carrying `boundary` exactly as it refuses every key beyond the six the
-v2 round-trip carries (contracts README, the v2 lineage; decision 0046
-ruling 1).
+started with; `manifest_diff`, which today reports a non-file difference
+only as `non-file manifest fields differ (engine or contract version)`,
+SHALL name `boundary` when it is the field that differs, so the refusal
+says what moved rather than blaming a version; and `build_run_manifest_v2`
+SHALL refuse a bundle manifest carrying `boundary` exactly as it refuses
+every key beyond the six the v2 round-trip carries (contracts README,
+the v2 lineage; decision 0046 ruling 1).
 
 #### Scenario: A changed boundary is a manifest mismatch
 - **GIVEN** a run started under `namespace`

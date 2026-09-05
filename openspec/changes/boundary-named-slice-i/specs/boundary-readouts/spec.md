@@ -28,7 +28,7 @@ ruling 3; decision 0031 ruling 3; decision 0013).
 - **THEN** its participant's `boundary` cell reads `harness`, present, beside its `model` cell
 
 #### Scenario: A pre-0046 journal renders absence
-- **GIVEN** a journal whose `run/started` manifest carries `hands` but no `boundary` and whose `effect/started` events carry no `boundary`
+- **WHEN** the view derives a journal whose `run/started` manifest carries `hands` but no `boundary` and whose `effect/started` events carry no `boundary`
 - **THEN** each boxed participant's `boundary` cell is absent with the note `no boundary recorded`, the run-level fact is absent with the same note, and no surface prints `namespace` for it
 
 #### Scenario: A site without hands reads not applicable
@@ -72,8 +72,11 @@ of `inspect --seat`, the TUI seat table and seat detail, and the web
 console's participants table and seat detail SHALL render the boundary
 cell in the same row or block as the model cell, from the same
 derivation, and a roster-style pin test SHALL fail when a source that
-renders a model cell renders no boundary cell (decision 0046 ruling 3's
-binding on `roster.rs`-style pins).
+renders a model cell renders no boundary cell. `brokkr export` renders
+no prose and is read as the record itself: the exported journal carries
+the plain word in `effect/started.boundary` and in every seat record
+this engine writes, and `verify-run` accepts it (decision 0046 ruling
+3's binding on `roster.rs`-style pins).
 
 #### Scenario: inspect's seats table
 - **WHEN** `brokkr inspect` renders a run with a boxed seat
@@ -86,6 +89,10 @@ binding on `roster.rs`-style pins).
 #### Scenario: The web console
 - **WHEN** the console renders the participants table and a seat's detail
 - **THEN** both carry the boundary cell beside the model cell, read from the model served by `/api/view/<run>` and computed nowhere on the page
+
+#### Scenario: export carries the word as data
+- **WHEN** `brokkr export` writes the journal of a run whose boxed gate stood under `harness`
+- **THEN** the exported `effect/started` events and seat records carry the plain word, `verify-run` accepts the file, and no adjective appears in the export
 
 #### Scenario: The pin test
 - **WHEN** a readout source renders `model` without `boundary`

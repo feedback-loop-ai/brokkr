@@ -24,8 +24,9 @@ judged under the harness's own sandbox, rendered *unboxed* — and that
 `namespace` is the default and needs bubblewrap;
 `docs/guides/journal-and-verification.md` gains the unboxed rendering
 and what `boundary` on a record and on `effect/started` means;
-`docs/guides/read-surfaces.md` shows the `boundary` column beside
-`model`; `docs/guides/repository-layout.md` names `boundary` beside
+`docs/guides/read-surfaces.md`'s seats-table example is refreshed from
+the renderer's header line, which already carries `model`, and shows the
+`boundary` column beside it; `docs/guides/repository-layout.md` names `boundary` beside
 `house` and `dialect` in the `realms.json` row and the new contract
 files in the `contracts/` row; `docs/guides/driver-authoring.md` and
 `ARCHITECTURE.md` stop describing the `docker run` wrapper as a trust

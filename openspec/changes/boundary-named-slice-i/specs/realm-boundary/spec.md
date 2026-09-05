@@ -109,16 +109,19 @@ the word lives.
 - **THEN** loading the library refuses the agent with the same message
 
 ### Requirement: brokkr compile prints the boundary under each hands site
-`brokkr compile` SHALL print, beside the manifest it already prints, a
-top-level `boundary` object mapping every hands site label to its
-resolved word, so an operator reading the printout sees each boxed
-site's boundary; a bundle with no hands site SHALL print no such object
-(decision 0046 ruling 1's enforcement binding).
+`brokkr compile` SHALL print the compiled bundle's manifest, as it does
+today, and under v9 that manifest SHALL carry `boundary` keyed by the
+same site labels as `hands`, so an operator reading the printout finds
+each boxed site's boundary beside its box spec. The printout SHALL gain
+no second copy of the map: the manifest is the one derivation of the
+bundle's identity, and a copy printed beside it could drift from it. A
+bundle with no hands site SHALL print a manifest with neither key
+(decision 0046 ruling 1's enforcement binding; decision 0013).
 
 #### Scenario: A boxed bundle prints its sites' boundary
 - **WHEN** `brokkr compile --bundle bundles/self` runs in this repository
-- **THEN** the printed JSON carries `boundary` with the value `namespace` for every key of the manifest's `hands`
+- **THEN** the printed JSON's `manifest.boundary` carries the value `namespace` for every key of `manifest.hands` and no other key, and the printed JSON carries no `boundary` outside the manifest
 
 #### Scenario: A plain bundle prints none
 - **WHEN** `brokkr compile` runs over a bundle with no hands site
-- **THEN** the printed JSON carries no `boundary` object
+- **THEN** the printed manifest carries neither `hands` nor `boundary`
