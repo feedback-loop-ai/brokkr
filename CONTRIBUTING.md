@@ -16,8 +16,8 @@ cargo install --path crates/brokkr-cli
 ```
 
 Those two README paths are the authority. `cargo binstall brokkr-cli`
-waits on a crates.io publication
-([packaging follow-ups](packaging/README.md#named-follow-ups)).
+reads the crate the release workflow publishes to crates.io at each tag
+from v0.9.0 ([packaging](packaging/README.md)).
 
 ## 2. Fork and clone
 
