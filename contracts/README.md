@@ -97,7 +97,8 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 | Contract | File | Consumers |
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
-| Specification dialect | `dialect.v1.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
+| Specification dialect | `dialect.v1.schema.json` | superseded for new files by v2, below; bytes frozen |
+| Specification dialect, with the install identity | `dialect.v2.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are

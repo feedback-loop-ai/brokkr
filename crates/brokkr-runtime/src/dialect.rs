@@ -35,6 +35,36 @@ pub enum DialectError {
 pub struct Tool {
     pub binary: String,
     pub version: String,
+    pub install: Install,
+}
+
+/// What installs the tool, because the binary's name is not its
+/// identity (decision 0042's addendum of 2026-09-04).
+///
+/// Measured the same day: OpenSpec's binary is `openspec`, but the bare
+/// npm name `openspec` is a placeholder at version 0.0.0 and the tool is
+/// published as `@fission-ai/openspec`. An install by binary name gets
+/// the wrong package and says nothing. Spec-kit is not a registry
+/// package at all: `specify` is `specify-cli`, installed by uv from a
+/// git tag. So a dialect names the manager, the package, and the source
+/// where the manager's default registry is not where it comes from.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Install {
+    pub manager: Manager,
+    pub package: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// The installers a dialect may name. Closed, like every other
+/// vocabulary here: an unknown manager is a refusal, never a shell
+/// command this engine guesses at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Manager {
+    Npm,
+    Uv,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -195,18 +225,29 @@ impl Dialect {
             path: path.to_string(),
             problem,
         };
-        if self.schema != "brokkr.dialect/v1" {
+        // v1 is not read by this build, and that costs nothing: the
+        // dialect landed on 2026-09-04 with no realm declaring one, so
+        // no journal pins a v1 dialect for a resume to reload. v1's
+        // bytes stay frozen beside v2 all the same.
+        if self.schema != "brokkr.dialect/v2" {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads brokkr.dialect/v1",
+                "it calls itself '{}'; this build reads brokkr.dialect/v2",
                 self.schema
             )));
         }
         if self.name.trim().is_empty()
             || self.tool.binary.trim().is_empty()
             || self.tool.version.trim().is_empty()
+            || self.tool.install.package.trim().is_empty()
+            || self
+                .tool
+                .install
+                .source
+                .as_ref()
+                .is_some_and(|source| source.trim().is_empty())
         {
             return Err(invalid(
-                "name, tool binary and measured version must be non-empty".into(),
+                "name, tool binary, measured version and install package must be non-empty".into(),
             ));
         }
         let binary = self.tool.binary.as_str();

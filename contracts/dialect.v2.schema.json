@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/brokkr/contracts/dialect.v2.json",
+  "title": "Brokkr specification dialect v2",
+  "type": "object",
+  "required": ["schema", "name", "tool", "requires", "change", "truth", "phases", "decisions", "order", "verify", "archive", "house"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "brokkr.dialect/v2"},
+    "name": {"type": "string", "minLength": 1},
+    "tool": {"type": "object", "required": ["binary", "version", "install"], "additionalProperties": false, "properties": {"binary": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "install": {"$ref": "#/definitions/install"}}},
+    "requires": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "change": {"type": "string", "minLength": 1},
+    "truth": {"$ref": "#/definitions/pathOrUnsupported"},
+    "phases": {"type": "object", "required": ["specify", "design", "tasks", "clarify", "analyze"], "additionalProperties": false, "properties": {"specify": {"$ref": "#/definitions/artifactPhase"}, "design": {"$ref": "#/definitions/artifactPhase"}, "tasks": {"$ref": "#/definitions/artifactPhase"}, "clarify": {"$ref": "#/definitions/loopPhase"}, "analyze": {"$ref": "#/definitions/loopPhase"}}},
+    "decisions": {"type": "object", "required": ["clarify", "analyze"], "additionalProperties": false, "properties": {"clarify": {"$ref": "#/definitions/decisionLocation"}, "analyze": {"$ref": "#/definitions/decisionLocation"}}},
+    "order": {"type": "array", "items": {"$ref": "#/definitions/dependency"}, "minItems": 1},
+    "verify": {"$ref": "#/definitions/commandOrUnsupported"},
+    "archive": {"$ref": "#/definitions/commandOrUnsupported"},
+    "house": {"$ref": "#/definitions/pathOrUnsupported"}
+  },
+  "definitions": {
+    "install": {"type": "object", "required": ["manager", "package"], "additionalProperties": false, "properties": {"manager": {"enum": ["npm", "uv"]}, "package": {"type": "string", "minLength": 1}, "source": {"type": "string", "minLength": 1}}},
+    "unsupported": {"type": "object", "required": ["unsupported"], "additionalProperties": false, "properties": {"unsupported": {"type": "string", "minLength": 1}}},
+    "pathOrUnsupported": {"oneOf": [{"type": "string", "minLength": 1}, {"$ref": "#/definitions/unsupported"}]},
+    "command": {"type": "object", "required": ["argv"], "additionalProperties": false, "properties": {"argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "state": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}},
+    "commandOrUnsupported": {"oneOf": [{"$ref": "#/definitions/command"}, {"$ref": "#/definitions/unsupported"}]},
+    "artifactStep": {"type": "object", "required": ["name", "artifacts", "office", "optional", "instructions", "return_instructions"], "additionalProperties": false, "properties": {"name": {"type": "string", "minLength": 1}, "artifacts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "office": {"enum": ["chief", "council", "smith", "check"]}, "optional": {"type": "boolean"}, "instructions": {"type": "string", "minLength": 1}, "return_instructions": {"type": "string", "minLength": 1}}},
+    "artifactPhase": {"type": "object", "required": ["steps", "validate"], "additionalProperties": false, "properties": {"steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/artifactStep"}}, "validate": {"$ref": "#/definitions/commandOrUnsupported"}}},
+    "loopPhase": {"type": "object", "required": ["taxonomy", "check"], "additionalProperties": false, "properties": {"taxonomy": {"type": "string", "minLength": 1}, "check": {"$ref": "#/definitions/commandOrUnsupported"}}},
+    "decisionLocation": {"type": "object", "required": ["artifact", "section"], "additionalProperties": false, "properties": {"artifact": {"type": "string", "minLength": 1}, "section": {"type": "string", "minLength": 1}}},
+    "dependency": {"type": "object", "required": ["before", "after"], "additionalProperties": false, "properties": {"before": {"type": "string", "minLength": 1}, "after": {"type": "string", "minLength": 1}}}
+  }
+}

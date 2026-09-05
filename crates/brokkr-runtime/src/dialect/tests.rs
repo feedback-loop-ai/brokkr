@@ -23,14 +23,14 @@ fn refusal(value: Value) -> String {
 #[test]
 fn both_shipped_dialects_load_and_satisfy_the_contract() {
     let schema: Value = serde_json::from_slice(
-        &std::fs::read(root().join("contracts/dialect.v1.schema.json")).unwrap(),
+        &std::fs::read(root().join("contracts/dialect.v2.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
     for name in ["openspec", "speckit"] {
         let path = root().join(format!("dialects/{name}.json"));
         let (_, value) = Dialect::load(&path).unwrap();
-        assert!(validator.is_valid(&value), "{name} is outside dialect/v1");
+        assert!(validator.is_valid(&value), "{name} is outside dialect/v2");
     }
     let speckit = Dialect::load(&root().join("dialects/speckit.json"))
         .unwrap()
@@ -108,9 +108,14 @@ fn every_checked_dialect_boundary_is_named() {
         .contains("malformed"));
 
     let mut wrong = openspec();
-    wrong["schema"] = json!("brokkr.dialect/v2");
-    assert!(refusal(wrong).contains("brokkr.dialect/v1"));
-    for pointer in ["/name", "/tool/binary", "/tool/version"] {
+    wrong["schema"] = json!("brokkr.dialect/v1");
+    assert!(refusal(wrong).contains("brokkr.dialect/v2"));
+    for pointer in [
+        "/name",
+        "/tool/binary",
+        "/tool/version",
+        "/tool/install/package",
+    ] {
         let mut value = openspec();
         *value.pointer_mut(pointer).unwrap() = json!(" ");
         assert!(refusal(value).contains("must be non-empty"));
@@ -268,4 +273,37 @@ fn rendered_instructions_cover_every_seated_phase_and_ignore_no_phase() {
             .unwrap(),
         ""
     );
+}
+
+/// Decision 0042's addendum: a dialect names what installs its tool,
+/// because the binary's name is not the package's. Measured 2026-09-04:
+/// the bare npm name `openspec` is a 0.0.0 placeholder, and spec-kit is
+/// a git tag rather than a registry package at all.
+#[test]
+fn every_shipped_dialect_names_the_package_that_installs_its_binary() {
+    for name in ["openspec", "speckit"] {
+        let raw = std::fs::read(root().join(format!("dialects/{name}.json"))).unwrap();
+        let (dialect, _) = Dialect::parse(name, &String::from_utf8(raw).unwrap()).unwrap();
+        assert_ne!(
+            dialect.tool.install.package, dialect.tool.binary,
+            "{name} installs by binary name, which is the trap this field exists for"
+        );
+    }
+    let (parsed, _) =
+        Dialect::parse("openspec", &serde_json::to_string(&openspec()).unwrap()).unwrap();
+    assert_eq!(parsed.tool.install.manager, Manager::Npm);
+    assert_eq!(parsed.tool.install.package, "@fission-ai/openspec");
+    assert_eq!(parsed.tool.install.source, None);
+
+    // An unknown manager is a refusal: this engine never guesses a
+    // shell command for an installer it does not know.
+    let mut unknown = openspec();
+    unknown["tool"]["install"]["manager"] = json!("brew");
+    assert!(refusal(unknown).contains("malformed"));
+
+    // A source, where present, is the coordinate the manager is given;
+    // an empty one is refused rather than silently dropped.
+    let mut blank = openspec();
+    blank["tool"]["install"]["source"] = json!(" ");
+    assert!(refusal(blank).contains("must be non-empty"));
 }
