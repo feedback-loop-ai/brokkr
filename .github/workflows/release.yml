@@ -302,16 +302,22 @@ jobs:
             --source packaging/scoop/brokkr.json \
             --destination bucket/brokkr.json \
             --version "${GITHUB_REF_NAME#v}"
+      # The enterprise prevents GITHUB_TOKEN from opening pull requests, and
+      # create-pull-request cannot use its bot-signing path with a PAT. Mint a
+      # one-hour token from the App installed only on this repository instead:
+      # it can open the PR and GitHub can verify the resulting bot signature.
+      - name: mint the flake pull request token
+        id: flake-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.BROKKR_RELEASE_APP_ID }}
+          private-key: ${{ secrets.BROKKR_RELEASE_APP_PRIVATE_KEY }}
       - name: the flake's digests, as a pull request against this repository
+        id: flake-pr
         uses: peter-evans/create-pull-request@v7
         with:
-          # The workflow token can only open this pull request where the
-          # organization (or enterprise) allows "Actions may create pull
-          # requests". Where that policy is off, a fine-grained token with
-          # contents + pull-requests write on this repository alone, held
-          # as BROKKR_FLAKE_PR_TOKEN, does the same job; absent, the
-          # default token is used and the step reports the policy.
-          token: ${{ secrets.BROKKR_FLAKE_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.flake-app-token.outputs.token }}
+          sign-commits: true
           # A tag build is a detached HEAD, and the action refuses to
           # guess a base from one — the branch the pull request targets
           # has to be named here or the step fails on every release.
@@ -325,3 +331,12 @@ jobs:
             `SHA256SUMS` of ${{ github.ref_name }}. The flake fetches the
             release artifacts, so its digests can only land after the
             release exists.
+      - name: require a verified flake pull request commit
+        if: steps.flake-pr.outputs.pull-request-operation == 'created' || steps.flake-pr.outputs.pull-request-operation == 'updated'
+        env:
+          COMMITS_VERIFIED: ${{ steps.flake-pr.outputs.pull-request-commits-verified }}
+        run: |
+          if [ "${COMMITS_VERIFIED}" != "true" ]; then
+            echo "::error::the flake pull request commit is not verified"
+            exit 1
+          fi

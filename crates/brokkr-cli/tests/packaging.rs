@@ -379,10 +379,27 @@ fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
     let bump = at("bash packaging/bump-from-sums.sh");
     let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
     let bucket = at("--repo \"${GITHUB_REPOSITORY_OWNER}/scoop-bucket\"");
+    let app_token = at("actions/create-github-app-token@v3");
     let action = at("peter-evans/create-pull-request@v7");
 
     assert!(bump < tap && bump < bucket, "{channels}");
-    assert!(tap < action && bucket < action, "{channels}");
+    assert!(tap < app_token && bucket < app_token, "{channels}");
+    assert!(app_token < action, "{channels}");
+
+    for contract in [
+        "app-id: ${{ vars.BROKKR_RELEASE_APP_ID }}",
+        "private-key: ${{ secrets.BROKKR_RELEASE_APP_PRIVATE_KEY }}",
+        "token: ${{ steps.flake-app-token.outputs.token }}",
+        "sign-commits: true",
+        "COMMITS_VERIFIED: ${{ steps.flake-pr.outputs.pull-request-commits-verified }}",
+        "the flake pull request commit is not verified",
+    ] {
+        assert!(channels.contains(contract), "no {contract} in:\n{channels}");
+    }
+    assert!(
+        !channels.contains("BROKKR_FLAKE_PR_TOKEN"),
+        "the unsigned PAT fallback returned:\n{channels}"
+    );
 }
 
 /// The script's half of the same rule: it takes the name of a variable,
