@@ -90,6 +90,14 @@ hands: the argv fragment that disables the harness's own tools and reaches
 `brokkr hands serve` over MCP. Two tokens are expanded by the engine at
 spawn — `{hands_mcp_json}`, a Claude-style MCP config naming this binary,
 and `{hands_args_toml}`, the server's arguments as a TOML array for
-`codex -c`. `{"unsupported": "<measured reason>"}` declares that the
+`codex -c`. The codex fragment also sets
+`mcp_servers.brokkr.default_tools_approval_mode="approve"`: since
+codex-cli 0.153 an MCP tool call "requires approval" by default and a
+non-interactive `codex exec` runs under an approval policy of `never`, so
+without that key every workspace call — reads and the result write alike
+— is refused with "MCP tool call requires approval, but approval policy
+is never". The first two astra-judged gates died on exactly that
+(2026-09-05), and `auto` does not lift it; `approve` does, measured
+against `brokkr hands serve`. `{"unsupported": "<measured reason>"}` declares that the
 harness cannot swap its tool surface, and a site with hands then refuses
 to compile against it, exactly as an unexpressible tool list does.

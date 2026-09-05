@@ -229,6 +229,8 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
                 "mcp_servers.brokkr.command=\"{brokkr}\"",
                 "-c",
                 "mcp_servers.brokkr.args={hands_args_toml}",
+                "-c",
+                "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
             ],
             _ => &[
                 "--tools",
