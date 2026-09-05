@@ -43,8 +43,10 @@ realms is refused by name rather than answered with the first (`latest`
 means the newest run in the world, and the recorded stamp decides it).
 
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
-— `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run`.
-The others (`resume`, `conclude`, `rerun`, `doctor`, `ui`, `costs`,
+— `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run` —
+and, since decision 0047, `operator supersede`, whose citation may name a
+run in another hearth. The others (`resume`, `conclude`, `rerun`,
+`doctor`, `ui`, `costs`,
 `compare`, `anchor`, `bridge`) still take `--db` alone, so a run started
 in a world whose map names a journal other than `.forge/forge.db` is
 resumed by naming that journal with `--db`.
@@ -280,6 +282,12 @@ derived from; a report that cites a fact the dossier does not carry is
 refused and recorded nowhere. Acting on any of it stays the operator's
 own `brokkr operator` command (decision 0020).
 
+A finding the operator has superseded (below) is still derived, still
+listed and still cited — it carries the mark, and the fleet summary says
+how many were closed — but it is not queued. Muninn cannot propose a
+supersede: a run that has already finished admits no operator command,
+and closing the record is the operator's act.
+
 ```
 $ brokkr muninn run
 2026-08-31T14:26:48Z · 1 proposals for parked runs · 2 findings queued
@@ -292,3 +300,59 @@ $ brokkr muninn run
 
 $ brokkr muninn list          # every past invocation, citations included
 ```
+
+### `brokkr operator` — the three commands that write
+
+Everything above reads. `brokkr operator` is where an operator writes,
+and it admits three commands. `retry` re-runs a parked run's phase and
+`stop` ends a run where it stands; both are dispositions the engine acts
+on, and both are refused — journaled as a refusal — when the run is not
+in a state to take them.
+
+`supersede` is the third, and it acts on nothing (decision 0047). It
+records that residual findings on a run that has already **finished** —
+completed or stopped — are closed by another run, naming the findings by
+the sequence number of the ruling each was read from, and naming the run
+and the ruling that closed them. Nothing derives that; only the operator
+knows it, and only the operator may say it.
+
+```
+$ brokkr operator --run decision-0040-the-model-s-hands--96398324 supersede \
+    --findings 190 \
+    --by-run decision-0040-the-model-s-hands--415a7840 --by-seq 214 \
+    --reason "both residuals fixed and shipped at 77c3099"
+```
+
+`--findings` takes one sequence number per flag or one comma-separated
+list. `--by-realm` names the realm the superseding run was read in and is
+omitted for the workspace journal, which is every one-hearth world;
+`--realms` and `--db` choose the world the same way the read surfaces
+choose it, because the run that closed a finding may live in another
+hearth.
+
+Every citation is checked before anything is written, and a refusal
+writes nothing at all: the run must have finished, each `--findings`
+sequence must be a residual finding that run actually carries, the
+`--by-run` run must exist in the journal named and `--by-seq` must be a
+`transition/decided` in it, and a run cannot supersede its own findings.
+An annotation that passed those checks is never re-checked when it is
+read — the journal it cites is append-only, so what was true stays true.
+
+The annotation changes nothing else. It is one `operator/commanded`
+event, folded as the no-op it is; the run's status, its park reason and
+its ruling are exactly what they were, and the finding stays in the
+journal and in every readout, marked:
+
+```
+$ brokkr inspect --run decision-0040-the-model-s-hands--96398324
+run  decision-0040-the-model-s-hands--96398324
+     stopped · phase review · seq 191
+ruling  REVIEW-SECURITY-HOLD  review → ?
+        security residual above the shipping bar
+        superseded at seq 191 by decision-0040-the-model-s-hands--415a7840 seq 214 · operator · both residuals fixed and shipped at 77c3099
+```
+
+Un-superseding is not a command. The record is append-only, so a
+mistaken annotation is answered by another `supersede` naming the right
+run, or by a run that re-reviews the tree — and both stay on the record,
+with a name on them.

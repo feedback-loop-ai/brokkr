@@ -5822,3 +5822,283 @@ fn a_sequence_steps_refused_result_fails_the_attempt_at_that_step() {
         );
     }
 }
+
+// ------------------------------------------ decision 0047: supersede
+
+/// A run stopped on a review ruling that carries a security residual —
+/// the shape decision 0047 exists to close. The ruling is seq 6 and the
+/// stop is seq 7.
+fn held_store(path: &Path, run_id: &str) -> Store {
+    let mut store = in_flight_store(path, run_id);
+    for (event_type, payload, attempt_id) in [
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id":"effect","attempt_id":"attempt",
+                   "result":{"result":"residual"}}),
+            Some("attempt".to_string()),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from":"review","result":"residual","rule_id":"REVIEW-SECURITY-HOLD",
+                   "next":null,"severity":null,
+                   "inputs":{"has_security_residual":true},
+                   "problem":"security residual above the shipping bar"}),
+            None,
+        ),
+        (
+            EventType::RunStopped,
+            json!({"reason":"security residual above the shipping bar"}),
+            None,
+        ),
+    ] {
+        store
+            .append_next(run_id, event_type, payload, None, attempt_id)
+            .unwrap();
+    }
+    store
+}
+
+/// The run an operator cites as having closed someone else's finding:
+/// its review ruled clean, at seq 6.
+fn shipped_store(path: &Path, run_id: &str) -> Store {
+    let mut store = in_flight_store(path, run_id);
+    for (event_type, payload, attempt_id) in [
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id":"effect","attempt_id":"attempt",
+                   "result":{"result":"clean"}}),
+            Some("attempt".to_string()),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from":"review","result":"clean","rule_id":"REVIEW-OK",
+                   "next":"ship","severity":"normal","inputs":{},"problem":null}),
+            None,
+        ),
+    ] {
+        store
+            .append_next(run_id, event_type, payload, None, attempt_id)
+            .unwrap();
+    }
+    store
+}
+
+/// The ask every test below varies one field of.
+fn ask<'a>(findings: &'a [u64], by_run: &'a str, by_seq: u64) -> Supersede<'a> {
+    Supersede {
+        findings,
+        by_realm: None,
+        by_run,
+        by_seq,
+        reason: "both residuals fixed and shipped",
+        operator: "operator",
+    }
+}
+
+/// Decision 0047 rulings 1, 2 and 6: one annotation, verified before it
+/// is written, changing nothing about the run it annotates. No
+/// `operator/accepted` follows it — there is nothing to execute — and
+/// the finding it closes stays in the journal, marked.
+#[test]
+fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("supersede.db");
+    let mut store = held_store(&db, "held");
+    shipped_store(&db, "later");
+    let before = fold(&store.load("held").unwrap()).unwrap();
+
+    let cited = Store::open_read_only(&db).unwrap();
+    let written = operator_supersede(&mut store, &cited, "held", &ask(&[6], "later", 6)).unwrap();
+    assert_eq!(written.seq, 8);
+    assert_eq!(written.event_type, EventType::OperatorCommanded);
+    assert_eq!(written.payload["command"], "supersede");
+    assert_eq!(written.payload["operator"], "operator");
+    assert_eq!(
+        written.payload["args"],
+        json!({"findings":[6],
+               "by":{"realm":null,"run_id":"later","seq":6},
+               "reason":"both residuals fixed and shipped"}),
+        "the args are exactly ruling 1's shape"
+    );
+    // …and that shape is the published contract, not this test's idea
+    // of it: the schema is read from the file the README's table names.
+    let schema: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join("contracts/operator-supersede.v1.schema.json"),
+        )
+        .expect("the published payload schema is beside the frozen contracts"),
+    )
+    .unwrap();
+    let contract = jsonschema::draft7::new(&schema).unwrap();
+    assert!(
+        contract.is_valid(&written.payload["args"]),
+        "{}",
+        written.payload["args"]
+    );
+    assert!(
+        !contract.is_valid(&json!({"findings": [], "by": {}, "reason": ""})),
+        "the schema refuses an annotation that cites nothing",
+    );
+
+    let events = store.load("held").unwrap();
+    assert_eq!(events.len(), 8, "exactly one event was appended");
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == EventType::OperatorAccepted),
+        "no acceptance follows a supersede",
+    );
+    let after = fold(&events).unwrap();
+    assert_eq!(after.status, Status::Stopped, "a mark is not a conclusion");
+    assert_eq!(after.park_reason, before.park_reason);
+    assert_eq!(after.last_decision, before.last_decision);
+    assert!(after.pending_command.is_none());
+
+    let findings = brokkr_view::residual_findings("held", &events);
+    let mark = findings[0]
+        .superseded
+        .as_ref()
+        .expect("the view reads what the fold ignored");
+    assert_eq!(mark.seq, 8);
+    assert_eq!(mark.by.run_id, "later");
+    assert_eq!(mark.by.seq, 6);
+    assert_eq!(mark.operator, "operator");
+
+    // Ruling 2's read-time rule: an annotation that verified at write
+    // time is never re-verified. The superseding run is concluded after
+    // the fact, and the annotation still reads exactly as written.
+    let mut later = Store::open(&db).unwrap();
+    conclude(&mut later, "later", "operator", "closing it by hand").unwrap();
+    assert_eq!(
+        fold(&later.load("later").unwrap()).unwrap().status,
+        Status::Stopped,
+        "the superseding run has moved on",
+    );
+    let again = brokkr_view::residual_findings("held", &store.load("held").unwrap());
+    assert_eq!(
+        again[0].line, findings[0].line,
+        "what was true when it was written stays true when it is read",
+    );
+}
+
+/// Ruling 2: cite or say nothing binds the operator too. Every refusal
+/// path, and the whole point of each — the journal is untouched.
+#[test]
+fn a_supersede_whose_citation_does_not_resolve_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("refused.db");
+    let mut store = held_store(&db, "held");
+    shipped_store(&db, "later");
+    let mut running = in_flight_store(&dir.path().join("running.db"), "going");
+    let cited = Store::open_read_only(&db).unwrap();
+    let elsewhere = Store::open_read_only(&dir.path().join("running.db")).unwrap();
+
+    // A run that is still going: the fold would hold this as a pending
+    // command, and the acceptance disposing of it would be refused as
+    // unknown. The refusal says so.
+    let refusal = operator_supersede(&mut running, &cited, "going", &ask(&[6], "later", 6))
+        .expect_err("a running run takes no supersede");
+    assert!(
+        format!("{refusal}").contains("PENDING command"),
+        "{refusal}"
+    );
+    assert_eq!(running.load("going").unwrap().len(), 4, "nothing written");
+
+    for (what, needle, ask) in [
+        (
+            "a run superseding itself",
+            "its own findings",
+            ask(&[6], "held", 6),
+        ),
+        (
+            "an annotation naming no finding",
+            "closes nothing",
+            ask(&[], "later", 6),
+        ),
+        (
+            "a seq that carries no residual finding",
+            "is not a residual finding",
+            ask(&[7], "later", 6),
+        ),
+        (
+            "a superseding run that is not in the journal",
+            "the workspace journal",
+            ask(&[6], "no-such-run", 6),
+        ),
+        (
+            "a by-seq that is not a ruling",
+            "is not a transition/decided",
+            ask(&[6], "later", 5),
+        ),
+    ] {
+        let refusal = operator_supersede(&mut store, &cited, "held", &ask)
+            .expect_err("a citation that does not resolve is refused");
+        assert!(format!("{refusal}").contains(needle), "{what}: {refusal}");
+        assert_eq!(
+            store.load("held").unwrap().len(),
+            7,
+            "{what} left the journal exactly as it was",
+        );
+    }
+
+    // A realm whose journal this process opened but which holds no such
+    // run refuses in that journal's name, not the workspace's.
+    let refusal = operator_supersede(
+        &mut store,
+        &elsewhere,
+        "held",
+        &Supersede {
+            by_realm: Some("neighbour"),
+            ..ask(&[6], "later", 6)
+        },
+    )
+    .expect_err("the run is not in that hearth");
+    assert!(
+        format!("{refusal}").contains("realm 'neighbour'"),
+        "{refusal}"
+    );
+    assert_eq!(store.load("held").unwrap().len(), 7);
+}
+
+/// Ruling 1's fenced append (decision 0029): a journal that grew while
+/// the citations were being verified takes the head away, nothing is
+/// written, and the operator is sent back to read it again.
+#[test]
+fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("raced-supersede.db");
+    let mut store = held_store(&db, "held");
+    shipped_store(&db, "later");
+    let cited = Store::open_read_only(&db).unwrap();
+    let refusal = operator_supersede_racing(
+        &mut store,
+        &cited,
+        "held",
+        &ask(&[6], "later", 6),
+        |store: &mut Store| {
+            // A peer's annotation is legal on a terminal run and moves
+            // only the head — which is the whole point.
+            store
+                .append_next(
+                    "held",
+                    EventType::OperatorRejected,
+                    json!({"command_id":"peer","operator":"peer","reason":"mine first"}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+    )
+    .expect_err("the head moved under the verification");
+    assert!(
+        format!("{refusal}").contains("head moved: expected seq 7"),
+        "{refusal}"
+    );
+    assert_eq!(
+        store.load("held").unwrap().len(),
+        8,
+        "the peer's event is there and the supersede is not",
+    );
+}
