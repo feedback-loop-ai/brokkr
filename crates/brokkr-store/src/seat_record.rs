@@ -23,9 +23,11 @@ use thiserror::Error;
 
 const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");
 const SCHEMA_V2: &str = include_str!("seat-record.v2.schema.json");
+const SCHEMA_V3: &str = include_str!("seat-record.v3.schema.json");
 
 const CONTRACT_V1: &str = "contracts/seat-record.v1.schema.json";
 const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
+const CONTRACT_V3: &str = "contracts/seat-record.v3.schema.json";
 
 /// The engine line in which seat-record v2 landed. A run whose
 /// `run/started` manifest names an older engine is read under v1.
@@ -39,6 +41,15 @@ const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
 /// properties and takes none away, so every valid v1 record is a valid
 /// v2 record — while every engine before that line is dispatched to v1
 /// exactly.
+///
+/// Seat-record v3 (decision 0034 ruling 7) landed in this same line, and
+/// so shares this boundary. `engine` carries no position WITHIN a line,
+/// so v2 and v3 cannot be told apart by it — both landed after the 0.8.0
+/// tag. The newest contract in a line therefore wins, on exactly the
+/// argument above: v3 adds an optional property and takes none away, so
+/// every valid v2 record is a valid v3 record. The consequence is that
+/// no engine string selects v2; it stays published, pinned and directly
+/// nameable, but dispatch never chooses it.
 const V2_ENGINE: (u64, u64, u64) = (0, 8, 0);
 
 /// Which seat-record contract a record is judged against.
@@ -46,6 +57,7 @@ const V2_ENGINE: (u64, u64, u64) = (0, 8, 0);
 pub enum SeatRecordVersion {
     V1,
     V2,
+    V3,
 }
 
 impl SeatRecordVersion {
@@ -54,8 +66,14 @@ impl SeatRecordVersion {
     /// boundary: a version this binary cannot read is not a licence to
     /// admit fields its writer could not have produced.
     pub fn of_engine(engine: &str) -> SeatRecordVersion {
+        // Two arms, not three, and the missing one is the point: v2 and
+        // v3 share the 0.8.0 line (see `V2_ENGINE`), so no engine string
+        // can select v2 — the newest contract in a line always wins. v2
+        // stays a published, pinned contract and a version a caller can
+        // name directly to judge a record against it; it is simply never
+        // what dispatch chooses. `V2_ENGINE` still draws v1's boundary.
         match semver_triple(engine) {
-            Some(version) if version >= V2_ENGINE => SeatRecordVersion::V2,
+            Some(version) if version >= V2_ENGINE => SeatRecordVersion::V3,
             _ => SeatRecordVersion::V1,
         }
     }
@@ -66,6 +84,7 @@ impl SeatRecordVersion {
         match self {
             SeatRecordVersion::V1 => CONTRACT_V1,
             SeatRecordVersion::V2 => CONTRACT_V2,
+            SeatRecordVersion::V3 => CONTRACT_V3,
         }
     }
 
@@ -73,6 +92,7 @@ impl SeatRecordVersion {
         match self {
             SeatRecordVersion::V1 => SCHEMA_V1,
             SeatRecordVersion::V2 => SCHEMA_V2,
+            SeatRecordVersion::V3 => SCHEMA_V3,
         }
     }
 }
@@ -103,6 +123,7 @@ pub struct SeatRecordError {
 
 static VALIDATOR_V1: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V2: OnceLock<jsonschema::Validator> = OnceLock::new();
+static VALIDATOR_V3: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 fn compile(version: SeatRecordVersion) -> jsonschema::Validator {
     let schema: Value =
@@ -114,6 +135,7 @@ fn validator(version: SeatRecordVersion) -> &'static jsonschema::Validator {
     match version {
         SeatRecordVersion::V1 => VALIDATOR_V1.get_or_init(|| compile(SeatRecordVersion::V1)),
         SeatRecordVersion::V2 => VALIDATOR_V2.get_or_init(|| compile(SeatRecordVersion::V2)),
+        SeatRecordVersion::V3 => VALIDATOR_V3.get_or_init(|| compile(SeatRecordVersion::V3)),
     }
 }
 
@@ -390,11 +412,17 @@ mod tests {
 
     #[test]
     fn the_version_is_the_one_the_runs_engine_wrote() {
-        assert_eq!(SeatRecordVersion::of_engine("0.8.0"), SeatRecordVersion::V2);
-        assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V2);
+        // Ruling 7: v2 and v3 landed in the same 0.8.0 line and the
+        // engine string cannot separate them, so within that line the
+        // newest contract wins. This refuses nothing a v2 record could
+        // have carried — v3 only adds an optional property — and it is
+        // what lets a record THIS engine writes carry the `state` it is
+        // already writing. `V2_ENGINE` still stands as the v1 boundary.
+        assert_eq!(SeatRecordVersion::of_engine("0.8.0"), SeatRecordVersion::V3);
+        assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V3);
         assert_eq!(
             SeatRecordVersion::of_engine("1.0.0-rc.1"),
-            SeatRecordVersion::V2
+            SeatRecordVersion::V3
         );
         assert_eq!(SeatRecordVersion::of_engine("0.7.9"), SeatRecordVersion::V1);
         assert_eq!(SeatRecordVersion::of_engine("0.7"), SeatRecordVersion::V1);
@@ -432,6 +460,41 @@ mod tests {
             json!({"checkpoint":{"step":"seat-turn", "turn":"one"}}),
         )];
         assert_eq!(validate_events(&invalid).unwrap_err().seq, 4);
+    }
+
+    /// Ruling 7: a dialect step's `state` rides the successful result
+    /// under v3, and the same row is refused in a journal an engine
+    /// before the v2/v3 line wrote — that engine had no dialect step to
+    /// produce it. The field is admitted on the result alone; a
+    /// checkpoint never carries one.
+    #[test]
+    fn a_dialect_steps_state_is_admitted_on_a_result_and_nowhere_else() {
+        let result = event(
+            2,
+            EventType::EffectSucceeded,
+            json!({"result":{
+                "result":"pass", "notes":"validated", "state":"framework-state"
+            }}),
+        );
+        validate_events(&[started("0.8.0"), result.clone()]).unwrap();
+        assert_eq!(
+            validate_events(&[started("0.7.9"), result])
+                .unwrap_err()
+                .seq,
+            2
+        );
+
+        let checkpoint = event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{"step":"seat-turn", "turn":1, "state":"framework-state"}}),
+        );
+        assert_eq!(
+            validate_events(&[started("0.8.0"), checkpoint])
+                .unwrap_err()
+                .seq,
+            2
+        );
     }
 
     /// The dispatch, exercised both ways over the same record: a run

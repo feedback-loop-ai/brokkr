@@ -118,6 +118,39 @@ historical journals.
    steps alike. Tests cover the refusal writing nothing, and each engine
    site's failed ending.
 
+7. **The dialect step's `state` is admitted to the typed report, as v3**
+   (added 2026-09-05, operator ruled). Ruling 6's fence, ported onto the
+   engine that had meanwhile gained decision 0042's dialect steps, refused
+   the first record it met: the exec driver writes `state` — the output of
+   the dialect's own state command — onto a dialect validator's successful
+   result, and the contract's `result` definition is `additionalProperties:
+   false` and never admitted the name. Every run reaching a dialect step
+   was therefore writing a journal that export, `anchor` and offline verify
+   would refuse, permanently, exactly the trap ruling 6 exists to close.
+   `recipes/triage` has five such steps; no journal in `docs/evidence` had
+   yet been written through one.
+
+   The field is admitted rather than removed, because it is not an
+   accounting field: it belongs to the separately governed typed report —
+   the family of `result`, `inputs` and `notes` — and the same command's
+   stdout and stderr already ride the record as `notes`, which this contract
+   admits and constrains to nothing. `state` is added on the same terms:
+   the contract admits the name and governs none of the content. The
+   accounting vocabulary is untouched and remains what ruling 1 froze, an
+   accounting record and never a transcript.
+
+   **Enforcement binding:** `contracts/seat-record.v3.schema.json`, a new
+   file beside v2 whose bytes do not move and stay pinned, adding `state` to
+   the successful result alone. Its engine boundary is v2's own 0.8.0 line,
+   because `engine` is the crate version and carries no position within a
+   line: v2 and v3 both landed after the 0.8.0 tag and cannot be told apart
+   by it. Within a line the newest contract wins, which refuses nothing a v2
+   record could have carried, since each version adds optional properties
+   and takes none away. Naming the unreleased line instead would judge every
+   record this engine writes under v2 and refuse the `state` it is already
+   writing.
+
+
 ## Consequences
 
 A malformed seat checkpoint or result never enters the journal: the append
