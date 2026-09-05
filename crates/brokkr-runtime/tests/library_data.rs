@@ -299,7 +299,15 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     // RadixArk/Qwen3.8-Flash-Next-NVFP4 as `qwen3.8-flash` (256k context,
     // qwen3_coder tool parser, radix prefix cache), verified with a
     // headless dsh turn on 2026-09-02; the route lives in the dsh profile
-    // and costs electricity, not cents.
+    // and costs electricity, not cents. `meta/` and `meta-contributor/`
+    // are Meta Model API (api.meta.ai/v1, OpenAI-compatible) serving
+    // Muse Spark 1.3 under two ids that differ only in terms: the bare
+    // id is not used to improve Meta's products, the `-contributor` id
+    // is, at a fraction of the price. Two routes, one key name, because
+    // egress is a property of the route (decision 0036) and the terms
+    // are the egress fact. Listed 2026-09-05 from Meta's published
+    // catalogue; NOT yet verified with a completion (no key on the
+    // operator's machine that day).
     // Abstract names are NOT claude tiers, so no chain written for one
     // provider silently lands on the other. The flag is the shared
     // `--model` grammar; the driver turns `<provider>/<id>` into the
@@ -319,6 +327,11 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         [
             ("flash", "deepseek-v4-flash"),
             ("glm", "dashscope/glm-5.2"),
+            ("muse", "meta/muse-spark-1.3"),
+            (
+                "muse-contributor",
+                "meta-contributor/muse-spark-1.3-contributor"
+            ),
             ("pro", "deepseek-v4-pro"),
             ("qwen-flash", "dashscope/qwen3.8-flash"),
             ("qwen-max", "dashscope/qwen3.8-max"),
