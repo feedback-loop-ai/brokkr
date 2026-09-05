@@ -977,7 +977,9 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "\"quoted\"",
         "/qwen3.8-max",
         "dashscope/",
-        "a/b/c",
+        "a//c",
+        "a/b/",
+        "a/b c/d",
     ] {
         assert!(
             dsh_seat_overlay(Some(bad), None, root).is_err(),
@@ -1546,6 +1548,33 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
     assert_eq!(
         (studio.provider, studio.model),
         ("dashscope", "deepseek-v4-flash-0731")
+    );
+    // An aggregator's id keeps its own slashes: the route is the first
+    // segment and the rest is the id, verbatim (decision 0036 ruling 2).
+    let routed = parse_dsh_model("meta-contributor/meta/muse-spark-1.3-contributor").unwrap();
+    assert_eq!(
+        (routed.provider, routed.model),
+        ("meta-contributor", "meta/muse-spark-1.3-contributor")
+    );
+    let file = dsh_seat_overlay(
+        Some("meta-contributor/meta/muse-spark-1.3-contributor"),
+        Some("xhigh"),
+        std::path::Path::new("/nonexistent/dsh-root"),
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(file.path()).unwrap();
+    assert!(
+        written.contains("provider: meta-contributor\n"),
+        "{written}"
+    );
+    assert!(
+        written.contains("model: meta/muse-spark-1.3-contributor\n"),
+        "{written}"
+    );
+    let document = std::fs::read_to_string(file.settings.as_ref().unwrap().path()).unwrap();
+    assert!(
+        document.contains("  model: meta/muse-spark-1.3-contributor\n"),
+        "{document}"
     );
     // The overlay carries the named route, not the default one.
     let file = dsh_seat_overlay(

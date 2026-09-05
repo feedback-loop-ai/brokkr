@@ -2019,8 +2019,15 @@ const DSH_PROVIDER: &str = "deepseek-official";
 /// profile tree and a model id that route serves. `<id>` alone is the
 /// official DeepSeek route; `<provider>/<id>` names another route the
 /// profile declares — `dashscope/qwen3.8-max` for Model Studio. The
-/// split is on the first slash and the id keeps none, so a route name
-/// and a model id are each one plain identifier.
+/// split is on the FIRST slash, exactly as decision 0036 ruling 2 reads
+/// a concrete id: the route is the first segment and everything after
+/// it is the id the route serves. That id may carry slashes of its own,
+/// because an aggregator's catalogue names models as `<vendor>/<name>`
+/// — `meta-contributor/meta/muse-spark-1.3-contributor` is the
+/// `meta-contributor` route serving OpenRouter's `meta/muse-spark-…` —
+/// and the driver has no business reading a vendor's naming as a
+/// second route. Every segment is one plain identifier and none is
+/// empty, so nothing that reaches the YAML overlay can open a row.
 struct DshModel<'a> {
     provider: &'a str,
     model: &'a str,
@@ -2037,9 +2044,10 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
         Some((provider, model)) => (provider, model),
         None => (DSH_PROVIDER, pinned),
     };
-    if !plain(provider) || !plain(model) {
+    if !plain(provider) || !model.split('/').all(plain) {
         return Err(format!(
-            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain identifiers"
+            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain \
+             identifiers (the id may carry slashes between plain segments)"
         ));
     }
     Ok(DshModel { provider, model })
