@@ -2,7 +2,8 @@
 
 `recipes/research` with one seat replaced: the researcher runs on dsh
 (`dashscope/qwen3.8-max`, the hire the operator ruled for this office,
-effort `high`, which dsh records as not reported) instead of the
+effort `high`, forwarded through dsh's settings layer since decision
+0035's addendum and echoed back in the record) instead of the
 library's Claude Code office. Everything else is
 inherited: the boxed registry gate, the ten-entry cap, the table that
 proposes and never ships (decision 0044).

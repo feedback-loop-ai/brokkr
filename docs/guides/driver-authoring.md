@@ -314,9 +314,12 @@ meter said another, and only the meter could say so.
 The two sentinels are decision 0031's, reused rather than reinvented,
 and the distinction between them is load-bearing:
 
-- `not reported` — the harness's lanes carry a real effort control, but
-  neither it nor the providers behind it echo any value, so there is
-  nothing to read. This is dsh exactly.
+- `not reported` — the harness echoed no level for this row. This was
+  every dsh row until 2026-09-05; since decision 0035's addendum the
+  dsh driver forwards the pin through a settings document of the
+  seat's own and reads the level back from the `request/header` dsh
+  echoes, so on a dsh row the sentinel now means a row written before
+  the first request went out — or a release that echoes nothing.
 - `not applicable` — the driver has no model turn at all. This is `exec`.
 
 A control that exists but goes unreported is not a control that does not

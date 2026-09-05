@@ -758,9 +758,12 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let overlay = dir.path().join("overlay.yml");
+    let settings = dir.path().join("settings.yaml");
     // A stand-in launcher: records its argv one per line and keeps a
     // copy of whatever file follows `--patch`, which is gone by the
-    // time the driver returns.
+    // time the driver returns — and of the settings document that
+    // patch points at, when the seat pinned an effort, echoing the
+    // level it finds there the way a real dsh's request header does.
     let fake = executable(
         dir.path(),
         "dsh",
@@ -769,10 +772,14 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
              for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; \
              if [ \"$prev\" = --patch ]; then cp \"$a\" {overlay}; fi; prev=$a; done\n\
              root=$(awk -F\"'\" '/^    root: /{{print $2}}' {overlay}); d=\"$root/--p--/s\"; mkdir -p \"$d\"\n\
+             sp=$(awk -F\"'\" '/^    path: /{{print $2}}' {overlay}); [ -n \"$sp\" ] && cp \"$sp\" {settings}\n\
              printf '{{\"type\":\"session\",\"version\":0,\"id\":\"session-served\"}}\n' > \"$d/session.jsonl\"\n\
+             if [ -n \"$sp\" ]; then lvl=$(awk -F\"'\" '/reasoningEffort/{{print $2}}' \"$sp\"); \
+             printf '{{\"type\":\"request/header\",\"data\":{{\"header\":{{\"config\":{{\"reasoningEffort\":\"%s\"}}}}}}}}\n' \"$lvl\" >> \"$d/session.jsonl\"; fi\n\
              printf '{{\"type\":\"assistant/message\",\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"source\":{{\"model\":\"served-by-dsh\"}}}}}}}}\n' >> \"$d/session.jsonl\"\n",
             argv = argv.display(),
-            overlay = overlay.display()
+            overlay = overlay.display(),
+            settings = settings.display()
         ),
     );
     let prior = std::env::var_os("BROKKR_DSH_BIN");
@@ -835,6 +842,71 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     assert_eq!(turn["model"], "served-by-dsh");
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
     assert_eq!(invocation.session_meta["harness"], "deepseek");
+    // No effort pinned: no settings row, no settings document, and the
+    // header echoed no level, so the row says so (decision 0035).
+    assert!(!written.contains("- id: settings\n"), "{written}");
+    assert!(!settings.exists());
+    assert_eq!(turn["effort"], "not reported");
+    assert!(invocation.session_meta.get("effort").is_none());
+
+    // A model AND an effort: the effort leaves the argv, the overlay
+    // gains the settings row, the document behind it restates the
+    // pinned selection with the level on it, and the level the launcher
+    // echoes back is the one the record carries — read from the header,
+    // never copied from the pin (decision 0035 addendum, 2026-09-05).
+    let extra: Vec<String> = ["--model", "dashscope/qwen3.8-max", "--effort", "high"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut started = Vec::new();
+    let invocation = invoke(
+        AdapterKind::Dsh,
+        &extra,
+        "the prompt",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| started.push(event.clone()),
+    )
+    .unwrap();
+    let lines: Vec<String> = std::fs::read_to_string(&argv)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(&lines[..3], ["--profile", "headless", "--patch"]);
+    assert_eq!(&lines[4..], ["the prompt"], "{lines:?}");
+    assert!(
+        !lines.iter().any(|l| l.starts_with("--effort")),
+        "{lines:?}"
+    );
+    let written = std::fs::read_to_string(&overlay).unwrap();
+    assert!(written.contains("- id: agent-default-model\n"), "{written}");
+    assert!(written.contains("- id: settings\n"), "{written}");
+    assert!(written.contains("    path: '"), "{written}");
+    let document = std::fs::read_to_string(&settings).unwrap();
+    assert!(document.contains("agent-default-model:\n"), "{document}");
+    assert!(document.contains("  provider: dashscope\n"), "{document}");
+    assert!(document.contains("  model: qwen3.8-max\n"), "{document}");
+    assert!(
+        document.contains("  reasoningEffort: 'high'\n"),
+        "{document}"
+    );
+    let path = written
+        .lines()
+        .find_map(|line| line.strip_prefix("    path: '"))
+        .map(|rest| rest.trim_end_matches('\''))
+        .expect("the settings row names its document");
+    assert!(
+        !std::path::Path::new(path).exists(),
+        "the settings document is the seat's, not the host's: gone when the seat is"
+    );
+    let turn = started
+        .iter()
+        .find(|event| event["step"] == "seat-turn")
+        .expect("the transcript's assistant message became a checkpoint");
+    assert_eq!(turn["effort"], "high");
+    assert_eq!(invocation.session_meta["effort"], "high");
 
     // No pair, no model row: the profile's own default model boots, and
     // the journal says so by naming none. The overlay itself is still
@@ -908,11 +980,140 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "a/b/c",
     ] {
         assert!(
-            dsh_seat_overlay(Some(bad), root).is_err(),
+            dsh_seat_overlay(Some(bad), None, root).is_err(),
             "{bad:?} must be refused"
         );
     }
-    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), root).is_ok());
+    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), None, root).is_ok());
+}
+
+/// An effort pinned with no model beside it is refused, not dropped: the
+/// level rides a complete default-model selection, and the driver does
+/// not read the profile's default back to invent one. With a model, the
+/// overlay gains exactly one more row, and it names a document.
+#[test]
+fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
+    let root = std::path::Path::new("/nonexistent/dsh-root");
+    let refused = dsh_seat_overlay(None, Some("high"), root).unwrap_err();
+    assert!(refused.contains("needs a `--model` beside it"), "{refused}");
+
+    let overlay = dsh_seat_overlay(Some("dashscope/qwen3.8-max"), Some("xhigh"), root).unwrap();
+    let written = std::fs::read_to_string(overlay.path()).unwrap();
+    assert_eq!(written.matches("- id: ").count(), 3, "{written}");
+    assert!(
+        written.contains("- id: settings\n  config:\n    path: '"),
+        "{written}"
+    );
+    let document = overlay
+        .settings
+        .as_ref()
+        .map(|file| std::fs::read_to_string(file.path()).unwrap())
+        .expect("a settings document beside the patch");
+    assert_eq!(
+        document
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>(),
+        [
+            "agent-default-model:",
+            "  provider: dashscope",
+            "  model: qwen3.8-max",
+            "  reasoningEffort: 'xhigh'",
+        ]
+    );
+
+    // The level is clamped at the boundary like every other echo, and a
+    // document that cannot be staged or written says which.
+    let bad = dsh_effort_settings_in(
+        "deepseek-v4-flash",
+        "think hard",
+        tempfile::NamedTempFile::new,
+    )
+    .unwrap_err();
+    assert!(bad.contains("not one bounded word"), "{bad}");
+    let refused = dsh_effort_settings_in("deepseek-v4-flash", "high", || {
+        Err(std::io::Error::other("no tmp"))
+    })
+    .unwrap_err();
+    assert!(
+        refused.contains("could not stage the dsh seat settings"),
+        "{refused}"
+    );
+    let sealed = dsh_effort_settings_in("deepseek-v4-flash", "high", || {
+        let staged = tempfile::NamedTempFile::new()?;
+        let (_, path) = staged.into_parts();
+        let readonly = std::fs::File::open(&path)?;
+        Ok(tempfile::NamedTempFile::from_parts(readonly, path))
+    })
+    .unwrap_err();
+    assert!(
+        sealed.contains("could not write the dsh seat settings"),
+        "{sealed}"
+    );
+    for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        assert!(
+            dsh_settings_row(std::path::Path::new(bad)).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(dsh_settings_row(std::path::Path::new("/tmp/it's"))
+        .unwrap()
+        .contains("'/tmp/it''s'"));
+}
+
+/// The fold reads the level off dsh's own request header — the effective
+/// value after every layer — and never off the pin. A header that names
+/// none leaves the sentinel; a hostile one is clamped away.
+#[test]
+fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
+    let mut turns = 0u64;
+    let mut meta = serde_json::Map::new();
+    let mut emitted: Vec<serde_json::Value> = Vec::new();
+    let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
+        "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
+    fold_dsh_event(&step, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(
+        emitted[0]["effort"], "not reported",
+        "no header yet: {}",
+        emitted[0]
+    );
+
+    let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
+        {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
+    fold_dsh_event(&header, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
+    assert_eq!(meta["effort"], "xhigh");
+    fold_dsh_event(&step, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(emitted[1]["effort"], "xhigh");
+    let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
+    fold_dsh_event(&call, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(emitted[2]["effort"], "xhigh");
+    assert_eq!(emitted[2]["tool"], "bash");
+
+    let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
+    fold_dsh_event(&hostile, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a value that fails the clamp changes nothing"
+    );
+    let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
+    fold_dsh_event(&none, &mut turns, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(
+        meta["effort"], "xhigh",
+        "a header naming no level keeps the last one seen"
+    );
 }
 
 /// One line of a codex rollout in the envelope codex actually writes:
@@ -1349,6 +1550,7 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
     // The overlay carries the named route, not the default one.
     let file = dsh_seat_overlay(
         Some("dashscope/qwen3.8-max"),
+        None,
         std::path::Path::new("/nonexistent/dsh-root"),
     )
     .unwrap();
@@ -2210,12 +2412,12 @@ fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
 fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
     let refused =
-        dsh_seat_overlay_in(None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
+        dsh_seat_overlay_in(None, None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
     assert!(
         refused.contains("could not stage the dsh seat overlay"),
         "{refused}"
     );
-    let sealed = dsh_seat_overlay_in(None, root, || {
+    let sealed = dsh_seat_overlay_in(None, None, root, || {
         let staged = tempfile::NamedTempFile::new()?;
         let (_, path) = staged.into_parts();
         let readonly = std::fs::File::open(&path)?;
