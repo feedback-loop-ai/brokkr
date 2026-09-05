@@ -1,6 +1,6 @@
 # 0046 — The boundary is named: a box has a boundary, `none` is not one of them, and the record says which stood
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-05)
 Date: 2026-09-05
 
 ## Context
@@ -108,6 +108,13 @@ The candidates, and why each loses or wins:
   thing chosen, not the act; `namespace` and `seatbelt` are boundaries
   the way `kvm` is a platform; and its absence reads as a fact rather
   than a contradiction. Wins.
+
+## Ruling — 2026-09-05, operator: accepted as proposed
+
+Accepted in chat the day it was proposed ("I like the design,
+approved"), without amendment: `boundary` is the word, `open` is the
+bare value, and the enactment runs in ruling 6's order. The three
+questions the consequences leave unruled stay open.
 
 ## Rulings
 
