@@ -12,29 +12,31 @@ That is the whole design constraint. If a change here would make a
 channel install something the release did not attest, it is the wrong
 change.
 
-## What is wired, and what is waiting on the bench
+## What is live, and what it took
 
-The accuracy law for this directory: a command is either exercised by
-`crates/brokkr-cli/tests/packaging.rs` and CI, or it is marked **wired
-at the bench** — meaning the code exists and is tested, and the last
-step (a secret, a Pages site, a sibling repository) is the operator's.
+The accuracy law for this directory: a channel is written as live only
+after a real release has served it, and the row names that release.
+Until v0.9.0 the rows read "wired at the bench" — code present and
+tested, the last step (a secret, a Pages site, a sibling repository)
+the operator's. v0.9.0 (2026-09-05) and v0.9.1 (2026-09-06) took every
+row through that last step.
 
 | Channel | State | Proof |
 |---|---|---|
 | tarball + `SHA256SUMS` + attestation | working today | the release workflow, unchanged by this slice |
-| `.deb` / `.rpm` build (nfpm) | working, first published in the next release | CI job `packaging` builds both from the real binary |
-| apt repository (Pages) | **wired at the bench** — needs `BROKKR_APT_SIGNING_KEY` and Pages enabled | `packaging/apt/build-repo.sh` is run against real `.deb` files in CI and its `Release` digests are verified |
-| dnf repository (Pages) | **wired at the bench** — same secret, same site | `packaging/rpm/build-repo.sh` is run in CI; `createrepo_c` produces real repodata |
-| `cargo binstall` | **published from v0.9.0** — the `crates` job publishes the seven crates in dependency order at each tag; needs `CARGO_REGISTRY_TOKEN` | the binstall metadata is resolved against the release matrix in CI; the job's order and its loud skip are pinned by `packaging.rs` |
-| nix flake | evaluates today; installs from the next release's rendered digests | `nix flake check` in CI |
-| homebrew tap | **wired at the bench** — needs `BROKKR_TAP_TOKEN` and the tap repository | the render is tested; the pull request is not opened until the token exists |
-| scoop bucket | **wired at the bench** — needs `BROKKR_BUCKET_TOKEN` and the bucket repository | same |
+| `.deb` / `.rpm` build (nfpm) | live from v0.9.0 — both ship on every release | CI job `packaging` builds both from the real binary |
+| apt repository (Pages) | **live from v0.9.0** — signed with `BROKKR_APT_SIGNING_KEY`, served from Pages | `packaging/apt/build-repo.sh` is run against real `.deb` files in CI and its `Release` digests are verified |
+| dnf repository (Pages) | **live from v0.9.0** — same secret, same site | `packaging/rpm/build-repo.sh` is run in CI; `createrepo_c` produces real repodata |
+| `cargo binstall` | **live from v0.9.1** — the `crates` job publishes the seven crates in dependency order at each tag with `CARGO_REGISTRY_TOKEN`; v0.9.0 put up six and could not package brokkr-cli (#207) | the binstall metadata is resolved against the release matrix in CI; the job's order and its loud skip are pinned by `packaging.rs` |
+| nix flake | live from v0.9.0 — the release renders the digests and opens their pull request through the App | `nix flake check` in CI |
+| homebrew tap | **live from v0.9.0** — the release opens the tap pull request with `BROKKR_TAP_TOKEN`; the operator merges it | the render is tested in CI; the pull request is real |
+| scoop bucket | **live from v0.9.0** — same, with `BROKKR_BUCKET_TOKEN` | same |
 
-No `.deb`, `.rpm`, apt repository or dnf repository exists for v0.6.0:
-this slice adds the machinery, and the first release to carry them is
-the next tag. Any command below that names a package manager is
-therefore describing that release, not v0.6.0 — the quickstart says so
-in the same words.
+The machinery landed at v0.6.0 with no live channel behind it; v0.9.0
+was the first release to carry the packages, the signed site, the tap,
+the bucket and the flake pull request, and v0.9.1 the first to carry
+the crates. Every command below describes a channel that has served a
+release — the quickstart says so in the same words.
 
 ## The operator's steps
 
@@ -123,10 +125,10 @@ given a personal access token. Its credentials are held as:
 
 ## Using the channels
 
-Every command in this section that is not marked otherwise requires the
-bench steps above.
+Every command in this section has served a real release; the operator
+steps above are what made that true.
 
-**apt** (Debian, Ubuntu) — *wired at the bench*:
+**apt** (Debian, Ubuntu) — *live from v0.9.0*:
 
 ```
 curl -fsSL https://feedback-loop-ai.github.io/brokkr/brokkr-archive-keyring.asc \
@@ -148,7 +150,7 @@ release resets it; follow-up 6 is the scheduled re-sign that removes the
 dependence on cadence, and `--valid-days` on
 `packaging/apt/build-repo.sh` is the knob.
 
-**dnf** (Fedora, RHEL, openSUSE) — *wired at the bench*:
+**dnf** (Fedora, RHEL, openSUSE) — *live from v0.9.0*:
 
 ```
 sudo curl -fsSL -o /etc/yum.repos.d/brokkr.repo \
@@ -168,7 +170,7 @@ form needs no Pages site and no secret, only a release that carries the
 sudo dnf install https://github.com/feedback-loop-ai/brokkr/releases/download/vX.Y.Z/brokkr-linux-x86_64.rpm
 ```
 
-**cargo binstall** — *wired at the bench*:
+**cargo binstall** — *live from v0.9.1*:
 
 ```
 cargo binstall brokkr-cli

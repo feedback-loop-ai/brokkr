@@ -45,20 +45,19 @@ together.
 | Channel | One line | State |
 |---|---|---|
 | tarball | `tar xzf brokkr-linux-x86_64.tar.gz` (full recipe below) | works today, and it is the path the 60-second budget measures |
-| cargo | `cargo binstall brokkr-cli` | works from v0.9.0 — the release workflow publishes the crates to crates.io at each tag, and binstall then reads the attested release asset |
-| nix | `nix profile install github:feedback-loop-ai/brokkr` | works from the first release after this slice, once that release's flake-digest pull request is merged — nix reads the default branch |
-| apt | `sudo apt-get install brokkr` | **wired at the bench** — needs the signing secret and the Pages site |
-| dnf | `sudo dnf install brokkr` | **wired at the bench** — same |
-| brew | `brew install feedback-loop-ai/tap/brokkr` | **wired at the bench** — needs the tap repository |
-| scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | **wired at the bench** — needs the bucket repository |
+| cargo | `cargo binstall brokkr-cli` | live from v0.9.1 — the release workflow publishes the seven crates to crates.io at each tag, and binstall then reads the attested release asset |
+| nix | `nix profile install github:feedback-loop-ai/brokkr` | live from v0.9.0 — the release renders the flake digests and opens their pull request; nix reads the default branch once it is merged |
+| apt | `sudo apt-get install brokkr` | live from v0.9.0 — a signed repository on GitHub Pages, after the one-time keyring and source lines below |
+| dnf | `sudo dnf install brokkr` | live from v0.9.0 — same site, same signature, after the one-time repo file |
+| brew | `brew install feedback-loop-ai/tap/brokkr` | live from v0.9.0 — the release bumps the tap and the operator merges it |
+| scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | live from v0.9.0 — the release bumps the bucket and the operator merges it |
 
-"Wired at the bench" means exactly what it says: the tooling is in this
-repository and tested in CI, and the last step — a repository secret, a
-Pages site, a sibling repository — belongs to the operator. Nothing
-above is written as if it had been run against a live channel when it
-had not. The apt and dnf rows also need their one-time setup line (the
-keyring and the sources entry); both are in
-[packaging/README.md](../../packaging/README.md).
+Every row above was exercised by a real release: v0.9.0 (2026-09-05)
+lit the apt and dnf site, the tap, the bucket and the flake, and v0.9.1
+(2026-09-06) put the seven crates on crates.io. Each channel serves the
+same attested assets as the tarball. The apt and dnf rows need their
+one-time setup lines (the keyring and the sources entry, or the repo
+file); both are in [packaging/README.md](../../packaging/README.md).
 
 The rest of this step is the tarball path, which needs none of that.
 
@@ -88,8 +87,11 @@ plain `brokkr`.
 The shipped verify and ship gates also require Linux with bubblewrap
 0.10 or newer on `PATH` (`bwrap --version`). Their boundary is never
 simulated: a run refuses at start when bubblewrap is unavailable. macOS
-and Windows adopters need a Linux box for those gates until a ruling says
-otherwise.
+and Windows adopters need a Linux box for those gates today. Decision
+0046 (accepted 2026-09-05) names the boundary a realm runs under and
+adds a `harness` boundary that lets every shipped bundle run on every
+OS, judged under the harness's own sandbox and marked unboxed; its
+first slice is the road out of this paragraph.
 
 ```
 $ brokkr --version
