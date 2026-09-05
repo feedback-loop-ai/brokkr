@@ -936,11 +936,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "7a6739a8c4e86430b17eb90cad6d31b0495dffc42bb87b873ae069923d8859b4",
+        "6d51bd4c966836783adb5d7acd1a11be9ee8cb9c5c2a410b2bc2bd7809b443d3",
     ),
     (
         "bundles/self",
-        "8e981f5fe8cc61c161d74c39a1a408eacf20688523790f26e73fe0ac16545dc7",
+        "90c98b51c126e167ab311759e99a14e37d979425594ecb9c0f37e347ff979754",
     ),
     (
         "bundles/verify",
@@ -1060,7 +1060,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "4b2b9dd4bcc460d5b807003c52df137c847e0fbbb43ccbf8aaba10bd3b83ce0f",
+        "96b22ca01069055147e39eeb46a791916817afdcb01593ae8ee1d040800ecb09",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

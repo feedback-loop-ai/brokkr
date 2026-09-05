@@ -170,7 +170,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "720169ff380f595a04606101e3d1bde33015bc482bc712cc4787f0401c523552",
+        "b19641f34db72a999f25cfecc174c5a7307570a84916af251bf031486fc54066",
     ),
     (
         "recipes/wager-harness",
@@ -178,7 +178,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "4b2b9dd4bcc460d5b807003c52df137c847e0fbbb43ccbf8aaba10bd3b83ce0f",
+        "96b22ca01069055147e39eeb46a791916817afdcb01593ae8ee1d040800ecb09",
     ),
     (
         "recipes/research",
