@@ -334,9 +334,11 @@ one helper, because the coverage gate is literal.
       teaches the loader to read, so until then no link declares one and
       the arm refuses, fail-closed — refusing otherwise by link, provider
       and missing declaration; `open` refuses a model gate naming ruling
-      4; a gate-class site without hands compiles as today under every
-      boundary (D1) — gate-boundary-policy / The gate law reads the
-      boundary for sites that declare hands.
+      4 and admits a work-class chain site, asking no fragment of any
+      link, to run at the harness's default (D11, DD22), which is the
+      arm 6.10 covers; a gate-class site without hands compiles as today
+      under every boundary (D1) — gate-boundary-policy / The gate law
+      reads the boundary for sites that declare hands.
 - [ ] 6.6 Refuse a work-class site with hands under `harness` whose chain
       has a link declaring no `hands.harness.work` fragment, as the
       capability gap it is, naming the link, inside the hands law's chain
@@ -390,7 +392,9 @@ one helper, because the coverage gate is literal.
       provider declaring the fragment admitted; on one declaring none
       refused naming provider, `hands.harness.gate` and ruling 4; a chain
       whose second link declares none refused naming the second link; an
-      `open` model gate refused; a `seatbelt` and a `container` gate
+      `open` model gate refused and an `open` work-class chain site
+      admitted with no link declaring a fragment, the law's last arm
+      (D11, DD22); a `seatbelt` and a `container` gate
       admitted at compile with the word pinned; a `harness` work seat
       without a `work` fragment refused as a capability gap; an inline
       trusted model gate with a tool list and no hands admitted under
@@ -850,12 +854,16 @@ one helper, because the coverage gate is literal.
       `namespace` run — the seat-costs records and the `resolution` map
       both — and a pre-0046 seat reading `not recorded` — boundary-readouts / Every readout that names a
       seat's model names its boundary.
-- [ ] 10.11 Add the roster-style pin test (modelled on
-      `crates/brokkr-runtime/tests/roster.rs`) that reads every readout
-      source and fails, naming the source, where `served.model` is read
+- [ ] 10.11 Add the roster-style pin test as
+      `crates/brokkr-cli/tests/boundary_readouts.rs` — the readout
+      sources it reads (`render.rs`, `tui.rs`, `compare.rs`, `ui.html`)
+      are that crate's, and it walks up from `CARGO_MANIFEST_DIR` as
+      `crates/brokkr-runtime/tests/roster.rs` does — reading every readout
+      source and failing, naming the source, where `served.model` is read
       outside the pair helper's two faces or a seat-costs record's
       `model` key is rendered without the boundary beside it; and that
-      scans `ui.html` — as `agent_readouts.rs` already scans it for a
+      scans `ui.html` — as `crates/brokkr-cli/tests/agent_readouts.rs`
+      already scans it for a
       composed provenance sentence — failing and naming the line where
       `.model` is read off a carrier outside the page-side pair helper
       (DD12, D28) — boundary-readouts / Every readout that names a seat's
