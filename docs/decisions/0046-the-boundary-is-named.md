@@ -232,3 +232,29 @@ questions the consequences leave unruled stay open.
   measure; whether the `seatbelt` box can mask the git hooks path the
   way the namespace box does (0043 ruling 6), which decides whether it
   is a full peer of `namespace` or a `harness`-grade boundary.
+
+## Addendum — 2026-09-06, operator ruled: an unbuilt boundary refuses at start
+
+The first enactment fire's clarifier (run
+`decision-0046-enactment-slice-i--165601b4`) found ruling 2 and ruling 6
+in contradiction for slice (i): doctor would offer `seatbelt` wherever
+`sandbox-exec` exists and `container` wherever a container engine is on
+`PATH`, the policy would admit gates under them, the manifest would pin
+them — and the engine would reach a site with no composition rule,
+because those boundaries are slices (ii) and (iii).
+
+The operator ruled in chat ("refuse seatbelt and container at start
+until their slices land"). Ruling 2 reads, for every boundary whose
+slice has not landed: `run`, `resume` and `rerun` refuse at start,
+naming the boundary and the slice that builds it, whatever the machine
+offers; `doctor` lists such a boundary as *not yet built*, never as
+offered. A realm may declare it, the map is valid, and the refusal is
+the run's first line. When slice (ii) lands, `seatbelt` moves from the
+refused set to the built set by that slice's own change to
+`refuse_unboxable` and its test; likewise `container` at (iii). No
+branch exists for a boundary that cannot be composed, so the exact
+coverage gate has nothing unreachable to demand.
+
+**Enforcement binding:** `refuse_unboxable` and the doctor line; a test
+per unbuilt boundary that a realm declaring it is refused at start on a
+machine that has its tool, naming the slice.
