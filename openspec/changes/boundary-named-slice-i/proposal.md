@@ -42,9 +42,10 @@ decision's prose; the journal does not carry a site's class, which the
 `claude` binary, so that measurement is the operator's; and the readings
 the decision leaves open — work seats with hands under `harness`,
 dialect validate steps under `harness`, how a read-only judge delivers
-its result file, and what the seat input says when no box stands — are
-ruled below with their reasons, so the next judge reads the refutation
-instead of raising the finding.
+its result file, what the seat input says when no box stands, and which
+surfaces count as a readout of a seat's model — are ruled below with
+their reasons, so the next judge reads the refutation instead of raising
+the finding.
 
 ## What Changes
 
@@ -76,8 +77,9 @@ In the commission's order of value:
    `contracts/seat-record.v4.schema.json` adds `boundary` to the
    finishing checkpoint and the successful result, stamped by the engine,
    `not applicable` for a site without hands. `brokkr-view` exposes the
-   boundary in the model's row and as a run-level fact; `inspect`,
-   `watch`, the TUI and the web console render it; `export` carries it as
+   boundary beside every model cell it carries and as a run-level fact;
+   `inspect`, `watch`, the TUI and the web console render it; `costs`
+   and `compare` name it from the seat records; `export` carries it as
    data; a run in which a gate site stood under `harness` or `open` is
    rendered *unboxed*, in the delivery gate's check summary too. Old
    journals render an explicit absence, never a default.
@@ -120,9 +122,10 @@ with 0046 as the stated reason.
   and the seat input and prompt that name the boundary a seat stands
   under.
 - `boundary-readouts`: the rendering — the view's boundary cell beside
-  the model and its run-level unboxed fact, `inspect`, `watch`, the TUI,
-  the web console, `export` as data, explicit absence for old journals,
-  and the delivery gate's check summary.
+  every model cell it carries and its run-level unboxed fact, `inspect`,
+  `watch`, the TUI, the web console, `costs` and `compare` from the seat
+  records, `export` as data, explicit absence for old journals, and the
+  delivery gate's check summary.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
   bundle-pinned-script reading for exec gates and dialect steps, the
@@ -158,9 +161,11 @@ that authorises it.
   `confined_command` deleted), `brokkr-protocol` (adapter loader's
   `hands.harness`, the seat prompt paragraph, the unboxed exec wrapper
   beside `hands`), `brokkr-store` (seat-record v4 embedded and
-  dispatched), `brokkr-view` (boundary cells, run-level fact,
+  dispatched), `brokkr-view` (a boundary cell beside every model cell —
+  participant, node, checkpoint row, journal row — the run-level fact,
   `VIEW_VERSION` 9), `brokkr-cli` (`compile`, `run`/`resume`/`rerun`,
-  `doctor`, `init`, `render.rs`, `tui.rs`, `ui.html`).
+  `doctor`, `init`, `render.rs`, `tui.rs`, `ui.html`, and `compare.rs`
+  for `costs` and `compare`).
 - **Data:** `adapters/codex.json` and `adapters/claude.json` gain
   `hands.harness`; `realms.json` is untouched.
 - **Identity:** every pinned bundle that declares hands moves once,
@@ -183,7 +188,7 @@ that authorises it.
   every frozen contract, the event vocabulary, `fold`, and every
   historical journal.
 
-## Decisions taken at specify
+## Decisions
 
 Each is a reading the decision leaves open, ruled here with its reason
 and encoded as a scenario in the owning delta — the dialect's place for
@@ -305,6 +310,56 @@ the artifact rather than raising the finding again (decision 0042 ruling
   A site without hands carries neither, as today. The data stays the
   plain word; a marker that read `boxed` over an open seat would be the
   false statement in the record that ruling 3 exists to prevent.
+- **D16 — Every model cell, not only the seats table.** Ruling 3 says
+  every readout that shows a seat's model, and the tree shows one in
+  more places than the seats table: the view carries a `model` cell on
+  the phase rail's nodes, on checkpoint rows and on journal rows, the
+  terminal's decision trail prints `· model <x>`, and `brokkr costs` and
+  `brokkr compare` name a seat's model from the seat records through
+  `compare::seat_costs`, outside the view. The boundary therefore
+  travels beside every one of them, and the pin test scans for a model
+  cell read rather than for a list of surfaces this proposal could
+  leave short. The absence word differs by surface for a reason: a view
+  cell is the absent mark with a note, as every other cell is; a
+  seat-costs record is JSON data and says `not recorded`, the way the
+  same record says `not reported` for a model no driver reported.
+- **D17 — The finishing checkpoint is the one whose `step` ends in
+  `-session-finished`.** The schema cannot tell a finishing checkpoint
+  from a per-turn one, so v4 admits `boundary` on any checkpoint, and
+  the engine stamps only the record the view already treats as the
+  finishing one. The engine's stamp replaces a driver's word: a driver
+  never learns which boundary stood, so a value it wrote can only be a
+  guess.
+- **D18 — Under `harness` and `open` the hands policy is declared, not
+  enforced.** `hands.network` and `hands.binds` stay in the manifest as
+  the site declared them, because they are bundle identity; nothing of
+  Brokkr's enforces them there, because no box of Brokkr's stands. The
+  harness's own sandbox decides, and *unboxed* on every readout is the
+  statement of exactly that. Dropping the policy from the manifest under
+  those boundaries would move digests for no change in what the bundle
+  asks.
+- **D19 — Ruling 6's promise is conditional on the measurement, and a
+  gap is reported, not fudged.** Every shipped bundle compiles under
+  `harness` exactly when the codex and claude adapters declare both
+  `hands.harness` members as fragments; the work offices that declare
+  hands chain both providers. Codex's answers are its documented sandbox
+  classes; claude's must be measured. If the measurement finds no mode
+  that leaves a judge its result door, or no writable mode a work seat
+  can stand in, the shipped bundles refuse under `harness` by name and
+  the implementation reports the promise as unmet for the operator to
+  rule on — a decision is amended only by a decision (0042 addendum,
+  ruling 1), so no rule is widened and no fragment is declared
+  unmeasured to make the tree compile. An empty fragment is a legal
+  measured answer where the driver argv already stands in the mode.
+- **D20 — The deltas name their enforcement bindings, and open with a
+  `## Purpose`.** The dialect's own instructions ask a spec to avoid
+  internal names; this realm's truth is seeded from decisions whose
+  rulings bind by name (0042 addendum, ruling 2), and a delta that names
+  the binding is one a judge can test against the tree and one the
+  analyze check can trace to a task. The names stay. Each delta opens
+  with `## Purpose` because the dialect archives that section into the
+  main spec it creates, and a truth tree seeded with `TBD` placeholders
+  would say nothing about what each capability is for.
 
 ## Measurements the seat box cannot make
 
@@ -322,7 +377,11 @@ and recorded, never guessed (0046 ruling 4's own words):
   result file. Candidates for `work`: `--permission-mode acceptEdits`
   with the shell allowed, or the harness's own sandbox settings. The
   provider-adapters guide records the claude version each was measured
-  against and what it denies and allows.
+  against and what it denies and allows. The binary that guide's doctor
+  transcript already records is claude 2.1.251, so the measurement is
+  against that line; for `work` the empty fragment is a candidate
+  answer, because the driver argv already carries
+  `--permission-mode acceptEdits`.
 - **codex's result door under `--sandbox read-only`.** The read-only
   sandbox blocks every file write. The candidate is the harness's own
   `--output-last-message` capture into the result path, with the prompt
@@ -391,6 +450,10 @@ script and refused for a `{brokkr}`-external command, an escaping and an
 absolute path refused, a `/private/var` spelling and a Windows separator
 admitted; the engine's `effect/started` field, the stamped record, the
 store's refusal of a wrong word, and argv per boundary as pure argv
-tests; the view's cell and run-level fact, an old journal's absence, and
-every readout pinned roster-style; the gate script printing *unboxed*
-for a harness-judged run and nothing for a boxed one.
+tests; the view's cell beside every model cell and its run-level fact,
+an old journal's absence, a hands-less site's `not applicable` under any
+engine, `costs` and `compare` naming the word, the engine's stamp
+replacing a driver's, every shipped bundle compiling under `harness`
+with both fragments declared, and every readout pinned roster-style; the
+gate script printing *unboxed* for a harness-judged run and nothing for
+a boxed one.

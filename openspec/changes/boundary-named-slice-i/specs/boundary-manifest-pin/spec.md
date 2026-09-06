@@ -1,5 +1,7 @@
 # boundary-manifest-pin
 
+## Purpose
+
 The resolved boundary is part of a bundle's identity: `run-manifest.v9`
 pins it per site so that a run under one boundary and a run under
 another are two identities (decision 0046 ruling 1; decision 0043

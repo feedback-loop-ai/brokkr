@@ -1,5 +1,7 @@
 # boundary-guides
 
+## Purpose
+
 The prose follows the code: the guides say where the boundary lives and
 what each word means, the platform paragraph stops saying Linux only,
 the readouts' unboxed rendering is documented, and the decision carries

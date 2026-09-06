@@ -1,5 +1,7 @@
 # boundary-availability
 
+## Purpose
+
 A boundary the machine cannot build refuses at start, and `doctor` says
 which it can (decision 0046 ruling 2, generalising decision 0043
 ruling 7).
@@ -15,7 +17,9 @@ with overlay binds, one reporting 0.10 or newer, exactly as today;
 or `podman` on that path; `harness` and `open` are always offered. The
 refusal SHALL name the boundary, what it needs and what was found, the
 seats that declare hands, and decision 0046 ruling 2; it SHALL fire in
-`run`, `resume` and `rerun` before a journal is opened or a seat spawned;
+`run`, `resume` and `rerun` before any journal row is written or a seat
+spawned (`resume` has already opened the journal to read the run's
+pinned manifest, and writes nothing to it);
 and the boundary is never simulated — nothing is degraded to run anyway
 (decision 0046 ruling 2; decision 0043 ruling 7).
 

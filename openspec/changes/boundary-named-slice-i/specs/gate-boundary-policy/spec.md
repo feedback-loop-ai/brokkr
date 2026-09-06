@@ -1,5 +1,7 @@
 # gate-boundary-policy
 
+## Purpose
+
 Which boundaries may hold a gate: decision 0021's gate law under the
 boundary axis, the adapters' `hands.harness`, the bundle-pinned-script
 reading for exec gates, and the run-time argv per boundary (decision
@@ -24,7 +26,11 @@ door needs, and `work` as `["--sandbox", "workspace-write"]`;
 `adapters/claude.json` SHALL declare both as fragments measured against
 the installed claude 2.1.x and never guessed; `adapters/dsh.json` and
 `adapters/lanetally.json` SHALL declare no `hands.harness`. The loader
-SHALL refuse any other key under `hands.harness`.
+SHALL refuse any other key under `hands.harness`. An empty fragment is
+a legal declaration: it says the adapter's driver argv already stands
+in that mode — claude's driver carries `--permission-mode acceptEdits`,
+the candidate `work` answer — and it is a measured declaration like any
+other, recorded in the guide with what the mode denies and allows.
 
 #### Scenario: codex declares both fragments
 - **WHEN** `adapters/codex.json` is loaded
@@ -96,7 +102,9 @@ bundle's own root — or an ancestor root under composition — by a
 comparison that canonicalises both sides and compares path components,
 so a macOS `/private/var` spelling and a Windows `\` spelling compare
 equal to their other spellings, and every token before it is a bare
-interpreter name without a path separator. A command with no such
+interpreter name without a path separator; the tokens after it are
+its arguments and are not judged, which is how the shipped ship gate
+hands `{brokkr}` to its own script. A command with no such
 script — a bare program, an absolute path, a `{brokkr}` verb, or a
 `../` that escapes the root — SHALL be refused naming decision 0046
 ruling 4 and decision 0021. A dialect validate or check step, whose
@@ -124,9 +132,38 @@ ruling 4; decision 0042 rulings 1 and 4).
 - **WHEN** the comparison is given a root spelled `/private/var/b` and a script resolved as `/var/b/scripts/s.sh` on a host where `/var` links to `/private/var`, or a root `C:\b` and a script `C:/b/scripts/s.sh`
 - **THEN** both are judged inside the root, and a script under a sibling root is not
 
+#### Scenario: The shipped ship gate under harness is admitted
+- **WHEN** the shipped ship seat, `["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]` with hands, compiles under `harness`
+- **THEN** it is admitted, because the tokens after the script are its arguments and the `{brokkr}` among them names no command
+
 #### Scenario: A dialect step under harness is admitted
-- **WHEN** a bundle with an artifact phase compiles under `harness` in a realm that declares a dialect
-- **THEN** its synthetic validate and check steps are admitted, and the shipped `recipes/triage` compiles
+- **WHEN** a fixture bundle with an artifact phase, its chief seated on a fixture provider that declares both `hands.harness` members as fragments, compiles under `harness` in a realm that declares a dialect
+- **THEN** its synthetic validate and check steps are admitted and the bundle compiles
+
+### Requirement: Every shipped bundle compiles under harness once the fragments are measured
+Decision 0046 ruling 6 promises that after this slice a macOS operator
+runs every shipped bundle, the review offices under their harness's own
+sandbox. The work offices that declare hands — `chief-architect` and
+`intake-sdd` — chain claude and codex, so the promise holds exactly when
+`adapters/codex.json` and `adapters/claude.json` declare
+`hands.harness.gate` and `hands.harness.work` as fragments. Every bundle
+under `recipes/` and `bundles/` SHALL compile under `harness` on that
+condition. If the measurement finds a claude mode that cannot be
+declared as a fragment, the refusal SHALL name the adapter, the member
+and the site, and the implementation SHALL report ruling 6's promise as
+unmet for the operator to rule on — never widen the rule, seat another
+provider or declare an unmeasured fragment to make the shipped bundles
+compile (decision 0046 rulings 4 and 6; decision 0042's addendum,
+ruling 1: a decision is amended only by a decision).
+
+#### Scenario: The shipped bundles compile under harness
+- **GIVEN** the codex and claude adapters declare both `hands.harness` members as fragments
+- **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` in a realm that declares the openspec dialect
+- **THEN** each compiles, and each hands site's manifest `boundary` entry reads `harness`
+
+#### Scenario: A measured gap is reported, not papered over
+- **WHEN** the measurement declares claude's `work` member unsupported
+- **THEN** `recipes/sdd`, `recipes/triage` and every bundle hiring the chief or the sdd intake refuse under `harness` naming `claude`, `hands.harness.work` and the site, and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
 
 ### Requirement: The argv of a site with hands follows the boundary and the class
 At run time the engine SHALL compose the argv of every site with hands
@@ -138,7 +175,11 @@ around an exec dispatch; under `harness` the adapter's
 `hands.harness.gate` fragment for a gate-class site and
 `hands.harness.work` for a work-class site, no workspace tool served and
 no box built; under `open` no fragment of Brokkr's at all. Under
-`harness` and `open` an exec dispatch SHALL run with the environment
+`harness` and `open` the site's `hands.network` and `hands.binds` stay
+pinned in the manifest as declared and are enforced by nothing of
+Brokkr's: the harness's own sandbox decides what the hands may reach,
+which is the fact the *unboxed* rendering states. Under `harness` and
+`open` an exec dispatch SHALL run with the environment
 cleared to the box's own allow-list, its `./` script at its real path in
 the bundle root, and, on Linux, inside a new network namespace through
 `unshare`'s unprivileged form when `unshare` is on PATH and the kernel
@@ -165,6 +206,10 @@ rulings 1 and 3).
 #### Scenario: An open site takes nothing
 - **WHEN** a work-class agent site with hands is composed under `open`
 - **THEN** its argv is the adapter's base driver argv with the model and effort pins and nothing else
+
+#### Scenario: The hands policy is declared, not enforced, under harness
+- **WHEN** a site declaring `"hands": {"kind": "workspace", "network": false, "binds": []}` is composed under `harness`
+- **THEN** its manifest `hands` entry still says `network` false, its argv carries no network switch of Brokkr's, and the run is rendered *unboxed*
 
 #### Scenario: An exec script under harness runs unboxed with the environment cleared
 - **WHEN** a boxed exec site is composed under `harness` on Linux with `unshare` on PATH

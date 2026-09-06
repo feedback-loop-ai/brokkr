@@ -1,5 +1,7 @@
 # realm-boundary
 
+## Purpose
+
 The boundary word: what stands between a box's hands and the machine,
 named by decision 0046 ruling 1 as a closed vocabulary, declared by the
 realm and never by a bundle.

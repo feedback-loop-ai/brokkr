@@ -1,5 +1,7 @@
 # boundary-readouts
 
+## Purpose
+
 Every readout that shows a seat's model shows its boundary in the same
 row, and a run whose gate stood under `harness` or `open` is rendered
 *unboxed* wherever the run is summarised. The word in the data is the
@@ -9,17 +11,28 @@ old journals).
 
 ## ADDED Requirements
 
-### Requirement: The view derives the boundary beside the model
-`brokkr-view` SHALL expose on every `Participant` a `boundary` cell
-beside `model`, derived from the site's `effect/started.boundary` entry
-with the last attempt winning, as provenance does, and SHALL expose on
-`RunView` a run-level `boundary` fact carrying the run's word, whether
-the run is rendered *unboxed*, and a rendered text. The data SHALL
-carry the plain word and the adjective SHALL appear only in rendered
-text. A journal written before this change SHALL render an explicit
-absence for a site that declared hands — the absent mark with the note
-`no boundary recorded` — and never a default; a site that declared no
-hands SHALL read `not applicable`. `VIEW_VERSION` SHALL advance to 9,
+### Requirement: The view derives the boundary beside every model cell
+`brokkr-view` SHALL carry a `boundary` cell beside every `model` cell it
+exposes — on `Participant`, on the phase rail's `Node`, on every
+`CheckpointRow` and on every `JournalRow` — each derived from the same
+`effect/started.boundary` entry: a participant's from its site's entry
+with the last attempt winning, as provenance does; a node's from its
+participant; a checkpoint row's from the attempt the checkpoint belongs
+to, the same word on every row of that attempt, because the boundary is
+the attempt's fact and not the turn's; a journal row's from the effect
+and site the row's model is read beside, and absent with the note
+`no boundary recorded` for an event that belongs to no effect, exactly
+as the row's model cell is absent there. `RunView` SHALL expose a
+run-level `boundary` fact carrying the run's word, whether the run is
+rendered *unboxed*, and a rendered text. The data SHALL carry the plain
+word and the adjective SHALL appear only in rendered text. Whether a
+site declared hands is
+read from the `run/started` manifest's `hands` keys under every engine:
+a site named there whose journal recorded no boundary — a journal
+written before this change — SHALL render an explicit absence, the
+absent mark with the note `no boundary recorded`, and never a default;
+a site not named there SHALL read `not applicable`, which is true of it
+whatever engine wrote the journal. `VIEW_VERSION` SHALL advance to 9,
 because an additive model field moves the wire version (decision 0046
 ruling 3; decision 0031 ruling 3; decision 0013).
 
@@ -34,6 +47,14 @@ ruling 3; decision 0031 ruling 3; decision 0013).
 #### Scenario: A site without hands reads not applicable
 - **WHEN** a participant's site declared no hands in a journal this engine wrote
 - **THEN** its `boundary` cell reads `not applicable`
+
+#### Scenario: Every model cell has a boundary cell beside it
+- **WHEN** the view is derived for a run with a boxed seat that journaled three turns
+- **THEN** the seat's participant, its phase-rail node, each of its three checkpoint rows and each journal row of its effect carry a `boundary` cell reading the same word as the participant's, and a `run/started` row's `boundary` cell is absent
+
+#### Scenario: A hands-less site in an old journal reads not applicable
+- **WHEN** the view derives a journal whose `run/started` manifest carries no `hands` key at all
+- **THEN** every participant's `boundary` cell reads `not applicable`, none carries the absent mark, and the run-level fact renders nothing
 
 #### Scenario: The wire version moves
 - **WHEN** `--json` is emitted by `inspect`
@@ -67,35 +88,52 @@ compose its own (decision 0046 ruling 3; decision 0013).
 - **THEN** no surface prints a boundary for the run
 
 ### Requirement: Every readout that names a seat's model names its boundary
-The seats table of `brokkr inspect` and `brokkr watch`, the seat detail
-of `inspect --seat`, the TUI seat table and seat detail, and the web
-console's participants table and seat detail SHALL render the boundary
-cell in the same row or block as the model cell, from the same
-derivation, and a roster-style pin test SHALL fail when a source that
-renders a model cell renders no boundary cell. `brokkr export` renders
-no prose and is read as the record itself: the exported journal carries
-the plain word in `effect/started.boundary` and in every seat record
-this engine writes, and `verify-run` accepts it (decision 0046 ruling
-3's binding on `roster.rs`-style pins).
+Every surface that prints a model cell SHALL print the boundary cell
+beside it, from the same derivation and never composed on its own. In
+this tree those surfaces are: the terminal's seats table and its
+per-seat lines under `brokkr inspect`, `inspect --seat` and `brokkr
+watch`, and the terminal's decision-trail rows, which print
+`· model <x>`; the TUI's seat table, seat detail, checkpoint rows and
+journal rows; and the web console's participants table, seat detail,
+checkpoint stream and journal rows. `brokkr costs` and `brokkr compare`
+name a seat's model from the seat records themselves, through the one
+seat-costs derivation, so their per-seat record SHALL gain `boundary`
+reduced exactly as `model` is — the set of words the seat's finishing
+checkpoints and successful results carry, one word or a joined list —
+reading `not recorded` when no record carries one, an explicit absence
+and never a default; and `compare` SHALL report a boundary difference
+between two runs as a first-class divergence, the way it reports a
+model difference. A roster-style pin test SHALL read every readout
+source and fail, naming the source, where a `model` cell or the `model`
+key of a seat-costs record is rendered without the boundary beside it.
+`brokkr export` renders no prose and is read as the record itself: the
+exported journal carries the plain word in `effect/started.boundary`
+and in every seat record this engine writes, and `verify-run` accepts
+it (decision 0046 ruling 3's binding on `roster.rs`-style pins;
+decision 0031 ruling 1's list of the readouts).
 
-#### Scenario: inspect's seats table
+#### Scenario: inspect's seats table and trail
 - **WHEN** `brokkr inspect` renders a run with a boxed seat
-- **THEN** the seats table has a `boundary` column beside `model`, and the seat detail prints the boundary beside the model line
+- **THEN** the seats table has a `boundary` column beside `model`, the per-seat lines print the boundary beside the model, and a decision-trail row that prints `· model <x>` prints `· boundary <y>` beside it
 
 #### Scenario: The TUI
-- **WHEN** the TUI renders the seat table and a seat's detail pane
-- **THEN** both carry the boundary cell beside the model cell
+- **WHEN** the TUI renders the seat table, a seat's detail pane, its checkpoint rows and the journal rows
+- **THEN** each carries the boundary cell beside the model cell
 
 #### Scenario: The web console
-- **WHEN** the console renders the participants table and a seat's detail
-- **THEN** both carry the boundary cell beside the model cell, read from the model served by `/api/view/<run>` and computed nowhere on the page
+- **WHEN** the console renders the participants table, a seat's detail, its checkpoint stream and the journal rows
+- **THEN** each carries the boundary cell beside the model cell, read from the model served by `/api/view/<run>` and computed nowhere on the page
+
+#### Scenario: costs and compare name the boundary
+- **WHEN** `brokkr costs` and `brokkr compare` report a run whose boxed gate stood under `harness` beside a run whose boxed gate stood under `namespace`
+- **THEN** each per-seat record carries `boundary` beside `model`, `costs` prints the plain word, `compare` reports the difference as a divergence, and a pre-0046 journal's seat reads `not recorded`
 
 #### Scenario: export carries the word as data
 - **WHEN** `brokkr export` writes the journal of a run whose boxed gate stood under `harness`
 - **THEN** the exported `effect/started` events and seat records carry the plain word, `verify-run` accepts the file, and no adjective appears in the export
 
 #### Scenario: The pin test
-- **WHEN** a readout source renders `model` without `boundary`
+- **WHEN** a readout source reads a `model` cell — a participant's, a node's, a checkpoint row's or a journal row's — or the `model` key of a seat-costs record, without the boundary beside it
 - **THEN** the pin test fails naming the source
 
 ### Requirement: The delivery gate's check summary says unboxed

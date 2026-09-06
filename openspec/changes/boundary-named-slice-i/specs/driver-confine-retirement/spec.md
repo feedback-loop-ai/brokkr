@@ -1,5 +1,7 @@
 # driver-confine-retirement
 
+## Purpose
+
 Decision 0008's container confinement retires into the `container`
 boundary. Until slice (iii) measures that boundary the field is refused
 by name, and the wrapper nobody exercised is deleted (decision 0046
