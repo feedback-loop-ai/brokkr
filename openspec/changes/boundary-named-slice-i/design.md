@@ -75,7 +75,9 @@ judge can re-read):
   `VIEW_VERSION` is 8. The terminal seats table prints `model` and
   `effort`; the trail prints `· model <x>`; the TUI and the console read
   the same cells; `costs` and `compare` read `model` off the seat
-  records themselves.
+  records themselves, and `compare`'s `resolution_of` reads each
+  participant's view-derived model a second time into the `resolution`
+  map that `resolution_divergence` compares.
 - **The delivery gate composes three lines** after verifying the
   journal: the tier line, the vouched line and the docs-tier preflight
   line (`scripts/delivered-by-brokkr.sh`).
@@ -127,14 +129,14 @@ a position is rejected, the reason is here and nowhere else.
 | Resolution point | once at compile; the engine reads one memoised field, never disk | compile must not probe PATH; execution must never reread `realms.json` or adapters; a fence at the engine entry | **Adopted, both.** `Bundle.boundary` is set by `compile_with_realm`; `Engine.boundary` is that field; `start_in_world` refuses before `create_run` when the world's realm resolves a different word than the bundle was compiled under (DD3). |
 | The v9 map is the identity mechanism | no — the realms pin already moves the digest; the map is legibility | the map must equal the hands keys and the plan; a verifier must assert it | **Combined.** The map is derived in the loop that writes `hands`, so the key sets are equal by construction and the schema states co-presence with `dependencies`; a separate `verify-run` rule is rejected — `verify-run` is parse/chain/fold and a forged map is a forged digest (DD4). |
 | Journaling the site's class | cut it; derive *unboxed* from `run/started` with one `jq` | keep a per-site structured extension with an engine-owned gate class | **Robustness adopted.** Ruling 3 says *gate* site; the manifest names hands sites but no class; cutting the flag either widens the rule to every boxed site or makes every consumer recompile the bundle. The cost is one boolean written in the traversal that already writes `provenance`, so the tags cannot drift (DD5). |
-| `effect/started` carries nothing the manifest lacks | accepted as ruled; one field, not two | the omission for a plain attempt is a narrowed reading of "every" and must be called one | **Both adopted.** The word is redundant with the manifest and the gate class is what the entry adds; the field rides `provenance`'s terms and D14 now says *narrowed reading* in those words (DD5). |
+| `effect/started` carries nothing the manifest lacks | accepted as ruled; one field, not two | the omission for a plain attempt is a narrowed reading of "every" and must be called one | **Both adopted.** The word is redundant with the manifest and the gate class is what the entry adds; the field rides terms of `provenance`'s shape — present exactly when a site of the attempt declares hands, as `provenance` is present exactly when one is agent-resolved — and D14 now says *narrowed reading* in those words (DD5). |
 | Rerun | — | reject D13: reading no world silently substitutes `namespace` | **Robustness adopted, differently.** `rerun` is a new run under a possibly different bundle ("no stored linkage"), so the source run's world is not its identity; the discovered realm is, exactly as for `run`. D13 is amended: `rerun` discovers the world, compiles in it and starts in it (DD6). |
 | `work` fragment under `harness` (D5) | if no measured claude combination works, declare none and be refused | reject the writable `work` member as unruled; refuse work sites with hands under `harness` | **D5 stands.** Ruling 1 defines `harness` as "the harness's own sandbox as its adapter fragment addresses it"; ruling 4 governs gates only; D11 already admits a work seat under `open` at the harness's default, so refusing the same seat under the stricter word would invert the vocabulary. Absence stays fail-closed at compile (DD7). |
 | Dialect steps under `harness`/`open` (D6) | — | reject: an external binary is not the bundle's pinned bytes | **D6 stands, with the reason sharpened.** The dialect step is admitted today outside `enforce_model_policy` by 0042 ruling 1; the objection that the tool's bytes are unpinned applies equally to `bash` and `cargo` under the shipped verify script, so it proves too much. The proposal's "weaker reading" wording is withdrawn: both readings pin a declaration and run a host tool (DD8). |
 | Pinned-script check | one pure predicate over argv and roots, canonical-safe | a real parser with an interpreter grammar, canonical containment, symlink defence, digest recheck before spawn | **Combined.** Construction, not comparison (D24), plus robustness's grammar: bare interpreter names only before the script, no option token, one script token, the rest arguments; and the walk's own exclusions shared so `./realms.json` and `./dialects/…` are refused as unpinned. Canonicalisation rejected: nothing is compared, and the walk pins through symlinks so following one is the digest's own reading. The pre-spawn digest recheck is rejected: the namespace box has none either, and resume's `manifest_diff` is the drift fence at the durable boundary (DD9). |
-| The unboxed environment | `env_clear()` plus `PATH`, `HOME` and the engine's own entries, one helper | never hand the real `HOME` or caches; private home; plant-a-secret test | **Robustness adopted, by mirroring the box.** The box already answers this: private `HOME` and `TMPDIR`, toolchain locators exactly when the site's binds declare them. D22 is amended to that table; one pure function; the secret-planting test is release-blocking (DD10). |
+| The unboxed environment | `env_clear()` plus `PATH`, `HOME` and the engine's own entries, one helper | never hand the real `HOME` or caches; private home; plant-a-secret test | **Robustness adopted, by mirroring the box.** The box already answers this: private `HOME` and `TMPDIR`, toolchain locators exactly when the site's binds declare them. D22 is amended to that principle — the box's table with each namespace fact replaced by the fact that stands outside one, `USER` and `LOGNAME` included — the table itself stated once, in the delta; one pure function; the secret-planting test is release-blocking (DD10). |
 | `brokkr seats` | — | a thin verb rather than a silent reinterpretation | **Robustness adopted.** The decision and the commission both name the verb; a thin `seats` over the view's seats block makes the named contract true at the cost of one arm. D8 is amended (DD11). |
-| Readouts | `Participant.boundary` and one run-level fact; let the pin test derive the rest | a composite model-and-boundary unit on every carrier so omission is impossible by type | **Combined.** The four carriers are needed as wire fields ("in the same row" is a promise to `--json` readers too), so the derivation cannot be short of them; one flattened `ModelAtBoundary` unit and one renderer helper give the type lock, and the roster-style pin test stays as ruling 3's binding (DD12). |
+| Readouts | `Participant.boundary` and one run-level fact; let the pin test derive the rest | a composite model-and-boundary unit on every carrier so omission is impossible by type | **Combined.** The four carriers are needed as wire fields ("in the same row" is a promise to `--json` readers too), so the derivation cannot be short of them; one flattened `ModelAtBoundary` unit and one pair helper — a text face for the renderers, a JSON face for `compare`'s `resolution` map, which reads the participant's model a second time — give the type lock, and the roster-style pin test stays as ruling 3's binding (DD12). |
 | Old journals | absence via `cell_of` | absence, and never `not applicable` inferred from the manifest | **Combined.** A boxed site with no recorded word renders the absent mark with `no boundary recorded`; a site the pinned manifest names no hands for renders `not applicable` with the note `no hands declared` — a derivation from journaled evidence, not a default (DD13). |
 | Strict reading of the extension | — | a shared strict parser before any consumer; malformed evidence must not look boxed | **Combined.** No new validator: the engine writes from the closed type. Every consumer treats an entry outside the vocabulary or without a tag as *not recorded*, never as boxed or unboxed (DD14). |
 | Network isolation | best-effort, one probe, injectable | best-effort; never presented as evidence | **Adopted, both** (D12/D25 as clarify returned them); plus the guide constraint that no readout or page states the network was off (DD15). |
@@ -188,7 +190,9 @@ writes the v9 map from it. `Engine.boundary` is set from the bundle at
 from disk. `start_in_world` refuses, before `create_run`, when the world
 it is given resolves a different boundary for the operated repository
 than the bundle was compiled under (`EngineError::BoundaryMismatch`,
-naming both words). `resume` needs no second fence: `manifest_diff`
+naming both words; no world resolves `namespace`). The fence is
+realm-boundary's requirement *The engine starts a run only under the
+boundary its bundle was compiled under*, with its own scenarios. `resume` needs no second fence: `manifest_diff`
 names `boundary` when the map differs. The Looper lineage refuses a
 manifest carrying `hands` or `boundary` as it refuses every key beyond
 its six.
@@ -285,22 +289,24 @@ and `recipes/night-shift` compile only under a boxed boundary.
 ### DD9 — The pinned-script check is a grammar and a lookup (amends D24)
 
 The compiler judges an exec hands gate under `harness` or `open` on the
-*raw* command, before `expand_command` erases the `./` spelling: after
-`{brokkr} driver exec --`, zero or more bare interpreter names (no path
-separator, no leading `-`), then exactly one script token, then
-arguments that are not judged. The script token is `./`-relative, every
-component after `./` a plain name (no `.`, no `..`, no empty component,
-no `\`, no drive or UNC prefix), and its relative key is one the
-declaring layer's manifest walk pins: the joined path under that
-layer's directory is a regular file by `metadata` (following a symlink,
-as the walk does), and the key is not one the walk skips
-(`realms.json`, `dialects/…`) — the exclusion is one function shared
-with `manifest_for`, so the two cannot drift. Nothing is canonicalised
+*raw* command, before `expand_command` erases the `./` spelling, and
+asks one question: is the script token a key the declaring layer's
+manifest walk pins? The grammar (bare interpreter names before exactly
+one script token, then unjudged arguments) and the lookup (plain `./`
+components, a regular file by `metadata` under the declaring layer's
+directory, not a key the walk skips) are stated once, in
+gate-boundary-policy's requirement *An exec gate under harness or open
+holds only for pinned bytes*; the tasks cite it and restate nothing.
+What this design fixes is the shape: the walk's skip rule is one
+function shared with `manifest_for`, so the two cannot drift; the
+lookup follows a symlink because the walk pins through one (`is_file()`
+and `fs::read` both follow), so the bytes pinned under the key are the
+bytes that run; the declaring layer's directory is the one
+`expand_command`'s caller already holds; and nothing is canonicalised
 and no two spellings are compared, which is how `/private/var` and `\`
-are handled: a token spelled either way is refused as not
-`./`-relative. `bash -c '…'` is refused because `-c` is an option token
-before the script. The verdict is a compile fact the manifest pins; at
-run time the engine spawns the compiled command (D25) and re-derives
+are handled — a token spelled either way is refused as not
+`./`-relative. The verdict is a compile fact the manifest pins; at run
+time the engine spawns the compiled command (D25) and re-derives
 nothing.
 
 *Alternatives:* canonical containment (rejected: needs both sides to
@@ -312,29 +318,39 @@ fence the tree already draws).
 ### DD10 — The unboxed environment mirrors the box (amends D22)
 
 Under `harness` and `open` an exec dispatch starts from an empty
-environment and holds exactly:
+environment and holds the box's own table (the allow-list `hands.rs` in
+`brokkr-protocol` composes) with each entry that states a fact of the
+namespace replaced by the fact that stands outside one. The table is
+stated once, in gate-boundary-policy's requirement *An unboxed exec
+dispatch runs in a fixed environment*; this design fixes the principle
+and the reason for every entry that differs from the box's:
 
-- `HOME` and `TMPDIR`: two private directories created for the attempt
+- `HOME` and `TMPDIR` are private directories created for the attempt
   under the run's scratch, as the box binds a private home and `/tmp`;
-  never the operator's.
-- `PATH`, `USER`, `LOGNAME`: the engine's own, verbatim, each only when
-  set (the box's fixed `PATH` names box mounts that do not exist
-  outside one; the interpreter and the toolchain proxies are found
-  where the operator's shell finds them).
-- `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: set to the
-  operator's `~/.cargo`, `~/.rustup`, `~/.npm` — `~` being the engine's
-  home, as `expand_home` reads it — exactly when the site's
-  `hands.binds` declare that path, as the box sets them; otherwise
-  absent. A bind's `mask` cannot be enforced outside a namespace, and
-  the guide says so: under `harness` the shipped verify script can read
+  never the operator's, because the real home carries the credential
+  files — `.ssh`, `.netrc`, `.cargo/credentials.toml` — that clearing
+  the environment was meant to take out of reach.
+- `PATH` is the engine's own, because the box's fixed `PATH` names
+  mounts (`/runtime`, the bound `~/.cargo/bin`) that exist only inside
+  a namespace, and the interpreter and the toolchain proxies are found
+  where the operator's shell finds them.
+- `USER` and `LOGNAME` are the engine's own where the box fixes both to
+  `runner`: the box writes a passwd naming its mapped uid `runner`, so
+  the name is true inside it; the unboxed dispatch runs as the
+  operator's own uid — D12's second mapping restores it — and a name
+  that does not match the uid would be a false statement.
+- The toolchain locators (`CARGO_HOME`, `RUSTUP_HOME`,
+  `NPM_CONFIG_CACHE`) follow the site's `hands.binds` exactly as the
+  box's do, `~` being the engine's home as `expand_home` reads it. A
+  bind's `mask` cannot be enforced outside a namespace, and the guide
+  says so: under `harness` the shipped verify script can read
   `~/.cargo/credentials.toml`, which is the fact *unboxed* renders.
-- `BROKKR_HANDS_BOX`: inherited only when the engine itself already
-  stands inside a box; never set by the dispatch.
-- The box's fixed entries: `LANG`/`LC_ALL` `C.UTF-8`, `CI` `true`,
-  `DISABLE_AUTOUPDATER`/`DISABLE_TELEMETRY` `1`, the
-  `commit.gpgsign=false` triple, and the bundle's `git.identity`.
-- On Windows only, the process-bootstrap set the proposal lists,
-  verbatim, with `USERPROFILE` unchanged (see Open questions).
+- `BROKKR_HANDS_BOX` is inherited only when the engine itself already
+  stands inside a box and never set by the dispatch, because it is the
+  marker every box-building test skips on.
+- The box's fixed switches and the bundle's `git.identity` pass
+  unchanged; on Windows only, the process-bootstrap set passes
+  verbatim, with `USERPROFILE` the operator's (see Open questions).
 
 One pure function composes it from the engine's environment, the
 engine's home, the site's spec, the identity and the two scratch paths;
@@ -367,7 +383,7 @@ the bare `model: Cell` on `Participant`, `Node`, `CheckpointRow` and
 `JournalRow` as a `#[serde(flatten)]` field named `served`, so the wire
 keeps `model` and gains `boundary` as siblings (`VIEW_VERSION` 9) while
 a Rust renderer cannot take the model without the boundary in reach.
-One renderer helper prints the pair; the terminal seats table gains a
+One pair helper prints the pair, with a JSON face beside its text face; the terminal seats table gains a
 `boundary` column beside `model`, the trail prints `· model <x> ·
 boundary <y>`, the TUI and the console read the two cells. `RunView`
 gains `boundary: RunBoundary { word: Cell, unboxed: bool, text: String
@@ -375,10 +391,15 @@ gains `boundary: RunBoundary { word: Cell, unboxed: bool, text: String
 `effect/started.boundary` entry has `gate` true and `harness` or
 `open`; every run header prints `text`. `costs` and `compare` reduce
 `boundary` off the seat records as they reduce `model`, `not recorded`
-when no record carries one; `compare` reports a difference as a
-divergence. The roster-style pin test reads every readout source and
-fails where `served.model` is read outside the helper, or where a
-seat-costs record's `model` key is rendered without `boundary`.
+when no record carries one, and `compare` reports a difference as a
+divergence; `compare`'s `resolution` map, which reads each
+participant's view-derived model a second time, carries the pair
+through the helper's JSON face and `resolution_divergence` diverges on
+`boundary` as on `model`. The roster-style pin test reads every readout
+source and fails where `served.model` is read outside the pair helper
+— its text face for the renderers, its JSON face for `compare` — or
+where a seat-costs record's `model` key is rendered without
+`boundary`.
 
 ### DD13 — Absence and `not applicable` in old journals
 
@@ -496,6 +517,28 @@ claude refuse under `harness` by name, and the implementation reports
 ruling 6's promise as unmet for the operator — no rule widened, no
 fragment declared unmeasured.
 
+When the measurement cannot be made by the implementing seat — its
+tool grant is `cargo` and `git`, and `claude` is not a command it may
+run — the claude members stay undeclared, which is the loader's
+fail-closed reading and refuses the same sites by name: every shipped
+bundle that seats an agent with hands whose chain reaches claude —
+`bundles/self`, `recipes/panel-review`, `recipes/triage` and
+`recipes/night-shift`; every hands agent chains `opus` — refuses under
+`harness` naming `claude`, the member and the site, and every other
+shipped bundle compiles. Every other task is finished and committed,
+nothing is reported blocked for want of the measurement, and the
+completion note names it as the operator's with the recipe, the
+candidates and the version. The tree's proof that the compiler and the
+roster keep ruling 6's promise runs in a scratch copy of the adapter
+library with both members planted as fragments; a second test pins the
+shipped refusal set and moves when the measurement lands as a data
+change to `adapters/claude.json` and the pins that name its digest.
+Codex's declaration is from the decision's own word and the tool's
+record; the one fact still unmeasured about it — whether the capture
+lands under the `read-only` class — is recorded in the guide as
+pending and the operator's, and flips `gate` to unsupported with the
+reason if it fails.
+
 ## Shape, by crate
 
 - **brokkr-core** — `realms.rs`: `Boundary`, `Realm.boundary`,
@@ -533,9 +576,11 @@ fragment declared unmeasured.
 
 ## Risks
 
-- **The claude fragments may not measure clean.** Then the chief and
-  the reviewers on claude refuse under `harness`, `codex` is the only
-  macOS judge, and the promise is reported unmet (DD20). Accepted: the
+- **The claude fragments may not measure clean, or are not measured by
+  the seat at all.** In either case the chief and the reviewers on
+  claude refuse under `harness` by name, `codex` is the only macOS
+  judge until the operator's measurement lands, and the promise is
+  reported unmet (DD20). Accepted: the
   alternative is an unverified security claim in the file whose purpose
   is to be the verified one.
 - **The unboxed environment may break the shipped verify script on a
@@ -552,7 +597,8 @@ fragment declared unmeasured.
 - **The network prefix varies across kernels and policies.** The probe
   answers per spawn; nothing claims the outcome (DD15).
 - **Every boxed bundle's digest moves once, and every inline gate on
-  codex or claude moves with the adapter.** Re-pinned once at the end
+  an adapter that gained `hands.harness` moves with it — codex now,
+  claude when its measurement lands.** Re-pinned once at the end
   (DD16); a plain bundle is the fixed point that witnesses the key is
   absent by default.
 - **`rerun` changes behaviour** (DD6): its manifest gains the realms
@@ -577,9 +623,10 @@ fragment declared unmeasured.
 - Realms: this repository's `realms.json` is untouched; absence reads
   `namespace`. A macOS adopter adds `"boundary": "harness"` to their
   realm under `forge.realms/v4`.
-- Adapters: `codex.json` and `claude.json` gain `hands.harness`; `dsh`
-  and `lanetally` declare none and are refused at a `harness` gate as
-  at a boxed one.
+- Adapters: `codex.json` gains `hands.harness` now; `claude.json` gains
+  it when the operator's measurement lands and declares none until
+  then; `dsh` and `lanetally` declare none and are refused at a
+  `harness` gate as at a boxed one.
 - CLI: `rerun` pins the world it discovers; `seats` is new; `doctor`
   gains one line; `init`'s warning changes wording. `--json` consumers
   pin `view_version` 9.
@@ -588,15 +635,19 @@ fragment declared unmeasured.
 
 ## Open questions
 
-1. **claude's `hands.harness.gate` and `.work`** — measured on the
-   operator's machine against the installed 2.1.x (the proposal's
-   candidates plus `--restricted`/`--permission-prompts none` as
-   reported for 2.1.263), recorded in the adapter and the guide, or
-   declared unsupported with the reason (DD20). This seat's box holds no
-   `claude`.
+1. **claude's `hands.harness.gate` and `.work`** — the operator's to
+   measure against the installed 2.1.x (the proposal's candidates plus
+   `--restricted`/`--permission-prompts none` as reported for 2.1.263)
+   by the recipe the proposal's *Measurements* section gives; until
+   then the members are undeclared, the four bundles DD20 names refuse
+   under `harness` by name, and the completion note says so. Landing
+   the measurement is a data change to the adapter and to the pins that
+   name its digest.
 2. **codex's capture under `--sandbox read-only`** — whether
-   `--output-last-message` lands under the read-only class is measured
-   the same way; if not, `gate` is unsupported with the reason.
+   `--output-last-message` lands under the read-only class, measured
+   the same way by the operator; declared meanwhile from the decision's
+   word and the tool's record and recorded as pending in the guide; if
+   it fails, `gate` is unsupported with the reason.
 3. **D6/DD8** — the operator confirms or refuses the dialect-step
    reading by keeping or deleting one scenario.
 4. **"Every `effect/started`" read literally** — needs a v2 event

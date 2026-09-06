@@ -47,7 +47,8 @@ and every compose pin in
 `crates/brokkr-runtime/src/bundle/compose_tests.rs` that moves — because
 the manifest gained `boundary`, or because an adapter file gained
 `hands.harness` and an inline gate pins that adapter's digest (decision
-0021's witness) — SHALL be re-pinned from the tests' left/right pairs,
+0021's witness) — codex's in this slice, claude's when the operator's
+measurement lands as a data change — SHALL be re-pinned from the tests' left/right pairs,
 and the pin file's doc comment SHALL name decision 0046 as the reason
 each moved. A bundle that boxes nothing and consults neither changed
 adapter SHALL keep its digest, which is the witness that the key is
@@ -55,7 +56,7 @@ absent by default.
 
 #### Scenario: The witness table names the reason
 - **WHEN** the witness test's doc comment is read
-- **THEN** it names decision 0046 as the reason every bundle declaring hands moved once (the manifest's `boundary` key) and as the reason an inline gate on codex or claude moved (the adapter's `hands.harness`)
+- **THEN** it names decision 0046 as the reason every bundle declaring hands moved once (the manifest's `boundary` key) and as the reason an inline gate on an adapter that gained `hands.harness` moved — codex's in this slice, claude's when its measurement lands
 
 #### Scenario: A plain bundle is a fixed point
 - **WHEN** the witness table is compared with the tree before this change

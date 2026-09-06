@@ -97,6 +97,32 @@ resume rule of decision 0042 ruling 1's enactment).
 - **WHEN** a `forge.realms/v4` map declares the operated repository's realm with `"boundary": "seatbelt"` and `brokkr compile` runs over a boxed bundle on a machine without `sandbox-exec`
 - **THEN** the bundle compiles and its manifest's `boundary` map says `seatbelt` for every hands site; the refusal that stops a run under it comes at start and names slice (ii)
 
+### Requirement: The engine starts a run only under the boundary its bundle was compiled under
+The engine SHALL refuse, at `start_in_world` — the entry `run` and
+`rerun` take — a world that resolves, for the operated repository, a
+boundary other than the one the compiled bundle carries, no world
+resolving `namespace`, with an error naming both words, before
+`create_run` and before any journal row; a world resolving the same
+word starts as today. The engine's own boundary SHALL be the compiled
+bundle's field, set once at entry and never re-read from a map, so the
+pinned word and the world the run was started with cannot disagree.
+`resume` rebuilds its world from the pinned manifest and is fenced by
+the manifest comparison instead (boundary-manifest-pin), so it needs no
+second fence (decision 0046 ruling 1; decision 0043 ruling 4; design
+DD3).
+
+#### Scenario: A world that resolves another word is refused
+- **WHEN** a bundle compiled under `harness` is started with a world whose realm declares no boundary
+- **THEN** the engine refuses naming `harness` and `namespace`, and no `run/started` or other row is written
+
+#### Scenario: No world resolves namespace
+- **WHEN** a bundle compiled under `harness` is started with no world
+- **THEN** the engine refuses the same way, while a bundle compiled under `namespace` with no world starts as today
+
+#### Scenario: A matching world starts
+- **WHEN** a bundle compiled under `harness` is started with a world whose realm declares `harness`
+- **THEN** the run starts and its `run/started` manifest's `boundary` map says `harness` for every hands site
+
 ### Requirement: A bundle never names the boundary
 The bundle parser SHALL refuse a `boundary` key at any site — a seat, a
 panel member, a sequence step, a selected case body — and inside any

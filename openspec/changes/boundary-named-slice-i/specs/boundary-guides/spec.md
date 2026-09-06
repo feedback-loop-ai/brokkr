@@ -17,8 +17,13 @@ none removed: `docs/guides/provider-adapters.md`'s Hands section
 documents `hands.harness` with its `gate`, `work` and `result` members,
 the `{result_path}` token and the two workspace tokens refused there,
 the three-shape convention, codex's fragments and its `last-message`
-door, and the measured claude fragments with the claude version and
-what each denies and allows, and its doctor section names the
+door — the fragment ruling 4's own word and the door the tool's
+documented capture, with the measurement of the capture under the
+read-only class recorded when made and named as the operator's and
+pending until then — and, per claude member, either the measurement,
+the claude version and what the mode denies and allows, or that the
+member is undeclared pending the operator's measurement, with the
+candidates and the recipe; and its doctor section names the
 `boundaries` line and what *offered* and *ready* mean on it;
 `docs/guides/recipe-authoring.md`'s `hands` row stops saying Linux only
 and says the boundary lives in the realm and that under `harness` and
@@ -48,15 +53,15 @@ class and point at the boundary, and driver-authoring's opening
 paragraph, which says the engine runs the shipped verifier and shipper
 through `brokkr hands exec`, says so of `namespace` and adds that under
 `harness` and `open` the same `exec` dispatch runs with no verb of
-Brokkr's around it, in a fixed environment, the network off on Linux
-where `unshare` permits, and that the `hands` subcommand gains no verb
+Brokkr's around it, in a fixed environment, the network narrowed on Linux
+where `unshare` permits and never stated as off, and that the `hands` subcommand gains no verb
 for it; and `contracts/README.md` gains rows
 and a paragraph for `realms.v4`, `run-manifest.v9`, `seat-record.v4`
 and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: provider-adapters documents hands.harness
 - **WHEN** `docs/guides/provider-adapters.md` is read
-- **THEN** its Hands section names `hands.harness`, `gate`, `work`, `result`, `{result_path}`, the codex fragments and door, and the claude version the claude fragments were measured against, and its doctor section names the `boundaries` line
+- **THEN** its Hands section names `hands.harness`, `gate`, `work`, `result`, `{result_path}`, the codex fragments and door with the door's measurement recorded or named as pending and the operator's, and, per claude member, the claude version it was measured against or that it is undeclared pending the operator's measurement; and its doctor section names the `boundaries` line
 
 #### Scenario: recipe-authoring points the two rows at the realm and at 0046
 - **WHEN** the site vocabulary table is read

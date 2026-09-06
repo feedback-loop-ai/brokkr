@@ -34,9 +34,12 @@ declare `gate` as `["--sandbox", "read-only", "--output-last-message",
 "{result_path}"]` with `result` `last-message` — the capture flag
 `codex exec` documents and the codex driver already admits on a
 resume — and `work` as `["--sandbox", "workspace-write"]`;
-`adapters/claude.json` SHALL declare `gate` and `work` as fragments
-measured against the installed claude 2.1.x and never guessed, its
-`gate` door scoped to `{result_path}`; `adapters/dsh.json` and
+`adapters/claude.json` SHALL declare each of `gate` and `work` only
+from a measurement against the installed claude 2.1.x — a fragment,
+its `gate` door scoped to `{result_path}`, or `unsupported` with the
+measured reason — and SHALL leave a member undeclared until it is
+measured, absence being the loader's fail-closed reading; a fragment
+is never guessed; `adapters/dsh.json` and
 `adapters/lanetally.json` SHALL declare no `hands.harness`. An empty
 fragment is a legal declaration: it says the adapter's driver argv
 already stands in that mode — claude's driver carries
@@ -50,7 +53,7 @@ the mode denies and allows.
 
 #### Scenario: claude's fragments are measured, not guessed
 - **WHEN** `adapters/claude.json` is loaded
-- **THEN** `hands.harness.gate` and `hands.harness.work` are each an argv fragment or `unsupported` with a measured reason, a `gate` fragment names `{result_path}` as its door, and the provider-adapters guide records the claude version they were measured against and what each denies and allows
+- **THEN** `hands.harness.gate` and `hands.harness.work` are each undeclared — not yet measured — or an argv fragment or `unsupported` with a measured reason; a `gate` fragment names `{result_path}` as its door; and the provider-adapters guide records, per member, the claude version it was measured against and what the mode denies and allows, or that it is undeclared pending the operator's measurement
 
 #### Scenario: dsh and lanetally declare none
 - **WHEN** `adapters/dsh.json` and `adapters/lanetally.json` are loaded
@@ -208,14 +211,28 @@ claude mode that cannot be declared as a fragment, the refusal SHALL
 name the adapter, the member and the site, and the implementation SHALL
 report ruling 6's promise as unmet for the operator to rule on — never
 widen the rule, seat another provider or declare an unmeasured fragment
-to make the shipped bundles compile (decision 0046 rulings 4 and 6;
-decision 0042's addendum, ruling 1: a decision is amended only by a
-decision).
+to make the shipped bundles compile. The implementing seat cannot make
+the claude measurement — its tool grant is `cargo` and `git` — so until
+the operator records it the members are undeclared and the same refusal
+applies by name; the implementation SHALL finish every other task and
+commit, SHALL NOT report itself blocked for want of the measurement,
+and SHALL name the measurement as the operator's in its completion note
+with the recipe, the candidates and the version. The tree's own proof
+of the promise SHALL therefore run in a scratch copy of the shipped
+adapter library with the two members planted as fragments, and a second
+test SHALL pin, against the shipped adapters as they stand, exactly
+which shipped bundles refuse and why — a pin that moves when the
+measurement lands (decision 0046 rulings 4 and 6; decision 0042's
+addendum, ruling 1: a decision is amended only by a decision).
 
 #### Scenario: The shipped bundles compile under harness
-- **GIVEN** the codex and claude adapters declare both `hands.harness` members as fragments
-- **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` in a realm that declares the openspec dialect
+- **GIVEN** an adapter library in which the codex and claude adapters declare both `hands.harness` members as fragments — the shipped files once the measurement lands, a scratch copy with the members planted until then
+- **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` against it, in a realm that declares the openspec dialect
 - **THEN** each compiles, and each hands site's manifest `boundary` entry reads `harness`
+
+#### Scenario: The measurement is not reachable from the implementing seat
+- **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness`
+- **THEN** exactly the bundles that seat an agent with hands whose chain reaches claude — `bundles/self`, `recipes/panel-review`, `recipes/triage` and `recipes/night-shift` — refuse naming `claude`, the member and the site; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported
@@ -406,7 +423,7 @@ amended by the boxed-marker fix).
 
 #### Scenario: The measured door is recorded
 - **WHEN** an adapter declares `hands.harness.gate` as a fragment
-- **THEN** the provider-adapters guide records the measurement that showed a seat under it delivering its result and nothing else
+- **THEN** the provider-adapters guide records, for that fragment, the measurement that showed a seat under it delivering its result and nothing else, or — where the fragment is the decision's own word and the door the tool's documented capture, as codex's is — that the door is declared from the tool's record with the measurement of the capture under the read-only class named as the operator's and pending until it is recorded
 
 #### Scenario: No door means unsupported
 - **WHEN** a harness's read-only mode is measured to leave no way to deliver the result

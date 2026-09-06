@@ -117,10 +117,17 @@ checkpoints and successful results carry, one word or a joined list —
 reading `not recorded` when no record carries one, an explicit absence
 and never a default; and `compare` SHALL report a boundary difference
 between two runs as a first-class divergence, the way it reports a
-model difference. A roster-style pin test SHALL read every readout
-source and fail, naming the source, where `served.model` is read outside
-the one renderer helper that prints the pair, or where the `model` key
-of a seat-costs record is rendered without the boundary beside it.
+model difference. `compare` also names each participant's model a
+second time, from the view, in the `resolution` map `resolution_of`
+builds and `resolution_divergence` compares; that map SHALL carry
+`boundary` beside `model` per participant, read through the pair
+helper's JSON face, and the divergence SHALL report a boundary
+difference as it reports a model difference. A roster-style pin test
+SHALL read every readout source and fail, naming the source, where
+`served.model` is read outside the one pair helper — a text face for
+the renderers, a JSON face for `compare`'s `resolution` map — or where
+the `model` key of a seat-costs record is rendered without the boundary
+beside it.
 `brokkr export` renders no prose and is read as the record itself: the
 exported journal carries the plain word in `effect/started.boundary`
 and in every seat record this engine writes, and `verify-run` accepts
@@ -147,12 +154,16 @@ decision 0031 ruling 1's list of the readouts).
 - **WHEN** `brokkr costs` and `brokkr compare` report a run whose boxed gate stood under `harness` beside a run whose boxed gate stood under `namespace`
 - **THEN** each per-seat record carries `boundary` beside `model`, `costs` prints the plain word, `compare` reports the difference as a divergence, and a pre-0046 journal's seat reads `not recorded`
 
+#### Scenario: compare's resolution map carries the pair
+- **WHEN** `brokkr compare` reports a run whose boxed gate stood under `harness` beside a run whose boxed gate stood under `namespace`
+- **THEN** each participant's entry in the `resolution` map carries `boundary` beside `model`, and `resolution_divergence` names the boundary difference for that site as it would a model difference
+
 #### Scenario: export carries the word as data
 - **WHEN** `brokkr export` writes the journal of a run whose boxed gate stood under `harness`
 - **THEN** the exported `effect/started` events and seat records carry the plain word, `verify-run` accepts the file, and no adjective appears in the export
 
 #### Scenario: The pin test
-- **WHEN** a readout source reads a `model` cell — a participant's, a node's, a checkpoint row's or a journal row's — or the `model` key of a seat-costs record, without the boundary beside it
+- **WHEN** a readout source reads a `model` cell — a participant's, a node's, a checkpoint row's or a journal row's — outside the pair helper, or emits the `model` key of a seat-costs record without the boundary beside it
 - **THEN** the pin test fails naming the source
 
 ### Requirement: The delivery gate's check summary says unboxed

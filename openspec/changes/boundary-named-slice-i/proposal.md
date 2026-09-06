@@ -74,7 +74,10 @@ In the commission's order of value:
    the tool check, naming the slice of ruling 6 that builds them (D21).
    `brokkr doctor` prints one line naming the boundaries a run can start
    under on this machine with this engine and, for the two unbuilt ones,
-   whether their tool is on PATH.
+   whether their tool is on PATH. The engine refuses at its own entry a
+   world whose realm resolves a boundary other than the one the bundle
+   was compiled under (DD3), so the pinned word and the started world
+   are one.
 3. **The record (ruling 3).** `effect/started` carries `boundary` beside
    `provenance`, published as `contracts/effect-boundary.v1.schema.json`
    under the contracts README's extension rule.
@@ -83,14 +86,16 @@ In the commission's order of value:
    `not applicable` for a site without hands. `brokkr-view` exposes the
    boundary beside every model cell it carries and as a run-level fact;
    `inspect`, `watch`, `seats` — a thin verb, D8 — the TUI and the web
-   console render it; `costs` and `compare` name it from the seat records; `export` carries it as
-   data; a run in which a gate site stood under `harness` or `open` is
+   console render it; `costs` and `compare` name it from the seat records, and `compare`'s
+   `resolution` map from the view; `export` carries it as data; a run in which a gate site stood under `harness` or `open` is
    rendered *unboxed*, in the delivery gate's check summary too. Old
    journals render an explicit absence, never a default.
 4. **Which boundaries may hold a gate (ruling 4).** `adapters/codex.json`
-   and `adapters/claude.json` gain `hands.harness` — `gate`, `work` and
-   `result` — with the seat's result path reaching a fragment through
-   the `{result_path}` token (D23); dsh and lanetally declare none.
+   gains `hands.harness` — `gate`, `work` and `result` — with the
+   seat's result path reaching a fragment through the `{result_path}`
+   token (D23); `adapters/claude.json` gains its members as the
+   operator's measurement records them and declares none until then
+   (D19); dsh and lanetally declare none.
    `enforce_model_policy` gains the boundary axis for sites that declare
    hands; an exec gate under `harness` or `open` is admitted only for
    the bundle's own pinned script — a `./` token naming a file under the
@@ -117,7 +122,9 @@ with 0046 as the stated reason.
 - `realm-boundary`: the boundary word — its closed vocabulary in one
   shared type, its home in the realm map as `forge.realms/v4`, its
   default, its resolution at compile, on resume and on rerun, its
-  refusal inside a bundle or an agent, and its printout by `brokkr compile`.
+  refusal inside a bundle or an agent, the engine's fence that starts a
+  run only under the word its bundle was compiled under, and its
+  printout by `brokkr compile`.
 - `boundary-manifest-pin`: `run-manifest.v9` — the per-site boundary map
   as bundle identity, the frozen-contracts pins, the witness and compose
   digests re-pinned for 0046, resume under the pinned boundary, and the
@@ -167,7 +174,8 @@ that authorises it.
   `enforce_model_policy` with the pinned-script check, the adapter
   loader's `hands.harness` — `gate`, `work`, `result` — and the
   `{result_path}` token, the agent resolver's fragment choice, the
-  engine's entry fence for `seatbelt` and `container`, its effect-start
+  engine's two entry fences — the unbuilt boundaries, and a world whose
+  realm resolves a boundary other than the bundle's — its effect-start
   path, argv composition and record stamping, `World`'s boundary
   resolution, `manifest_diff` naming `boundary` when it is the non-file
   field that differs; `Confine` and `confined_command` deleted),
@@ -182,11 +190,13 @@ that authorises it.
   `doctor`, `init`, `seats` — a new thin verb, D8 — `render.rs`,
   `tui.rs`, `ui.html`, and `compare.rs` for `costs` and `compare`;
   `rerun` discovers the world, D13; `HandsCommand` gains no verb, D25).
-- **Data:** `adapters/codex.json` and `adapters/claude.json` gain
-  `hands.harness`; `realms.json` is untouched.
+- **Data:** `adapters/codex.json` gains `hands.harness`;
+  `adapters/claude.json` gains it when the operator's measurement
+  lands (D19); `realms.json` is untouched.
 - **Identity:** every pinned bundle that declares hands moves once,
-  because the manifest gains `boundary`; every inline gate that pins the
-  codex or claude adapter moves, because the adapter file changed. The
+  because the manifest gains `boundary`; every inline gate that pins an
+  adapter file that changed moves with it — codex's in this slice,
+  claude's when its measurement lands. The
   witness table and the compose pins are re-pinned with 0046 as the
   stated reason. A bundle that boxes nothing and consults neither adapter
   keeps its digest.
@@ -332,7 +342,10 @@ the artifact rather than raising the finding again (decision 0042 ruling
   unboxed script reaches and claims nothing the record must carry.
   The seat box that authored this change refuses nested user
   namespaces (`unshare: unshare failed: Operation not permitted`,
-  measured 2026-09-06), which is the case the probe exists for.
+  measured 2026-09-06), which is the case the probe exists for. The
+  prefix's exact tokens and the probe's arms are stated once, in
+  gate-boundary-policy's requirement *The argv of a site with hands
+  follows the boundary and the class*; this entry carries the reasons.
 - **D13 — `rerun` discovers the world as `run` does** (amended in
   design, DD6). `rerun` compiles today with no world at all — no realms
   pin, no dialect — and would therefore compile every rerun under
@@ -353,9 +366,12 @@ the artifact rather than raising the finding again (decision 0042 ruling
   numbered extension schema; a field on every `effect/started` would
   fail the second condition and be a v2 event, which the closed `type`
   enum and the frozen manifest schemas forbid. `boundary` therefore
-  rides `effect/started` on the exact terms `provenance` set: for an
-  attempt with at least one boxed site, and a run over a bundle that
-  boxes nothing journals byte-identical payloads. This is a narrowed reading of ruling 3's *every*, and the design
+  rides `effect/started` on terms of the same shape as `provenance`'s,
+  not the same terms: `provenance` is present exactly for an attempt
+  with at least one agent-resolved site, `boundary` exactly for an
+  attempt with at least one site that declares hands — the shipped
+  exec verify gate carries the second and not the first — and a run
+  over a bundle that boxes nothing journals byte-identical payloads. This is a narrowed reading of ruling 3's *every*, and the design
   names it one (DD5): the literal reading needs a new event lineage
   outside this slice's contracts and is the operator's to ask for.
   Ruling 3's "every" is honoured where the record can afford it: the seat record carries
@@ -374,20 +390,26 @@ the artifact rather than raising the finding again (decision 0042 ruling
 - **D16 — Every model cell, not only the seats table.** Ruling 3 says
   every readout that shows a seat's model, and the tree shows one in
   more places than the seats table: the view carries a `model` cell on
-  the phase rail's nodes, on checkpoint rows and on journal rows, the
-  terminal's decision trail prints `· model <x>`, and `brokkr costs` and
+  the phase rail's nodes, on checkpoint rows and on journal rows; the
+  terminal's decision trail prints `· model <x>`; `brokkr costs` and
   `brokkr compare` name a seat's model from the seat records through
-  `compare::seat_costs`, outside the view. The boundary therefore
-  travels beside every one of them as one flattened `ModelAtBoundary`
-  unit — `served: {model, boundary}` on the participant, the node, the
-  checkpoint row and the journal row, so the wire keeps `model` and
-  gains `boundary` beside it and a renderer cannot take one without the
-  other in reach (design DD12) — and the pin test scans for a model cell
-  read outside the one renderer helper rather than for a list of
-  surfaces this proposal could leave short. The absence word differs by surface for a reason: a view
-  cell is the absent mark with a note, as every other cell is; a
-  seat-costs record is JSON data and says `not recorded`, the way the
-  same record says `not reported` for a model no driver reported.
+  `compare::seat_costs`, outside the view; and `compare` names it once
+  more from the view, in the `resolution` map that `resolution_of`
+  builds per participant and `resolution_divergence` compares. The
+  boundary therefore travels beside every one of them as one flattened
+  `ModelAtBoundary` unit — `served: {model, boundary}` on the
+  participant, the node, the checkpoint row and the journal row, so the
+  wire keeps `model` and gains `boundary` beside it and a renderer
+  cannot take one without the other in reach (design DD12) — read
+  through one pair helper with a text face for the renderers and a JSON
+  face for `compare`'s map, which carries `boundary` beside `model` and
+  diverges on it as it does on `model`; and the pin test scans for a
+  model cell read outside that helper rather than for a list of
+  surfaces this proposal could leave short. The absence word differs by
+  surface for a reason: a view cell is the absent mark with a note, as
+  every other cell is; a seat-costs record is JSON data and says `not
+  recorded`, the way the same record says `not reported` for a model no
+  driver reported.
 - **D17 — The finishing checkpoint is the one whose `step` ends in
   `-session-finished`.** The schema cannot tell a finishing checkpoint
   from a per-turn one, so v4 admits `boundary` on any checkpoint, and
@@ -416,6 +438,19 @@ the artifact rather than raising the finding again (decision 0042 ruling
   ruling 1), so no rule is widened and no fragment is declared
   unmeasured to make the tree compile. An empty fragment is a legal
   measured answer where the driver argv already stands in the mode.
+  The same holds when the measurement cannot be made at all. The seat
+  that implements this change has a tool grant of `cargo` and `git` and
+  no `claude` it may invoke, so the claude members stay undeclared —
+  absence is the loader's fail-closed reading, refused at a `harness`
+  gate or work seat naming `claude`, the member and the site — every
+  shipped bundle that seats a claude-chained agent with hands refuses
+  under `harness` by name, every other task is finished and committed,
+  and the completion note names the measurement as the operator's with
+  the recipe, the candidates and the version to measure against.
+  Nothing is reported blocked for want of it: the fail-closed tree is
+  the deliverable, and a block would discard the rest. The measurement
+  lands afterwards as a data change to the adapter, moving the
+  inline-gate pins that name its digest, with 0046 as the reason.
 - **D20 — The deltas name their enforcement bindings, and open with a
   `## Purpose`.** The dialect's own instructions ask a spec to avoid
   internal names; this realm's truth is seeded from decisions whose
@@ -449,37 +484,33 @@ the artifact rather than raising the finding again (decision 0042 ruling
   statement ruling 3 exists to prevent — and a compile refusal would
   leave the word without the pin ruling 1 promises. The refusal is the
   one line slice (ii) deletes, and nothing else moves when it does.
-- **D22 — The unboxed exec environment mirrors the box's own table, and
-  the in-box marker is never set** (amended in design, DD10). Ruling 4's
+- **D22 — The unboxed exec environment is the box's own table with each
+  namespace fact replaced by the fact that stands outside one, and the
+  in-box marker is never set** (amended in design, DD10). Ruling 4's
   "environment cleared" takes the operator's variables — keys, tokens,
   sockets — out of a script's reach, and the box's own allow-list (0043
-  ruling 1) already says what a script needs: a private home and tmp,
-  the toolchain only by the site's declared binds, and a fixed set of
-  switches. The unboxed dispatch therefore starts from an empty
-  environment and holds exactly what `gate-boundary-policy` lists:
-  `HOME` and `TMPDIR` as two private directories created for the
-  attempt, never the operator's; `PATH`, `USER` and `LOGNAME` inherited
-  verbatim from the engine's own environment, each only when set there,
-  because the interpreter and the toolchain proxies are found where the
-  operator's shell finds them and the box's fixed `PATH` names mounts
-  that exist only inside a namespace; `CARGO_HOME`, `RUSTUP_HOME` and
-  `NPM_CONFIG_CACHE` set to the operator's `~/.cargo`, `~/.rustup` and
-  `~/.npm` exactly when the site's `hands.binds` declare that path, as
-  the box sets them, and absent otherwise; the in-box marker itself
-  only when the engine already stands inside a box; the box's own fixed
-  entries (`C.UTF-8`, `CI`, the updater and telemetry switches, the
-  unsigned commit triple, the bundle's `git.identity`); and on Windows
-  the process-bootstrap set without which no Windows program starts. No
-  other key passes, and `BROKKR_HANDS_BOX` set outside a box would be a
-  false statement that also switches off every test the constraints
-  require to skip only inside one. A bind's `mask` cannot be enforced
-  outside a namespace: under `harness` the shipped verify script can
-  read `~/.cargo/credentials.toml`, which is the fact *unboxed* renders
-  and the guide names. Reason for the private home rather than the
-  operator's: the real home carries the credential files — `.ssh`,
-  `.netrc`, `.cargo/credentials.toml` — that clearing the environment
-  was meant to take out of reach, and the box itself never hands it
-  over.
+  ruling 1) already says what a script needs. The table is stated once,
+  in gate-boundary-policy's requirement *An unboxed exec dispatch runs
+  in a fixed environment*; this entry carries the reasons for each entry
+  that differs from the box's. `HOME` and `TMPDIR` are private
+  directories created for the attempt and never the operator's, because
+  the real home carries the credential files — `.ssh`, `.netrc`,
+  `.cargo/credentials.toml` — that clearing the environment was meant to
+  take out of reach, and the box itself never hands it over. `PATH` is
+  the engine's own, because the box's fixed `PATH` names mounts that
+  exist only inside a namespace and the interpreter and the toolchain
+  proxies are found where the operator's shell finds them. `USER` and
+  `LOGNAME` are the engine's own where the box fixes both to `runner`:
+  the box writes a passwd that names its mapped uid `runner`, so the
+  name is true inside it, while the unboxed dispatch runs as the
+  operator's own uid — D12's second mapping restores it — and a name
+  that does not match the uid would be a false statement. The toolchain
+  locators follow the site's `hands.binds` as the box's do; a bind's
+  `mask` cannot be enforced outside a namespace, so under `harness` the
+  shipped verify script can read `~/.cargo/credentials.toml`, which is
+  the fact *unboxed* renders and the guide names. `BROKKR_HANDS_BOX` set
+  outside a box would be a false statement that also switches off every
+  test the constraints require to skip only inside one.
 - **D23 — The result door is a token in adapter data.** A judge under
   `harness` has one write door, and both measured candidates need the
   seat's result path, which exists only at spawn. `{result_path}` joins
@@ -502,24 +533,18 @@ the artifact rather than raising the finding again (decision 0042 ruling
   lookup, not by comparing paths** (amended in design, DD9). The
   compiler already expands a `./` command token against the directory
   of the layer that declared the seat, and the manifest walk of that
-  layer digests every file under it. The check reads the raw command
-  before that expansion: after `{brokkr} driver exec --`, zero or more
-  bare interpreter names (no path separator, no leading `-`), then
-  exactly one script token, then arguments that are not judged. The
-  script token is the bundle's own pinned script exactly when it is
-  `./`-relative, its components are plain names (no `..`, no `.`, no
-  empty component, no `\`, no drive or UNC prefix), the joined path is
-  a regular file at compile by `metadata` — following a symlink, as the
-  walk does, so the bytes the walk pinned under that key are the bytes
-  that run — and the key is not one the walk skips (`realms.json`,
-  `dialects/…`), the exclusion being one function shared with the walk.
-  No path is canonicalised and no two spellings are compared, which is
-  how the rule is platform-neutral: a `/private/var` or `C:\` spelling
-  is refused as not `./`-relative, never compared; `bash -c '…'` is
-  refused because an option token precedes the script. Reason: a
-  canonicalising comparison needs the file to exist on both sides,
-  behaves differently per platform, and proves less than the walk's own
-  key set.
+  layer digests every file under it, so the check reads the raw command
+  before that expansion and asks one question: is the script token a
+  key the declaring layer's walk pins? The grammar and the lookup are
+  stated once, in gate-boundary-policy's requirement *An exec gate under
+  harness or open holds only for pinned bytes*; this entry carries the
+  reason. A canonicalising comparison needs the file to exist on both
+  sides, behaves differently per platform, and proves less than the
+  walk's own key set; so nothing is canonicalised and no two spellings
+  are compared, which is how the rule is platform-neutral — a
+  `/private/var` or `C:\` spelling is refused as not `./`-relative,
+  never compared, and `bash -c '…'` is refused because an option token
+  precedes the script.
 - **D25 — No new verb: the engine spawns the dispatch it already
   spawns, in a fixed environment, behind a prefix.** The clarify seat
   found the unboxed exec wrapper unnamed and its argv unpinned. Ruled:
@@ -553,40 +578,56 @@ the artifact rather than raising the finding again (decision 0042 ruling
   bundle under `recipes/` and `bundles/` — so no scenario names a
   bundle no test can compile.
 
-## Measurements the seat box cannot make
+## Measurements the implementing seat cannot make
 
-The box that authors and implements this change binds the host toolchain
-read-only and holds no `claude` binary; the implementer's tool grant is
-`cargo` and `git`. Two facts must be measured on the operator's machine
-and recorded, never guessed (0046 ruling 4's own words):
+Two facts must be measured on the operator's machine and recorded,
+never guessed (0046 ruling 4's own words). Neither is the implementing
+seat's to make: its tool grant is `cargo` and `git`, and neither
+`claude` nor `codex` is a command it may run. Until each is measured
+the tree carries the honest state named below, the implementation
+finishes every other task and commits, and its completion note lists
+both measurements as the operator's, with the recipe.
 
 - **claude's `hands.harness.gate` and `hands.harness.work`.** The
   installed claude's `--permission-mode` choices are `acceptEdits`,
   `auto`, `bypassPermissions`, `manual`, `dontAsk`, `plan` — there is no
   `read-only` value. Candidates for `gate`: `--permission-mode dontAsk`
   with `--allowedTools` naming the read tools and an edit rule scoped to
-  `{result_path}` (`result` `file`), or `--permission-mode plan` if it
-  can still write the result file. Candidates for `work`:
-  `--permission-mode acceptEdits` with the shell allowed, or the
-  harness's own sandbox settings with the shell auto-allowed when
-  sandboxed — a bare `acceptEdits` prompts for every shell call, and a
-  non-interactive seat answers a prompt with a denial, so the work
-  fragment must be measured to leave the chief its `cargo` and `git`.
-  The provider-adapters guide records the claude version each was
-  measured against and what it denies and allows. The binary that
-  guide's doctor transcript already records is claude 2.1.251, so the
-  measurement is against that line; for `work` the empty fragment is a
-  candidate answer only if the measurement shows the driver's own
-  `--permission-mode acceptEdits` grants the shell.
-- **codex's result door under `--sandbox read-only`.** The read-only
-  sandbox blocks every file write the model asks for. The door is the
-  harness's own `--output-last-message {result_path}` capture with
-  `result` `last-message` (D23): the flag is documented by
-  `codex exec --help` and already admitted by the codex driver on a
-  resume, so the declaration comes from the tool's own record; whether
-  the capture lands under the read-only class is measured on the
-  operator's machine, and if it does not, `gate` is declared unsupported
-  with the reason.
+  `{result_path}` (`result` `file`), `--permission-mode plan` if it can
+  still write the result file, and the `--restricted` /
+  `--permission-prompts none` pair the robustness seat reports on
+  2.1.263, unconfirmed. Candidates for `work`: `--permission-mode
+  acceptEdits` with the shell allowed, or the harness's own sandbox
+  settings with the shell auto-allowed when sandboxed — a bare
+  `acceptEdits` prompts for every shell call, and a non-interactive seat
+  answers a prompt with a denial, so the work fragment must be measured
+  to leave the chief its `cargo` and `git`. The recipe: under each
+  candidate, run one gate seat whose prompt asks it to read a file
+  outside the worktree, write one inside it and deliver its result — the
+  mode passes as `gate` when only the result file lands; run one work
+  seat that must run `cargo test` and commit — the mode passes as `work`
+  when both succeed with no prompt. Until the measurement is recorded,
+  `adapters/claude.json` declares no `hands.harness` member: absence is
+  the loader's fail-closed reading, and the provider-adapters guide says
+  the members are undeclared pending the operator's measurement. The
+  binary that guide's doctor transcript already records is claude
+  2.1.251, so the measurement is against that line; for `work` the empty
+  fragment is a candidate answer only if the measurement shows the
+  driver's own `--permission-mode acceptEdits` grants the shell. The
+  guide records the version each was measured against and what it
+  denies and allows.
+- **codex's result door under `--sandbox read-only`.** The fragment
+  `--sandbox read-only` is ruling 4's own word for codex, and
+  `--output-last-message` is the flag `codex exec --help` documents and
+  the codex driver already admits on a resume, so the declaration is
+  from the decision and the tool's own record and is not a guess (D23).
+  The fact still unmeasured is whether the capture lands while the
+  sandbox class is `read-only`: the guide records the door as declared
+  from the tool's record with that measurement pending and the
+  operator's — the same recipe, one gate seat under the fragment
+  delivering its result and nothing else — and if the measurement shows
+  the capture does not land, `gate` becomes unsupported with that
+  reason.
 
 ## Constraints (all binding)
 
@@ -632,7 +673,10 @@ and recorded, never guessed (0046 ruling 4's own words):
   hooks path.
 - Adding `boundary` to this repository's `realms.json`.
 - Changing what `hands` allows (`network`, `binds`), any driver's trust
-  tier, the result contract, or `rerun`'s lack of a map.
+  tier, or the result contract.
+- Reading a rerun's world from the source run's embedded pin: `rerun`
+  discovers the workspace map as `run` does (D13, DD6), because the
+  source run's world is not the new run's identity.
 - A new decision document: 0046 is accepted; this slice enacts it.
 
 ## Verification obligations
@@ -658,7 +702,12 @@ search path, and `DriverProcess::spawn`'s two environments; the view's cell besi
 an old journal's absence, a hands-less site's `not applicable` under any
 engine, `costs` and `compare` naming the word, the engine's stamp
 replacing a driver's, every shipped bundle compiling under `harness`
-with both fragments declared, and every readout pinned roster-style; the
+in a scratch copy of the adapter library with both `hands.harness`
+members planted as fragments and, against the shipped adapters as they
+stand, exactly the bundles that seat a claude-chained agent with hands
+refusing by name until the measurement lands, `compare`'s `resolution`
+map carrying the pair and diverging on it, and every readout pinned
+roster-style; the
 gate script printing *unboxed* for a harness-judged run and nothing for
 a boxed one; `seatbelt` with a `sandbox-exec` on the path and
 `container` with a `docker` or a `podman` still refusing naming the
