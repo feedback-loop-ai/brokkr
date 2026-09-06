@@ -155,9 +155,31 @@ manifest walk does, and not a key the walk skips (`realms.json`,
 That directory is the one the compiler already expands `./` against and
 the one the manifest walk digests, so a token that passes is pinned by
 the manifest of the layer that declared it, and no path is canonicalised
-and no two spellings are compared (design DD9). The verdict is a
-compile fact, and it is re-derived where it matters: at every unboxed
-exec dispatch spawn the engine SHALL re-walk the script's containing
+and no two spellings are compared (design DD9).
+
+The compiler SHALL additionally refuse the closed startup-character set
+`*`, `?`, `[`, `]`, `{`, `}`, `(`, `)`, `'`, `"`, `\`, `~`, CR (`\r`,
+U+000D) and LF (`\n`, U+000A) in every
+script component after `./`, in this same grammar walk before lookup or
+expansion, on every platform (decision 0048, operator security ruling
+2026-09-07; decision 0046 ruling 4). Wildcards and brackets select glob
+matches; braces expand alternatives; parentheses also trigger MSYS
+`globify`; quotes and backslash change quoting or escaping; tilde
+introduces home expansion; CR and LF split startup arguments without
+triggering Rust's automatic quoting. Each character SHALL refuse even unmatched
+or where its position would suppress expansion. The refusal SHALL name
+the first offending component and its first refused character in token
+order, decision 0048 and decision 0046 ruling 4. The verdict SHALL depend
+on the bundle token's bytes, never the host, interpreter, environment or
+presence of a matching sibling. This narrows admission only: manifest
+keys and the canonical directory pin SHALL retain exact filename bytes,
+and other bundle files and later unjudged arguments keep their existing
+meaning. Decision 0048 records why shell-source operators are outside
+this startup-parser set; spaces and tabs remain admissible because the
+argument encoder quotes them.
+
+The verdict is a compile fact, and it is re-derived where it matters:
+at every unboxed exec dispatch spawn the engine SHALL re-walk the script's containing
 directory and its descendants with the walk the compiler already
 performs, against the declaring layer's compiled file map — the leaf's
 `files` map, or the map hashed into an ancestor's compose digest — and
@@ -215,6 +237,17 @@ addendum, ruling 1).
 #### Scenario: A pinned-looking token that names no file is refused
 - **WHEN** the script token is `./scripts/missing.sh` and no such file exists under the declaring layer's directory
 - **THEN** compilation is refused naming the token and the directory searched
+
+#### Scenario: Startup metacharacters refuse at compile on every host
+- **WHEN** an exec site with hands, work or gate, compiles under `harness` or `open` with any refused character in a directory or filename component of its pinned script
+- **THEN** compilation SHALL refuse before lookup or expansion, naming the offending component, character, decision 0048 and decision 0046 ruling 4, including for an inherited declaration and on hosts whose filesystems cannot create that name
+- **AND** an ordinary script SHALL still compile with exact filename keys and unchanged later arguments, including when other files in the layer carry metacharacters
+
+#### Scenario: A matching sibling cannot substitute a gate at startup
+- **GIVEN** a real `scripts[1]/gate.sh` and an independently mutable matching sibling `scripts1/gate.sh` outside the former directory's re-walk
+- **WHEN** the gate names `./scripts[1]/gate.sh`, before and after the sibling is created or edited
+- **THEN** the bundle SHALL refuse at compile on every host; the real CLI's `compile` and `run` SHALL refuse before a journal or result file exists, so no interpreter can select the sibling
+- **AND** compile regressions SHALL cover brace and apostrophe directory spellings too, preserve their exact manifest keys when compiling an ordinary script, and explicitly state in their own comments that Unix execution does not reproduce Windows native command-line encoding or MSYS startup parsing
 
 #### Scenario: An option before the script is refused
 - **WHEN** the command is `["{brokkr}","driver","exec","--","bash","-c","./scripts/s.sh"]` under `harness`

@@ -865,6 +865,41 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
     assert_eq!(role_path, &leaf.join("roles/role.md"));
 }
 
+#[test]
+fn an_inherited_pinned_script_refuses_startup_metacharacters_at_compile() {
+    // Compile on the actual filesystem, without starting an interpreter.
+    // Unix execution does not reproduce Windows/MSYS startup parsing.
+    let library = Library::new();
+    let mut config = base_bundle();
+    config["seats"]["work"]["hands"] = json!("workspace");
+    config["seats"]["work"]["driver"]["command"] = json!([
+        "{brokkr}",
+        "driver",
+        "exec",
+        "--",
+        "sh",
+        "./scripts[1]/gate.sh"
+    ]);
+    let base = library.recipe("base", &config, Some(&base_policy()));
+    for directory in ["scripts[1]", "scripts1"] {
+        std::fs::create_dir(base.join(directory)).unwrap();
+        std::fs::write(base.join(directory).join("gate.sh"), "#!/bin/sh\ntrue\n").unwrap();
+    }
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let refusal = error(Bundle::compile_under(&leaf, &base, &base, boundary));
+        for expected in [
+            "component \"scripts[1]\"",
+            "character '['",
+            "decision 0048",
+            "decision 0046 ruling 4",
+            "(composed: derived -> base)",
+        ] {
+            assert!(refusal.contains(expected), "{refusal}");
+        }
+    }
+}
+
 /// Decision 0046 ruling 4 (design DD9): an inherited exec seat with hands
 /// is judged, under `harness`, against the layer that WROTE it — the
 /// pinned-script lookup runs over the ancestor's directory, which is the

@@ -56,6 +56,22 @@ journal paths and would still freeze the implementation's sources.
    unboxed gates with source edits, an existing journal and result
    files inside the layer, under both `harness` and `open`.
 
+3. **Admission refuses interpreter startup metacharacters at compile.**
+   The operator's 2026-09-07 security ruling below narrows which raw
+   `./` script components the pinned-script grammar admits under
+   `harness` and `open`, for work and gate sites alike, on every host.
+   It never rewrites a filename, a manifest key, or the canonical spawn
+   pin. Identity remains ruling 1's exact bytes; ruling 2's containing
+   directory remains the re-walk scope. This document stays proposed;
+   recording this specific operator ruling does not accept its other
+   proposals.
+
+   **Enforcement binding:** `pinned_key`, called by `pinned_script` in
+   `crates/brokkr-runtime/src/bundle.rs`; the compile matrices and
+   mutable-sibling regression in `bundle/model_policy_tests.rs`, the
+   inherited-seat refusal in `bundle/compose_tests.rs`, and the real
+   `compile`/`run` refusal in the CLI's `tests/boundary_verbs.rs`.
+
 ## Consequences
 
 The check covers the script directory, not every host file a script may
@@ -321,3 +337,86 @@ mutations are removed. The final tree passes `cargo fmt --all -- --check`,
 bundles/self` and `--bundle bundles/verify`, and `scripts/coverage-exact.sh`:
 21,328/21,328 source lines, 3,326/3,326 branches and 2,024/2,024 logical
 functions. Witness and compose digest tests pass without repinning.
+
+## Security ruling — refuse startup reinterpretation, 2026-09-07
+
+The HIGH security review of `69544d6..189257f` found that an admitted
+`./scripts[1]/gate.sh` can select `scripts1/gate.sh` at interpreter
+startup. The canonical pin correctly retains `scripts[1]`, and its
+re-walk correctly ignores independently mutable `scripts1`; that does
+not prove which file the interpreter will open. Braces and apostrophes
+allow the same substitution. The operator ruled **refuse the spelling
+at compile on every platform**, rather than make bundle admissibility
+depend on the machine reading it (decision 0046 ruling 4).
+
+The evidence crosses the boundary the prior `Vec<String>` tests did
+not: [Rust 1.98.0's Windows `append_arg`](https://github.com/rust-lang/rust/blob/1.98.0/library/std/src/sys/args/windows.rs#L163-L203)
+automatically surrounds empty arguments and arguments containing spaces
+or tabs with quotes. Brackets reach the raw command line unquoted.
+[Git for Windows's `build_argv` and `globify`](https://github.com/git-for-windows/msys2-runtime/blob/710e5275eb86d54b45b5f4d71ecc4e1cac1b9302/winsup/cygwin/dcrt0.cc#L194-L358)
+parse quotes and expand globs for a native parent when `allow_glob` is
+enabled, using `GLOB_TILDE`, `GLOB_BRACE`, `GLOB_QUOTE` and
+`GLOB_NOCHECK`. This is source-traced evidence, not a native Windows
+reproduction by this Linux seat.
+
+The closed refused set is the following fourteen ASCII characters. Each
+is refused alone, paired or unmatched, anywhere in any component after
+the script's `./`, before filesystem lookup:
+
+| Characters | Reason for inclusion |
+|---|---|
+| `*`, `?`, `[`, `]` | Glob wildcards and bracket expressions can select other filenames. Both delimiters are refused. |
+| `{`, `}` | Brace expansion can select sibling alternatives. Both delimiters are refused. |
+| `(`, `)` | MSYS `globify` explicitly includes both in its startup trigger set; admission does not depend on whether a particular pattern expands. |
+| `'`, `"` | Startup quote parsing can remove delimiters or change which bytes are literal. |
+| `\` | Escape and quote processing can remove or reinterpret a backslash; the existing grammar already refused it as a component byte. |
+| `~` | The startup glob enables tilde expansion. Refusal is component-local even where the current absolute argv would suppress it. |
+| CR (`\r`, U+000D), LF (`\n`, U+000A) | The MSYS startup separator table splits on these bytes, while Rust's automatic quoting only recognizes space and tab. A filename could become separate arguments. |
+
+The last row follows [MSYS's `issep` definition](https://github.com/git-for-windows/msys2-runtime/blob/710e5275eb86d54b45b5f4d71ecc4e1cac1b9302/winsup/cygwin/local_includes/winsup.h#L136-L137),
+used by `build_argv` before glob expansion. It closes argument splitting
+as well as filename expansion; quoting characters alone do not cover it.
+
+This is a startup argument rule, not shell-source validation. Commas and
+hyphens need braces or brackets to become pattern operators; those
+delimiters are already refused. `$`, backticks, `;`, `&`, `|`, `<`, `>`,
+`!`, `%` and `^` are not added: the traced startup parser does not
+evaluate shell source, and the existing grammar refuses interpreter
+options such as `-c`. Spaces and tabs remain admissible; Rust surrounds
+those arguments with quotes. No Unicode character class, locale,
+operating-system branch, environment variable or sibling lookup defines
+this set. The first offending component and its first refused character
+in token order are reported, naming this decision and 0046 ruling 4.
+
+The check belongs in the existing pinned-script component walk, before
+lookup and expansion, including inherited declarations. Later unjudged
+arguments, ordinary bundle files and canonical roots keep their existing
+meaning. The rule neither normalizes admitted names nor widens the
+re-walk to freeze siblings. The boxed and no-hands admission laws are
+unchanged; this closes the pinned-bytes exception for unboxed hands.
+
+Tests compile actual bracketed, braced and apostrophe directories before
+and after a matching sibling is created or edited, and prove that the
+sibling changes nothing inside the selected directory's re-walk. A
+separate ordinary-script compile proves both literal keys remain in the
+manifest. The CLI regression refuses both `compile` and `run` before a
+journal or result file exists. A grammar matrix needs no metacharacter
+files, including names Windows cannot create. Each test states that it
+does not exercise native Windows/MSYS startup on Unix; no pre-spawn argv
+assertion is represented as that proof. Native Windows and macOS
+execution remain for their platform CI jobs.
+
+Both copies of `gate-boundary-policy` carry the same refusal and
+scenarios. The archive's completion note records the dated amendment;
+the original proposal, design and tasks remain historical evidence.
+
+Temporarily emptying the refusal set made both the runtime's
+mutable-sibling regression and the CLI regression fail because the
+bracketed script compiled. The mutation was removed. The final
+fourteen-character rule passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and a fresh
+`scripts/coverage-exact.sh`: 21,335/21,335 source lines, 3,328/3,328
+branches and 2,025/2,025 logical functions. Frozen trees and shipped
+bundles are untouched; witness and compose digest tests need no repins.

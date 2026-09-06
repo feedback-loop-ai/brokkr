@@ -191,6 +191,56 @@ fn run_id(stderr: &str) -> String {
         .unwrap_or_else(|| panic!("no run id in stderr: {stderr}"))
 }
 
+/// Exercise the real compile/run entry points with the reported directory
+/// and an independently writable matching sibling. The fix must stop at
+/// compilation, before a journal or child interpreter exists. This runs
+/// on every OS, but on Unix it does NOT reproduce Rust's Windows command
+/// line encoding or Git Bash/MSYS startup globbing; that route is source
+/// traced in decision 0048. No boxed step is driven by this test.
+#[test]
+fn a_metacharacter_gate_and_its_mutable_matching_sibling_refuse_before_run() {
+    for boundary in ["harness", "open"] {
+        let ws = Workspace::new(boundary);
+        let bundle = ws.bundle_dir();
+        let selected = bundle.join("scripts[1]");
+        let sibling = bundle.join("scripts1");
+        std::fs::rename(bundle.join("scripts"), &selected).unwrap();
+        let config_path = bundle.join("bundle.json");
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        for seat in ["verify", "review"] {
+            config["seats"][seat]["driver"]["command"][5] = json!("./scripts[1]/gate.sh");
+        }
+        std::fs::write(&config_path, config.to_string()).unwrap();
+        std::fs::create_dir(&sibling).unwrap();
+        for contents in ["#!/bin/sh\nexit 1\n", GATE] {
+            std::fs::write(sibling.join("gate.sh"), contents).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(selected.join("gate.sh")).unwrap(),
+                GATE
+            );
+            let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", "bundle"]);
+            assert_ne!(code, Some(0), "{stderr}");
+            for expected in [
+                "component \"scripts[1]\"",
+                "character '['",
+                "decision 0048",
+                "decision 0046 ruling 4",
+            ] {
+                assert!(stderr.contains(expected), "{stderr}");
+            }
+            let (code, _, stderr) = ws.run();
+            assert_ne!(code, Some(0), "{stderr}");
+            assert!(stderr.contains("decision 0048"), "{stderr}");
+            assert!(
+                !ws.db().exists(),
+                "compile refusal must precede the journal"
+            );
+            assert!(!ws.path().join(".forge/results").exists());
+        }
+    }
+}
+
 /// A Windows drive path is just a filename on Linux, which lets this
 /// fixture's prompt parser prove both native and verbatim spellings
 /// without pretending to exercise a Windows process loader.

@@ -109,3 +109,31 @@ evidence, the traced expansion and spawn route, safe short drive/UNC argv,
 and refusal when removing the prefix could change lookup. Native Windows
 execution remains unverified. The original proposal, design and task
 history are retained; this is a later amendment to the archived delta.
+
+## Later archive amendment — startup spelling refusal, 2026-09-07
+
+The HIGH security finding on `69544d6..189257f` bypasses the directory
+pin through native Windows/MSYS startup parsing. The operator ruled
+that the pinned-script grammar must refuse those spellings at compile
+on every platform. The archived and promoted `gate-boundary-policy`
+requirement now names the same closed fourteen-character set, its reasons,
+the diagnostic and the compile/CLI regressions with mutable matching
+siblings. Proposed decision 0048 records the ruling and source evidence
+without changing its status. The canonical filename identity and
+re-walk scope remain intact; no spawn-time escaping repair is added.
+This amendment also reconciles the archive's stale whole-layer re-walk
+paragraph with the promoted requirement's existing 0048 directory scope,
+whose independently mutable siblings are the security finding's premise.
+
+The tests explicitly distinguish actual compiler and CLI refusal from
+unverified native Windows/MSYS process startup. Native Windows and
+macOS execution remain for platform CI. The original proposal, design
+and task history are retained.
+
+This amendment passes formatting, clippy with warnings denied, the full
+workspace tests and compilation of `bundles/self` and `bundles/verify`.
+A fresh exact-coverage gate records 21,335/21,335 source lines,
+3,328/3,328 branches and 2,025/2,025 logical functions. Disabling the
+refusal temporarily reproduced admission in both the runtime and CLI
+regressions; the mutation is removed. Frozen files and shipped bundles
+remain unchanged, and witness and compose pins pass without repinning.

@@ -2225,7 +2225,8 @@ fn measured(gap: &Option<String>) -> String {
 /// more bare interpreter names, then exactly one `./`-relative script
 /// token, then arguments nobody judges. The token's components are plain
 /// names — no `..`, no `.`, no empty component, no `\`, no drive or UNC
-/// prefix — and, joined to the declaring layer's directory, a regular
+/// prefix, and no startup metacharacters (decision 0048) — and, joined
+/// to the declaring layer's directory, a regular
 /// file by `metadata` (following a symlink, as the manifest walk does)
 /// that the walk pins. Nothing is canonicalised and no two spellings are
 /// compared: a token spelled any other way is refused as not `./`-relative.
@@ -2266,11 +2267,30 @@ fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
 /// token, and the file they name under the declaring layer.
 fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String> {
     let components: Vec<&str> = relative.split('/').collect();
+    // Closed startup-parser vocabulary (decision 0048, security ruling):
+    // * ? [ ] select glob matches; { } expand brace alternatives; ( )
+    // trigger MSYS globify too; ' " delimit quotes and \ escapes them;
+    // ~ introduces tilde expansion; CR/LF split MSYS arguments but Rust
+    // does not autoquote them. Refuse each even unmatched or in a
+    // later component: admission reads bundle bytes, never the host OS,
+    // interpreter, environment, or which matching siblings exist today.
+    // This changes admission only; walk_files and the canonical pin keep
+    // the exact filename bytes. See 0048 for sources and exclusions.
+    const STARTUP_METACHARACTERS: &str = "*?[]{}()'\"\\~\r\n";
+    for component in &components {
+        if let Some(character) = component
+            .chars()
+            .find(|c| STARTUP_METACHARACTERS.contains(*c))
+        {
+            return Err(format!(
+                "'{token}' has component {component:?} containing refused startup character \
+                 {character:?}; rename the component so an interpreter cannot reinterpret \
+                 the pinned script (decision 0048; decision 0046 ruling 4)"
+            ));
+        }
+    }
     let plain = |component: &&str| {
-        !component.is_empty()
-            && *component != "."
-            && *component != ".."
-            && !component.contains(['\\', ':'])
+        !component.is_empty() && *component != "." && *component != ".." && !component.contains(':')
     };
     if !components.iter().all(plain) {
         return Err(format!(

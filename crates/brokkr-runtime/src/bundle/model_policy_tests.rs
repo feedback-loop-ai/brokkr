@@ -2754,6 +2754,117 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
     }
 }
 
+/// Decision 0048's security ruling is a compile fact on every host. Some
+/// refused characters cannot be filenames on Windows, so this matrix
+/// deliberately creates no such files: the grammar must refuse before
+/// lookup, regardless of the host filesystem or available interpreter.
+/// This does not exercise Windows' native command line or MSYS startup.
+#[test]
+fn pinned_script_startup_metacharacters_are_refused_at_compile_on_every_host() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    // Literal expected vocabulary, independent of the production constant.
+    for character in "*?[]{}()'\"\\~\r\n".chars() {
+        let component = format!("name{character}part");
+        for script in [
+            format!("./{component}/gate.sh"),
+            format!("./scripts/{component}/gate.sh"),
+            format!("./scripts/{component}"),
+        ] {
+            for boundary in [Boundary::Harness, Boundary::Open] {
+                for class in ["gate", "work"] {
+                    let mut site = exec_dispatch(&["sh", &script]);
+                    site["class"] = json!(class);
+                    let refusal = fixture.refusal_under(site, boundary);
+                    for expected in [
+                        format!("component {component:?}"),
+                        format!("refused startup character {character:?}"),
+                        "decision 0048".into(),
+                        "decision 0046 ruling 4".into(),
+                    ] {
+                        assert!(refusal.contains(&expected), "{script}: {refusal}");
+                    }
+                    assert!(!refusal.contains("names no regular file"), "{refusal}");
+                }
+            }
+        }
+    }
+    let refusal = fixture.refusal_under(
+        exec_dispatch(&["sh", "./first]/later[/gate.sh"]),
+        Boundary::Harness,
+    );
+    assert!(refusal.contains("component \"first]\""), "{refusal}");
+    assert!(refusal.contains("character ']'"), "{refusal}");
+}
+
+/// Real directories prove the pin still means exact filename bytes and
+/// that the matching sibling lies outside its re-walk. Compiling a gate
+/// on the spelling must fail even before that sibling exists, and after
+/// it is created or edited. No interpreter is spawned: in particular,
+/// this is not a native Windows/MSYS parser reproduction on Unix.
+#[test]
+fn a_mutable_matching_sibling_cannot_be_admitted_as_a_pinned_gate() {
+    for directory in ["scripts[1]", "scripts{1,2}", "scripts'1'"] {
+        let fixture = Fixture::new();
+        fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+        fixture.script("scripts/gate.sh");
+        fixture.script(&format!("{directory}/gate.sh"));
+        let token = format!("./{directory}/gate.sh");
+        for boundary in [Boundary::Harness, Boundary::Open] {
+            let refusal = fixture.refusal_under(exec_dispatch(&["sh", &token]), boundary);
+            assert!(refusal.contains("decision 0048"), "{refusal}");
+        }
+
+        fixture.script("scripts1/gate.sh");
+        // An ordinary script still compiles with these files in its
+        // layer: admission never rewrites or bans manifest file keys.
+        let bundle = fixture
+            .compile_bounded(
+                exec_dispatch(&["sh", "./scripts/gate.sh"]),
+                Boundary::Harness,
+            )
+            .unwrap();
+        let files = bundle.manifest["files"].as_object().unwrap();
+        assert!(files.contains_key(&format!("{directory}/gate.sh")));
+        assert!(files.contains_key("scripts1/gate.sh"));
+        let selected = bundle.dir.join(directory);
+        let original = std::fs::read(selected.join("gate.sh")).unwrap();
+        for sibling_bytes in ["#!/bin/sh\ntrue\n", "#!/bin/sh\nprintf forged-pass\n"] {
+            std::fs::write(bundle.dir.join("scripts1/gate.sh"), sibling_bytes).unwrap();
+            assert_eq!(layer_drift(&bundle, &selected), None);
+            assert_eq!(std::fs::read(selected.join("gate.sh")).unwrap(), original);
+            for boundary in [Boundary::Harness, Boundary::Open] {
+                let refusal = fixture.refusal_under(exec_dispatch(&["sh", &token]), boundary);
+                assert!(refusal.contains("decision 0048"), "{refusal}");
+            }
+        }
+    }
+}
+
+#[test]
+fn ordinary_script_components_and_unjudged_arguments_keep_their_bytes() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    // Spaces are encoded by Command; punctuation that needs shell source
+    // evaluation is not interpreted by MSYS build_argv/globify alone.
+    let relative = "scripts plain-_,+@=!$`;中/verify.v1.sh";
+    fixture.script(relative);
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let bundle = fixture
+            .compile_bounded(
+                exec_dispatch(&["sh", &format!("./{relative}"), "[unjudged]{'argument'}"]),
+                boundary,
+            )
+            .unwrap();
+        assert!(bundle.manifest["files"].get(relative).is_some());
+        let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+            panic!("the gate is a single exec site")
+        };
+        assert_eq!(command[5], bundle.dir.join(relative).to_str().unwrap());
+        assert_eq!(command[6], "[unjudged]{'argument'}");
+    }
+}
+
 #[test]
 fn hands_on_an_unmapped_agent_chain_report_the_resolver_gap() {
     let fixture = Fixture::new();
