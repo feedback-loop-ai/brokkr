@@ -394,3 +394,27 @@ have carried — v3 adds an optional property and takes none away. Naming the
 unreleased line instead would judge every record this engine writes under
 v2 and refuse the `state` field it is already writing, which is the defect
 this addendum fixes.
+
+Decision 0047 adds one more file and changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Operator supersede args | `operator-supersede.v1.schema.json` | brokkr-runtime (the verb), brokkr-view, the fleet dossier |
+
+`operator-supersede.v1` is a payload schema over `operator/commanded.args`
+for `command: "supersede"` and nothing else. The v1 event envelope, the
+`type` enum and every witness digest are unmoved, and deliberately: `command`
+is already an open string in the vocabulary above and `args` an already-legal
+open object the reducer never reads, so a new command word with structured
+`args` is a v1 event byte for byte. The annotation is written only on a run
+that has gone `completed` or `stopped`, where `fold` admits an operator
+annotation that changes nothing, and no `operator/accepted` follows it —
+there is nothing to execute, and an acceptance after a terminal is exactly
+what `fold` refuses.
+
+The amended rule's last clause needs no argument here: `fold` does not read
+the field, `RunState` gains nothing, and a terminal run folded with the
+annotation present is byte-identical to the same run folded without it. What
+reads it is `brokkr_view::residual_findings`, which marks the named findings
+as superseded and leaves them in the journal and in every readout — a
+superseded finding is closed, never deleted.

@@ -160,6 +160,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/phase-entered-case.v1.schema.json",
             "Forge phase-entered selected case v1",
         ),
+        // Decision 0047 ruling 1: the supersede annotation's `args`
+        // arrive as their own published payload schema. Nothing above
+        // moves — the envelope's `command` was already an open string
+        // and `args` an already-legal open object.
+        (
+            "contracts/operator-supersede.v1.schema.json",
+            "Forge operator supersede args v1",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();

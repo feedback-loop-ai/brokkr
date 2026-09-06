@@ -142,6 +142,11 @@ pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
     let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
     let mut commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    // The rulings the supersede annotations cite, gathered while the
+    // runs are read and admitted to the closed set afterwards: a
+    // superseding run may be read later in the fleet than the run whose
+    // finding it closed.
+    let mut superseded: Vec<(Option<String>, String, u64)> = Vec::new();
     for source in sources {
         let realm = source.realm.map(str::to_string);
         let store = source.store;
@@ -196,6 +201,18 @@ pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
             commands.entry(run_id.clone()).or_insert(admits.clone());
             for finding in brokkr_view::residual_findings(&run_id, &events) {
                 facts.push((realm.clone(), run_id.clone(), finding.seq));
+                // The annotation is a citable fact in its own right
+                // (decision 0047 ruling 4), so a report may say "the
+                // operator closed this at seq N" and have that checked.
+                // The superseding run's own ruling is a candidate to
+                // become one, keyed exactly as the annotation keyed it —
+                // never widened to the annotated run's realm, which
+                // would be a guess about which hearth was meant.
+                if let Some(mark) = &finding.superseded {
+                    facts.push((realm.clone(), run_id.clone(), mark.seq));
+                    superseded.push((mark.by.realm.clone(), mark.by.run_id.clone(), mark.by.seq));
+                    *counts.entry("superseded_findings".to_string()).or_default() += 1;
+                }
                 findings.push(keyed(&realm, serde_json::to_value(&finding)?));
             }
             // A panel or sequence seat's row already aggregates its members'
@@ -236,6 +253,19 @@ pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
             ));
         }
     }
+    // A superseding run's ruling is stated only when this reading
+    // covers the journal it lives in (decision 0047 ruling 4): every
+    // run read has already put its own head in `facts`, so that is the
+    // question asked here.
+    let covered: Vec<(Option<String>, String, u64)> = superseded
+        .into_iter()
+        .filter(|(realm, run_id, _)| {
+            facts
+                .iter()
+                .any(|(seen, known, _)| (seen, known) == (realm, run_id))
+        })
+        .collect();
+    facts.extend(covered);
     facts.sort();
     facts.dedup();
     let count = |status: &str| counts.get(status).copied().unwrap_or(0);
@@ -251,6 +281,10 @@ pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
             // A run whose journal does not fold has no status to count
             // as; it is counted as what it is.
             "quarantined": count("quarantined"),
+            // How many findings the operator has closed by name
+            // (decision 0047 ruling 4). Counted, not hidden: the
+            // summary says how many were left out of the queue.
+            "superseded_findings": count("superseded_findings"),
     });
     if !realms.is_empty() {
         fleet["realms"] = json!(realms);

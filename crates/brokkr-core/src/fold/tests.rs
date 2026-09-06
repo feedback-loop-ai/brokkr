@@ -563,3 +563,96 @@ fn open_effect_guards_refuse_foreign_effects_in_the_same_cursor_shape() {
         json!({"effect_id":"foreign"}),
     );
 }
+
+/// Decision 0047 rulings 1 and 3: `supersede` is an annotation the fold
+/// already admits and must never read. A stopped run folded with one
+/// appended derives exactly the state it derives without it — same
+/// status, same phase, same cursor, same ruling, same park reason, and
+/// nothing new anywhere in `RunState`.
+///
+/// The two fields left out of the comparison are the journal's own
+/// position rather than derived facts about the run: `seq` and
+/// `last_hash` advance for EVERY appended event, including the
+/// `operator/commanded` this arm admitted long before this decision.
+/// They are asserted to have moved by exactly the one event, which is
+/// the other half of the claim.
+#[test]
+fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
+    let at = |seq: u64, event_type, payload| {
+        let mut event = event(event_type, payload);
+        event.seq = seq;
+        event.event_id = format!("e{seq}");
+        event.event_hash = format!("hash-{seq}");
+        event
+    };
+    let mut stopped = vec![
+        at(
+            1,
+            EventType::RunStarted,
+            json!({"feature": "close the finding by name"}),
+        ),
+        at(2, EventType::PhaseEntered, json!({"phase": "review"})),
+        at(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "phase": "review", "seat": "review"}),
+        ),
+        at(
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "att"}),
+        ),
+        at(
+            5,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff", "attempt_id": "att",
+                   "result": {"result": "residual"}}),
+        ),
+        at(
+            6,
+            EventType::TransitionDecided,
+            json!({"from": "review", "result": "residual", "next": null,
+                   "rule_id": "REVIEW-SECURITY-HOLD", "severity": null,
+                   "inputs": {"has_security_residual": true},
+                   "problem": "security residual above the shipping bar"}),
+        ),
+        at(
+            7,
+            EventType::RunStopped,
+            json!({"reason": "security residual above the shipping bar"}),
+        ),
+    ];
+    let before = fold(&stopped).expect("the stopped run folds");
+    stopped.push(at(
+        8,
+        EventType::OperatorCommanded,
+        json!({"command_id": "cmd-1", "command": "supersede",
+               "operator": "operator",
+               "args": {"findings": [6],
+                        "by": {"realm": null, "run_id": "later", "seq": 21},
+                        "reason": "both residuals fixed and shipped"}}),
+    ));
+    let after = fold(&stopped).expect("the annotation folds on a terminal run");
+
+    assert_eq!(
+        after.seq, 8,
+        "the journal advanced by exactly the one event"
+    );
+    assert_eq!(after.last_hash, "hash-8");
+    let derived = |state: &RunState| {
+        let mut state = state.clone();
+        state.seq = 0;
+        state.last_hash = String::new();
+        format!("{state:?}")
+    };
+    assert_eq!(
+        derived(&before),
+        derived(&after),
+        "the fold derives nothing at all from a supersede annotation"
+    );
+    assert_eq!(after.status, Status::Stopped, "a mark is not a conclusion");
+    assert!(
+        after.pending_command.is_none(),
+        "an annotation on a terminal run is never held as pending"
+    );
+}

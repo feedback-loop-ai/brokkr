@@ -180,6 +180,60 @@ impl Fleet {
         append(EventType::PhaseEntered, json!({"phase": "done"}));
         append(EventType::RunCompleted, json!({}));
     }
+
+    /// A run STOPPED on a review ruling that carries a residual, with
+    /// the operator's supersede annotation on it (decision 0047 ruling
+    /// 1). The ruling is seq 6, the stop is seq 7 and the annotation is
+    /// seq 8 — the citation a reader follows to the operator's word.
+    fn superseded(&self, run_id: &str, by_run: &str, by_seq: u64) {
+        let mut store = self.store();
+        store
+            .create_run(run_id, "the finding closed elsewhere", "self", &json!({}))
+            .unwrap();
+        let mut append = |kind, payload| {
+            store
+                .append_next(run_id, kind, payload, None, None)
+                .unwrap();
+        };
+        append(
+            EventType::RunStarted,
+            json!({"feature": "the finding closed elsewhere", "manifest": {}}),
+        );
+        append(EventType::PhaseEntered, json!({"phase": "review"}));
+        append(
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "review", "phase": "review"}),
+        );
+        append(
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "att"}),
+        );
+        append(
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff", "attempt_id": "att",
+                   "result": {"result": "residual"}}),
+        );
+        append(
+            EventType::TransitionDecided,
+            json!({"from": "review", "result": "residual",
+                   "rule_id": "REVIEW-SECURITY-HOLD", "next": null,
+                   "severity": null,
+                   "inputs": {"has_security_residual": true},
+                   "problem": "security residual above the shipping bar"}),
+        );
+        append(
+            EventType::RunStopped,
+            json!({"reason": "security residual above the shipping bar"}),
+        );
+        append(
+            EventType::OperatorCommanded,
+            json!({"command_id": "cmd", "command": "supersede",
+                   "operator": "operator",
+                   "args": {"findings": [6],
+                            "by": {"realm": null, "run_id": by_run, "seq": by_seq},
+                            "reason": "both residuals fixed and shipped"}}),
+        );
+    }
 }
 
 /// Deliberately far ahead of any wall clock a fixture is written under,
@@ -420,6 +474,126 @@ fn one_unfoldable_journal_is_a_finding_and_the_rest_of_the_fleet_still_reads() {
     .err()
     .expect("a realm the dossier does not state is refused");
     assert!(dressed.contains("no realm"), "{dressed}");
+}
+
+/// Decision 0047 ruling 4: the dossier carries the mark, the annotation
+/// is a citable fact, the superseding run's ruling is one too when this
+/// reading covers it, and the count says how many were closed.
+#[test]
+fn the_dossier_marks_a_superseded_finding_counts_it_and_makes_it_citable() {
+    let fleet = Fleet::new();
+    fleet.completed("done-run");
+    fleet.superseded("held-run", "done-run", 6);
+    fleet.parked("parked-run");
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+
+    let findings = derived.value["residual_findings"].as_array().unwrap();
+    let held = findings
+        .iter()
+        .find(|finding| finding["run_id"] == "held-run")
+        .expect("a superseded finding is still a finding");
+    assert_eq!(held["seq"], 6, "the ruling it was read from");
+    assert_eq!(held["superseded"]["seq"], 8, "the annotation's own seq");
+    assert_eq!(held["superseded"]["by"]["run_id"], "done-run");
+    assert_eq!(held["superseded"]["by"]["seq"], 6);
+    assert_eq!(held["superseded"]["by"]["realm"], Value::Null);
+    assert_eq!(held["superseded"]["operator"], "operator");
+    assert_eq!(
+        held["superseded"]["reason"],
+        "both residuals fixed and shipped"
+    );
+    assert!(held["line"]
+        .as_str()
+        .expect("the finding renders")
+        .ends_with("superseded by done-run seq 6"));
+
+    // The parked run's findings are untouched: only what was named is
+    // marked.
+    assert!(findings
+        .iter()
+        .filter(|finding| finding["run_id"] == "parked-run")
+        .all(|finding| finding["superseded"] == Value::Null));
+
+    assert_eq!(
+        derived.value["fleet"]["superseded_findings"], 1,
+        "counted, not hidden: {}",
+        derived.value["fleet"]
+    );
+    assert_eq!(derived.value["fleet"]["stopped"], 1);
+
+    // Both new facts are citable: the annotation itself, and the ruling
+    // of the run that closed the finding.
+    assert!(derived.states("held-run", 8), "the annotation is a fact");
+    assert!(derived.states("done-run", 6), "so is the ruling it cites");
+    // A superseding run outside this reading states nothing: the
+    // dossier never invents a fact about a journal nobody opened.
+    let elsewhere = Fleet::new();
+    elsewhere.superseded("held-run", "a-run-in-another-world", 21);
+    let store = Store::open_read_only(&elsewhere.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+    assert_eq!(derived.value["fleet"]["superseded_findings"], 1);
+    assert!(derived.states("held-run", 8));
+    assert!(!derived.states("a-run-in-another-world", 21));
+}
+
+/// Ruling 5: the annotation is citable, so a report may say the finding
+/// was closed and have that checked — and the finding itself does not
+/// reach the queue.
+#[test]
+fn a_report_may_cite_the_annotation_and_leaves_the_finding_out_of_the_queue() {
+    let fleet = Fleet::new();
+    fleet.completed("done-run");
+    fleet.superseded("held-run", "done-run", 6);
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+
+    let report = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "two runs; one finding was superseded by done-run",
+            "parked_runs": [],
+            "work_queue": [{
+                "run_id": "held-run", "seq": 8,
+                "finding": "the operator recorded that done-run closed this finding",
+                "reasoning": "noted for the record; nothing is left to do here",
+            }],
+        })),
+    )
+    .expect("the annotation is a fact the dossier states");
+    assert_eq!(
+        report.citations,
+        vec![(None, "held-run".to_string(), 8)],
+        "the citation resolves to the annotation, not to the ruling",
+    );
+    assert!(
+        !report
+            .work_queue
+            .iter()
+            .any(|entry| entry["seq"] == json!(6)),
+        "the superseded finding itself is not queued: {:?}",
+        report.work_queue,
+    );
+
+    // Muninn may not propose the command either: a run that has
+    // finished admits none, so a `supersede` proposal is refused.
+    let refused = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "two runs",
+            "parked_runs": [{
+                "run_id": "held-run", "seq": 8, "command": "supersede",
+                "reasoning": "it looks closed to me",
+            }],
+            "work_queue": [],
+        })),
+    )
+    .err()
+    .expect("a run that has finished admits no operator command");
+    assert!(
+        refused.contains("not an operator command the dossier states"),
+        "{refused}"
+    );
 }
 
 #[test]

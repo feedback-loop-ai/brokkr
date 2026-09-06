@@ -50,7 +50,10 @@ use serde_json::Value;
 /// ruling 6 keeps them two facts.
 /// Bumped to 8 by decision 0041 ruling 6: the run summary and triage
 /// phase expose the strategy class derived by the fold.
-pub const VIEW_VERSION: u32 = 8;
+/// Bumped to 9 by decision 0047 ruling 3: a residual finding, the run
+/// rows that carry it and the ruling it was read from all state the
+/// operator's supersede annotation when one names it.
+pub const VIEW_VERSION: u32 = 9;
 
 /// The deliberate-absence mark: a value the journal never carries reads
 /// as a dim dash with its reason, never as an empty cell that looks like
@@ -90,6 +93,11 @@ pub struct RunEntry<'a> {
     /// and the error text is the row's whole account of itself. Nothing
     /// is repaired here (README law 2) — the refusal is reported.
     pub detail: Option<&'a str>,
+    /// What [`residual_findings`] derived for this run, marks included.
+    /// A caller that has not read the run's events — or read a journal
+    /// that would not open at all — states none, which is exactly what
+    /// a fleet listing said before decision 0047.
+    pub residuals: &'a [ResidualFinding],
 }
 
 #[derive(Serialize)]
@@ -108,6 +116,13 @@ pub struct RunRow {
     /// error, verbatim. A quarantined run reads as `?` plus this line
     /// on every surface instead of vanishing from the fleet.
     pub detail: Option<String>,
+    /// This run's residual findings, each carrying the operator's
+    /// supersede annotation when one closes it (decision 0047 ruling
+    /// 3): `brokkr runs --json` is a surface that prints a residual
+    /// finding, so it prints the mark. The text table stays a digest —
+    /// clamping and omission are the renderer's job, losslessness is
+    /// the model's.
+    pub residuals: Vec<ResidualFinding>,
 }
 
 #[derive(Serialize)]
@@ -173,6 +188,12 @@ pub struct Ruling {
     pub result: Option<String>,
     pub inputs: Vec<(String, String)>,
     pub problem: Option<String>,
+    /// The operator's supersede annotation for THIS ruling, when one
+    /// names a finding read from it (decision 0047 ruling 3). The
+    /// ruling itself is untouched — a run stopped on a security hold
+    /// stays stopped on it (ruling 6); the mark says only that the
+    /// finding is closed elsewhere.
+    pub superseded: Option<Superseded>,
 }
 
 /// What a seat is doing, or did. Live work keeps the tool and target
@@ -603,6 +624,12 @@ pub const OPERATOR_COMMANDS: [&str; 2] = ["retry", "stop"];
 /// The phases whose rulings carry residual findings.
 pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
 
+/// The command word of the operator annotation that closes a residual
+/// finding (decision 0047 ruling 1). Deliberately NOT in
+/// [`OPERATOR_COMMANDS`]: that list is what a PARKED run admits, and a
+/// supersede is only ever written on a terminal one.
+pub const SUPERSEDE: &str = "supersede";
+
 /// The operator commands a run in this status admits. Only a parked run
 /// admits any: `retry` re-runs its phase, `stop` ends it, and every
 /// other status admits neither. Derived here, once, so a surface that
@@ -613,6 +640,92 @@ pub fn operator_commands(status: &str) -> Vec<String> {
         "awaiting_operator" => OPERATOR_COMMANDS.iter().map(|c| c.to_string()).collect(),
         _ => Vec::new(),
     }
+}
+
+/// The run and the ruling an operator's supersede names as having
+/// closed a finding (decision 0047 ruling 1). Keyed by realm the way
+/// decision 0026 ruling 3 keys every fleet fact — `None` in a one-hearth
+/// world, where there is only ever one journal to have read it in.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct SupersededBy {
+    pub realm: Option<String>,
+    pub run_id: String,
+    pub seq: u64,
+}
+
+/// The operator's word that a residual finding is closed elsewhere
+/// (decision 0047 ruling 1), as the journal carries it.
+#[derive(Serialize, Clone, PartialEq, Eq)]
+pub struct Superseded {
+    /// The ANNOTATION's own sequence number, on the annotated run — the
+    /// citation a reader follows to the operator's command, not the
+    /// sequence of the ruling it closes.
+    pub seq: u64,
+    pub by: SupersededBy,
+    pub reason: String,
+    pub operator: String,
+    pub recorded_at: String,
+}
+
+/// How a mark reads on a rendered line: `realm/run seq N` where the
+/// annotation named a realm, the bare run id where it did not — the
+/// same shape a fleet read cites every fact by (decision 0026 ruling 3).
+/// One derivation, so no surface renders the citation its own way.
+pub fn cited(by: &SupersededBy) -> String {
+    match &by.realm {
+        Some(realm) => format!("{realm}/{} seq {}", by.run_id, by.seq),
+        None => format!("{} seq {}", by.run_id, by.seq),
+    }
+}
+
+/// One supersede annotation, read from an `operator/commanded` event:
+/// the mark itself and the finding sequence numbers it closes. Any
+/// other event, and any annotation whose citation is not there to read,
+/// yields nothing — a half-read citation is repair (decision 0001).
+fn supersede_of(event: &EventEnvelope) -> Option<(Superseded, Vec<u64>)> {
+    let payload = &event.payload;
+    if event.event_type != EventType::OperatorCommanded
+        || field(payload, "command") != Some(SUPERSEDE)
+    {
+        return None;
+    }
+    let by = payload.pointer("/args/by")?;
+    let findings = payload
+        .pointer("/args/findings")
+        .and_then(Value::as_array)?;
+    let mark = Superseded {
+        seq: event.seq,
+        by: SupersededBy {
+            realm: field(by, "realm").map(str::to_string),
+            run_id: field(by, "run_id")?.to_string(),
+            seq: by.get("seq").and_then(Value::as_u64)?,
+        },
+        reason: payload
+            .pointer("/args/reason")
+            .and_then(Value::as_str)
+            .unwrap_or(ABSENT)
+            .to_string(),
+        operator: field(payload, "operator").unwrap_or(ABSENT).to_string(),
+        recorded_at: event.recorded_at.clone(),
+    };
+    Some((mark, findings.iter().filter_map(Value::as_u64).collect()))
+}
+
+/// Every supersede a run's journal carries, by the sequence number of
+/// the ruling each closes. A finding named by more than one annotation
+/// carries the LAST in journal order (decision 0047 ruling 3); the
+/// earlier events stay in the journal for a reader who asks.
+fn supersedes(events: &[EventEnvelope]) -> BTreeMap<u64, Superseded> {
+    let mut out = BTreeMap::new();
+    for event in events {
+        let Some((mark, findings)) = supersede_of(event) else {
+            continue;
+        };
+        for finding in findings {
+            out.insert(finding, mark.clone());
+        }
+    }
+    out
 }
 
 /// One residual finding, with the journal fact it was read from.
@@ -629,8 +742,13 @@ pub struct ResidualFinding {
     /// the evaluator's closed vocabulary.
     pub input: String,
     pub value: String,
-    /// The rendered sentence every surface prints, citations included.
+    /// The rendered sentence every surface prints, citations included —
+    /// the supersede mark among them, when the finding carries one.
     pub line: String,
+    /// The operator's word that this finding is closed, or `None`
+    /// (decision 0047 ruling 3). The finding itself is unchanged: it
+    /// stays in the journal and in every readout, marked.
+    pub superseded: Option<Superseded>,
 }
 
 /// The one severity input and the two boolean inputs that carry a
@@ -664,7 +782,18 @@ fn residual_value(key: &str, value: &Value) -> Option<String> {
 /// is repair (decision 0001). Each finding names the run and the
 /// sequence number it came from, which is decision 0007's provenance
 /// discipline applied to a readout instead of to a seat input.
+///
+/// A finding an operator has superseded (decision 0047) is still
+/// derived, still listed and still cited — it carries the annotation as
+/// its `superseded` mark and leaves only Muninn's queue. **The
+/// annotation is verified when it is WRITTEN and never re-verified
+/// here**: `brokkr operator supersede` refuses a citation that does not
+/// resolve, and the journal it cites is append-only, so what was true at
+/// write time stays true. A superseding run concluded, stopped or ruled
+/// again afterwards changes nothing about a mark already written
+/// (ruling 2).
 pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
+    let marks = supersedes(events);
     let mut out = Vec::new();
     for event in events {
         if event.event_type != EventType::TransitionDecided {
@@ -683,6 +812,11 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
             let Some(value) = residual_value(input, raw) else {
                 continue;
             };
+            let superseded = marks.get(&event.seq).cloned();
+            let mark = match &superseded {
+                Some(mark) => format!(" · superseded by {}", cited(&mark.by)),
+                None => String::new(),
+            };
             out.push(ResidualFinding {
                 run_id: run_id.to_string(),
                 seq: event.seq,
@@ -691,9 +825,10 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
                 input: input.clone(),
                 value: value.clone(),
                 line: format!(
-                    "{run_id} seq {} · {phase} · {rule_id} · {input}: {value}",
+                    "{run_id} seq {} · {phase} · {rule_id} · {input}: {value}{mark}",
                     event.seq
                 ),
+                superseded,
             });
         }
     }
@@ -717,6 +852,11 @@ pub fn quarantine_finding(run_id: &str, seq: u64, error: &str) -> ResidualFindin
         input: "journal_folds".to_string(),
         value: "false".to_string(),
         line: format!("{run_id} seq {seq} · journal does not fold · {error}"),
+        // A journal that does not fold cannot be read for annotations
+        // either, and an operator cannot supersede a finding this crate
+        // derived rather than the evaluator: `--findings` names a
+        // ruling's seq, and this one names the seq the fold refused at.
+        superseded: None,
     }
 }
 
@@ -739,6 +879,7 @@ fn run_row(entry: &RunEntry) -> RunRow {
         created_at: entry.created_at.to_string(),
         feature: entry.feature.to_string(),
         detail: entry.detail.map(str::to_string),
+        residuals: entry.residuals.to_vec(),
     }
 }
 
@@ -2044,7 +2185,7 @@ fn phase_rail(
 
 // ----------------------------------------------------- trail and journal
 
-fn what_of(scan: &Scan, event: &EventEnvelope) -> What {
+fn what_of(scan: &Scan, event: &EventEnvelope, marks: &BTreeMap<u64, Superseded>) -> What {
     let payload = &event.payload;
     match event.event_type {
         EventType::TransitionDecided => {
@@ -2053,8 +2194,15 @@ fn what_of(scan: &Scan, event: &EventEnvelope) -> What {
                 Some(result) => format!(" · {result}"),
                 None => String::new(),
             };
+            // The ruling line every trail prints — `inspect`'s and the
+            // console's alike — carries the mark when a finding read
+            // from this ruling is superseded (decision 0047 ruling 3).
+            let mark = match marks.get(&event.seq) {
+                Some(mark) => format!(" · superseded by {}", cited(&mark.by)),
+                None => String::new(),
+            };
             let arrow = format!(
-                " {} → {}{result}",
+                " {} → {}{result}{mark}",
                 display_or_mark(payload.get("from")),
                 display_or_mark(payload.get("next"))
             );
@@ -2175,7 +2323,12 @@ fn label_of(event: &EventEnvelope) -> Cell {
     cell_of(token.map(str::to_string), None)
 }
 
-fn journal_rows(events: &[EventEnvelope], scan: &Scan, buckets: &Buckets) -> Vec<JournalRow> {
+fn journal_rows(
+    events: &[EventEnvelope],
+    scan: &Scan,
+    buckets: &Buckets,
+    marks: &BTreeMap<u64, Superseded>,
+) -> Vec<JournalRow> {
     // `verify_chain` pins `seq == i + 1`, so seq 0 is unrepresentable in
     // a loaded journal and the console's truthiness check on the looked-up
     // seq has nothing to guard. A total map is the whole rule.
@@ -2241,7 +2394,7 @@ fn journal_rows(events: &[EventEnvelope], scan: &Scan, buckets: &Buckets) -> Vec
                 recorded_at: event.recorded_at.clone(),
                 in_trail: !TRAIL_SKIP.contains(&event.event_type),
                 phases,
-                what: what_of(scan, event),
+                what: what_of(scan, event, marks),
                 label: label_of(event),
                 model: cell_of(recorded_model, Some("no served model recorded")),
                 payload_json: match payload {
@@ -2270,7 +2423,7 @@ fn summary_of(state: &RunState) -> Summary {
     }
 }
 
-fn ruling_of(decision: Option<&Value>) -> Option<Ruling> {
+fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option<Ruling> {
     let decision = decision?;
     let object = decision.as_object()?;
     let rule = object.get("rule_id")?;
@@ -2295,6 +2448,7 @@ fn ruling_of(decision: Option<&Value>) -> Option<Ruling> {
             Some(problem) if truthy(Some(problem)) => Some(js::to_display(Some(problem))),
             _ => None,
         },
+        superseded,
     })
 }
 
@@ -2304,15 +2458,29 @@ fn ruling_of(decision: Option<&Value>) -> Option<Ruling> {
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
     let scan = scan_participants(events);
     let buckets = bucket(events);
+    // The ruling the summary carries is the LAST one ruled, so that is
+    // the seq an annotation must name for the header line to be marked
+    // (decision 0047 ruling 3). Every other ruling's mark reaches the
+    // reader through the trail row it was ruled on.
+    let marks = supersedes(events);
+    let last_ruled = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == EventType::TransitionDecided)
+        .and_then(|event| marks.get(&event.seq))
+        .cloned();
     RunView {
         view_version: VIEW_VERSION,
         summary: state.map(summary_of),
-        ruling: ruling_of(state.and_then(|state| state.last_decision.as_ref())),
+        ruling: ruling_of(
+            state.and_then(|state| state.last_decision.as_ref()),
+            last_ruled,
+        ),
         participants: participants(events, &scan),
         live: live_lines(events),
         phases: phase_rail(events, &scan, &buckets, state),
         notices: run_notices(events),
-        journal: journal_rows(events, &scan, &buckets),
+        journal: journal_rows(events, &scan, &buckets, &marks),
         event_count: events.len(),
     }
 }

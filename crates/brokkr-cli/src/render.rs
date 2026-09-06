@@ -674,6 +674,21 @@ pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) 
                 &format!("        {}", Safe::new(problem).as_str()),
             );
         }
+        // The operator's word that the residual this ruling recorded is
+        // closed elsewhere (decision 0047 ruling 3). The ruling above is
+        // printed exactly as it was ruled: a mark is not a correction.
+        if let Some(mark) = &ruling.superseded {
+            push_line(
+                &mut out,
+                &format!(
+                    "        superseded at seq {} by {} · {} · {}",
+                    mark.seq,
+                    Safe::new(&brokkr_view::cited(&mark.by)).as_str(),
+                    Safe::new(&mark.operator).as_str(),
+                    Safe::new(&mark.reason).as_str()
+                ),
+            );
+        }
     }
     // Run-level notices before the seats table: a fallback selection and
     // an optional capability gap are facts an operator must see rather

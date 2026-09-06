@@ -194,6 +194,7 @@ fn fleet() -> RunsView {
             created_at: "not a timestamp",
             state: None,
             detail: None,
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "run-old",
@@ -201,6 +202,7 @@ fn fleet() -> RunsView {
             created_at: T0,
             state: Some(&folded),
             detail: None,
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "run-7",
@@ -208,6 +210,7 @@ fn fleet() -> RunsView {
             created_at: T1,
             state: Some(&folded),
             detail: None,
+            residuals: &[],
         },
     ];
     brokkr_view::run_rows(&entries)
@@ -652,6 +655,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
             created_at: T0,
             state: None,
             detail: None,
+            residuals: &[],
         }]),
         run: None,
         transcript: None,
@@ -1514,6 +1518,7 @@ fn panel_views() -> Views {
             created_at: T0,
             state: Some(&stopped),
             detail: None,
+            residuals: &[],
         }]),
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
