@@ -25,7 +25,8 @@ refines its fourth step; DD5, DD12, DD18 and DD20 are restated where the
 objection was new; the rest stand.
 
 Returned from analyze a second time (2026-09-06) with four findings
-whose earliest owner is the proposal (D27–D30); three amend this
+whose earliest owner is the proposal (D27–D30, and D33 after the
+fourth analyze pass restated DD20's refusal-order claim); three amend this
 document and none moves a ruling. DD20's shipped pin now names, per
 bundle, the ground the compiler reaches first — `claude` for
 `bundles/self` and `recipes/panel-review`, the `analyze` check step for
@@ -1106,11 +1107,14 @@ loads the file. One fixture gate agent whose agent file declares hands
 and whose chain is `astra` alone compiles under `harness` against
 `adapters/` as it stands and is admitted, its manifest pinning codex's
 digest; the same fixture chaining one dsh model alone, and one lanetally
-model alone, is refused under `harness` with the refusal it earns under
-`namespace`, the two texts equal, because 0021's refusals come first
-under every boundary and neither adapter declares `hands.harness`. The
-arms of the chain rule stay on fixture providers, as the file's charter
-requires (D29).
+model alone, is refused under both boundaries — under `namespace` by
+decision 0021 ruling 2's trust-tier text as today, and under `harness`
+by the hands law, which DD22 makes the first statement of the gate
+policy, naming the link, the provider and the missing
+`hands.harness.gate`; the two texts differ, and nothing asserts them
+equal (D33, restating this paragraph's earlier claim). The arms of the
+chain rule stay on fixture providers, as the file's charter requires
+(D29).
 
 ### DD21 — The hands paragraph is prose for a model: `render_prompt` is told the driver kind (D31)
 

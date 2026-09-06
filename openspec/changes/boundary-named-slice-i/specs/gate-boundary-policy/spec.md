@@ -57,7 +57,7 @@ the mode denies and allows.
 
 #### Scenario: dsh and lanetally declare none
 - **WHEN** `adapters/dsh.json` and `adapters/lanetally.json` are loaded
-- **THEN** neither carries `hands.harness`, and each is refused at a `harness` gate exactly as it is refused at a boxed gate today
+- **THEN** neither carries `hands.harness`, and each is also refused at a `harness` gate — by the hands law naming the missing fragment (D33), where a boxed gate refuses it today by decision 0021's tier
 
 #### Scenario: An unknown member is refused
 - **WHEN** an adapter declares `hands.harness.judge`

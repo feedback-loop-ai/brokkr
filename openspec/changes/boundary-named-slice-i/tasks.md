@@ -639,8 +639,10 @@ one helper, because the coverage gate is literal.
       pinning the shipped codex adapter's digest; the same fixture chaining
       one dsh model alone (`flash`), and one chaining one lanetally model
       alone (`fable-tallied`), each compiled under `namespace` and then
-      under `harness`, refused under both with the two refusal texts
-      equal (D29) — gate-boundary-policy / The gate law reads the
+      under `harness`, refused under both — under `namespace` by 0021
+      ruling 2's trust-tier text, under `harness` by the hands law
+      naming the link, the provider and `hands.harness.gate` (D33) —
+      gate-boundary-policy / The gate law reads the
       boundary for sites that declare hands; An adapter declares how its
       harness stands under the harness boundary.
 
