@@ -530,8 +530,11 @@ The adapters then:
    repair nothing.
 
 The prompt states plainly that the file is the only channel the engine
-reads, and that printing the JSON instead of writing it counts as
-producing no result. When the site's hands are boxed (decision 0043) the
+reads, that printing the JSON instead of writing it counts as producing
+no result, and that the object carries exactly `result`, `inputs` and
+`notes` at the top level — a typed fact goes inside `inputs`, and since
+decision 0034 rulings 6 and 7 a record with any other top-level key is
+refused where it is sealed, which loses the attempt. When the site's hands are boxed (decision 0043) the
 engine adds `"hands": "boxed"` to the input, and the contract then names
 the one tool that can write — `mcp__brokkr__workspace` — and says that
 the harness's own shell runs outside the box and cannot. The first

@@ -158,7 +158,10 @@ pub fn render_prompt(input: &Value) -> String {
          the phase machine... }},\n      \"notes\": \"<short human summary of what \
          you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. \
          Printing the JSON instead of writing the file counts as producing no \
-         result. You never decide the next phase — the engine's policy table rules \
+         result. The object carries exactly these top-level keys — result, \
+         inputs, notes — and nothing else: a typed fact goes INSIDE inputs, \
+         and a record with any other top-level key is refused where it is \
+         sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
         house = house,
