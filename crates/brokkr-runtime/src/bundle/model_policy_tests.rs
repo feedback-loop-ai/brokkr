@@ -3650,7 +3650,11 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
         .unwrap()
         .0;
     let dirs = shipped_bundles();
-    assert_eq!(dirs.len(), 13, "{dirs:?}");
+    // Fourteen since `recipes/standby` landed (decision 0041's addendum
+    // of 2026-09-06): the hedge is `fast`'s shape with both model seats
+    // pinned inline to the other vendor, so it boxes only the verify and
+    // ship gates it inherits and compiles under harness like the rest.
+    assert_eq!(dirs.len(), 14, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3713,7 +3717,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 11, "{compiled:?}");
+    assert_eq!(compiled.len(), 12, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();
