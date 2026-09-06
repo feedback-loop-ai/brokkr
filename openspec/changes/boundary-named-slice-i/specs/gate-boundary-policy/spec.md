@@ -179,9 +179,14 @@ confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
 ### Requirement: Every shipped bundle compiles under harness once the fragments are measured
 Decision 0046 ruling 6 promises that after this slice a macOS operator
 runs every shipped bundle, the review offices under their harness's own
-sandbox. The work offices that declare hands — `chief-architect` and
-`intake-sdd` — chain claude and codex, so the promise holds exactly when
-`adapters/codex.json` and `adapters/claude.json` declare
+sandbox. The work offices that declare hands are the chief architect,
+which chains claude and codex (fable, astra, opus) and is seated by
+`recipes/triage`'s specify and design steps and, through inheritance,
+by `recipes/night-shift`, and the sdd intake, which chains claude alone
+(sonnet, opus) and is hired by no shipped bundle — `recipes/sdd` folded
+into `recipes/triage`'s strategy select in #176 and no longer exists.
+So the promise holds exactly when `adapters/codex.json` and
+`adapters/claude.json` declare
 `hands.harness.gate` and `hands.harness.work` as fragments, each `gate`
 with a measured door. Every bundle under `recipes/` and `bundles/` SHALL
 compile under `harness` on that condition. If the measurement finds a
@@ -200,7 +205,7 @@ decision).
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported
-- **THEN** `recipes/sdd`, `recipes/triage` and every bundle hiring the chief or the sdd intake refuse under `harness` naming `claude`, `hands.harness.work` and the site, and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
+- **THEN** `recipes/triage` and `recipes/night-shift` — every shipped bundle under `recipes/` and `bundles/` that seats the chief architect — refuse under `harness` naming `claude`, `hands.harness.work` and the site; every other shipped bundle still compiles; and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
 
 ### Requirement: The argv of a site with hands follows the boundary and the class
 At run time the engine SHALL compose the argv of every site with hands
@@ -217,17 +222,35 @@ Brokkr's at all. Under `harness` and `open` the site's `hands.network`
 and `hands.binds` stay pinned in the manifest as declared and are
 enforced by nothing of Brokkr's: the harness's own sandbox decides what
 the hands may reach, which is the fact the *unboxed* rendering states.
-Under `harness` and `open` an exec dispatch SHALL run through the
-engine's unboxed wrapper — a `brokkr hands` verb beside `exec` that
-builds no namespace — with its script at the real path the compiler
-expanded, in the environment the next requirement lists, and, on Linux,
-inside a new network namespace through `unshare`'s unprivileged form (a
-user namespace mapping the current user, then a network namespace) when
-`unshare` is on PATH and a probe at run time shows the kernel and the
-`unshare` at hand accept it, otherwise with the network on; the record
-marks the run unboxed all the same. An inline model site with hands
-under `harness` or `open` SHALL be refused at compile naming the repair,
-because its argv is the author's and carries the box's own tokens.
+Under `harness` and `open` alike an exec dispatch — an exec gate's or
+a dialect step's — SHALL be the compiled command itself, spawned by
+the engine through `DriverProcess::spawn` with no verb of Brokkr's
+around it: `{brokkr}` and `./` were expanded at compile by
+`expand_command` against the declaring layer's directory, and
+`{prompt_file}` stays literal for the exec driver to expand when it
+stages the prompt. It SHALL start in the environment the next
+requirement lists and, on Linux only, behind a network prefix when a
+probe at spawn passes — `unshare --map-root-user --net -- sh -c 'ip
+link set lo up && exec unshare --map-user=<uid> --map-group=<gid> --
+"$@"' sh`, `<uid>` and `<gid>` being the engine's own ids: a user
+namespace with the engine mapped to root, so the exec'd `sh` keeps the
+capability to bring the loopback up, then a second user namespace
+mapping root back to the operator, so the dispatch runs as the
+operator with its capabilities dropped on exec and the network
+namespace inherited. Every layer replaces itself by exec, so the PID
+the engine holds is the driver's and the deadline kill reaches it as
+today. The probe SHALL be that prefix around `true`, run in the
+dispatch's environment against its search path: with no `unshare` on
+the path nothing is spawned and the answer is no; with a non-zero exit
+the prefix is skipped and the dispatch runs with the network on. The
+prefixed argv SHALL be one pure function of the dispatch, the probe's
+answer and the ids, which the argv tests read directly; the probe's
+answer is not journaled, and the record marks the run unboxed all the
+same. A model site's process inherits the engine's environment under
+every boundary, because its harness needs the operator's keys. An
+inline model site with hands under `harness` or `open` SHALL be
+refused at compile naming the repair, because its argv is the author's
+and carries the box's own tokens.
 `seatbelt` and `container` never reach composition: the engine refuses
 them at its entry before any journal row (boundary-availability), and
 composition is written over the three boundaries this engine builds
@@ -253,19 +276,42 @@ composition is written over the three boundaries this engine builds
 - **WHEN** a site declaring `"hands": {"kind": "workspace", "network": false, "binds": []}` is composed under `harness`
 - **THEN** its manifest `hands` entry still says `network` false, its argv carries no network switch of Brokkr's, and the run is rendered *unboxed*
 
-#### Scenario: An exec script under harness runs unboxed
-- **WHEN** a boxed exec site is composed under `harness` on Linux with `unshare` on PATH and the probe passing
-- **THEN** its argv does not begin with `brokkr hands exec`, names the script at its real path under the declaring layer's directory, and wraps the command in `unshare`'s unprivileged network namespace; with `unshare` absent or the probe failing the wrapper is skipped and the command still runs
+#### Scenario: The shipped verify seat under harness on Linux with the probe passing
+- **WHEN** `bundles/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/bundles/self/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
+- **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
+
+#### Scenario: The same seat with the probe failing, and off Linux
+- **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS and on Windows
+- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}` — the compiled command untouched, spawned in the fixed environment with the network on — and the same holds under `open`
+
+#### Scenario: The probe is the prefix around true
+- **WHEN** the probe runs
+- **THEN** the command it spawns is the eight-token prefix followed by `true`, in the dispatch's environment, and nothing it learns is journaled
+
+#### Scenario: The probe's arms on a planted search path
+- **WHEN** the probe is given a search path with no `unshare`, then one whose `unshare` is a planted executable exiting non-zero, then one exiting zero
+- **THEN** it answers no without spawning anything, no, and yes, in that order; and on macOS and Windows it is never consulted
+
+#### Scenario: A dialect step takes the same road
+- **WHEN** a dialect validate step is composed under `open` on Linux with the probe passing
+- **THEN** its argv is the prefix followed by `<brokkr>`, `driver`, `exec`, `--`, `openspec`, `validate`, `<change>`, `--strict`, `--no-interactive`, in the fixed environment
+
+#### Scenario: A model site keeps the engine's environment
+- **WHEN** a gate-class agent site with hands on codex is composed under `harness`
+- **THEN** it is spawned with the engine's own environment, exactly as under `namespace`
 
 #### Scenario: An inline model site with hands under harness is refused
 - **WHEN** an inline seat whose command is a `{brokkr} driver claude` dispatch declares `hands` and compiles under `harness`
 - **THEN** compilation is refused naming the seat and the repair
 
 ### Requirement: An unboxed exec dispatch runs in a fixed environment
-Under `harness` and `open` the engine's unboxed wrapper SHALL start an
-exec dispatch from an empty environment and set exactly these keys and
-no other: inherited verbatim from the engine's own environment, each
-only when set there, `PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`,
+Under `harness` and `open` the engine SHALL start an exec dispatch —
+through `DriverProcess::spawn`, which takes the environment the child
+starts with: the engine's own, today's behaviour and every model site's
+under every boundary, or exactly a composed table — from an empty
+environment and set exactly these keys and no other: inherited
+verbatim from the engine's own environment, each only when set there,
+`PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`,
 `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`, the in-box marker
 `BROKKR_HANDS_BOX` — true of the child exactly when the engine itself
 already stands inside a box — and, on Windows only, `USERPROFILE`,
@@ -276,18 +322,19 @@ starts; fixed as the box sets them, `LANG` and `LC_ALL` as `C.UTF-8`,
 `CI` as `true`, `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`,
 and `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as
 the `commit.gpgsign=false` triple; and the bundle's `git.identity`
-entries. The wrapper SHALL never set the in-box marker itself, because
-no box stands and the marker is what every box-building test skips on.
-The environment SHALL be composed by one pure function the tests read
-directly, and the wrapper's working directory is the worktree. A
-dialect step under `harness` or `open` runs in the same environment
+entries. The engine SHALL never set the in-box marker on the dispatch,
+because no box stands and the marker is what every box-building test
+skips on. The environment SHALL be composed by one pure function the
+tests read directly, the network probe runs in it, and the dispatch's
+working directory is the worktree, as every driver's is. A dialect
+step under `harness` or `open` runs in the same environment
 (decision 0046 ruling 4; decision 0043 ruling 1's allow-list, from which
 the table is taken).
 
 #### Scenario: The shipped verify gate under harness on a rustup machine
 - **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
 - **WHEN** `bundles/self`'s verify seat is composed under `harness`
-- **THEN** the environment holds `PATH` and `HOME` verbatim, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `CARGO_HOME` or `BROKKR_HANDS_BOX`; the command is `bash <bundles/self>/scripts/verify-seat.sh <prompt>` in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the real `~/.rustup`
+- **THEN** the environment holds `PATH` and `HOME` verbatim, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `CARGO_HOME` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/bundles/self/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the real `~/.rustup`
 
 #### Scenario: The operator's own locators pass through
 - **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE`
@@ -303,7 +350,7 @@ the table is taken).
 
 #### Scenario: A dialect step gets the same environment
 - **WHEN** a dialect validate step is composed under `open`
-- **THEN** its environment is the same table, with the dialect's own argv in place of the script
+- **THEN** its environment is the same table, and its dispatch is `<brokkr> driver exec -- openspec validate <change> --strict --no-interactive` behind the same prefix on the same terms
 
 ### Requirement: A judge under harness still delivers its result file
 Under `harness` a gate-class model site SHALL be able to deliver exactly

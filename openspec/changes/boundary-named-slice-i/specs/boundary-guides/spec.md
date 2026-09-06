@@ -37,7 +37,13 @@ the renderer's header line, which already carries `model`, and shows the
 `house` and `dialect` in the `realms.json` row and the new contract
 files in the `contracts/` row; `docs/guides/driver-authoring.md` and
 `ARCHITECTURE.md` stop describing the `docker run` wrapper as a trust
-class and point at the boundary; and `contracts/README.md` gains rows
+class and point at the boundary, and driver-authoring's opening
+paragraph, which says the engine runs the shipped verifier and shipper
+through `brokkr hands exec`, says so of `namespace` and adds that under
+`harness` and `open` the same `exec` dispatch runs with no verb of
+Brokkr's around it, in a fixed environment, the network off on Linux
+where `unshare` permits, and that the `hands` subcommand gains no verb
+for it; and `contracts/README.md` gains rows
 and a paragraph for `realms.v4`, `run-manifest.v9`, `seat-record.v4`
 and `effect-boundary.v1` in the style of the rows before them.
 
@@ -59,7 +65,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: The layout, driver and architecture pages follow
 - **WHEN** `repository-layout.md`, `driver-authoring.md` and `ARCHITECTURE.md` are read
-- **THEN** the realm row names `boundary`, the contracts row names the four new files, and no page describes `driver.confine` as a working trust class
+- **THEN** the realm row names `boundary`, the contracts row names the four new files, no page describes `driver.confine` as a working trust class, and driver-authoring's opening paragraph qualifies `brokkr hands exec` with `namespace`, describes the unboxed dispatch, and names no new verb
 
 #### Scenario: The contracts README lists the four files
 - **WHEN** `contracts/README.md` is read

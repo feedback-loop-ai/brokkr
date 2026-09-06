@@ -96,7 +96,9 @@ In the commission's order of value:
    the bundle's own pinned script — a `./` token naming a file under the
    layer that declared the seat (D24) — run in the fixed environment D22
    lists, the in-box marker never set, and the network off where the
-   platform can say so. At run time the argv of a site with hands
+   platform can say so — with no new verb: the engine spawns the
+   dispatch it already spawns, behind a network prefix on Linux (D25,
+   D12). At run time the argv of a site with hands
    follows the boundary: today's box under `namespace`, the harness's
    own sandbox under `harness`, nothing of Brokkr's under `open`.
 5. **`driver.confine` is refused (ruling 5).** The parser refuses the
@@ -136,7 +138,8 @@ with 0046 as the stated reason.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
   bundle-pinned-script reading for exec gates and dialect steps, the
-  run-time argv per boundary and class, and the judge's result door.
+  run-time argv per boundary and class with the unboxed exec dispatch
+  pinned token for token, and the judge's result door.
 - `driver-confine-retirement`: decision 0008's container confinement
   refused by name, its engine wrapper and type deleted.
 - `boundary-guides`: the prose — provider-adapters, recipe-authoring,
@@ -169,14 +172,15 @@ that authorises it.
   resolution, `manifest_diff` naming `boundary` when it is the non-file
   field that differs; `Confine` and `confined_command` deleted),
   `brokkr-protocol` (the seat prompt paragraph in both result
-  deliveries, the unboxed exec wrapper beside `hands` with its
-  environment table and the `unshare` probe), `brokkr-store`
+  deliveries; beside `hands`, the unboxed exec environment table, the
+  network prefix and its probe; `DriverProcess::spawn` taking the
+  environment the child starts with), `brokkr-store`
   (seat-record v4 embedded and
   dispatched), `brokkr-view` (a boundary cell beside every model cell —
   participant, node, checkpoint row, journal row — the run-level fact,
   `VIEW_VERSION` 9), `brokkr-cli` (`compile`, `run`/`resume`/`rerun`,
   `doctor`, `init`, `render.rs`, `tui.rs`, `ui.html`, and `compare.rs`
-  for `costs` and `compare`).
+  for `costs` and `compare`; `HandsCommand` gains no verb, D25).
 - **Data:** `adapters/codex.json` and `adapters/claude.json` gain
   `hands.harness`; `realms.json` is untouched.
 - **Identity:** every pinned bundle that declares hands moves once,
@@ -260,8 +264,9 @@ the artifact rather than raising the finding again (decision 0042 ruling
   every artifact phase on macOS and breaks ruling 6's own promise that a
   macOS operator runs every shipped bundle. If the operator refuses this
   reading, the scenario "A dialect step under harness is admitted" is
-  the one line to delete, and `recipes/sdd` and `recipes/triage` then
-  compile only under a boxed boundary.
+  the one line to delete, and `recipes/triage` and `recipes/night-shift`,
+  which extends it — the only shipped bundles with dialect steps — then
+  compile only under a boxed boundary (D26).
 - **D7 — A judge under `harness` still delivers its result file.** The
   result file is the only channel the engine reads, and a read-only
   harness sandbox leaves nothing writable. The `gate` fragment must
@@ -291,10 +296,38 @@ the artifact rather than raising the finding again (decision 0042 ruling
   the adapter's base driver argv with the harness's own default
   permissions; Brokkr adds no fragment and serves no tool. Whatever the
   harness denies by default is the harness's fact and the guide says so.
-- **D12 — The network is turned off with the unprivileged form of
-  `unshare`.** `unshare -n` alone needs privilege; the wrapper uses a
-  user namespace first and is applied only when `unshare` is on PATH and
-  the kernel permits, probed at run time, never assumed.
+- **D12 — The network is turned off with util-linux `unshare`, in a
+  form that leaves the script the operator's own uid, no capability
+  and a loopback.** `unshare --net` alone needs privilege, so the
+  prefix first opens a user namespace with the engine's uid mapped to
+  root (`--map-root-user`), the one mapping under which the `sh` it
+  execs keeps the capability to bring the loopback up (`ip link set lo
+  up`); it then execs a second `unshare --map-user=<uid>
+  --map-group=<gid>` that maps root back to the engine's own ids, so
+  the dispatch runs as the operator, its capabilities dropped on exec
+  and the network namespace inherited. The loopback is not optional:
+  the namespace box gives a script `localhost` (its `/etc/hosts` and
+  bubblewrap's `--unshare-net`), and the shipped verify gate binds
+  `127.0.0.1` in `crates/brokkr-cli/src/ui/tests.rs`. The second
+  mapping is not optional either: a root-in-namespace script overrides
+  the permission bits of every file the operator owns, and the tree's
+  own permission-denial tests — a `0o000` transcript left unread in
+  `crates/brokkr-protocol/src/adapters/tests.rs`, a read-only journal
+  refused in `crates/brokkr-store/src/tests.rs` — would pass falsely.
+  Every layer replaces itself by exec, so the PID the engine holds is
+  the driver's and the deadline kill reaches it as today. The probe is
+  the prefix itself around `true`, run at each unboxed exec dispatch's
+  spawn in that dispatch's environment against its search path; a
+  non-zero exit — no `unshare`, a kernel or AppArmor that refuses
+  unprivileged user namespaces, no `ip`, a util-linux older than 2.38
+  without `--map-user` — skips the prefix and the dispatch runs with
+  the network on, never assumed either way. The probe's answer is not
+  journaled: the boundary word is `harness` or `open` either way and
+  the record says unboxed; the network namespace narrows what an
+  unboxed script reaches and claims nothing the record must carry.
+  The seat box that authored this change refuses nested user
+  namespaces (`unshare: unshare failed: Operation not permitted`,
+  measured 2026-09-06), which is the case the probe exists for.
 - **D13 — `rerun` compiles without a world today.** It therefore
   compiles under `namespace`; widening `rerun` to take a map is a
   change of its own and is not made here.
@@ -451,6 +484,38 @@ the artifact rather than raising the finding again (decision 0042 ruling
   platform, and proves less — a file under the declaring directory that
   the walk did not pin is impossible, so the existence check is the
   whole proof.
+- **D25 — No new verb: the engine spawns the dispatch it already
+  spawns, in a fixed environment, behind a prefix.** The clarify seat
+  found the unboxed exec wrapper unnamed and its argv unpinned. Ruled:
+  `HandsCommand` gains no verb. `brokkr hands exec` exists because a
+  namespace must be built by a process that then execs into it; under
+  `harness` and `open` nothing is built, so a wrapper verb would be a
+  second process whose only work is `env_clear()`, which
+  `DriverProcess::spawn` can do where the child is already spawned. It
+  therefore takes the environment the child starts with — the engine's
+  own, today's behaviour and every model site's under every boundary,
+  or exactly the composed table of D22 — and the network prefix of D12
+  is argv the engine composes. The exec dispatch under `harness` and
+  `open` is the compiled command itself behind that prefix: `{brokkr}`
+  and `./` were expanded at compile by `expand_command` against the
+  declaring layer's directory, and `{prompt_file}` stays literal
+  because the exec driver stages the prompt and expands it. The argv is
+  one pure function of the dispatch, the probe's answer and the
+  engine's ids, pinned token for token in gate-boundary-policy for the
+  shipped verify seat with the probe passing and failing; dialect steps
+  take the same road. No guide row is added because no verb is;
+  driver-authoring.md's sentence about `brokkr hands exec` is
+  qualified instead.
+- **D26 — The bundles named are the ones that exist.** `recipes/sdd`
+  was folded into `recipes/triage`'s strategy select by #176 (881c4e4)
+  and no longer exists. The chief architect is seated by
+  `recipes/triage`'s specify and design steps and, through inheritance,
+  by `recipes/night-shift`, which overrides only its implement seat;
+  `agents/intake-sdd.json` is hired by no shipped bundle. The
+  measured-gap scenario and D6 name those two bundles, and the
+  obligation stays the one the requirement above them states — every
+  bundle under `recipes/` and `bundles/` — so no scenario names a
+  bundle no test can compile.
 
 ## Measurements the seat box cannot make
 
@@ -551,7 +616,9 @@ script and refused for a `{brokkr}`-external command, an escaping and an
 absolute path refused, a `/private/var` spelling and a `\`-spelled token
 refused as not `./`-relative without any path being compared; the engine's `effect/started` field, the stamped record, the
 store's refusal of a wrong word, and argv per boundary as pure argv
-tests; the view's cell beside every model cell and its run-level fact,
+tests — the unboxed exec dispatch pinned token for token with the
+network probe passing and failing, the probe's own arms on a planted
+search path, and `DriverProcess::spawn`'s two environments; the view's cell beside every model cell and its run-level fact,
 an old journal's absence, a hands-less site's `not applicable` under any
 engine, `costs` and `compare` naming the word, the engine's stamp
 replacing a driver's, every shipped bundle compiling under `harness`
