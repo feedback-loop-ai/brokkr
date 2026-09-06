@@ -111,7 +111,7 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 
 #### Scenario: A harness gate on the shipped dsh or lanetally adapter is refused as at a boxed gate
 - **WHEN** a fixture gate-class agent with hands whose chain is one dsh model alone, and again one whose chain is one lanetally model alone, compiles against the shipped adapter library under `namespace` and then under `harness`, in the same file
-- **THEN** each is refused under both, and the refusal under `harness` is the refusal under `namespace` word for word — decision 0021's refusals come first under every boundary, and neither adapter declares `hands.harness`
+- **THEN** each is refused under both: under `namespace` by decision 0021 ruling 2's trust-tier refusal as today, and under `harness` by the hands law, which is the first statement of the gate policy (design DD22), naming the link, the provider and the missing `hands.harness.gate` — the two texts differ, and that is the order the record rules (proposal D33)
 
 
 #### Scenario: A fallback link without the fragment refuses the chain

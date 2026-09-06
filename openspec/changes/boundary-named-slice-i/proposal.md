@@ -668,8 +668,10 @@ the artifact rather than raising the finding again (decision 0042 ruling
   compiles under `harness` against the shipped adapter library in
   `model_policy_tests.rs` and is admitted, its manifest pinning codex's
   digest; the same fixture chaining one dsh model alone, and one
-  lanetally model alone, is refused under `harness` with the refusal
-  it earns under `namespace`, word for word, in the same file. The
+  lanetally model alone, is refused under `harness` by the hands law,
+  naming the link, the provider and the missing `hands.harness.gate`,
+  in the same file — not with its `namespace` refusal, which is 0021's
+  trust-tier text and comes second under `harness` (D33). The
   chain arms stay on fixture providers, as that file's charter
   requires. Reason: the decision binds by name, and a test against the
   file it names is the only one that moves when that file does.
@@ -718,6 +720,36 @@ the artifact rather than raising the finding again (decision 0042 ruling
   smith. Reason: the clarifier's second open question — the rules were
   gate-scoped in two places and unscoped in a third, and the literal
   coverage gate cannot absorb a branch nobody ruled.
+
+- **D33 — The hands law is the first statement of the gate policy, and
+  a harness refusal names the fragment** (operator ruled in chat,
+  2026-09-06, after the analyze loop parked). DD22 placed the hands law
+  before the class early-return and before decision 0021 ruling 2's
+  trust-tier refusal, to close the work-class panic; D29 and its
+  scenario still said a dsh or lanetally chain under `harness` is
+  refused "word for word" as under `namespace`, which that order makes
+  impossible. Ruled: the order is DD22's; the `harness` refusal of a
+  chain whose link declares no `hands.harness.gate` names the link, the
+  provider and the missing fragment; the `namespace` refusal stays
+  0021's; no scenario or task asserts the two texts equal. Reason: the
+  reverse order reopens the panic, and a refusal that names the missing
+  fragment is the more legible of the two.
+
+- **D34 — Two residuals accepted by the operator, for Muninn** (ruled
+  in chat, 2026-09-06). The analyst's third visit raised two low
+  findings the operator accepted as residuals rather than return the
+  change a fourth time: (a) the delivery gate's check summary leaves one
+  state unstated — a manifest carrying both `hands` and `boundary`
+  keys and a journal with no `effect/started.boundary` entry yet, where
+  the view renders "no boundary recorded" and the script appends
+  nothing; unreachable for a completed anchored run over a shipped
+  bundle, since each runs a hands gate before `done`. (b) The gate-law
+  requirement does not itself state the arm D11, DD22 and task 6.10
+  carry — a work-class chain site with hands under `open` is admitted
+  asking no fragment of any link. Both are recorded here as debt
+  Muninn patrols (decision 0020), and neither is a defect the smith
+  should read as licence: the script and the arm are built as the
+  design and the tasks say.
 
 ## Measurements the implementing seat cannot make
 

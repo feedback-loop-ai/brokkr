@@ -592,9 +592,11 @@ one helper, because the coverage gate is literal.
       fragment (DD20) — gate-boundary-policy / A judge under harness still
       delivers its result file.
 - [ ] 8.7 Leave `adapters/dsh.json` and `adapters/lanetally.json` without
-      `hands.harness`; their refusal at a `harness` gate, word for word
-      the refusal at a boxed gate today, is pinned in
-      `model_policy_tests.rs` against the shipped files by 8.12 —
+      `hands.harness`; their refusal at a `harness` gate — the hands
+      law's, naming the link, the provider and the missing
+      `hands.harness.gate` (D33), not the trust-tier text a boxed gate
+      earns today — is pinned in `model_policy_tests.rs` against the
+      shipped files by 8.12 —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
 - [ ] 8.8 Adapter data tests: codex's two fragments and its door load as
