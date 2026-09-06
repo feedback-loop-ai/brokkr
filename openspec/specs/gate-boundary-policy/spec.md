@@ -157,16 +157,21 @@ the one the manifest walk digests, so a token that passes is pinned by
 the manifest of the layer that declared it, and no path is canonicalised
 and no two spellings are compared (design DD9). The verdict is a
 compile fact, and it is re-derived where it matters: at every unboxed
-exec dispatch spawn the engine SHALL re-walk the declaring layer with
-the walk the compiler already performs — the leaf's `files` map, or an
-ancestor's compose digest by the same `manifest_for` call over
-`Ancestor.dir` and its deeper chain — against the identity the run
-manifest pins, and SHALL refuse the dispatch, spawning nothing and
+exec dispatch spawn the engine SHALL re-walk the script's containing
+directory and its descendants with the walk the compiler already
+performs, against the declaring layer's compiled file map — the leaf's
+`files` map, or the map hashed into an ancestor's compose digest — and
+SHALL refuse the dispatch, spawning nothing and
 journaling the attempt's failure naming the layer and the first key
 that differs, when any pinned file moved, went missing or appeared.
-The whole layer is re-walked, not the script alone, because a script
-sources its siblings; the residual is the interval between the re-walk
-and the `exec`, which the guide states. The namespace box keeps no
+This narrows design DD9 as proposed decision 0048 records: the script's
+directory includes its helpers, while an `init .` realm's journal,
+results and implementation files outside that directory may change.
+A root-level script selects the whole layer. Filename components retain
+their exact UTF-8 bytes, with `/` only between components; filenames
+that cannot be represented without loss are refused. Helpers outside
+the selected directory and the interval between the re-walk and the
+`exec` are outside the check, which the guide states. The namespace box keeps no
 re-walk: a boxed gate is admitted by its walls, an unboxed one by its
 bytes (decision 0043 ruling 3; decision 0046 ruling 4). The tokens
 after the script are its arguments and are not judged, which is how the

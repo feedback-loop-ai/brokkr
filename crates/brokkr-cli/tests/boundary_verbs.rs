@@ -185,6 +185,120 @@ fn run_id(stderr: &str) -> String {
 }
 
 #[test]
+fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes() {
+    for boundary in ["harness", "open"] {
+        let ws = Workspace {
+            dir: tempfile::tempdir().unwrap(),
+        };
+        let (code, _, stderr) = ws.brokkr(&["init", "."]);
+        assert_eq!(code, Some(0), "{stderr}");
+        ws.map(boundary);
+        std::fs::create_dir_all(ws.path().join("src")).unwrap();
+        std::fs::write(ws.path().join("src/implementation.txt"), "before\n").unwrap();
+        std::fs::write(ws.path().join("scripts/gate.sh"), GATE).unwrap();
+        std::fs::write(
+            ws.path().join("scripts/implement.sh"),
+            format!(
+                "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n{GATE}"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(ws.path().join("roles")).unwrap();
+        std::fs::write(ws.path().join("roles/gate.md"), "# gate\n").unwrap();
+        let mut policy: Value = serde_json::from_str(POLICY).unwrap();
+        policy["phases"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("implement"));
+        policy["initial"] = json!("implement");
+        policy["rules"].as_array_mut().unwrap().push(json!({
+            "id": "IMPLEMENT-PASS", "from": "implement", "result": "pass",
+            "next": "verify", "reason": "implementation concluded"
+        }));
+        std::fs::write(ws.path().join("policy.json"), policy.to_string()).unwrap();
+        let mut implement = gate_seat(&["pass"]);
+        implement["class"] = json!("work");
+        implement["driver"]["command"][5] = json!("./scripts/implement.sh");
+        std::fs::write(
+            ws.path().join("bundle.json"),
+            json!({"name": "init-in-place", "policy": "policy.json", "seats": {
+                "implement": implement,
+                "verify": gate_seat(&["pass", "fail"]),
+                "review": gate_seat(&["clean"])
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        for args in [
+            vec!["init", "--initial-branch=main"],
+            vec![
+                "-c",
+                "user.name=Boundary Test",
+                "-c",
+                "user.email=boundary@example.invalid",
+                "add",
+                ".",
+            ],
+            vec![
+                "-c",
+                "user.name=Boundary Test",
+                "-c",
+                "user.email=boundary@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "initial",
+            ],
+        ] {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(ws.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        // An existing journal is inside the bundle at compile, and every
+        // attempt writes another result beneath that same root.
+        drop(brokkr_store::Store::open(&ws.db()).unwrap());
+        let (code, _, stderr) = ws.brokkr(&[
+            "run",
+            "--bundle",
+            ".",
+            "--repo",
+            ws.path().to_str().unwrap(),
+            "--feature",
+            "init in place",
+        ]);
+        let events = ws.events(&run_id(&stderr));
+        assert_eq!(code, Some(0), "{boundary}: {stderr}\n{events:#?}");
+        assert_eq!(events.last().unwrap()["type"], "run/completed");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["type"] == "effect/succeeded")
+                .count(),
+            3
+        );
+        assert_eq!(
+            std::fs::read_to_string(ws.path().join("src/implementation.txt")).unwrap(),
+            "after\n"
+        );
+        assert!(ws.path().join("src/new.txt").is_file());
+        assert!(
+            std::fs::read_dir(ws.path().join(".forge/results"))
+                .unwrap()
+                .count()
+                >= 3
+        );
+    }
+}
+
+#[test]
 fn a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace() {
     let ws = Workspace::new("namespace");
     let path = ws.bundle_dir().join("bundle.json");

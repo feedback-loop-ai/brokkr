@@ -3410,6 +3410,54 @@ fn the_manifest_pins_the_boundary_per_hands_site_as_run_manifest_v9() {
 
 // --------------------------- decision 0046: the re-walk over a leaf layer
 
+#[cfg(unix)]
+#[test]
+fn a_literal_backslash_filename_cannot_hide_a_changed_pinned_script() {
+    let fixture = Fixture::new();
+    fixture.script("scripts/gate.sh");
+    fixture.script(r"scripts\gate.sh");
+    let bundle = fixture
+        .compile_bounded(
+            exec_dispatch(&["sh", "./scripts/gate.sh"]),
+            Boundary::Harness,
+        )
+        .unwrap();
+    let files = bundle.manifest["files"].as_object().unwrap();
+    assert!(files.contains_key("scripts/gate.sh"));
+    assert!(files.contains_key(r"scripts\gate.sh"));
+    assert_eq!(layer_drift(&bundle, &bundle.dir), None);
+    std::fs::write(bundle.dir.join("scripts/gate.sh"), "changed executable\n").unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &bundle.dir),
+        Some(("model-policy".into(), "changed: scripts/gate.sh".into()))
+    );
+    assert_eq!(
+        layer_drift(&bundle, &bundle.dir.join("scripts")),
+        Some(("model-policy".into(), "changed: scripts/gate.sh".into()))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_filename_that_json_cannot_represent_is_refused_without_lossy_aliasing() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let fixture = Fixture::new();
+    fixture.script("scripts/gate.sh");
+    fixture.script("scripts/\u{fffd}.sh");
+    let invalid = std::ffi::OsString::from_vec(b"scripts/\xff.sh".to_vec());
+    std::fs::write(fixture.bundle_dir().join(invalid), "other bytes\n").unwrap();
+    let refusal = fixture
+        .compile_bounded(
+            exec_dispatch(&["sh", "./scripts/gate.sh"]),
+            Boundary::Harness,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("not UTF-8"), "{refusal}");
+    assert!(refusal.contains("preserve exact names"), "{refusal}");
+}
+
 /// The spawn-time re-walk (design DD9) as a pure function over a
 /// temporary leaf layer: an untouched layer names no key; an edited
 /// script, an edited sibling, a deleted pinned file and an added file
@@ -3428,14 +3476,15 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
         )
         .unwrap();
     let layer = bundle.dir.clone();
+    let directory = layer.join("scripts");
     assert_eq!(bundle.roots, vec![layer.clone()]);
-    assert_eq!(layer_drift(&bundle, &layer), None);
+    assert_eq!(layer_drift(&bundle, &directory), None);
 
     let script = layer.join("scripts/x.sh");
     let pinned = std::fs::read(&script).unwrap();
     std::fs::write(&script, "#!/bin/sh\nrm -rf /\n").unwrap();
     assert_eq!(
-        layer_drift(&bundle, &layer),
+        layer_drift(&bundle, &directory),
         Some((
             "model-policy".to_string(),
             "changed: scripts/x.sh".to_string()
@@ -3443,7 +3492,7 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
     );
     std::fs::write(&script, &pinned).unwrap();
     assert_eq!(
-        layer_drift(&bundle, &layer),
+        layer_drift(&bundle, &directory),
         None,
         "restored bytes are the pinned bytes"
     );
@@ -3451,7 +3500,7 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
     let sibling = layer.join("scripts/lib.sh");
     std::fs::write(&sibling, "#!/bin/sh\nexport PATH=/tmp:$PATH\n").unwrap();
     assert_eq!(
-        layer_drift(&bundle, &layer),
+        layer_drift(&bundle, &directory),
         Some((
             "model-policy".to_string(),
             "changed: scripts/lib.sh".to_string()
@@ -3460,18 +3509,18 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
 
     std::fs::remove_file(&sibling).unwrap();
     assert_eq!(
-        layer_drift(&bundle, &layer),
+        layer_drift(&bundle, &directory),
         Some((
             "model-policy".to_string(),
             "missing: scripts/lib.sh".to_string()
         ))
     );
     std::fs::write(&sibling, &pinned).unwrap();
-    assert_eq!(layer_drift(&bundle, &layer), None);
+    assert_eq!(layer_drift(&bundle, &directory), None);
 
     std::fs::write(layer.join("scripts/new.sh"), "#!/bin/sh\n").unwrap();
     assert_eq!(
-        layer_drift(&bundle, &layer),
+        layer_drift(&bundle, &directory),
         Some((
             "model-policy".to_string(),
             "added: scripts/new.sh".to_string()
@@ -3484,7 +3533,7 @@ fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
     std::fs::write(layer.join("realms.json"), "{}").unwrap();
     std::fs::create_dir_all(layer.join("dialects")).unwrap();
     std::fs::write(layer.join("dialects/x.json"), "{}").unwrap();
-    assert_eq!(layer_drift(&bundle, &layer), None);
+    assert_eq!(layer_drift(&bundle, &directory), None);
 }
 
 // ------------------- decision 0046 ruling 6: every shipped bundle under harness

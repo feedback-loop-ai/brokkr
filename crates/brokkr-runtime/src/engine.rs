@@ -3584,7 +3584,7 @@ fn spawn_site(
 
 /// One composed invocation (decision 0046 ruling 4; design DD18): the
 /// argv, the environment it starts in, and — for an unboxed exec
-/// dispatch — the declaring layer the engine re-walks before the spawn.
+/// dispatch — the script directory the engine re-walks before the spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteSpawn {
     pub argv: Vec<String>,
@@ -3628,15 +3628,14 @@ fn is_exec_dispatch(command: &[String]) -> bool {
     command.len() >= 3 && command[1] == "driver" && command[2] == "exec"
 }
 
-/// The declaring layer of an exec dispatch: the root that owns the
-/// script token the compiler expanded `./` into, as `hands_command` finds
-/// the bundle root to bind. `None` when no root owns a token.
-fn declaring_layer(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
+/// The directory holding the first script token compile expanded from
+/// `./`. Later argv tokens are arguments, even when they name a root.
+fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
     command.iter().skip(4).find_map(|part| {
         roots
             .iter()
             .find(|root| Path::new(part).strip_prefix(root).is_ok())
-            .cloned()
+            .and_then(|_| Path::new(part).parent().map(Path::to_path_buf))
     })
 }
 
@@ -3650,10 +3649,10 @@ fn declaring_layer(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
 ///   `hands_command`'s box — in the engine's environment;
 /// - under `harness` and `open`, an exec dispatch: the compiled command
 ///   itself behind the network prefix when the probe passed, in the fixed
-///   environment, with the declaring layer marked for the spawn re-walk;
+///   environment, with the script directory marked for the spawn re-walk;
 ///   work or gate, the class unread (proposal D32);
-/// - under `harness`, a model site: the workspace fragment taken back
-///   out, the adapter's `gate` or `work` fragment by class appended with
+/// - under `harness`, a model site: the adapter's `gate` or `work`
+///   fragment by class appended to the unboxed resolution's argv with
 ///   `{result_path}` and `{brokkr}` expanded, no workspace tool served,
 ///   the engine's environment kept because the harness needs the
 ///   operator's keys;
@@ -3677,7 +3676,7 @@ pub fn compose_site(
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
         let unboxed = unboxed.cloned().unwrap_or_default();
         let mut argv = unboxed.prefix;
-        let rewalk = declaring_layer(&command, roots);
+        let rewalk = script_directory(&command, roots);
         argv.extend(command);
         return SiteSpawn {
             argv,
@@ -3690,7 +3689,7 @@ pub fn compose_site(
             SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots))
         }
         BuiltBoundary::Harness => {
-            let mut argv = model_command(command, candidate);
+            let mut argv = command;
             let brokkr = std::env::current_exe()
                 .unwrap_or_default()
                 .to_string_lossy()
@@ -3708,34 +3707,7 @@ pub fn compose_site(
             }
             SiteSpawn::inherit(argv)
         }
-        BuiltBoundary::Open => SiteSpawn::inherit(model_command(command, candidate)),
-    }
-}
-
-/// Take back the namespace fragment when composing a model outside it.
-fn model_command(command: Vec<String>, candidate: Option<&Candidate>) -> Vec<String> {
-    match candidate {
-        Some(candidate) => without_fragment(command, &candidate.hands_fragment),
-        None => command,
-    }
-}
-
-/// The argv with one contiguous fragment removed, where it occurs; the
-/// argv untouched when the fragment is empty or absent.
-fn without_fragment(argv: Vec<String>, fragment: &[String]) -> Vec<String> {
-    if fragment.is_empty() {
-        return argv;
-    }
-    match argv
-        .windows(fragment.len())
-        .position(|window| window == fragment)
-    {
-        Some(start) => {
-            let mut out = argv[..start].to_vec();
-            out.extend_from_slice(&argv[start + fragment.len()..]);
-            out
-        }
-        None => argv,
+        BuiltBoundary::Open => SiteSpawn::inherit(command),
     }
 }
 

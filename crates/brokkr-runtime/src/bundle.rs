@@ -360,7 +360,7 @@ pub struct Bundle {
     pub dir: PathBuf,
     /// Every layer's directory, leaf first — `[dir]` for a recipe that
     /// composed nothing. The box binds the root that owns an exec site's
-    /// script, and the unboxed dispatch re-walks that same root at spawn
+    /// script, and the unboxed dispatch checks its script directory at spawn
     /// (decision 0046 ruling 4), so an inherited seat's script is judged
     /// against the layer that wrote it.
     pub roots: Vec<PathBuf>,
@@ -2307,64 +2307,49 @@ fn unpinned_top_level(name: &str) -> bool {
     name == "realms.json" || name == "dialects"
 }
 
-/// The re-walk of one declaring layer at an unboxed exec spawn (decision
-/// 0046 ruling 4; design DD9): the identity the compiler pinned for the
-/// layer, re-derived with the same walk from the tree as it stands now,
-/// and the first key that differs. The leaf's identity is its `files`
-/// map; an ancestor's is its compose digest, re-derived by the same
-/// `manifest_for` call over its directory and deeper chain. `None` means
-/// nothing pinned moved; `Some((layer, key))` names what did, which the
-/// engine refuses to spawn over.
-pub fn layer_drift(bundle: &Bundle, layer: &Path) -> Option<(String, String)> {
-    let leaf = bundle.roots.first().is_some_and(|root| root == layer);
-    if leaf {
-        let pinned = bundle.manifest["files"].as_object()?;
-        let current = match walk_files(&bundle.dir) {
-            Ok(files) => files,
-            Err(error) => return Some((bundle.name.clone(), error.to_string())),
-        };
-        let pinned_files = pinned
-            .iter()
-            .filter(|(key, _)| !key.starts_with(COMPOSE_PREFIX));
-        for (key, digest) in pinned_files {
-            match current.get(key) {
-                Some(now) if now == digest => {}
-                Some(_) => return Some((bundle.name.clone(), format!("changed: {key}"))),
-                None => return Some((bundle.name.clone(), format!("missing: {key}"))),
-            }
-        }
-        return current
-            .keys()
-            .find(|key| !pinned.contains_key(*key))
-            .map(|key| (bundle.name.clone(), format!("added: {key}")));
-    }
-    // An ancestor: nearest first in `chain`, leaf first in `roots`, so
-    // roots[i + 1] is chain[i] and chain[i..] is its own deeper chain.
-    let index = bundle
-        .chain
+/// Re-walk the script's directory, including its helpers, against the
+/// declaring layer's compiled file map (decision 0046 ruling 4; proposed
+/// 0048 narrows DD9). A realm scaffolded by `init .` also holds mutable
+/// source, results and its journal; those are outside this spawn check.
+/// Ancestor maps are the very maps hashed into their compose digests.
+/// Paths come from compile's canonical roots and expanded script token;
+/// component comparisons never reinterpret a literal filename byte.
+pub fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
+    let layer = bundle
+        .roots
         .iter()
-        .position(|ancestor| ancestor.dir == layer)?;
-    let ancestor = &bundle.chain[index];
-    let no_hands = BTreeMap::new();
-    let derived = manifest_for(
-        &ancestor.dir,
-        &ancestor.name,
-        &bundle.chain[index + 1..],
-        None,
-        None,
-        &no_hands,
-        &Map::new(),
-        Boundary::Namespace,
-    )
-    .map(|manifest| brokkr_core::canonical::sha256_hex(&manifest));
-    match derived {
-        Ok(digest) if digest == ancestor.digest => None,
-        Ok(_) => Some((
-            ancestor.name.clone(),
-            format!("changed: {COMPOSE_PREFIX}{index:04}/{}", ancestor.name),
-        )),
-        Err(error) => Some((ancestor.name.clone(), error.to_string())),
+        .filter(|root| directory.starts_with(root))
+        .max_by_key(|root| root.components().count())?;
+    let (name, pinned) = if layer == &bundle.dir {
+        (&bundle.name, bundle.manifest["files"].as_object()?)
+    } else {
+        let ancestor = bundle
+            .chain
+            .iter()
+            .find(|ancestor| &ancestor.dir == layer)?;
+        (&ancestor.name, &ancestor.files)
+    };
+    let current = match walk_files(layer, directory) {
+        Ok(files) => files,
+        Err(error) => return Some((name.clone(), error.to_string())),
+    };
+    let relative = directory
+        .strip_prefix(layer)
+        .expect("directory under layer");
+    let pinned_files = pinned.iter().filter(|(key, _)| {
+        !key.starts_with(COMPOSE_PREFIX) && Path::new(key).starts_with(relative)
+    });
+    for (key, digest) in pinned_files {
+        match current.get(key) {
+            Some(now) if now == digest => {}
+            Some(_) => return Some((name.clone(), format!("changed: {key}"))),
+            None => return Some((name.clone(), format!("missing: {key}"))),
+        }
     }
+    current
+        .keys()
+        .find(|key| !pinned.contains_key(*key))
+        .map(|key| (name.clone(), format!("added: {key}")))
 }
 
 /// Decision 0043: record one site's hands — the agent's when the site
@@ -3199,7 +3184,7 @@ fn manifest_for(
             Value::String(ancestor.digest.clone()),
         );
     }
-    for (rel, digest) in walk_files(dir)? {
+    for (rel, digest) in walk_files(dir, dir)? {
         files.insert(rel, Value::String(digest));
     }
     let mut manifest = json!({
@@ -3253,12 +3238,11 @@ fn manifest_for(
 }
 
 /// The manifest walk over one layer's directory: every regular file
-/// under it, keyed platform-independently and digested, in sorted key
-/// order. The one walk the compiler pins with and the unboxed exec
-/// dispatch re-walks with at spawn (decision 0046 ruling 4), so the two
-/// cannot drift.
-fn walk_files(dir: &Path) -> Result<BTreeMap<String, String>, CompileError> {
-    let mut stack = vec![dir.to_path_buf()];
+/// under `scope`, keyed relative to the layer `dir` and digested, in
+/// sorted key order. Compile walks the layer; spawn walks the script's
+/// directory with the same filename and byte identity rules.
+fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, CompileError> {
+    let mut stack = vec![scope.to_path_buf()];
     let mut paths = Vec::new();
     while let Some(current) = stack.pop() {
         for entry in std::fs::read_dir(&current)? {
@@ -3297,13 +3281,23 @@ fn walk_files(dir: &Path) -> Result<BTreeMap<String, String>, CompileError> {
     paths.sort();
     let mut files = BTreeMap::new();
     for path in paths {
-        // Manifest keys are bundle identity: platform-independent by
-        // construction (windows separators would fork the digest).
+        // Join actual components, never replace bytes inside a name:
+        // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
+        // Refuse names JSON cannot represent instead of losing bytes.
         let rel = path
             .strip_prefix(dir)
             .expect("walked under dir")
-            .to_string_lossy()
-            .replace('\\', "/");
+            .iter()
+            .map(|name| {
+                name.to_str().ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "bundle filename '{}' is not UTF-8; manifest keys must preserve exact names",
+                        path.display()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join("/");
         // The composition namespace is computed, never read from disk:
         // a real file under it could otherwise forge provenance.
         if rel.starts_with(COMPOSE_PREFIX) {

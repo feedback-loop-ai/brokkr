@@ -348,10 +348,8 @@ pub struct Candidate {
     pub provider: String,
     pub argv: Vec<String>,
     /// The adapter's `hands.workspace` fragment exactly as `compose`
-    /// appended it into `argv` — empty when the agent declares no hands.
-    /// Under `harness` and `open` no workspace tool is served, and the
-    /// engine takes these tokens back out at spawn (decision 0046 ruling
-    /// 4) before it composes the boundary's own argv.
+    /// appended it into `argv` — empty when the agent declares no hands
+    /// or resolution is unboxed (decision 0046 ruling 4).
     pub hands_fragment: Vec<String>,
     /// The adapter's `hands.harness`, carried to the engine, which holds
     /// no adapter at spawn.

@@ -61,6 +61,9 @@ pub struct Ancestor {
     pub reached_as: Option<String>,
     pub dir: PathBuf,
     pub digest: String,
+    /// The exact file map hashed into `digest`, retained for checking a
+    /// script directory at spawn without re-hashing unrelated realm files.
+    pub files: Map<String, Value>,
 }
 
 /// The single flat bundle the rest of the engine sees.
@@ -841,6 +844,10 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
                 reached_as: layer.reached_as.clone(),
                 dir: layer.dir.clone(),
                 digest: brokkr_core::canonical::sha256_hex(&manifest),
+                files: manifest["files"]
+                    .as_object()
+                    .expect("manifest files")
+                    .clone(),
             },
         );
     }

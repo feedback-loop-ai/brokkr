@@ -346,13 +346,13 @@ fn compose_site_follows_the_boundary_and_the_class() {
     assert_eq!(boxed_exec.argv[1], "hands");
     assert_eq!(boxed_exec.env, SpawnEnv::Inherit);
 
-    // `harness`, a codex gate: the workspace fragment comes out, the
-    // adapter's gate fragment goes in with `{result_path}` expanded, and
+    // `harness`, a codex gate: unboxed resolution supplies the base
+    // argv; the adapter's gate fragment goes in with `{result_path}` expanded, and
     // no MCP server is served; the environment stays the engine's.
     let gate = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
-        codex.argv.clone(),
+        base.clone(),
         Some(&spec),
         Some(&codex),
         workdir,
@@ -387,7 +387,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let work = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Work,
-        codex.argv.clone(),
+        base.clone(),
         Some(&spec),
         Some(&codex),
         workdir,
@@ -406,7 +406,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let hooked = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
-        branded.argv.clone(),
+        base.clone(),
         Some(&spec),
         Some(&branded),
         workdir,
@@ -422,7 +422,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let nothing = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
-        bare.argv.clone(),
+        bare.argv[..6].to_vec(),
         Some(&spec),
         Some(&bare),
         workdir,
@@ -449,7 +449,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let open = compose_site(
         BuiltBoundary::Open,
         SeatClass::Work,
-        codex.argv.clone(),
+        base.clone(),
         Some(&spec),
         Some(&codex),
         workdir,
@@ -466,7 +466,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let quieted = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
-        codex.argv.clone(),
+        base.clone(),
         Some(&quiet),
         Some(&codex),
         workdir,
@@ -476,16 +476,6 @@ fn compose_site_follows_the_boundary_and_the_class() {
     );
     assert!(!quieted.argv.iter().any(|part| part.contains("network")));
     assert!(!quiet.network);
-
-    // `without_fragment`: an empty fragment and an absent one leave the
-    // argv untouched; a present one is cut out whole.
-    assert_eq!(without_fragment(base.clone(), &[]), base);
-    assert_eq!(
-        without_fragment(base.clone(), &["--absent".to_string()]),
-        base
-    );
-    let cut = without_fragment(codex.argv.clone(), &codex.hands_fragment);
-    assert_eq!(cut, base);
 
     // An exec dispatch under `harness` and `open` is the compiled
     // command behind the prefix, in the fixed environment, with the
@@ -524,7 +514,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
         assert_eq!(as_gate, as_work);
         assert_eq!(as_gate.argv, expected);
         assert_eq!(as_gate.env, SpawnEnv::Exactly(table.clone()));
-        assert_eq!(as_gate.rewalk, Some(PathBuf::from("/bundle")));
+        assert_eq!(as_gate.rewalk, Some(PathBuf::from("/bundle/scripts")));
     }
     // With the probe failing (no prefix) the argv is the command alone,
     // and with nothing prepared at all the environment is empty.
@@ -667,7 +657,7 @@ fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
     .map(String::from)
     .to_vec();
     assert_eq!(prefixed.argv, expected);
-    assert_eq!(prefixed.rewalk, Some(bundle.dir.clone()));
+    assert_eq!(prefixed.rewalk, Some(bundle.dir.join("scripts")));
     for boundary in [Boundary::Harness, Boundary::Open] {
         let alone = compose_site(
             built_boundary(boundary).unwrap(),
@@ -750,7 +740,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     let spawn = SiteSpawn {
         argv: vec!["must-not-run".into()],
         env: SpawnEnv::Inherit,
-        rewalk: Some(layer.clone()),
+        rewalk: Some(layer.join("scripts")),
     };
     let run = |engine: &mut Engine| {
         engine
@@ -862,10 +852,12 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     }
     engine.bundle.dir = kept.clone();
     engine.bundle.roots = vec![kept];
+    engine.bundle.roots.push(dir.path().join("no-such-base"));
     engine.bundle.chain.push(crate::bundle::compose::Ancestor {
         name: "base".into(),
         reached_as: None,
         dir: dir.path().join("no-such-base"),
+        files: Map::new(),
         digest: "a".repeat(64),
     });
     let ancestral = SiteSpawn {
@@ -1576,7 +1568,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
                 },
             ),
             env: SpawnEnv::Inherit,
-            rewalk: Some(layer.clone()),
+            rewalk: Some(layer.join("scripts")),
         },
         input: json!({}),
     }];
@@ -1669,14 +1661,15 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
         reached_as: None,
         dir: layer.clone(),
         digest: pinned.manifest_digest(),
+        files: pinned.manifest["files"].as_object().unwrap().clone(),
     });
     engine.bundle.dir = leaf.clone();
     engine.bundle.roots = vec![leaf.clone(), layer.clone()];
     let mut command = exec_dispatch(&layer.join("scripts/gate.sh"));
     command.push(leaf.join("result.json").display().to_string());
     assert_eq!(
-        declaring_layer(&command, &engine.bundle.roots),
-        Some(layer.clone())
+        script_directory(&command, &engine.bundle.roots),
+        Some(layer.join("scripts"))
     );
     let spawn = SiteSpawn {
         argv: driver_command(
@@ -1687,7 +1680,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
             },
         ),
         env: SpawnEnv::Inherit,
-        rewalk: declaring_layer(&command, &engine.bundle.roots),
+        rewalk: script_directory(&command, &engine.bundle.roots),
     };
     let run = |engine: &mut Engine| {
         engine
@@ -1712,7 +1705,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
     let DriverRun::SpawnFailed(error) = &moved else {
         panic!("changed ancestor ran")
     };
-    assert!(error.contains("@compose/0000/test"), "{error}");
+    assert!(error.contains("changed: scripts/lib.sh"), "{error}");
     engine
         .conclude_single("effect", "attempt", moved, &Selection::new(), None)
         .unwrap();
@@ -1725,7 +1718,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
             && event.payload["error"]
                 .as_str()
                 .unwrap()
-                .contains("@compose/0000/test")));
+                .contains("changed: scripts/lib.sh")));
 }
 
 #[test]
