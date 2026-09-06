@@ -136,10 +136,11 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **WHEN** every shipped bundle compiles under `namespace`
 - **THEN** every refusal and admission is what it was before this change
 
-### Requirement: An exec gate under harness or open holds only for pinned bytes
-An exec gate that declares hands, compiled under `harness` or `open`,
-SHALL be admitted only when its command is the bundle's own pinned
-script, checked by construction on the raw command, before
+### Requirement: An exec site with hands under harness or open holds only for pinned bytes
+An exec site that declares hands — gate or work, the class deciding
+only whether the site may hold a gate (proposal D32) — compiled under
+`harness` or `open`, SHALL be admitted only when its command is the
+bundle's own pinned script, checked by construction on the raw command, before
 `expand_command` erases the `./` spelling: after the `--` that ends the
 `{brokkr} driver exec` dispatch, zero or more bare interpreter names —
 no path separator, no leading `-`, so `bash -c '…'` is refused — then
@@ -189,6 +190,10 @@ addendum, ruling 1).
 #### Scenario: The shipped verifier under open is admitted
 - **WHEN** `bundles/self`, whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
 - **THEN** it is admitted, because `bundles/self/scripts/verify-seat.sh` is a file the bundle's own manifest walk pins
+
+#### Scenario: A work-class exec site with hands is judged on the gate's ground
+- **WHEN** an exec site with hands and `class: work` whose command is `["{brokkr}","driver","exec","--","bash","./scripts/lint.sh"]` naming a file the bundle's walk pins compiles under `open`, and a sibling whose command is `["{brokkr}","driver","exec","--","true"]` compiles beside it
+- **THEN** the first is admitted, spawned in the fixed environment behind the network prefix and re-walked at spawn exactly as the shipped verify gate is, and the second is refused naming decision 0046 ruling 4 and decision 0021, the class changing nothing
 
 #### Scenario: A brokkr-external command under open is refused
 - **WHEN** an exec gate with hands whose command is `["{brokkr}","driver","exec","--","true"]` compiles under `open`
@@ -306,7 +311,7 @@ and `hands.binds` stay pinned in the manifest as declared and are
 enforced by nothing of Brokkr's: the harness's own sandbox decides what
 the hands may reach, which is the fact the *unboxed* rendering states.
 Under `harness` and `open` alike an exec dispatch — an admitted exec
-gate's — SHALL be the compiled command itself, spawned by
+site's, work or gate (proposal D32) — SHALL be the compiled command itself, spawned by
 the engine through `DriverProcess::spawn` with no verb of Brokkr's
 around it: `{brokkr}` and `./` were expanded at compile by
 `expand_command` against the declaring layer's directory, and

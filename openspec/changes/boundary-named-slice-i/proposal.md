@@ -687,6 +687,35 @@ the artifact rather than raising the finding again (decision 0042 ruling
   who reaches either page from ARCHITECTURE would otherwise find the
   retired wrapper presented as a working runner.
 
+- **D31 — The harness paragraph is prose for a model, and a script reads
+  none** (operator ruled in chat, 2026-09-06, after the clarify loop
+  parked). The seat input of every site with hands carries `boundary`
+  and, when Brokkr builds the box, `hands: boxed`, whatever the site's
+  driver; but the rendered prompt's boundary paragraph — today's
+  workspace-tool sentence under a boxed boundary, the harness paragraph
+  and the `open` paragraph — is rendered for model-backed sites only.
+  An exec site's prompt carries no hands paragraph under any boundary:
+  its script reads the environment the fixed-environment requirement
+  composes, and "the result path is the one file that sandbox lets it
+  write" is false of a script. Reason: the clarifier's first open
+  question — exec gates are exactly the sites that run under `harness`
+  in this slice and the prescribed wording was false for them.
+
+- **D32 — Class decides only whether a site may hold a gate; every
+  unboxed exec dispatch is judged and run on one ground** (operator
+  ruled in chat, 2026-09-06). A work-class exec site that declares hands
+  is legal today and boxed; under `harness` and `open` it is admitted
+  on exactly the pinned-bytes terms an exec gate is admitted on, refused
+  on the same terms and naming the same decisions, and when admitted it
+  is spawned in the fixed environment, behind the network prefix, and
+  re-walked at spawn exactly as a gate is. The pinned-bytes requirement
+  therefore reads "an exec site that declares hands", the argv
+  requirement's "an admitted exec gate's" reads "an admitted exec
+  site's", and nothing about an unboxed exec dispatch is left to the
+  smith. Reason: the clarifier's second open question — the rules were
+  gate-scoped in two places and unscoped in a third, and the literal
+  coverage gate cannot absorb a branch nobody ruled.
+
 ## Measurements the implementing seat cannot make
 
 Two facts must be measured on the operator's machine and recorded,

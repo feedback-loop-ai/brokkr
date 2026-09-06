@@ -133,8 +133,11 @@ lets it write, or — with `last-message` — says the seat's final message
 must be exactly the result object, which the harness writes to the
 result path, in which case the result contract's line that asks for a
 file written says so too; under `open` the same with the word `open`
-and no delivery change. A site without hands SHALL carry neither field
-and today's prompt unchanged (decision 0046 rulings 1, 3 and 4;
+and no delivery change. The paragraph — under every boundary — is
+rendered for model-backed sites only: an exec site's prompt SHALL carry
+no hands paragraph, because its script reads the composed environment
+and not prose (proposal D31). A site without hands SHALL carry neither
+field and today's prompt unchanged (decision 0046 rulings 1, 3 and 4;
 decision 0043 as amended by the boxed-marker fix).
 
 #### Scenario: namespace keeps today's words
@@ -144,6 +147,10 @@ decision 0043 as amended by the boxed-marker fix).
 #### Scenario: harness does not claim the workspace tool
 - **WHEN** a boxed gate site's input and prompt are rendered under `harness` on an adapter whose `result` is `file`
 - **THEN** the input carries `boundary: harness`, no `hands` marker and no `result_delivery`, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says the result path is the one file the sandbox lets the seat write
+
+#### Scenario: An exec site's prompt carries no hands paragraph
+- **WHEN** the shipped verify seat of `bundles/self` — an exec site with hands — has its input and prompt rendered under `namespace`, `harness` and `open` in turn
+- **THEN** the input carries `boundary` each time and `hands: boxed` only under `namespace`, and the rendered prompt names neither `mcp__brokkr__workspace` nor the boundary word in a hands paragraph under any of the three
 
 #### Scenario: harness with a last-message door changes the contract
 - **WHEN** a boxed gate site's input and prompt are rendered under `harness` on an adapter whose `result` is `last-message`
