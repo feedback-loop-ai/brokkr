@@ -1,0 +1,77 @@
+{
+  "name": "standby",
+  "description": "Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.",
+  "cost": "medium",
+  "extends": "fast",
+  "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
+    "seats": [
+      "implement",
+      "review"
+    ]
+  },
+  "seats": {
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked",
+        "oversized"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "codex",
+          "--",
+          "--model",
+          "gpt-6-astra",
+          "--effort",
+          "xhigh",
+          "--sandbox",
+          "danger-full-access"
+        ]
+      }
+    },
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "class": "gate",
+      "inputs": [
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "codex",
+          "--",
+          "--model",
+          "gpt-6-astra",
+          "--effort",
+          "xhigh",
+          "--sandbox",
+          "workspace-write"
+        ]
+      }
+    }
+  }
+}

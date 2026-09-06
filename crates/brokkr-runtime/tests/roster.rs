@@ -127,10 +127,15 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             // Node reference, preflight's explicit gates, night-shift's
             // dsh lane, and the research sweep's dsh lane (decision 0044
             // ruling 5: dsh expresses no tool list, so the grant is an
-            // overlay the inline site names). The retired strategy directories no longer need an
+            // overlay the inline site names), and the standby hedge, which
+            // forces its crew for the reason a wager does — its whole
+            // purpose is to touch one vendor's account and no other, and a
+            // library chain would silently undo that at its first fallback
+            // (decision 0041's addendum of 2026-09-06). The retired strategy directories no longer need an
             // exception because their crews are selected from the roster.
             let allowed = recipe.starts_with("wager-harness")
                 || recipe == "fast"
+                || recipe == "standby"
                 || recipe == "node"
                 || recipe == "preflight"
                 || (recipe == "night-shift" && path.iter().any(|part| part == "implement"))

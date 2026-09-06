@@ -47,6 +47,7 @@ verify	8054a434cc74	4 phases	review, verify			./bundles/verify
 | [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
 | [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying |
+| [`standby`](../../recipes/standby/README.md) | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `astra`, the boxed verify and ship gates unchanged; a hedge forces its crew, so it takes no fallback |
 | [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
 | [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable |
 | [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends fast`: only the implement seat moves, to a third vendor at `xhigh` |
