@@ -97,3 +97,15 @@ repair section records the CI evidence, the failing-then-passing Linux
 regression, the gate fixture's verbatim-drive-path regression, the
 unverified native Windows behavior and the unrelated runner Git identity
 gap. The original proposal, design and task history are retained.
+
+## Later archive amendment — Windows script argument repair, 2026-09-07
+
+The argv requirement and its off-Linux scenario in the archived
+`specs/gate-boundary-policy/spec.md` and promoted capability now distinguish
+the script's canonical directory pin from its interpreter argument. A new
+scenario requires both platform policies to be proved by pure composition
+on Linux. Proposed decision 0048 records the reported bash exit-127
+evidence, the traced expansion and spawn route, safe short drive/UNC argv,
+and refusal when removing the prefix could change lookup. Native Windows
+execution remains unverified. The original proposal, design and task
+history are retained; this is a later amendment to the archived delta.

@@ -1290,10 +1290,10 @@ impl Engine {
         link: Option<&Candidate>,
         result_path: &str,
     ) -> SiteSpawn {
-        if hands.is_none() {
-            return SiteSpawn::inherit(command);
-        }
-        let boundary = built_boundary(self.boundary).expect("the entry fence admitted these hands");
+        let boundary = match hands {
+            None => BuiltBoundary::Open,
+            Some(_) => built_boundary(self.boundary).expect("the entry fence admitted these hands"),
+        };
         let workdir = self.workdir();
         let unboxed = match hands {
             Some(spec) if !self.boundary.is_boxed() && is_exec_dispatch(&command) => {
@@ -3720,6 +3720,9 @@ fn spawn_site(
     workdir: &Path,
     deadline: std::time::Duration,
 ) -> Result<DriverProcess, String> {
+    if let Some(reason) = &spawn.refusal {
+        return Err(reason.clone());
+    }
     if let Some(layer) = &spawn.rewalk {
         if let Some((layer, key)) = layer_drift(bundle, layer) {
             return Err(format!(
@@ -3735,11 +3738,13 @@ fn spawn_site(
 /// One composed invocation (decision 0046 ruling 4; design DD18): the
 /// argv, the environment it starts in, and — for an unboxed exec
 /// dispatch — the script directory the engine re-walks before the spawn.
+/// An unsafe interpreter spelling carries a refusal instead of spawning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteSpawn {
     pub argv: Vec<String>,
     pub env: SpawnEnv,
     pub rewalk: Option<PathBuf>,
+    pub refusal: Option<String>,
 }
 
 impl SiteSpawn {
@@ -3750,6 +3755,7 @@ impl SiteSpawn {
             argv,
             env: SpawnEnv::Inherit,
             rewalk: None,
+            refusal: None,
         }
     }
 }
@@ -3780,26 +3786,118 @@ fn is_exec_dispatch(command: &[String]) -> bool {
 
 /// The directory holding the first script token compile expanded from
 /// `./`. Later argv tokens are arguments, even when they name a root.
-fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
-    command.iter().skip(4).find_map(|part| {
-        roots
-            .iter()
-            .find(|root| Path::new(part).strip_prefix(root).is_ok())
-            .and_then(|_| Path::new(part).parent().map(Path::to_path_buf))
-    })
+fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<(usize, PathBuf)> {
+    command
+        .iter()
+        .enumerate()
+        .skip(4)
+        .find_map(|(index, part)| {
+            roots
+                .iter()
+                .find(|root| Path::new(part).strip_prefix(root).is_ok())
+                .and_then(|_| {
+                    Path::new(part)
+                        .parent()
+                        .map(|dir| (index, dir.to_path_buf()))
+                })
+        })
+}
+
+/// The pin and the interpreter argument have different jobs (0048).
+/// Select the directory using compile's canonical components FIRST: a
+/// Windows verbatim root is its identity, but Git Bash cannot open that
+/// spelling. Only the script argv is converted; later arguments are not
+/// judged paths. Unix filename bytes, including backslashes, stay exact.
+/// The explicit platform lets Linux exercise the Windows composition too.
+fn exec_spawn_on(command: Vec<String>, roots: &[PathBuf], windows: bool) -> SiteSpawn {
+    let mut spawn = SiteSpawn::inherit(command);
+    if is_exec_dispatch(&spawn.argv) {
+        if let Some((index, directory)) = script_directory(&spawn.argv, roots) {
+            spawn.rewalk = Some(directory);
+            match script_argument(&spawn.argv[index], windows) {
+                Ok(argument) => spawn.argv[index] = argument,
+                Err(reason) => spawn.refusal = Some(reason),
+            }
+        }
+    }
+    spawn
+}
+
+/// Strip a Windows verbatim prefix only when ordinary Win32 lookup names
+/// the same file. MAX_PATH includes the NUL, and counts UTF-16 units.
+/// Trailing dots/spaces and DOS devices would alias different names after
+/// stripping; refuse those and long/other-namespace paths before spawn.
+/// Forward separators in this argv alone work for both Win32 and Git Bash.
+fn script_argument(path: &str, windows: bool) -> Result<String, String> {
+    let Some(verbatim) = path.strip_prefix(r"\\?\").filter(|_| windows) else {
+        return Ok(path.to_string());
+    };
+    let refusal = || {
+        format!(
+            "exec script path cannot be passed safely without its Windows extended-length prefix: \
+         '{path}'; use an ordinary drive or UNC path shorter than 260 UTF-16 units, \
+         with no reserved names or trailing dots/spaces (decision 0048)"
+        )
+    };
+    let (ordinary, components) = if let Some(unc) = verbatim.strip_prefix(r"UNC\") {
+        (format!("//{}", unc.replace('\\', "/")), unc)
+    } else if matches!(
+        verbatim.as_bytes(),
+        [b'A'..=b'Z' | b'a'..=b'z', b':', b'\\', ..]
+    ) {
+        (verbatim.replace('\\', "/"), &verbatim[3..])
+    } else {
+        return Err(refusal());
+    };
+    if ordinary.encode_utf16().count() >= 260 {
+        return Err(refusal());
+    }
+    if !components
+        .split(['\\', '/'])
+        .all(ordinary_windows_component)
+    {
+        return Err(refusal());
+    }
+    Ok(ordinary)
+}
+
+fn ordinary_windows_component(component: &str) -> bool {
+    if component.is_empty() || component.ends_with(['.', ' ']) {
+        return false;
+    }
+    if component
+        .chars()
+        .any(|c| c.is_ascii_control() || "<>:\"|?*".contains(c))
+    {
+        return false;
+    }
+    // A device name stays reserved with an extension (even NUL.tar.gz).
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    ![
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM0", "COM1", "COM2", "COM3", "COM4",
+        "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2",
+        "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+    ]
+    .contains(&stem.as_str())
 }
 
 /// Compose one site's argv and environment from the boundary the run
 /// stands under (decision 0046 ruling 4; design DD18) — a pure function
 /// the argv tests read directly:
 ///
-/// - a site without hands: its command, untouched, in the engine's
-///   environment, as before the box existed;
+/// - a site without hands: its command in the engine's environment,
+///   with an exec script spelled for the interpreter and no re-walk;
 /// - under a boundary Brokkr builds: today's path token for token —
 ///   `hands_command`'s box — in the engine's environment;
 /// - under `harness` and `open`, an exec dispatch: the compiled command
-///   itself behind the network prefix when the probe passed, in the fixed
-///   environment, with the script directory marked for the spawn re-walk;
+///   behind the network prefix when the probe passed, in the fixed
+///   environment, with the canonical script directory marked for the
+///   spawn re-walk and its argv spelled for the interpreter;
 ///   work or gate, the class unread (proposal D32);
 /// - under `harness`, a model site: the adapter's `gate` or `work`
 ///   fragment by class appended to the unboxed resolution's argv with
@@ -3821,18 +3919,16 @@ pub fn compose_site(
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
     let Some(spec) = hands else {
-        return SiteSpawn::inherit(command);
+        let mut spawn = exec_spawn_on(command, roots, cfg!(windows));
+        spawn.rewalk = None;
+        return spawn;
     };
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
         let unboxed = unboxed.cloned().unwrap_or_default();
-        let mut argv = unboxed.prefix;
-        let rewalk = script_directory(&command, roots);
-        argv.extend(command);
-        return SiteSpawn {
-            argv,
-            env: SpawnEnv::Exactly(unboxed.env),
-            rewalk,
-        };
+        let mut spawn = exec_spawn_on(command, roots, cfg!(windows));
+        spawn.argv.splice(..0, unboxed.prefix);
+        spawn.env = SpawnEnv::Exactly(unboxed.env);
+        return spawn;
     }
     match boundary {
         BuiltBoundary::Namespace => {

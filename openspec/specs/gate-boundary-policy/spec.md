@@ -320,7 +320,8 @@ and `hands.binds` stay pinned in the manifest as declared and are
 enforced by nothing of Brokkr's: the harness's own sandbox decides what
 the hands may reach, which is the fact the *unboxed* rendering states.
 Under `harness` and `open` alike an exec dispatch — an admitted exec
-site's, work or gate (proposal D32) — SHALL be the compiled command itself, spawned by
+site's, work or gate (proposal D32) — SHALL be the compiled command with the
+script argument spelled for its interpreter as below, spawned by
 the engine through `DriverProcess::spawn` with no verb of Brokkr's
 around it: `{brokkr}` and `./` were expanded at compile by
 `expand_command` against the declaring layer's directory, and
@@ -381,9 +382,15 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 - **WHEN** `bundles/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/bundles/self/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
 - **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
 
+#### Scenario: The script argument and the spawn pin have separate spellings
+- **WHEN** an exec script is composed on Windows from a canonical verbatim drive or UNC layer root
+- **THEN** the script-directory pin SHALL retain the original canonical components, while only the script argv becomes an ordinary `C:/...` or `//server/share/...` path below 260 UTF-16 units; a path requiring the verbatim prefix because of length, namespace or filename components SHALL refuse before spawn (proposed decision 0048, Windows script argument repair)
+- **AND** the engine token and subsequent unjudged arguments SHALL stay unchanged; Unix argv SHALL retain its exact bytes, including literal backslashes; plain exec sites without hands SHALL use the same conversion without adding a re-walk
+- **AND** a pure composition test SHALL exercise both platform policies on Linux as well as on native hosts, asserting the complete child argv separately from the canonical directory pin, including an inherited script followed by an argument naming another layer
+
 #### Scenario: The same seat with the probe failing, and off Linux
 - **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS and on Windows
-- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}` — the compiled command untouched, spawned in the fixed environment with the network on — and the same holds under `open`
+- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`, `{prompt_file}`, with the Windows script path spelled for its interpreter as above, spawned in the fixed environment with the network on — and the same holds under `open`
 
 #### Scenario: The probe is the prefix around true
 - **WHEN** the probe runs

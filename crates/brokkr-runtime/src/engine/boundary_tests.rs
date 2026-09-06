@@ -623,6 +623,18 @@ fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
     let spec = &bundle.hands["verify"];
     let (uid, gid) = brokkr_protocol::hands::ids();
     let script = bundle.dir.join("scripts/verify-seat.sh");
+    let script_argv = if cfg!(windows) {
+        script
+            .to_str()
+            .unwrap()
+            .strip_prefix(r"\\?\")
+            .unwrap()
+            .replace('\\', "/")
+    } else {
+        script.display().to_string()
+    };
+    let mut expected_command = command.clone();
+    expected_command[5] = script_argv.clone();
     let prefixed = compose_site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
@@ -651,7 +663,7 @@ fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
         "exec",
         "--",
         "bash",
-        &script.display().to_string(),
+        &script_argv,
         "{prompt_file}",
     ]
     .map(String::from)
@@ -670,8 +682,189 @@ fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
             "/r/p.json",
             Some(&Unboxed::default()),
         );
-        assert_eq!(alone.argv, *command);
+        assert_eq!(alone.argv, expected_command);
     }
+}
+
+/// No filesystem or child process: both platform policies run on Linux.
+/// Native joins keep the pin's components testable on each host; on Linux
+/// the Windows root is one literal component, still distinct from C:/... .
+#[test]
+fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() {
+    for (root, windows_argument) in [
+        (
+            r"\\?\C:\Users\gate bundle",
+            "C:/Users/gate bundle/scripts/gate.sh",
+        ),
+        (
+            r"\\?\UNC\server\share\gate bundle",
+            "//server/share/gate bundle/scripts/gate.sh",
+        ),
+    ] {
+        let root = PathBuf::from(root);
+        let directory = root.join("scripts");
+        let script = directory.join("gate.sh");
+        let mut command = exec_dispatch(&script);
+        // An inherited script precedes an unjudged argument naming a
+        // different layer. Neither that argument nor argv[0] is rewritten.
+        let leaf = PathBuf::from(r"\\?\C:\leaf");
+        command.push(leaf.join("result.json").display().to_string());
+        let roots = [leaf, root];
+        for windows in [false, true] {
+            let spawn = exec_spawn_on(command.clone(), &roots, windows);
+            let mut expected = command.clone();
+            if windows {
+                expected[5] = windows_argument.into();
+            }
+            assert_eq!(spawn.argv, expected);
+            assert_eq!(spawn.rewalk, Some(directory.clone()));
+            assert_eq!(spawn.refusal, None);
+            assert_eq!(spawn.env, SpawnEnv::Inherit);
+            assert_eq!(command[5], script.display().to_string());
+        }
+    }
+
+    // On Unix a backslash belongs to the filename, even if it resembles
+    // Windows syntax. The native public composer also exercises its wiring.
+    let root = if cfg!(windows) {
+        r"\\?\C:\bundle"
+    } else {
+        "/bundle"
+    };
+    let root = PathBuf::from(root);
+    let directory = root.join("scripts");
+    let script = directory.join("gate.sh");
+    let command = exec_dispatch(&script);
+    let mut expected = command.clone();
+    if cfg!(windows) {
+        expected[5] = "C:/bundle/scripts/gate.sh".into();
+    }
+    let spec = HandsSpec::parse(&json!("workspace")).unwrap();
+    for boundary in [
+        BuiltBoundary::Harness,
+        BuiltBoundary::Open,
+        BuiltBoundary::Namespace,
+    ] {
+        let plain = compose_site(
+            boundary,
+            SeatClass::Work,
+            command.clone(),
+            None,
+            None,
+            Path::new("/repo"),
+            std::slice::from_ref(&root),
+            "/result.json",
+            None,
+        );
+        assert_eq!(plain.argv, expected);
+        assert_eq!(plain.rewalk, None);
+        assert_eq!(plain.refusal, None);
+        if boundary != BuiltBoundary::Namespace {
+            let spawn = compose_site(
+                boundary,
+                SeatClass::Gate,
+                command.clone(),
+                Some(&spec),
+                None,
+                Path::new("/repo"),
+                std::slice::from_ref(&root),
+                "/result.json",
+                None,
+            );
+            assert_eq!(spawn.argv, expected);
+            assert_eq!(spawn.rewalk, Some(directory.clone()));
+            assert_eq!(spawn.refusal, None);
+        }
+    }
+    #[cfg(unix)]
+    {
+        let script = Path::new(r"/bundle/scripts\gate.sh");
+        let command = exec_dispatch(script);
+        let spawn = exec_spawn_on(command.clone(), &[PathBuf::from("/bundle")], false);
+        assert_eq!(spawn.argv, command);
+        assert_eq!(spawn.rewalk, Some(PathBuf::from("/bundle")));
+    }
+}
+
+#[test]
+fn windows_script_arguments_strip_only_safe_short_verbatim_paths() {
+    for path in [
+        "/bundle/scripts/gate.sh",
+        r"C:\bundle\gate.sh",
+        r"\\server\share\gate.sh",
+    ] {
+        assert_eq!(script_argument(path, true).unwrap(), path);
+    }
+    for (path, argument) in [
+        (r"\\?\C:\bundle\gate.sh", "C:/bundle/gate.sh"),
+        (r"\\?\c:\bundle\gate.sh", "c:/bundle/gate.sh"),
+        (r"\\?\UNC\server\share\gate.sh", "//server/share/gate.sh"),
+        (r"\\?\C:\é🌋\.scripts\gate.sh", "C:/é🌋/.scripts/gate.sh"),
+        (r"\\?\C:\bundle\console.sh", "C:/bundle/console.sh"),
+    ] {
+        assert_eq!(script_argument(path, true).unwrap(), argument);
+        assert_eq!(script_argument(path, false).unwrap(), path);
+    }
+    // Exactly 259 UTF-16 units plus NUL fits; one more does not. Counting
+    // UTF-8 bytes or Unicode scalar values gets the Unicode cases wrong.
+    for prefix in [r"\\?\C:\", r"\\?\UNC\server\share\"] {
+        let ordinary_prefix_len = if prefix.contains("UNC") { 15 } else { 3 };
+        for name in ["a", "é", "🌋"] {
+            let count = (259 - ordinary_prefix_len - 4) / name.encode_utf16().count();
+            let mut stem = name.repeat(count);
+            while ordinary_prefix_len + stem.encode_utf16().count() + 4 < 259 {
+                stem.push('a');
+            }
+            let safe = format!("{prefix}{stem}.shx");
+            assert_eq!(
+                script_argument(&safe, true).unwrap().encode_utf16().count(),
+                259
+            );
+            assert!(script_argument(&format!("{safe}x"), true).is_err());
+        }
+    }
+    for path in [
+        r"\\?\Volume{test}\gate.sh",
+        r"\\?\C:gate.sh",
+        r"\\?\1:\gate.sh",
+        r"\\?\C:/gate.sh",
+        r"\\?\C",
+        r"\\?\C:\bundle\",
+        r"\\?\C:\bundle\\gate.sh",
+        r"\\?\C:\bundle.\gate.sh",
+        r"\\?\C:\bundle \gate.sh",
+        r"\\?\C:\bundle\..\gate.sh",
+        r"\\?\C:\bundle\.\gate.sh",
+        r"\\?\C:\bundle\NUL.tar.gz",
+        r"\\?\C:\bundle\nul .sh",
+        r"\\?\C:\COM¹\gate.sh",
+        r"\\?\C:\LPT2\gate.sh",
+        r"\\?\C:\bundle\gate:stream",
+        r"\\?\C:\bundle\gate?.sh",
+        "\\\\?\\C:\\bundle\\gate\u{1}.sh",
+    ] {
+        let error = script_argument(path, true).unwrap_err();
+        assert!(error.contains("cannot be passed safely"), "{error}");
+        assert_eq!(script_argument(path, false).unwrap(), path);
+    }
+}
+
+#[test]
+fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
+    let (_dir, engine) = super::tests::engine(single_body(vec!["driver".into()]));
+    let root = PathBuf::from(r"\\?\C:\bundle");
+    let script = root.join("scripts").join(format!("{}.sh", "x".repeat(260)));
+    let spawn = exec_spawn_on(exec_dispatch(&script), &[root], true);
+    let error = spawn_site(
+        &engine.bundle,
+        &spawn,
+        Path::new("/repo"),
+        std::time::Duration::from_secs(1),
+    )
+    .err()
+    .expect("unsafe argv must not spawn");
+    assert!(error.contains("shorter than 260 UTF-16 units"), "{error}");
+    assert_eq!(Some(error), spawn.refusal);
 }
 
 /// The probe is asked once per engine process and remembered: a second
@@ -741,6 +934,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         argv: vec!["must-not-run".into()],
         env: SpawnEnv::Inherit,
         rewalk: Some(layer.join("scripts")),
+        refusal: None,
     };
     let run = |engine: &mut Engine| {
         engine
@@ -1569,6 +1763,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
             ),
             env: SpawnEnv::Inherit,
             rewalk: Some(layer.join("scripts")),
+            refusal: None,
         },
         input: json!({}),
     }];
@@ -1669,7 +1864,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
     command.push(leaf.join("result.json").display().to_string());
     assert_eq!(
         script_directory(&command, &engine.bundle.roots),
-        Some(layer.join("scripts"))
+        Some((5, layer.join("scripts")))
     );
     let spawn = SiteSpawn {
         argv: driver_command(
@@ -1680,7 +1875,8 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
             },
         ),
         env: SpawnEnv::Inherit,
-        rewalk: script_directory(&command, &engine.bundle.roots),
+        rewalk: script_directory(&command, &engine.bundle.roots).map(|(_, directory)| directory),
+        refusal: None,
     };
     let run = |engine: &mut Engine| {
         engine

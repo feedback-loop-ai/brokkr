@@ -248,3 +248,76 @@ the leak before the fixture overrides and passes after them. No real
 credential or process-global environment mutation is used. This is a
 test-fixture repair; production inheritance and both capability specs
 keep their existing semantics, and no further archive amendment is made.
+
+## Windows script argument repair — 2026-09-07 (proposed)
+
+The next commission reports eight Windows `boundary_verbs.rs` failures
+with `agent CLI exited 127` and a stderr tail beginning
+`/usr/bin/bash: \\?C:UsersrunneradminAppDataLocalTemp...`. This is the
+operator-supplied evidence for this repair, not a native reproduction:
+bash now starts, but cannot open the script argument. Inspection confirms
+the route: compose canonicalises the layer roots, `expand_command` joins
+the raw `./scripts/...` token to that root, and `compose_site` previously
+passed it unchanged to the exec driver. The driver passes its argv to the
+interpreter. The plain fixture without hands takes the same expanded path.
+
+[Rust documents](https://doc.rust-lang.org/std/fs/fn.canonicalize.html)
+that Windows canonicalisation produces extended-length paths which other
+applications may not accept. [Microsoft's path rules](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation)
+distinguish that spelling from ordinary drive and UNC paths and specify
+the 260-character legacy limit including the terminator.
+[Its filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)
+also reserve DOS device names and trailing dots/spaces in ordinary lookup.
+
+The proposed clarification keeps rulings 1 and 2 intact:
+
+1. **The pin keeps the canonical components.** Select the first expanded
+   script and its parent before converting any argument. Neither the
+   manifest keys, retained file maps, roots nor re-walk directory use the
+   interpreter spelling. No script target is independently canonicalised;
+   symlink entries retain their existing identity.
+2. **The interpreter receives an ordinary Windows path.** For an exec
+   script under an unboxed boundary, turn a verbatim drive path into
+   `C:/...`, or a verbatim UNC path into `//server/share/...`, only when
+   the result is below 260 UTF-16 units and its components do not require
+   verbatim lookup. Refuse longer paths, other verbatim namespaces, reserved
+   names, empty components and names with forbidden characters or trailing
+   dots/spaces before spawning. The failure names the path and the repair;
+   it never substitutes another file or silently skips the pin.
+   Plain exec sites without hands receive the same argument conversion,
+   retaining their inherited environment and absence of a re-walk. The
+   engine token, interpreter tokens and subsequent unjudged arguments
+   remain unchanged. Unix paths preserve every byte, including backslashes.
+
+**Enforcement binding:** `exec_spawn_on`, `script_argument`,
+`ordinary_windows_component`, `compose_site` and `spawn_site` in
+`crates/brokkr-runtime/src/engine.rs`. The pure
+`exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument`
+test executes both platform policies on every host, asserting complete
+argv and canonical directory separately for drive and UNC roots, with a
+later argument naming another layer. Native composition covers both
+unboxed boundaries and the plain path. Further tests cover Unicode
+length boundaries, aliases and the pre-spawn refusal. These tests open no
+interpreter and require no Windows filesystem. Existing CLI runs and the
+script/helper drift tests exercise the engine path on Linux.
+
+The archive's argv requirement and off-Linux scenario and their promoted
+capability are amended together, with a dated archive completion note.
+The frozen contracts and corpus remain unchanged; bundle file maps and
+witness and compose digests have no new input from this repair.
+
+Windows and macOS execution are unavailable in this Linux seat. Native
+Git Bash execution, including the eight reported failures, remains for
+platform CI; the reported exit-127 evidence, traced source path and pure
+cross-platform regressions support this implementation without claiming
+that native verification.
+
+Two temporary mutations verify the regression on Linux: retaining the
+canonical script in argv fails its complete-argv assertion; assigning the
+converted script's parent to the pin fails its directory assertion. Both
+mutations are removed. The final tree passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and `scripts/coverage-exact.sh`:
+21,328/21,328 source lines, 3,326/3,326 branches and 2,024/2,024 logical
+functions. Witness and compose digest tests pass without repinning.
