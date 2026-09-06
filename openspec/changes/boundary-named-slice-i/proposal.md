@@ -100,7 +100,9 @@ In the commission's order of value:
    operator's measurement records them and declares none until then
    (D19); dsh and lanetally declare none.
    `enforce_model_policy` gains the boundary axis for sites that declare
-   hands; an exec gate under `harness` or `open` is admitted only for
+   hands, as one hands law that runs before its class read (design
+   DD22); an exec site with hands — gate or work (D32) — under `harness`
+   or `open` is admitted only for
    the bundle's own pinned script — a `./` token naming a file under the
    layer that declared the seat, the layer re-walked at every unboxed
    spawn (D24) — run in the fixed environment D22 lists, the in-box
@@ -149,8 +151,8 @@ with 0046 as the stated reason.
   delivery gate's check summary.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
-  bundle-pinned-script reading for exec gates with its spawn-time
-  re-walk, the dialect step's refusal at an unboxed gate, the run-time
+  bundle-pinned-script reading for exec sites with hands (D32) with
+  its spawn-time re-walk, the dialect step's refusal at an unboxed gate, the run-time
   argv per boundary and class with the unboxed exec dispatch pinned
   token for token, and the judge's result door.
 - `driver-confine-retirement`: decision 0008's container confinement
@@ -319,7 +321,7 @@ the artifact rather than raising the finding again (decision 0042 ruling
   v3, earlier engines keep v1. The tagged 0.9.0 and 0.9.1 engines wrote
   no `boundary`, which v4 admits as absent (0034 ruling 5).
 - **D10 — An inline model site with hands under `harness` or `open` is
-  refused at compile.** Its argv is the author's and carries the box's
+  refused at compile** (its home fixed in design, DD22). Its argv is the author's and carries the box's
   own tokens (`{hands_mcp_json}`, `{hands_args_toml}`), which no
   fragment substitution can rewrite honestly. The refusal names the
   repair: seat it through an agent, or run the realm under a boxed
@@ -558,14 +560,15 @@ the artifact rather than raising the finding again (decision 0042 ruling
   gate (0021). The `work` fragment needs no door: a writable worktree
   holds the result path.
 - **D24 — "Pinned bytes" is checked by construction, as a grammar and a
-  lookup, not by comparing paths** (amended in design, DD9). The
+  lookup, not by comparing paths** (amended in design, DD9 and DD22). The
   compiler already expands a `./` command token against the directory
   of the layer that declared the seat, and the manifest walk of that
   layer digests every file under it, so the check reads the raw command
   before that expansion and asks one question: is the script token a
   key the declaring layer's walk pins? The grammar and the lookup are
-  stated once, in gate-boundary-policy's requirement *An exec gate under
-  harness or open holds only for pinned bytes*; this entry carries the
+  stated once, in gate-boundary-policy's requirement *An exec site with
+  hands under harness or open holds only for pinned bytes*; this entry
+  carries the
   reason. A canonicalising comparison needs the file to exist on both
   sides, behaves differently per platform, and proves less than the
   walk's own key set; so nothing is canonicalised and no two spellings

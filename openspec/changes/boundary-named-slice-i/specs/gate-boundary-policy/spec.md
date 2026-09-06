@@ -4,7 +4,7 @@
 
 Which boundaries may hold a gate: decision 0021's gate law under the
 boundary axis, the adapters' `hands.harness` and its result door, the
-bundle-pinned-script reading for exec gates, the environment an unboxed
+bundle-pinned-script reading for exec sites with hands, the environment an unboxed
 exec dispatch runs in, and the run-time argv per boundary (decision 0046
 ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2 and 7).
 
@@ -73,8 +73,10 @@ the mode denies and allows.
 
 ### Requirement: The gate law reads the boundary for sites that declare hands
 `enforce_model_policy` SHALL apply decision 0021's gate refusals as
-today under every boundary and, for a gate-class site that declares
-hands, SHALL additionally rule by the boundary the bundle compiles
+today under every boundary and, for a site that declares hands — as
+one hands law that runs before its class read, so no work-class early
+return bypasses it and no adapter is read for an inline site (design
+DD22) — SHALL additionally rule by the boundary the bundle compiles
 under: under `namespace`, `seatbelt` and `container` a model gate is
 admitted as today and a boxed exec gate as decision 0043 ruling 3
 reads — the compile defines the identity now, and a run under
@@ -125,7 +127,7 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **THEN** compilation succeeds exactly as under `namespace` and the manifest pins the word, whatever the compiling machine holds
 
 #### Scenario: A harness work seat without a work fragment is refused
-- **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`
+- **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`, in a bundle that seats no gate and binds no secret, so nothing but the hands law stands before the gate law's work-class early return (design DD22)
 - **THEN** compilation is refused as a capability gap naming the provider and `hands.harness.work`
 
 #### Scenario: A gate without hands is untouched
@@ -194,6 +196,10 @@ addendum, ruling 1).
 #### Scenario: A work-class exec site with hands is judged on the gate's ground
 - **WHEN** an exec site with hands and `class: work` whose command is `["{brokkr}","driver","exec","--","bash","./scripts/lint.sh"]` naming a file the bundle's walk pins compiles under `open`, and a sibling whose command is `["{brokkr}","driver","exec","--","true"]` compiles beside it
 - **THEN** the first is admitted, spawned in the fixed environment behind the network prefix and re-walked at spawn exactly as the shipped verify gate is, and the second is refused naming decision 0046 ruling 4 and decision 0021, the class changing nothing
+
+#### Scenario: The exec law reads no adapter
+- **WHEN** the same two-site bundle — both sites `class: work`, naming no agent, seating no gate and binding no secret, so the compiler opens no adapter library for it — compiles under `open` with no `adapters/` directory reachable
+- **THEN** the first site is admitted and the second refused exactly as before, because the pinned-bytes law reads the raw command and the declaring layer's directory and nothing of the adapters, and the compile neither opens nor needs them (design DD22)
 
 #### Scenario: A brokkr-external command under open is refused
 - **WHEN** an exec gate with hands whose command is `["{brokkr}","driver","exec","--","true"]` compiles under `open`

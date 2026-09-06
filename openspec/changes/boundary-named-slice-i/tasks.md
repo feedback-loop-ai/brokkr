@@ -292,32 +292,42 @@ one helper, because the coverage gate is literal.
 - [ ] 6.1 Extract the manifest walk's skip rule (`realms.json`, `dialects/…`)
       from `manifest_for` into one function and share it with the
       pinned-script lookup, so the two cannot drift (DD9) —
-      gate-boundary-policy / An exec gate under harness or open holds only
+      gate-boundary-policy / An exec site with hands under harness or open holds only
       for pinned bytes.
 - [ ] 6.2 Add the pinned-script check as a pure grammar and lookup over
       the raw command, before `expand_command`, exactly as
-      gate-boundary-policy / An exec gate under harness or open holds only
+      gate-boundary-policy / An exec site with hands under harness or open holds only
       for pinned bytes states it — that requirement is the one copy of the
       grammar and the lookup; the walk's skip rule is 6.1's shared
       function; nothing is canonicalised and no two spellings are
-      compared (DD9) — gate-boundary-policy / An exec gate under harness
+      compared (DD9) — gate-boundary-policy / An exec site with hands under harness
       or open holds only for pinned bytes.
-- [ ] 6.3 Admit an exec gate with hands under `harness` and `open` only on
-      that verdict, refusing otherwise naming decision 0046 ruling 4,
-      decision 0021 and, for a spelling, the spelling; hand the check the
-      declaring layer's directory the caller of `expand_command` already
-      holds — gate-boundary-policy / An exec gate under harness or open
-      holds only for pinned bytes.
+- [ ] 6.3 Admit an exec site with hands — gate or work, the class unread
+      (D32) — under `harness` and `open` only on that verdict, refusing
+      otherwise naming decision 0046 ruling 4, decision 0021 and, for a
+      spelling, the spelling, as the inline-exec arm of the hands law
+      `enforce_hands_boundary`, the first statement of
+      `enforce_model_policy` before its class early-return and its
+      adapter destructure, reading no adapter on this arm (DD22); hand
+      the law the declaring layer's directory every caller already holds
+      — gate-boundary-policy / An exec site with hands under harness or
+      open holds only for pinned bytes.
 - [ ] 6.4 Refuse a dialect validate or check step — the compiler's
       synthetic boxed exec gate — under `harness` and `open` at compile,
       naming the step, decision 0046 ruling 4, decision 0042 ruling 4 and
       a boxed boundary as the road open today; under `namespace`,
-      `seatbelt` and `container` the step compiles exactly as today
-      (DD8) — gate-boundary-policy / An exec gate under harness or open
+      `seatbelt` and `container` the step compiles exactly as today;
+      the two sites that build the synthetic gate share one helper and
+      the refusal lives in it, before the gate law and the hands law run
+      (DD8, DD22) — gate-boundary-policy / An exec site with hands under harness or open
       holds only for pinned bytes.
 - [ ] 6.5 Give `enforce_model_policy`
       (`crates/brokkr-runtime/src/bundle.rs`) the boundary axis for sites
-      that declare hands, decision 0021's refusals unchanged under every
+      that declare hands as the chain arm of the hands law
+      `enforce_hands_boundary`, its first statement — before the work
+      early-return and the adapter destructure, reading the adapters only
+      on this arm, where the `agent` key opened them (DD22) — decision
+      0021's refusals unchanged under every
       boundary: `namespace`, `seatbelt` and `container` admit a model gate
       as today; `harness` admits one only when every link of the resolved
       chain declares `hands.harness.gate` as a fragment — a member group 8
@@ -329,11 +339,13 @@ one helper, because the coverage gate is literal.
       boundary for sites that declare hands.
 - [ ] 6.6 Refuse a work-class site with hands under `harness` whose chain
       has a link declaring no `hands.harness.work` fragment, as the
-      capability gap it is, naming the link (DD7) —
+      capability gap it is, naming the link, inside the hands law's chain
+      arm before the work early-return (DD7, DD22) —
       gate-boundary-policy / The gate law reads the boundary for sites that
       declare hands.
 - [ ] 6.7 Refuse an inline model site with hands under `harness` or `open`
-      at compile, naming the seat and the repair — seat it through an
+      at compile, as the hands law's inline-model arm (DD22), naming the
+      seat and the repair — seat it through an
       agent, or run the realm under a boxed boundary (D10); with its test
       in `model_policy_tests.rs`: an inline seat whose command is a
       `{brokkr} driver claude` dispatch and which declares hands is
@@ -348,7 +360,7 @@ one helper, because the coverage gate is literal.
       `manifest_for` call over `Ancestor.dir` and its deeper chain — and
       names the first key whose bytes moved, went missing or appeared
       (DD9); the engine calls it at spawn (task 7.7) —
-      gate-boundary-policy / An exec gate under harness or open holds only
+      gate-boundary-policy / An exec site with hands under harness or open holds only
       for pinned bytes.
 - [ ] 6.9 Pinned-script tests in
       `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`:
@@ -360,13 +372,20 @@ one helper, because the coverage gate is literal.
       searched; `bash -c ./scripts/s.sh` refused naming `-c` as an option
       token; `./dialects/run.sh` refused as a path the walk does not pin;
       `recipes/wager-harness`'s inherited verify seat admitted against
-      `recipes/fast/scripts/verify-seat.sh`; the shipped ship seat
+      `recipes/fast/scripts/verify-seat.sh`; the operator's work-class
+      pair — a `class: work` exec site with hands whose command names
+      `./scripts/lint.sh`, a file the walk pins, admitted under `open`,
+      and its sibling `["{brokkr}","driver","exec","--","true"]`
+      refused naming ruling 4 and 0021, the class changing nothing — and
+      the same bundle, which names no agent, gate or secret, compiled
+      with no `adapters/` directory reachable, admitted and refused the
+      same (D32, DD22); the shipped ship seat
       admitted with `{brokkr}` among its unjudged arguments; a fixture
       bundle with an artifact phase, its chief on a fixture provider that
       declares both `hands.harness` members, refused under `harness`
       naming its synthetic validate step, ruling 4, 0042 ruling 4 and a
       boxed boundary, and compiling under `namespace` — gate-boundary-policy
-      / An exec gate under harness or open holds only for pinned bytes.
+      / An exec site with hands under harness or open holds only for pinned bytes.
 - [ ] 6.10 Model-policy tests in the same file: a `harness` gate on a
       provider declaring the fragment admitted; on one declaring none
       refused naming provider, `hands.harness.gate` and ruling 4; a chain
@@ -387,7 +406,7 @@ one helper, because the coverage gate is literal.
       the script sources, a deleted pinned file and an added file each
       name the first key that differs; an ancestor layer's digest is
       re-derived for an inherited seat and names the ancestor when its
-      script moved (DD9) — gate-boundary-policy / An exec gate under
+      script moved (DD9) — gate-boundary-policy / An exec site with hands under
       harness or open holds only for pinned bytes.
 
 ## 7. Run-time composition of the unboxed exec dispatch (ruling 4, DD16 step 4b)
@@ -447,7 +466,7 @@ one helper, because the coverage gate is literal.
       attempt's failure journaled naming the layer and the key — so the
       bytes that run are the bytes the digest names, the residual being
       the interval between the re-walk and the `exec` (DD9) —
-      gate-boundary-policy / An exec gate under harness or open holds only
+      gate-boundary-policy / An exec site with hands under harness or open holds only
       for pinned bytes.
 - [ ] 7.8 Argv tests as pure argv, no spawning: a boxed model site and a
       boxed exec site under `namespace` equal to what `hands_command`
@@ -461,7 +480,10 @@ one helper, because the coverage gate is literal.
       network switch in its argv; and every model site — the codex gate
       under `harness`, the `open` work site — spawned with
       `SpawnEnv::Inherit`, the engine's own environment, exactly as under
-      `namespace`, because its harness needs the operator's keys —
+      `namespace`, because its harness needs the operator's keys; and
+      `compose_site` over one exec command with hands under `open` with
+      the class flipped, `Work` and `Gate`, yielding equal argv and
+      environment (D32, DD22) —
       gate-boundary-policy / The argv of a
       site with hands follows the boundary and the class.
 - [ ] 7.9 Pin the unboxed exec dispatch token for token:
@@ -500,7 +522,7 @@ one helper, because the coverage gate is literal.
       same way; an untouched layer spawns; an inherited seat whose
       ancestor layer moved fails naming the ancestor; a `namespace` gate
       over the same edited layer is composed as today, because the box
-      is its admission — gate-boundary-policy / An exec gate under harness
+      is its admission — gate-boundary-policy / An exec site with hands under harness
       or open holds only for pinned bytes.
 
 ## 8. The adapters' `hands.harness` and the judge's door (ruling 4, DD16 step 4c)
@@ -623,7 +645,10 @@ one helper, because the coverage gate is literal.
       `invocation_sites(body)` traversal that builds `provenance`: one
       `{member, boundary, gate}` entry per invocation site of the attempt,
       the realm's word for a site with hands and the sentinel for one
-      without, `gate` the site's class; write it on `effect/started`
+      without, `gate` the site's class read where the compiler keeps it —
+      `seat.body.selected_is_gate(strategy, seat.has_gate)` for a single,
+      a panel member or a selected case, `step.class` for a step and its
+      panel's members, no new field (DD5); write it on `effect/started`
       beside `provenance` exactly when at least one site of the attempt
       declares hands (DD5) — boundary-record / effect/started carries the
       boundary beside provenance.
@@ -685,13 +710,17 @@ one helper, because the coverage gate is literal.
       row — boundary-record / The seat record carries the boundary as
       seat-record/v4.
 - [ ] 9.8 Carry `boundary` in the seat input of every site with hands
-      under every boundary, keep the `hands: boxed` marker exactly when
+      under every boundary, through the one mark helper `mark_boxed`
+      grows into at its four call sites (DD21), keep the `hands: boxed` marker exactly when
       Brokkr builds the box (`namespace`, `seatbelt`, `container`) and
       absent under `harness` and `open`, and add `result_delivery:
       last-message` for a `harness` gate-class site whose adapter declares
       that door (D15, D23) — boundary-record / The seat input and prompt
       name the boundary the seat stands under.
-- [ ] 9.9 Render the prompt paragraph to follow the two
+- [ ] 9.9 Give `render_prompt` the driver kind — `render_prompt(input,
+      kind: AdapterKind)`, one signature, five call sites, no wire byte
+      (DD21) — and render the prompt paragraph to follow the two for the
+      model kinds and never for `AdapterKind::Exec` (D31)
       (`crates/brokkr-protocol/src/adapters.rs`): under the three boxed
       words exactly today's paragraph naming `mcp__brokkr__workspace` as
       the only writer; under `harness` a paragraph naming the word, the
@@ -700,7 +729,8 @@ one helper, because the coverage gate is literal.
       `last-message` that the final message must be exactly the result
       object which the harness writes to the path, the result contract's
       line following; under `open` the same with the word `open` and no
-      delivery change; a site without hands unchanged —
+      delivery change; a site without hands unchanged; an exec site's
+      prompt carrying no hands paragraph under any boundary (D31) —
       boundary-record / The seat input and prompt name the boundary the
       seat stands under.
 - [ ] 9.10 Input and prompt tests: `namespace` byte-identical to today
@@ -708,7 +738,11 @@ one helper, because the coverage gate is literal.
       `file` door with the word, no marker, no `result_delivery` and a
       paragraph that does not name the workspace tool; a `harness` gate on
       a `last-message` door with the field, the final-message contract and
-      no file asked for; an `open` site with the word and no marker; a
+      no file asked for; an `open` site with the word and no marker; the shipped verify seat
+      of `bundles/self` rendered under `namespace`, `harness` and `open`
+      in turn, its input carrying `boundary` each time and `hands: boxed`
+      only under `namespace`, its prompt naming neither the workspace
+      tool nor the word in a hands paragraph (D31, DD21); a
       site without hands carrying neither field and no hands paragraph —
       boundary-record / The seat input and prompt name the boundary the
       seat stands under.

@@ -39,6 +39,27 @@ helper, because `ui.html` reads the flattened wire and no Rust helper
 can reach it; and the docs list gains the two blueprint pages that
 still present the container trust class.
 
+Returned from clarify a fifth time and cleared (2026-09-06), after the
+operator ruled the two questions that had parked the loop — D31 and
+D32, recorded in the proposal by commit `a2d1eff` and folded into
+boundary-record's prompt requirement and gate-boundary-policy's
+pinned-bytes and argv requirements, each with its scenario. This
+document predated both rulings, so DD1–DD20 were reconciled against a
+design in which the hands paragraph was rendered for every driver and
+the pinned-bytes law was gate-scoped. The council sat a fourth time on
+exactly that fold: simplicity pressed four claims about where the two
+rulings land in the tree, robustness carried both rulings through and
+re-raised nine objections. Every fourth-sitting claim is ruled in its
+own table below, on seams re-read for it. Two rulings are added — DD21
+for D31, DD22 for D32 — and four are restated where the rulings touch
+them: DD5 names the read that answers a site's class instead of
+calling the fact free, DD9 is rescoped to every exec site with hands
+and cites the requirement's new title, DD16's step (4a) says so, and
+DD18 gains the exec arm's class-freedom and the prompt renderer's
+parameter. No ruling flips, and the tasks are corrected in the same
+commit rather than left to the tasks phase, because rows that cite a
+requirement title that no longer exists are not a coherent artefact.
+
 ## Context
 
 What the tree holds, read for this design (paths are the evidence a
@@ -193,6 +214,57 @@ judge can re-read):
 - **`init` warns in words 0046 makes false.** `Cmd::Init` prints, when
   `bwrap` is absent, that the scaffolded seats "will refuse to run here
   — the shipped gates require Linux with bubblewrap on PATH".
+- **The gate law returns early for a work site, and its adapter
+  destructure is unconditional after that.** `enforce_model_policy`
+  (`crates/brokkr-runtime/src/bundle.rs`) reads `parse_class` first,
+  returns `Ok` for a work-class site with no secret binding, and then
+  destructures `agents.as_mut().expect("a gate-class or secret-binding
+  seat opens the adapters")`. `needs_adapters` opens the adapters for a
+  bundle that names an `agent`, a `dialect`, a `secrets` binding or a
+  gate-class site, and for nothing else; `Adapters::load` then fails
+  where `adapters/` is absent, naming those three reasons. So a bundle
+  whose only hands site is a work-class exec seat compiles with
+  `agents == None`, which the comment above the load says it may. The
+  0043 admission of an exec gate inside the same function reads the
+  hands fact off the raw site (`driver == exec` and `raw.hands`
+  present). `record_hands` runs right after `enforce_model_policy` at
+  every one of the eight call sites that can declare hands, takes the
+  site's raw value and the agent-supplied spec, and already refuses on
+  a non-model ground (hands plus a secret binding, decision 0043).
+  Every one of those call sites holds the declaring layer's directory:
+  the seats loop resolves `dir` from `seat_origin` (and `case_origin`
+  for a selected case) before the body is parsed — "an inherited
+  seat's `role` and `./`-prefixed argv resolve against the layer that
+  WROTE them".
+- **A panel has one class, and the engine already reads the chosen
+  body's class where `effect/started` is composed.** `parse_panel`
+  refuses a mixed panel by name ("a panel may judge or work, never do
+  both"), so `PanelMember` keeps no class and needs none: the fact
+  lives one level up — `Seat.has_gate` for a single or a panel seat,
+  `SeatBody::Select`'s `case_gates` and `default_gate` for a selected
+  case, `SequenceStep.class` for a step and every member of a step
+  panel. `arms_effect_gate_head` reads exactly that, through
+  `seat.body.selected_is_gate(strategy, seat.has_gate)`, at the line
+  after the payload is built; `invocation_sites` yields the tag and the
+  chain of every site, not its class. The shipped select seats
+  (`recipes/triage`'s implement and review) put a work case beside a
+  gate case, which is why the seat's own `has_gate` is not the answer
+  for a selected case and `selected_is_gate` is.
+- **One prompt renderer, one production caller, the driver kind in
+  scope.** `render_prompt(input)` (`crates/brokkr-protocol/src/adapters.rs`)
+  keys the hands paragraph off `input.hands == "boxed"` and nothing
+  else; its one production caller is `run_seat`, whose next statement
+  is `invoke(kind, …)` with `kind: AdapterKind` in scope — the exec
+  driver included, since the shipped verify seat's prompt reaches its
+  script through `{prompt_file}`, and `verify-seat.sh` and
+  `ship-seat.sh` read the result path off that prompt by line (`case
+  "$trimmed" in /*.json)`), never off the paragraph. Its other five
+  callers are tests. The seat input names no driver kind, and the
+  engine's comment at the mark says why a key would cost more than a
+  parameter: "the mark is part of the requested input, so the digest
+  covers it". `mark_boxed` is the one helper that writes the mark, at
+  four call sites (the single, the panel member, the sequence step and
+  the dialect step).
 - **What this seat's box holds:** `unshare` (util-linux), `bwrap`,
   `docker`, `jq`, `python3`, `openspec` 1.12.0; no `claude`, no
   `codex`, no `cargo`. The claude measurement is therefore not this
@@ -295,6 +367,23 @@ differ, this one governs.
 | Landing order inside step (4) | the exec/pinned-script path before the adapter fragments: every shipped inline hands site is a `./` exec gate and every hands agent chains opus, so the pinned-script path carries the whole macOS promise until the claude measurement lands | — | **Adopted.** The facts hold in the tree (ten hands agents, all chaining `opus`; every inline hands site a `./` exec dispatch); the gate law lands whole and fail-closed, the exec composition next, the adapters last (DD16). |
 | The quickstart names the split | which bundles run under `harness` today and which refuse, by name, or the paragraph is a promise | — | **Adopted.** Nine compile, four refuse, and two of the four on a second ground; the paragraph names them and points at the pin test that is the record (DD20, boundary-guides). |
 | Windows shell gates | — | the shipped `sh` gates parse a Unix result path | **Open question**, as before. |
+
+## The council, reconciled — fourth sitting
+
+The sitting on D31 and D32. Each row names the claim as the fourth
+sitting made it and the ruling with the evidence read for it; where this
+table and an earlier one differ, this one governs.
+
+| Claim | Simplicity | Robustness | Ruling and evidence |
+|---|---|---|---|
+| Where D32's law lives | in `record_hands`: the obvious home, `enforce_model_policy`, returns early for a work site without secrets and then `expect`s the adapters, so the operator's own work-class scenario — two work exec sites, no agent, no gate, no secret — panics there rather than refusing; widening `needs_adapters` instead makes the adapter root a compile input for a bundle that names no agent | a separate, total helper the work early-return cannot bypass, placed before it | **Adopted in substance, refused on the home.** The panic is real: `needs_adapters` leaves `agents == None` for that bundle and the destructure after the early return is unconditional (Context). The law is therefore one function, `enforce_hands_boundary`, total over class, and it is the *first* statement of `enforce_model_policy` — before `parse_class`'s early return and before the adapter destructure — reading the adapters only on the chain path, where the `agent` key has opened them, and on the inline path only the raw command and the declaring directory; the operator's bundle compiles with `agents == None` as today. It stays inside `enforce_model_policy` because ruling 4's enforcement binding names that function and `model_policy_tests.rs`, and a design note does not move a binding (0042's addendum, ruling 1); `record_hands` stays 0043's. D10's inline-model refusal and DD7's `work` fragment move into the same law for the same reason: both stood behind the early return (DD22). Robustness's "separate total helper" is this function. |
+| D32 is a deletion | no class test anywhere in the unboxed exec path; the operator's scenario is a row in the grammar table, not a branch; tasks 6.3, 9.9 and 9.10 lose the word *gate* rather than gaining a work case | a work-class admitted and refused pair that reaches compile, composition, environment construction and the spawn-time re-walk | **Both adopted; they are one ruling.** The law's exec arm, `compose_site`'s exec arms and the spawn re-walk read no class — every shipped inline hands site is a gate, so a work arm would be a branch only a constructed bundle reaches, and the literal coverage gate would have to carry it. The scenario binds as rows: the compile pair in the grammar table, the same bundle compiled with no `adapters/` reachable, and a `compose_site` pair over one exec command with the class flipped, argv and environment equal; the environment and the re-walk are reached by the one path there is, which the gate's end-to-end test drives, and a second box test for the work class would drive no line the first does not (DD22, DD18). The task rows are corrected here. |
+| D31's discriminator | a parameter — `render_prompt(input, kind)`, five call sites, no wire byte, no digest moved; the input's `boundary` at an exec site is read by nothing and the design should say so; the engine side is one line in `mark_boxed` | a typed fact handed to the renderer, never inferred from expanded argv | **Adopted, both.** `run_seat` holds `kind` at the call (Context); a journaled key that exists to steer prose is what the mark's own comment forbids; and inference from argv would repeat `hands_command`'s positional read. The paragraph is suppressed under `AdapterKind::Exec`; the mark helper writes `boundary`, the marker and `result_delivery` at its four call sites; the unread key is stated as evidence, not dead data (DD21). |
+| DD5's "the per-site gate fact is free" | false for panel members: `PanelMember` keeps no class, so the engine cannot say `gate` for a member tag; add `Bundle.gate_hands`, a set keyed as `hands` is, filled in `record_hands` | — | **The finding is refused on the tree, so the field is not needed.** `PanelMember` keeps no class because a panel has one — `parse_panel` refuses a mixed panel by name — and the fact is kept where the compiler keeps it: `Seat.has_gate` for a single or a panel seat, the select's `case_gates` for a selected case, `SequenceStep.class` for a step and its panel's members; the engine reads exactly that at the effect start today (`arms_effect_gate_head`, through `selected_is_gate`). A set of hands sites could not answer in any case: DD5's entry carries `gate` for a hands-less site too. What the claim earns is a sentence: DD5 now names the read instead of calling the fact free (DD5). |
+| Carrying D31 and D32 through the design and the tasks | both need a decision entry, or a smith reading `design.md` alone builds the pre-ruling shape; the tasks were untouched by the ruling commit | revise DD9, DD10, DD15, DD18 and the task rows in dependency order; a title change alone leaves the work-seat early return and the composition untested | **Adopted.** DD21 and DD22 are the entries; DD9 is rescoped and cites the new title; DD18 is amended; DD10 and DD15 needed no words, their subject having been "an unboxed exec dispatch" since the second sitting; the stale rows are corrected in `tasks.md` in this commit, with the work-class rows and the exec-prompt row added. |
+| The delivery script annotates every summary line | — | *unboxed* on the first line only leaves a contradictory check summary | **Already the readouts delta's rule:** the tier line and the vouch line both end with `· unboxed`, and a docs-tier preflight run is read the same way on its own line. Nothing to move. |
+| Re-raised from the third sitting: DD4's semantic validator, canonical containment (DD9), DD14's strict validation, DD15's per-spawn probe, DD20's codex measurement, the `work` member (DD7), the literal "every `effect/started`" (DD5), the site plan (DD2), the capability states (DD17) | — | re-raised in the third sitting's words | **Stand as ruled there.** Nothing new was read for any of them and none names a seam the third sitting did not weigh; the reasons are in each ruling's own text. |
+| DD8 enlarges the pinned-script exception; DD19 detects the finishing checkpoint by suffix | — | — | **Moot: the objections read the second sitting's draft.** DD8 flipped to a refusal and DD19's trigger moved to the record's own `model` key on the third sitting; both texts stand below. |
 
 ## Decisions
 
@@ -429,8 +518,15 @@ first checkpoint and no cell until a driver record names a model. One
 derivation rule then serves every attempt shape — the entry by tag,
 then a record naming a model, then absence — where the object needs a
 single-site special case or leaves every member and step of a mixed
-attempt blank until its driver record lands. The per-site gate fact is
-free once the loop exists and answers ruling 3 with the site named.
+attempt blank until its driver record lands. The per-site gate fact costs no field (fourth
+sitting, against simplicity's `gate_hands` set): a panel has one class —
+`parse_panel` refuses a mixed one by name — so the engine reads the
+class where the compiler kept it, `seat.body.selected_is_gate(strategy,
+seat.has_gate)` for a single, a panel member or a selected case (the
+read `arms_effect_gate_head` already makes at the same line) and
+`step.class` for a step and every member of a step panel; `invocation_sites`
+yields the tag and the chain, and one sibling read yields the class,
+which answers ruling 3 with the site named.
 The cost counted is not paid: the entries come from the same walk as
 `provenance`, the strict reading is one helper in the view and one
 `jq` in the script, and the schema file exists under either shape.
@@ -539,17 +635,19 @@ script that calls the tool (rejected: the recipe author would wrap a
 dialect the realm declares, and the wrapper's bytes would pin nothing
 about the tool it runs — the same host-tool fact, dressed as a script).
 
-### DD9 — The pinned-script check is a grammar and a lookup at compile, and a re-walk at spawn (amends D24; amended on the third sitting)
+### DD9 — The pinned-script check is a grammar and a lookup at compile, and a re-walk at spawn (amends D24; amended on the third sitting; rescoped by D32 on the fourth)
 
-The compiler judges an exec hands gate under `harness` or `open` on the
+The compiler judges every exec site that declares hands — gate or
+work, by D32, the class unread (DD22) — under `harness` or `open` on the
 *raw* command, before `expand_command` erases the `./` spelling, and
 asks one question: is the script token a key the declaring layer's
 manifest walk pins? The grammar (bare interpreter names before exactly
 one script token, then unjudged arguments) and the lookup (plain `./`
 components, a regular file by `metadata` under the declaring layer's
 directory, not a key the walk skips) are stated once, in
-gate-boundary-policy's requirement *An exec gate under harness or open
-holds only for pinned bytes*; the tasks cite it and restate nothing.
+gate-boundary-policy's requirement *An exec site with hands under
+harness or open holds only for pinned bytes*; the tasks cite it and
+restate nothing.
 What this design fixes is the shape: the walk's skip rule is one
 function shared with `manifest_for`, so the two cannot drift; the
 lookup follows a symlink because the walk pins through one (`is_file()`
@@ -807,8 +905,9 @@ simplicity's third-sitting evidence fixes — every shipped inline hands
 site is a `./` exec gate and every hands agent chains `opus`, so the
 pinned-script path carries the whole macOS promise until the claude
 measurement lands: (4a) the gate law with its whole boundary axis,
-fail-closed — the pinned-script grammar and lookup for exec gates, the
-dialect-step refusal, and the model arms that under `harness` admit
+fail-closed — the hands law that runs before the gate law's class read
+(DD22), with the pinned-script grammar and lookup for every exec site
+with hands, the dialect-step refusal, and the model arms that under `harness` admit
 only a link declaring a fragment (none does until 4c) and under `open`
 refuse; (4b) the unboxed exec composition — `SpawnEnv`, the fixed
 environment, the network prefix and probe, `compose_site` replacing the
@@ -871,6 +970,16 @@ The seat input carries `boundary` for every site with hands, the
 `hands: boxed` marker only under a box of Brokkr's, and
 `result_delivery: last-message` when the gate fragment's door is the
 harness's capture (D15, D23); the prompt paragraph follows.
+
+Amended on the fourth sitting for D32 and D31. The exec arms — the
+compiled command, the prefix, `SpawnEnv::Exactly` — and the spawn-time
+re-walk read no class: `compose_site`'s `class` argument is consulted by
+the `harness` model arm alone, to choose `gate` or `work` (DD7), and a
+work-class exec site with hands takes the path the shipped verify gate
+takes, token for token (DD22). The seat input's three keys are written
+by one helper, the mark `mark_boxed` grows into, at its four call sites;
+the prompt's paragraph follows the driver kind `render_prompt` is now
+told, and an exec site's prompt carries none (DD21).
 
 ### DD19 — The stamp rides beside the model: every record that names one carries the word (amends D17; amended on the third sitting)
 
@@ -1003,6 +1112,128 @@ under every boundary and neither adapter declares `hands.harness`. The
 arms of the chain rule stay on fixture providers, as the file's charter
 requires (D29).
 
+### DD21 — The hands paragraph is prose for a model: `render_prompt` is told the driver kind (D31)
+
+`render_prompt(input: &Value, kind: AdapterKind) -> String`. The
+paragraph — today's workspace-tool sentence under a boxed boundary, the
+`harness` paragraph with its `file` or `last-message` door, the `open`
+paragraph — is composed under the four model kinds from `input.hands`,
+`input.boundary` and `input.result_delivery`, and under
+`AdapterKind::Exec` it is the empty string whatever the input carries;
+the rest of the prompt is unchanged, so `verify-seat.sh` and
+`ship-seat.sh`, which read the result path off the prompt by line, read
+what they read today. The one production caller, `run_seat`, already
+holds `kind` — its next statement is `invoke(kind, …)` — so the change
+is one signature and five call sites, no wire byte and no digest moved.
+The engine's side is one helper: `mark_boxed` becomes the mark that
+writes `boundary` for every site with hands under every boundary,
+`hands: boxed` only when Brokkr builds the box, and `result_delivery:
+last-message` for a `harness` gate whose fragment's door is the capture
+(DD18), at the same four call sites. Consequence, stated so that a
+later reader does not delete it as dead: at an exec site the input's
+`boundary` is read by nothing at run time — the driver renders no
+paragraph from it and the script reads the composed environment — and
+it stays because D31 puts the word in the requested input of every site
+with hands, the digest covers it, and the journal is where the
+boundary-record scenario reads it back.
+
+*Alternatives:* a driver-kind key in the seat input (rejected: the
+mark's own comment — "the mark is part of the requested input, so the
+digest covers it" — makes a key that exists to steer prose a journaled
+field forever, on every site that gets one, and moves seat-input digests
+beyond the set the boundary already moves); inferring the kind from the
+expanded argv (rejected, on robustness's evidence: `hands_command`
+already identifies exec by argv position after `./` is erased, and a
+second such read is a second thing to keep true); a private
+`render_prompt_for(input, model_backed)` behind today's signature
+(rejected: a wrapper whose only caller is a test is a line the coverage
+gate must then justify).
+
+### DD22 — One hands law, total over class, before the gate law's class read (D32; fixes D10's and DD7's home; the pinned-bytes requirement retitled)
+
+`enforce_hands_boundary(what, boundary, dir, raw, from_agent:
+Option<&HandsSpec>, candidates, adapters: Option<&Adapters>)` is one
+function with three arms and no class read on its exec arm, and it is
+the first statement of `enforce_model_policy` at every site — before
+`parse_class`'s early return for a work site without secrets and before
+the destructure that `expect`s the adapters — so it runs for every site
+that declares hands whatever its class, and it runs on a bundle that
+never opened the adapters. A site without hands returns at once. Under
+`namespace`, `seatbelt` and `container` it returns at once too: what
+hands mean under a box is 0043's law, unchanged. Under `harness` and
+`open`:
+
+- an inline exec site — its raw `driver.command` a `{brokkr} driver
+  exec --` dispatch — is judged by D24's grammar and lookup against
+  `dir`, the declaring layer's directory every caller already holds
+  (`seat_origin`, `case_origin`): admitted for the bundle's own pinned
+  `./` script, refused otherwise naming ruling 4 and 0021 and, for a
+  spelling, the spelling; work or gate, the class is not read (D32);
+- an inline model site — a `{brokkr} driver <model driver>` dispatch —
+  is refused naming the seat and the repair (D10), and any other inline
+  command is refused as a bare program by the grammar's own arm;
+- an agent-resolved site — `candidates` non-empty, `from_agent` the
+  spec — is judged by its chain against the adapters the `agent` key
+  opened, so the `Option` is `Some` on this path by `needs_adapters`'
+  own rule and the arm's `expect` names that rule: under `harness` every
+  link declares `hands.harness.gate` for a gate site and
+  `hands.harness.work` for a work site (DD7), refused otherwise naming
+  the link, the provider and the member; under `open` a gate site is
+  refused naming ruling 4 and a work site is admitted to run at the
+  harness's default (D11). The class is read here and nowhere else in
+  the law, because here it selects a fragment — the one thing ruling 1
+  gives class to do under `harness`.
+
+`enforce_model_policy` then continues exactly as today: the class early
+return, 0021's tier and grant refusals, the 0043 admission of a boxed
+exec gate — which reads the hands fact off the raw site and is
+therefore true under every boundary, what the hands *are* under the
+boundary having been ruled by the law above — and the witness. The
+dialect step's refusal (DD8) is not an arm of this law: the two sites
+that build the synthetic gate (the verify-phase fold and the step loop)
+share one helper that builds it, and the refusal lives in that helper
+before the gate law runs, so the law never sees a dialect step under
+`harness` or `open`, and its script-less arm is reached by an inline
+command instead.
+
+The exec path reads no class after the law either: `compose_site`'s
+exec arms, the fixed environment, the network prefix and the spawn-time
+re-walk are keyed on "an unboxed exec dispatch" (DD18, DD10, DD15, DD9),
+which is what D32 makes true and what the coverage gate needs — every
+shipped inline hands site is a gate (`bundles/self`, `bundles/verify`,
+`recipes/fast`, `recipes/node`, `recipes/panel-review`,
+`recipes/preflight`, `recipes/research`), so a work arm would be a
+branch only a constructed bundle reaches, and D32 says not to write it.
+The operator's scenario binds as rows. In `model_policy_tests.rs`: the
+work-class pair — `./scripts/lint.sh` admitted, `true` refused naming
+ruling 4 and 0021 — in the grammar's table beside the gate rows, and
+the same bundle compiled with no `adapters/` directory reachable,
+admitted and refused the same, which pins that the law reads no adapter
+and cannot reach the `expect`. In the argv tests: `compose_site` over
+one exec command with the class flipped, `Work` and `Gate`, argv and
+environment equal. The environment and the re-walk are reached by the
+one path there is, driven end to end by the gate's own test under
+`BROKKR_HANDS_BOX`'s skip; a second box test for the work class would
+reach no line the first does not.
+
+Simplicity's home for the law, `record_hands`, was refused on one
+ground: ruling 4's enforcement binding names `enforce_model_policy` and
+`model_policy_tests.rs`, and a design note does not move a binding
+(0042's addendum, ruling 1). Everything else simplicity read is adopted
+— the panic at the `expect` on the operator's own scenario, the refusal
+to widen `needs_adapters`, the law as a hands law rather than a class
+law. Robustness's "separate total helper the early return cannot
+bypass" is this function.
+
+*Alternatives:* the law after the early return, with `needs_adapters`
+widened to any hands site (rejected: the adapter root becomes a compile
+input for a bundle that names no agent, gate or secret — the one thing
+the comment above the load says it need not be — and `Adapters::load`
+then fails wherever `adapters/` is absent, for a check that reads no
+adapter); the law in `record_hands` (rejected on the binding alone);
+a class arm in the exec path with a work case (rejected: D32, and an arm
+no shipped bundle reaches).
+
 ## Shape, by crate
 
 - **brokkr-core** — `realms.rs`: `Boundary` (no `Default`),
@@ -1011,15 +1242,21 @@ requires (D29).
 - **brokkr-runtime** — `bundle.rs`: `Bundle.boundary`,
   `compile_with_realm`'s boundary argument, the `boundary` refusal at
   every site and inside `hands`, the `driver.confine` refusal, the v9
-  map in `manifest_for`, the shared walk-exclusion function, the
-  pinned-script grammar and lookup, the dialect-step refusal under
-  `harness` and `open`, the boundary axis in `enforce_model_policy`;
-  the declaring layer's directory, which `expand_command`'s caller
-  already holds, is handed to the check, and the layer's pinned
-  identity is re-derived at spawn by the walk `manifest_for` already
+  map in `manifest_for`, the shared walk-exclusion function, the hands
+  law `enforce_hands_boundary` — the pinned-script grammar and lookup
+  for every exec site with hands, D10's inline-model refusal and the
+  chain's fragments by class — as the first statement of
+  `enforce_model_policy`, before its class read (DD22); the shared
+  helper that builds a dialect step's synthetic gate, with DD8's
+  refusal inside it; the declaring layer's directory, which every
+  caller already holds, handed to the law, and the layer's pinned
+  identity re-derived at spawn by the walk `manifest_for` already
   performs (a pure `layer_drift(layer, pinned) -> Option<key>`).
   `engine.rs`: `Engine.boundary`, the two entry fences,
-  `boundary_entries` beside `select_candidates`, `compose_site`, the
+  `boundary_entries` beside `select_candidates`, reading each site's
+  class through `selected_is_gate` and `step.class` (DD5), the hands
+  mark `mark_boxed` grows into, writing `boundary`, the marker and
+  `result_delivery` at its four call sites (DD21), `compose_site`, the
   spawn-time re-walk before an unboxed exec dispatch, the remembered
   network prefix (probed once), the stamp helper at the two
   pass-throughs and the two markers, `manifest_diff` naming `boundary`;
@@ -1027,7 +1264,8 @@ requires (D29).
   `hands.harness` with `gate`/`work`/`result`, `{result_path}` admitted
   there and the two workspace tokens refused.
 - **brokkr-protocol** — `process.rs`: `SpawnEnv` on `spawn`;
-  `adapters.rs`: the prompt paragraph per boundary and delivery;
+  `adapters.rs`: `render_prompt(input, kind)`, the prompt paragraph per
+  boundary and delivery for the model kinds and none for exec (DD21);
   `hands.rs`: the unboxed environment function beside the box's table
   it mirrors, and the network prefix and its probe as pure functions.
 - **brokkr-store** — `seat-record.v4` embedded and dispatched
@@ -1103,6 +1341,16 @@ requires (D29).
   re-walk, the environment, the probe, `compose_site`, the stamp, the
   view derivation), and the end-to-end box tests skip under
   `BROKKR_HANDS_BOX`.
+- **`enforce_model_policy` gains a law before its class read** (DD22):
+  every site with hands is judged by the boundary before 0021's class
+  law runs, and a smith who places the law after the early return
+  reproduces the panic on the operator's scenario. Defended by the
+  no-adapters row in `model_policy_tests.rs`, which cannot pass with
+  the law behind the destructure. Accepted.
+- **The input's `boundary` at an exec site is read by nothing at run
+  time** (DD21). It is evidence the digest covers and the journal
+  carries, and the design says so where a later reader would look.
+  Accepted.
 - **Windows is named by ruling 6 and measured by nobody** (Open
   questions).
 
