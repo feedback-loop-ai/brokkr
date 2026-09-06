@@ -393,3 +393,38 @@ Ruling 2 classed the design chief as a gate while ruling 4 forbade gates from ma
 The enactment reads an artifact author as a work seat and its boxed validator as the gate, so the chief keeps its chain but the engine guards only the judging step.
 Decision 0042 ruling 6 grounds this reading by assigning the `specify` and `design` artifacts and exactly those commits to the chief while forbidding every gate from touching an artifact.
 The operator confirmed the reading in chat on 2026-09-04 ("confirm it"): the class column of ruling 2's table names the hiring grade, an office that authors an artifact is a work seat, and the boxed validator that follows it is the phase's gate. No ruling's text changes.
+
+## Addendum — 2026-09-06, operator ruled: a hedge forces its crew, as a wager does
+
+Ruling 2 makes the library the roster and ruling 7 leaves inline model
+sites only where a recipe must force its crew — "a wager must force the
+crew", in ruling 7's own words. On 2026-09-06 the operator asked for a
+hedge: a shipped recipe that delivers without touching one vendor's
+account at all, after that account's exhausted limit parked a live run
+twice in one day while the other vendor was serving throughout.
+
+A hedge forces its crew for exactly ruling 7's reason. Its purpose is
+the vendor it does *not* use, and a library chain would undo that
+silently at its first fallback — the fallback is the feature everywhere
+else and the defect here. `recipes/standby` therefore joins the inline
+exception: `fast`'s shape and contracts unchanged, its two model seats
+pinned inline to the other vendor, its verify and ship gates the same
+boxed exec scripts.
+
+Two things this addendum does not do. It does not widen the exception
+to any recipe that would merely prefer a vendor: a recipe that can take
+a fallback belongs in the library, and the test names the hedge by name
+rather than by a pattern. And it is not the end state — the reason the
+hedge cannot be a library crew is that codex expresses no per-tool
+allow-list, so no office holding one can resolve on it (decision 0045
+ruling 4), and the smith holds `cargo` and `git`. When an implementer's
+hands are boxed the way the review offices' already are, the allow-list
+is not consulted at all (decision 0043 ruling 2), the smith becomes
+hireable on any provider that puts its hands in the box, and this
+recipe should retire into a library crew. That is its own slice.
+
+**Enforcement binding:** `crates/brokkr-runtime/tests/roster.rs` names
+`standby` in the inline exception with this addendum as the reason;
+`recipes/standby` compiles and its seats keep `fast`'s result
+vocabularies and inputs, so the inherited policy table rules on them
+unchanged.

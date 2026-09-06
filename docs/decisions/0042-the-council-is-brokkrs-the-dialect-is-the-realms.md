@@ -573,3 +573,46 @@ right.
    name. This build reads `brokkr.dialect/v2` only, which costs nothing
    today: the dialect landed the same day with no realm declaring one,
    so no journal pins a v1 dialect for a resume to reload.
+
+## Addendum — 2026-09-06, operator ruled: a capability spec names the changes that wrote it
+
+The first change to run the whole machine end to end,
+`2026-09-06-boundary-named-slice-i`, promoted eight capabilities. Every
+one of them cites the decisions it enforces — from six citations to
+forty-one — and not one names the change that produced it. Nothing
+under `openspec/specs/` points back at the archived directory where the
+design's four sittings, the task breakdown, the reconciliation and the
+completion note live. The operator read the result and asked why the
+promoted artifacts are spec files alone; the split itself is right, and
+the missing half of the trail is not.
+
+The split stands. A change directory is a proposal with a lifecycle and
+a capability spec is standing truth; rationale is not copied into
+standing truth, because duplicated text drifts, which this very change's
+analyze loop caught three times. What is ruled here is one line, not a
+second copy.
+
+1. **The archive step appends provenance.** Folding a change — the
+   smith's last task, this decision's addendum of 2026-09-04 — appends
+   to every capability the change touched one line under a `##
+   Provenance` heading held at the end of the file: the change's
+   archived directory name and the date it was folded. The line is
+   appended and never rewritten, so a capability shaped by four changes
+   carries four lines in the order they landed, which is that
+   capability's own history.
+
+2. **The trail resolves in both directions.** The archived change
+   already names the capabilities it touched. With ruling 1 a reader
+   holding a requirement reaches the sitting that argued it, and a
+   reader holding a change reaches the standing text it produced.
+
+   **Enforcement binding:** the dialect's `archive` instruction for
+   every dialect that promotes capability specs; a test that every
+   capability spec under `openspec/specs/` carries a non-empty
+   `## Provenance` list and that every change it names resolves to a
+   directory under `openspec/changes/archive/`.
+
+Changes archived before this ruling are backfilled once, by the slice
+that enacts it, from the archive's own record of which capabilities each
+touched. A backfilled line says nothing a reader could not have derived;
+it says it where the reader is.
