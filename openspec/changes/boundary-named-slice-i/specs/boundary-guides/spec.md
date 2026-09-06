@@ -21,7 +21,9 @@ door, and the measured claude fragments with the claude version and
 what each denies and allows, and its doctor section names the
 `boundaries` line and what *offered* and *ready* mean on it;
 `docs/guides/recipe-authoring.md`'s `hands` row stops saying Linux only
-and says the boundary lives in the realm, and its `driver.confine` row
+and says the boundary lives in the realm and that under `harness` and
+`open` a bind's `mask` is declared and not enforced, and its
+`driver.confine` row
 says the field is refused and points at decision 0046 ruling 5;
 `docs/guides/quickstart.md`'s platform paragraph says that a realm on
 macOS or Windows declares `boundary: harness` today, what that means —
@@ -33,7 +35,12 @@ slices (ii) and (iii) build them;
 and what `boundary` on a record and on `effect/started` means;
 `docs/guides/read-surfaces.md`'s seats-table example is refreshed from
 the renderer's header line, which already carries `model`, and shows the
-`boundary` column beside it; `docs/guides/repository-layout.md` names `boundary` beside
+`boundary` column beside it, and its verb list gains `brokkr seats`
+beside `inspect`; `docs/guides/quickstart.md`'s `rerun` line says the
+rerun compiles in the discovered realm as `run` does; no guide states
+that the network was off under `harness` or `open` — the prefix is
+described as a narrowing the engine attempts on Linux (design DD15);
+`docs/guides/repository-layout.md` names `boundary` beside
 `house` and `dialect` in the `realms.json` row and the new contract
 files in the `contracts/` row; `docs/guides/driver-authoring.md` and
 `ARCHITECTURE.md` stop describing the `docker run` wrapper as a trust
@@ -53,7 +60,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: recipe-authoring points the two rows at the realm and at 0046
 - **WHEN** the site vocabulary table is read
-- **THEN** the `hands` row says the boundary is the realm's and no longer says Linux only, and the `driver.confine` row says the field is refused under decision 0046 ruling 5
+- **THEN** the `hands` row says the boundary is the realm's, that a mask is not enforced under `harness` and `open`, and no longer says Linux only, and the `driver.confine` row says the field is refused under decision 0046 ruling 5
 
 #### Scenario: quickstart's platform paragraph
 - **WHEN** the quickstart's platform paragraph is read
@@ -61,7 +68,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: journal-and-verification and read-surfaces show the rendering
 - **WHEN** the two guides are read
-- **THEN** one explains the unboxed rendering and the record's `boundary`, and the other's seats table carries a `boundary` column beside `model`
+- **THEN** one explains the unboxed rendering and the record's `boundary`, and the other's seats table carries a `boundary` column beside `model` and its verb list names `brokkr seats`
 
 #### Scenario: The layout, driver and architecture pages follow
 - **WHEN** `repository-layout.md`, `driver-authoring.md` and `ARCHITECTURE.md` are read

@@ -27,8 +27,12 @@ README's rule admits an extension field at `event_schema: 1` only on
 that condition — a key on every `effect/started` would be a v2 event,
 which the closed `type` enum forbids — and ruling 3's *every* is carried
 by the seat record instead, which carries `boundary` on every finishing
-checkpoint and successful result (decision 0046 ruling 3; the extension
-rule of decision 0016).
+checkpoint and successful result. This is a narrowed reading of ruling
+3, named as such; the literal reading is a new event lineage for the
+operator to ask for (design DD5). The entries SHALL be built from the
+same invocation-site traversal that builds `provenance`, so the two tag
+sets cannot drift (decision 0046 ruling 3; the extension rule of
+decision 0016).
 
 #### Scenario: A boxed single seat
 - **WHEN** a gate-class single seat that declares hands starts an attempt under `harness`

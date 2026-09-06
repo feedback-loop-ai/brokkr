@@ -82,8 +82,8 @@ In the commission's order of value:
    finishing checkpoint and the successful result, stamped by the engine,
    `not applicable` for a site without hands. `brokkr-view` exposes the
    boundary beside every model cell it carries and as a run-level fact;
-   `inspect`, `watch`, the TUI and the web console render it; `costs`
-   and `compare` name it from the seat records; `export` carries it as
+   `inspect`, `watch`, `seats` — a thin verb, D8 — the TUI and the web
+   console render it; `costs` and `compare` name it from the seat records; `export` carries it as
    data; a run in which a gate site stood under `harness` or `open` is
    rendered *unboxed*, in the delivery gate's check summary too. Old
    journals render an explicit absence, never a default.
@@ -116,8 +116,8 @@ with 0046 as the stated reason.
 
 - `realm-boundary`: the boundary word — its closed vocabulary in one
   shared type, its home in the realm map as `forge.realms/v4`, its
-  default, its resolution at compile and on resume, its refusal inside a
-  bundle or an agent, and its printout by `brokkr compile`.
+  default, its resolution at compile, on resume and on rerun, its
+  refusal inside a bundle or an agent, and its printout by `brokkr compile`.
 - `boundary-manifest-pin`: `run-manifest.v9` — the per-site boundary map
   as bundle identity, the frozen-contracts pins, the witness and compose
   digests re-pinned for 0046, resume under the pinned boundary, and the
@@ -132,8 +132,8 @@ with 0046 as the stated reason.
   under.
 - `boundary-readouts`: the rendering — the view's boundary cell beside
   every model cell it carries and its run-level unboxed fact, `inspect`,
-  `watch`, the TUI, the web console, `costs` and `compare` from the seat
-  records, `export` as data, explicit absence for old journals, and the
+  `watch`, `seats`, the TUI, the web console, `costs` and `compare` from
+  the seat records, `export` as data, explicit absence for old journals, and the
   delivery gate's check summary.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
@@ -176,11 +176,12 @@ that authorises it.
   network prefix and its probe; `DriverProcess::spawn` taking the
   environment the child starts with), `brokkr-store`
   (seat-record v4 embedded and
-  dispatched), `brokkr-view` (a boundary cell beside every model cell —
-  participant, node, checkpoint row, journal row — the run-level fact,
-  `VIEW_VERSION` 9), `brokkr-cli` (`compile`, `run`/`resume`/`rerun`,
-  `doctor`, `init`, `render.rs`, `tui.rs`, `ui.html`, and `compare.rs`
-  for `costs` and `compare`; `HandsCommand` gains no verb, D25).
+  dispatched), `brokkr-view` (one flattened `ModelAtBoundary` unit beside every
+  model cell — participant, node, checkpoint row, journal row — the
+  run-level fact, `VIEW_VERSION` 9), `brokkr-cli` (`compile`, `run`/`resume`/`rerun`,
+  `doctor`, `init`, `seats` — a new thin verb, D8 — `render.rs`,
+  `tui.rs`, `ui.html`, and `compare.rs` for `costs` and `compare`;
+  `rerun` discovers the world, D13; `HandsCommand` gains no verb, D25).
 - **Data:** `adapters/codex.json` and `adapters/claude.json` gain
   `hands.harness`; `realms.json` is untouched.
 - **Identity:** every pinned bundle that declares hands moves once,
@@ -252,21 +253,22 @@ the artifact rather than raising the finding again (decision 0042 ruling
   adapter declares no `work` fragment is refused at compile as the
   capability gap it is.
 - **D6 — Dialect steps are admitted under `harness` and `open` as pinned
-  argv, and this is the reading most in need of the operator's word.** A
-  dialect validate or check step is an exec gate whose argv is the
-  dialect's own, pinned in the run manifest by the dialect's content
-  digest (0042 ruling 1) together with the tool's name and version
-  (dialect v2). The bytes that run — the `openspec` or `specify` binary —
-  are not pinned by digest, so this is weaker than ruling 4's
-  bundle-pinned script, and the proposal says so rather than dressing it
-  up. It is admitted anyway, on the same cleared-environment and network
-  terms and with the run marked unboxed, because the alternative refuses
-  every artifact phase on macOS and breaks ruling 6's own promise that a
-  macOS operator runs every shipped bundle. If the operator refuses this
-  reading, the scenario "A dialect step under harness is admitted" is
-  the one line to delete, and `recipes/triage` and `recipes/night-shift`,
-  which extends it — the only shipped bundles with dialect steps — then
-  compile only under a boxed boundary (D26).
+  argv** (amended in design, DD8). A dialect validate or check step is
+  an exec gate whose argv is the dialect's own, pinned in the run
+  manifest by the dialect's content digest (0042 ruling 1) together
+  with the tool's name and version (dialect v2), and admitted today
+  outside `enforce_model_policy` by that ruling. It is admitted under
+  `harness` and `open` on the same environment and network terms as a
+  bundle-pinned script, with the run marked unboxed. The design
+  withdraws the earlier characterisation of this as the weaker reading:
+  a `./` script's bytes are pinned and the `bash` and `cargo` it runs
+  are not; the dialect file's bytes are pinned and the `openspec` it
+  names is not — both readings pin a declaration and run a host tool.
+  It is still the reading most in need of the operator's word: if the
+  operator refuses it, the scenario "A dialect step under harness is
+  admitted" is the one line to delete, and `recipes/triage` and
+  `recipes/night-shift`, which extends it — the only shipped bundles
+  with dialect steps — then compile only under a boxed boundary (D26).
 - **D7 — A judge under `harness` still delivers its result file.** The
   result file is the only channel the engine reads, and a read-only
   harness sandbox leaves nothing writable. The `gate` fragment must
@@ -275,9 +277,12 @@ the artifact rather than raising the finding again (decision 0042 ruling
   measured read-only mode leaves no door declares `gate` unsupported
   with the reason and is refused at a `harness` gate, which is the
   honest outcome rather than a judge that cannot speak.
-- **D8 — `brokkr seats` is the seats table.** No verb of that name
-  exists in this tree; the decision's "`brokkr seats`" is read as the
-  seats table `brokkr inspect` and `brokkr watch` render. `brokkr
+- **D8 — `brokkr seats` is a thin verb over the seats table** (amended
+  in design, DD11). No verb of that name existed; the decision and the
+  commission both name it, so it exists: `brokkr seats --run <id>`
+  renders the seats block `brokkr inspect` renders, from the same view,
+  and `--json` emits the participants beside the run-level boundary
+  fact and the view version. It derives nothing of its own. `brokkr
   export` writes the journal and its manifest as data and renders no
   prose, so its part of ruling 3 is the record itself: the exported
   journal carries the word and `verify-run` accepts it.
@@ -328,9 +333,19 @@ the artifact rather than raising the finding again (decision 0042 ruling
   The seat box that authored this change refuses nested user
   namespaces (`unshare: unshare failed: Operation not permitted`,
   measured 2026-09-06), which is the case the probe exists for.
-- **D13 — `rerun` compiles without a world today.** It therefore
-  compiles under `namespace`; widening `rerun` to take a map is a
-  change of its own and is not made here.
+- **D13 — `rerun` discovers the world as `run` does** (amended in
+  design, DD6). `rerun` compiles today with no world at all — no realms
+  pin, no dialect — and would therefore compile every rerun under
+  `namespace`: refused on a `harness` Mac for want of bubblewrap, boxed
+  on a `harness` Linux while the realm says otherwise, both the
+  cross-machine substitution 0046 was written to prevent. It therefore
+  discovers the workspace map, compiles in the operated repository's
+  realm, passes `refuse_unboxable`, and starts under that world, exactly
+  as `run`; its `--db` handling is unchanged. The source run's embedded
+  world is not used: `rerun` is a new run under a possibly different
+  bundle with no stored linkage, so the discovered realm is its
+  identity, as for `run`. A rerun's manifest consequently gains the
+  realms pin and the dialect, which its tests and guide line record.
 - **D14 — The extension field is absent by default, which is what makes
   it legal at event_schema 1.** The contracts README's amended rule
   (decision 0016) admits an additive payload field at `event_schema: 1`
@@ -340,8 +355,10 @@ the artifact rather than raising the finding again (decision 0042 ruling
   enum and the frozen manifest schemas forbid. `boundary` therefore
   rides `effect/started` on the exact terms `provenance` set: for an
   attempt with at least one boxed site, and a run over a bundle that
-  boxes nothing journals byte-identical payloads. Ruling 3's "every" is
-  honoured where the record can afford it: the seat record carries
+  boxes nothing journals byte-identical payloads. This is a narrowed reading of ruling 3's *every*, and the design
+  names it one (DD5): the literal reading needs a new event lineage
+  outside this slice's contracts and is the operator's to ask for.
+  Ruling 3's "every" is honoured where the record can afford it: the seat record carries
   `boundary` on every finishing checkpoint and successful result, `not
   applicable` for a site without hands.
 - **D15 — The seat input's `hands: boxed` marker stays true.** The
@@ -361,9 +378,13 @@ the artifact rather than raising the finding again (decision 0042 ruling
   terminal's decision trail prints `· model <x>`, and `brokkr costs` and
   `brokkr compare` name a seat's model from the seat records through
   `compare::seat_costs`, outside the view. The boundary therefore
-  travels beside every one of them, and the pin test scans for a model
-  cell read rather than for a list of surfaces this proposal could
-  leave short. The absence word differs by surface for a reason: a view
+  travels beside every one of them as one flattened `ModelAtBoundary`
+  unit — `served: {model, boundary}` on the participant, the node, the
+  checkpoint row and the journal row, so the wire keeps `model` and
+  gains `boundary` beside it and a renderer cannot take one without the
+  other in reach (design DD12) — and the pin test scans for a model cell
+  read outside the one renderer helper rather than for a list of
+  surfaces this proposal could leave short. The absence word differs by surface for a reason: a view
   cell is the absent mark with a note, as every other cell is; a
   seat-costs record is JSON data and says `not recorded`, the way the
   same record says `not reported` for a model no driver reported.
@@ -428,30 +449,37 @@ the artifact rather than raising the finding again (decision 0042 ruling
   statement ruling 3 exists to prevent — and a compile refusal would
   leave the word without the pin ruling 1 promises. The refusal is the
   one line slice (ii) deletes, and nothing else moves when it does.
-- **D22 — The unboxed exec environment is a fixed table, and the in-box
-  marker is never set.** Ruling 4's "environment cleared" takes the
-  operator's variables — keys, tokens, sockets — out of a script's
-  reach. The box's own allow-list (0043 ruling 1) names what a script
-  needs and nothing else, but its values are box paths that name nothing
-  outside a namespace, and `BROKKR_HANDS_BOX` set outside one would be a
+- **D22 — The unboxed exec environment mirrors the box's own table, and
+  the in-box marker is never set** (amended in design, DD10). Ruling 4's
+  "environment cleared" takes the operator's variables — keys, tokens,
+  sockets — out of a script's reach, and the box's own allow-list (0043
+  ruling 1) already says what a script needs: a private home and tmp,
+  the toolchain only by the site's declared binds, and a fixed set of
+  switches. The unboxed dispatch therefore starts from an empty
+  environment and holds exactly what `gate-boundary-policy` lists:
+  `HOME` and `TMPDIR` as two private directories created for the
+  attempt, never the operator's; `PATH`, `USER` and `LOGNAME` inherited
+  verbatim from the engine's own environment, each only when set there,
+  because the interpreter and the toolchain proxies are found where the
+  operator's shell finds them and the box's fixed `PATH` names mounts
+  that exist only inside a namespace; `CARGO_HOME`, `RUSTUP_HOME` and
+  `NPM_CONFIG_CACHE` set to the operator's `~/.cargo`, `~/.rustup` and
+  `~/.npm` exactly when the site's `hands.binds` declare that path, as
+  the box sets them, and absent otherwise; the in-box marker itself
+  only when the engine already stands inside a box; the box's own fixed
+  entries (`C.UTF-8`, `CI`, the updater and telemetry switches, the
+  unsigned commit triple, the bundle's `git.identity`); and on Windows
+  the process-bootstrap set without which no Windows program starts. No
+  other key passes, and `BROKKR_HANDS_BOX` set outside a box would be a
   false statement that also switches off every test the constraints
-  require to skip only inside a box. The unboxed dispatch therefore
-  starts from an empty environment and holds exactly what
-  `gate-boundary-policy` lists: inherited verbatim from the engine's own
-  environment, and only when set there, the locators (`PATH`, `HOME`,
-  `USER`, `LOGNAME`, `TMPDIR`, `CARGO_HOME`, `RUSTUP_HOME`,
-  `NPM_CONFIG_CACHE`, and on Windows the process-bootstrap set without
-  which no Windows program starts), the in-box marker itself when the
-  engine already stands inside a box, and the box's own fixed entries
-  (`C.UTF-8`, `CI`, the updater and telemetry switches, the unsigned
-  commit triple, the bundle's `git.identity`). No other key passes. A
-  script finds `cargo` where the operator's own PATH finds it and the
-  toolchain where `HOME` or the operator's own `CARGO_HOME` points,
-  which is why the shipped verify gate runs under `harness` on a rustup
-  machine. Reason for inheriting `PATH` and `HOME` rather than deriving
-  them: they locate the interpreter and the toolchain on all three
-  platforms, they carry no secret, and a derived PATH is a second copy
-  of a fact the operator's shell already owns.
+  require to skip only inside one. A bind's `mask` cannot be enforced
+  outside a namespace: under `harness` the shipped verify script can
+  read `~/.cargo/credentials.toml`, which is the fact *unboxed* renders
+  and the guide names. Reason for the private home rather than the
+  operator's: the real home carries the credential files — `.ssh`,
+  `.netrc`, `.cargo/credentials.toml` — that clearing the environment
+  was meant to take out of reach, and the box itself never hands it
+  over.
 - **D23 — The result door is a token in adapter data.** A judge under
   `harness` has one write door, and both measured candidates need the
   seat's result path, which exists only at spawn. `{result_path}` joins
@@ -470,20 +498,28 @@ the artifact rather than raising the finding again (decision 0042 ruling
   whose digest the manifest pins as the witness of what authorised the
   gate (0021). The `work` fragment needs no door: a writable worktree
   holds the result path.
-- **D24 — "Pinned bytes" is checked by construction, not by comparing
-  paths.** The compiler already expands a `./` command token against the
-  directory of the layer that declared the seat, and the manifest walk
-  of that layer digests every file under it. So a token is the bundle's
-  own pinned script exactly when it is `./`-relative, its components are
-  plain names (no `..`, no `.`, no empty component, no `\`, no absolute
-  prefix) and the joined path is a regular file at compile. No path is
-  canonicalised and no two spellings are compared, which is how the rule
-  is platform-neutral: a `/private/var` or `C:\` spelling is refused as
-  not `./`-relative, never compared. Reason: a canonicalising comparison
-  needs the file to exist on both sides, behaves differently per
-  platform, and proves less — a file under the declaring directory that
-  the walk did not pin is impossible, so the existence check is the
-  whole proof.
+- **D24 — "Pinned bytes" is checked by construction, as a grammar and a
+  lookup, not by comparing paths** (amended in design, DD9). The
+  compiler already expands a `./` command token against the directory
+  of the layer that declared the seat, and the manifest walk of that
+  layer digests every file under it. The check reads the raw command
+  before that expansion: after `{brokkr} driver exec --`, zero or more
+  bare interpreter names (no path separator, no leading `-`), then
+  exactly one script token, then arguments that are not judged. The
+  script token is the bundle's own pinned script exactly when it is
+  `./`-relative, its components are plain names (no `..`, no `.`, no
+  empty component, no `\`, no drive or UNC prefix), the joined path is
+  a regular file at compile by `metadata` — following a symlink, as the
+  walk does, so the bytes the walk pinned under that key are the bytes
+  that run — and the key is not one the walk skips (`realms.json`,
+  `dialects/…`), the exclusion being one function shared with the walk.
+  No path is canonicalised and no two spellings are compared, which is
+  how the rule is platform-neutral: a `/private/var` or `C:\` spelling
+  is refused as not `./`-relative, never compared; `bash -c '…'` is
+  refused because an option token precedes the script. Reason: a
+  canonicalising comparison needs the file to exist on both sides,
+  behaves differently per platform, and proves less than the walk's own
+  key set.
 - **D25 — No new verb: the engine spawns the dispatch it already
   spawns, in a fixed environment, behind a prefix.** The clarify seat
   found the unboxed exec wrapper unnamed and its argv unpinned. Ruled:
@@ -633,5 +669,13 @@ a rustup machine, a secret that does not pass, the operator's own
 locators that do, the marker never set; the loader's `result` and token
 refusals; the pinned-script check on the shipped verifier, on an
 inherited seat, on every refused spelling and on a `./` token naming no
-file; and a harness gate composed with its door pointing at that seat's
-real result path.
+file; a harness gate composed with its door pointing at that seat's real
+result path; and, from the design: `brokkr seats` rendering the block
+`inspect` prints and its `--json` shape; `rerun` compiling and starting
+under the discovered realm and refusing under a word the machine
+cannot build; the engine's entry fence refusing a world whose boundary
+differs from the bundle's before `run/started`; the private home with
+planted secrets a spawned script cannot read and the locators set from
+the site's binds; `bash -c` and a `./dialects/` token refused; and an
+entry outside the vocabulary rendered *not recorded* by the view and
+the gate script.

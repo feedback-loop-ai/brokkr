@@ -67,8 +67,10 @@ SHALL compile against the boundary of the operated repository's realm
 in the discovered or named map; `brokkr resume` SHALL compile against
 the realm embedded in the run's pinned world and never against the
 workspace's map as it stands today, as it already does for the dialect;
-`brokkr rerun` compiles as it does today, without a world and therefore
-under `namespace`. Compilation consults no machine and no engine
+`brokkr rerun` SHALL discover the workspace map and compile against
+the operated repository's realm exactly as `brokkr run` does, so a
+rerun stands under the realm's word and its manifest carries the realms
+pin (design DD6). Compilation consults no machine and no engine
 capability: a realm declaring `seatbelt` or `container` compiles and
 pins the word, and the refusal that stops a run under either comes at
 start and is boundary-availability's (decision 0046 ruling 1; the
@@ -82,6 +84,10 @@ resume rule of decision 0042 ruling 1's enactment).
 - **GIVEN** a run started under a map that declared no boundary
 - **WHEN** the workspace's `realms.json` now declares `harness` and `brokkr resume` compiles the run's bundle
 - **THEN** the bundle compiles under `namespace`, the pinned manifest matches, and the resume proceeds under the boundary the run was started with
+
+#### Scenario: Rerun resolves the discovered realm
+- **WHEN** the workspace's `realms.json` declares the operated repository's realm with `"boundary": "harness"` under `forge.realms/v4` and `brokkr rerun` re-runs a past run's feature
+- **THEN** the new run's bundle compiles under `harness`, its manifest carries the realms pin as a `run`'s does, and `refuse_unboxable` judges `harness`
 
 #### Scenario: Compile without a map is namespace
 - **WHEN** a bundle compiles through `Bundle::compile_with` with no realm context

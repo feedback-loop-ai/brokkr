@@ -122,17 +122,22 @@ as it does today under every boundary (decision 0046 ruling 4; decision
 ### Requirement: An exec gate under harness or open holds only for pinned bytes
 An exec gate that declares hands, compiled under `harness` or `open`,
 SHALL be admitted only when its command is the bundle's own pinned
-script, checked by construction: after the `--` that ends the
-`{brokkr} driver exec` dispatch, every token before the script is a bare
-interpreter name without a path separator, and the script token is
+script, checked by construction on the raw command, before
+`expand_command` erases the `./` spelling: after the `--` that ends the
+`{brokkr} driver exec` dispatch, zero or more bare interpreter names —
+no path separator, no leading `-`, so `bash -c '…'` is refused — then
+exactly one script token, then arguments. The script token is
 `./`-relative, every component after `./` a plain name — no `..`, no
-`.`, no empty component, no `\`, no absolute prefix — and, joined to the
-directory of the layer that declared the seat (the bundle's own
+`.`, no empty component, no `\`, no drive or UNC prefix — and, joined to
+the directory of the layer that declared the seat (the bundle's own
 directory, or the ancestor's that wrote the seat under composition), a
-regular file at compile. That directory is the one the compiler already
-expands `./` against and the one the manifest walk digests, so a token
-that passes is pinned by the manifest of the layer that declared it, and
-no path is canonicalised and no two spellings are compared. The tokens
+regular file at compile by `metadata`, following a symlink as the
+manifest walk does, and not a key the walk skips (`realms.json`,
+`dialects/…`), the exclusion being one function shared with the walk.
+That directory is the one the compiler already expands `./` against and
+the one the manifest walk digests, so a token that passes is pinned by
+the manifest of the layer that declared it, and no path is canonicalised
+and no two spellings are compared (design DD9). The tokens
 after the script are its arguments and are not judged, which is how the
 shipped ship gate hands `{brokkr}` to its own script. A command with no
 such script — a bare program, a `{brokkr}` verb, an absolute path, a
@@ -143,9 +148,10 @@ validate or check step, whose argv is the dialect's own and pinned by
 the dialect's content digest in the run manifest beside the tool's
 declared name and version, SHALL be admitted on the same environment
 and network terms, the run marked unboxed all the same; the tool's
-binary is not pinned by digest, which makes this the weaker of the two
-readings, recorded as such in the proposal's D6 for the operator to
-confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
+binary is not pinned by digest, as `bash` and `cargo` are not pinned
+under a bundle-pinned script — both readings pin a declaration and run
+a host tool — and the reading is recorded in the proposal's D6 and the
+design's DD8 for the operator to confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
 4).
 
 #### Scenario: The shipped verifier under open is admitted
@@ -163,6 +169,14 @@ confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
 #### Scenario: A pinned-looking token that names no file is refused
 - **WHEN** the script token is `./scripts/missing.sh` and no such file exists under the declaring layer's directory
 - **THEN** compilation is refused naming the token and the directory searched
+
+#### Scenario: An option before the script is refused
+- **WHEN** the command is `["{brokkr}","driver","exec","--","bash","-c","./scripts/s.sh"]` under `harness`
+- **THEN** compilation is refused naming `-c` as an option token before the script
+
+#### Scenario: A file the walk skips is refused as unpinned
+- **WHEN** the script token is `./dialects/run.sh` and such a file exists under the declaring layer's directory
+- **THEN** compilation is refused naming the token as a path the manifest walk does not pin
 
 #### Scenario: An inherited seat resolves against the layer that wrote it
 - **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/fast`, compiles under `harness`
@@ -309,36 +323,49 @@ Under `harness` and `open` the engine SHALL start an exec dispatch —
 through `DriverProcess::spawn`, which takes the environment the child
 starts with: the engine's own, today's behaviour and every model site's
 under every boundary, or exactly a composed table — from an empty
-environment and set exactly these keys and no other: inherited
-verbatim from the engine's own environment, each only when set there,
-`PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`,
-`CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`, the in-box marker
-`BROKKR_HANDS_BOX` — true of the child exactly when the engine itself
-already stands inside a box — and, on Windows only, `USERPROFILE`,
-`HOMEDRIVE`, `HOMEPATH`, `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`,
-`COMSPEC`, `PATHEXT`, `TEMP`, `TMP`, `USERNAME`, `APPDATA`,
-`LOCALAPPDATA` and `PROGRAMDATA`, without which no Windows process
-starts; fixed as the box sets them, `LANG` and `LC_ALL` as `C.UTF-8`,
-`CI` as `true`, `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`,
-and `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as
-the `commit.gpgsign=false` triple; and the bundle's `git.identity`
-entries. The engine SHALL never set the in-box marker on the dispatch,
-because no box stands and the marker is what every box-building test
-skips on. The environment SHALL be composed by one pure function the
-tests read directly, the network probe runs in it, and the dispatch's
-working directory is the worktree, as every driver's is. A dialect
-step under `harness` or `open` runs in the same environment
-(decision 0046 ruling 4; decision 0043 ruling 1's allow-list, from which
-the table is taken).
+environment and set exactly these keys and no other, the box's own
+table with the paths a namespace would remap replaced by the paths that
+stand outside one (design DD10): `HOME` and `TMPDIR`, two private
+directories created for the attempt under the run's scratch and never
+the operator's; `PATH`, `USER` and `LOGNAME`, inherited verbatim from
+the engine's own environment, each only when set there; `CARGO_HOME`,
+`RUSTUP_HOME` and `NPM_CONFIG_CACHE`, set to the operator's `~/.cargo`,
+`~/.rustup` and `~/.npm` — `~` the engine's home as `expand_home` reads
+it — exactly when the site's `hands.binds` declare that path, as the box
+sets them, and absent otherwise, a bind's `mask` being declared and not
+enforced outside a namespace; the in-box marker `BROKKR_HANDS_BOX` —
+true of the child exactly when the engine itself already stands inside
+a box; and, on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
+`SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
+`TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
+verbatim, without which no Windows process starts; fixed as the box
+sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
+`DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as the
+`commit.gpgsign=false` triple; and the bundle's `git.identity` entries.
+The engine SHALL never set the in-box marker on the dispatch, because
+no box stands and the marker is what every box-building test skips on.
+The environment SHALL be composed by one pure function of the engine's
+environment, the engine's home, the site's spec, the identity and the
+two scratch paths, which the tests read directly; the network probe
+runs in it, and the dispatch's working directory is the worktree, as
+every driver's is. A dialect step under `harness` or `open` runs in the
+same environment (decision 0046 ruling 4; decision 0043 ruling 1's
+allow-list, from which the table is taken).
 
 #### Scenario: The shipped verify gate under harness on a rustup machine
 - **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
-- **WHEN** `bundles/self`'s verify seat is composed under `harness`
-- **THEN** the environment holds `PATH` and `HOME` verbatim, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `CARGO_HOME` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/bundles/self/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the real `~/.rustup`
+- **WHEN** `bundles/self`'s verify seat, whose binds declare `~/.cargo` and `~/.rustup`, is composed under `harness`
+- **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/bundles/self/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
 
-#### Scenario: The operator's own locators pass through
-- **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE`
-- **THEN** the composed environment carries each verbatim, and carries none of them when the engine's environment does not
+#### Scenario: A planted secret in the operator's home is out of reach
+- **GIVEN** an engine `HOME` under which `.ssh/id` and `.cargo/credentials.toml` are planted, and a site whose binds declare `~/.cargo`
+- **WHEN** a dispatch of `sh -c 'cat "$HOME/.ssh/id"'` is spawned in the composed environment
+- **THEN** it fails, because `HOME` is the private directory; and `CARGO_HOME` names the planted `.cargo`, because the bind declares it and a mask is not enforced outside a namespace, which the guide states
+
+#### Scenario: The locators follow the binds, not the engine's environment
+- **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE` and the site declares no bind
+- **THEN** the composed environment carries none of them; and when the site declares `~/.npm`, it carries `NPM_CONFIG_CACHE` as the engine's home joined with `.npm`
 
 #### Scenario: The marker is inherited, never set
 - **WHEN** the engine's environment carries `BROKKR_HANDS_BOX`, and again when it does not

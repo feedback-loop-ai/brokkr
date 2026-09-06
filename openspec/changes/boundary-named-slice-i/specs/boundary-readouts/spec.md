@@ -14,7 +14,11 @@ old journals).
 ### Requirement: The view derives the boundary beside every model cell
 `brokkr-view` SHALL carry a `boundary` cell beside every `model` cell it
 exposes — on `Participant`, on the phase rail's `Node`, on every
-`CheckpointRow` and on every `JournalRow` — each derived from the same
+`CheckpointRow` and on every `JournalRow`, the pair carried as one
+`ModelAtBoundary { model, boundary }` unit flattened onto the carrier as
+`served`, so the wire keeps `model` and gains `boundary` as siblings and
+a renderer cannot take one without the other in reach (design DD12) —
+each derived from the same
 `effect/started.boundary` entry: a participant's from its site's entry
 with the last attempt winning, as provenance does; a node's from its
 participant; a checkpoint row's from the attempt the checkpoint belongs
@@ -31,8 +35,12 @@ read from the `run/started` manifest's `hands` keys under every engine:
 a site named there whose journal recorded no boundary — a journal
 written before this change — SHALL render an explicit absence, the
 absent mark with the note `no boundary recorded`, and never a default;
-a site not named there SHALL read `not applicable`, which is true of it
-whatever engine wrote the journal. `VIEW_VERSION` SHALL advance to 9,
+a site not named there SHALL read `not applicable` with the note `no
+hands declared`, a derivation from the pinned manifest and never a
+default, which is true of it whatever engine wrote the journal; and an
+entry whose word is outside the vocabulary or which lacks a `member` tag
+SHALL be read as not recorded for that site, never as boxed or unboxed
+(design DD14). `VIEW_VERSION` SHALL advance to 9,
 because an additive model field moves the wire version (decision 0046
 ruling 3; decision 0031 ruling 3; decision 0013).
 
@@ -55,6 +63,10 @@ ruling 3; decision 0031 ruling 3; decision 0013).
 #### Scenario: A hands-less site in an old journal reads not applicable
 - **WHEN** the view derives a journal whose `run/started` manifest carries no `hands` key at all
 - **THEN** every participant's `boundary` cell reads `not applicable`, none carries the absent mark, and the run-level fact renders nothing
+
+#### Scenario: An entry outside the vocabulary is not recorded
+- **WHEN** a journal's `effect/started.boundary` carries an entry whose word is `chroot`, or one without `member`
+- **THEN** that site's `boundary` cell is absent with the note `no boundary recorded`, the run-level fact does not read *unboxed* on its account, and no surface prints the word
 
 #### Scenario: The wire version moves
 - **WHEN** `--json` is emitted by `inspect`
@@ -91,9 +103,11 @@ compose its own (decision 0046 ruling 3; decision 0013).
 Every surface that prints a model cell SHALL print the boundary cell
 beside it, from the same derivation and never composed on its own. In
 this tree those surfaces are: the terminal's seats table and its
-per-seat lines under `brokkr inspect`, `inspect --seat` and `brokkr
-watch`, and the terminal's decision-trail rows, which print
-`· model <x>`; the TUI's seat table, seat detail, checkpoint rows and
+per-seat lines under `brokkr inspect`, `inspect --seat`, `brokkr watch`
+and `brokkr seats` — a thin verb that renders the seats block `inspect`
+renders, from the same view, and with `--json` emits the participants
+beside the run-level boundary fact and the view version (design DD11) —
+and the terminal's decision-trail rows, which print `· model <x>`; the TUI's seat table, seat detail, checkpoint rows and
 journal rows; and the web console's participants table, seat detail,
 checkpoint stream and journal rows. `brokkr costs` and `brokkr compare`
 name a seat's model from the seat records themselves, through the one
@@ -104,8 +118,9 @@ reading `not recorded` when no record carries one, an explicit absence
 and never a default; and `compare` SHALL report a boundary difference
 between two runs as a first-class divergence, the way it reports a
 model difference. A roster-style pin test SHALL read every readout
-source and fail, naming the source, where a `model` cell or the `model`
-key of a seat-costs record is rendered without the boundary beside it.
+source and fail, naming the source, where `served.model` is read outside
+the one renderer helper that prints the pair, or where the `model` key
+of a seat-costs record is rendered without the boundary beside it.
 `brokkr export` renders no prose and is read as the record itself: the
 exported journal carries the plain word in `effect/started.boundary`
 and in every seat record this engine writes, and `verify-run` accepts
@@ -115,6 +130,10 @@ decision 0031 ruling 1's list of the readouts).
 #### Scenario: inspect's seats table and trail
 - **WHEN** `brokkr inspect` renders a run with a boxed seat
 - **THEN** the seats table has a `boundary` column beside `model`, the per-seat lines print the boundary beside the model, and a decision-trail row that prints `· model <x>` prints `· boundary <y>` beside it
+
+#### Scenario: brokkr seats
+- **WHEN** `brokkr seats --run <id>` renders a run with a boxed seat, and again with `--json`
+- **THEN** the seats block is the one `brokkr inspect` prints, with the `boundary` column beside `model`, and the JSON carries `view_version`, the run-level `boundary` fact and the participants
 
 #### Scenario: The TUI
 - **WHEN** the TUI renders the seat table, a seat's detail pane, its checkpoint rows and the journal rows
@@ -142,7 +161,9 @@ run's journal, read that run's `effect/started` events and append
 ` · unboxed` to the tier line and to the vouch line when any entry has
 `gate` true and a word of `harness` or `open`; append ` · boundary not
 recorded` when the run's manifest carries `hands` and no `boundary`;
-and append nothing for a run that boxes nothing. A docs-tier preflight
+append ` · boundary not recorded` too when an entry's word is outside
+the vocabulary or an entry lacks its tag, never `unboxed` and never
+nothing (design DD14); and append nothing for a run that boxes nothing. A docs-tier preflight
 run SHALL be read the same way on its own line. The data read is the
 plain word; the adjective is the script's rendering. The script SHALL
 stay bash 3.2-compatible (decision 0046 ruling 3; decision 0038's gate).
@@ -157,6 +178,10 @@ stay bash 3.2-compatible (decision 0046 ruling 3; decision 0038's gate).
 
 #### Scenario: An old journal
 - **WHEN** the anchored run's manifest carries `hands` and no `boundary`
+- **THEN** the lines end with `· boundary not recorded`
+
+#### Scenario: A malformed entry
+- **WHEN** the anchored run's `effect/started.boundary` carries an entry whose word is outside the vocabulary
 - **THEN** the lines end with `· boundary not recorded`
 
 #### Scenario: The binding is pinned
