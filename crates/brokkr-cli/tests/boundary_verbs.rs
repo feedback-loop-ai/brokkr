@@ -51,6 +51,11 @@ done < "$prompt_file"
 printf '{"result":"%s","notes":"home=%s token=%s marker=%s"}\n' "$verdict" "$(printf '%s' "$HOME" | sed 's|\\|/|g')" "${GH_TOKEN:-unset}" "${BROKKR_HANDS_BOX:-unset}" > "$result_path"
 "#;
 
+// GATE reports its token in result notes, which failure assertions dump.
+// Every fixture launch supplies this value instead of an operator token;
+// unboxed hands must still strip it, proving the environment boundary.
+const FIXTURE_GH_TOKEN: &str = "boundary-fixture-token";
+
 fn gate_seat(verdicts: &[&str]) -> Value {
     json!({
         "role": "roles/gate.md",
@@ -134,6 +139,7 @@ impl Workspace {
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
         let out = Command::new(brokkr_bin())
             .args(args)
+            .env("GH_TOKEN", FIXTURE_GH_TOKEN)
             .current_dir(self.path())
             .output()
             .unwrap();
@@ -203,6 +209,7 @@ fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
             .arg(&prompt)
             .arg("pass")
             .env("HOME", r"C:\Users\carol")
+            .env("GH_TOKEN", FIXTURE_GH_TOKEN)
             .current_dir(dir.path())
             .output()
             .unwrap();
@@ -210,10 +217,9 @@ fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
         let path = dir.path().join(result);
         let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(record["result"], "pass");
-        assert!(record["notes"]
-            .as_str()
-            .unwrap()
-            .starts_with("home=C:/Users/carol "));
+        let notes = record["notes"].as_str().unwrap();
+        assert!(notes.starts_with("home=C:/Users/carol "));
+        assert!(notes.contains(" token=boundary-fixture-token "));
         std::fs::remove_file(path).unwrap();
     }
 }
@@ -373,6 +379,44 @@ fn a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace() {
     ]);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(ws.events(&id), before);
+}
+
+/// Drive the actual failing assertion in another test process: the
+/// plain run inherits its environment and records a result before its
+/// event dump reaches diagnostics. No process-global environment edits
+/// and no real credential are needed to exercise the leak.
+#[test]
+fn a_plain_run_failure_does_not_print_the_parent_token() {
+    let parent_token = "BOUNDARY_PARENT_GH_TOKEN_must_not_leak";
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace",
+            "--nocapture",
+        ])
+        .env("GH_TOKEN", parent_token)
+        // The fixture interpolates the marker into JSON. This value
+        // produces a valid `fail` result and a stopped run, so the
+        // assertion prints events after the token-bearing result lands.
+        .env("BROKKR_HANDS_BOX", r#"", "result":"fail"#)
+        .output()
+        .unwrap();
+    let diagnostics = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.status.code(), Some(101), "{diagnostics}");
+    assert!(diagnostics.contains("run/stopped"), "{diagnostics}");
+    assert!(diagnostics.contains("effect/succeeded"), "{diagnostics}");
+    assert!(
+        !diagnostics.contains(parent_token),
+        "failure diagnostics leaked the planted parent token"
+    );
+    assert!(
+        diagnostics.contains("token=boundary-fixture-token"),
+        "the event dump must retain the fixture's dummy token: {diagnostics}"
+    );
 }
 
 /// Ruling 2, the three verbs: a `seatbelt` realm refuses `run`, `resume`

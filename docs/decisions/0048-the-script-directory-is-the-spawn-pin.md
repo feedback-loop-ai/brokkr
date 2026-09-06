@@ -227,3 +227,24 @@ Local validation for this repair passes `cargo fmt --all -- --check`,
 coverage run records 21,262/21,262 source lines, 3,306/3,306 branches
 and 2,018/2,018 logical functions. The frozen trees are unchanged and
 the witness and compose digest tests pass without repinning.
+
+## Returned security review — fixture credentials
+
+The review of `b8b89a6` found that the plain-run test's new event dump
+could print the operator's `GH_TOKEN`: that test removes hands, inherits
+the environment, and records the gate fixture's token in result notes.
+Both fixture launch paths now supply `boundary-fixture-token` explicitly,
+including the direct shell used to test Windows result-path parsing.
+The unboxed-hands tests continue to require `token=unset`, now with a
+known nonempty input regardless of the operator's environment.
+
+`a_plain_run_failure_does_not_print_the_parent_token` starts the actual
+plain-run test in a subprocess with a planted synthetic parent token and
+a marker value that makes the fixture write a valid failing result.
+It requires a failed test and a dump containing both the recorded result
+and stopped run, then proves the dummy token remains visible while the
+parent token is absent from stdout and stderr. The regression reproduced
+the leak before the fixture overrides and passes after them. No real
+credential or process-global environment mutation is used. This is a
+test-fixture repair; production inheritance and both capability specs
+keep their existing semantics, and no further archive amendment is made.
