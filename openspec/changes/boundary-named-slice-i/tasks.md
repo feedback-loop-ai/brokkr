@@ -7,7 +7,9 @@ word and the pin before anything reads them, availability before the
 engine composes, the gate law before the unboxed composition and the
 adapters' fragments after both (DD16's steps 4a to 4c), the record
 before the readouts that render it, then one re-pin, then the prose. Every task
-names the requirement it serves as `<capability> / <Requirement>`.
+names the requirement it serves as `<capability> / <Requirement>`; the
+closing gates of group 13 serve every requirement of the change and say
+so, because a gate is not a requirement of its own.
 
 Conventions binding on every task below, restated once rather than per
 task: no frozen contract is edited (`run-manifest.v1`–`v8`,
@@ -332,7 +334,11 @@ one helper, because the coverage gate is literal.
       declare hands.
 - [ ] 6.7 Refuse an inline model site with hands under `harness` or `open`
       at compile, naming the seat and the repair — seat it through an
-      agent, or run the realm under a boxed boundary (D10) —
+      agent, or run the realm under a boxed boundary (D10); with its test
+      in `model_policy_tests.rs`: an inline seat whose command is a
+      `{brokkr} driver claude` dispatch and which declares hands is
+      refused under `harness` and under `open` naming the seat and the
+      repair, and compiles under `namespace` as today —
       gate-boundary-policy / The argv of a site with hands follows the
       boundary and the class.
 - [ ] 6.8 Add the pure layer re-walk beside `manifest_for`:
@@ -449,7 +455,11 @@ one helper, because the coverage gate is literal.
       `--sandbox workspace-write` and no MCP server; an `open` work site
       carrying the base driver argv with the model and effort pins alone;
       a site declaring `network: false` keeping its manifest entry with no
-      network switch in its argv — gate-boundary-policy / The argv of a
+      network switch in its argv; and every model site — the codex gate
+      under `harness`, the `open` work site — spawned with
+      `SpawnEnv::Inherit`, the engine's own environment, exactly as under
+      `namespace`, because its harness needs the operator's keys —
+      gate-boundary-policy / The argv of a
       site with hands follows the boundary and the class.
 - [ ] 7.9 Pin the unboxed exec dispatch token for token:
       `bundles/self`'s verify seat under `harness` on Linux with the probe
@@ -757,9 +767,11 @@ one helper, because the coverage gate is literal.
       decision-trail row printing `· model <x>` prints `· boundary <y>`
       beside it — boundary-readouts / Every readout that names a seat's
       model names its boundary.
-- [ ] 10.8 Add the thin `brokkr seats --run <id> [--db] [--json]` verb
+- [ ] 10.8 Add the thin `brokkr seats --run <id> [--realms] [--db] [--json]` verb
       (DD11) rendering the seats block `inspect` renders from the same
-      `RunView`, `--json` printing the view model verbatim — byte-identical to
+      `RunView`, opening the journal by the same `journal_of` route so
+      `--realms` and `--db` mean what they mean for `inspect`, `--json`
+      printing the view model verbatim — byte-identical to
       `inspect --json` — and deriving nothing of its own; test both faces —
       boundary-readouts / Every readout that names a seat's model names its
       boundary.
@@ -772,8 +784,9 @@ one helper, because the coverage gate is literal.
       names its boundary.
 - [ ] 10.10 Reduce `boundary` in the one seat-costs derivation
       (`crates/brokkr-cli/src/compare.rs`) exactly as `model` is reduced —
-      the set of words the seat's finishing checkpoints and successful
-      results carry, one word or a joined list, `not recorded` when none
+      the set of words the seat's records that name a model carry (its
+      finishing checkpoint, its successful result, a per-turn checkpoint
+      that names one), one word or a joined list, `not recorded` when none
       does — print the plain word in `costs`, and report a boundary
       difference in `compare` as a first-class divergence; carry the pair
       per participant in `compare`'s `resolution` map (`resolution_of`)
