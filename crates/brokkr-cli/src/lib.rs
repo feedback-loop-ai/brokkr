@@ -4,6 +4,7 @@
 //! a release is gone; one bin target enters here (ruling 9).
 
 mod agents;
+mod boundary;
 mod compare;
 mod doctor;
 mod init;
@@ -334,6 +335,26 @@ enum Cmd {
         /// Scope the readout to one seat, by label or participant key.
         #[arg(long)]
         seat: Option<String>,
+    },
+    /// The seats of a run: the seats block `inspect` renders — every
+    /// seat's model with the boundary its hands stood behind beside it
+    /// (decision 0046 ruling 3) — from the same view. `--json` prints
+    /// that view verbatim, the bytes `inspect --json` prints.
+    Seats {
+        /// Full run id, a unique run-id prefix, or `latest`.
+        #[arg(long)]
+        run: String,
+        /// The world's map — the journal it names is the one opened
+        /// (default ./realms.json when present).
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        /// The workspace journal. Outranks the map's journal; without
+        /// either, .forge/forge.db as always.
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Emit the view model verbatim — `inspect --json`'s own bytes.
+        #[arg(long)]
+        json: bool,
     },
     /// Watch a run live: redraw the graph, seats, last ruling and seat
     /// activity whenever the journal head moves; exit when the run
@@ -942,28 +963,7 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Decision 0043 ruling 7: a bundle whose seats box their hands refuses
-/// to start without bubblewrap, naming the seats — before any journal is
-/// opened or seat spawned. The boundary is Linux's and is never simulated.
-fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> anyhow::Result<()> {
-    if bundle.hands.is_empty() {
-        return Ok(());
-    }
-    match brokkr_protocol::hands::bwrap_on(path) {
-        Ok(bwrap) => {
-            for (site, spec) in &bundle.hands {
-                brokkr_protocol::hands::overlay_supported(spec, &bwrap)
-                    .map_err(|reason| anyhow::anyhow!("seat '{site}': {reason}"))?;
-            }
-            Ok(())
-        }
-        Err(reason) => anyhow::bail!(
-            "{reason}; the seats {:?} declare hands and cannot run on this machine \
-             (decision 0043 ruling 7 — hands are a Linux boundary)",
-            bundle.hands.keys().collect::<Vec<_>>()
-        ),
-    }
-}
+use boundary::refuse_unboxable;
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
     if let Some(index) = args.iter().position(|arg| arg == "--") {
@@ -1574,12 +1574,18 @@ fn compile_in_realm(
         (Some(world), Some(realm)) => world.dialect_for_realm(realm)?,
         _ => None,
     };
+    // The realm's boundary, or `namespace` for a repository no map
+    // names (decision 0046 ruling 1): the one word the run stands under.
+    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
+        realm.boundary()
+    });
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
+        boundary,
     )?)
 }
 
@@ -1597,20 +1603,28 @@ fn compile_from_manifest(
         .pointer("/realms/realm")
         .and_then(Value::as_str)
         .unwrap_or("<unmapped>");
-    let dialect = world
+    let realm = world
         .map
         .realms
         .iter()
-        .find(|realm| realm.name == realm_name)
+        .find(|realm| realm.name == realm_name);
+    let dialect = realm
         .map(|realm| world.dialect_for_realm(realm))
         .transpose()?
         .flatten();
+    // The boundary the run was started under, read from the pinned
+    // world and never from the workspace's map as it stands today
+    // (decision 0046 ruling 1): a resume stands where the run stood.
+    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
+        realm.boundary()
+    });
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
+        boundary,
     )?)
 }
 
@@ -1650,13 +1664,17 @@ fn run_with(
                  the trust tier and the tool grants its seats run under",
                 dir.display()
             );
+            // Decision 0046: the scaffolded seats run under the realm's
+            // boundary, and `namespace` — the default — is the one that
+            // needs bubblewrap; a realm may declare `harness` instead.
             if let Err(reason) =
                 brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
             {
                 eprintln!(
                     "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
-                     declare hands and will refuse to run here — the shipped gates \
-                     require Linux with bubblewrap on PATH"
+                     declare hands and run under the realm's boundary — `namespace`, \
+                     the default, needs bubblewrap on PATH, and a realm may declare \
+                     `harness` instead (decision 0046)"
                 );
             }
             Ok(ExitCode::SUCCESS)
@@ -1865,9 +1883,24 @@ fn run_with(
                     anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
                 })?
                 .to_string();
-            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            // A rerun is a NEW run, and it stands where `run` stands
+            // (decision 0046 ruling 1; design DD6): the workspace map is
+            // discovered, the bundle compiles against the operated
+            // repository's realm — its boundary and its dialect — and
+            // the world is pinned into the new run's manifest. A rerun
+            // that ignored the realm's word would refuse on a `harness`
+            // Mac for want of bubblewrap, and run boxed on a `harness`
+            // Linux while the realm said otherwise.
+            let world = World::discover(workspace, None)?;
+            let operated_repo = repo.as_deref().unwrap_or(workspace);
+            let bundle = compile_in_realm(
+                workspace,
+                &recipes::resolve(bundle, recipe, &recipes_dir)?,
+                world.as_ref(),
+                operated_repo,
+            )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let mut engine = Engine::start(store, bundle, &feature, repo)?;
+            let mut engine = Engine::start_in_world(store, bundle, &feature, repo, world)?;
             engine.secrets_file = secrets_file;
             eprintln!(
                 "rerun of {run} as {} under {}",
@@ -1951,6 +1984,30 @@ fn run_with(
                 "{}",
                 render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Seats {
+            run,
+            realms,
+            db,
+            json,
+        } => {
+            // A thin verb (design DD11): the journal `inspect` would
+            // open, the view `inspect` would derive, and either the
+            // seats block of `inspect`'s readout or `inspect --json`'s
+            // own bytes. Nothing is derived here and no wire object is
+            // versioned for the verb.
+            let db = journal_of(workspace, realms, db)?;
+            let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
+            let events = store.load(&run)?;
+            let state = fold(&events)?;
+            let view = brokkr_view::run_view(&events, Some(&state));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+            print!("{}", render::seats(&view, &render::Style::detect()));
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Watch {

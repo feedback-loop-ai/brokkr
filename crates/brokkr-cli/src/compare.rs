@@ -89,6 +89,11 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         /// write it per turn, so an effect that changed level mid-thread
         /// reports both rather than the last.
         efforts: BTreeSet<String>,
+        /// The boundaries the records that name a model carry beside it
+        /// (decision 0046 ruling 3; design DD19), gathered exactly as
+        /// the models are: from the seat records themselves, never from
+        /// the `effect/started` entries (design DD14).
+        boundaries: BTreeSet<String>,
         turns_usage: Usage,
         finishing_usage: Usage,
     }
@@ -100,7 +105,16 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         cost: f64,
         models: BTreeSet<String>,
         efforts: BTreeSet<String>,
+        boundaries: BTreeSet<String>,
         usage: Usage,
+    }
+
+    /// The word a record carries beside its model, if it names one: a
+    /// record without a model carries no boundary a reader may trust
+    /// (design DD19), so the pair is read together.
+    fn boundary_beside_model(record: &Value) -> Option<&str> {
+        record.get("model").and_then(Value::as_str)?;
+        record.get("boundary").and_then(Value::as_str)
     }
 
     let mut effect_seat: BTreeMap<String, String> = BTreeMap::new();
@@ -143,6 +157,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
                     }
+                    if let Some(boundary) = boundary_beside_model(checkpoint) {
+                        accounting.boundaries.insert(boundary.to_string());
+                    }
                     if let Some(effort) = checkpoint.get("effort").and_then(Value::as_str) {
                         accounting.efforts.insert(effort.to_string());
                     }
@@ -176,6 +193,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     let result = &payload["result"];
                     if let Some(model) = result.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
+                    }
+                    if let Some(boundary) = boundary_beside_model(result) {
+                        accounting.boundaries.insert(boundary.to_string());
                     }
                     if let Some(effort) = result.get("effort").and_then(Value::as_str) {
                         accounting.efforts.insert(effort.to_string());
@@ -212,6 +232,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         entry.cost += effect.cost;
         entry.models.extend(effect.models.iter().cloned());
         entry.efforts.extend(effect.efforts.iter().cloned());
+        entry.boundaries.extend(effect.boundaries.iter().cloned());
         entry.usage.merge(if effect.turns_usage.has_any() {
             &effect.turns_usage
         } else {
@@ -231,7 +252,11 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
             // a second pair, so "a real value outranks a sentinel, and a
             // seat that only ever reported a sentinel keeps it" is one
             // rule stated once.
-            let reduce = |mut values: BTreeSet<String>| {
+            // The boundary is reduced by the same rule (decision 0046
+            // ruling 3), with its own word for the empty set: `not
+            // recorded` is an explicit absence — a journal written
+            // before the boundary was named — and never a default.
+            let reduce = |mut values: BTreeSet<String>, none: &str| {
                 let mut named = values.clone();
                 named.remove("not reported");
                 named.remove("not applicable");
@@ -239,22 +264,26 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                     values = named;
                 }
                 match values.len() {
-                    0 => "not reported".to_string(),
+                    0 => none.to_string(),
                     1 => values.into_iter().next().expect("one value"),
                     _ => values.into_iter().collect::<Vec<_>>().join(", "),
                 }
             };
-            let model = reduce(accounting.models);
-            let effort = reduce(accounting.efforts);
+            let model = reduce(accounting.models, "not reported");
+            let effort = reduce(accounting.efforts, "not reported");
+            let boundary = reduce(accounting.boundaries, "not recorded");
             let mut record = Map::from_iter([
                 ("attempts".to_string(), Value::from(accounting.attempts)),
                 ("turns".to_string(), Value::from(accounting.turns)),
                 ("cost_usd".to_string(), Value::from(accounting.cost)),
                 // `model` is the provider's claim, not proof (decision
-                // 0035 ruling 2); `effort` beside it is configuration,
-                // never a report of what the model did. The one figure
-                // here that meters that is `reasoning_output_tokens`.
+                // 0035 ruling 2); `boundary` beside it is the plain word
+                // its hands stood behind (decision 0046 ruling 3);
+                // `effort` is configuration, never a report of what the
+                // model did. The one figure here that meters that is
+                // `reasoning_output_tokens`.
                 ("model".to_string(), Value::from(model)),
+                ("boundary".to_string(), Value::from(boundary)),
                 ("effort".to_string(), Value::from(effort)),
             ]);
             for (key, value) in [
@@ -283,8 +312,8 @@ struct RunFacts {
     trail: Vec<String>,
     total_cost: f64,
     attempts: u64,
-    /// Participant label → the provider-reported model and the distinct
-    /// agent-selection provenance.
+    /// Participant label → the provider-reported model, the boundary
+    /// beside it, and the distinct agent-selection provenance.
     /// Computed by CALLING the `brokkr-view` derivation rather than
     /// re-deriving here, so `compare` cannot describe a fallback
     /// differently from every other readout.
@@ -293,6 +322,8 @@ struct RunFacts {
 
 /// What each run's invocation sites resolved to, keyed by participant
 /// label so a panel member and a sequence step line up across runs.
+/// The served pair comes through the pair helper's JSON face (decision
+/// 0046 ruling 3; design DD12): `model` and `boundary` as siblings.
 fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
     brokkr_view::run_view(events, None)
         .participants
@@ -307,10 +338,9 @@ fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
                     "fallback": provenance.fallback,
                 })
             });
-            (
-                part.label,
-                json!({"model": part.model.text, "selected": selected}),
-            )
+            let mut entry = crate::render::served_json(&part.served);
+            entry["selected"] = selected.unwrap_or(Value::Null);
+            (part.label, entry)
         })
         .collect()
 }
@@ -320,7 +350,9 @@ fn resolution_of(events: &[EventEnvelope]) -> BTreeMap<String, Value> {
 /// true. Comparing pinned plans instead of what actually ran would hide
 /// precisely the fallback this exists to expose, and an absence on one
 /// side is itself the finding: one run named an agent and the other did
-/// not.
+/// not. The comparison is structural over the whole entry, so a
+/// boundary difference diverges exactly as a model difference does
+/// (decision 0046 ruling 3) with no code written for it.
 fn resolution_divergence(a: &BTreeMap<String, Value>, b: &BTreeMap<String, Value>) -> Value {
     let mut sites: Vec<&String> = a.keys().chain(b.keys()).collect();
     sites.sort();

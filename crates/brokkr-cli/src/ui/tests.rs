@@ -959,3 +959,137 @@ fn the_console_serves_and_paints_agent_provenance() {
     assert!(page.contains("part.provenance.line"));
     assert!(page.contains("view.notices"));
 }
+
+/// Decision 0046 ruling 3's fourth surface: the console is served the
+/// boundary cell beside every model cell and the run-level text, and
+/// the page paints both cells into one row through its one pair helper
+/// — computing nothing of its own (design DD12).
+#[test]
+fn the_console_serves_the_boundary_and_paints_the_pair() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run(
+            "r1",
+            "feat",
+            "self",
+            &json!({"files": {}, "engine": "0.9.0"}),
+        )
+        .unwrap();
+    let mut append = |kind, payload| {
+        store.append_next("r1", kind, payload, None, None).unwrap();
+    };
+    append(
+        EventType::RunStarted,
+        json!({"feature": "feat", "manifest": {"engine": "0.9.0",
+               "hands": {"verify": {"binds": []}}}}),
+    );
+    append(EventType::PhaseEntered, json!({"phase": "verify"}));
+    append(
+        EventType::EffectRequested,
+        json!({"effect_id": "e1", "seat": "verify", "phase": "verify",
+               "idempotency_key": "k", "input_digest": "d"}),
+    );
+    append(
+        EventType::EffectStarted,
+        json!({"effect_id": "e1", "attempt_id": "a1", "driver": "d",
+               "boundary": [{"member": null, "boundary": "harness", "gate": true}]}),
+    );
+    append(
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "e1", "attempt_id": "a1", "checkpoint": {
+            "step": "seat-turn", "turn": 1, "model": "claude-fable-5-1",
+            "boundary": "harness"}}),
+    );
+    append(
+        EventType::EffectSucceeded,
+        json!({"effect_id": "e1", "attempt_id": "a1", "result": {
+            "result": "pass", "model": "claude-fable-5-1", "boundary": "harness"}}),
+    );
+
+    let view = handle(&db, "/api/view/r1");
+    let parsed: Value = serde_json::from_str(&view.body).unwrap();
+    assert_eq!(parsed["view_version"], 9);
+    let seat = &parsed["participants"][0];
+    assert_eq!(seat["model"]["text"], "claude-fable-5-1");
+    assert_eq!(seat["boundary"]["text"], "harness");
+    assert_eq!(seat["checkpoints"][0]["boundary"]["text"], "harness");
+    assert_eq!(
+        parsed["phases"][0]["columns"][0]["nodes"][0]["boundary"]["text"],
+        "harness"
+    );
+    assert_eq!(parsed["journal"][4]["model"]["text"], "claude-fable-5-1");
+    assert_eq!(parsed["journal"][4]["boundary"]["text"], "harness");
+    assert_eq!(parsed["journal"][0]["boundary"]["absent"], json!(true));
+    assert_eq!(parsed["boundary"]["word"]["text"], "harness");
+    assert_eq!(parsed["boundary"]["unboxed"], json!(true));
+    assert_eq!(parsed["boundary"]["text"], "harness · unboxed");
+
+    for (id, hands, entry, expected) in [
+        (
+            "boxed",
+            true,
+            json!([{"member":null,"boundary":"namespace","gate":true}]),
+            "namespace",
+        ),
+        (
+            "work",
+            true,
+            json!([{"member":null,"boundary":"harness","gate":false}]),
+            "harness",
+        ),
+        ("old", true, Value::Null, "not recorded"),
+        ("plain", false, Value::Null, ""),
+    ] {
+        let mut manifest = json!({"engine":"0.9.0","files":{}});
+        if hands {
+            manifest["hands"] = json!({"verify":{"binds":[]}});
+        }
+        store.create_run(id, "feat", "self", &manifest).unwrap();
+        store
+            .append_next(
+                id,
+                EventType::RunStarted,
+                json!({"feature":"feat","manifest":manifest}),
+                None,
+                None,
+            )
+            .unwrap();
+        store.append_next(id, EventType::EffectRequested, json!({"effect_id":"e","seat":"verify","phase":"verify","idempotency_key":"k","input_digest":"d"}), None, None).unwrap();
+        let mut payload = json!({"effect_id":"e","attempt_id":"a","driver":"d"});
+        if !entry.is_null() {
+            payload["boundary"] = entry;
+        }
+        store
+            .append_next(id, EventType::EffectStarted, payload, None, None)
+            .unwrap();
+        let response = handle(&db, &format!("/api/view/{id}"));
+        let served: Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(served["boundary"]["text"], expected, "{id}: {served}");
+    }
+
+    // The page: one pair helper, the only `.model` read; the run header
+    // prints the served text; and each of the four surfaces places the
+    // two cells in one row.
+    let page = handle(&db, "/").body;
+    assert!(page.contains("function served(carrier)"), "the pair helper");
+    assert!(page.contains("return [carrier.model, carrier.boundary];"));
+    assert_eq!(
+        page.lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .filter(|line| line.contains(".model"))
+            .count(),
+        1,
+        "the helper is the only place the page names .model"
+    );
+    assert!(page.contains("view.boundary.text"), "the run header");
+    assert!(!page.contains("unboxed"), "the adjective is the model's");
+    assert_eq!(
+        page.matches("cell(model), cell(boundary)").count(),
+        4,
+        "participants, checkpoints, trail and raw journal rows"
+    );
+    assert!(page.contains("'model ' + model.text + ' · boundary ' + boundary.text"));
+    assert_eq!(page.matches("el('th', null, 'boundary')").count(), 4);
+}

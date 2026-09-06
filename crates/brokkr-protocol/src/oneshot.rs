@@ -92,7 +92,12 @@ fn run_once_in(
             }
         }
     };
-    let process = match DriverProcess::spawn(command, scratch.path(), Some(deadline)) {
+    let process = match DriverProcess::spawn(
+        command,
+        scratch.path(),
+        Some(deadline),
+        &crate::process::SpawnEnv::Inherit,
+    ) {
         Ok(process) => process,
         Err(error) => {
             return OneShot::Refused {

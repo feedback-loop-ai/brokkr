@@ -49,7 +49,7 @@ Seats are **data, not code**: a seat definition bundles
 |---|---|
 | `role` | Charter prompt template (the `vf-*` charters become these). |
 | `class` | Capacity class, not a model name: `background` / `workhorse` / `frontier` (LaneTally resolves the actual provider; model-blindness is wire-level). |
-| `trust` | `trusted` / `policy-confined` / `public-evidence-only` — decides what the engine mounts into the sandbox. |
+| `trust` | `trusted` / `policy-confined` / `public-evidence-only` — decides what is mounted inside the wall. The wall itself is the realm's `boundary` (decision 0046: `namespace`, `seatbelt`, `container`, `harness` or `open`, declared in `realms.json` and never by a seat); the tier decides what the engine mounts into it. |
 | `result_schema` | The typed result the seat must return (decision 0001 governs violations). |
 | `driver` | Which harness runs it (`surface`, `cordis`, `claude-code`, `claude-lanetally` — the Claude Code harness through LaneTally's session-capture wrapper: `total_cost_usd` stays the harness-reported list price, capture makes the session priceable in the LaneTally ledger, and the per-session actual-cost join is deferred until readplane exposes a session query — `codex`, `fake`, or another protocol-conformant driver). |
 

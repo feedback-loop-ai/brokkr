@@ -3197,7 +3197,10 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
         .to_string();
     assert!(refusal.contains("never simulated"), "{refusal}");
     assert!(refusal.contains("[\"work\"]"), "{refusal}");
-    assert!(refusal.contains("ruling 7"), "{refusal}");
+    // Decision 0046 ruling 2 generalises 0043 ruling 7: the refusal
+    // names the boundary and the ruling that now owns it.
+    assert!(refusal.contains("`namespace` boundary"), "{refusal}");
+    assert!(refusal.contains("decision 0046 ruling 2"), "{refusal}");
     let with_bwrap = dir.path().join("bin");
     std::fs::create_dir_all(&with_bwrap).unwrap();
     std::fs::write(with_bwrap.join("bwrap"), "").unwrap();
@@ -3319,4 +3322,38 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         }),
     )
     .is_err());
+}
+
+/// `brokkr seats` (decision 0046 ruling 3; design DD11): a thin verb
+/// over `inspect`'s own view, opening the journal by the same route and
+/// resolving the run by the same selector, in both faces. The bytes it
+/// prints are proved against `inspect`'s in
+/// `tests/boundary_readouts.rs`, through the binary.
+#[test]
+fn brokkr_seats_is_a_thin_verb_over_inspects_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    for json in [false, true] {
+        assert_eq!(
+            run(cli(Cmd::Seats {
+                run: "r1".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json,
+            }))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+    // The selector's refusal is the verb's, as it is `inspect`'s.
+    let unknown = run(cli(Cmd::Seats {
+        run: "nobody".into(),
+        realms: None,
+        db: Some(db),
+        json: false,
+    }))
+    .unwrap_err()
+    .to_string();
+    assert!(unknown.contains("nobody"), "{unknown}");
 }

@@ -27,7 +27,6 @@ fn bundle_with_sequence() -> Bundle {
                         body: StepBody::Single {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],
-                            confine: None,
                             candidates: Vec::new(),
                         },
                     },
@@ -38,7 +37,6 @@ fn bundle_with_sequence() -> Bundle {
                         body: StepBody::Single {
                             role_path: "role.md".into(),
                             command: vec!["driver".into()],
-                            confine: None,
                             candidates: Vec::new(),
                         },
                     },
@@ -53,6 +51,7 @@ fn bundle_with_sequence() -> Bundle {
         cost: String::new(),
         dir: PathBuf::new(),
         roots: vec![PathBuf::new()],
+        boundary: brokkr_core::realms::Boundary::Namespace,
         chain: Vec::new(),
         machine: Machine {
             phases: vec!["review".into()],
@@ -114,7 +113,6 @@ fn resolver_and_sequence_summary_cover_every_shape() {
         default: Some(Box::new(SeatBody::Single {
             role_path: PathBuf::new(),
             command: Vec::new(),
-            confine: None,
             candidates: Vec::new(),
         })),
         case_gates: BTreeMap::new(),

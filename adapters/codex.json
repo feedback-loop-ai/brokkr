@@ -44,6 +44,19 @@
       "mcp_servers.brokkr.args={hands_args_toml}",
       "-c",
       "mcp_servers.brokkr.default_tools_approval_mode=\"approve\""
-    ]
+    ],
+    "harness": {
+      "gate": [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "{result_path}"
+      ],
+      "work": [
+        "--sandbox",
+        "workspace-write"
+      ],
+      "result": "last-message"
+    }
   }
 }

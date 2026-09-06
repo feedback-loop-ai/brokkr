@@ -293,6 +293,15 @@ function cell(model, className) {
   return td;
 }
 
+// The page-side pair helper (decision 0046 ruling 3; design DD12): a
+// carrier's served model and the boundary its hands stood behind, as
+// the two cells the wire carries side by side. The ONLY place in this
+// page that names `.model`, so no row can take the model without the
+// boundary beside it — the pin test scans this file for any other read.
+function served(carrier) {
+  return [carrier.model, carrier.boundary];
+}
+
 // Payload cells clamp to two lines by default; click toggles the full
 // text. The text stays in the DOM either way (find-in-page works);
 // short payloads get no affordance.
@@ -719,8 +728,8 @@ function checkpointTable(part) {
   const stream = el('table');
   stream.appendChild(row([
     el('th', null, 'turn'), el('th', null, 'tool'),
-    el('th', null, 'model'), el('th', null, 'tokens'), el('th', null, 'target'),
-    el('th', null, 'recorded'),
+    el('th', null, 'model'), el('th', null, 'boundary'), el('th', null, 'tokens'),
+    el('th', null, 'target'), el('th', null, 'recorded'),
   ]));
   for (const item of part.checkpoints) {
     const target = el('td', 'target');
@@ -729,10 +738,11 @@ function checkpointTable(part) {
     } else {
       target.appendChild(targetSpan(item.target.text, item.target_full));
     }
+    const [model, boundary] = served(item);
     stream.appendChild(row([
       cell(item.turn),
       el('td', null, item.step),
-      cell(item.model),
+      cell(model), cell(boundary),
       cell(item.usage),
       target,
       el('td', null, item.recorded_at),
@@ -820,6 +830,13 @@ function renderDetail(id, view) {
     KNOWN_STATUS.includes(s.status) ? s.status : ''));
   line.appendChild(document.createTextNode(' '));
   line.appendChild(badge('phase ' + (s.phase ?? '-'), ''));
+  // The run header's boundary (decision 0046 ruling 3): the model's
+  // rendered text, adjective included, placed here and composed
+  // nowhere on this page. Empty for a run that boxes nothing.
+  if (view.boundary.text) {
+    line.appendChild(document.createTextNode(' '));
+    line.appendChild(badge('boundary ' + view.boundary.text, ''));
+  }
   detail.appendChild(line);
 
   // A drilled participant clears itself if it vanished on refetch.
@@ -890,7 +907,7 @@ function renderDetail(id, view) {
       el('th', null, 'participant'), el('th', null, 'status'),
       el('th', null, 'attempts'), el('th', null, 'turns'),
       el('th', null, 'cost'), el('th', null, 'tokens'), el('th', null, 'model'),
-      el('th', null, 'activity'),
+      el('th', null, 'boundary'), el('th', null, 'activity'),
     ]));
     for (const part of shownParts) {
       const statusCell = el('td');
@@ -919,6 +936,7 @@ function renderDetail(id, view) {
       if (part.provenance) {
         label.appendChild(el('div', 'target', part.provenance.line));
       }
+      const [model, boundary] = served(part);
       const tr = row([
         label,
         statusCell,
@@ -926,7 +944,7 @@ function renderDetail(id, view) {
         cell(part.turns_cell),
         cell(part.cost_cell),
         cell(part.usage_cell),
-        cell(part.model),
+        cell(model), cell(boundary),
         activity,
       ]);
       tr.className = 'seat';
@@ -967,7 +985,8 @@ function renderDetail(id, view) {
       header.appendChild(document.createTextNode(' · session ' + sessionId));
     }
     detail.appendChild(header);
-    detail.appendChild(el('p', 'cause', 'model ' + part.model.text));
+    const [model, boundary] = served(part);
+    detail.appendChild(el('p', 'cause', 'model ' + model.text + ' · boundary ' + boundary.text));
     detail.appendChild(el('p', 'cause', 'tokens ' + part.usage_cell.text));
     if (part.provenance) {
       detail.appendChild(el('p', 'cause', 'selected by ' + part.provenance.line));
@@ -1033,13 +1052,15 @@ function renderDetail(id, view) {
   const table = el('table');
   table.appendChild(row(rawJournal
     ? [el('th', null, 'seq ←cause'), el('th', null, 'type'), el('th', null, 'label'),
-       el('th', null, 'model'), el('th', null, 'payload'), el('th', null, 'recorded')]
+       el('th', null, 'model'), el('th', null, 'boundary'), el('th', null, 'payload'),
+       el('th', null, 'recorded')]
     : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
-       el('th', null, 'what happened'), el('th', null, 'model'),
+       el('th', null, 'what happened'), el('th', null, 'model'), el('th', null, 'boundary'),
        el('th', null, 'recorded')]));
   for (const e of view.journal) {
     if (phaseFilter && !e.phases.includes(phaseFilter)) continue;
     if (!rawJournal && !e.in_trail) continue;
+    const [model, boundary] = served(e);
     const seqCell = el('td', null, e.seq);
     if (e.causation_seq !== null) {
       seqCell.appendChild(document.createTextNode(' '));
@@ -1061,7 +1082,7 @@ function renderDetail(id, view) {
         what.appendChild(el('div', 'problem', e.what.problem));
       }
       table.appendChild(row([
-        seqCell, el('td', null, e.event_type), what, cell(e.model),
+        seqCell, el('td', null, e.event_type), what, cell(model), cell(boundary),
         el('td', null, e.recorded_at),
       ]));
       continue;
@@ -1071,7 +1092,7 @@ function renderDetail(id, view) {
       seqCell,
       el('td', null, e.event_type),
       cell(e.label, 'label'),
-      cell(e.model),
+      cell(model), cell(boundary),
       payloadCell(e.payload_json),
       el('td', null, e.recorded_at),
     ]));

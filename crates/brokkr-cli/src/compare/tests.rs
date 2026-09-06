@@ -125,6 +125,9 @@ fn seat_costs_sum_capture_carrying_lanetally_checkpoints_unchanged() {
         // second pair). The reasoning count is summed on its own key.
         json!({"attempts": 2, "turns": 2, "cost_usd": 0.125,
                "model": "claude-fable-5-1, claude-sonnet-5",
+               // No record carries a boundary beside its model: a journal
+               // written before decision 0046 reads an explicit absence.
+               "boundary": "not recorded",
                "effort": "xhigh",
                "input_tokens":35, "output_tokens":8,
                "cache_read_tokens":13, "cache_write_tokens":4,
@@ -264,4 +267,101 @@ fn seat_costs_read_partial_usage_untracked_results_and_a_second_cost_report() {
     assert_eq!(costs["implement"]["model"], "claude-fable-5-1");
     assert!(!costs.contains_key("ghost"));
     assert_eq!(total, 0.5);
+}
+
+// ------------------------------ decision 0046 ruling 3: the boundary
+
+/// One seat's journal under `word`: the entry on the start, the stamp
+/// beside every record that names a model (design DD19).
+fn boxed_seat(seat: &str, word: &str) -> Vec<EventEnvelope> {
+    vec![
+        event(
+            EventType::EffectRequested,
+            json!({"effect_id": seat, "seat": seat}),
+        ),
+        event(
+            EventType::EffectStarted,
+            json!({"effect_id": seat,
+                   "boundary": [{"member": null, "boundary": word, "gate": true}]}),
+        ),
+        event(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": seat, "checkpoint": {
+                "step": "seat-turn", "turn": 1, "model": "claude-fable-5-1",
+                "boundary": word}}),
+        ),
+        event(
+            EventType::EffectSucceeded,
+            json!({"effect_id": seat, "result": {
+                "result": "pass", "model": "claude-fable-5-1", "boundary": word}}),
+        ),
+    ]
+}
+
+/// The seat-costs record carries `boundary` beside `model`, reduced the
+/// same way: one word, a joined list where the seat's records disagree,
+/// and `not recorded` — an explicit absence — where no record that names
+/// a model carries one. A word on a record that names no model is not
+/// read: the pair is read together.
+#[test]
+fn seat_costs_reduce_the_boundary_exactly_as_the_model() {
+    let (costs, _) = seat_costs(&boxed_seat("verify", "harness"));
+    assert_eq!(costs["verify"]["model"], "claude-fable-5-1");
+    assert_eq!(costs["verify"]["boundary"], "harness");
+
+    let mut events = boxed_seat("verify", "namespace");
+    events[3].payload["result"]["boundary"] = json!("open");
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["verify"]["boundary"], "namespace, open");
+
+    // The sentinel yields to a real word, as it does for the model.
+    let mut events = boxed_seat("verify", "namespace");
+    events[2].payload["checkpoint"]["boundary"] = json!("not applicable");
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["verify"]["boundary"], "namespace");
+
+    // A pre-0046 seat: models named, no word beside them.
+    let mut events = boxed_seat("verify", "namespace");
+    events[2].payload["checkpoint"]["boundary"] = Value::Null;
+    events[3].payload["result"]["boundary"] = Value::Null;
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["verify"]["model"], "claude-fable-5-1");
+    assert_eq!(costs["verify"]["boundary"], "not recorded");
+
+    // A word beside no model is no stamp.
+    let mut events = boxed_seat("verify", "namespace");
+    events[2].payload["checkpoint"]["model"] = Value::Null;
+    events[3].payload["result"]["model"] = Value::Null;
+    let (costs, _) = seat_costs(&events);
+    assert_eq!(costs["verify"]["model"], "not reported");
+    assert_eq!(costs["verify"]["boundary"], "not recorded");
+}
+
+/// `compare`'s resolution map carries the pair per participant through
+/// the helper's JSON face, and the structural divergence names a
+/// boundary difference exactly as it names a model difference.
+#[test]
+fn the_resolution_map_carries_the_pair_and_diverges_on_the_boundary() {
+    let harness = resolution_of(&boxed_seat("verify", "harness"));
+    let namespace = resolution_of(&boxed_seat("verify", "namespace"));
+    assert_eq!(harness["verify"]["model"], "claude-fable-5-1");
+    assert_eq!(harness["verify"]["boundary"], "harness");
+    assert_eq!(harness["verify"]["selected"], Value::Null);
+    let divergence = resolution_divergence(&harness, &namespace);
+    assert_eq!(divergence["verify"]["a"]["boundary"], "harness");
+    assert_eq!(divergence["verify"]["b"]["boundary"], "namespace");
+    assert_eq!(divergence["verify"]["a"]["model"], "claude-fable-5-1");
+    assert_eq!(resolution_divergence(&harness, &harness), json!({}));
+
+    // A pre-0046 seat reads the absence mark, which is itself a divergence.
+    let mut old = boxed_seat("verify", "namespace");
+    old[1].payload.as_object_mut().unwrap().remove("boundary");
+    old[2].payload["checkpoint"]["boundary"] = Value::Null;
+    old[3].payload["result"]["boundary"] = Value::Null;
+    let old = resolution_of(&old);
+    assert_eq!(old["verify"]["boundary"], brokkr_view::ABSENT);
+    assert_eq!(
+        resolution_divergence(&namespace, &old)["verify"]["b"]["boundary"],
+        brokkr_view::ABSENT
+    );
 }

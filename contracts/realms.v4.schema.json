@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/realms.v4.json",
+  "title": "Forge realms map v4",
+  "description": "The world an invocation opens, with the boundary each realm's boxed hands stand behind (decision 0046 ruling 1). v1, v2 and v3 remain frozen. This version adds exactly one optional property per realm: boundary, a closed vocabulary that names the mechanism and never the operating system. Absent, it reads namespace, which is what every bundle meant before the word existed. The enumeration is frozen the way a contract is: a new boundary is a new decision.",
+  "type": "object",
+  "required": ["schema", "realms", "journal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.realms/v4" },
+    "realms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "default_branch"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "path": { "type": "string", "minLength": 1 },
+          "default_branch": { "type": "string", "minLength": 1 },
+          "journal": { "type": "string", "minLength": 1 },
+          "house": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "Repository-relative Markdown rendered into every seat prompt." },
+          "dialect": { "type": "string", "minLength": 1, "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$", "description": "A library dialect name or a repository-relative dialect path." },
+          "boundary": { "enum": ["namespace", "seatbelt", "container", "harness", "open"], "description": "What stands between a box's hands and this realm's machine (decision 0046 ruling 1): namespace is decision 0043's bubblewrap user namespace (Linux, WSL2); seatbelt the same box built by sandbox-exec (macOS); container a pinned image with the worktree mounted; harness nothing of Brokkr's, the harness's own sandbox as its adapter fragment addresses it; open nothing at all. Absent reads namespace." }
+        }
+      }
+    },
+    "journal": { "type": "string", "minLength": 1 }
+  }
+}

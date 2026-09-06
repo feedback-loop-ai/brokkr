@@ -278,6 +278,13 @@ pub struct Adapter {
     /// is `hands_gap`.
     pub hands: Option<Vec<String>>,
     pub hands_gap: Option<String>,
+    /// Decision 0046 ruling 4: how this provider's own sandbox stands in
+    /// for the box under the `harness` boundary — the read-only fragment
+    /// a gate may judge under, the writable one a work seat may write
+    /// under, and the door a gate's result reaches the engine through.
+    /// Every member undeclared for an adapter written before the ruling,
+    /// which the loader reads as unsupported, fail-closed.
+    pub harness: HarnessHands,
     /// Why `tool_permissions` is absent, when the operator MEASURED the
     /// provider's CLI and found no per-tool allow-list to map onto.
     /// Never a capability: a declared gap refuses exactly as a bare
@@ -287,6 +294,40 @@ pub struct Adapter {
     pub tool_permissions_gap: Option<String>,
     pub mcp: Option<McpSupport>,
     pub digest: String,
+}
+
+/// How a gate seat's result reaches the engine under the `harness`
+/// boundary (decision 0046 ruling 4; design D23): the seat writes the
+/// file itself through the one door its read-only fragment leaves, or
+/// the harness's own capture writes the seat's final message to it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ResultDoor {
+    #[default]
+    File,
+    LastMessage,
+}
+
+impl ResultDoor {
+    pub fn word(self) -> &'static str {
+        match self {
+            ResultDoor::File => "file",
+            ResultDoor::LastMessage => "last-message",
+        }
+    }
+}
+
+/// An adapter's `hands.harness` declaration (decision 0046 ruling 4):
+/// `gate` and `work`, each a measured argv fragment or `None` with the
+/// measured reason beside it when the operator recorded one, and the
+/// result door. Absent members read `None` with no reason — the loader's
+/// fail-closed reading of an adapter nobody has measured.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HarnessHands {
+    pub gate: Option<Vec<String>>,
+    pub gate_gap: Option<String>,
+    pub work: Option<Vec<String>>,
+    pub work_gap: Option<String>,
+    pub result: ResultDoor,
 }
 
 /// One resolved invocation: the agent it serves, a model, the provider
@@ -306,6 +347,15 @@ pub struct Candidate {
     pub effort: Option<String>,
     pub provider: String,
     pub argv: Vec<String>,
+    /// The adapter's `hands.workspace` fragment exactly as `compose`
+    /// appended it into `argv` — empty when the agent declares no hands.
+    /// Under `harness` and `open` no workspace tool is served, and the
+    /// engine takes these tokens back out at spawn (decision 0046 ruling
+    /// 4) before it composes the boundary's own argv.
+    pub hands_fragment: Vec<String>,
+    /// The adapter's `hands.harness`, carried to the engine, which holds
+    /// no adapter at spawn.
+    pub harness: HarnessHands,
 }
 
 /// An optional-capability gap: a WARNING that lands in the run manifest.
@@ -383,6 +433,11 @@ pub struct ChainEntry {
     pub presence: Presence,
     /// Empty when the entry is unmapped or blocked by a capability gap.
     pub argv: Vec<String>,
+    /// The `hands.workspace` tokens inside `argv`, when the agent has
+    /// hands and the entry composed (see [`Candidate::hands_fragment`]).
+    pub hands_fragment: Vec<String>,
+    /// The adapter's `hands.harness`, default when the entry is unmapped.
+    pub harness: HarnessHands,
     pub gap: Option<ResolveError>,
     pub notices: Vec<Notice>,
 }
@@ -433,6 +488,10 @@ fn capability_gap(
     }
 }
 
+/// One composed candidate: its argv, the effort pinned in it, and the
+/// adapter's `hands.workspace` fragment exactly as appended.
+type Composed = (Vec<String>, Option<String>, Vec<String>);
+
 /// Compose one candidate's argv, or refuse. A lookup and a join: there
 /// is no template language, so there is no substitution function whose
 /// branches could drift from the data.
@@ -442,7 +501,8 @@ fn compose(
     model: &str,
     concrete: &str,
     notices: &mut Vec<Notice>,
-) -> Result<(Vec<String>, Option<String>), ResolveError> {
+    boxed: bool,
+) -> Result<Composed, ResolveError> {
     let mut argv = adapter.driver.clone();
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
@@ -511,26 +571,30 @@ fn compose(
         }
     };
 
+    let mut hands_fragment = Vec::new();
     if agent.hands.is_some() {
-        // Decision 0043 ruling 2: the box expresses the restriction. The
-        // tool list is not consulted; what the provider must be able to
-        // say is how its own tools are replaced by the one boxed tool.
-        let fragment = adapter.hands.as_ref().ok_or_else(|| {
-            let declared = match &adapter.hands_gap {
-                Some(reason) => format!("the provider declares hands unsupported ({reason})"),
-                None => "the provider declares hands unsupported".to_string(),
-            };
-            capability_gap(
-                agent,
-                adapter,
-                model,
-                format!(
-                    "{declared}, so the agent's hands cannot be put in the box and \
+        if boxed {
+            // Decision 0043 ruling 2: the box expresses the restriction. The
+            // tool list is not consulted; what the provider must be able to
+            // say is how its own tools are replaced by the one boxed tool.
+            let fragment = adapter.hands.as_ref().ok_or_else(|| {
+                let declared = match &adapter.hands_gap {
+                    Some(reason) => format!("the provider declares hands unsupported ({reason})"),
+                    None => "the provider declares hands unsupported".to_string(),
+                };
+                capability_gap(
+                    agent,
+                    adapter,
+                    model,
+                    format!(
+                        "{declared}, so the agent's hands cannot be put in the box and \
                      the agent would run with the harness's own tools"
-                ),
-            )
-        })?;
-        argv.extend(fragment.iter().cloned());
+                    ),
+                )
+            })?;
+            argv.extend(fragment.iter().cloned());
+            hands_fragment = fragment.clone();
+        }
     } else if let Some(allow) = &agent.allow {
         let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
             // A measured gap names the axis the provider DOES have; a
@@ -607,7 +671,7 @@ fn compose(
             }
         }
     }
-    Ok((argv, effort))
+    Ok((argv, effort, hands_fragment))
 }
 
 fn entry_for(
@@ -615,6 +679,7 @@ fn entry_for(
     adapters: &Adapters,
     availability: &Availability,
     model: &str,
+    boxed: bool,
 ) -> ChainEntry {
     let Some((adapter, concrete)) = adapters.serving(model) else {
         return ChainEntry {
@@ -623,24 +688,29 @@ fn entry_for(
             provider: None,
             presence: Presence::Unknown,
             argv: Vec::new(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             gap: None,
             notices: Vec::new(),
         };
     };
     let presence = availability.presence(&adapter.provider);
     let mut notices = Vec::new();
-    let (argv, effort, gap) = match compose(agent, adapter, model, concrete, &mut notices) {
-        Ok((argv, effort)) => (argv, effort, None),
-        // A blocked entry contributes no notices: it contributes an
-        // error, and reporting both would double-count one gap.
-        Err(gap) => (Vec::new(), None, Some(gap)),
-    };
+    let (argv, effort, hands_fragment, gap) =
+        match compose(agent, adapter, model, concrete, &mut notices, boxed) {
+            Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
+            // A blocked entry contributes no notices: it contributes an
+            // error, and reporting both would double-count one gap.
+            Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
+        };
     ChainEntry {
         model: model.to_string(),
         effort,
         provider: Some(adapter.provider.clone()),
         presence,
         argv,
+        hands_fragment,
+        harness: adapter.harness.clone(),
         gap,
         notices,
     }
@@ -654,6 +724,24 @@ pub fn report(
     availability: &Availability,
     name: &str,
 ) -> Result<Report, ResolveError> {
+    report_under(
+        library,
+        adapters,
+        availability,
+        name,
+        brokkr_core::realms::Boundary::Namespace,
+    )
+}
+
+/// Compose the capability report for the boundary the realm selected.
+/// Unboxed sites never require or append the workspace tool fragment.
+pub(crate) fn report_under(
+    library: &Library,
+    adapters: &Adapters,
+    availability: &Availability,
+    name: &str,
+    boundary: brokkr_core::realms::Boundary,
+) -> Result<Report, ResolveError> {
     let agent = library
         .agent(name)
         .ok_or_else(|| ResolveError::UnknownAgent {
@@ -664,7 +752,7 @@ pub fn report(
     let entries: Vec<ChainEntry> = agent
         .models
         .iter()
-        .map(|model| entry_for(&agent, adapters, availability, model))
+        .map(|model| entry_for(&agent, adapters, availability, model, boundary.is_boxed()))
         .collect();
     let chosen = entries
         .iter()
@@ -684,7 +772,15 @@ pub fn resolve(
     availability: &Availability,
     name: &str,
 ) -> Result<Resolution, ResolveError> {
-    let report = report(library, adapters, availability, name)?;
+    resolve_report(report(library, adapters, availability, name)?, adapters)
+}
+
+/// Complete a report only after the compiler has judged the mapped chain.
+/// Capability errors stay fail-closed, with the site's gate law preceding them.
+pub(crate) fn resolve_report(
+    report: Report,
+    adapters: &Adapters,
+) -> Result<Resolution, ResolveError> {
     let agent = &report.agent;
     // Every entry, not just the chosen one.
     for entry in &report.entries {
@@ -713,6 +809,8 @@ pub fn resolve(
             effort: entry.effort.clone(),
             provider: entry.provider.clone().expect("mapped above"),
             argv: entry.argv.clone(),
+            hands_fragment: entry.hands_fragment.clone(),
+            harness: entry.harness.clone(),
         })
         .collect();
     let skipped: Vec<Value> = report.entries[..chosen]

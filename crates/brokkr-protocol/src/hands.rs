@@ -41,6 +41,11 @@ const SANDBOX_HOME: &str = "/runtime/home";
 pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
 /// Set by the engine in every namespace so box-building tests do not recurse.
 pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
+/// Where the boundary lives (decision 0046 ruling 1), said once for
+/// every site that tries to write it into a bundle or an agent file.
+pub const BOUNDARY_IS_THE_REALMS: &str = "the boundary is declared by the realm \
+    (realms.json, forge.realms/v4) and never by a bundle or an agent, because the \
+    machine a realm runs on is the realm's fact (decision 0046 ruling 1)";
 const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -107,6 +112,11 @@ impl HandsSpec {
                 ))
             }
         };
+        // Named as a misplaced field, never as an unknown key: the author
+        // is told where the word lives (decision 0046 ruling 1).
+        if object.contains_key("boundary") {
+            return Err(format!("hands names 'boundary'; {BOUNDARY_IS_THE_REALMS}"));
+        }
         for key in object.keys() {
             if !["kind", "network", "binds"].contains(&key.as_str()) {
                 return Err(format!(
@@ -198,6 +208,16 @@ impl Bind {
         }
         Ok(Bind { path, mode, mask })
     }
+}
+
+/// The engine's home as an environment table states it: `HOME`, or on
+/// Windows `USERPROFILE`, or nothing — the `~` every bind and every
+/// toolchain locator resolves against.
+pub fn home_dir(env: &std::collections::BTreeMap<String, String>) -> PathBuf {
+    let home = env.get("HOME");
+    #[cfg(windows)]
+    let home = home.or_else(|| env.get("USERPROFILE"));
+    home.map(PathBuf::from).unwrap_or_default()
 }
 
 /// `~/x` against the host home; anything else as written.
@@ -516,16 +536,196 @@ pub fn box_argv(
     Ok(argv)
 }
 
+/// The engine's own uid and gid: what the box maps to `runner`, and what
+/// the unboxed network prefix maps root back to (decision 0046 ruling 4).
 #[cfg(unix)]
-fn ids() -> (u32, u32) {
+pub fn ids() -> (u32, u32) {
     // SAFETY: getuid/getgid take no arguments, read process credentials
     // and cannot fail.
     unsafe { (libc_getuid(), libc_getgid()) }
 }
 
 #[cfg(not(unix))]
-fn ids() -> (u32, u32) {
+pub fn ids() -> (u32, u32) {
     (65_534, 65_534)
+}
+
+/// The Windows process-bootstrap set, without which no Windows process
+/// starts. Carried verbatim on Windows only (decision 0046 ruling 4;
+/// design DD10); on every other host these names are not consulted.
+#[cfg(windows)]
+const WINDOWS_BOOTSTRAP: [&str; 14] = [
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+];
+
+/// The environment an unboxed exec dispatch starts in under `harness`
+/// and `open` (decision 0046 ruling 4; design DD10): the box's own
+/// allow-list, with each entry that states a fact of a namespace
+/// replaced by the fact that stands outside one. From an EMPTY table —
+/// the credentials the engine's environment carries never enter it —
+/// this sets exactly:
+///
+/// - `HOME` and `TMPDIR`: the two private directories the caller created
+///   for the attempt, never the operator's own, because the real home
+///   carries `.ssh`, `.netrc` and `.cargo/credentials.toml`;
+/// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
+///   there — the box's fixed `PATH` names mounts that exist only inside a
+///   namespace, and a `runner` name would not match the operator's uid;
+/// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
+///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
+///   declare that path, as the box sets them; a bind's `mask` is declared
+///   and not enforced outside a namespace;
+/// - [`HANDS_BOX_ENV`]: inherited exactly when the engine itself already
+///   stands inside a box, never set here, because it is the marker every
+///   box-building test skips on;
+/// - the box's fixed switches, the gpgsign triple, and the bundle's git
+///   identity;
+/// - on Windows only, the bootstrap set, verbatim.
+///
+/// Pure over its inputs, so the table is read directly by tests.
+/// Clearing the environment confines nothing on disk: an unboxed script
+/// may open any host path the operator's uid may read.
+pub fn unboxed_environment(
+    engine_env: &std::collections::BTreeMap<String, String>,
+    home: &Path,
+    spec: &HandsSpec,
+    identity: &[(String, String)],
+    private_home: &Path,
+    private_tmp: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let mut table = std::collections::BTreeMap::new();
+    let mut set = |key: &str, value: String| {
+        table.insert(key.to_string(), value);
+    };
+    set("HOME", private_home.to_string_lossy().into_owned());
+    set("TMPDIR", private_tmp.to_string_lossy().into_owned());
+    for key in ["PATH", "USER", "LOGNAME", HANDS_BOX_ENV] {
+        if let Some(value) = engine_env.get(key) {
+            set(key, value.clone());
+        }
+    }
+    for (key, value) in [
+        ("LANG", "C.UTF-8"),
+        ("LC_ALL", "C.UTF-8"),
+        ("CI", "true"),
+        ("DISABLE_AUTOUPDATER", "1"),
+        ("DISABLE_TELEMETRY", "1"),
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+    ] {
+        set(key, value.to_string());
+    }
+    for (key, dir) in [
+        ("CARGO_HOME", ".cargo"),
+        ("RUSTUP_HOME", ".rustup"),
+        ("NPM_CONFIG_CACHE", ".npm"),
+    ] {
+        let target = home.join(dir);
+        if spec
+            .binds
+            .iter()
+            .any(|bind| expand_home(&bind.path, home) == target)
+        {
+            set(key, target.to_string_lossy().into_owned());
+        }
+    }
+    for (key, value) in identity {
+        set(key, value.clone());
+    }
+    bootstrap(engine_env, &mut table);
+    table
+}
+
+/// On Windows only, the process-bootstrap set passes verbatim.
+#[cfg(windows)]
+fn bootstrap(
+    engine_env: &std::collections::BTreeMap<String, String>,
+    table: &mut std::collections::BTreeMap<String, String>,
+) {
+    for (key, value) in engine_env {
+        if WINDOWS_BOOTSTRAP
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(key))
+        {
+            table.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+/// Everywhere else the Windows names are not consulted.
+#[cfg(not(windows))]
+fn bootstrap(
+    _engine_env: &std::collections::BTreeMap<String, String>,
+    _table: &mut std::collections::BTreeMap<String, String>,
+) {
+}
+
+/// The network narrowing an unboxed exec dispatch runs behind on Linux
+/// when the probe passes (decision 0046 ruling 4): a user namespace with
+/// the engine mapped to root, so the exec'd `sh` keeps the capability to
+/// bring the loopback up, then a second user namespace mapping root back
+/// to the operator, so the dispatch runs as the operator with its
+/// capabilities dropped on exec and the network namespace inherited.
+/// Every layer replaces itself by exec, so the PID the engine holds is
+/// the driver's and the deadline kill reaches it. Eight tokens; the
+/// dispatch follows as `"$@"`.
+pub fn network_prefix(uid: u32, gid: u32) -> Vec<String> {
+    vec![
+        "unshare".to_string(),
+        "--map-root-user".to_string(),
+        "--net".to_string(),
+        "--".to_string(),
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("ip link set lo up && exec unshare --map-user={uid} --map-group={gid} -- \"$@\""),
+        "sh".to_string(),
+    ]
+}
+
+/// Does the prefix work here? The prefix around `true`, run in the
+/// dispatch's own environment against the `PATH` that environment
+/// carries (decision 0046 ruling 4; design DD15). With no `unshare` on
+/// that path nothing is spawned and the answer is no; a non-zero exit is
+/// no; zero is yes. The engine asks once per process and remembers the
+/// answer, and nothing anywhere reports it: the record marks the run
+/// *unboxed* either way.
+pub fn probe_network_prefix(
+    env: &std::collections::BTreeMap<String, String>,
+    uid: u32,
+    gid: u32,
+) -> bool {
+    let path = env.get("PATH").cloned().unwrap_or_default();
+    let found = std::env::split_paths(&path)
+        .map(|dir| dir.join("unshare"))
+        .find(|candidate| candidate.is_file());
+    let Some(unshare) = found else {
+        return false;
+    };
+    let mut argv = network_prefix(uid, gid);
+    argv.push("true".to_string());
+    Command::new(unshare)
+        .args(&argv[1..])
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 #[cfg(unix)]

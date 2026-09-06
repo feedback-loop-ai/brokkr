@@ -87,6 +87,37 @@ verify_evidence() {
     || fail "run ${run}: the anchor does not match its journal, or names a version this gate does not read"
 }
 
+# Decision 0046 ruling 3: the boundary a verified run's boxed gate stood
+# under, rendered as the suffix the check summary carries. The data is the
+# plain word in every `effect/started.boundary` entry; the adjective is
+# this script's. One jq program holds the whole rule (design DD13, DD14):
+#
+#   nothing                  the manifest declares no hands — the run boxes
+#                            nothing, so it is neither boxed nor unboxed
+#   · boundary not recorded  the manifest declares hands and no boundary
+#                            (a journal written before the word existed), or
+#                            an entry's word is outside the six (five words
+#                            and `not applicable`) or lacks its `member` tag
+#                            — never read as boxed, never as unboxed
+#   · unboxed                an entry has `gate` true and `harness` or `open`
+#
+# Read after `verify_evidence`, from the journal it verified.
+boundary_suffix() {
+  local run="$1"
+  jq -r -s '
+    def words: ["namespace", "seatbelt", "container", "harness", "open", "not applicable"];
+    ([.[] | select(.type == "run/started")] | first | .payload.manifest // {}) as $manifest
+    | [ .[] | select(.type == "effect/started") | .payload.boundary // []
+        | if type == "array" then .[] else {} end
+        | if type == "object" then . else {} end ] as $entries
+    | if ($manifest | has("hands") | not) then ""
+      elif ($manifest | has("boundary") | not) then " · boundary not recorded"
+      elif any($entries[]; (has("member") | not) or ((.boundary | IN(words[])) | not)) then " · boundary not recorded"
+      elif any($entries[]; .gate == true and (.boundary | IN("harness", "open"))) then " · unboxed"
+      else "" end
+  ' "$work/${run}.ndjson"
+}
+
 # Decision 0038 ruling 1's map, computed for the head under judgment
 # exactly as the engine computes it at ship: per path, the stable patch
 # id of that file's diff from the merge-base, whitespace included
@@ -172,7 +203,12 @@ if (( cut != 0 )); then
 fi
 { read -r run_id; read -r tier; read -r delta; } <<<"$verdict"
 
-say "tier ${tier} · delta since the judgment: ${delta}"
+# The delivering run's boundary, read from the journal `cut_tier` verified
+# and left in the scratch directory; nothing when no run was declared.
+suffix=""
+[[ -z "$run_id" ]] || suffix="$(boundary_suffix "$run_id")"
+
+say "tier ${tier} · delta since the judgment: ${delta}${suffix}"
 if (( by_hand )); then
   say "skipped — operator applied the by-hand label (the tier would have been ${tier})"
   exit 0
@@ -180,7 +216,7 @@ fi
 
 case "$tier" in
   vouched)
-    say "run ${run_id} vouches for ${PR_HEAD}"
+    say "run ${run_id} vouches for ${PR_HEAD}${suffix}"
     ;;
   docs)
     preflight="$(declaration Brokkr-Preflight)"
@@ -192,7 +228,11 @@ case "$tier" in
       || fail "preflight ${preflight}: its last ruling is not a review ruling into done"
     jq -e --arg head "$PR_HEAD" '.repo_head == $head' "$work/${preflight}.anchor.json" >/dev/null \
       || fail "preflight ${preflight} judged $(jq -r '.repo_head' "$work/${preflight}.anchor.json"), not ${PR_HEAD}"
-    say "run ${run_id} delivered the slice; preflight ${preflight} judged ${PR_HEAD}"
+    # Two runs, two boundaries: the preflight is read the same way, on
+    # its own line, so neither run's word is mistaken for the other's.
+    preflight_suffix="$(boundary_suffix "$preflight")"
+    say "run ${run_id} delivered the slice${suffix}"
+    say "preflight ${preflight} judged ${PR_HEAD}${preflight_suffix}"
     ;;
   code)
     fail "code delta since run ${run_id}: ${delta}. A new run must vouch for ${PR_HEAD}, or the operator applies the by-hand label"

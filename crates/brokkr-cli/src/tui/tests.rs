@@ -829,7 +829,7 @@ fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
         .iter_mut()
         .find(|row| row.in_trail)
         .unwrap();
-    reported.model = brokkr_view::Cell {
+    reported.served.model = brokkr_view::Cell {
         text: "claude-fable-5-1".to_string(),
         absent: false,
         note: None,
@@ -1641,18 +1641,30 @@ fn gnode(label: &str, state: &str, class: &str) -> Node {
         key: format!("key:{label}"),
         state: state.to_string(),
         state_class: class.to_string(),
-        model: brokkr_view::Cell {
-            text: "—".to_string(),
-            absent: true,
-            note: None,
+        served: brokkr_view::ModelAtBoundary {
+            model: brokkr_view::Cell {
+                text: "—".to_string(),
+                absent: true,
+                note: None,
+            },
+            boundary: brokkr_view::Cell {
+                text: "—".to_string(),
+                absent: true,
+                note: None,
+            },
         },
     }
 }
 
 fn gnode_with_model(label: &str, model: &str) -> Node {
     let mut node = gnode(label, "finished", "on-phosphor");
-    node.model = brokkr_view::Cell {
+    node.served.model = brokkr_view::Cell {
         text: model.to_string(),
+        absent: false,
+        note: None,
+    };
+    node.served.boundary = brokkr_view::Cell {
+        text: "namespace".to_string(),
         absent: false,
         note: None,
     };
@@ -4999,4 +5011,115 @@ fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
     assert_eq!(tui.tab, 0);
     assert_eq!(tui.status, None, "the read hearth has nothing to say");
+}
+
+// ------------------------------ decision 0046 ruling 3: the boundary
+
+/// The intake seat under one boundary: the run declares hands for it,
+/// the attempt's entry names `word` with `gate`, and the finishing
+/// checkpoint and result carry the model with the word beside it.
+fn boxed_views(word: &str, gate: bool) -> Views {
+    let mut events = journal("intake");
+    events[0].payload["manifest"] = json!({"hands": {"intake": {"binds": []}}});
+    events[3].payload["boundary"] = json!([{"member": null, "boundary": word, "gate": gate}]);
+    events[5].payload["checkpoint"]["model"] = json!("claude-fable-5-1");
+    events[5].payload["checkpoint"]["boundary"] = json!(word);
+    events[6].payload["result"]["model"] = json!("claude-fable-5-1");
+    events[6].payload["result"]["boundary"] = json!(word);
+    Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(brokkr_view::run_view(&events, Some(&state()))),
+        transcript: None,
+        note: None,
+    }
+}
+
+/// The run level: the header line prints the model's rendered text,
+/// the seats table carries the boundary column beside the model, and a
+/// trail row that names a model names the boundary beside it.
+#[test]
+fn the_run_level_prints_the_boundary_beside_the_model_and_in_its_header() {
+    let boxed = boxed_views("harness", true);
+    let frame = frame_of(&at_run(), &boxed, 140, 40);
+    assert!(frame.contains("boundary  harness · unboxed"), "{frame}");
+    assert!(frame.contains("model"), "{frame}");
+    let header = frame
+        .lines()
+        .find(|line| line.contains("participant"))
+        .unwrap();
+    assert!(
+        header.find("model").unwrap() < header.find("boundary").unwrap(),
+        "{header}"
+    );
+    let row = frame
+        .lines()
+        .find(|line| line.contains("claude-fable-5-1") && line.contains("intake"))
+        .unwrap();
+    assert!(row.contains("harness"), "{row}");
+    assert!(
+        frame.contains("intook · model claude-fable-5-1 · boundary harness"),
+        "{frame}"
+    );
+
+    // The word alone for a box; no adjective for a work seat; nothing
+    // for a run that boxes nothing.
+    let namespace = frame_of(&at_run(), &boxed_views("namespace", true), 140, 40);
+    assert!(namespace.contains("boundary  namespace"), "{namespace}");
+    assert!(!namespace.contains("unboxed"), "{namespace}");
+    let work = frame_of(&at_run(), &boxed_views("harness", false), 140, 40);
+    assert!(work.contains("boundary  harness"), "{work}");
+    assert!(!work.contains("unboxed"), "{work}");
+    let mut events = journal("intake");
+    events[0].payload["manifest"] = json!({"hands":{"intake":{"binds":[]}}});
+    let mut old = views();
+    old.run = Some(brokkr_view::run_view(&events, Some(&state())));
+    let old = frame_of(&at_run(), &old, 140, 40);
+    assert!(old.contains("boundary  not recorded"), "{old}");
+    // The column header stands, absent-marked; the header LINE does not.
+    let plain = frame_of(&at_run(), &views(), 140, 40);
+    assert!(plain.contains("boundary"), "{plain}");
+    assert!(
+        !plain
+            .lines()
+            .any(|line| line.trim_start_matches('│').starts_with("boundary  ")),
+        "{plain}"
+    );
+}
+
+/// The seat level: the detail pane's model line carries the boundary,
+/// and every checkpoint row does.
+#[test]
+fn the_seat_level_prints_the_boundary_beside_the_model_and_on_every_checkpoint() {
+    let boxed = boxed_views("open", true);
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &boxed, Key::Enter);
+    apply(&mut tui, &boxed, Key::Enter);
+    let detail = frame_of(&tui, &boxed, 160, 40);
+    assert!(
+        detail.contains("model     claude-fable-5-1 (claimed) · boundary open"),
+        "{detail}"
+    );
+    assert!(
+        detail.contains("claude-session-finished  model claude-fable-5-1  boundary open  effort"),
+        "{detail}"
+    );
+    // The turn that named no model reads the attempt's entry beside its
+    // absent model: the boundary is the attempt's fact, not the turn's.
+    assert!(
+        detail.contains("Read  model —  boundary open  effort"),
+        "{detail}"
+    );
+
+    // A pre-0046 seat: both absences, and never a default word.
+    let inline = views();
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &inline, Key::Enter);
+    apply(&mut tui, &inline, Key::Enter);
+    let detail = frame_of(&tui, &inline, 160, 40);
+    assert!(
+        detail.contains("model     — (claimed) · boundary —"),
+        "{detail}"
+    );
+    assert!(detail.contains("model —  boundary —  effort"), "{detail}");
 }

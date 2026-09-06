@@ -11,6 +11,16 @@ fn error<T>(result: Result<T, CompileError>) -> String {
     }
 }
 
+#[test]
+fn an_agent_driver_object_may_not_amend_even_one_field() {
+    assert!(refuse_amendments("work", &json!({"driver": {}})).is_ok());
+    let refusal = error(refuse_amendments(
+        "work",
+        &json!({"driver": {"command": []}}),
+    ));
+    assert!(refusal.contains("driver.command"), "{refusal}");
+}
+
 fn policy() -> Value {
     json!({
         "phases": ["work", "review", "done"],
@@ -595,27 +605,78 @@ fn mentions_agent_walks_the_whole_config() {
     assert!(!mentions_agent(&json!("agent")));
 }
 
-/// `driver.confine` is the one `driver` key legal beside `agent:`: it is
-/// the seat's own trust-class binding, not a statement about what the
-/// agent is, and `brokkr agents show` never claims to show it.
+/// `driver.confine` was the one `driver` key legal beside `agent:` until
+/// decision 0046 ruling 5 retired it into the `container` boundary; a
+/// resolved seat that still writes it is refused by the same words an
+/// inline one is, and never read as an amendment of the agent.
 #[test]
-fn a_resolved_seat_may_still_declare_its_own_confinement() {
+fn a_resolved_seat_may_no_longer_declare_its_own_confinement() {
     let fixture = AgentFixture::new();
     let mut config = fixture.config();
     config["seats"]["work"]["driver"] = json!({"confine": {"image": "img", "network": true}});
-    let bundle = fixture.compile(config).unwrap();
-    let SeatBody::Single {
-        confine,
-        candidates,
-        ..
-    } = &bundle.seats["work"].body
-    else {
-        unreachable!("single seat")
-    };
-    let confine = confine.as_ref().expect("the seat's own confinement");
-    assert_eq!(confine.image, "img");
-    assert!(confine.network);
-    assert_eq!(candidates.len(), 1, "the agent still resolved");
+    let refusal = fixture.compile(config).unwrap_err().to_string();
+    assert!(
+        refusal.contains("seat 'work' declares driver.confine"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("`container` boundary"), "{refusal}");
+    assert!(refusal.contains("decision 0046 ruling 5"), "{refusal}");
+    assert!(
+        !refusal.contains("an agent reference is total"),
+        "{refusal}"
+    );
+
+    // Any other driver key beside `agent:` is still the amendment it was.
+    let mut config = fixture.config();
+    config["seats"]["work"]["driver"] = json!({"command": ["x"]});
+    let refusal = fixture.compile(config).unwrap_err().to_string();
+    assert!(
+        refusal.contains("combines 'agent' with 'driver.command'"),
+        "{refusal}"
+    );
+}
+
+/// Decision 0046 ruling 1, on the agent side: an agent file whose `hands`
+/// object carries `boundary` is refused when the library loads, naming
+/// the agent and the realm as the field's home; and a seat that writes
+/// `boundary` beside `agent:` is refused by the same words, before the
+/// amendment lint would call it an amendment of the agent.
+#[test]
+fn an_agent_file_never_names_the_boundary_either() {
+    let fixture = AgentFixture::new();
+    let home = "the boundary is declared by the realm (realms.json, forge.realms/v4) and never \
+                by a bundle or an agent, because the machine a realm runs on is the realm's \
+                fact (decision 0046 ruling 1)";
+    fixture.write(
+        "agents/worker.json",
+        json!({
+            "description": "the worker",
+            "charter": "charters/work.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+            "hands": {"kind": "workspace", "network": false, "boundary": "harness"},
+        }),
+    );
+    let refusal = error(fixture.compile(fixture.config()));
+    assert!(refusal.contains("agent 'worker'"), "{refusal}");
+    assert!(
+        refusal.contains(&format!("'hands': hands names 'boundary'; {home}")),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("unknown key"), "{refusal}");
+
+    let fixture = AgentFixture::new();
+    let mut config = fixture.config();
+    config["seats"]["work"]["boundary"] = json!("open");
+    let refusal = error(fixture.compile(config));
+    assert_eq!(
+        refusal,
+        format!("bundle: seat 'work' declares boundary; {home}")
+    );
+    assert!(
+        !refusal.contains("an agent reference is total"),
+        "{refusal}"
+    );
 }
 
 /// A refusal inside a panel member propagates out of the panel, and out

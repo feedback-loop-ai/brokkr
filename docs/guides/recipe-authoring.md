@@ -107,6 +107,10 @@ brokkr rerun --run <id> --recipe panel-review    # same feature, other strategy
 brokkr compare <a> <b>                           # trails, first divergence, per-seat costs
 ```
 
+A rerun compiles the new recipe in the discovered realm exactly as `run`
+does, so its manifest carries the realms pin, the dialect and the
+boundary of the world it starts in — not a copy of the old run's.
+
 ## The three files
 
 These recipe files choose the office, but they do not carry all prompt text.
@@ -199,14 +203,19 @@ so it cannot smuggle a route around review.
 | `inputs` | The typed facts this seat may supply (decision 0007). Defaults to the non-engine-owned inputs this phase's own rules reference. Anything undeclared is dropped before evaluation and never enters the journal record. |
 | `limits` | `max_attempts` and `timeout_seconds`. Defaults: one attempt, 3600 seconds. |
 | `secrets` | Secret **names** this seat binds (decision 0012). Values live in an operator-side store outside version control; bundles and journals carry names only. The seat's driver must reach a route whose egress class meets the bundle's `egress_minimum`, or compilation refuses (decision 0036 ruling 4). |
-| `driver.confine` | Optional container confinement: `image`, `network`, `mounts`. |
-| `hands` | Decision 0043, Linux only: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). The seat's commands run inside an empty-root box holding the worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`, so its `./` script travels with the strategy. A tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
+| `driver.confine` | **Refused.** Decision 0008's container confinement (`image`, `network`, `mounts`) never had a shipped user; the compiler refuses the key naming the `container` boundary, slice (iii) and decision [0046](../decisions/0046-the-boundary-is-named.md) ruling 5, so a bundle still carrying it fails loudly rather than running a wrapper nobody exercised. Its image, network and mounts return as the `container` boundary's declaration in the realm once that slice measures it. |
+| `hands` | Decision 0043: `"workspace"` or `{"kind":"workspace","network":bool,"binds":[{path,mode,mask}]}` with mode `ro`, `rw` or `overlay` (the host path as a read-only lower layer, writes kept in a per-seat upper layer that never touches the host — the mode for a toolchain cache). `hands` is the **policy** — what the seat may reach; the **boundary** that enforces it is the realm's, never the bundle's (decision 0046 ruling 1): `realms.json` declares `boundary` beside `house` and `dialect`, absent reads `namespace`, and a `boundary` key in a site or in this object is refused naming the realm as its home. Under `namespace` the seat's commands run inside an empty-root box holding the worktree; an exec seat also gets its bundle root read-only at `/runtime/bundle`, so its `./` script travels with the strategy. A tool allow-list is not consulted, and a boxed `exec` command may hold a gate. Under `harness` and `open` no box stands: a model seat runs under its harness's own sandbox as the adapter's `hands.harness` fragment addresses it, an exec seat holds its site only when its command is the bundle's own pinned `./` script, and it runs with the environment cleared to a fixed table — `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE` set only where `binds` name `~/.cargo`, `~/.rustup` or `~/.npm`, and a bind's `mask` **declared and not enforced**. Clearing the environment confines nothing on disk: an unboxed script may open any host path the operator's uid may read, so under `harness` the shipped verify script can read `~/.cargo/credentials.toml` — which is the fact every readout renders as *unboxed*. Refused beside secret bindings and beside `agent:` (the agent declares its own). |
 
 Two argv tokens are expanded at spawn time: `{brokkr}` becomes this
 engine's own executable (so a bundle can name the built-in adapters),
-and a `./`-prefixed entry is bundle-relative. For a boxed exec seat that
-entry is expanded to the read-only `/runtime/bundle` mount at spawn, so
-the operated-on repository need not carry or copy the strategy's script.
+and a `./`-prefixed entry is bundle-relative. For an exec seat with
+hands under `namespace` that entry is expanded to the read-only
+`/runtime/bundle` mount at spawn, so the operated-on repository need not
+carry or copy the strategy's script; under `harness` and `open` the same
+entry is the pinned script the site is admitted for, and the engine
+re-walks its declaring layer at every spawn against the identity the
+manifest pins, refusing the dispatch naming the layer and the first key
+that moved.
 `{forge}` is the same
 token under its pre-rename name; it still expands and warns once on
 stderr. The expansion is machine-local, which is why the manifest
@@ -309,14 +318,18 @@ as a deterministic exec with no model, and its `{change}` token comes from the
 nearest preceding typed result. The `clarify` and `analyze` loop sequences run
 their dialect check before the read-only judge, which receives that output as
 `prior_results`. A realm that does not declare a dialect cannot compile a
-bundle containing these dialect-owned steps. Ordinary inline seats remain
-first-class for work that is not dialect-owned.
+bundle containing these dialect-owned steps. Nor can a realm whose
+boundary is `harness` or `open`: the step holds its gate by the box
+(decision 0042 ruling 4), and its argv is the dialect's tool, not the
+bundle's own pinned script, so the compiler refuses it naming the step,
+decision 0046 ruling 4, decision 0042 ruling 4 and a boxed boundary as
+the road open today, until a decision admits the step. Ordinary inline
+seats remain first-class for work that is not dialect-owned.
 
-In this slice, `brokkr doctor --bundle ...` exercises that compile-time
-refusal but does not yet print the realm's dialect, its tool, or the measured
-tool version. That doctor readout is the next decision-0042 slice; use
-`brokkr realms` to confirm realm selection and treat a successful compile as
-the current dialect check.
+`brokkr doctor --bundle ...` exercises that compile-time refusal in
+the discovered realm and reports its dialect, tool, and pinned
+tool version. Use `brokkr realms` to confirm realm selection; compilation
+checks the dialect bindings, while the run executes the declared tool.
 
 **Select** — the engine chooses a complete single, panel, or sequence
 body from the journaled delivery strategy:

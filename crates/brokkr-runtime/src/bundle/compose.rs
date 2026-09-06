@@ -820,6 +820,9 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         // ancestors — never the leaf's agent resolution or the adapter
         // declarations that authorised its gates, both of which belong
         // to the composed bundle rather than to any layer.
+        // An ancestor boxes nothing at this level, so the boundary it is
+        // handed writes no key and moves no digest; `namespace` is the
+        // word a layer meant before decision 0046 named one.
         let no_hands = BTreeMap::new();
         let manifest = super::manifest_for(
             &layer.dir,
@@ -829,6 +832,7 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
             None,
             &no_hands,
             &Map::new(),
+            brokkr_core::realms::Boundary::Namespace,
         )?;
         chain.insert(
             0,

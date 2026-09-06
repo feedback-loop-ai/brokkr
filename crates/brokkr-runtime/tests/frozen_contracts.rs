@@ -24,10 +24,29 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 7] = [
+const FROZEN: [(&str, &str); 19] = [
     (
         "contracts/realms.v1.schema.json",
         "4a9d0051823995b090935a2a5b326d12ec7953f62c61161b30ec1dbaf0135fbb",
+    ),
+    // Decision 0046 lands v4, v9, v4 and the boundary extension BESIDE
+    // these four; their bytes are pinned here so the slice can prove it
+    // edited none of them.
+    (
+        "contracts/realms.v3.schema.json",
+        "52567711de92ccb11d9d7c44731d8abd88913ae390f5f3de6aaeb1d059b962ab",
+    ),
+    (
+        "contracts/run-manifest.v8.schema.json",
+        "45560b74755f1c0528ef06679252fb432b1a8cc0b9263e6100f9642f686b1a5d",
+    ),
+    (
+        "contracts/seat-record.v3.schema.json",
+        "10528a9efab019f90305dd4e0738f21aeb900442c77effb082139dbf30ca4c73",
+    ),
+    (
+        "contracts/effect-provenance.v1.schema.json",
+        "c57d2c997711779495ae7b951e3d07110bd3ccf40f30758cd837729abd43699c",
     ),
     (
         "contracts/event-envelope.v1.schema.json",
@@ -52,6 +71,38 @@ const FROZEN: [(&str, &str); 7] = [
     (
         "fixtures/evaluator/corpus.ndjson",
         "19ed1b05ca04ac0fd3c511b6c6c1c7412a2400b763c27658d964080692cf9964",
+    ),
+    (
+        "contracts/realms.v2.schema.json",
+        "23a5da79f07e9f4569350e7f92ba94d514bf088bce116d9f3afc712f0a04c13c",
+    ),
+    (
+        "contracts/run-manifest.v3.schema.json",
+        "79e7e87a8d79ae3c6da3f915d44d1940e842a9a150f938886de8917330b65172",
+    ),
+    (
+        "contracts/run-manifest.v4.schema.json",
+        "fbb5b01fd79028ad15b2039b5b69b967ad7676d276af7a360d089fd582c2fd5c",
+    ),
+    (
+        "contracts/run-manifest.v5.schema.json",
+        "73a6bfa378b2e44c60608d6791e3c21faff96b72b096594c235a588fa3eff4a0",
+    ),
+    (
+        "contracts/run-manifest.v6.schema.json",
+        "7f9b5940c334e5596cca724e41a52e26f08fcde478cbefdba244070326bfe3a1",
+    ),
+    (
+        "contracts/run-manifest.v7.schema.json",
+        "96e823572a6d0bee51f1b640eb73da7d3c2e9eafaa225f18546a696d26951e0c",
+    ),
+    (
+        "contracts/seat-record.v1.schema.json",
+        "91c51d5bea1c5fbc11bab7bbf57b53e6257a85c9424652f9e9162705840e1483",
+    ),
+    (
+        "contracts/seat-record.v2.schema.json",
+        "a35c237e1e351a03fb974e9a13a7fc33b9d1a570413626d70367e97a3f501bce",
     ),
 ];
 
@@ -160,6 +211,28 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/phase-entered-case.v1.schema.json",
             "Forge phase-entered selected case v1",
         ),
+        // Decision 0046 ruling 1: the boundary is named by the realm map
+        // as v4 beside v3, and pinned per hands site by the manifest as
+        // v9 beside v8 — the frozen predecessors' bytes are pinned below
+        // and did not move.
+        ("contracts/realms.v4.schema.json", "Forge realms map v4"),
+        (
+            "contracts/run-manifest.v9.schema.json",
+            "Forge run manifest v9",
+        ),
+        // Decision 0046 ruling 3, with the commission's erratum: the seat
+        // record carries the boundary as v4 beside v3 (v3 already
+        // carried the dialect state under decision 0034 rulings 6 and 7),
+        // and `effect/started` carries it as a numbered extension schema
+        // beside the frozen `effect-provenance.v1`.
+        (
+            "contracts/seat-record.v4.schema.json",
+            "Forge seat record v4",
+        ),
+        (
+            "contracts/effect-boundary.v1.schema.json",
+            "Forge effect boundary v1",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();
@@ -188,5 +261,40 @@ fn the_realms_v3_contract_refuses_windows_drive_relative_text_paths() {
             !validator.is_valid(&map),
             "the v3 schema admitted a drive-relative {field}"
         );
+    }
+}
+
+#[test]
+fn the_v4_realm_schema_accepts_only_its_version_and_five_boundaries() {
+    use serde_json::json;
+    let schema = serde_json::from_slice::<serde_json::Value>(
+        &std::fs::read(workspace().join("contracts/realms.v4.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let mut map = json!({"schema":"forge.realms/v4", "realms":[{"name":"app", "path":".", "default_branch":"main"}], "journal":"forge.db"});
+    assert!(validator.is_valid(&map));
+    for word in brokkr_core::realms::BOUNDARIES {
+        map["realms"][0]["boundary"] = json!(word.word());
+        assert!(validator.is_valid(&map));
+    }
+    for invalid in [
+        json!("chroot"),
+        json!("not applicable"),
+        json!(null),
+        json!(7),
+    ] {
+        map["realms"][0]["boundary"] = invalid;
+        assert!(!validator.is_valid(&map));
+    }
+    map["realms"][0]["boundary"] = json!("harness");
+    for version in [
+        "forge.realms/v1",
+        "forge.realms/v2",
+        "forge.realms/v3",
+        "forge.realms/v5",
+    ] {
+        map["schema"] = json!(version);
+        assert!(!validator.is_valid(&map));
     }
 }

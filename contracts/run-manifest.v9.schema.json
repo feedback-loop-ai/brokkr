@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v9.json",
+  "title": "Forge run manifest v9",
+  "description": "v8 plus the boundary each hands site stands under (decision 0046 ruling 1): a map from hands site label to one of namespace, seatbelt, container, harness or open, the realm's resolved word, present exactly when the manifest has a hands key and absent with it — so a bundle that boxes nothing keeps its exact v8 identity, and a run under seatbelt and a run under namespace are two identities as decision 0043 ruling 4 requires.",
+  "type": "object",
+  "required": ["engine", "event_schema", "database_schema", "driver_protocol", "bundle_name", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "engine": {"type": "string"},
+    "event_schema": {"const": 1},
+    "database_schema": {"const": 1},
+    "driver_protocol": {"const": 1},
+    "bundle_name": {"type": "string"},
+    "files": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "agents": {"type": "object"},
+    "realms": {"type": "object"},
+    "drivers": {"type": "object"},
+    "hands": {
+      "type": "object",
+      "description": "site to box spec",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "network", "binds"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"const": "workspace"},
+          "network": {"type": "boolean"},
+          "binds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "mode", "mask"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "mode": {"enum": ["ro", "rw", "overlay"]},
+                "mask": {"type": "array", "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "description": "hands site to the boundary its box stands behind (decision 0046 ruling 1); the key set equals the hands key set by construction, every value the realm's one resolved word",
+      "additionalProperties": {"enum": ["namespace", "seatbelt", "container", "harness", "open"]}
+    },
+    "select": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "selecting site to its pinned resolved cases",
+      "additionalProperties": {"$ref": "#/definitions/cases"}
+    }
+  },
+  "dependencies": {
+    "hands": ["boundary"],
+    "boundary": ["hands"]
+  },
+  "definitions": {
+    "candidate": {
+      "type": "object",
+      "required": ["provider", "model", "effort"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"type": ["string", "null"]}
+      }
+    },
+    "single": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["driver"],
+          "additionalProperties": false,
+          "properties": {"driver": {"const": "inline"}}
+        },
+        {
+          "type": "object",
+          "required": ["agent", "candidates"],
+          "additionalProperties": false,
+          "properties": {
+            "agent": {"type": "string", "minLength": 1},
+            "candidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/candidate"}}
+          }
+        }
+      ]
+    },
+    "panel": {
+      "type": "object",
+      "required": ["panel", "aggregate"],
+      "additionalProperties": false,
+      "properties": {
+        "panel": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/definitions/single"}},
+        "aggregate": {"enum": ["unanimous-pass", "review-panel"]}
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "results", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "body": {"oneOf": [{"$ref": "#/definitions/single"}, {"$ref": "#/definitions/panel"}]}
+      }
+    },
+    "body": {
+      "oneOf": [
+        {"$ref": "#/definitions/single"},
+        {"$ref": "#/definitions/panel"},
+        {
+          "type": "object",
+          "required": ["sequence"],
+          "additionalProperties": false,
+          "properties": {"sequence": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/step"}}}
+        }
+      ]
+    },
+    "cases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "chore": {"$ref": "#/definitions/body"},
+        "feature": {"$ref": "#/definitions/body"},
+        "design": {"$ref": "#/definitions/body"},
+        "engine": {"$ref": "#/definitions/body"},
+        "default": {"$ref": "#/definitions/body"}
+      }
+    }
+  }
+}

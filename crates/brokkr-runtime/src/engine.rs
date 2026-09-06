@@ -14,18 +14,20 @@ use brokkr_core::dispatch::{
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
 use brokkr_core::policy::Outcome;
-use brokkr_core::realms::{recorded_head, LEGACY_REALM_KEY};
+use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
-use brokkr_protocol::process::DriverProcess;
+use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::Candidate;
+#[allow(unused_imports)]
+use crate::agents::{Candidate, HarnessHands, ResultDoor};
 use crate::bundle::{
-    dialect_results, Aggregate, Bundle, Confine, ExecutableBody, PanelMember, Seat, SeatBody,
+    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, PanelMember, Seat, SeatBody,
     SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
@@ -75,6 +77,72 @@ pub enum EngineError {
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
     #[error("realms: {0}")]
     World(#[from] crate::realms::WorldError),
+    /// Decision 0046 ruling 1, at the engine's own door: the bundle was
+    /// compiled under one word and the world the run is started with
+    /// resolves another for the operated repository. Refused before
+    /// `create_run`, so the pinned word and the world cannot disagree
+    /// (design DD3).
+    #[error(
+        "the bundle was compiled under the `{compiled}` boundary but the realms map this run \
+         is started with resolves `{world}` for the operated repository; a run stands under \
+         one word (decision 0046 ruling 1)"
+    )]
+    BoundaryMismatch { compiled: Boundary, world: Boundary },
+    /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
+    /// and admitted at compile, and built by slices (ii) and (iii). This
+    /// engine composes nothing for either, and never simulates a boundary,
+    /// so a bundle with hands under one refuses before any row is written.
+    #[error(
+        "the `{boundary}` boundary is built by slice ({slice}) of decision 0046 ruling 6, \
+         not by this engine; the seats {seats:?} declare hands and cannot run under it here \
+         — a realm may declare `harness` today"
+    )]
+    UnbuiltBoundary {
+        boundary: Boundary,
+        slice: &'static str,
+        seats: Vec<String>,
+    },
+}
+
+/// Which slice of decision 0046 ruling 6 builds a boundary this engine
+/// does not: the refusing arm of the narrowing from five words to the
+/// three composition is written over (design DD17). `None` for the
+/// three this engine builds.
+pub fn unbuilt_slice(boundary: Boundary) -> Option<&'static str> {
+    built_boundary(boundary).err()
+}
+
+/// The three mechanisms implemented by this engine. The entry fence
+/// narrows the realm vocabulary before composition (DD2, DD17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltBoundary {
+    Namespace,
+    Harness,
+    Open,
+}
+
+fn built_boundary(boundary: Boundary) -> Result<BuiltBoundary, &'static str> {
+    match boundary {
+        Boundary::Namespace => Ok(BuiltBoundary::Namespace),
+        Boundary::Harness => Ok(BuiltBoundary::Harness),
+        Boundary::Open => Ok(BuiltBoundary::Open),
+        Boundary::Seatbelt => Err("ii"),
+        Boundary::Container => Err("iii"),
+    }
+}
+
+/// The engine's entry fence for a boundary it does not build: refused
+/// only when the bundle asks for a box at all, because a bundle with no
+/// hands site asks nothing of the machine.
+fn refuse_unbuilt(bundle: &Bundle) -> Result<(), EngineError> {
+    match unbuilt_slice(bundle.boundary) {
+        Some(slice) if !bundle.hands.is_empty() => Err(EngineError::UnbuiltBoundary {
+            boundary: bundle.boundary,
+            slice,
+            seats: bundle.hands.keys().cloned().collect(),
+        }),
+        _ => Ok(()),
+    }
 }
 
 impl EngineError {
@@ -127,6 +195,15 @@ pub struct Engine {
     /// terminal event — clears it rather than leaving it for the next
     /// effect to spend.
     active_gate_head: Option<Option<String>>,
+    /// The boundary every site with hands is composed from (decision
+    /// 0046 ruling 1): the compiled bundle's word, set once at entry and
+    /// never re-read from a map, so the pinned word and the world the run
+    /// was started with cannot disagree (design DD3).
+    pub boundary: Boundary,
+    /// Whether the network prefix works on this machine, asked once per
+    /// engine process at the first unboxed exec dispatch and remembered
+    /// (decision 0046 ruling 4; design DD15). Never journaled.
+    network_prefix: Option<bool>,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -235,8 +312,33 @@ impl Engine {
             .join("-");
         let slug = slug.chars().take(32).collect::<String>();
         let run_id = format!("{slug}-{}", &Uuid::new_v4().to_string()[..8]);
+        // Decision 0046 ruling 1 at the door, before `create_run` and
+        // before any row: the world this run is started with must resolve
+        // the word the bundle was compiled under for the operated
+        // repository — and no world resolves `namespace`, which is what
+        // every run meant before the word existed (design DD3).
+        refuse_unbuilt(&bundle)?;
+        // The operated repository is what `workdir()` will answer: the
+        // named one, else the directory the engine stands in.
+        let operated = repo
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+        let resolved = match &world {
+            Some(world) => world.boundary_for(&operated),
+            None => Boundary::Namespace,
+        };
+        if resolved != bundle.boundary {
+            return Err(EngineError::BoundaryMismatch {
+                compiled: bundle.boundary,
+                world: resolved,
+            });
+        }
+        // Pinned for the same operated repository the fence judged, so a
+        // run started from a mapped workspace with no `--repo` still
+        // names its realm — and resumes under the word it was started
+        // with, which `compile_from_manifest` reads off that pin.
         let manifest = match &world {
-            Some(world) => world.pinned(&bundle.manifest, repo.as_deref())?,
+            Some(world) => world.pinned(&bundle.manifest, Some(&operated))?,
             None => bundle.manifest.clone(),
         };
         store.create_run(&run_id, feature, &bundle.name, &manifest)?;
@@ -249,6 +351,7 @@ impl Engine {
         )?;
         Ok(Engine {
             store,
+            boundary: bundle.boundary,
             bundle,
             run_id,
             feature: feature.to_string(),
@@ -257,6 +360,7 @@ impl Engine {
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,
+            network_prefix: None,
         })
     }
 
@@ -271,6 +375,7 @@ impl Engine {
         dispatch: DispatchEnvelopeV2,
     ) -> Result<Engine, EngineError> {
         let run_id = dispatch.forge_run_id.clone();
+        refuse_unbuilt(&bundle)?;
         dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
         verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
         let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
@@ -284,6 +389,7 @@ impl Engine {
         )?;
         Ok(Engine {
             store,
+            boundary: bundle.boundary,
             bundle,
             run_id,
             feature: feature.to_string(),
@@ -296,6 +402,7 @@ impl Engine {
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,
+            network_prefix: None,
         })
     }
 
@@ -306,12 +413,16 @@ impl Engine {
         run_id: &str,
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
+        refuse_unbuilt(&bundle)?;
         let pinned = store.manifest(run_id)?;
         let pinned_bundle = bundle_manifest_from_run(&pinned)?;
         if let Some(dispatch) = brokkr_core::dispatch::dispatch_from_run(&pinned)? {
             dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
             verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
         }
+        // The boundary needs no second fence here: the manifest pins it
+        // per hands site, so a bundle compiled under another word is a
+        // manifest mismatch whose diff names `boundary` (design DD3).
         if pinned_bundle != bundle.manifest {
             let detail = manifest_diff(&pinned_bundle, &bundle.manifest);
             return Err(EngineError::ManifestMismatch {
@@ -323,6 +434,7 @@ impl Engine {
         let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
         Ok(Engine {
             store,
+            boundary: bundle.boundary,
             bundle,
             run_id: run_id.to_string(),
             feature,
@@ -337,6 +449,7 @@ impl Engine {
             current_cause: None,
             secrets_file: None,
             active_gate_head: None,
+            network_prefix: None,
         })
     }
 
@@ -825,7 +938,7 @@ impl Engine {
         };
         // The mark is part of the requested input, so the digest covers it;
         // a panel or sequence seat has no hands of its own at this label.
-        self.mark_boxed(phase, &mut input);
+        self.mark_hands(phase, &mut input);
         // Sealed secret bindings (decision 0012): the engine threads
         // exactly two facts to the driver — the declared NAMES and the
         // store PATH, both journal-safe. Values are resolved at spawn
@@ -941,6 +1054,9 @@ impl Engine {
         // channel, and five consumers plus the engine would otherwise
         // have to parse a packed grammar to make a control decision.
         let (selection, provenance) = select_candidates(events, effect_id, body);
+        let gate = seat
+            .body
+            .selected_is_gate(state.strategy.as_deref(), seat.has_gate);
         let workdir = self.workdir();
         // The single-driver argv is composed HERE, ahead of the durable
         // start, because the session question is asked of it: which
@@ -948,21 +1064,23 @@ impl Engine {
         // whether a prior session may be handed back to it.
         let runtime_hands = self.runtime_hands(&site_name);
         let single = match body {
-            ExecutableBody::Single {
-                command, confine, ..
-            } => Some(hands_command(
-                confined_command(
-                    argv_for(&selection, &None, command),
-                    confine,
-                    &workdir,
-                    &self.bundle.roots,
-                ),
+            ExecutableBody::Single { command, .. } => Some(self.compose(
+                &attempt_id,
+                gate,
+                argv_for(&selection, &None, command).to_vec(),
                 runtime_hands.as_ref(),
-                &workdir,
-                &self.bundle.roots,
+                selection.get(&None),
+                input["result_path"].as_str().unwrap_or_default(),
             )),
             _ => None,
         };
+        // The delivery door is a spawn-time fact of the selected link
+        // (decision 0046 ruling 4): it rides the input the driver reads,
+        // beside the journal path a ship seat receives, and outside the
+        // requested digest — a chain fallback moves the door, and a
+        // digest that moved with it would refuse the retry as a
+        // different effect.
+        self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -970,6 +1088,12 @@ impl Engine {
         });
         if let Some(provenance) = provenance {
             started["provenance"] = provenance;
+        }
+        // Which boundary stood at every site of this attempt (decision
+        // 0046 ruling 3), beside the provenance and built from the same
+        // walk, present exactly when a site of the attempt declares hands.
+        if let Some(entries) = self.boundary_entries(body, &site_name, gate) {
+            started["boundary"] = entries;
         }
         // Which session — if any — this attempt may rejoin, decided from
         // journaled facts before anything spawns (decision 0030). The
@@ -1013,6 +1137,7 @@ impl Engine {
                 &input,
                 deadline,
                 &selection,
+                gate,
             ),
             ExecutableBody::Sequence { steps } => self.execute_sequence(
                 effect_id,
@@ -1028,18 +1153,19 @@ impl Engine {
             // recipe directory in its chain, not one dir. Both were
             // settled above, where the session question needed them.
             ExecutableBody::Single { .. } => {
-                let command = single.expect("a single seat composed its command");
+                let spawn = single.expect("a single seat composed its command");
                 let run = self.run_driver(
                     effect_id,
                     &attempt_id,
                     &site_name,
-                    &command,
+                    &spawn,
                     input,
                     deadline,
                     None,
                     offer,
                 )?;
-                self.conclude_single(effect_id, &attempt_id, run, &selection)
+                let boundary = self.site_boundary(&site_name);
+                self.conclude_single(effect_id, &attempt_id, run, &selection, boundary)
             }
         }
     }
@@ -1053,10 +1179,181 @@ impl Engine {
     /// file — a harness's own shell runs outside the box and a file
     /// written through it never reaches the engine. The first
     /// astra-judged gate wrote its verdict through that shell twice.
-    fn mark_boxed(&self, label: &str, input: &mut Value) {
+    ///
+    /// Decision 0046 (design DD21): the same mark, grown into the one
+    /// helper that writes the boundary into every site with hands —
+    /// `boundary`, the realm's word, under every boundary; `hands: boxed`
+    /// only when Brokkr builds the box, so the marker is never a false
+    /// statement under `harness` or `open`, where no workspace tool is
+    /// served. A site without hands is untouched.
+    fn mark_hands(&self, label: &str, input: &mut Value) {
         if self.bundle.hands.contains_key(label) {
-            input["hands"] = json!("boxed");
+            input["boundary"] = json!(self.boundary.word());
+            if self.boundary.is_boxed() {
+                input["hands"] = json!("boxed");
+            }
         }
+    }
+
+    /// The judge's door under `harness` (decision 0046 ruling 4; design
+    /// D23): a gate-class site with hands whose selected link declares
+    /// `hands.harness.result` as `last-message` is told so, because its
+    /// final message — not a file it writes — is what reaches the engine.
+    /// A spawn-time fact of the selected link, written after the
+    /// requested digest was checked: a chain fallback moves the door, and
+    /// a digest that moved with it would refuse the retry as a different
+    /// effect.
+    fn mark_delivery(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
+        let door = link.map(|link| link.harness.result);
+        if self.boundary == Boundary::Harness
+            && gate
+            && self.bundle.hands.contains_key(label)
+            && door == Some(ResultDoor::LastMessage)
+        {
+            input["result_delivery"] = json!("last-message");
+        }
+    }
+
+    /// The boundary that stands at one site: the run's word for a site
+    /// with hands, none for a site without — the `None` every record of
+    /// such a site spells as `not applicable` (decision 0046 ruling 3).
+    fn site_boundary(&self, label: &str) -> Option<Boundary> {
+        self.bundle
+            .hands
+            .contains_key(label)
+            .then_some(self.boundary)
+    }
+
+    /// Which boundary stood at every invocation site of this attempt
+    /// (decision 0046 ruling 3; design DD5): one entry per site of the
+    /// same `invocation_sites` walk that builds `provenance`, keyed by the
+    /// same tag, carrying the site's word or the sentinel and whether the
+    /// site is gate class — read where the compiler keeps it: the seat's
+    /// selected class for a single, a panel member or a selected case,
+    /// and the step's class for a step and its panel's members. `None`
+    /// when no site of the attempt declares hands, so a run over a
+    /// bundle that boxes nothing journals byte-identical payloads.
+    fn boundary_entries(
+        &self,
+        body: ExecutableBody<'_>,
+        site_name: &str,
+        gate: bool,
+    ) -> Option<Value> {
+        let step_gate = |tag: &str| -> bool {
+            match body {
+                ExecutableBody::Sequence { steps } => steps
+                    .iter()
+                    .find(|step| tag == step.name || tag.starts_with(&format!("{}:", step.name)))
+                    .map_or(gate, |step| step.class == SeatClass::Gate),
+                _ => gate,
+            }
+        };
+        let mut any_hands = false;
+        let entries: Vec<Value> = invocation_sites(body)
+            .into_iter()
+            .map(|(site, _)| {
+                let label = match &site {
+                    None => site_name.to_string(),
+                    Some(tag) => format!("{site_name}:{tag}"),
+                };
+                let boundary = self.site_boundary(&label);
+                any_hands |= boundary.is_some();
+                json!({
+                    "member": site,
+                    "boundary": Boundary::recorded(boundary),
+                    "gate": site.as_deref().map_or(gate, step_gate),
+                })
+            })
+            .collect();
+        any_hands.then_some(Value::Array(entries))
+    }
+
+    /// Compose one site's spawn from the boundary this run stands under
+    /// (decision 0046 ruling 4; design DD18): the pure [`compose_site`]
+    /// over the facts the engine holds, with the unboxed exec dispatch's
+    /// fixed environment and network prefix prepared here — the two
+    /// private directories created under the run's scratch, the probe
+    /// asked once per engine process and remembered.
+    fn compose(
+        &mut self,
+        attempt_id: &str,
+        gate: bool,
+        command: Vec<String>,
+        hands: Option<&HandsSpec>,
+        link: Option<&Candidate>,
+        result_path: &str,
+    ) -> SiteSpawn {
+        if hands.is_none() {
+            return SiteSpawn::inherit(command);
+        }
+        let boundary = built_boundary(self.boundary).expect("the entry fence admitted these hands");
+        let workdir = self.workdir();
+        let unboxed = match hands {
+            Some(spec) if !self.boundary.is_boxed() && is_exec_dispatch(&command) => {
+                Some(self.unboxed(attempt_id, spec))
+            }
+            _ => None,
+        };
+        let class = if gate {
+            SeatClass::Gate
+        } else {
+            SeatClass::Work
+        };
+        compose_site(
+            boundary,
+            class,
+            command,
+            hands,
+            link,
+            &workdir,
+            &self.bundle.roots,
+            result_path,
+            unboxed.as_ref(),
+        )
+    }
+
+    /// What an unboxed exec dispatch starts in (design DD10, DD15): the
+    /// fixed environment over two private directories under the run's
+    /// scratch, and the network prefix when the probe — run once per
+    /// engine process, in that environment, on Linux only — passed.
+    fn unboxed(&mut self, attempt_id: &str, spec: &HandsSpec) -> Unboxed {
+        let scratch = self.workdir().join(".forge/scratch").join(attempt_id);
+        let private_home = scratch.join("home");
+        let private_tmp = scratch.join("tmp");
+        std::fs::create_dir_all(&private_home).ok();
+        std::fs::create_dir_all(&private_tmp).ok();
+        let engine_env: BTreeMap<String, String> = std::env::vars().collect();
+        let identity = brokkr_protocol::hands::git_facts(&self.workdir()).identity;
+        let env = brokkr_protocol::hands::unboxed_environment(
+            &engine_env,
+            &brokkr_protocol::hands::home_dir(&engine_env),
+            spec,
+            &identity,
+            &private_home,
+            &private_tmp,
+        );
+        let (uid, gid) = brokkr_protocol::hands::ids();
+        let passes = self.network_narrowing(&env, uid, gid);
+        Unboxed {
+            env,
+            prefix: network_prefix_if(passes, uid, gid),
+        }
+    }
+
+    /// Whether the network prefix stands here: asked of the kernel once
+    /// per engine process, in the dispatch's environment, and remembered
+    /// (design DD15). Linux only; nothing anywhere reports the answer.
+    #[cfg(target_os = "linux")]
+    fn network_narrowing(&mut self, env: &BTreeMap<String, String>, uid: u32, gid: u32) -> bool {
+        *self
+            .network_prefix
+            .get_or_insert_with(|| brokkr_protocol::hands::probe_network_prefix(env, uid, gid))
+    }
+
+    /// Off every other host: no `unshare` to ask, no probe spawned.
+    #[cfg(not(target_os = "linux"))]
+    fn network_narrowing(&mut self, _env: &BTreeMap<String, String>, _uid: u32, _gid: u32) -> bool {
+        false
     }
 
     fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
@@ -1089,6 +1386,7 @@ impl Engine {
         attempt_id: &str,
         run: DriverRun,
         selection: &Selection,
+        boundary: Option<Boundary>,
     ) -> Result<(), EngineError> {
         let report = match run {
             DriverRun::SpawnFailed(error) => {
@@ -1114,6 +1412,7 @@ impl Engine {
         let stderr_tail = stderr_tail(&report.stderr);
         match report.outcome {
             AttemptOutcome::Succeeded { result } => {
+                let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
                     json!({
                         "effect_id": effect_id,
@@ -1164,14 +1463,15 @@ impl Engine {
         effect_id: &str,
         attempt_id: &str,
         driver_seat: &str,
-        command: &[String],
+        spawn: &SiteSpawn,
         input: Value,
         deadline: std::time::Duration,
         member_tag: Option<&str>,
         session_ref: Option<String>,
     ) -> Result<DriverRun, EngineError> {
         let workdir = self.workdir();
-        let process = match DriverProcess::spawn(command, &workdir, Some(deadline)) {
+        let boundary = self.site_boundary(driver_seat);
+        let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(process) => process,
         };
@@ -1199,6 +1499,7 @@ impl Engine {
                         None => data.clone(),
                         Some(tag) => tag_member(data.clone(), tag),
                     };
+                    let checkpoint = stamp_boundary(checkpoint, boundary);
                     match store.append_next(
                         &run_id,
                         EventType::EffectCheckpointed,
@@ -1280,8 +1581,10 @@ impl Engine {
         panel_input: &Value,
         deadline: std::time::Duration,
         selection: &Selection,
+        gate: bool,
     ) -> Result<(), EngineError> {
         let runs = self.member_runs(
+            attempt_id,
             seat_name,
             members,
             &panel_input["members"],
@@ -1289,9 +1592,10 @@ impl Engine {
             &panel_input["context"],
             selection,
             "",
+            gate,
         );
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
-        self.journal_panel_members(effect_id, attempt_id, &reports, "")?;
+        self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         let start_failures = start_failure_sites(&reports, "");
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
@@ -1346,7 +1650,8 @@ impl Engine {
     /// any accumulated prior step results.
     #[allow(clippy::too_many_arguments)]
     fn member_runs(
-        &self,
+        &mut self,
+        attempt_id: &str,
         driver_seat_prefix: &str,
         members: &[PanelMember],
         members_meta: &Value,
@@ -1354,12 +1659,13 @@ impl Engine {
         context: &Value,
         selection: &Selection,
         tag_prefix: &str,
+        gate: bool,
     ) -> Vec<MemberRun> {
-        let workdir = self.workdir();
         members
             .iter()
             .map(|member| {
                 let site = Some(format!("{tag_prefix}{}", member.name));
+                let label = format!("{driver_seat_prefix}:{}", member.name);
                 let mut input = json!({
                     "feature": seat_input["feature"],
                     "phase": seat_input["phase"],
@@ -1381,23 +1687,22 @@ impl Engine {
                     input["spec_dialect"] = seat_input["spec_dialect"].clone();
                 }
                 copy_secret_binding_facts(&mut input, seat_input);
-                self.mark_boxed(&format!("{driver_seat_prefix}:{}", member.name), &mut input);
+                self.mark_hands(&label, &mut input);
+                self.mark_delivery(&label, gate, selection.get(&site), &mut input);
+                let hands = self.bundle.hands.get(&label).cloned();
+                let spawn = self.compose(
+                    attempt_id,
+                    gate,
+                    argv_for(selection, &site, &member.command).to_vec(),
+                    hands.as_ref(),
+                    selection.get(&site),
+                    input["result_path"].as_str().unwrap_or_default(),
+                );
                 MemberRun {
                     name: member.name.clone(),
-                    driver_seat: format!("{driver_seat_prefix}:{}", member.name),
-                    command: hands_command(
-                        confined_command(
-                            argv_for(selection, &site, &member.command),
-                            member.confine.as_ref(),
-                            &workdir,
-                            &self.bundle.roots,
-                        ),
-                        self.bundle
-                            .hands
-                            .get(&format!("{driver_seat_prefix}:{}", member.name)),
-                        &workdir,
-                        &self.bundle.roots,
-                    ),
+                    driver_seat: label.clone(),
+                    boundary: self.site_boundary(&label),
+                    spawn,
                     input,
                 }
             })
@@ -1420,6 +1725,7 @@ impl Engine {
         let workdir = self.workdir();
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
+        let bundle = &self.bundle;
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
@@ -1439,34 +1745,32 @@ impl Engine {
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report =
-                            match DriverProcess::spawn(&run.command, &workdir, Some(deadline)) {
-                                Err(e) => AttemptReport {
-                                    outcome: AttemptOutcome::Failed {
-                                        error: format!("member driver did not spawn: {e}"),
-                                    },
-                                    session_ref: None,
-                                    checkpoints: Vec::new(),
-                                    stderr: String::new(),
-                                    // Nothing ran, so nothing was
-                                    // accepted: the structural
-                                    // fail-to-start predicate holds.
-                                    accepted: false,
+                        let report = match spawn_site(bundle, &run.spawn, &workdir, deadline) {
+                            Err(e) => AttemptReport {
+                                outcome: AttemptOutcome::Failed {
+                                    error: format!("member driver did not spawn: {e}"),
                                 },
-                                Ok(process) => process.run_attempt(
-                                    ENGINE_VERSION,
-                                    effect_id,
-                                    attempt_id,
-                                    &run.driver_seat,
-                                    run.input.clone(),
-                                    // Live telemetry: hand each checkpoint to the
-                                    // main thread — the store has one writer.
-                                    |data| {
-                                        let _ =
-                                            sender.send((checkpoint_name.clone(), data.clone()));
-                                    },
-                                ),
-                            };
+                                session_ref: None,
+                                checkpoints: Vec::new(),
+                                stderr: String::new(),
+                                // Nothing ran, so nothing was
+                                // accepted: the structural
+                                // fail-to-start predicate holds.
+                                accepted: false,
+                            },
+                            Ok(process) => process.run_attempt(
+                                ENGINE_VERSION,
+                                effect_id,
+                                attempt_id,
+                                &run.driver_seat,
+                                run.input.clone(),
+                                // Live telemetry: hand each checkpoint to the
+                                // main thread — the store has one writer.
+                                |data| {
+                                    let _ = sender.send((checkpoint_name.clone(), data.clone()));
+                                },
+                            ),
+                        };
                         (name, report)
                     })
                 })
@@ -1482,7 +1786,11 @@ impl Engine {
                 if checkpoint_error.is_some() || refusal.is_some() {
                     continue;
                 }
-                let checkpoint = tag_member(checkpoint, &member);
+                let boundary = runs
+                    .iter()
+                    .find(|run| format!("{tag_prefix}{}", run.name) == member)
+                    .and_then(|run| run.boundary);
+                let checkpoint = stamp_boundary(tag_member(checkpoint, &member), boundary);
                 match store.append_next(
                     &run_id,
                     EventType::EffectCheckpointed,
@@ -1530,9 +1838,14 @@ impl Engine {
         effect_id: &str,
         attempt_id: &str,
         reports: &[(String, AttemptReport)],
+        runs: &[MemberRun],
         tag_prefix: &str,
     ) -> Result<(), EngineError> {
         for (name, report) in reports {
+            let boundary = runs
+                .iter()
+                .find(|run| run.name == *name)
+                .and_then(|run| run.boundary);
             let kind = match &report.outcome {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
                 AttemptOutcome::Failed { .. } => "failed",
@@ -1554,19 +1867,25 @@ impl Engine {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "not reported".to_string());
+            // The engine's own marker names the member's model, so it
+            // carries the member's boundary beside it (design DD19).
+            let marker = stamp_boundary(
+                json!({
+                    "step": "panel-member-finished",
+                    "member": format!("{tag_prefix}{name}"),
+                    "outcome": kind,
+                    "model": model,
+                    "session_ref": report.session_ref,
+                    "inner_checkpoints": report.checkpoints.len(),
+                }),
+                boundary,
+            );
             self.append(
                 EventType::EffectCheckpointed,
                 json!({
                     "effect_id": effect_id,
                     "attempt_id": attempt_id,
-                    "checkpoint": {
-                        "step": "panel-member-finished",
-                        "member": format!("{tag_prefix}{name}"),
-                        "outcome": kind,
-                        "model": model,
-                        "session_ref": report.session_ref,
-                        "inner_checkpoints": report.checkpoints.len(),
-                    },
+                    "checkpoint": marker,
                 }),
                 Some(attempt_id.to_string()),
             )?;
@@ -1623,9 +1942,7 @@ impl Engine {
                 self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
             }
             let outcome = match &step.body {
-                StepBody::Single {
-                    command, confine, ..
-                } => {
+                StepBody::Single { command, .. } => {
                     let site = Some(step.name.clone());
                     let driver_seat = format!("{seat_name}:{}", step.name);
                     let step_label = driver_seat.clone();
@@ -1648,17 +1965,17 @@ impl Engine {
                         input["spec_dialect"] = seq_input["spec_dialect"].clone();
                     }
                     copy_secret_binding_facts(&mut input, seq_input);
-                    self.mark_boxed(&step_label, &mut input);
-                    let command = hands_command(
-                        confined_command(
-                            argv_for(selection, &site, command),
-                            confine.as_ref(),
-                            &self.workdir(),
-                            &self.bundle.roots,
-                        ),
-                        self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
-                        &self.workdir(),
-                        &self.bundle.roots,
+                    self.mark_hands(&step_label, &mut input);
+                    let step_gate = step.class == SeatClass::Gate;
+                    self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
+                    let hands = self.bundle.hands.get(&step_label).cloned();
+                    let spawn = self.compose(
+                        attempt_id,
+                        step_gate,
+                        argv_for(selection, &site, command).to_vec(),
+                        hands.as_ref(),
+                        selection.get(&site),
+                        input["result_path"].as_str().unwrap_or_default(),
                     );
                     // A sequence step is not a seat: decision 0030 hands
                     // a session back to the same SEAT of the same run,
@@ -1668,7 +1985,7 @@ impl Engine {
                         effect_id,
                         attempt_id,
                         &driver_seat,
-                        &command,
+                        &spawn,
                         input,
                         deadline,
                         Some(&step.name),
@@ -1711,6 +2028,7 @@ impl Engine {
                         step_meta["allowed_results"].clone()
                     };
                     let runs = self.member_runs(
+                        attempt_id,
                         &format!("{seat_name}:{}", step.name),
                         members,
                         &step_meta["members"],
@@ -1718,10 +2036,17 @@ impl Engine {
                         &context,
                         selection,
                         &tag_prefix,
+                        step.class == SeatClass::Gate,
                     );
                     let reports =
                         self.run_panel(effect_id, attempt_id, &runs, deadline, &tag_prefix)?;
-                    self.journal_panel_members(effect_id, attempt_id, &reports, &tag_prefix)?;
+                    self.journal_panel_members(
+                        effect_id,
+                        attempt_id,
+                        &reports,
+                        &runs,
+                        &tag_prefix,
+                    )?;
                     start_failures = start_failure_sites(&reports, &tag_prefix);
                     panel_outcome(*aggregate, reports)
                 }
@@ -1785,18 +2110,24 @@ impl Engine {
                         },
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
-                    self.mark_boxed(&step_label, &mut input);
-                    let command = hands_command(
+                    self.mark_hands(&step_label, &mut input);
+                    // A dialect step composes under a boxed boundary only:
+                    // the compiler refuses it under `harness` and `open`
+                    // (design DD8), so no unboxed arm is reached here.
+                    let hands = self.bundle.hands.get(&step_label).cloned();
+                    let spawn = self.compose(
+                        attempt_id,
+                        true,
                         argv_for(selection, &site, &command).to_vec(),
-                        self.bundle.hands.get(&format!("{seat_name}:{}", step.name)),
-                        &self.workdir(),
-                        &self.bundle.roots,
+                        hands.as_ref(),
+                        selection.get(&site),
+                        input["result_path"].as_str().unwrap_or_default(),
                     );
                     dialect_attempt_outcome(self.run_driver(
                         effect_id,
                         attempt_id,
                         &driver_seat,
-                        &command,
+                        &spawn,
                         input,
                         deadline,
                         Some(&step.name),
@@ -1810,8 +2141,12 @@ impl Engine {
             {
                 return Ok(());
             }
+            // A step's result that names a model carries the step's
+            // boundary beside it (design DD19); a panel step's aggregate
+            // names none and carries none.
+            let step_boundary = self.site_boundary(&format!("{seat_name}:{}", step.name));
             let result = match outcome {
-                AttemptOutcome::Succeeded { result } => result,
+                AttemptOutcome::Succeeded { result } => stamp_boundary(result, step_boundary),
                 AttemptOutcome::Failed { error } => {
                     let mut payload = json!({
                         "effect_id": effect_id,
@@ -1957,17 +2292,21 @@ impl Engine {
                 }
                 self.append_succeeded(effect_id, attempt_id, result, refused)?;
             } else {
+                let marker = stamp_boundary(
+                    json!({
+                        "step": "sequence-step-finished",
+                        "step_name": step.name,
+                        "model": model,
+                        "result": result,
+                    }),
+                    step_boundary,
+                );
                 match self.append(
                     EventType::EffectCheckpointed,
                     json!({
                         "effect_id": effect_id,
                         "attempt_id": attempt_id,
-                        "checkpoint": {
-                            "step": "sequence-step-finished",
-                            "step_name": step.name,
-                            "model": model,
-                            "result": result,
-                        },
+                        "checkpoint": marker,
                     }),
                     Some(attempt_id.to_string()),
                 ) {
@@ -3212,12 +3551,216 @@ fn start_failure_fields(payload: &mut Value, selection: &Selection, sites: Vec<S
 }
 
 /// One panel member's derived driver invocation: the `seat` string the
-/// driver sees, the (possibly confined) command, and its input.
+/// driver sees, the composed spawn, the boundary that stands at the
+/// member's site, and its input.
 struct MemberRun {
     name: String,
     driver_seat: String,
-    command: Vec<String>,
+    boundary: Option<Boundary>,
+    spawn: SiteSpawn,
     input: Value,
+}
+
+/// Every driver-bearing site uses this door, including concurrent panel
+/// members. Re-walk immediately before spawning; the interval to exec is
+/// the accepted residual of decision 0046 ruling 4.
+fn spawn_site(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    workdir: &Path,
+    deadline: std::time::Duration,
+) -> Result<DriverProcess, String> {
+    if let Some(layer) = &spawn.rewalk {
+        if let Some((layer, key)) = layer_drift(bundle, layer) {
+            return Err(format!(
+                "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
+                 the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
+            ));
+        }
+    }
+    DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map_err(|error| error.to_string())
+}
+
+/// One composed invocation (decision 0046 ruling 4; design DD18): the
+/// argv, the environment it starts in, and — for an unboxed exec
+/// dispatch — the declaring layer the engine re-walks before the spawn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteSpawn {
+    pub argv: Vec<String>,
+    pub env: SpawnEnv,
+    pub rewalk: Option<PathBuf>,
+}
+
+impl SiteSpawn {
+    /// An argv in the engine's own environment with no re-walk: what
+    /// every site without hands, and every boxed site, spawns as.
+    pub fn inherit(argv: Vec<String>) -> SiteSpawn {
+        SiteSpawn {
+            argv,
+            env: SpawnEnv::Inherit,
+            rewalk: None,
+        }
+    }
+}
+
+/// What the engine prepares for an unboxed exec dispatch and hands the
+/// pure composition: the fixed environment and the network prefix when
+/// the probe passed (empty otherwise).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Unboxed {
+    pub env: BTreeMap<String, String>,
+    pub prefix: Vec<String>,
+}
+
+/// The prefix when the probe passed, nothing when it did not — one pure
+/// function of the answer and the ids, which the argv tests read.
+pub fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String> {
+    match passes {
+        true => brokkr_protocol::hands::network_prefix(uid, gid),
+        false => Vec::new(),
+    }
+}
+
+/// Is this argv a `<engine> driver exec -- …` dispatch? The engine token
+/// itself is not matched on, as the compiler never matches on it.
+fn is_exec_dispatch(command: &[String]) -> bool {
+    command.len() >= 3 && command[1] == "driver" && command[2] == "exec"
+}
+
+/// The declaring layer of an exec dispatch: the root that owns the
+/// script token the compiler expanded `./` into, as `hands_command` finds
+/// the bundle root to bind. `None` when no root owns a token.
+fn declaring_layer(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
+    command.iter().skip(4).find_map(|part| {
+        roots
+            .iter()
+            .find(|root| Path::new(part).strip_prefix(root).is_ok())
+            .cloned()
+    })
+}
+
+/// Compose one site's argv and environment from the boundary the run
+/// stands under (decision 0046 ruling 4; design DD18) — a pure function
+/// the argv tests read directly:
+///
+/// - a site without hands: its command, untouched, in the engine's
+///   environment, as before the box existed;
+/// - under a boundary Brokkr builds: today's path token for token —
+///   `hands_command`'s box — in the engine's environment;
+/// - under `harness` and `open`, an exec dispatch: the compiled command
+///   itself behind the network prefix when the probe passed, in the fixed
+///   environment, with the declaring layer marked for the spawn re-walk;
+///   work or gate, the class unread (proposal D32);
+/// - under `harness`, a model site: the workspace fragment taken back
+///   out, the adapter's `gate` or `work` fragment by class appended with
+///   `{result_path}` and `{brokkr}` expanded, no workspace tool served,
+///   the engine's environment kept because the harness needs the
+///   operator's keys;
+/// - under `open`, a model site: the base driver argv and nothing of
+///   Brokkr's.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_site(
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    command: Vec<String>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
+    let Some(spec) = hands else {
+        return SiteSpawn::inherit(command);
+    };
+    if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
+        let unboxed = unboxed.cloned().unwrap_or_default();
+        let mut argv = unboxed.prefix;
+        let rewalk = declaring_layer(&command, roots);
+        argv.extend(command);
+        return SiteSpawn {
+            argv,
+            env: SpawnEnv::Exactly(unboxed.env),
+            rewalk,
+        };
+    }
+    match boundary {
+        BuiltBoundary::Namespace => {
+            SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots))
+        }
+        BuiltBoundary::Harness => {
+            let mut argv = model_command(command, candidate);
+            let brokkr = std::env::current_exe()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let fragment = candidate.and_then(|candidate| match class {
+                SeatClass::Gate => candidate.harness.gate.as_deref(),
+                SeatClass::Work => candidate.harness.work.as_deref(),
+            });
+            for token in fragment.unwrap_or(&[]) {
+                argv.push(
+                    token
+                        .replace("{result_path}", result_path)
+                        .replace("{brokkr}", &brokkr),
+                );
+            }
+            SiteSpawn::inherit(argv)
+        }
+        BuiltBoundary::Open => SiteSpawn::inherit(model_command(command, candidate)),
+    }
+}
+
+/// Take back the namespace fragment when composing a model outside it.
+fn model_command(command: Vec<String>, candidate: Option<&Candidate>) -> Vec<String> {
+    match candidate {
+        Some(candidate) => without_fragment(command, &candidate.hands_fragment),
+        None => command,
+    }
+}
+
+/// The argv with one contiguous fragment removed, where it occurs; the
+/// argv untouched when the fragment is empty or absent.
+fn without_fragment(argv: Vec<String>, fragment: &[String]) -> Vec<String> {
+    if fragment.is_empty() {
+        return argv;
+    }
+    match argv
+        .windows(fragment.len())
+        .position(|window| window == fragment)
+    {
+        Some(start) => {
+            let mut out = argv[..start].to_vec();
+            out.extend_from_slice(&argv[start + fragment.len()..]);
+            out
+        }
+        None => argv,
+    }
+}
+
+/// The stamp (decision 0046 ruling 3; design DD19): a record that names
+/// a `model` carries `boundary` beside it — the site's word, or the
+/// sentinel for a site without hands — replacing any value a driver
+/// wrote; a record that names none carries no `boundary`, and a driver's
+/// word on such a record is dropped. The trigger is the record's own key,
+/// never a step name, because the engine is the only party that knows
+/// which boundary it built.
+pub fn stamp_boundary(record: Value, boundary: Option<Boundary>) -> Value {
+    match record {
+        Value::Object(mut object) => {
+            if object.contains_key("model") {
+                object.insert(
+                    "boundary".into(),
+                    Value::String(Boundary::recorded(boundary).to_string()),
+                );
+            } else {
+                object.remove("boundary");
+            }
+            Value::Object(object)
+        }
+        other => other,
+    }
 }
 
 /// Copy the seat-level secret-binding facts (decision 0012: declared
@@ -3378,52 +3921,6 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
     }
 }
 
-/// Wrap a driver command for the policy-confined trust class: pinned
-/// image, stdio through, workdir mounted writable at the same path (so
-/// role/result paths stay valid), every bundle ROOT read-only, extra
-/// declared mounts read-only, network off unless granted. Absence of
-/// confinement is the trusted class: a native child process.
-///
-/// A composed recipe has one root per layer (decision 0017): an
-/// inherited confined seat's role file lives in its ancestor's
-/// directory, and an unmounted role is a run-time break hours into a
-/// run. For a bundle that composed nothing `roots` is `[dir]` and the
-/// emitted argv is byte-identical to what it was before composition.
-pub fn confined_command(
-    command: &[String],
-    confine: Option<&Confine>,
-    workdir: &std::path::Path,
-    roots: &[PathBuf],
-) -> Vec<String> {
-    let Some(confine) = confine else {
-        return command.to_vec();
-    };
-    let mut wrapped = vec![
-        "docker".to_string(),
-        "run".to_string(),
-        "--rm".to_string(),
-        "-i".to_string(),
-        "-v".to_string(),
-        format!("{}:{}", workdir.display(), workdir.display()),
-    ];
-    for root in roots {
-        wrapped.push("-v".to_string());
-        wrapped.push(format!("{}:{}:ro", root.display(), root.display()));
-    }
-    wrapped.push("-w".to_string());
-    wrapped.push(workdir.display().to_string());
-    if !confine.network {
-        wrapped.push("--network=none".to_string());
-    }
-    for mount in &confine.mounts {
-        wrapped.push("-v".to_string());
-        wrapped.push(format!("{mount}:{mount}:ro"));
-    }
-    wrapped.push(confine.image.clone());
-    wrapped.extend(command.iter().cloned());
-    wrapped
-}
-
 /// Decision 0043: put a site's hands in the box. A model seat's argv has
 /// the adapter's fragment already; its two tokens are expanded here,
 /// where the workdir and this binary's path are known — the MCP server a
@@ -3526,11 +4023,24 @@ fn manifest_diff(pinned: &Value, current: &Value) -> String {
             diffs.push(format!("added: {path}"));
         }
     }
-    if diffs.is_empty() {
-        "non-file manifest fields differ (engine or contract version)".to_string()
-    } else {
-        diffs.join(", ")
+    if !diffs.is_empty() {
+        return diffs.join(", ");
     }
+    // The boundary is part of the identity (decision 0046 ruling 1): a
+    // run resumes only under the word it was started with, and the
+    // refusal says which word moved rather than blaming a version.
+    if pinned.get("boundary") != current.get("boundary") {
+        return format!(
+            "boundary differs: the run pinned {} and the bundle compiled under {}",
+            pinned
+                .get("boundary")
+                .map_or("no boundary".to_string(), Value::to_string),
+            current
+                .get("boundary")
+                .map_or("no boundary".to_string(), Value::to_string)
+        );
+    }
+    "non-file manifest fields differ (engine or contract version)".to_string()
 }
 
 /// The `requires_artifacts` gate's verdict: every failing entry with its
@@ -3753,6 +4263,9 @@ mod artifact_gate_tests;
 
 #[cfg(test)]
 mod conclude_tests;
+
+#[cfg(test)]
+mod boundary_tests;
 
 #[cfg(test)]
 mod contention_tests;

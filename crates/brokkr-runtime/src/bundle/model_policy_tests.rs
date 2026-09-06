@@ -98,21 +98,8 @@ impl Fixture {
             serving["model_flag"] = json!("--model");
             self.write_adapter(serving);
         }
-        std::fs::write(
-            self.dir.path().join(format!("agents/charters/{name}.md")),
-            "# charter\n",
-        )
-        .unwrap();
-        std::fs::write(
-            self.dir.path().join(format!("agents/{name}.json")),
-            serde_json::to_string(&json!({
-                "description": "a fixture agent",
-                "charter": format!("charters/{name}.md"),
-                "models": links.iter().map(|(model, _, _)| *model).collect::<Vec<_>>(),
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        let models: Vec<&str> = links.iter().map(|(model, _, _)| *model).collect();
+        self.write_agent_file(name, &models, None, false);
     }
 
     /// Compile a two-seat bundle whose `work` seat is exactly `work`.
@@ -135,7 +122,13 @@ impl Fixture {
         minimum: Option<Value>,
         adapters: &Path,
     ) -> Result<Bundle, CompileError> {
-        let bundle = self.dir.path().join("bundle");
+        let bundle = self.stage(work, minimum);
+        Bundle::compile_with(&bundle, &self.agents(), adapters)
+    }
+
+    /// Write the two-seat bundle to disk and return its directory.
+    fn stage(&self, work: Value, minimum: Option<Value>) -> PathBuf {
+        let bundle = self.bundle_dir();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
         std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
@@ -161,7 +154,40 @@ impl Fixture {
             serde_json::to_string_pretty(&config).unwrap(),
         )
         .unwrap();
-        Bundle::compile_with(&bundle, &self.dir.path().join("agents"), adapters)
+        bundle
+    }
+
+    fn agents(&self) -> PathBuf {
+        self.dir.path().join("agents")
+    }
+
+    fn adapters(&self) -> PathBuf {
+        self.dir.path().join("adapters")
+    }
+
+    /// The directory every compile here stages the bundle into — the
+    /// leaf layer, whose manifest walk pins what lies under it.
+    fn bundle_dir(&self) -> PathBuf {
+        self.dir.path().join("bundle")
+    }
+
+    /// The same two-seat bundle compiled under a stated boundary
+    /// (decision 0046 ruling 1), against the fixture's own library roots.
+    fn compile_bounded(&self, work: Value, boundary: Boundary) -> Result<Bundle, CompileError> {
+        self.compile_roots(work, &self.agents(), &self.adapters(), boundary)
+    }
+
+    /// The same bundle under a stated boundary against any library roots
+    /// — the fixture's, the shipped tree's, or none at all.
+    fn compile_roots(
+        &self,
+        work: Value,
+        agents: &Path,
+        adapters: &Path,
+        boundary: Boundary,
+    ) -> Result<Bundle, CompileError> {
+        let bundle = self.stage(work, None);
+        Bundle::compile_under(&bundle, agents, adapters, boundary)
     }
 
     fn refusal(&self, work: Value) -> String {
@@ -169,6 +195,69 @@ impl Fixture {
             Ok(_) => panic!("expected a compile refusal"),
             Err(error) => error.to_string(),
         }
+    }
+
+    fn refusal_under(&self, work: Value, boundary: Boundary) -> String {
+        match self.compile_bounded(work, boundary) {
+            Ok(_) => panic!("expected a compile refusal under `{boundary}`"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    /// A file under the bundle directory, which the manifest walk pins.
+    fn script(&self, relative: &str) {
+        let path = self.bundle_dir().join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "#!/bin/sh\ntrue\n").unwrap();
+    }
+
+    /// An agent file alone — no serving adapter written beside it — with
+    /// the chain, the efforts a shipped provider takes, and boxed hands
+    /// (decision 0043) when asked.
+    fn write_agent_file(&self, name: &str, models: &[&str], efforts: Option<Value>, hands: bool) {
+        std::fs::write(
+            self.agents().join(format!("charters/{name}.md")),
+            "# charter\n",
+        )
+        .unwrap();
+        let mut body = json!({
+            "description": "a fixture agent",
+            "charter": format!("charters/{name}.md"),
+            "models": models,
+        });
+        if let Some(efforts) = efforts {
+            body["efforts"] = efforts;
+        }
+        if hands {
+            body["hands"] = json!("workspace");
+        }
+        std::fs::write(
+            self.agents().join(format!("{name}.json")),
+            serde_json::to_string(&body).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// A boxed agent whose chain is the given (model, provider, harness)
+    /// links: every serving provider is trusted, judges its model and
+    /// declares a `hands.workspace` fragment, so the resolver admits the
+    /// hands; `harness` is the provider's `hands.harness` declaration, or
+    /// `None` for a provider that declares none (decision 0046 ruling 4).
+    fn write_boxed_agent(&self, name: &str, links: &[(&str, &str, Option<Value>)]) {
+        for (model, provider, harness) in links {
+            let mut serving = adapter(provider, Some("trusted"), Some(true));
+            serving["models"] = json!({ *model: format!("{provider}-1") });
+            serving["judges"] = json!([*model]);
+            serving["model_flag"] = json!("--model");
+            let mut hands = json!({"workspace": ["--boxed", "{hands_mcp_json}"]});
+            if let Some(harness) = harness {
+                hands["harness"] = harness.clone();
+            }
+            serving["hands"] = hands;
+            self.write_adapter(serving);
+        }
+        let models: Vec<&str> = links.iter().map(|(model, _, _)| *model).collect();
+        self.write_agent_file(name, &models, None, true);
     }
 }
 
@@ -2400,4 +2489,1291 @@ fn hands_are_recorded_under_the_sites_the_engine_labels() {
         ["work:first", "work:second"]
     );
     assert_eq!(bundle.manifest["hands"]["work:second"]["kind"], "workspace");
+}
+
+// ------------------------------------ decision 0046: the boundary's law
+
+/// The workspace root the shipped adapters live under.
+fn workspace() -> PathBuf {
+    shipped_adapters().parent().unwrap().to_path_buf()
+}
+
+/// The `hands.harness` shapes a fixture provider declares (decision 0046
+/// ruling 4): both members as fragments with the capture door, the gate
+/// alone, and a measured gap on each.
+fn both_members() -> Value {
+    json!({
+        "gate": ["--judge-only", "--door", "{result_path}"],
+        "work": ["--writable"],
+        "result": "last-message",
+    })
+}
+
+fn gate_only() -> Value {
+    json!({"gate": ["--judge-only", "--door", "{result_path}"]})
+}
+
+fn measured_gaps() -> Value {
+    json!({
+        "gate": {"unsupported": "the read-only mode leaves no door"},
+        "work": {"unsupported": "no writable class was found"},
+    })
+}
+
+/// A seat that hires a boxed agent in the given class.
+fn boxed_seat(agent: &str, class: &str) -> Value {
+    json!({"results": ["pass", "fail"], "class": class, "agent": agent})
+}
+
+/// An exec gate with hands whose raw dispatch is `{brokkr} driver exec --`
+/// followed by `tail` — the command the pinned-script grammar reads.
+fn exec_dispatch(tail: &[&str]) -> Value {
+    let mut command = vec!["{brokkr}", "driver", "exec", "--"];
+    command.extend_from_slice(tail);
+    let mut site = exec_gate(Some(json!("workspace")), None);
+    site["driver"]["command"] = json!(command);
+    site
+}
+
+/// Decision 0046 ruling 4's grammar and lookup (design DD9), row by row.
+/// Under `harness` and `open` an exec site with hands is admitted only
+/// for the bundle's own pinned `./` script, judged on the raw command
+/// against the declaring layer; every other spelling is refused naming
+/// the token, ruling 4 and 0021, and no path is compared to judge it.
+/// Under `namespace` every row compiles: a boxed gate is admitted by its
+/// walls, an unboxed one by its bytes (decision 0043 ruling 3).
+#[test]
+fn an_unboxed_exec_site_with_hands_holds_only_for_the_bundles_pinned_script() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    fixture.script("scripts/x.sh");
+    fixture.script("scripts/s.sh");
+    fixture.script("dialects/run.sh");
+    let layer = fixture.bundle_dir().canonicalize().unwrap();
+    let layer = layer.display().to_string();
+
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let bundle = fixture
+            .compile_bounded(
+                exec_dispatch(&["bash", "./scripts/x.sh", "{prompt_file}"]),
+                boundary,
+            )
+            .unwrap_or_else(|e| panic!("{boundary}: {e}"));
+        assert_eq!(bundle.boundary, boundary);
+        assert_eq!(
+            bundle.manifest["boundary"],
+            json!({"work": boundary.word()})
+        );
+        assert!(
+            bundle.manifest["files"].get("scripts/x.sh").is_some(),
+            "the walk pins the script the law admitted"
+        );
+    }
+
+    // (raw tail, what the refusal names, whether it names the layer)
+    let rows: [(&[&str], &str, bool); 8] = [
+        (
+            &["true"],
+            "the command names no `./`-relative script after its interpreters (true)",
+            false,
+        ),
+        (
+            &["bash", "./../outside.sh"],
+            "'./../outside.sh' is not a plain `./`-relative path",
+            false,
+        ),
+        (
+            &["bash", "/usr/bin/true"],
+            "'/usr/bin/true' is spelled as a path that is not `./`-relative to the bundle",
+            false,
+        ),
+        (
+            &["bash", ".\\scripts\\s.sh"],
+            "'.\\scripts\\s.sh' is spelled as a path that is not `./`-relative to the bundle",
+            false,
+        ),
+        (
+            &["bash", "/private/var/b/scripts/s.sh"],
+            "'/private/var/b/scripts/s.sh' is spelled as a path that is not `./`-relative",
+            false,
+        ),
+        (
+            &["bash", "./scripts/missing.sh"],
+            "'./scripts/missing.sh' names no regular file under the declaring layer",
+            true,
+        ),
+        (
+            &["bash", "-c", "./scripts/s.sh"],
+            "'-c' is an option token before the script",
+            false,
+        ),
+        (
+            &["bash", "./dialects/run.sh"],
+            "'./dialects/run.sh' names a path the manifest walk does not pin (dialects is \
+             workspace data",
+            false,
+        ),
+    ];
+    for (tail, names, names_layer) in rows {
+        for boundary in [Boundary::Harness, Boundary::Open] {
+            let refusal = fixture.refusal_under(exec_dispatch(tail), boundary);
+            assert!(
+                refusal.contains(&format!(
+                    "seat 'work' declares hands under the `{boundary}` boundary, where no box \
+                     stands, so its exec command may run only the bundle's own pinned script: "
+                )),
+                "{tail:?}: {refusal}"
+            );
+            assert!(refusal.contains(names), "{tail:?}: {refusal}");
+            assert!(
+                refusal.contains("(decision 0046 ruling 4; decision 0021)"),
+                "{tail:?}: {refusal}"
+            );
+            // A spelling is refused on the token alone: only the lookup
+            // of a `./` token that names nothing says where it looked.
+            assert_eq!(
+                refusal.contains(&layer),
+                names_layer,
+                "{tail:?} names the layer: {refusal}"
+            );
+        }
+        fixture
+            .compile_bounded(exec_dispatch(tail), Boundary::Namespace)
+            .unwrap_or_else(|e| panic!("{tail:?} is admitted by the box's walls: {e}"));
+    }
+    // The dialects file the walk skips does exist, so the refusal above
+    // is the walk's exclusion and not the lookup's.
+    assert!(fixture.bundle_dir().join("dialects/run.sh").is_file());
+}
+
+/// The shipped exec gates on the pinned-script terms: `recipes/fast`'s
+/// verify and ship seats compile under `harness` and `open` — the
+/// `{brokkr}` among the ship seat's arguments names no command — and
+/// `recipes/wager-harness`, which inherits both from `fast`, is judged
+/// against the layer that wrote them. `bundles/self` carries the same
+/// two seats but chains claude at its review gate, so under `open` it
+/// refuses there, before either exec seat is reached (seats compile in
+/// name order).
+#[test]
+fn the_shipped_exec_gates_stand_unboxed_on_their_own_pinned_scripts() {
+    let root = workspace();
+    let self_dir = root.join("bundles/self");
+    let self_config: Value =
+        serde_json::from_slice(&std::fs::read(self_dir.join("bundle.json")).unwrap()).unwrap();
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        enforce_hands_boundary(
+            "verify",
+            &self_config["seats"]["verify"],
+            &[],
+            SiteLaw {
+                boundary,
+                dir: &self_dir,
+                agent_hands: None,
+            },
+            None,
+        )
+        .expect("self's verifier is its own pinned script");
+        let fast = Bundle::compile_under(
+            &root.join("recipes/fast"),
+            &root.join("agents"),
+            &root.join("adapters"),
+            boundary,
+        )
+        .unwrap_or_else(|e| panic!("recipes/fast under {boundary}: {e}"));
+        assert_eq!(
+            fast.manifest["boundary"],
+            json!({"ship": boundary.word(), "verify": boundary.word()})
+        );
+        let SeatBody::Single { command, .. } = &fast.seats["ship"].body else {
+            panic!("the ship seat is a single exec site")
+        };
+        // `{brokkr}` expanded twice: once as the dispatch, once as the
+        // script's own argument, which nobody judged.
+        assert_eq!(command.len(), 8, "{command:?}");
+        assert_eq!(command[7], command[0], "{command:?}");
+        assert_eq!(command[6], "{prompt_file}");
+    }
+
+    let wager = Bundle::compile_under(
+        &root.join("recipes/wager-harness"),
+        &root.join("agents"),
+        &root.join("adapters"),
+        Boundary::Harness,
+    )
+    .expect("the inherited verify seat resolves against fast");
+    let fast_dir = root.join("recipes/fast").canonicalize().unwrap();
+    assert_eq!(wager.roots[1], fast_dir);
+    let SeatBody::Single { command, .. } = &wager.seats["verify"].body else {
+        panic!("the inherited verify seat is a single exec site")
+    };
+    let checked = fast_dir.join("scripts/verify-seat.sh");
+    assert!(checked.is_file(), "{}", checked.display());
+    assert_eq!(command[5], checked.to_string_lossy());
+    assert_eq!(wager.manifest["boundary"]["verify"], "harness");
+
+    let refusal = Bundle::compile_under(
+        &root.join("bundles/self"),
+        &root.join("agents"),
+        &root.join("adapters"),
+        Boundary::Open,
+    )
+    .expect_err("bundles/self seats a model gate with hands")
+    .to_string();
+    assert!(
+        refusal.contains("seat 'review' is a gate with hands under the `open` boundary"),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("seat 'verify'"), "{refusal}");
+}
+
+#[test]
+fn pinned_script_components_reject_ambiguity_and_directories() {
+    let fixture = Fixture::new();
+    fixture.script("scripts/check.sh");
+    let no_separator = ["engine", "driver", "exec", "./scripts/check.sh"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert!(pinned_script(&fixture.bundle_dir(), &no_separator)
+        .unwrap_err()
+        .contains("no `--` after `exec`"));
+    for script in [
+        "./scripts/./check.sh",
+        "./scripts/../check.sh",
+        "./scripts//check.sh",
+        "./scripts",
+    ] {
+        let command: Vec<String> = ["engine", "driver", "exec", "--", "sh", script]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert!(
+            pinned_script(&fixture.bundle_dir(), &command).is_err(),
+            "{script}"
+        );
+    }
+}
+
+#[test]
+fn hands_on_an_unmapped_agent_chain_report_the_resolver_gap() {
+    let fixture = Fixture::new();
+    fixture.write_agent_file("lost", &["unmapped"], None, true);
+    let error = fixture.refusal_under(
+        json!({"agent":"lost", "results":["pass","fail"]}),
+        Boundary::Namespace,
+    );
+    assert!(error.contains("unmapped"), "{error}");
+}
+
+/// Proposal D32, design DD22: the class decides only whether a site may
+/// hold a gate. A `class: work` exec site with hands naming the bundle's
+/// pinned `./scripts/lint.sh` is admitted under `open`; its sibling
+/// running `true` is refused naming ruling 4 and 0021, the class changing
+/// nothing; and the same bundle — naming no agent, seating no gate and
+/// binding no secret — compiles with no `adapters/` directory reachable,
+/// admitted and refused the same, because the law reads the raw command
+/// and the declaring layer and never an adapter.
+#[test]
+fn a_work_class_exec_site_with_hands_is_judged_on_the_gates_ground_and_reads_no_adapter() {
+    let fixture = Fixture::new();
+    fixture.script("scripts/lint.sh");
+    let site = |name: &str, class: &str, tail: &[&str]| {
+        let mut command = vec!["{brokkr}", "driver", "exec", "--"];
+        command.extend_from_slice(tail);
+        json!({
+            "name": name,
+            "results": ["pass"],
+            "class": class,
+            "hands": "workspace",
+            "role": "roles/role.md",
+            "driver": {"command": command},
+        })
+    };
+    let lint = |class: &str| {
+        let mut alone = site("lint", class, &["bash", "./scripts/lint.sh"]);
+        alone.as_object_mut().unwrap().remove("name");
+        alone["results"] = json!(["pass", "fail"]);
+        alone
+    };
+    let pair = |class: &str| {
+        let mut second = site("plain", class, &["true"]);
+        second.as_object_mut().unwrap().remove("results");
+        json!({
+            "results": ["pass", "fail"],
+            "sequence": [site("lint", class, &["bash", "./scripts/lint.sh"]), second],
+        })
+    };
+    let nowhere = PathBuf::from("/nonexistent-adapters");
+    for adapters in [fixture.adapters(), nowhere.clone()] {
+        let bundle = fixture
+            .compile_roots(lint("work"), &fixture.agents(), &adapters, Boundary::Open)
+            .unwrap_or_else(|e| panic!("{}: {e}", adapters.display()));
+        assert_eq!(bundle.manifest["boundary"], json!({"work": "open"}));
+        assert!(
+            bundle.manifest.get("drivers").is_none(),
+            "no adapter was read"
+        );
+        let refusal = fixture
+            .compile_roots(pair("work"), &fixture.agents(), &adapters, Boundary::Open)
+            .expect_err("the sibling runs a bare program")
+            .to_string();
+        assert!(
+            refusal.contains("seat 'work:plain' declares hands under the `open` boundary"),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains(
+                "the command names no `./`-relative script after its interpreters (true)"
+            ),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains("(decision 0046 ruling 4; decision 0021)"),
+            "{refusal}"
+        );
+        assert!(
+            !refusal.contains("work:lint"),
+            "the first site was admitted: {refusal}"
+        );
+    }
+    // The gate-class pair reads the same, word for word: the class is
+    // not consulted on the exec arm. A gate opens the adapters, so this
+    // half runs against the fixture's.
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    fixture
+        .compile_bounded(lint("gate"), Boundary::Open)
+        .expect("a gate on the pinned script is admitted too");
+    let work = fixture.refusal_under(pair("work"), Boundary::Open);
+    let gate = fixture.refusal_under(pair("gate"), Boundary::Open);
+    assert_eq!(work, gate);
+    // And a bundle whose only hands site is a work-class exec seat never
+    // opened the adapters: the `expect` behind the class read is not
+    // reached, because the law returned before it.
+    fixture
+        .compile_roots(lint("work"), &fixture.agents(), &nowhere, Boundary::Harness)
+        .expect("admitted under harness on the same ground");
+}
+
+/// Design DD8: a dialect validate or check step holds its gate boxed
+/// (decision 0042 ruling 4), and under `harness` or `open` it is refused
+/// at compile naming the step, ruling 4, 0042 ruling 4 and a boxed
+/// boundary as the road — before the gate law runs, so the chief seated
+/// before it on a provider that declares both `hands.harness` members
+/// is not what refuses. Under `namespace` the same bundle compiles as
+/// today, its synthetic step boxed.
+#[test]
+fn a_dialect_step_under_an_unboxed_boundary_is_refused_until_a_decision_admits_it() {
+    let fixture = Fixture::new();
+    fixture.write_boxed_agent("chief", &[("m-chief", "council", Some(both_members()))]);
+    let dialect = Dialect::load(&workspace().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let policy = json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["design", "review", "done"],
+        "initial": "design",
+        "terminal": ["done"],
+        "shippable_from": ["review"],
+        "rules": [
+            {"id": "D", "from": "design", "result": "drafted", "next": "review", "reason": "drafted"},
+            {"id": "DF", "from": "design", "result": "fail", "next": "design", "reason": "retry"},
+            {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "clean"}
+        ]
+    });
+    let bundle = fixture.bundle_dir();
+    std::fs::create_dir_all(bundle.join("roles")).unwrap();
+    std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
+    std::fs::write(bundle.join("policy.json"), policy.to_string()).unwrap();
+    std::fs::write(
+        bundle.join("bundle.json"),
+        json!({
+            "name": "artifact",
+            "policy": "policy.json",
+            "seats": {
+                "design": {"results": ["drafted", "fail"], "sequence": [
+                    {"name": "chief", "results": ["drafted"], "agent": "chief", "class": "work"},
+                    {"name": "validate", "dialect": "validate"}
+                ]},
+                "review": {
+                    "role": "roles/role.md",
+                    "results": ["clean"],
+                    "driver": {"command": [
+                        "{brokkr}", "driver", "judge", "--", "--model", "judge-1", "true"
+                    ]},
+                },
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let compile = |boundary: Boundary| {
+        Bundle::compile_with_realm(
+            &bundle,
+            &fixture.agents(),
+            &fixture.adapters(),
+            None,
+            Some(&dialect),
+            boundary,
+        )
+    };
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let refusal = compile(boundary)
+            .expect_err("the dialect step is not the bundle's pinned script")
+            .to_string();
+        assert!(
+            refusal.contains(
+                "dialect step 'design:validate' holds its gate boxed (decision 0042 ruling 4)"
+            ),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains(&format!("under the `{boundary}` boundary no box stands")),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains("which is all decision 0046 ruling 4 admits at an unboxed gate"),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains("Run the realm under a boxed boundary (namespace)"),
+            "{refusal}"
+        );
+        assert!(!refusal.contains("design:chief"), "{refusal}");
+    }
+    let boxed = compile(Boundary::Namespace).expect("the synthetic gate is boxed today");
+    assert_eq!(
+        boxed.hands.keys().collect::<Vec<_>>(),
+        ["design:chief", "design:validate"]
+    );
+    assert_eq!(
+        boxed.manifest["boundary"],
+        json!({"design:chief": "namespace", "design:validate": "namespace"})
+    );
+}
+
+/// The gate law under the boundary axis (decision 0046 ruling 4; design
+/// DD7 and DD22), arm by arm on fixture providers: under `harness` a
+/// model gate is admitted only when every link declares
+/// `hands.harness.gate`, refused otherwise naming the link, the provider
+/// and the member — with the measured reason when the operator recorded
+/// one; under `open` a model gate is refused whatever the adapter says
+/// and a work seat runs at the harness's default; under `seatbelt` and
+/// `container` a gate compiles exactly as under `namespace` with the word
+/// pinned; and a work seat under `harness` without a `work` fragment is
+/// a capability gap.
+#[test]
+fn the_gate_law_reads_the_boundary_for_sites_that_declare_hands() {
+    let fixture = Fixture::new();
+    fixture.write_boxed_agent(
+        "declared",
+        &[("m-declared", "declared-provider", Some(gate_only()))],
+    );
+    fixture.write_boxed_agent("both", &[("m-both", "both-provider", Some(both_members()))]);
+    fixture.write_boxed_agent("silent-box", &[("m-silent", "silent-provider", None)]);
+    fixture.write_boxed_agent(
+        "falls-back",
+        &[
+            ("m-first", "first-provider", Some(both_members())),
+            ("m-second", "second-provider", None),
+        ],
+    );
+    fixture.write_boxed_agent(
+        "measured",
+        &[("m-measured", "measured-provider", Some(measured_gaps()))],
+    );
+
+    // A harness gate on a provider that declares the fragment.
+    for agent in ["declared", "both"] {
+        let bundle = fixture
+            .compile_bounded(boxed_seat(agent, "gate"), Boundary::Harness)
+            .unwrap_or_else(|e| panic!("{agent}: {e}"));
+        assert_eq!(bundle.boundary, Boundary::Harness);
+        assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
+    }
+    // One that declares none.
+    let refusal = fixture.refusal_under(boxed_seat("silent-box", "gate"), Boundary::Harness);
+    assert!(
+        refusal.contains(
+            "seat 'work' gate link 1 resolves to provider 'silent-provider', which declares no \
+             `hands.harness.gate` fragment; under the `harness` boundary a model may judge only \
+             under its harness's own read-only sandbox as the adapter addresses it (decision \
+             0046 ruling 4)"
+        ),
+        "{refusal}"
+    );
+    // A fallback link without the fragment refuses the chain, by link.
+    let refusal = fixture.refusal_under(boxed_seat("falls-back", "gate"), Boundary::Harness);
+    assert!(
+        refusal.contains("seat 'work' gate link 2 resolves to provider 'second-provider'"),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("first-provider"), "{refusal}");
+    // A measured gap names its reason (task 8.11's compile half).
+    let refusal = fixture.refusal_under(boxed_seat("measured", "gate"), Boundary::Harness);
+    assert!(
+        refusal.contains(
+            "provider 'measured-provider', which declares no `hands.harness.gate` fragment (the \
+             read-only mode leaves no door)"
+        ),
+        "{refusal}"
+    );
+    // An open model gate is refused whatever the adapter declares.
+    for agent in ["declared", "both", "silent-box"] {
+        let refusal = fixture.refusal_under(boxed_seat(agent, "gate"), Boundary::Open);
+        assert!(
+            refusal.contains(
+                "seat 'work' is a gate with hands under the `open` boundary, where nothing at \
+                 all stands between a model's hands and the machine; `open` never holds a model \
+                 gate (decision 0046 ruling 4)"
+            ),
+            "{agent}: {refusal}"
+        );
+    }
+    // The law's last arm: an open work-class chain site is admitted with
+    // no link declaring a fragment.
+    let bundle = fixture
+        .compile_bounded(boxed_seat("silent-box", "work"), Boundary::Open)
+        .expect("a work seat under open runs at the harness's default");
+    assert_eq!(bundle.manifest["boundary"], json!({"work": "open"}));
+    // A harness work seat takes the work fragment, or is a capability gap.
+    fixture
+        .compile_bounded(boxed_seat("both", "work"), Boundary::Harness)
+        .expect("a work seat on a provider with a work fragment");
+    let refusal = fixture.refusal_under(boxed_seat("declared", "work"), Boundary::Harness);
+    assert!(
+        refusal.contains(
+            "seat 'work' link 1 resolves to provider 'declared-provider', which declares no \
+             `hands.harness.work` fragment: a capability gap — under the `harness` boundary a \
+             work seat with hands writes the tree only under the harness's own writable sandbox \
+             as the adapter addresses it (decision 0046 rulings 1 and 4)"
+        ),
+        "{refusal}"
+    );
+    let refusal = fixture.refusal_under(boxed_seat("measured", "work"), Boundary::Harness);
+    assert!(
+        refusal.contains(
+            "`hands.harness.work` fragment (no writable class was found): a capability gap"
+        ),
+        "{refusal}"
+    );
+    // A seatbelt and a container gate are admitted at compile exactly as
+    // under namespace, the word pinned, whatever the machine holds.
+    let namespace = fixture
+        .compile_bounded(boxed_seat("silent-box", "gate"), Boundary::Namespace)
+        .unwrap();
+    assert_eq!(namespace.manifest["boundary"], json!({"work": "namespace"}));
+    for boundary in [Boundary::Seatbelt, Boundary::Container] {
+        let bundle = fixture
+            .compile_bounded(boxed_seat("silent-box", "gate"), boundary)
+            .unwrap_or_else(|e| panic!("{boundary}: {e}"));
+        assert_eq!(
+            bundle.manifest["boundary"],
+            json!({"work": boundary.word()})
+        );
+        let mut theirs = bundle.manifest.clone();
+        let mut ours = namespace.manifest.clone();
+        theirs.as_object_mut().unwrap().remove("boundary");
+        ours.as_object_mut().unwrap().remove("boundary");
+        assert_eq!(
+            theirs, ours,
+            "{boundary} differs from namespace only in the word"
+        );
+        assert_ne!(bundle.manifest_digest(), namespace.manifest_digest());
+    }
+}
+
+/// A gate-class site without hands has no box whose boundary could be
+/// named: an inline trusted model gate with a tool list compiles under
+/// `open` and `harness` exactly as under `namespace`, byte for byte. An
+/// inline model site WITH hands is refused under both naming the seat
+/// and the repair — its argv is the author's and carries the box's own
+/// tokens — and compiles under `namespace`; a bare program with hands is
+/// refused by the grammar's own arm.
+#[test]
+fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refused_unboxed() {
+    let fixture = Fixture::new();
+    let mut tooled = seat("judge", Some("gate"), None);
+    tooled["driver"]["command"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("--allowedTools"), json!("Bash(cargo:*)")]);
+    let namespace = fixture
+        .compile_bounded(tooled.clone(), Boundary::Namespace)
+        .unwrap();
+    assert!(namespace.manifest.get("boundary").is_none());
+    for boundary in [Boundary::Open, Boundary::Harness] {
+        let bundle = fixture
+            .compile_bounded(tooled.clone(), boundary)
+            .unwrap_or_else(|e| panic!("{boundary}: {e}"));
+        assert_eq!(bundle.boundary, boundary);
+        assert_eq!(bundle.manifest, namespace.manifest);
+    }
+
+    let mut boxed = seat("judge", Some("work"), None);
+    boxed["hands"] = json!("workspace");
+    fixture
+        .compile_bounded(boxed.clone(), Boundary::Namespace)
+        .expect("a boxed inline model site is decision 0043's own case");
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let refusal = fixture.refusal_under(boxed.clone(), boundary);
+        assert!(
+            refusal.contains(&format!(
+                "seat 'work' is an inline `judge` site that declares hands under the \
+                 `{boundary}` boundary; its argv is the author's own and carries the box's \
+                 tokens, which no harness stands behind unboxed. Seat it through an agent, \
+                 whose adapter declares how the harness stands under `harness`, or run the \
+                 realm under a boxed boundary (decision 0046 ruling 4)"
+            )),
+            "{refusal}"
+        );
+    }
+
+    let mut bare = seat("judge", Some("work"), None);
+    bare["driver"]["command"] = json!(["custom-driver", "--flag"]);
+    bare["hands"] = json!("workspace");
+    let refusal = fixture.refusal_under(bare, Boundary::Harness);
+    assert!(
+        refusal.contains(
+            "seat 'work' declares hands under the `harness` boundary, where no box stands, and \
+             its command is a bare program rather than a `{brokkr} driver exec` dispatch of the \
+             bundle's own pinned script (decision 0046 ruling 4; decision 0021)"
+        ),
+        "{refusal}"
+    );
+}
+
+/// Ruling 4's own binding, pinned against the shipped adapter library
+/// (`adapters/` as it stands) and not a fixture shaped like it (design
+/// DD20): a fixture gate agent with hands chaining `astra` alone is
+/// admitted under `harness`, its manifest pinning the shipped codex
+/// adapter's digest.
+///
+/// D33: mapped hands chains face the boundary law before the resolver's
+/// workspace capability gap: namespace refuses the untrusted tier;
+/// harness refuses the absent gate fragment, naming the provider and link.
+#[test]
+fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
+    let fixture = Fixture::new();
+    fixture.write_agent_file(
+        "astra-judge",
+        &["astra"],
+        Some(json!({"astra": "high"})),
+        true,
+    );
+    let bundle = fixture
+        .compile_roots(
+            boxed_seat("astra-judge", "gate"),
+            &fixture.agents(),
+            &shipped_adapters(),
+            Boundary::Harness,
+        )
+        .expect("a harness gate on the shipped codex adapter is admitted");
+    let shipped = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    let codex = shipped.digest("codex").expect("the shipped codex adapter");
+    assert_eq!(bundle.manifest["agents"]["work"]["provider"], "codex");
+    assert_eq!(
+        bundle.manifest["agents"]["work"]["adapter_digest"],
+        brokkr_core::canonical::sha256_hex(&json!({"codex": codex}))
+    );
+    assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
+    let SeatBody::Single { candidates, .. } = &bundle.seats["work"].body else {
+        panic!("an agent seat is a single body")
+    };
+    // The candidate carries the shipped declaration to the engine, which
+    // holds no adapter at spawn.
+    assert_eq!(
+        candidates[0].harness,
+        shipped.adapter("codex").unwrap().harness
+    );
+    assert_eq!(
+        candidates[0].harness.gate,
+        Some(
+            [
+                "--sandbox",
+                "read-only",
+                "--output-last-message",
+                "{result_path}"
+            ]
+            .map(String::from)
+            .to_vec()
+        )
+    );
+
+    fixture.write_agent_file(
+        "flash-judge",
+        &["flash"],
+        Some(json!({"flash": "medium"})),
+        true,
+    );
+    fixture.write_agent_file(
+        "tallied-judge",
+        &["fable-tallied"],
+        Some(json!({"fable-tallied": "high"})),
+        true,
+    );
+    for (agent, provider) in [("flash-judge", "dsh"), ("tallied-judge", "lanetally")] {
+        for boundary in [Boundary::Namespace, Boundary::Harness] {
+            let refusal = fixture
+                .compile_roots(
+                    boxed_seat(agent, "gate"),
+                    &fixture.agents(),
+                    &shipped_adapters(),
+                    boundary,
+                )
+                .map(|_| ())
+                .expect_err("a hands agent on a provider without hands is refused")
+                .to_string();
+            assert!(refusal.contains("seat 'work'"), "{refusal}");
+            assert!(
+                refusal.contains(&format!("provider '{provider}'"))
+                    || refusal.contains(&format!("driver '{provider}'")),
+                "{refusal}"
+            );
+            match boundary {
+                Boundary::Namespace => {
+                    assert!(refusal.contains("trusted tier"), "{refusal}");
+                    assert!(refusal.contains("decision 0021 ruling 2"), "{refusal}");
+                }
+                _ => {
+                    assert!(refusal.contains("gate link 1"), "{refusal}");
+                    assert!(refusal.contains("hands.harness.gate"), "{refusal}");
+                    assert!(refusal.contains("decision 0046 ruling 4"), "{refusal}");
+                }
+            }
+        }
+        // An open worker needs no workspace fragment from either adapter.
+        fixture
+            .compile_roots(
+                boxed_seat(agent, "work"),
+                &fixture.agents(),
+                &shipped_adapters(),
+                Boundary::Open,
+            )
+            .unwrap();
+    }
+
+    // Without hands the law returns at once and decision 0021 ruling 2's
+    // trust-tier refusal is what stands, under both boundaries.
+    fixture.write_agent_file(
+        "flash-bare",
+        &["flash"],
+        Some(json!({"flash": "medium"})),
+        false,
+    );
+    fixture.write_agent_file(
+        "tallied-bare",
+        &["fable-tallied"],
+        Some(json!({"fable-tallied": "high"})),
+        false,
+    );
+    for (agent, provider) in [("flash-bare", "dsh"), ("tallied-bare", "lanetally")] {
+        for boundary in [Boundary::Namespace, Boundary::Harness] {
+            let refusal = fixture
+                .compile_roots(
+                    boxed_seat(agent, "gate"),
+                    &fixture.agents(),
+                    &shipped_adapters(),
+                    boundary,
+                )
+                .map(|_| ())
+                .expect_err("an untrusted provider may not hold a gate")
+                .to_string();
+            assert!(
+                refusal.contains(&format!(
+                    "seat 'work' is gate class but seats driver '{provider}', which does not \
+                     hold the trusted tier"
+                )),
+                "{boundary}: {refusal}"
+            );
+            assert!(
+                refusal.contains("decision 0021 ruling 2"),
+                "{boundary}: {refusal}"
+            );
+        }
+    }
+}
+
+// ------------------------------- decision 0046: the manifest's boundary map
+
+/// A two-step sequence of exec gates with hands, each on the bundle's own
+/// pinned `./scripts/check.sh`, so it compiles under every boundary.
+fn two_boxed_sites() -> Value {
+    let step = |name: &str| {
+        json!({
+            "name": name,
+            "results": ["pass", "fail"],
+            "role": "roles/role.md",
+            "class": "gate",
+            "hands": "workspace",
+            "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/check.sh", "{prompt_file}"]},
+        })
+    };
+    let mut second = step("second");
+    second.as_object_mut().unwrap().remove("results");
+    json!({
+        "results": ["pass", "fail"],
+        "sequence": [step("first"), second],
+    })
+}
+
+fn v9() -> jsonschema::Validator {
+    let schema: Value = serde_json::from_slice(
+        &std::fs::read(workspace().join("contracts/run-manifest.v9.schema.json")).unwrap(),
+    )
+    .unwrap();
+    jsonschema::draft7::new(&schema).unwrap()
+}
+
+/// run-manifest/v9 (decision 0046 ruling 1; design DD4): `boundary` is
+/// written beside `hands` with the same keys, every value the realm's
+/// word, and validates; a bundle that boxes nothing carries neither key
+/// and keeps one identity under every boundary; the same boxed bundle
+/// under `namespace` and `harness` differs only in `boundary` and the
+/// digests differ; a half-pinned manifest fails the contract.
+#[test]
+fn the_manifest_pins_the_boundary_per_hands_site_as_run_manifest_v9() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
+    fixture.script("scripts/check.sh");
+    let validator = v9();
+
+    let namespace = fixture
+        .compile_bounded(two_boxed_sites(), Boundary::Namespace)
+        .unwrap();
+    let hands = namespace.manifest["hands"].as_object().unwrap();
+    let boundary = namespace.manifest["boundary"].as_object().unwrap();
+    assert_eq!(
+        hands.keys().collect::<Vec<_>>(),
+        ["work:first", "work:second"]
+    );
+    assert_eq!(
+        hands.keys().collect::<Vec<_>>(),
+        boundary.keys().collect::<Vec<_>>()
+    );
+    assert!(boundary.values().all(|word| word == "namespace"));
+    assert!(
+        validator.is_valid(&namespace.manifest),
+        "{}",
+        namespace.manifest
+    );
+
+    let harness = fixture
+        .compile_bounded(two_boxed_sites(), Boundary::Harness)
+        .unwrap();
+    assert!(validator.is_valid(&harness.manifest));
+    assert_eq!(
+        harness.manifest["boundary"],
+        json!({"work:first": "harness", "work:second": "harness"})
+    );
+    let mut theirs = harness.manifest.clone();
+    let mut ours = namespace.manifest.clone();
+    theirs.as_object_mut().unwrap().remove("boundary");
+    ours.as_object_mut().unwrap().remove("boundary");
+    assert_eq!(theirs, ours, "the two manifests differ only in `boundary`");
+    assert_ne!(harness.manifest_digest(), namespace.manifest_digest());
+
+    // A plain bundle: neither key, one identity under every word.
+    let plain = fixture
+        .compile_bounded(seat("judge", Some("gate"), None), Boundary::Namespace)
+        .unwrap();
+    assert!(plain.manifest.get("hands").is_none());
+    assert!(plain.manifest.get("boundary").is_none());
+    assert!(validator.is_valid(&plain.manifest));
+    for boundary in [
+        Boundary::Seatbelt,
+        Boundary::Container,
+        Boundary::Harness,
+        Boundary::Open,
+    ] {
+        let again = fixture
+            .compile_bounded(seat("judge", Some("gate"), None), boundary)
+            .unwrap_or_else(|e| panic!("{boundary}: {e}"));
+        assert_eq!(
+            again.manifest_digest(),
+            plain.manifest_digest(),
+            "{boundary}"
+        );
+    }
+
+    // Half-pinned manifests fail v9: hands without boundary, boundary
+    // without hands, and a word outside the enum.
+    let mut no_boundary = namespace.manifest.clone();
+    no_boundary.as_object_mut().unwrap().remove("boundary");
+    assert!(!validator.is_valid(&no_boundary));
+    let mut no_hands = namespace.manifest.clone();
+    no_hands.as_object_mut().unwrap().remove("hands");
+    assert!(!validator.is_valid(&no_hands));
+    let mut sixth = namespace.manifest.clone();
+    sixth["boundary"]["work:first"] = json!("chroot");
+    assert!(!validator.is_valid(&sixth));
+}
+
+// --------------------------- decision 0046: the re-walk over a leaf layer
+
+/// The spawn-time re-walk (design DD9) as a pure function over a
+/// temporary leaf layer: an untouched layer names no key; an edited
+/// script, an edited sibling, a deleted pinned file and an added file
+/// each name the first key that differs, with the layer's name. The
+/// ancestor arm is pinned in `compose_tests.rs`, which owns a recipe
+/// library.
+#[test]
+fn the_re_walk_of_a_leaf_layer_names_the_first_pinned_key_that_moved() {
+    let fixture = Fixture::new();
+    fixture.script("scripts/x.sh");
+    fixture.script("scripts/lib.sh");
+    let bundle = fixture
+        .compile_bounded(
+            exec_dispatch(&["bash", "./scripts/x.sh", "{prompt_file}"]),
+            Boundary::Harness,
+        )
+        .unwrap();
+    let layer = bundle.dir.clone();
+    assert_eq!(bundle.roots, vec![layer.clone()]);
+    assert_eq!(layer_drift(&bundle, &layer), None);
+
+    let script = layer.join("scripts/x.sh");
+    let pinned = std::fs::read(&script).unwrap();
+    std::fs::write(&script, "#!/bin/sh\nrm -rf /\n").unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &layer),
+        Some((
+            "model-policy".to_string(),
+            "changed: scripts/x.sh".to_string()
+        ))
+    );
+    std::fs::write(&script, &pinned).unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &layer),
+        None,
+        "restored bytes are the pinned bytes"
+    );
+
+    let sibling = layer.join("scripts/lib.sh");
+    std::fs::write(&sibling, "#!/bin/sh\nexport PATH=/tmp:$PATH\n").unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &layer),
+        Some((
+            "model-policy".to_string(),
+            "changed: scripts/lib.sh".to_string()
+        ))
+    );
+
+    std::fs::remove_file(&sibling).unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &layer),
+        Some((
+            "model-policy".to_string(),
+            "missing: scripts/lib.sh".to_string()
+        ))
+    );
+    std::fs::write(&sibling, &pinned).unwrap();
+    assert_eq!(layer_drift(&bundle, &layer), None);
+
+    std::fs::write(layer.join("scripts/new.sh"), "#!/bin/sh\n").unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &layer),
+        Some((
+            "model-policy".to_string(),
+            "added: scripts/new.sh".to_string()
+        ))
+    );
+    std::fs::remove_file(layer.join("scripts/new.sh")).unwrap();
+
+    // The walk's own exclusions are not pinned, so they cannot drift: a
+    // realm map or a dialect written beside the bundle moves nothing.
+    std::fs::write(layer.join("realms.json"), "{}").unwrap();
+    std::fs::create_dir_all(layer.join("dialects")).unwrap();
+    std::fs::write(layer.join("dialects/x.json"), "{}").unwrap();
+    assert_eq!(layer_drift(&bundle, &layer), None);
+}
+
+// ------------------- decision 0046 ruling 6: every shipped bundle under harness
+
+/// Every bundle directory under `recipes/` and `bundles/`, in name order
+/// — the thirteen the tree ships.
+fn shipped_bundles() -> Vec<PathBuf> {
+    let root = workspace();
+    let mut dirs = Vec::new();
+    for parent in ["recipes", "bundles"] {
+        let mut children: Vec<PathBuf> = std::fs::read_dir(root.join(parent))
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.join("bundle.json").is_file())
+            .collect();
+        children.sort();
+        dirs.append(&mut children);
+    }
+    dirs
+}
+
+/// The path relative to the workspace, as the record names a bundle.
+fn relative(dir: &Path) -> String {
+    dir.strip_prefix(workspace())
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// A scratch copy of the shipped adapter library with `adapters/claude.json`
+/// rewritten by `plant`, so a test can state what the operator's
+/// measurement would land without touching the shipped file.
+fn scratch_adapters(plant: impl FnOnce(&mut Value)) -> tempfile::TempDir {
+    let scratch = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(shipped_adapters()).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, scratch.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let claude = scratch.path().join("claude.json");
+    let mut value: Value = serde_json::from_slice(&std::fs::read(&claude).unwrap()).unwrap();
+    plant(&mut value);
+    std::fs::write(&claude, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    scratch
+}
+
+/// Compile one shipped bundle under a boundary, in a realm that declares
+/// the openspec dialect, against the given adapter library.
+fn compile_shipped(
+    dir: &Path,
+    adapters: &Path,
+    dialect: &Dialect,
+    boundary: Boundary,
+) -> Result<Bundle, CompileError> {
+    Bundle::compile_with_realm(
+        dir,
+        &workspace().join("agents"),
+        adapters,
+        Some("brokkr"),
+        Some(dialect),
+        boundary,
+    )
+}
+
+/// The refusal DD8 pins for the two shipped bundles with a dialect step:
+/// the `analyze` sequence's `check` step is the first the compiler
+/// reaches (phases compile in name order), and it is refused naming the
+/// step, ruling 4, 0042 ruling 4 and a boxed boundary.
+fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
+    assert!(
+        refusal
+            .contains("dialect step 'analyze:check' holds its gate boxed (decision 0042 ruling 4)"),
+        "{relative}: {refusal}"
+    );
+    assert!(
+        refusal.contains("which is all decision 0046 ruling 4 admits at an unboxed gate"),
+        "{relative}: {refusal}"
+    );
+    assert!(
+        refusal.contains("Run the realm under a boxed boundary (namespace)"),
+        "{relative}: {refusal}"
+    );
+    assert!(!refusal.contains("claude"), "{relative}: {refusal}");
+}
+
+/// Decision 0046 ruling 6's promise, proved as one test with two halves
+/// (design DD20; tasks 11.4 and 11.7).
+///
+/// First half: in a scratch copy of the shipped adapter library with
+/// claude's two `hands.harness` members planted as fragments — the
+/// shipped files once the operator's measurement lands — every shipped
+/// bundle without a dialect step compiles under `harness` in a realm
+/// declaring the openspec dialect, eleven of the thirteen, each hands
+/// site's manifest `boundary` entry reading `harness`; `recipes/triage`
+/// and `recipes/night-shift` refuse naming their dialect step and ruling 4.
+///
+/// Second half: against the shipped adapters as they stand, claude
+/// declaring no member, exactly four refuse, each naming the ground the
+/// compiler reaches first — `bundles/self` at `review` and
+/// `recipes/panel-review` at `review:correctness` naming `claude`,
+/// `hands.harness.gate` and the site; the two dialect bundles at
+/// `analyze:check` — and every other compiles. This half is a pin that
+/// moves for a known reason: the measurement landing, or a decision
+/// admitting the dialect step.
+///
+/// And under `namespace` every shipped bundle is exactly today: the
+/// manifest `compile_with` produces, every `boundary` entry `namespace`.
+#[test]
+fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured() {
+    let root = workspace();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let dirs = shipped_bundles();
+    assert_eq!(dirs.len(), 13, "{dirs:?}");
+    let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
+
+    // Namespace is exactly today.
+    for dir in &dirs {
+        let name = relative(dir);
+        let today = Bundle::compile_with(dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|e| panic!("{name} must compile: {e}"));
+        let realm = compile_shipped(dir, &root.join("adapters"), &dialect, Boundary::Namespace)
+            .unwrap_or_else(|e| panic!("{name} must compile in the realm: {e}"));
+        assert_eq!(realm.boundary, Boundary::Namespace);
+        let mut theirs = realm.manifest.clone();
+        let mut ours = today.manifest.clone();
+        // The realm pin is the one key a realm adds; the boundary map is
+        // the same under both because both are `namespace`.
+        theirs.as_object_mut().unwrap().remove("realms");
+        ours.as_object_mut().unwrap().remove("realms");
+        assert_eq!(theirs, ours, "{name} under namespace is today's bundle");
+        if let Some(map) = today.manifest.get("boundary") {
+            assert!(
+                map.as_object().unwrap().values().all(|w| w == "namespace"),
+                "{name}"
+            );
+        }
+    }
+
+    // First half: the members planted.
+    let planted = scratch_adapters(|claude| {
+        claude["hands"]["harness"] = json!({
+            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
+            "work": ["--permission-mode", "acceptEdits"],
+        });
+    });
+    let mut compiled = Vec::new();
+    for dir in &dirs {
+        let name = relative(dir);
+        match compile_shipped(dir, planted.path(), &dialect, Boundary::Harness) {
+            Ok(bundle) => {
+                assert!(
+                    !dialect_bundles.contains(&name.as_str()),
+                    "{name} has a dialect step and may not compile unboxed"
+                );
+                assert_eq!(bundle.boundary, Boundary::Harness);
+                if !bundle.hands.is_empty() {
+                    let map = bundle.manifest["boundary"].as_object().unwrap();
+                    assert_eq!(
+                        map.keys().collect::<Vec<_>>(),
+                        bundle.hands.keys().collect::<Vec<_>>(),
+                        "{name}"
+                    );
+                    assert!(map.values().all(|w| w == "harness"), "{name}: {map:?}");
+                }
+                compiled.push(name);
+            }
+            Err(error) => {
+                assert!(
+                    dialect_bundles.contains(&name.as_str()),
+                    "{name} refuses under harness with the members planted: {error}"
+                );
+                assert_refused_at_the_dialect_step(&name, &error.to_string());
+            }
+        }
+    }
+    assert_eq!(compiled.len(), 11, "{compiled:?}");
+
+    // Second half: the adapters as they stand.
+    let shipped = Adapters::load(&root.join("adapters")).unwrap();
+    let claude = &shipped.adapter("claude").unwrap().harness;
+    assert!(
+        claude.gate.is_none() && claude.work.is_none(),
+        "this pin reads the shipped claude adapter with no member declared; when the \
+         measurement lands, re-pin the second half against it"
+    );
+    let mut refused = Vec::new();
+    for dir in &dirs {
+        let name = relative(dir);
+        match compile_shipped(dir, &root.join("adapters"), &dialect, Boundary::Harness) {
+            Ok(_) => {}
+            Err(error) => {
+                let refusal = error.to_string();
+                match name.as_str() {
+                    "bundles/self" => {
+                        assert!(
+                            refusal.contains(
+                                "seat 'review' gate link 2 resolves to provider 'claude', which \
+                                 declares no `hands.harness.gate` fragment"
+                            ),
+                            "{name}: {refusal}"
+                        );
+                    }
+                    "recipes/panel-review" => {
+                        assert!(
+                            refusal.contains(
+                                "seat 'review:correctness' gate link 2 resolves to provider \
+                                 'claude', which declares no `hands.harness.gate` fragment"
+                            ),
+                            "{name}: {refusal}"
+                        );
+                    }
+                    "recipes/night-shift" | "recipes/triage" => {
+                        assert_refused_at_the_dialect_step(&name, &refusal);
+                    }
+                    other => panic!("{other} refuses under harness: {refusal}"),
+                }
+                refused.push(name);
+            }
+        }
+    }
+    // Recipes first, then bundles, each in name order — the walk's order.
+    assert_eq!(
+        refused,
+        [
+            "recipes/night-shift",
+            "recipes/panel-review",
+            "recipes/triage",
+            "bundles/self",
+        ]
+    );
+}
+
+/// The measured-gap path (task 11.5): with claude's `work` member declared
+/// unsupported and its `gate` a fragment, a fixture bundle that seats the
+/// shipped chief architect as a work seat with hands refuses under
+/// `harness` naming `claude`, `hands.harness.work`, the site and the
+/// measured reason; the two shipped bundles that seat the chief refuse;
+/// and every other shipped bundle still compiles — the promise is
+/// reported unmet, never papered over by widening the rule.
+#[test]
+fn a_measured_claude_gap_is_reported_not_papered_over() {
+    let root = workspace();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let measured = scratch_adapters(|claude| {
+        claude["hands"]["harness"] = json!({
+            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
+            "work": {"unsupported": "claude 2.1.x: acceptEdits prompts on every shell call"},
+        });
+    });
+
+    let fixture = Fixture::new();
+    let refusal = fixture
+        .compile_roots(
+            boxed_seat("chief-architect", "work"),
+            &root.join("agents"),
+            measured.path(),
+            Boundary::Harness,
+        )
+        .expect_err("the chief's first link is claude's fable")
+        .to_string();
+    assert!(
+        refusal.contains(
+            "seat 'work' link 1 resolves to provider 'claude', which declares no \
+             `hands.harness.work` fragment (claude 2.1.x: acceptEdits prompts on every shell \
+             call): a capability gap"
+        ),
+        "{refusal}"
+    );
+    // The same chief as a gate would be admitted on the planted gate
+    // fragment: the gap is the work member's alone.
+    fixture
+        .compile_roots(
+            boxed_seat("chief-architect", "gate"),
+            &root.join("agents"),
+            measured.path(),
+            Boundary::Harness,
+        )
+        .expect("the gate member is declared");
+
+    let mut refused = Vec::new();
+    for dir in shipped_bundles() {
+        let name = relative(&dir);
+        if let Err(error) = compile_shipped(&dir, measured.path(), &dialect, Boundary::Harness) {
+            assert_refused_at_the_dialect_step(&name, &error.to_string());
+            refused.push(name);
+        }
+    }
+    assert_eq!(refused, ["recipes/night-shift", "recipes/triage"]);
 }

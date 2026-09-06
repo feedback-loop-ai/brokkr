@@ -232,3 +232,7 @@ questions the consequences leave unruled stay open.
   measure; whether the `seatbelt` box can mask the git hooks path the
   way the namespace box does (0043 ruling 6), which decides whether it
   is a full peer of `namespace` or a `harness`-grade boundary.
+
+## Erratum
+
+Rulings 3 and 6 name `seat-record.v3` for the boundary field; v3 already exists (landed by #202 under decision 0034 rulings 6 and 7, the dialect state), so the field lands as `seat-record.v4`, additive on v3, and nothing else is renumbered.
