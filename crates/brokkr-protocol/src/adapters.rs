@@ -104,9 +104,65 @@ impl AdapterKind {
     }
 }
 
+/// The hands paragraph a model-backed seat reads inside its result
+/// contract (decision 0043; decision 0046 rulings 3 and 4). Keyed off
+/// the input's `hands` marker and `boundary` word:
+///
+/// - `hands: boxed` — today's words: the workspace tool is the only
+///   writer, whatever the boxed word is;
+/// - `boundary: harness` — the harness's own sandbox stands, no
+///   workspace tool is served, and the result reaches the engine through
+///   the door the input names: the one file the sandbox lets the seat
+///   write, or the seat's final message, which the harness captures;
+/// - `boundary: open` — nothing of Brokkr's stands; the seat writes the
+///   file;
+/// - neither — no paragraph, as before the box existed.
+fn hands_paragraph(input: &Value) -> String {
+    let word = input.get("boundary").and_then(Value::as_str);
+    if input.get("hands").and_then(Value::as_str) == Some("boxed") {
+        return "\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
+         harness's own shell runs outside the box and cannot write here — a \
+         file written through it never reaches the engine. Write the result \
+         file with the workspace tool."
+            .to_string();
+    }
+    match word {
+        Some("harness") if last_message_door(input) => "\n\nYour hands stand under the \
+         `harness` boundary: no workspace tool of Brokkr's is served, and you run under \
+         your harness's own read-only sandbox. Your FINAL message must be exactly the \
+         result object above and nothing else — the harness writes that message to the \
+         result path, so you do not write the file yourself."
+            .to_string(),
+        Some("harness") => "\n\nYour hands stand under the `harness` boundary: no workspace \
+         tool of Brokkr's is served, and you run under your harness's own sandbox. The \
+         result path above is the one file that sandbox lets you write; write it yourself."
+            .to_string(),
+        Some("open") => "\n\nYour hands stand under the `open` boundary: nothing of \
+         Brokkr's stands between you and the machine, and no workspace tool is served. \
+         Write the result file yourself."
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Whether the seat's result reaches the engine through its harness's
+/// capture of the final message rather than a file the seat writes
+/// (decision 0046 ruling 4; design D23).
+fn last_message_door(input: &Value) -> bool {
+    input.get("result_delivery").and_then(Value::as_str) == Some("last-message")
+}
+
 /// Render the model-facing prompt from the three independently owned texts in
 /// one engine input: charter, optional realm house, and site result contract.
-pub fn render_prompt(input: &Value) -> String {
+///
+/// `kind` is the driver about to read it (decision 0046; design DD21): the
+/// hands paragraph is prose for a model, so it is rendered for the four
+/// model kinds and never for `exec`, whose script reads the composed
+/// environment and not a sentence. The rest of the prompt is the same
+/// for every kind, which is what lets the shipped verify and ship
+/// scripts keep reading the result path off it by line.
+pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let role = input
         .get("role_path")
@@ -138,29 +194,44 @@ pub fn render_prompt(input: &Value) -> String {
     // Decision 0043: a boxed seat's harness keeps its own shell outside
     // the box, read-only or worse, and the first astra-judged gate wrote
     // its verdict through that shell twice and met no result contract.
-    // The contract therefore names the one tool that can write.
-    let hands = if input.get("hands").and_then(Value::as_str) == Some("boxed") {
-        "\n\nYour hands are boxed: the worktree, and this result file, are \
-         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
-         harness's own shell runs outside the box and cannot write here — a \
-         file written through it never reaches the engine. Write the result \
-         file with the workspace tool."
+    // The contract therefore names the one tool that can write — and,
+    // since decision 0046, the boundary the seat stands under. An exec
+    // driver reads no paragraph: its script reads the environment.
+    let hands = match kind {
+        AdapterKind::Exec => String::new(),
+        _ => hands_paragraph(input),
+    };
+    // Under a `last-message` door (decision 0046 ruling 4) the contract's
+    // own line says how the file comes to exist: the harness writes the
+    // seat's final message to it. The path stays on its own line, where
+    // every reader of this prompt finds it.
+    let (asked, only) = if kind != AdapterKind::Exec && last_message_door(input) {
+        (
+            "your FINAL message must be exactly a JSON object, which your harness writes to \
+             exactly this file",
+            "The file is the ONLY channel the engine reads; your harness writes your final \
+             message there, so a final message that is not the bare object counts as \
+             producing no result.",
+        )
     } else {
-        ""
+        (
+            "write a JSON object to exactly this file",
+            "The file is the ONLY channel the engine reads. Printing the JSON instead of \
+             writing the file counts as producing no result.",
+        )
     };
     format!(
         "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
-         — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly \
-         this file:\n\n    {result_path}\n\nwith the shape:\n\n    {{\"result\": \
+         — MANDATORY\n\nWhen your work is finished, {asked}:\n\n    {result_path}\n\nwith the shape:\n\n    {{\"result\": \
          \"<one of: {allowed}>\",\n      \"inputs\": {{ ...optional typed facts for \
          the phase machine... }},\n      \"notes\": \"<short human summary of what \
-         you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. \
-         Printing the JSON instead of writing the file counts as producing no \
-         result. The object carries exactly these top-level keys — result, \
-         inputs, notes — and nothing else: a typed fact goes INSIDE inputs, \
-         and a record with any other top-level key is refused where it is \
+         you did and why>\"}}
+
+{only} The object carries exactly these top-level \
+         keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE \
+         inputs, and a record with any other top-level key is refused where it is \
          sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
@@ -2401,7 +2472,7 @@ fn run_seat(
         }
     };
 
-    let prompt = render_prompt(&input);
+    let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(

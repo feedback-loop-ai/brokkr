@@ -10,9 +10,14 @@ fn wire(body: Body) -> String {
 }
 
 fn run(script: &str) -> AttemptReport {
-    DriverProcess::spawn(&command(script), std::path::Path::new("."), None)
-        .unwrap()
-        .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
+    DriverProcess::spawn(
+        &command(script),
+        std::path::Path::new("."),
+        None,
+        &SpawnEnv::Inherit,
+    )
+    .unwrap()
+    .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
 }
 
 struct FailingWriter;
@@ -68,8 +73,13 @@ impl std::io::Write for BreakAfterFirstFlush {
 
 fn process_with_writer(writer: impl std::io::Write + 'static) -> DriverProcess {
     let script = format!("printf '%s\\n' '{}'", capabilities());
-    let mut process =
-        DriverProcess::spawn(&command(&script), std::path::Path::new("."), None).unwrap();
+    let mut process = DriverProcess::spawn(
+        &command(&script),
+        std::path::Path::new("."),
+        None,
+        &SpawnEnv::Inherit,
+    )
+    .unwrap();
     process.stdin = Box::new(writer);
     process
 }
@@ -85,13 +95,14 @@ fn capabilities() -> String {
 #[test]
 fn spawn_refuses_empty_and_missing_commands() {
     assert!(matches!(
-        DriverProcess::spawn(&[], std::path::Path::new("."), None),
+        DriverProcess::spawn(&[], std::path::Path::new("."), None, &SpawnEnv::Inherit),
         Err(SpawnError::EmptyCommand)
     ));
     let error = match DriverProcess::spawn(
         &["forge-certainly-does-not-exist".into()],
         std::path::Path::new("."),
         None,
+        &SpawnEnv::Inherit,
     ) {
         Ok(_) => panic!("missing executable must fail"),
         Err(error) => error,
@@ -372,7 +383,7 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
     let deadline = Duration::from_secs(2);
 
     let started = std::time::Instant::now();
-    let report = DriverProcess::spawn(&driver, dir.path(), Some(deadline))
+    let report = DriverProcess::spawn(&driver, dir.path(), Some(deadline), &SpawnEnv::Inherit)
         .unwrap()
         .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
     let elapsed = started.elapsed();
@@ -422,6 +433,7 @@ fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
         &command("sleep 1"),
         std::path::Path::new("."),
         Some(Duration::from_millis(10)),
+        &SpawnEnv::Inherit,
     )
     .unwrap();
     poison_child_lock(&process);
@@ -437,8 +449,13 @@ fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
     }
     drop(process);
 
-    let process =
-        DriverProcess::spawn(&command("sleep 0.05"), std::path::Path::new("."), None).unwrap();
+    let process = DriverProcess::spawn(
+        &command("sleep 0.05"),
+        std::path::Path::new("."),
+        None,
+        &SpawnEnv::Inherit,
+    )
+    .unwrap();
     poison_child_lock(&process);
     let report = process.finish(
         AttemptOutcome::Failed {
@@ -487,17 +504,22 @@ fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
              printf '%s\\n' '{succeeded}'; read -r line",
             log = log.display().to_string().replace('\\', "/")
         );
-        let report = DriverProcess::spawn(&command(&script), std::path::Path::new("."), None)
-            .unwrap()
-            .run_attempt_resuming(
-                "test",
-                "effect",
-                "attempt",
-                "seat",
-                json!({}),
-                offered.map(str::to_string),
-                |_| {},
-            );
+        let report = DriverProcess::spawn(
+            &command(&script),
+            std::path::Path::new("."),
+            None,
+            &SpawnEnv::Inherit,
+        )
+        .unwrap()
+        .run_attempt_resuming(
+            "test",
+            "effect",
+            "attempt",
+            "seat",
+            json!({}),
+            offered.map(str::to_string),
+            |_| {},
+        );
         assert!(
             matches!(report.outcome, AttemptOutcome::Succeeded { .. }),
             "{case}"
@@ -530,8 +552,13 @@ fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
             supports: vec!["resume".into()],
         })
     );
-    let mut process =
-        DriverProcess::spawn(&command(&script), std::path::Path::new("."), None).unwrap();
+    let mut process = DriverProcess::spawn(
+        &command(&script),
+        std::path::Path::new("."),
+        None,
+        &SpawnEnv::Inherit,
+    )
+    .unwrap();
     process.stdin = Box::new(BreakAfterFirstFlush::default());
     let report = process.run_attempt_resuming(
         "test",
@@ -546,4 +573,30 @@ fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
         report.outcome,
         AttemptOutcome::Failed { error } if error.contains("could not send resume")
     ));
+}
+
+#[test]
+fn a_driver_inherits_or_receives_exactly_the_selected_environment() {
+    // No global environment mutation: a child test process reports the
+    // presence of the normal PATH and the explicitly supplied probe value.
+    let dir = tempfile::tempdir().unwrap();
+    let shell =
+        command("printf '%s\\n%s\\n' \"${PATH:+inherited}\" \"${BROKKR_ENV_PROBE:-absent}\"");
+    let mut inherited = DriverProcess::spawn(&shell, dir.path(), None, &SpawnEnv::Inherit).unwrap();
+    let mut output = String::new();
+    inherited.stdout.read_to_string(&mut output).unwrap();
+    assert_eq!(output, "inherited\nabsent\n");
+    let table = [("BROKKR_ENV_PROBE".to_string(), "declared".to_string())].into();
+    // The shell may install its own default PATH. Inspect an inherited
+    // variable it does not synthesize to prove env_clear at the spawn door.
+    let mut exact = DriverProcess::spawn(
+        &command("printf '%s\\n%s\\n' \"${CARGO_MANIFEST_DIR:-cleared}\" \"$BROKKR_ENV_PROBE\""),
+        dir.path(),
+        None,
+        &SpawnEnv::Exactly(table),
+    )
+    .unwrap();
+    let mut output = String::new();
+    exact.stdout.read_to_string(&mut output).unwrap();
+    assert_eq!(output, "cleared\ndeclared\n");
 }

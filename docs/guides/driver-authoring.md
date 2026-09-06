@@ -30,10 +30,22 @@ engine is narrower than the schema, this guide says so.
 
 The shipped verifier and shipper are not agents or bespoke wire
 implementations. Their inline commands dispatch through the generic
-`exec` driver and declare workspace hands, so the engine runs the whole
-script through `brokkr hands exec`. The script reads the staged prompt
-only for journal context and the result path, then writes the ordinary
-typed result file.
+`exec` driver and declare workspace hands, so under the `namespace`
+boundary the engine runs the whole script through `brokkr hands exec`.
+Under `harness` and `open` (decision
+[0046](../decisions/0046-the-boundary-is-named.md) ruling 4) the same
+`exec` dispatch runs with no verb of Brokkr's around it: the site is
+admitted only because its command is the bundle's own pinned `./`
+script, it starts in a fixed environment cleared of everything but a
+stated table, and on Linux the engine attempts a network narrowing
+around it with `unshare` where the kernel permits — attempted, never
+stated as off. At every unboxed spawn the engine re-walks the script's
+declaring layer against the identity the manifest pins, and a pinned
+byte that moved refuses the gate naming the layer and the key; the
+residual is the interval between the re-walk and the `exec`. The
+`hands` subcommand gains no verb for any of this. Either way the script
+reads the staged prompt only for journal context and the result path,
+then writes the ordinary typed result file.
 
 ## Transport
 
@@ -534,7 +546,8 @@ reads, that printing the JSON instead of writing it counts as producing
 no result, and that the object carries exactly `result`, `inputs` and
 `notes` at the top level — a typed fact goes inside `inputs`, and since
 decision 0034 rulings 6 and 7 a record with any other top-level key is
-refused where it is sealed, which loses the attempt. When the site's hands are boxed (decision 0043) the
+refused where it is sealed, which loses the attempt. When the site's
+hands are boxed (decision 0043, under a boundary that builds a box) the
 engine adds `"hands": "boxed"` to the input, and the contract then names
 the one tool that can write — `mcp__brokkr__workspace` — and says that
 the harness's own shell runs outside the box and cannot. The first
@@ -682,14 +695,14 @@ built-in adapters are named (`["{brokkr}", "driver", "claude", "--", …]`).
 The manifest records driver names, never resolved argv, because the
 expansion is machine-local.
 
-Optional confinement:
-
-```json
-"driver": {
-  "command": ["./drivers/my-driver"],
-  "confine": { "image": "…", "network": false, "mounts": ["…"] }
-}
-```
+There is no per-driver confinement key. `driver.confine` (decision 0008's
+`image`, `network`, `mounts`) is refused by the compiler naming the
+`container` boundary, slice (iii) and decision 0046 ruling 5: what
+stands around a seat is the realm's `boundary`, declared in
+`realms.json` and never in a bundle, and a pinned image is that
+boundary's `container` form once the slice measures it. A driver that
+wants walls declares `hands` on its site and lets the realm say which
+boundary builds them.
 
 Then check it before you run it:
 
@@ -703,7 +716,10 @@ want to run a command and have it honor the result-file contract — the
 built-in `exec` adapter already speaks `forge-driver/v1` on your behalf:
 `["{brokkr}", "driver", "exec", "--", "bash", "./my-script.sh",
 "{prompt_file}"]`. Dialect-owned validate and check sites use the same boxed
-exec path, with their argv supplied by the realm's pinned dialect.
+exec path, with their argv supplied by the realm's pinned dialect — and,
+because that argv is the dialect's tool rather than the bundle's own
+script, they compile under a boxed boundary only until a decision admits
+them under `harness` or `open`.
 
 ## See also
 

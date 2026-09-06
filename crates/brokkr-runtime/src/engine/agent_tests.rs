@@ -30,6 +30,8 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         effort: Some("high".into()),
         provider: "provider".into(),
         argv: vec!["driver".into(), "--model".into(), model.into()],
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
     }
 }
 
@@ -84,13 +86,11 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         name: name.into(),
         role_path: PathBuf::from("role.md"),
         command: vec!["driver".into()],
-        confine: None,
         candidates,
     };
     let single = SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["driver".into()],
-        confine: None,
         candidates: vec![candidate("worker", "opus")],
     };
     assert_eq!(
@@ -119,7 +119,6 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
                 body: StepBody::Single {
                     role_path: PathBuf::from("role.md"),
                     command: vec!["driver".into()],
-                    confine: None,
                     candidates: vec![candidate("worker", "opus")],
                 },
             },
@@ -146,7 +145,6 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
     let inline = SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
-        confine: None,
         candidates: Vec::new(),
     };
     let (selection, provenance) =
@@ -161,7 +159,6 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
     let resolved = SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
-        confine: None,
         candidates: vec![candidate("worker", "opus"), candidate("worker", "sonnet")],
     };
     let events = vec![failure("effect", json!([null]))];
@@ -323,7 +320,6 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
     let body = SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
-        confine: None,
         candidates: vec![
             candidate("worker", "first"),
             candidate("worker", "second"),

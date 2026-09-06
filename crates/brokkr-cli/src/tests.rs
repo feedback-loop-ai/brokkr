@@ -13,6 +13,26 @@ use time::format_description::well_known::Rfc3339;
 /// the whole binary, named where both surfaces' test modules can see it.
 pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn the_command_tree_builds_on_a_small_stack() {
+    use clap::CommandFactory;
+
+    // Slice 0046's extra verb tipped the monolithic derive's command
+    // builder over Windows' main stack, before any path was walked.
+    // Build both finite command trees with headroom below that stack
+    // size, on every platform; no binary, filesystem or engine needed.
+    std::thread::Builder::new()
+        .name("command-tree".into())
+        .stack_size(512 * 1024)
+        .spawn(|| {
+            Cli::command().debug_assert();
+            Cli::command_for_update().debug_assert();
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 pub(crate) fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -139,31 +159,31 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     running_store(&db, "ledger-run");
 
     assert_eq!(
-        run(cli(Cmd::Ledger {
+        run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
             db: db.clone(),
             repo: None,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
     assert_eq!(
-        run(cli(Cmd::Ledger {
+        run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
             db,
             repo: Some(dir.path().to_path_buf()),
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
     assert!(dir.path().join(".forge/ledger/ledger-run.md").is_file());
 
     let missing = dir.path().join("missing.db");
-    assert!(run(cli(Cmd::Ledger {
+    assert!(run(cli(Cmd::Ledger(LedgerArgs {
         run: "ledger-run".into(),
         db: missing.clone(),
         repo: None,
-    }))
+    })))
     .is_err());
     assert!(!missing.exists(), "a ledger read never creates a journal");
 }
@@ -308,7 +328,7 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
 /// one word, one reason and one journal. The supersede-only arguments
 /// are absent, which is what any `retry` or `stop` invocation carries.
 fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
-    Cmd::Operator {
+    Cmd::Operator(OperatorArgs {
         run: run.to_string(),
         command: command.to_string(),
         reason: reason.to_string(),
@@ -318,7 +338,7 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
         by_realm: None,
         realms: None,
         db: Some(db.to_path_buf()),
-    }
+    })
 }
 
 #[test]
@@ -358,34 +378,34 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     );
 
     assert_eq!(
-        run(cli(Cmd::Costs {
+        run(cli(Cmd::Costs(CostsArgs {
             run: "r1".into(),
             db: db.clone(),
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
     assert_eq!(
-        run(cli(Cmd::Inspect {
+        run(cli(Cmd::Inspect(InspectArgs {
             run: "r1".into(),
             realms: None,
             db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
     let out = dir.path().join("export");
     assert_eq!(
-        run(cli(Cmd::Export {
+        run(cli(Cmd::Export(ExportArgs {
             run: "r1".into(),
             out: out.clone(),
             realms: None,
             db: Some(db.clone()),
             redact: false,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
@@ -393,19 +413,19 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let blocked = dir.path().join("blocked-export");
     std::fs::create_dir(&blocked).unwrap();
     std::fs::create_dir(blocked.join("r1.manifest.json")).unwrap();
-    assert!(run(cli(Cmd::Export {
+    assert!(run(cli(Cmd::Export(ExportArgs {
         run: "r1".into(),
         out: blocked,
         realms: None,
         db: Some(db.clone()),
         redact: false,
-    }))
+    })))
     .is_err());
 
-    let unknown_driver = run(cli(Cmd::Driver {
+    let unknown_driver = run(cli(Cmd::Driver(DriverArgs {
         kind: "unknown".into(),
         args: Vec::new(),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(unknown_driver.contains("unknown driver"));
@@ -436,7 +456,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
             None,
         )
         .unwrap();
-    assert!(run(cli(Cmd::Rerun {
+    assert!(run(cli(Cmd::Rerun(RerunArgs {
         run: "missing-feature".into(),
         bundle: Some(workspace().join("recipes/fast")),
         recipe: None,
@@ -444,7 +464,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         db,
         repo: None,
         secrets_file: None,
-    }))
+    })))
     .unwrap_err()
     .to_string()
     .contains("has no run/started feature"));
@@ -494,25 +514,25 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     drop(store);
 
     let plain = dir.path().join("plain");
-    run(cli(Cmd::Export {
+    run(cli(Cmd::Export(ExportArgs {
         run: "r1".into(),
         out: plain.clone(),
         realms: None,
         db: Some(db.clone()),
         redact: false,
-    }))
+    })))
     .unwrap();
     assert!(!plain.join("r1.redacted.ndjson").exists());
     assert!(!plain.join("r1.redacted.manifest.json").exists());
 
     let marked = dir.path().join("marked");
-    run(cli(Cmd::Export {
+    run(cli(Cmd::Export(ExportArgs {
         run: "r1".into(),
         out: marked.clone(),
         realms: None,
         db: Some(db.clone()),
         redact: true,
-    }))
+    })))
     .unwrap();
     for name in ["r1.ndjson", "r1.manifest.json"] {
         assert_eq!(
@@ -585,13 +605,13 @@ fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     let blocked = dir.path().join("blocked-redacted");
     std::fs::create_dir(&blocked).unwrap();
     std::fs::create_dir(blocked.join("r1.redacted.manifest.json")).unwrap();
-    assert!(run(cli(Cmd::Export {
+    assert!(run(cli(Cmd::Export(ExportArgs {
         run: "r1".into(),
         out: blocked,
         realms: None,
         db: Some(db),
         redact: true,
-    }))
+    })))
     .is_err());
 }
 
@@ -618,12 +638,12 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     }
     for check in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Anchor {
+            run(cli(Cmd::Anchor(AnchorArgs {
                 run: "r1".into(),
                 db: db.clone(),
                 repo: repo.clone(),
                 check,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS
         );
@@ -631,11 +651,11 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
 
     let mut seen = None;
     let code = run_with(
-        cli(Cmd::Ui {
+        cli(Cmd::Ui(UiArgs {
             db: db.clone(),
             port: 4321,
             open: true,
-        }),
+        })),
         unmapped(),
         |actual_db, port, open| {
             seen = Some((actual_db, port, open));
@@ -842,16 +862,18 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     stage_adapters(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
     let recipes_dir = workspace().join("recipes");
-    let base = |dispatch| Cmd::Run {
-        bundle: Some(bundle_path.clone()),
-        recipe: None,
-        recipes_dir: recipes_dir.clone(),
-        feature: "feature".into(),
-        realms: None,
-        db: Some(dir.path().join("dispatch.db")),
-        repo: None,
-        dispatch,
-        secrets_file: None,
+    let base = |dispatch| {
+        Cmd::Run(RunArgs {
+            bundle: Some(bundle_path.clone()),
+            recipe: None,
+            recipes_dir: recipes_dir.clone(),
+            feature: "feature".into(),
+            realms: None,
+            db: Some(dir.path().join("dispatch.db")),
+            repo: None,
+            dispatch,
+            secrets_file: None,
+        })
     };
 
     // A map the operator NAMED and a Looper-bound dispatch cannot both
@@ -863,7 +885,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let missing = dir.path().join("missing.json");
     let map = realms_map(dir.path());
     let mut mapped = base(Some(missing.clone()));
-    if let Cmd::Run { realms, .. } = &mut mapped {
+    if let Cmd::Run(RunArgs { realms, .. }) = &mut mapped {
         *realms = Some(map);
     }
     assert!(run(cli(mapped))
@@ -912,16 +934,18 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
         serde_json::to_string(&gated_dispatch).unwrap(),
     )
     .unwrap();
-    let gated = |dispatch| Cmd::Run {
-        bundle: Some(gated_path.clone()),
-        recipe: None,
-        recipes_dir: recipes_dir.clone(),
-        feature: "feature".into(),
-        realms: None,
-        db: Some(dir.path().join("dispatch.db")),
-        repo: None,
-        dispatch,
-        secrets_file: None,
+    let gated = |dispatch| {
+        Cmd::Run(RunArgs {
+            bundle: Some(gated_path.clone()),
+            recipe: None,
+            recipes_dir: recipes_dir.clone(),
+            feature: "feature".into(),
+            realms: None,
+            db: Some(dir.path().join("dispatch.db")),
+            repo: None,
+            dispatch,
+            secrets_file: None,
+        })
     };
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
         .unwrap_err()
@@ -944,16 +968,18 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dispatch = dispatch_for(&bundle, "bound-run", "https://dogfood.example");
     let path = dir.path().join("dispatch.json");
     std::fs::write(&path, serde_json::to_string(&dispatch).unwrap()).unwrap();
-    let accept = |dispatch_path| Cmd::Run {
-        bundle: Some(bundle_path.clone()),
-        recipe: None,
-        recipes_dir: recipes_dir.clone(),
-        feature: "feature".into(),
-        realms: None,
-        db: Some(dir.path().join("dispatch.db")),
-        repo: None,
-        dispatch: Some(dispatch_path),
-        secrets_file: None,
+    let accept = |dispatch_path| {
+        Cmd::Run(RunArgs {
+            bundle: Some(bundle_path.clone()),
+            recipe: None,
+            recipes_dir: recipes_dir.clone(),
+            feature: "feature".into(),
+            realms: None,
+            db: Some(dir.path().join("dispatch.db")),
+            repo: None,
+            dispatch: Some(dispatch_path),
+            secrets_file: None,
+        })
     };
     let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
     assert_eq!(code, ExitCode::from(2));
@@ -1048,13 +1074,15 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
 
     let token_name = format!("FORGE_TEST_TOKEN_{}", std::process::id());
     std::env::remove_var(&token_name);
-    let command = |follow| Cmd::Bridge {
-        run: "bridge-run".into(),
-        db: db.clone(),
-        looper_url: base_url.clone(),
-        token_env: token_name.clone(),
-        follow,
-        interval_ms: 0,
+    let command = |follow| {
+        Cmd::Bridge(BridgeArgs {
+            run: "bridge-run".into(),
+            db: db.clone(),
+            looper_url: base_url.clone(),
+            token_env: token_name.clone(),
+            follow,
+            interval_ms: 0,
+        })
     };
     assert!(run(cli(command(true)))
         .unwrap_err()
@@ -1067,14 +1095,14 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .contains("credential is empty"));
     std::env::set_var(&token_name, "test-token");
     assert!(run_with(
-        cli(Cmd::Bridge {
+        cli(Cmd::Bridge(BridgeArgs {
             run: "missing-run".into(),
             db: db.clone(),
             looper_url: "http://127.0.0.1:1".into(),
             token_env: token_name.clone(),
             follow: false,
             interval_ms: 0,
-        }),
+        })),
         unmapped(),
         ui::serve,
         Some(1),
@@ -1425,11 +1453,11 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
 
     let mut seen = None;
     let code = run_with(
-        cli(Cmd::Tui {
+        cli(Cmd::Tui(TuiArgs {
             run: Some("run-al".into()),
             realms: None,
             db: Some(db.clone()),
-        }),
+        })),
         unmapped(),
         ui::serve,
         None,
@@ -1452,11 +1480,11 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     let missing = dir.path().join("nowhere.db");
     let mut seen = None;
     run_with(
-        cli(Cmd::Tui {
+        cli(Cmd::Tui(TuiArgs {
             run: Some("latest".into()),
             realms: None,
             db: Some(missing.clone()),
-        }),
+        })),
         unmapped(),
         ui::serve,
         None,
@@ -1474,11 +1502,11 @@ fn the_tui_verb_resolves_its_run_and_never_opens_a_database_it_might_create() {
     // No `--run` at all: the fleet is where the console opens.
     let mut seen = None;
     run_with(
-        cli(Cmd::Tui {
+        cli(Cmd::Tui(TuiArgs {
             run: None,
             realms: None,
             db: Some(db.clone()),
-        }),
+        })),
         unmapped(),
         ui::serve,
         None,
@@ -2038,48 +2066,48 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
 
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs {
+            run(cli(Cmd::Runs(RunsArgs {
                 realms: None,
                 db: Some(db.clone()),
                 json,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS
         );
         assert_eq!(
-            run(cli(Cmd::Inspect {
+            run(cli(Cmd::Inspect(InspectArgs {
                 run: "r1".into(),
                 realms: None,
                 db: Some(db.clone()),
                 json,
                 phase: None,
                 seat: None,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS
         );
     }
     // The scoping verbs the console's clicks became.
     assert_eq!(
-        run(cli(Cmd::Inspect {
+        run(cli(Cmd::Inspect(InspectArgs {
             run: "r1".into(),
             realms: None,
             db: Some(db.clone()),
             json: false,
             phase: Some("work".into()),
             seat: None,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
-    let unknown = run(cli(Cmd::Inspect {
+    let unknown = run(cli(Cmd::Inspect(InspectArgs {
         run: "r1".into(),
         realms: None,
         db: Some(db.clone()),
         json: false,
         phase: None,
         seat: Some("nobody".into()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(unknown.contains("no seat 'nobody'"), "{unknown}");
@@ -2088,13 +2116,13 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     // operator's Ctrl-C in the looping form.
     assert_eq!(
         run_with(
-            cli(Cmd::Watch {
+            cli(Cmd::Watch(WatchArgs {
                 run: "r1".into(),
                 realms: None,
                 db: Some(db.clone()),
                 once: true,
                 interval_ms: 100,
-            }),
+            })),
             unmapped(),
             ui::serve,
             None,
@@ -2107,13 +2135,13 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     );
     assert_eq!(
         run_with(
-            cli(Cmd::Watch {
+            cli(Cmd::Watch(WatchArgs {
                 run: "r1".into(),
                 realms: None,
                 db: Some(db),
                 once: false,
                 interval_ms: 100,
-            }),
+            })),
             unmapped(),
             ui::serve,
             None,
@@ -2193,14 +2221,14 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
 
     // …and the single-run verb aimed at it reads it instead of refusing.
     assert_eq!(
-        run(cli(Cmd::Inspect {
+        run(cli(Cmd::Inspect(InspectArgs {
             run: "stopped-mid-flight".into(),
             realms: None,
             db: Some(db.clone()),
             json: true,
             phase: None,
             seat: None,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS,
         "the verb reads the journal instead of refusing it"
@@ -2232,7 +2260,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
     assert_eq!(
         run_in(
             &workspace(),
-            cli(Cmd::Resume {
+            cli(Cmd::Resume(ResumeArgs {
                 bundle: Some(bundle_path),
                 recipe: None,
                 recipes_dir: workspace().join("recipes"),
@@ -2240,7 +2268,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
                 db: db.clone(),
                 repo: None,
                 secrets_file: None,
-            })
+            }))
         )
         .unwrap(),
         ExitCode::from(3),
@@ -2288,11 +2316,11 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
 
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs {
+            run(cli(Cmd::Runs(RunsArgs {
                 realms: None,
                 db: Some(db.clone()),
                 json,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS,
             "the fleet listing survives the poisoned run"
@@ -2358,18 +2386,18 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     // Aimed at that run, the same refusal is fatal: these verbs keep
     // their bare `fold(..)?` and are not softened by the fleet's grace.
     for command in [
-        Cmd::Inspect {
+        Cmd::Inspect(InspectArgs {
             run: "poisoned".into(),
             realms: None,
             db: Some(db.clone()),
             json: false,
             phase: None,
             seat: None,
-        },
-        Cmd::Replay {
+        }),
+        Cmd::Replay(ReplayArgs {
             run: "poisoned".into(),
             db: db.clone(),
-        },
+        }),
     ] {
         let error = run(cli(command)).unwrap_err().to_string();
         assert!(
@@ -2380,13 +2408,13 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     // `watch` keeps the console's own unchanged behaviour: it renders
     // the absence rather than a status, and never exits success on it.
     assert_eq!(
-        run(cli(Cmd::Watch {
+        run(cli(Cmd::Watch(WatchArgs {
             run: "poisoned".into(),
             realms: None,
             db: Some(db.clone()),
             once: true,
             interval_ms: 100,
-        }))
+        })))
         .unwrap(),
         ExitCode::from(1)
     );
@@ -2437,11 +2465,11 @@ fn runs_lists_a_many_hearth_world_grouped_by_realm() {
     .unwrap();
     let code = run_in(
         dir.path(),
-        cli(Cmd::Runs {
+        cli(Cmd::Runs(RunsArgs {
             realms: None,
             db: None,
             json: false,
-        }),
+        })),
     )
     .unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
@@ -2573,11 +2601,11 @@ fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
     let nowhere = dir.path().join("nowhere.json");
     let refusal = run_in(
         unmapped(),
-        cli(Cmd::Runs {
+        cli(Cmd::Runs(RunsArgs {
             realms: Some(nowhere.clone()),
             db: None,
             json: true,
-        }),
+        })),
     )
     .unwrap_err()
     .to_string();
@@ -2594,12 +2622,12 @@ fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
 #[test]
 fn the_fake_driver_takes_both_pins_and_reports_a_script_it_cannot_read() {
     let dir = tempfile::tempdir().unwrap();
-    let refused = run(cli(Cmd::FakeDriver {
+    let refused = run(cli(Cmd::FakeDriver(FakeDriverArgs {
         script: dir.path().join("no-such-script.json"),
         state: dir.path().join("state"),
         model: Some("model-x".into()),
         effort: Some("xhigh".into()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(!refused.is_empty(), "{refused}");
@@ -2608,12 +2636,12 @@ fn the_fake_driver_takes_both_pins_and_reports_a_script_it_cannot_read() {
     // accepted by the parser and the verb succeeds.
     let script = dir.path().join("script.json");
     std::fs::write(&script, serde_json::to_vec(&json!({"seats": {}})).unwrap()).unwrap();
-    assert!(run(cli(Cmd::FakeDriver {
+    assert!(run(cli(Cmd::FakeDriver(FakeDriverArgs {
         script,
         state: dir.path().join("state"),
         model: Some("model-x".into()),
         effort: Some("xhigh".into()),
-    }))
+    })))
     .is_ok());
 }
 
@@ -2627,11 +2655,11 @@ fn the_realms_verb_reads_the_world_or_says_there_is_none() {
         assert_eq!(
             run_in(
                 unmapped(),
-                cli(Cmd::Realms {
+                cli(Cmd::Realms(RealmsArgs {
                     realms: Some(map.clone()),
                     db: None,
                     json,
-                })
+                }))
             )
             .unwrap(),
             ExitCode::SUCCESS
@@ -2644,22 +2672,22 @@ fn the_realms_verb_reads_the_world_or_says_there_is_none() {
     assert_eq!(
         run_in(
             dir.path(),
-            cli(Cmd::Realms {
+            cli(Cmd::Realms(RealmsArgs {
                 realms: None,
                 db: None,
                 json: false,
-            })
+            }))
         )
         .unwrap(),
         ExitCode::SUCCESS
     );
     let refusal = run_in(
         unmapped(),
-        cli(Cmd::Realms {
+        cli(Cmd::Realms(RealmsArgs {
             realms: None,
             db: None,
             json: false,
-        }),
+        })),
     )
     .unwrap_err()
     .to_string();
@@ -2680,37 +2708,37 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let out = dir.path().join("export");
     // `--redact` so the marked derivative is here to be refused by name.
     assert_eq!(
-        run(cli(Cmd::Export {
+        run(cli(Cmd::Export(ExportArgs {
             run: "r1".into(),
             out: out.clone(),
             realms: None,
             db: Some(native.clone()),
             redact: true,
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
 
     let adopted = dir.path().join("adopted.db");
     assert_eq!(
-        run(cli(Cmd::Import {
+        run(cli(Cmd::Import(ImportArgs {
             from: out.join("r1.ndjson"),
             realms: None,
             db: Some(adopted.clone()),
-        }))
+        })))
         .unwrap(),
         ExitCode::SUCCESS
     );
 
     // Byte equality, through a re-export from the destination.
     let reexport = dir.path().join("reexport");
-    run(cli(Cmd::Export {
+    run(cli(Cmd::Export(ExportArgs {
         run: "r1".into(),
         out: reexport.clone(),
         realms: None,
         db: Some(adopted.clone()),
         redact: false,
-    }))
+    })))
     .unwrap();
     assert_eq!(
         std::fs::read(reexport.join("r1.ndjson")).unwrap(),
@@ -2763,23 +2791,23 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     // Both readouts run over the adopted journal like any other.
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs {
+            run(cli(Cmd::Runs(RunsArgs {
                 realms: None,
                 db: Some(adopted.clone()),
                 json,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS
         );
         assert_eq!(
-            run(cli(Cmd::Inspect {
+            run(cli(Cmd::Inspect(InspectArgs {
                 run: "r1".into(),
                 realms: None,
                 db: Some(adopted.clone()),
                 json,
                 phase: None,
                 seat: None,
-            }))
+            })))
             .unwrap(),
             ExitCode::SUCCESS
         );
@@ -2787,22 +2815,22 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
 
     // A second import of the same export is the collision refusal, not a
     // quiet success.
-    let refusal = run(cli(Cmd::Import {
+    let refusal = run(cli(Cmd::Import(ImportArgs {
         from: out.join("r1.ndjson"),
         realms: None,
         db: Some(adopted.clone()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(refusal.contains("already carries run 'r1'"), "{refusal}");
 
     // The redacted derivative, named in full: refused by name, and its
     // sidecar carries the second mark either way.
-    let refusal = run(cli(Cmd::Import {
+    let refusal = run(cli(Cmd::Import(ImportArgs {
         from: out.join("r1.redacted.ndjson"),
         realms: None,
         db: Some(adopted.clone()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(refusal.contains("redacted derivative"), "{refusal}");
@@ -2812,30 +2840,30 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let lonely = dir.path().join("lonely");
     std::fs::create_dir(&lonely).unwrap();
     std::fs::copy(out.join("r1.ndjson"), lonely.join("r1.ndjson")).unwrap();
-    let refusal = run(cli(Cmd::Import {
+    let refusal = run(cli(Cmd::Import(ImportArgs {
         from: lonely.join("r1.ndjson"),
         realms: None,
         db: Some(adopted.clone()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(refusal.contains("r1.manifest.json"), "{refusal}");
 
     // A sidecar that is not JSON, and a journal that is not a file.
     std::fs::write(lonely.join("r1.manifest.json"), "{").unwrap();
-    let refusal = run(cli(Cmd::Import {
+    let refusal = run(cli(Cmd::Import(ImportArgs {
         from: lonely.join("r1.ndjson"),
         realms: None,
         db: Some(adopted.clone()),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(refusal.contains("parsing"), "{refusal}");
-    assert!(run(cli(Cmd::Import {
+    assert!(run(cli(Cmd::Import(ImportArgs {
         from: PathBuf::from("/"),
         realms: None,
         db: Some(adopted),
-    }))
+    })))
     .is_err());
 }
 
@@ -2890,11 +2918,11 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     // compiled and none is asked for.
     stopped_mid_flight_run(&db, "stranded", &json!({"engine": "0.3.6", "files": {}}));
     assert_eq!(
-        run(cli(Cmd::Conclude {
+        run(cli(Cmd::Conclude(ConcludeArgs {
             run: "stranded".into(),
             reason: "the engine moved on without it".into(),
             db: db.clone(),
-        }))
+        })))
         .unwrap(),
         ExitCode::from(3),
         "a concluded run exits stopped, like every other stop",
@@ -2902,11 +2930,11 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
     assert_eq!(state.status, Status::Stopped);
 
-    let refusal = run(cli(Cmd::Conclude {
+    let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "stranded".into(),
         reason: "again".into(),
         db: db.clone(),
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(refusal.contains("already concluded"), "{refusal}");
@@ -2916,11 +2944,11 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     // name, read from the same `USER` fallback `Cmd::Operator` uses.
     conclude_fixture_store(&db, "conclude-parked-hand-built");
     assert_eq!(
-        run(cli(Cmd::Conclude {
+        run(cli(Cmd::Conclude(ConcludeArgs {
             run: "conclude-parked-hand-built".into(),
             reason: "closing the books".into(),
             db: db.clone(),
-        }))
+        })))
         .unwrap(),
         ExitCode::from(3),
     );
@@ -2934,11 +2962,11 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     assert!(cited.contains(&operator), "{cited}");
     assert!(cited.contains("closing the books"), "{cited}");
 
-    let missing = run(cli(Cmd::Conclude {
+    let missing = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "no-such-run".into(),
         reason: "nothing to close".into(),
         db,
-    }))
+    })))
     .unwrap_err()
     .to_string();
     assert!(missing.contains("no-such-run"), "{missing}");
@@ -3206,7 +3234,10 @@ fn a_bundle_with_hands_refuses_to_start_without_bubblewrap() {
         .to_string();
     assert!(refusal.contains("never simulated"), "{refusal}");
     assert!(refusal.contains("[\"work\"]"), "{refusal}");
-    assert!(refusal.contains("ruling 7"), "{refusal}");
+    // Decision 0046 ruling 2 generalises 0043 ruling 7: the refusal
+    // names the boundary and the ruling that now owns it.
+    assert!(refusal.contains("`namespace` boundary"), "{refusal}");
+    assert!(refusal.contains("decision 0046 ruling 2"), "{refusal}");
     let with_bwrap = dir.path().join("bin");
     std::fs::create_dir_all(&with_bwrap).unwrap();
     std::fs::write(with_bwrap.join("bwrap"), "").unwrap();
@@ -3297,7 +3328,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     std::fs::write(&no_dialect_path, no_dialect.to_string()).unwrap();
     let refusal = run_in(
         &root,
-        cli(Cmd::Run {
+        cli(Cmd::Run(RunArgs {
             bundle: Some(root.join("recipes/triage")),
             recipe: None,
             recipes_dir: root.join("recipes"),
@@ -3307,7 +3338,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             repo: Some(root.clone()),
             dispatch: None,
             secrets_file: None,
-        }),
+        })),
     )
     .unwrap_err()
     .to_string();
@@ -3317,7 +3348,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     running_store(&resume_db, "resume-missing-bundle");
     assert!(run_in(
         &root,
-        cli(Cmd::Resume {
+        cli(Cmd::Resume(ResumeArgs {
             bundle: Some(dir.path().join("missing-bundle")),
             recipe: None,
             recipes_dir: root.join("recipes"),
@@ -3325,11 +3356,44 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             db: resume_db,
             repo: None,
             secrets_file: None,
-        }),
+        })),
     )
     .is_err());
 }
 
+/// `brokkr seats` (decision 0046 ruling 3; design DD11): a thin verb
+/// over `inspect`'s own view, opening the journal by the same route and
+/// resolving the run by the same selector, in both faces. The bytes it
+/// prints are proved against `inspect`'s in
+/// `tests/boundary_readouts.rs`, through the binary.
+#[test]
+fn brokkr_seats_is_a_thin_verb_over_inspects_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    for json in [false, true] {
+        assert_eq!(
+            run(cli(Cmd::Seats(SeatsArgs {
+                run: "r1".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json,
+            })))
+            .unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+    // The selector's refusal is the verb's, as it is `inspect`'s.
+    let unknown = run(cli(Cmd::Seats(SeatsArgs {
+        run: "nobody".into(),
+        realms: None,
+        db: Some(db),
+        json: false,
+    })))
+    .unwrap_err()
+    .to_string();
+    assert!(unknown.contains("nobody"), "{unknown}");
+}
 // ------------------------------------------ decision 0047: supersede
 
 /// A run stopped on a review ruling that carries a security residual
@@ -3399,16 +3463,18 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     held_and_shipped(&db);
-    let cited = |findings: Vec<u64>, by_run: Option<&str>, by_seq: Option<u64>| Cmd::Operator {
-        run: "held".into(),
-        command: "supersede".into(),
-        reason: "both residuals fixed and shipped".into(),
-        findings,
-        by_run: by_run.map(str::to_string),
-        by_seq,
-        by_realm: None,
-        realms: None,
-        db: Some(db.clone()),
+    let cited = |findings: Vec<u64>, by_run: Option<&str>, by_seq: Option<u64>| {
+        Cmd::Operator(OperatorArgs {
+            run: "held".into(),
+            command: "supersede".into(),
+            reason: "both residuals fixed and shipped".into(),
+            findings,
+            by_run: by_run.map(str::to_string),
+            by_seq,
+            by_realm: None,
+            realms: None,
+            db: Some(db.clone()),
+        })
     };
 
     // Ruling 2's refusals first, so the success below is proved to be
@@ -3438,7 +3504,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     // A realm the world does not name is refused before any journal is
     // opened: a citation nobody can follow back is not a citation.
     let mut elsewhere = cited(vec![6], Some("later"), Some(6));
-    if let Cmd::Operator { by_realm, .. } = &mut elsewhere {
+    if let Cmd::Operator(OperatorArgs { by_realm, .. }) = &mut elsewhere {
         *by_realm = Some("no-such-realm".into());
     }
     let refusal = run_in(unmapped(), cli(elsewhere)).unwrap_err().to_string();
@@ -3470,11 +3536,11 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     assert_eq!(
         run_in(
             unmapped(),
-            cli(Cmd::Runs {
+            cli(Cmd::Runs(RunsArgs {
                 realms: None,
                 db: Some(db.clone()),
                 json: true,
-            }),
+            })),
         )
         .unwrap(),
         ExitCode::SUCCESS,
@@ -3506,7 +3572,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     assert_eq!(
         run_in(
             workspace.path(),
-            cli(Cmd::Operator {
+            cli(Cmd::Operator(OperatorArgs {
                 run: "held".into(),
                 command: "supersede".into(),
                 reason: "closed next door".into(),
@@ -3516,7 +3582,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
                 by_realm: Some("next-door".into()),
                 realms: Some(workspace.path().join("realms.json")),
                 db: None,
-            }),
+            })),
         )
         .unwrap(),
         ExitCode::SUCCESS,
@@ -3531,7 +3597,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     // carrying one is refused rather than silently ignoring it.
     let refusal = run_in(unmapped(), {
         let mut command = cited(vec![6], Some("later"), Some(6));
-        if let Cmd::Operator { command: word, .. } = &mut command {
+        if let Cmd::Operator(OperatorArgs { command: word, .. }) = &mut command {
             *word = "retry".into();
         }
         cli(command)

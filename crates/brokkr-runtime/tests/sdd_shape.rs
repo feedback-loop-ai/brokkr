@@ -24,6 +24,7 @@ fn compile(dialect: Option<&Dialect>) -> Result<Bundle, brokkr_runtime::CompileE
         &root.join("adapters"),
         Some("brokkr"),
         dialect,
+        brokkr_core::realms::Boundary::Namespace,
     )
 }
 

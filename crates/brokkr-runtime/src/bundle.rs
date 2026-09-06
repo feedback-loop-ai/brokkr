@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::policy::{Machine, BOOLEAN_INPUTS, IDENTIFIER_INPUTS, SEVERITY_INPUTS};
+use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
@@ -108,29 +109,21 @@ pub struct Seat {
     pub body: SeatBody,
 }
 
-/// Optional container confinement for a driver (the policy-confined
-/// trust class): the command runs inside a pinned image with only the
-/// declared mounts, network off unless granted. Absence = trusted
-/// native process. Data, like everything else about a seat.
-#[derive(Debug, Clone)]
-pub struct Confine {
-    pub image: String,
-    pub network: bool,
-    /// Extra read-only mounts beyond the workdir and bundle dir.
-    pub mounts: Vec<String>,
-}
-
 /// One agent session, a parallel panel joined by a declared
 /// deterministic rule, or a serial sequence of named steps (decision
 /// 0002's sanctioned forms: composition INSIDE the executor — one
 /// effect, one typed result at the boundary; inner structure is
 /// journaled as checkpoint evidence).
+///
+/// Decision 0008's `driver.confine` no longer rides here: decision 0046
+/// ruling 5 retired it into the `container` boundary the realm declares,
+/// and the field is refused by name until slice (iii) measures that
+/// boundary (see [`refuse_confine`]).
 #[derive(Debug, Clone)]
 pub enum SeatBody {
     Single {
         role_path: PathBuf,
         command: Vec<String>,
-        confine: Option<Confine>,
         /// The bounded fallback chain (decision 0016). EMPTY for an
         /// inline seat, which is what keeps the execute path — and
         /// therefore inline behaviour — exactly as it was.
@@ -160,7 +153,6 @@ pub enum ExecutableBody<'a> {
     Single {
         role_path: &'a Path,
         command: &'a [String],
-        confine: Option<&'a Confine>,
         candidates: &'a [Candidate],
     },
     Panel {
@@ -196,12 +188,10 @@ impl SeatBody {
             SeatBody::Single {
                 role_path,
                 command,
-                confine,
                 candidates,
             } => ExecutableBody::Single {
                 role_path,
                 command,
-                confine: confine.as_ref(),
                 candidates,
             },
             SeatBody::Panel { members, aggregate } => ExecutableBody::Panel {
@@ -251,7 +241,6 @@ pub enum StepBody {
     Single {
         role_path: PathBuf,
         command: Vec<String>,
-        confine: Option<Confine>,
         candidates: Vec<Candidate>,
     },
     Panel {
@@ -267,7 +256,6 @@ pub struct PanelMember {
     pub name: String,
     pub role_path: PathBuf,
     pub command: Vec<String>,
-    pub confine: Option<Confine>,
     pub candidates: Vec<Candidate>,
 }
 
@@ -371,9 +359,16 @@ pub struct Bundle {
     pub cost: String,
     pub dir: PathBuf,
     /// Every layer's directory, leaf first — `[dir]` for a recipe that
-    /// composed nothing. Confinement mounts all of them, so an inherited
-    /// seat's role file is inside the container it runs in.
+    /// composed nothing. The box binds the root that owns an exec site's
+    /// script, and the unboxed dispatch checks its script directory at spawn
+    /// (decision 0046 ruling 4), so an inherited seat's script is judged
+    /// against the layer that wrote it.
     pub roots: Vec<PathBuf>,
+    /// The boundary this bundle was compiled under (decision 0046 ruling
+    /// 1): the operated realm's word, `namespace` in no realm. Pinned per
+    /// hands site in the manifest's `boundary` map, and the one word the
+    /// engine composes every site with hands from (design DD3).
+    pub boundary: Boundary,
     /// The composition chain, nearest ancestor first (decision 0017).
     /// Empty unless the recipe extends another.
     pub chain: Vec<Ancestor>,
@@ -788,10 +783,25 @@ impl Bundle {
         )
     }
 
+    /// Compile in no realm: the library's default dialect and the
+    /// `namespace` boundary, which is what every bundle meant before
+    /// decision 0046 named the word.
     pub fn compile_with(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
+    ) -> Result<Bundle, CompileError> {
+        Self::compile_under(dir, library_root, adapters_root, Boundary::Namespace)
+    }
+
+    /// Compile in no named realm but under a stated boundary — what
+    /// `brokkr doctor` does for the realm it discovered, whose dialect it
+    /// reports separately.
+    pub fn compile_under(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
         let default_path = library_root
             .parent()
@@ -806,17 +816,29 @@ impl Bundle {
         } else {
             None
         };
-        Self::compile_with_realm(dir, library_root, adapters_root, None, default.as_ref())
+        Self::compile_with_realm(
+            dir,
+            library_root,
+            adapters_root,
+            None,
+            default.as_ref(),
+            boundary,
+        )
     }
 
     /// Compile in a named realm. Supplying this context makes the dialect
-    /// requirement enforceable before any journal is opened.
+    /// requirement enforceable before any journal is opened, and pins the
+    /// realm's boundary into the bundle's identity (decision 0046 ruling
+    /// 1). Compilation consults no machine: a realm declaring `seatbelt`
+    /// compiles and pins the word, and the refusal that stops a run under
+    /// it comes at start.
     pub fn compile_with_realm(
         dir: &Path,
         library_root: &Path,
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
+        boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
@@ -833,6 +855,7 @@ impl Bundle {
             adapters_root,
             realm_name,
             dialect,
+            boundary,
         ) {
             Ok(bundle) => Ok(bundle),
             // Every failure downstream of resolution on a composed
@@ -855,6 +878,7 @@ impl Bundle {
         adapters_root: &Path,
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
+        boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
         let config = &resolved.document;
         let name = resolved.name.clone();
@@ -964,7 +988,14 @@ impl Bundle {
                     "seat '{phase}' names a phase the policy does not have"
                 )));
             }
+            refuse_boundary_key(phase, raw)?;
             refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
+            refuse_confine(phase, raw)?;
+            let law = SiteLaw {
+                boundary,
+                dir,
+                agent_hands: None,
+            };
             let results = raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -1029,18 +1060,30 @@ impl Bundle {
                     raw,
                     &secrets,
                     Site::Seat,
+                    boundary,
                 )?),
+            };
+            let law = SiteLaw {
+                agent_hands: agent_seat.as_ref().and_then(|seat| seat.hands.as_ref()),
+                ..law
             };
             let mut body = if let Some(agent_seat) = &agent_seat {
                 SeatBody::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
-                    confine: parse_confine(phase, raw)?,
                     candidates: agent_seat.candidates.clone(),
                 }
             } else if has_panel {
-                let (members, aggregate) =
-                    parse_panel(dir, phase, raw, &results, &secrets, &mut agents, &mut hands)?;
+                let (members, aggregate) = parse_panel(
+                    dir,
+                    phase,
+                    raw,
+                    &results,
+                    &secrets,
+                    &mut agents,
+                    &mut hands,
+                    boundary,
+                )?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
                 SeatBody::Sequence {
@@ -1054,6 +1097,7 @@ impl Bundle {
                             results: &results,
                             secrets: &secrets,
                             dialect,
+                            boundary,
                         },
                     )?,
                 }
@@ -1070,13 +1114,13 @@ impl Bundle {
                         roots: &resolved.roots,
                         case_origin: &resolved.case_origin,
                         dialect,
+                        boundary,
                     },
                 )?
             } else {
                 SeatBody::Single {
                     role_path: parse_role(dir, phase, raw)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
-                    confine: parse_confine(phase, raw)?,
                     candidates: Vec::new(),
                 }
             };
@@ -1086,7 +1130,7 @@ impl Bundle {
                     crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
                 }) {
                     if let SeatBody::Single { candidates, .. } = &body {
-                        enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?;
+                        enforce_model_policy(phase, raw, candidates, &secrets, &mut agents, law)?;
                         record_hands(
                             phase,
                             raw,
@@ -1100,12 +1144,10 @@ impl Bundle {
                             SeatBody::Single {
                                 role_path,
                                 command,
-                                confine,
                                 candidates,
                             } => StepBody::Single {
                                 role_path,
                                 command,
-                                confine,
                                 candidates,
                             },
                             SeatBody::Panel { members, aggregate } => {
@@ -1138,8 +1180,15 @@ impl Bundle {
                         }
                     }
                     let dialect_site = format!("{phase}:dialect-verify");
-                    let synthetic = json!({"class":"gate", "hands":"workspace", "driver":{"command":["{brokkr}","driver","exec","--"]}});
-                    enforce_model_policy(&dialect_site, &synthetic, &[], &secrets, &mut agents)?;
+                    let synthetic = dialect_gate_site(&dialect_site, boundary)?;
+                    enforce_model_policy(
+                        &dialect_site,
+                        &synthetic,
+                        &[],
+                        &secrets,
+                        &mut agents,
+                        law,
+                    )?;
                     record_hands(&dialect_site, &synthetic, None, &secrets, &mut hands)?;
                     body = SeatBody::Sequence {
                         steps: vec![
@@ -1167,7 +1216,7 @@ impl Bundle {
             // each checked where they were built.
             match &body {
                 SeatBody::Single { candidates, .. } => {
-                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents)?;
+                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents, law)?;
                     record_hands(
                         phase,
                         raw,
@@ -1286,6 +1335,7 @@ impl Bundle {
             agents.as_ref().map(|a| &a.drivers),
             &hands,
             &select_records,
+            boundary,
         )?;
         Ok(Bundle {
             hands,
@@ -1294,6 +1344,7 @@ impl Bundle {
             cost,
             dir: dir.to_path_buf(),
             roots: resolved.roots,
+            boundary,
             chain: resolved.chain,
             machine,
             seats,
@@ -1417,14 +1468,16 @@ enum Site {
 /// An agent reference is TOTAL: a seat that could amend the agent it
 /// names would make `agent: implementer` stop being a complete statement
 /// about what ran — inlining with extra steps, and drift with a name on
-/// it. `results`, `secrets`, `class` and `driver.confine` stay legal
-/// beside it, because they are bindings the SEAT provides rather than
-/// statements about what the agent is, and `brokkr agents show` never
-/// claims to show them. `limits` is likewise a strategy bound on the
-/// invocation, not part of the office. `class` in particular is the
-/// seat's authority, never the agent's: one charter may sit in a work
-/// seat here and a gate seat there, which is why decision 0021 ruling 1
-/// puts the division in bundle data.
+/// it. `results`, `secrets` and `class` stay legal beside it, because
+/// they are bindings the SEAT provides rather than statements about what
+/// the agent is, and `brokkr agents show` never claims to show them.
+/// `limits` is likewise a strategy bound on the invocation, not part of
+/// the office. `class` in particular is the seat's authority, never the
+/// agent's: one charter may sit in a work seat here and a gate seat
+/// there, which is why decision 0021 ruling 1 puts the division in bundle
+/// data. `driver.confine` was the one `driver` key legal here until
+/// decision 0046 ruling 5 retired it; [`refuse_confine`] now refuses it
+/// by name before this lint reads the driver at all.
 fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
     let refuse = |key: &str| {
         Err(CompileError::Invalid(format!(
@@ -1442,17 +1495,74 @@ fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
         let object = driver.as_object().ok_or_else(|| {
             CompileError::Invalid(format!("seat '{what}' driver must be an object"))
         })?;
-        for key in object.keys() {
-            if key != "confine" {
-                return refuse(&format!("driver.{key}"));
-            }
+        if let Some(key) = object.keys().next() {
+            return refuse(&format!("driver.{key}"));
         }
     }
     Ok(())
 }
 
+/// Decision 0046 ruling 5: decision 0008's `driver.confine` retired into
+/// the `container` boundary the realm declares, and until slice (iii)
+/// measures that boundary the field is refused wherever it is written —
+/// in a bundle and beside `agent:` alike — so a bundle that still carries
+/// it fails loudly rather than running a wrapper nobody exercised. No
+/// shipped bundle declares it, so nothing shipped moves for this reason.
+fn refuse_confine(what: &str, raw: &Value) -> Result<(), CompileError> {
+    match raw.pointer("/driver/confine") {
+        None => Ok(()),
+        Some(_) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares driver.confine; decision 0008's container \
+             confinement retired into the `container` boundary a realm declares \
+             (realms.json, forge.realms/v4), and the field is refused until that \
+             boundary is measured in decision 0046's slice (iii) (decision 0046 \
+             ruling 5)"
+        ))),
+    }
+}
+
+/// Decision 0046 ruling 1: the boundary is the realm's fact, declared in
+/// `realms.json` under `forge.realms/v4`, and a bundle never names it. A
+/// site that writes the key is told where the word lives rather than
+/// that the key is unknown.
+fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
+    match raw.get("boundary") {
+        None => Ok(()),
+        Some(_) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares boundary; {}",
+            brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS
+        ))),
+    }
+}
+
+/// The synthetic boxed exec gate the compiler builds for a dialect
+/// validate or check step (decision 0042 ruling 4), shared by the two
+/// sites that build one. Under `harness` and `open` the step is refused
+/// here, before the gate law runs: its argv is the realm's dialect
+/// declaration and not the bundle's own pinned script, which is the one
+/// thing decision 0046 ruling 4 admits at an unboxed gate, and a design
+/// note may not widen a ruling (design DD8; decision 0042's addendum,
+/// ruling 1). A decision that admits the step deletes this arm.
+fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileError> {
+    if !boundary.is_boxed() {
+        return Err(CompileError::Invalid(format!(
+            "dialect step '{what}' holds its gate boxed (decision 0042 ruling 4), and under \
+             the `{boundary}` boundary no box stands: its command is the realm's dialect \
+             declaration, not the bundle's own pinned script, which is all decision 0046 \
+             ruling 4 admits at an unboxed gate. Run the realm under a boxed boundary \
+             (namespace) until a decision admits the dialect step on the pinned-script terms"
+        )));
+    }
+    Ok(json!({
+        "class": "gate",
+        "hands": "workspace",
+        "driver": {"command": ["{brokkr}", "driver", "exec", "--"]}
+    }))
+}
+
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
+#[allow(clippy::too_many_arguments)]
 fn resolve_reference(
     agents: &mut Option<AgentContext>,
     dir: &Path,
@@ -1461,6 +1571,7 @@ fn resolve_reference(
     raw: &Value,
     secrets: &[String],
     site: Site,
+    boundary: Boundary,
 ) -> Result<ResolvedSeat, CompileError> {
     let name = raw
         .get("agent")
@@ -1476,13 +1587,48 @@ fn resolve_reference(
         .library
         .as_ref()
         .expect("a bundle mentioning an agent opens the library");
-    let resolution = crate::agents::resolve(
+    let report = crate::agents::report_under(
         library,
         &context.adapters,
         &Availability::unspecified(),
         name,
+        boundary,
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
+    // D33: judge every mapped hands link before resolving capability gaps.
+    // In particular dsh/LaneTally earn the tier refusal under namespace,
+    // and the missing harness.gate refusal under harness. An unmapped
+    // chain still receives the resolver's precise unmapped-model error.
+    if report.agent.hands.is_some() && report.entries.iter().all(|entry| entry.provider.is_some()) {
+        let candidates: Vec<Candidate> = report
+            .entries
+            .iter()
+            .map(|entry| Candidate {
+                agent: name.to_string(),
+                model: entry.model.clone(),
+                effort: entry.effort.clone(),
+                provider: entry.provider.clone().expect("mapped above"),
+                argv: entry.argv.clone(),
+                hands_fragment: entry.hands_fragment.clone(),
+                harness: entry.harness.clone(),
+            })
+            .collect();
+        enforce_model_policy(
+            what,
+            raw,
+            &candidates,
+            secrets,
+            agents,
+            SiteLaw {
+                boundary,
+                dir,
+                agent_hands: report.agent.hands.as_ref(),
+            },
+        )?;
+    }
+    let context = agents.as_mut().expect("agent context opened above");
+    let resolution = crate::agents::resolve_report(report, &context.adapters)
+        .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     if site == Site::Member {
         for (key, present) in [
             ("limits", resolution.limits.is_some()),
@@ -1510,6 +1656,8 @@ fn resolve_reference(
             effort: candidate.effort.clone(),
             provider: candidate.provider.clone(),
             argv: expand_command(dir, &candidate.argv),
+            hands_fragment: candidate.hands_fragment.clone(),
+            harness: candidate.harness.clone(),
         });
     }
     context
@@ -1741,7 +1889,22 @@ fn enforce_model_policy(
     candidates: &[Candidate],
     secrets: &[String],
     agents: &mut Option<AgentContext>,
+    law: SiteLaw<'_>,
 ) -> Result<(), CompileError> {
+    // The hands law is the FIRST statement (decision 0046 ruling 4;
+    // design DD22): it judges every site that declares hands whatever
+    // its class, so the work-class early return below cannot bypass it,
+    // and it reads the adapters only on the chain path, where the
+    // `agent` key opened them — a bundle whose only hands site is a
+    // work-class exec seat compiles with no `adapters/` in sight, as
+    // `needs_adapters` says it may.
+    enforce_hands_boundary(
+        what,
+        raw,
+        candidates,
+        law,
+        agents.as_ref().map(|context| &context.adapters),
+    )?;
     let class = parse_class(what, raw)?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
@@ -1923,6 +2086,272 @@ fn enforce_model_policy(
     Ok(())
 }
 
+/// What the hands law reads beside a site (decision 0046 ruling 4;
+/// design DD22): the boundary the bundle compiles under, the directory
+/// of the layer that DECLARED the site — the one its `./` resolves
+/// against and the one the manifest walk digests — and the agent's hands
+/// when the site names an agent.
+#[derive(Clone, Copy)]
+struct SiteLaw<'a> {
+    boundary: Boundary,
+    dir: &'a Path,
+    agent_hands: Option<&'a HandsSpec>,
+}
+
+/// The hands law (decision 0046 ruling 4; design DD22): one function,
+/// total over class, that rules what a site's hands MEAN under the
+/// boundary the bundle compiles under. A site without hands returns at
+/// once. Under a boundary Brokkr builds (`namespace`, `seatbelt`,
+/// `container`) it returns at once too: what hands mean under a box is
+/// decision 0043's law, unchanged. Under `harness` and `open` three
+/// arms:
+///
+/// - an inline exec site is admitted only for the bundle's own pinned
+///   script, judged by [`pinned_script`] against the declaring layer —
+///   work or gate, the class unread (proposal D32);
+/// - an inline model site is refused naming the repair: its argv is the
+///   author's and carries the box's own tokens (D10);
+/// - an agent-resolved site is judged by its chain against the adapters
+///   the `agent` key opened: under `harness` every link must declare the
+///   `hands.harness` fragment its class selects — `gate` for a gate,
+///   `work` for a work seat (DD7) — and under `open` a gate is refused
+///   while a work seat runs at the harness's default (D11). The class is
+///   read here and nowhere else in the law, because here it selects a
+///   fragment.
+fn enforce_hands_boundary(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    law: SiteLaw<'_>,
+    adapters: Option<&Adapters>,
+) -> Result<(), CompileError> {
+    let has_hands = law.agent_hands.is_some() || raw.get("hands").is_some();
+    if !has_hands || law.boundary.is_boxed() {
+        return Ok(());
+    }
+    let boundary = law.boundary;
+    if candidates.is_empty() {
+        let parts = command_parts(raw);
+        return match dispatch_driver(&parts).as_deref() {
+            Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
+                CompileError::Invalid(format!(
+                    "seat '{what}' declares hands under the `{boundary}` boundary, where no \
+                     box stands, so its exec command may run only the bundle's own pinned \
+                     script: {problem} (decision 0046 ruling 4; decision 0021)"
+                ))
+            }),
+            Some(driver) => Err(CompileError::Invalid(format!(
+                "seat '{what}' is an inline `{driver}` site that declares hands under the \
+                 `{boundary}` boundary; its argv is the author's own and carries the \
+                 box's tokens, which no harness stands behind unboxed. Seat it through an \
+                 agent, whose adapter declares how the harness stands under `harness`, or \
+                 run the realm under a boxed boundary (decision 0046 ruling 4)"
+            ))),
+            None => Err(CompileError::Invalid(format!(
+                "seat '{what}' declares hands under the `{boundary}` boundary, where no box \
+                 stands, and its command is a bare program rather than a `{{brokkr}} driver \
+                 exec` dispatch of the bundle's own pinned script (decision 0046 ruling 4; \
+                 decision 0021)"
+            ))),
+        };
+    }
+    let class = parse_class(what, raw)?;
+    let adapters = adapters.expect("an agent-resolved site opened the adapters (needs_adapters)");
+    for (index, candidate) in candidates.iter().enumerate() {
+        let link = index + 1;
+        let provider = &candidate.provider;
+        // The adapter is the one the resolution mapped; the Candidate
+        // carries its `hands.harness` so the engine, which holds no
+        // adapter at spawn, can compose from it too.
+        let harness = &adapters
+            .adapter(provider)
+            .expect("resolution mapped every link of the chain")
+            .harness;
+        // Two words reach here — the boxed three returned above — and
+        // the class selects the fragment, which is the one thing ruling
+        // 1 gives class to do under `harness`.
+        let under_harness = boundary == Boundary::Harness;
+        match class {
+            SeatClass::Gate if !under_harness => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' is a gate with hands under the `open` boundary, where \
+                     nothing at all stands between a model's hands and the machine; `open` \
+                     never holds a model gate (decision 0046 ruling 4)"
+                )));
+            }
+            SeatClass::Gate => {
+                if harness.gate.is_none() {
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{what}' gate link {link} resolves to provider '{provider}', \
+                         which declares no `hands.harness.gate` fragment{}; under the \
+                         `harness` boundary a model may judge only under its harness's own \
+                         read-only sandbox as the adapter addresses it (decision 0046 ruling 4)",
+                        measured(&harness.gate_gap)
+                    )));
+                }
+            }
+            SeatClass::Work if under_harness => {
+                if harness.work.is_none() {
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{what}' link {link} resolves to provider '{provider}', which \
+                         declares no `hands.harness.work` fragment{}: a capability gap — \
+                         under the `harness` boundary a work seat with hands writes the tree \
+                         only under the harness's own writable sandbox as the adapter \
+                         addresses it (decision 0046 rulings 1 and 4)",
+                        measured(&harness.work_gap)
+                    )));
+                }
+            }
+            // A work seat under `open` runs at the harness's default;
+            // whether that default writes is the harness's fact (D11).
+            SeatClass::Work => {}
+        }
+    }
+    Ok(())
+}
+
+/// The measured reason beside a missing `hands.harness` member, when the
+/// operator recorded one.
+fn measured(gap: &Option<String>) -> String {
+    match gap {
+        Some(reason) => format!(" ({reason})"),
+        None => String::new(),
+    }
+}
+
+/// The bundle's own pinned script, read off a RAW exec dispatch before
+/// `expand_command` erases the `./` spelling (decision 0046 ruling 4;
+/// design DD9): after the `--` that ends `{brokkr} driver exec`, zero or
+/// more bare interpreter names, then exactly one `./`-relative script
+/// token, then arguments nobody judges. The token's components are plain
+/// names — no `..`, no `.`, no empty component, no `\`, no drive or UNC
+/// prefix — and, joined to the declaring layer's directory, a regular
+/// file by `metadata` (following a symlink, as the manifest walk does)
+/// that the walk pins. Nothing is canonicalised and no two spellings are
+/// compared: a token spelled any other way is refused as not `./`-relative.
+///
+/// Returns the manifest key the script is pinned under.
+fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
+    let after = parts
+        .iter()
+        .position(|part| part == "--")
+        .map(|index| &parts[index + 1..])
+        .ok_or_else(|| "the dispatch carries no `--` after `exec`".to_string())?;
+    for token in after {
+        if let Some(relative) = token.strip_prefix("./") {
+            return pinned_key(dir, token, relative);
+        }
+        if token.starts_with('-') {
+            return Err(format!(
+                "'{token}' is an option token before the script; interpreters take no \
+                 options here (`bash -c` would run text, not pinned bytes)"
+            ));
+        }
+        if token.contains(['/', '\\']) {
+            return Err(format!(
+                "'{token}' is spelled as a path that is not `./`-relative to the bundle; \
+                 only a `./` script the manifest walk pins may run unboxed"
+            ));
+        }
+        // A bare interpreter name (`bash`, `python3`, `true`): walked
+        // past, until a script token or the end of the argv.
+    }
+    Err(format!(
+        "the command names no `./`-relative script after its interpreters ({})",
+        after.join(" ")
+    ))
+}
+
+/// The lookup half of [`pinned_script`]: the components of one `./`
+/// token, and the file they name under the declaring layer.
+fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String> {
+    let components: Vec<&str> = relative.split('/').collect();
+    let plain = |component: &&str| {
+        !component.is_empty()
+            && *component != "."
+            && *component != ".."
+            && !component.contains(['\\', ':'])
+    };
+    if !components.iter().all(plain) {
+        return Err(format!(
+            "'{token}' is not a plain `./`-relative path: every component is a plain name, \
+             never `..`, `.`, empty, a `\\` or a drive"
+        ));
+    }
+    if unpinned_top_level(components[0]) {
+        return Err(format!(
+            "'{token}' names a path the manifest walk does not pin ({} is workspace data, \
+             never bundle bytes)",
+            components[0]
+        ));
+    }
+    let mut path = dir.to_path_buf();
+    for component in &components {
+        path.push(component);
+    }
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_file() => Ok(components.join("/")),
+        _ => Err(format!(
+            "'{token}' names no regular file under the declaring layer {}",
+            dir.display()
+        )),
+    }
+}
+
+/// The two top-level names the manifest walk skips (decision 0042): a
+/// scaffold may also be the workspace brokkr is invoked from, and its
+/// realm map and dialect library are workspace declarations pinned into
+/// the RUN manifest, never bundle files. One function, shared by the walk
+/// and by the pinned-script lookup, so the two cannot drift.
+fn unpinned_top_level(name: &str) -> bool {
+    name == "realms.json" || name == "dialects"
+}
+
+/// Re-walk the script's directory, including its helpers, against the
+/// declaring layer's compiled file map (decision 0046 ruling 4; proposed
+/// 0048 narrows DD9). A realm scaffolded by `init .` also holds mutable
+/// source, results and its journal; those are outside this spawn check.
+/// Ancestor maps are the very maps hashed into their compose digests.
+/// Paths come from compile's canonical roots and expanded script token;
+/// component comparisons never reinterpret a literal filename byte.
+pub fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
+    let layer = bundle
+        .roots
+        .iter()
+        .filter(|root| directory.starts_with(root))
+        .max_by_key(|root| root.components().count())?;
+    let (name, pinned) = if layer == &bundle.dir {
+        (&bundle.name, bundle.manifest["files"].as_object()?)
+    } else {
+        let ancestor = bundle
+            .chain
+            .iter()
+            .find(|ancestor| &ancestor.dir == layer)?;
+        (&ancestor.name, &ancestor.files)
+    };
+    let current = match walk_files(layer, directory) {
+        Ok(files) => files,
+        Err(error) => return Some((name.clone(), error.to_string())),
+    };
+    let relative = directory
+        .strip_prefix(layer)
+        .expect("directory under layer");
+    let pinned_files = pinned.iter().filter(|(key, _)| {
+        !key.starts_with(COMPOSE_PREFIX) && Path::new(key).starts_with(relative)
+    });
+    for (key, digest) in pinned_files {
+        match current.get(key) {
+            Some(now) if now == digest => {}
+            Some(_) => return Some((name.clone(), format!("changed: {key}"))),
+            None => return Some((name.clone(), format!("missing: {key}"))),
+        }
+    }
+    current
+        .keys()
+        .find(|key| !pinned.contains_key(*key))
+        .map(|key| (name.clone(), format!("added: {key}")))
+}
+
 /// Decision 0043: record one site's hands — the agent's when the site
 /// names an agent, the site's own `hands` value when it is inline. A
 /// site with hands and secret bindings is refused: the box clears the
@@ -1988,6 +2417,7 @@ struct BodyCompile<'a> {
     results: &'a [String],
     secrets: &'a [String],
     dialect: Option<&'a Dialect>,
+    boundary: Boundary,
 }
 
 fn parse_selected_body(
@@ -1999,9 +2429,14 @@ fn parse_selected_body(
     compile: BodyCompile<'_>,
 ) -> Result<SeatBody, CompileError> {
     let BodyCompile {
-        results, secrets, ..
+        results,
+        secrets,
+        boundary,
+        ..
     } = compile;
+    refuse_boundary_key(what, raw)?;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
+    refuse_confine(what, raw)?;
     let has_agent = raw.get("agent").is_some();
     if has_agent {
         refuse_amendments(what, raw)?;
@@ -2020,18 +2455,24 @@ fn parse_selected_body(
         )));
     }
     if has_agent {
-        let resolved = resolve_reference(agents, dir, what, what, raw, secrets, Site::Seat)?;
-        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents)?;
+        let resolved =
+            resolve_reference(agents, dir, what, what, raw, secrets, Site::Seat, boundary)?;
+        let law = SiteLaw {
+            boundary,
+            dir,
+            agent_hands: resolved.hands.as_ref(),
+        };
+        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law)?;
         record_hands(what, raw, resolved.hands, secrets, hands)?;
         let body = SeatBody::Single {
             role_path: resolved.role_path,
             command: resolved.command,
-            confine: parse_confine(what, raw)?,
             candidates: resolved.candidates,
         };
         Ok(body)
     } else if has_panel {
-        let (members, aggregate) = parse_panel(dir, what, raw, results, secrets, agents, hands)?;
+        let (members, aggregate) =
+            parse_panel(dir, what, raw, results, secrets, agents, hands, boundary)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
@@ -2039,12 +2480,16 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
-        enforce_model_policy(what, raw, &[], secrets, agents)?;
+        let law = SiteLaw {
+            boundary,
+            dir,
+            agent_hands: None,
+        };
+        enforce_model_policy(what, raw, &[], secrets, agents, law)?;
         record_hands(what, raw, None, secrets, hands)?;
         let body = SeatBody::Single {
             role_path: parse_role(dir, what, raw)?,
             command: parse_command(dir, what, raw, secrets)?,
-            confine: parse_confine(what, raw)?,
             candidates: Vec::new(),
         };
         Ok(body)
@@ -2057,6 +2502,7 @@ struct SelectCompile<'a> {
     roots: &'a [PathBuf],
     case_origin: &'a BTreeMap<String, usize>,
     dialect: Option<&'a Dialect>,
+    boundary: Boundary,
 }
 
 fn parse_select(
@@ -2125,6 +2571,7 @@ fn parse_select(
                     results: compile.results,
                     secrets: compile.secrets,
                     dialect: compile.dialect,
+                    boundary: compile.boundary,
                 },
             )?,
         );
@@ -2142,6 +2589,7 @@ fn parse_select(
                     results: compile.results,
                     secrets: compile.secrets,
                     dialect: compile.dialect,
+                    boundary: compile.boundary,
                 },
             )
             .map(Box::new)
@@ -2156,6 +2604,7 @@ fn parse_select(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_panel(
     dir: &Path,
     what: &str,
@@ -2164,6 +2613,7 @@ fn parse_panel(
     secrets: &[String],
     agents: &mut Option<AgentContext>,
     hands: &mut BTreeMap<String, HandsSpec>,
+    boundary: Boundary,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
         .get("panel")
@@ -2214,6 +2664,8 @@ fn parse_panel(
     let mut members = Vec::with_capacity(members_raw.len());
     for (name, member_raw) in members_raw {
         let site = format!("{what}:{name}");
+        refuse_boundary_key(&site, member_raw)?;
+        refuse_confine(&site, member_raw)?;
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
         }
@@ -2234,6 +2686,7 @@ fn parse_panel(
                     member_raw,
                     secrets,
                     Site::Member,
+                    boundary,
                 )?;
                 (
                     resolved.role_path,
@@ -2243,13 +2696,17 @@ fn parse_panel(
                 )
             }
         };
-        enforce_model_policy(&site, member_raw, &candidates, secrets, agents)?;
+        let law = SiteLaw {
+            boundary,
+            dir,
+            agent_hands: agent_hands.as_ref(),
+        };
+        enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law)?;
         record_hands(&site, member_raw, agent_hands, secrets, hands)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
             command,
-            confine: parse_confine(&site, member_raw)?,
             candidates,
         });
     }
@@ -2271,6 +2728,7 @@ fn parse_sequence(
         results,
         secrets,
         dialect,
+        boundary,
     } = compile;
     let steps_raw = raw
         .get("sequence")
@@ -2302,6 +2760,8 @@ fn parse_sequence(
             )));
         }
         let what = format!("{phase}:{name}");
+        refuse_boundary_key(&what, step_raw)?;
+        refuse_confine(&what, step_raw)?;
         let has_agent = step_raw.get("agent").is_some();
         if has_agent {
             refuse_amendments(&what, step_raw)?;
@@ -2396,12 +2856,13 @@ fn parse_sequence(
                     dialect.name
                 )));
             };
-            let synthetic = json!({
-                "class": "gate",
-                "hands": "workspace",
-                "driver": {"command": ["{brokkr}", "driver", "exec", "--"]}
-            });
-            enforce_model_policy(&what, &synthetic, &[], secrets, agents)?;
+            let synthetic = dialect_gate_site(&what, boundary)?;
+            let law = SiteLaw {
+                boundary,
+                dir,
+                agent_hands: None,
+            };
+            enforce_model_policy(&what, &synthetic, &[], secrets, agents, law)?;
             record_hands(&what, &synthetic, None, secrets, hands)?;
             StepBody::Dialect {
                 execution: DialectExecution {
@@ -2410,24 +2871,38 @@ fn parse_sequence(
                 },
             }
         } else if has_agent {
-            let resolved =
-                resolve_reference(agents, dir, &what, &what, step_raw, secrets, Site::Member)?;
+            let resolved = resolve_reference(
+                agents,
+                dir,
+                &what,
+                &what,
+                step_raw,
+                secrets,
+                Site::Member,
+                boundary,
+            )?;
             agent_hands = resolved.hands;
             StepBody::Single {
                 role_path: resolved.role_path,
                 command: resolved.command,
-                confine: parse_confine(&what, step_raw)?,
                 candidates: resolved.candidates,
             }
         } else if has_panel {
-            let (members, aggregate) =
-                parse_panel(dir, &what, step_raw, &step_results, secrets, agents, hands)?;
+            let (members, aggregate) = parse_panel(
+                dir,
+                &what,
+                step_raw,
+                &step_results,
+                secrets,
+                agents,
+                hands,
+                boundary,
+            )?;
             StepBody::Panel { members, aggregate }
         } else {
             StepBody::Single {
                 role_path: parse_role(dir, &what, step_raw)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
-                confine: parse_confine(&what, step_raw)?,
                 candidates: Vec::new(),
             }
         };
@@ -2444,7 +2919,12 @@ fn parse_sequence(
         }
         match &body {
             StepBody::Single { candidates, .. } => {
-                enforce_model_policy(&what, step_raw, candidates, secrets, agents)?;
+                let law = SiteLaw {
+                    boundary,
+                    dir,
+                    agent_hands: agent_hands.as_ref(),
+                };
+                enforce_model_policy(&what, step_raw, candidates, secrets, agents, law)?;
                 record_hands(&what, step_raw, agent_hands, secrets, hands)?;
             }
             StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
@@ -2626,49 +3106,6 @@ fn brokkr_executable(current: std::io::Result<PathBuf>) -> String {
     }
 }
 
-fn parse_confine(what: &str, raw: &Value) -> Result<Option<Confine>, CompileError> {
-    let Some(raw_confine) = raw.get("driver").and_then(|d| d.get("confine")) else {
-        return Ok(None);
-    };
-    let object = raw_confine.as_object().ok_or_else(|| {
-        CompileError::Invalid(format!("seat '{what}' driver.confine must be an object"))
-    })?;
-    let image = object
-        .get("image")
-        .and_then(Value::as_str)
-        .filter(|i| !i.is_empty())
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{what}' confine needs a non-empty image"))
-        })?
-        .to_string();
-    let network = object
-        .get("network")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let mounts = object
-        .get("mounts")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    for key in object.keys() {
-        if !["image", "network", "mounts"].contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' confine has unknown key '{key}'"
-            )));
-        }
-    }
-    Ok(Some(Confine {
-        image,
-        network,
-        mounts,
-    }))
-}
-
 fn declarable_input(name: &str) -> bool {
     !is_engine_owned(name)
         && (BOOLEAN_INPUTS.contains(&name)
@@ -2720,6 +3157,7 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
 /// everything derived from it — and so the chain survives the dispatch
 /// manifest round-trip, which copies `files` verbatim. `agents` is the
 /// resolution record (decision 0016), pinned for the same reason.
+#[allow(clippy::too_many_arguments)]
 fn manifest_for(
     dir: &Path,
     bundle_name: &str,
@@ -2728,6 +3166,7 @@ fn manifest_for(
     drivers: Option<&Map<String, Value>>,
     hands: &BTreeMap<String, HandsSpec>,
     select: &Map<String, Value>,
+    boundary: Boundary,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -2745,59 +3184,8 @@ fn manifest_for(
             Value::String(ancestor.digest.clone()),
         );
     }
-    let mut stack = vec![dir.to_path_buf()];
-    let mut paths = Vec::new();
-    while let Some(current) = stack.pop() {
-        for entry in std::fs::read_dir(&current)? {
-            let path = entry?.path();
-            // A scaffold may also be the workspace from which Brokkr is
-            // invoked. Its realm map and dialect library are workspace
-            // declarations pinned into the RUN manifest, never bundle files:
-            // changing either must not move the strategy's identity.
-            if current == dir
-                && (path.file_name().and_then(|name| name.to_str()) == Some("realms.json")
-                    || path.file_name().and_then(|name| name.to_str()) == Some("dialects"))
-            {
-                continue;
-            }
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.is_file() {
-                // A secrets store inside the bundle would ride the
-                // manifest digest: rotation would change the digest AND
-                // the manifest would embed a SHA-256 of the secret file —
-                // an offline-guessing oracle (decision 0012, layer 2).
-                if path.file_name().and_then(|n| n.to_str()) == Some("secrets.env") {
-                    return Err(CompileError::Invalid(format!(
-                        "bundle contains a secrets store '{}'; the store must \
-                         live outside the bundle dir (e.g. .forge/secrets.env) \
-                         so digests carry names only",
-                        path.display()
-                    )));
-                }
-                paths.push(path);
-            }
-        }
-    }
-    paths.sort();
-    for path in paths {
-        // Manifest keys are bundle identity: platform-independent by
-        // construction (windows separators would fork the digest).
-        let rel = path
-            .strip_prefix(dir)
-            .expect("walked under dir")
-            .to_string_lossy()
-            .replace('\\', "/");
-        // The composition namespace is computed, never read from disk:
-        // a real file under it could otherwise forge provenance.
-        if rel.starts_with(COMPOSE_PREFIX) {
-            return Err(CompileError::Invalid(format!(
-                "bundle file '{rel}' uses the reserved '{COMPOSE_PREFIX}' namespace; \
-                 composition provenance is computed by the resolver, never \
-                 supplied by a bundle"
-            )));
-        }
-        files.insert(rel, Value::String(sha256_bytes(&std::fs::read(&path)?)));
+    for (rel, digest) in walk_files(dir, dir)? {
+        files.insert(rel, Value::String(digest));
     }
     let mut manifest = json!({
         "engine": ENGINE_VERSION,
@@ -2826,20 +3214,102 @@ fn manifest_for(
         manifest["drivers"] = Value::Object(records.clone());
     }
     // ABSENT on the same terms once more (decision 0043): a bundle that
-    // boxes no hands keeps its v5 shape and identity byte for byte.
+    // boxes no hands keeps its v5 shape and identity byte for byte. The
+    // resolved boundary rides beside it, one entry per hands site and
+    // every entry the realm's word (decision 0046 ruling 1; run-manifest
+    // v9): written in the same loop, so the two key sets are equal by
+    // construction, and absent with it, so a plain bundle keeps its
+    // pre-0046 identity (design DD4).
     if !hands.is_empty() {
-        manifest["hands"] = Value::Object(
-            hands
-                .iter()
-                .map(|(site, spec)| (site.clone(), spec.to_value()))
-                .collect(),
-        );
+        let mut specs = Map::new();
+        let mut boundaries = Map::new();
+        for (site, spec) in hands {
+            specs.insert(site.clone(), spec.to_value());
+            boundaries.insert(site.clone(), Value::String(boundary.word().to_string()));
+        }
+        manifest["hands"] = Value::Object(specs);
+        manifest["boundary"] = Value::Object(boundaries);
     }
     // Absent for every non-selecting bundle: v6 identity is preserved.
     if !select.is_empty() {
         manifest["select"] = Value::Object(select.clone());
     }
     Ok(manifest)
+}
+
+/// The manifest walk over one layer's directory: every regular file
+/// under `scope`, keyed relative to the layer `dir` and digested, in
+/// sorted key order. Compile walks the layer; spawn walks the script's
+/// directory with the same filename and byte identity rules.
+fn walk_files(dir: &Path, scope: &Path) -> Result<BTreeMap<String, String>, CompileError> {
+    let mut stack = vec![scope.to_path_buf()];
+    let mut paths = Vec::new();
+    while let Some(current) = stack.pop() {
+        for entry in std::fs::read_dir(&current)? {
+            let path = entry?.path();
+            // A scaffold may also be the workspace from which Brokkr is
+            // invoked. Its realm map and dialect library are workspace
+            // declarations pinned into the RUN manifest, never bundle files:
+            // changing either must not move the strategy's identity.
+            if current == dir
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(unpinned_top_level)
+            {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.is_file() {
+                // A secrets store inside the bundle would ride the
+                // manifest digest: rotation would change the digest AND
+                // the manifest would embed a SHA-256 of the secret file —
+                // an offline-guessing oracle (decision 0012, layer 2).
+                if path.file_name().and_then(|n| n.to_str()) == Some("secrets.env") {
+                    return Err(CompileError::Invalid(format!(
+                        "bundle contains a secrets store '{}'; the store must \
+                         live outside the bundle dir (e.g. .forge/secrets.env) \
+                         so digests carry names only",
+                        path.display()
+                    )));
+                }
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    let mut files = BTreeMap::new();
+    for path in paths {
+        // Join actual components, never replace bytes inside a name:
+        // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
+        // Refuse names JSON cannot represent instead of losing bytes.
+        let rel = path
+            .strip_prefix(dir)
+            .expect("walked under dir")
+            .iter()
+            .map(|name| {
+                name.to_str().ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "bundle filename '{}' is not UTF-8; manifest keys must preserve exact names",
+                        path.display()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join("/");
+        // The composition namespace is computed, never read from disk:
+        // a real file under it could otherwise forge provenance.
+        if rel.starts_with(COMPOSE_PREFIX) {
+            return Err(CompileError::Invalid(format!(
+                "bundle file '{rel}' uses the reserved '{COMPOSE_PREFIX}' namespace; \
+                 composition provenance is computed by the resolver, never \
+                 supplied by a bundle"
+            )));
+        }
+        files.insert(rel, sha256_bytes(&std::fs::read(&path)?));
+    }
+    Ok(files)
 }
 
 #[cfg(test)]

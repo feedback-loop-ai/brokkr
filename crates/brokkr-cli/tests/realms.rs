@@ -453,11 +453,11 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     // Including a map that names a version this build does not read:
     // an addition is a version, not drift inside one already published.
     let mut future = map_over(".");
-    future["schema"] = json!("forge.realms/v4");
+    future["schema"] = json!("forge.realms/v5");
     std::fs::write(ws.path().join("realms.json"), future.to_string()).unwrap();
     let (code, _, stderr) = ws.run(&["realms"]);
     assert_eq!(code, Some(1));
-    assert!(stderr.contains("forge.realms/v4"), "{stderr}");
+    assert!(stderr.contains("forge.realms/v5"), "{stderr}");
 
     // And a v1 map reaching for v2's one new word: the version is the
     // promise, so the word is refused under the label that forbids it.

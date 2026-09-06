@@ -2687,6 +2687,12 @@ fn draw_graph(
     // capability gap is a fact an operator must SEE, not find (decision
     // 0016) — then the graph, planned into whatever rows remain.
     let mut lines: Vec<Line> = Vec::new();
+    // The run header's boundary line (decision 0046 ruling 3): the
+    // model's rendered text, adjective included, printed and never
+    // composed. A run that boxes nothing carries no line at all.
+    if !view.boundary.text.is_empty() {
+        lines.push(line(&format!("boundary  {}", view.boundary.text), plain()));
+    }
     for notice in &view.notices {
         lines.push(line(
             &format!("note  {} — {}", notice.kind, notice.text),
@@ -2733,6 +2739,7 @@ fn draw_seats(
             "cost",
             "tokens",
             "model",
+            "boundary",
             "activity",
         ]
         .iter()
@@ -2754,6 +2761,9 @@ fn draw_seats(
             Some(_) => tone_style("working"),
             None => plain(),
         };
+        // The model and the boundary its hands stood behind, through the
+        // one pair helper (decision 0046 ruling 3): two cells, one read.
+        let pair = render::served_text(&part.served);
         rows.push(
             Row::new(vec![
                 cell(&part.label, plain()),
@@ -2762,7 +2772,8 @@ fn draw_seats(
                 cell(&part.turns_cell.text, plain()),
                 cell(&part.cost_cell.text, plain()),
                 cell(&part.usage_cell.text, plain()),
-                cell(&part.model.text, plain()),
+                cell(pair.model.as_str(), plain()),
+                cell(pair.boundary.as_str(), plain()),
                 cell(&part.activity.text, live),
             ])
             .style(selected_style(cursor == Some(part.key.as_str()))),
@@ -2783,6 +2794,7 @@ fn draw_seats(
                 cell("", plain()),
                 cell("", plain()),
                 cell("", plain()),
+                cell("", plain()),
                 cell(&format!("↳ {}", provenance.line), plain()),
             ]));
         }
@@ -2795,6 +2807,7 @@ fn draw_seats(
         Constraint::Length(10),
         Constraint::Length(18),
         Constraint::Length(22),
+        Constraint::Length(14),
         Constraint::Min(10),
     ];
     frame.render_widget(
@@ -2819,11 +2832,7 @@ fn draw_trail(
         .filter(|row| row.in_trail && render::keeps_row(lens, row))
         .map(|row| {
             let seq = row.seq.to_string();
-            let model = if row.model.absent {
-                String::new()
-            } else {
-                format!(" · model {}", row.model.text)
-            };
+            let model = render::trail_pair(&render::served_text(&row.served));
             line(
                 &format!("{seq}  {}  {}{model}", row.event_type, row.what.text),
                 selected_style(cursor == Some(seq.as_str())),
@@ -2847,6 +2856,7 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
     // keeps the resume line decision 0014 established; no other kind is
     // ever rendered as a Claude command.
     let session = claude_session(part);
+    let pair = render::served_text(&part.served);
     let mut lines = vec![
         Line::from(vec![
             span(&part.label, header_style()),
@@ -2875,8 +2885,17 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         // what the plan pinned and what the harness echoed as applied,
         // kept apart because ruling 6 keeps them apart. None of the
         // three measures what the model did; the reasoning count in the
-        // tokens line below is the only figure here that does.
-        line(&format!("model     {} (claimed)", part.model.text), plain()),
+        // tokens line below is the only figure here that does. The
+        // boundary beside the model is the plain word its hands stood
+        // behind (decision 0046 ruling 3), read through the pair helper.
+        line(
+            &format!(
+                "model     {} (claimed) · boundary {}",
+                pair.model.as_str(),
+                pair.boundary.as_str()
+            ),
+            plain(),
+        ),
         line(
             &format!(
                 "effort    pinned {} · applied {} (configuration)",
@@ -2898,12 +2917,14 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         .checkpoints
         .iter()
         .map(|row| {
+            let pair = render::served_text(&row.served);
             line(
                 &format!(
-                    "{}  {}  model {}  effort {}  tokens {}  {}  {}",
+                    "{}  {}  model {}  boundary {}  effort {}  tokens {}  {}  {}",
                     row.turn.text,
                     row.step,
-                    row.model.text,
+                    pair.model.as_str(),
+                    pair.boundary.as_str(),
                     row.effort.text,
                     row.usage.text,
                     row.target.text,

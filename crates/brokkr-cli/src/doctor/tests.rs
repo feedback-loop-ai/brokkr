@@ -937,6 +937,84 @@ fn the_ambient_probe_answers_whether_a_variable_is_set_never_what_it_says() {
 }
 
 /// A bundle argument still compiles and reports, and a broken one is
+/// Decision 0046 ruling 2: doctor's one `boundaries` line names what a
+/// run can start under here, and the `hands` line is judged against the
+/// realm's boundary rather than against bubblewrap alone.
+#[test]
+fn doctor_names_the_boundaries_this_machine_offers_and_judges_hands_by_the_realms() {
+    fn linux_box(program: &str) -> Option<String> {
+        match program {
+            "bwrap" => Some("0.11.0".into()),
+            "docker" => Some("27.0".into()),
+            "sandbox-exec" => None,
+            _ => Some("1.0.0".into()),
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let rendered = shipped(dir.path(), linux_box).render();
+    assert!(
+        rendered.contains(
+            "ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; \
+             seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on \
+             PATH); container built by slice (iii) of decision 0046 ruling 6 (docker 27.0 found)"
+        ),
+        "{rendered}"
+    );
+    let rendered = shipped(dir.path(), always_missing).render();
+    assert!(
+        rendered.contains(
+            "ok       boundaries: harness · open offered; namespace needs bwrap on PATH \
+             (not found); seatbelt built by slice (ii)"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("container built by slice (iii) of decision 0046 ruling 6 (docker or podman not on PATH)"),
+        "{rendered}"
+    );
+
+    // `--bundle` in a `harness` realm on a machine without bubblewrap
+    // stays healthy on the hands account; in a `seatbelt` realm the line
+    // warns about the slice with and without the tool.
+    let under = |boundary: Boundary, probe: fn(&str) -> Option<String>| {
+        doctor_in(
+            Some(&workspace().join("recipes/fast")),
+            dir.path(),
+            &workspace().join("agents"),
+            &workspace().join("adapters"),
+            &dir.path().join("secrets.env"),
+            probe,
+            never_ambient,
+            boundary,
+            None,
+        )
+        .render()
+    };
+    let harness = under(Boundary::Harness, always_missing);
+    assert!(
+        harness.contains(
+            "ok       hands: seats [\"ship\", \"verify\"] declare hands and can run under \
+             `harness` — no box of Brokkr's is built there"
+        ),
+        "{harness}"
+    );
+    assert!(
+        harness.contains("ok       bundle: 'fast' compiles"),
+        "{harness}"
+    );
+    for probe in [always_missing as fn(&str) -> Option<String>, always_present] {
+        let seatbelt = under(Boundary::Seatbelt, probe);
+        assert!(
+            seatbelt.contains(
+                "warn     hands: seats [\"ship\", \"verify\"] declare hands and will refuse to \
+                 spawn: `seatbelt` is built by slice (ii) of decision 0046 ruling 6, not by \
+                 this engine"
+            ),
+            "{seatbelt}"
+        );
+    }
+}
+
 /// still a hard failure.
 #[test]
 fn doctor_still_compiles_a_named_bundle() {

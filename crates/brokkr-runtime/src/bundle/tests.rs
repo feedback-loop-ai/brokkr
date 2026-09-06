@@ -124,6 +124,7 @@ fn compile_dialect_fixture(
         &root.join("adapters"),
         None,
         dialect,
+        Boundary::Namespace,
     )
 }
 
@@ -272,6 +273,41 @@ fn dialect_site_vocabulary_and_support_fail_closed() {
         }
     });
     assert!(compile_dialect_fixture(&fixture, &loop_config, &loop_policy, Some(&dialect)).is_ok());
+}
+
+#[test]
+fn a_synthetic_verifier_is_subject_to_its_own_binding_policy() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let (config, policy) = dialect_config(json!({
+        "results":["pass","fail"], "secrets":["TOKEN"], "role":"roles/role.md",
+        "driver":{"command":["{brokkr}","driver","claude","--","--model","claude-sonnet-4","--effort","high"]}
+    }));
+    let adapters = fixture.dir.path().join("adapters");
+    std::fs::create_dir(&adapters).unwrap();
+    std::fs::copy(
+        root.join("adapters/claude.json"),
+        adapters.join("claude.json"),
+    )
+    .unwrap();
+    std::fs::write(fixture.dir.path().join("bundle.json"), config.to_string()).unwrap();
+    std::fs::write(fixture.dir.path().join("policy.json"), policy.to_string()).unwrap();
+    let refusal = error(Bundle::compile_with_realm(
+        fixture.dir.path(),
+        &root.join("agents"),
+        &adapters,
+        None,
+        Some(&dialect),
+        Boundary::Namespace,
+    ));
+    assert!(
+        refusal.contains("seat 'verify:dialect-verify' declares secret bindings"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("driver 'exec'"), "{refusal}");
 }
 
 #[test]
@@ -508,7 +544,8 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &results,
             &[],
             &mut None,
-            &mut BTreeMap::new()
+            &mut BTreeMap::new(),
+            Boundary::Namespace,
         )
         .is_err());
     }
@@ -526,7 +563,8 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         &[],
         &[],
         &mut None,
-        &mut BTreeMap::new()
+        &mut BTreeMap::new(),
+        Boundary::Namespace,
     ))
     .contains("does not declare"));
     assert_eq!(
@@ -537,7 +575,8 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             &results,
             &[],
             &mut None,
-            &mut BTreeMap::new()
+            &mut BTreeMap::new(),
+            Boundary::Namespace,
         )
         .unwrap()
         .0
@@ -571,7 +610,8 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             BodyCompile {
                 results: &results,
                 secrets: &[],
-                dialect: None
+                dialect: None,
+                boundary: Boundary::Namespace,
             }
         )
         .is_err());
@@ -595,6 +635,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             results: &results,
             secrets: &[],
             dialect: None,
+            boundary: Boundary::Namespace,
         },
     ));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
@@ -615,6 +656,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             results: &results,
             secrets: &[],
             dialect: None,
+            boundary: Boundary::Namespace,
         },
     ));
     assert!(
@@ -637,6 +679,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             results: &results,
             secrets: &[],
             dialect: None,
+            boundary: Boundary::Namespace,
         },
     )
     .unwrap();
@@ -690,23 +733,243 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         vec![command[0].clone(), command[0].clone()]
     );
 
+    // Decision 0046 ruling 5: the field is refused by name, in every
+    // shape, and a site without it is untouched.
     for raw in [
         json!({"driver":{"confine":"bad"}}),
         json!({"driver":{"confine":{}}}),
-        json!({"driver":{"confine":{"image":"img", "invented":true}}}),
+        json!({"driver":{"confine":{"image":"img", "network":true, "mounts":["/x"]}}}),
     ] {
-        assert!(parse_confine("work", &raw).is_err());
+        let refusal = error(refuse_confine("work", &raw));
+        assert!(
+            refusal.contains("seat 'work' declares driver.confine"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("`container` boundary"), "{refusal}");
+        assert!(refusal.contains("slice (iii)"), "{refusal}");
+        assert!(refusal.contains("decision 0046 ruling 5"), "{refusal}");
     }
-    let confine = parse_confine(
-        "work",
-        &json!({"driver":{"confine":{"image":"img", "network":true, "mounts":["/x", 2]}}}),
-    )
-    .unwrap()
-    .unwrap();
-    assert!(confine.network);
-    assert_eq!(confine.mounts, vec!["/x"]);
+    refuse_confine("work", &json!({"driver":{"command":["x"]}})).unwrap();
 
     assert!(referenced_seat_inputs(&json!({}), "work").is_empty());
+}
+
+/// Decision 0046 ruling 5, at the compiler's front door: an inline seat
+/// with `driver.confine` is refused naming the site, the `container`
+/// boundary and the ruling; an agent seat with the same key is refused
+/// the same way, and the field is no longer the one `driver` key legal
+/// beside `agent:`. No shipped bundle declares it, and every shipped
+/// bundle still compiles.
+#[test]
+fn driver_confine_is_refused_by_name_in_a_bundle_and_beside_an_agent() {
+    let fixture = Fixture::new();
+    let mut config = Fixture::config();
+    config["seats"]["work"]["driver"] =
+        json!({"command": ["./drivers/x"], "confine": {"image": "img"}});
+    let refusal = error(fixture.compile(&config, &Fixture::policy()));
+    assert!(
+        refusal.contains("seat 'work' declares driver.confine"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("`container` boundary"), "{refusal}");
+    assert!(refusal.contains("decision 0046 ruling 5"), "{refusal}");
+
+    // Beside `agent:` the same words, and before the amendment lint that
+    // would otherwise call it an amendment of the agent: pinned in
+    // `agent_tests.rs`, which owns an agent library.
+
+    // A sequence step is a site too, refused by its own label.
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "sequence": [
+            {"name": "first", "results": ["done"], "role": "roles/role.md",
+             "driver": {"command": ["d"], "confine": {"image": "img"}}},
+            {"name": "second", "role": "roles/role.md", "driver": {"command": ["d"]}}
+        ],
+    });
+    let refusal = error(fixture.compile(&config, &Fixture::policy()));
+    assert!(
+        refusal.contains("seat 'work:first' declares driver.confine"),
+        "{refusal}"
+    );
+
+    // Every shipped bundle: no site declares the field, and all compile.
+    let root = workspace_root();
+    let mut dirs = Vec::new();
+    for parent in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(parent)).unwrap() {
+            let path = entry.unwrap().path();
+            if path.join("bundle.json").is_file() {
+                dirs.push(path);
+            }
+        }
+    }
+    assert!(dirs.len() >= 5);
+    for dir in dirs {
+        let text = std::fs::read_to_string(dir.join("bundle.json")).unwrap();
+        assert!(
+            !text.contains("\"confine\""),
+            "{} declares confine",
+            dir.display()
+        );
+        Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|e| panic!("{} must compile: {e}", dir.display()));
+    }
+}
+
+/// Decision 0046 ruling 1: a bundle never names the boundary. A `boundary`
+/// key at any site — a seat, a panel member, a sequence step, a selected
+/// case body — is refused naming the site, the realm map as the field's
+/// home and the ruling, and never as an unknown key; inside `hands` it is
+/// refused as a misplaced field and not as an unknown `hands` key. The
+/// agent-file half is pinned in `agent_tests.rs`, which owns a library.
+#[test]
+fn a_bundle_never_names_the_boundary() {
+    let fixture = Fixture::new();
+    let policy = Fixture::policy();
+    let home = "the boundary is declared by the realm (realms.json, forge.realms/v4) and never \
+                by a bundle or an agent, because the machine a realm runs on is the realm's \
+                fact (decision 0046 ruling 1)";
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+
+    // A seat, beside its hands.
+    let mut config = Fixture::config();
+    config["seats"]["work"]["hands"] = json!("workspace");
+    config["seats"]["work"]["boundary"] = json!("harness");
+    let refusal = error(fixture.compile(&config, &policy));
+    assert_eq!(
+        refusal,
+        format!("bundle: seat 'work' declares boundary; {home}")
+    );
+
+    // A panel member: the aggregate's own vocabulary is checked before
+    // the members are read, so the table covers `pass` and `fail` too.
+    let mut member = inline.clone();
+    member["boundary"] = json!("open");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {"one": member, "two": inline.clone()},
+    });
+    let mut panel_policy = Fixture::policy();
+    panel_policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    let refusal = error(fixture.compile(&config, &panel_policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:one' declares boundary; "),
+        "{refusal}"
+    );
+    assert!(refusal.contains(home), "{refusal}");
+
+    // A sequence step.
+    let mut step = inline.clone();
+    step["name"] = json!("first");
+    step["results"] = json!(["done"]);
+    step["boundary"] = json!("namespace");
+    let mut second = inline.clone();
+    second["name"] = json!("second");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({"results": ["complete"], "sequence": [step, second]});
+    let refusal = error(fixture.compile(&config, &policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:first' declares boundary; "),
+        "{refusal}"
+    );
+    assert!(refusal.contains(home), "{refusal}");
+
+    // A selected case body.
+    let mut case = inline.clone();
+    case["boundary"] = json!("seatbelt");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "select": {"on": "strategy", "cases": {
+            "chore": case,
+            "feature": inline.clone(),
+            "design": inline.clone(),
+            "engine": inline.clone(),
+        }},
+    });
+    let refusal = error(fixture.compile(&config, &policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:chore' declares boundary; "),
+        "{refusal}"
+    );
+    assert!(refusal.contains(home), "{refusal}");
+
+    // Inside hands: a misplaced field, never an unknown `hands` key.
+    let mut config = Fixture::config();
+    config["seats"]["work"]["hands"] = json!({"kind": "workspace", "boundary": "open"});
+    let refusal = error(fixture.compile(&config, &policy));
+    assert!(
+        refusal.starts_with(&format!(
+            "bundle: seat 'work' hands: hands names 'boundary'; {home}"
+        )),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("unknown key"), "{refusal}");
+    // Every refusal above named the realm rather than an unknown key.
+    let mut config = Fixture::config();
+    config["seats"]["work"]["boundary"] = json!("open");
+    assert!(!error(fixture.compile(&config, &policy)).contains("unknown key"));
+    // And the pure check reads the key alone: a site without it is untouched.
+    refuse_boundary_key("work", &json!({"hands": "workspace"})).unwrap();
+}
+
+/// The `docker run` wrapper is gone with the field (decision 0046 ruling
+/// 5): the runtime and cli sources name neither the wrapper nor the type
+/// outside prose that explains the retirement, and a site that never
+/// declared the field composes exactly what it composed — the identity
+/// `hands_command` returns for a site without hands.
+#[test]
+fn the_docker_wrapper_is_gone_from_the_sources() {
+    let root = workspace_root();
+    let mut sources = Vec::new();
+    for crate_dir in ["crates/brokkr-runtime/src", "crates/brokkr-cli/src"] {
+        let mut stack = vec![root.join(crate_dir)];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    sources.push(path);
+                }
+            }
+        }
+    }
+    assert!(sources.len() > 20);
+    for path in sources {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (line_number, line) in text.lines().enumerate() {
+            let prose = line.trim_start().starts_with("//");
+            if prose {
+                continue;
+            }
+            // Spelled in halves so this test's own source passes its
+            // own scan.
+            for banned in [
+                concat!("confined_", "command"),
+                concat!("\"doc", "ker run"),
+                concat!("\"doc", "ker\".to_string()"),
+                concat!("--network", "=none"),
+                concat!("struct Con", "fine"),
+                concat!("Con", "fine {"),
+            ] {
+                assert!(
+                    !line.contains(banned),
+                    "{}:{}: {banned} survives the retirement",
+                    path.display(),
+                    line_number + 1
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -769,7 +1032,8 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             None,
             None,
             &BTreeMap::new(),
-            &serde_json::Map::new()
+            &serde_json::Map::new(),
+            Boundary::Namespace,
         )
         .is_ok());
     }

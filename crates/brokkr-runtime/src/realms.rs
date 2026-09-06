@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
-use brokkr_core::realms::{Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
+use brokkr_core::realms::{Boundary, Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -279,6 +279,16 @@ impl World {
             .realms
             .iter()
             .find(|realm| absolute(&self.path_of(realm)) == target)
+    }
+
+    /// The boundary the operated repository's realm runs under (decision
+    /// 0046 ruling 1): the realm's declared word, else `namespace` — and
+    /// `namespace` too for a repository the map does not name, exactly as
+    /// a run with no map at all. The one resolver the compiler, the verbs
+    /// and the engine's entry fence all read, so they cannot disagree.
+    pub fn boundary_for(&self, repo: &Path) -> Boundary {
+        self.realm_for(repo)
+            .map_or(Boundary::Namespace, Realm::boundary)
     }
 
     /// The immutable house text selected for this repository's realm.

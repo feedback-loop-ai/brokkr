@@ -18,7 +18,7 @@ flowchart TB
   operator([operator]) -- "run · resume · retry · stop" --> cli
   subgraph binary["the brokkr binary — how far a delivery advances"]
     cli["brokkr-cli<br/>commands · embedded UI · driver entry"]
-    runtime["brokkr-runtime<br/>engine loop · bundles · recovery · confinement"]
+    runtime["brokkr-runtime<br/>engine loop · bundles · recovery · the boundary"]
     core["brokkr-core — PURE<br/>envelope · hashing · fold · policy"]
     store[("brokkr-store<br/>SQLite journal, hash-chained")]
     protocol["brokkr-protocol<br/>forge-driver/v1 over stdio"]
@@ -242,7 +242,7 @@ sequenceDiagram
   E->>D: hello
   D-->>E: capabilities
   E->>D: start — seat prompt, result path, deadline
-  D->>H: spawn, optionally inside a pinned container
+  D->>H: spawn, behind the realm's boundary
   D-->>E: accepted
   loop each turn
     H-->>D: session stream
@@ -259,16 +259,18 @@ NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
 The adapters for Claude Code, Codex, dsh and any
 prompt-in/result-file-out harness are built into the binary as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
-language-neutral for third-party drivers. Trust classes are data too:
-`driver.confine {image, network, mounts}` wraps the command in a pinned
-container with the workdir mounted at the same path.
+language-neutral for third-party drivers. What stands around a seat is
+the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,
+`container`, `harness` or `open`, pinned per site, rendered *unboxed*
+under `harness` or `open`. Decision 0008's `driver.confine` is refused
+(0046 ruling 5) until slice (iii) builds `container`.
 
 ## Verification, in layers
 
 | Layer | What it pins |
 |---|---|
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
-| Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, confinement and bundle pinning. |
+| Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
 | Brokkr verification | `bundles/verify` examines an already-delivered change with a verify seat and a strictly read-only review seat. It has hard-stopped its own author's work on a real security finding. |
 

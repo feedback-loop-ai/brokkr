@@ -26,7 +26,9 @@
 
 use std::io::IsTerminal;
 
-use brokkr_view::{FleetView, JournalRow, Participant, Phase, RunRow, RunView, RunsView};
+use brokkr_view::{
+    FleetView, JournalRow, ModelAtBoundary, Participant, Phase, RunRow, RunView, RunsView,
+};
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -172,6 +174,43 @@ fn tint(text: &str, code: &'static str, style: &Style) -> String {
 fn push_line(out: &mut String, line: &str) {
     out.push_str(line.trim_end());
     out.push('\n');
+}
+
+// ------------------------------------------------- the model, its boundary
+
+/// The served-model pair as a terminal surface places it: the model
+/// cell and the boundary cell, sanitized, and whether the journal named
+/// a model at all — the one fact a trail row branches on.
+pub(crate) struct ServedText {
+    pub model: Safe,
+    pub boundary: Safe,
+    /// True when the model cell is present. A trail row prints the pair
+    /// only beside a model it names; a table prints both marks.
+    pub named: bool,
+}
+
+/// The pair helper's text face (decision 0046 ruling 3; design DD12):
+/// the ONE place a renderer reads `served.model`, so it cannot take the
+/// model without the boundary beside it. Every terminal surface — the
+/// seats table, the trail, the TUI's table, detail pane, checkpoint and
+/// journal rows — places what this returns and reads neither cell
+/// itself, which `tests/boundary_readouts.rs` pins by source.
+pub(crate) fn served_text(served: &ModelAtBoundary) -> ServedText {
+    ServedText {
+        model: Safe::new(&served.model.text),
+        boundary: Safe::new(&served.boundary.text),
+        named: !served.model.absent,
+    }
+}
+
+/// The pair helper's JSON face, for `compare`'s `resolution` map: the
+/// two rendered texts as data, `model` and `boundary` as siblings, so a
+/// structural comparison of two maps diverges on either.
+pub(crate) fn served_json(served: &ModelAtBoundary) -> serde_json::Value {
+    serde_json::json!({
+        "model": served.model.text,
+        "boundary": served.boundary.text,
+    })
 }
 
 // ----------------------------------------------------------- brokkr runs
@@ -401,6 +440,13 @@ pub(crate) fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
     }
 }
 
+/// The seats block alone, as `brokkr seats` prints it (decision 0046
+/// ruling 3; design DD11): the same block `inspect` renders, from the
+/// same view, unscoped.
+pub fn seats(view: &RunView, style: &Style) -> String {
+    seats_block(view, None, style)
+}
+
 fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     let seats: Vec<&Participant> = view
         .participants
@@ -414,7 +460,9 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     // configured with, as the harness echoed it back — configuration,
     // never a measurement of what the model did (decision 0035 rulings
     // 2 and 3). The pin the plan asked for is the seat's own detail
-    // view, one fact per column here.
+    // view, one fact per column here. `boundary` stands beside `model`
+    // wherever a model is named (decision 0046 ruling 3): the plain word
+    // the seat's hands stood behind, never composed here.
     let header = [
         "participant",
         "status",
@@ -423,10 +471,12 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
         "cost",
         "tokens",
         "model",
+        "boundary",
         "effort",
     ];
-    let mut rows: Vec<[Safe; 9]> = Vec::new();
+    let mut rows: Vec<[Safe; 10]> = Vec::new();
     for part in &seats {
+        let pair = served_text(&part.served);
         rows.push([
             Safe::new(&part.label),
             Safe::new(&part.status),
@@ -434,12 +484,13 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             Safe::new(&part.turns_cell.text),
             Safe::new(&part.cost_cell.text),
             Safe::new(&part.usage_cell.text),
-            Safe::new(&part.model.text),
+            pair.model,
+            pair.boundary,
             Safe::new(&part.effort.text),
             Safe::new(&part.activity.text),
         ]);
     }
-    let mut widths = [0usize; 8];
+    let mut widths = [0usize; 9];
     for (index, name) in header.iter().enumerate() {
         widths[index] = name.chars().count();
     }
@@ -478,7 +529,7 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
             });
             line.push(' ');
         }
-        line.push_str(&brokkr_view::clamp(row[8].as_str(), remaining));
+        line.push_str(&brokkr_view::clamp(row[9].as_str(), remaining));
         push_line(&mut out, &line);
         push_line(
             &mut out,
@@ -513,6 +564,21 @@ fn seats_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     out
 }
 
+/// The suffix a trail row carries when the journal names a model there:
+/// ` · model <x> · boundary <y>`, and nothing at all otherwise. Shared
+/// with the TUI's trail so the two spell the pair the same way.
+pub(crate) fn trail_pair(pair: &ServedText) -> String {
+    if pair.named {
+        format!(
+            " · model {} · boundary {}",
+            pair.model.as_str(),
+            pair.boundary.as_str()
+        )
+    } else {
+        String::new()
+    }
+}
+
 fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     let rows: Vec<&JournalRow> = view
         .journal
@@ -532,11 +598,7 @@ fn trail_block(view: &RunView, lens: Option<&Lens>, style: &Style) -> String {
     let remaining = style.width.saturating_sub(used);
     let mut out = String::from("trail\n");
     for row in &rows {
-        let model = if row.model.absent {
-            String::new()
-        } else {
-            format!(" · model {}", Safe::new(&row.model.text).as_str())
-        };
+        let model = trail_pair(&served_text(&row.served));
         let what_width = remaining.saturating_sub(model.chars().count());
         let line = format!(
             "  {:>seq_width$} {} {}{}",
@@ -653,6 +715,16 @@ pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) 
             }
         }
         None => push_line(&mut out, "run  — this journal does not fold"),
+    }
+    // The run-level boundary line (decision 0046 ruling 3): the model's
+    // rendered text, adjective included, printed here and composed
+    // nowhere. Empty for a run that boxes nothing, so such a run reads
+    // exactly as it did before the boundary was named.
+    if !view.boundary.text.is_empty() {
+        push_line(
+            &mut out,
+            &format!("     boundary {}", Safe::new(&view.boundary.text).as_str()),
+        );
     }
     if let Some(ruling) = &view.ruling {
         let result = match &ruling.result {

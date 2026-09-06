@@ -164,8 +164,25 @@ fn the_gate_witness_and_the_agent_pin_are_refused_by_name() {
     let fast = compile("recipes/fast").manifest;
     assert!(fast.get("drivers").is_some(), "recipes/fast seats gates");
     let sha = canonical::sha256_hex(&fast);
+    // Decision 0046 ruling 1: `recipes/fast` boxes its exec gates, so its
+    // manifest pins their boundary — the first key past the six, in
+    // key order, and refused by name before `drivers` is reached.
+    assert!(
+        fast.get("boundary").is_some(),
+        "recipes/fast pins its boundary"
+    );
     assert_eq!(
         build_run_manifest_v2(&fast, envelope(&sha)),
+        Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            "boundary".into()
+        ))
+    );
+    let mut unboxed = fast.clone();
+    unboxed.as_object_mut().unwrap().remove("boundary");
+    unboxed.as_object_mut().unwrap().remove("hands");
+    let sha = canonical::sha256_hex(&unboxed);
+    assert_eq!(
+        build_run_manifest_v2(&unboxed, envelope(&sha)),
         Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
             "drivers".into()
         ))

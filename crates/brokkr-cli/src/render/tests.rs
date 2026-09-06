@@ -566,7 +566,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
 
 #[test]
 fn brokkr_inspect_is_a_human_readout_with_a_terminal_tree() {
-    let out = inspect(&view(None), None, true, &Style::plain(100));
+    let out = inspect(&view(None), None, true, &Style::plain(110));
     assert_eq!(
         out,
         "\
@@ -580,16 +580,16 @@ live  design:chief · turn 2 · Write
 
 seats
   model is the provider's claim, not proof · effort is configuration
-  participant                 status    attempts turns cost    tokens model effort activity
-  intake                      succeeded 1        3     $0.0313 —      —     —      intook · 2m03s
+  participant                 status    attempts turns cost    tokens model boundary effort activity
+  intake                      succeeded 1        3     $0.0313 —      —     —        —      intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects
-  design                      working   1        Σ 2   —       —      —     —      3 members ↓
+  design                      working   1        Σ 2   —       —      —     —        —      3 members ↓
     transcript  —
-  design:positions:simplicity succeeded 1        —     —       —      —     —      0s
+  design:positions:simplicity succeeded 1        —     —       —      —     —        —      0s
     transcript  —
-  design:positions:robustness succeeded 1        —     —       —      —     —      0s
+  design:positions:robustness succeeded 1        —     —       —      —     —        —      0s
     transcript  —
-  design:chief                working   1        2     —       —      —     —      Write
+  design:chief                working   1        2     —       —      —     —        —      Write
     transcript  —
 
 trail
@@ -658,8 +658,8 @@ live  design:chief · turn 2 · Write
 
 seats
   model is the provider's claim, not proof · effort is configuration
-  participant status    attempts turns cost    tokens model effort activity
-  intake      succeeded 1        3     $0.0313 —      —     —      intook · 2m03s
+  participant status    attempts turns cost    tokens model boundary effort activity
+  intake      succeeded 1        3     $0.0313 —      —     —        —      intook · 2m03s
     transcript  claude-session · sess-a · home /home/operator/.claude/projects
 
 trail
@@ -964,4 +964,147 @@ fn a_run_that_has_not_entered_a_phase_yet_says_so() {
     let view = brokkr_view::run_view(&events, Some(&early));
     let out = inspect(&view, None, false, &Style::plain(80));
     assert!(out.contains("running · phase - · seq 14"), "{out}");
+}
+
+// ------------------------------ decision 0046 ruling 3: the boundary
+
+/// The intake seat under one boundary: the run declares hands for it,
+/// the attempt's entry names `word` at the seat's one site with `gate`,
+/// and its finishing checkpoint and result carry the model with the
+/// word beside it, as the engine stamps them (design DD19).
+fn boxed_view(word: &str, gate: bool) -> brokkr_view::RunView {
+    let mut events = journal();
+    events[0].payload["manifest"] = json!({"hands": {"intake": {"binds": []}}});
+    events[3].payload["boundary"] = json!([{"member": null, "boundary": word, "gate": gate}]);
+    events[5].payload["checkpoint"]["model"] = json!("claude-fable-5-1");
+    events[5].payload["checkpoint"]["boundary"] = json!(word);
+    events[6].payload["result"]["model"] = json!("claude-fable-5-1");
+    events[6].payload["result"]["boundary"] = json!(word);
+    brokkr_view::run_view(&events, Some(&state(Status::Running, None, None)))
+}
+
+/// `inspect`'s seats table gains a `boundary` column beside `model`, a
+/// trail row that prints `· model <x>` prints `· boundary <y>` beside
+/// it, and the header prints the run-level line — the model's text,
+/// adjective included, composed nowhere here.
+#[test]
+fn inspect_names_the_boundary_beside_the_model_and_in_its_header() {
+    let out = inspect(&boxed_view("harness", true), None, true, &Style::plain(120));
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "run  run-7");
+    assert_eq!(lines[2], "     boundary harness · unboxed");
+    let header = lines
+        .iter()
+        .find(|line| line.starts_with("  participant"))
+        .unwrap();
+    let model_at = header.find(" model ").unwrap();
+    let boundary_at = header.find(" boundary ").unwrap();
+    assert!(model_at < boundary_at, "{header}");
+    assert!(out.contains("claude-fable-5-1 harness "), "{out}");
+    assert!(
+        out.contains(
+            "7 effect/succeeded   intake · intook · model claude-fable-5-1 · boundary harness"
+        ),
+        "{out}"
+    );
+    // A row naming no model prints neither half of the pair.
+    assert!(out.contains("2 phase/entered      intake\n"), "{out}");
+    assert_eq!(trail_pair(&served_text(&view(None).journal[1].served)), "");
+
+    // `watch`'s frame is this readout without the trail: same header.
+    let frame = inspect(
+        &boxed_view("harness", true),
+        None,
+        false,
+        &Style::plain(120),
+    );
+    assert_eq!(
+        frame.lines().nth(2),
+        Some("     boundary harness · unboxed")
+    );
+    assert!(!frame.contains("trail"), "{frame}");
+
+    // A seat lens scopes the tables, never the header.
+    let view = boxed_view("open", true);
+    let lens = lens_for(&view, Some(&Scope::Seat("intake".into())))
+        .unwrap()
+        .unwrap();
+    let scoped = inspect(&view, Some(&lens), true, &Style::plain(120));
+    assert_eq!(scoped.lines().nth(2), Some("     boundary open · unboxed"));
+    assert!(scoped.contains("claude-fable-5-1 open "), "{scoped}");
+}
+
+/// The three boxes render their word alone; a work-class seat under
+/// `harness` is not unboxed; a run that boxes nothing prints no line.
+#[test]
+fn the_header_prints_the_word_alone_or_nothing_where_no_gate_was_unboxed() {
+    let namespace = inspect(
+        &boxed_view("namespace", true),
+        None,
+        false,
+        &Style::plain(120),
+    );
+    assert_eq!(namespace.lines().nth(2), Some("     boundary namespace"));
+    assert!(!namespace.contains("unboxed"), "{namespace}");
+    let work = inspect(
+        &boxed_view("harness", false),
+        None,
+        false,
+        &Style::plain(120),
+    );
+    assert_eq!(work.lines().nth(2), Some("     boundary harness"));
+    assert!(!work.contains("unboxed"), "{work}");
+    let plain = inspect(&view(None), None, true, &Style::plain(120));
+    assert!(
+        !plain.lines().any(|line| line.starts_with("     boundary")),
+        "{plain}"
+    );
+    // The column stands even where nothing was recorded, absent-marked.
+    assert!(plain.contains(" boundary "), "{plain}");
+    let mut events = journal();
+    events[0].payload["manifest"] = json!({"hands":{"intake":{"binds":[]}}});
+    let old = brokkr_view::run_view(&events, Some(&state(Status::Running, None, None)));
+    let old = inspect(&old, None, false, &Style::plain(120));
+    assert_eq!(old.lines().nth(2), Some("     boundary not recorded"));
+}
+
+/// `brokkr seats` renders the seats block `inspect` renders, from the
+/// same view, unscoped (design DD11).
+#[test]
+fn the_seats_block_is_the_one_inspect_prints() {
+    let boxed = boxed_view("harness", true);
+    let block = seats(&boxed, &Style::plain(120));
+    assert!(block.starts_with("seats\n"), "{block}");
+    assert!(block.contains("claude-fable-5-1 harness "), "{block}");
+    let whole = inspect(&boxed, None, true, &Style::plain(120));
+    assert!(whole.contains(&format!("\n{block}\n")), "{whole}");
+    assert_eq!(seats(&view(None), &Style::plain(120)), {
+        let whole = inspect(&view(None), None, true, &Style::plain(120));
+        let start = whole.find("seats\n").unwrap();
+        let end = whole[start..].find("\n\n").unwrap();
+        format!("{}\n", &whole[start..start + end])
+    });
+}
+
+/// The pair helper's two faces: the text face carries both cells
+/// sanitized and whether a model was named; the JSON face carries the
+/// two texts as siblings for `compare`'s resolution map.
+#[test]
+fn the_pair_helper_has_a_text_face_and_a_json_face() {
+    let boxed = boxed_view("seatbelt", true);
+    let served = served_text(&boxed.participants[0].served);
+    assert_eq!(served.model.as_str(), "claude-fable-5-1");
+    assert_eq!(served.boundary.as_str(), "seatbelt");
+    assert!(served.named);
+    assert_eq!(
+        served_json(&boxed.participants[0].served),
+        json!({"model": "claude-fable-5-1", "boundary": "seatbelt"})
+    );
+    let absent = served_text(&view(None).participants[0].served);
+    assert!(!absent.named);
+    assert_eq!(absent.boundary.as_str(), brokkr_view::ABSENT);
+    assert_eq!(
+        served_json(&view(None).participants[0].served),
+        json!({"model": brokkr_view::ABSENT, "boundary": brokkr_view::ABSENT})
+    );
 }

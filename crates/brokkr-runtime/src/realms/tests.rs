@@ -184,6 +184,12 @@ fn a_pinned_world_carries_its_own_answer() {
         brokkr_core::canonical::sha256_hex(&pin["map"]),
         pin["sha256"].as_str().unwrap()
     );
+    let unselected = world.pinned(&serde_json::json!({}), None).unwrap();
+    let replayed = World::from_manifest(&unselected).unwrap().unwrap();
+    assert!(replayed
+        .house_for(&dir.path().join("brokkr"))
+        .unwrap()
+        .is_none());
 }
 
 /// The pin read back: `brokkr resume` names a journal and no map, and
@@ -385,6 +391,7 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
         journal: known.journal.clone(),
         house: known.house.clone(),
         dialect: known.dialect.clone(),
+        boundary: None,
     };
     assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();

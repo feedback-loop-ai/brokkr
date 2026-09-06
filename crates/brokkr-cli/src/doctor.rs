@@ -7,9 +7,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
+use brokkr_core::realms::Boundary;
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
 
+use crate::boundary;
 use crate::render::Safe;
 
 pub struct Report {
@@ -276,7 +278,17 @@ pub fn doctor(
     secrets_store: &Path,
     realms: Option<&Path>,
 ) -> Report {
-    let mut report = doctor_with_probe(
+    let workspace = std::env::current_dir().unwrap_or_default();
+    // The world is discovered once, before the bundle compiles: a bundle
+    // doctor is asked about compiles in the discovered realm, under its
+    // boundary (decision 0046 ruling 2), and the realm's own lines follow
+    // the machine's.
+    let world = brokkr_runtime::realms::World::discover(&workspace, realms);
+    let boundary = match &world {
+        Ok(Some(world)) => world.boundary_for(&workspace),
+        _ => Boundary::Namespace,
+    };
+    let mut report = doctor_in(
         bundle,
         db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
@@ -284,19 +296,40 @@ pub fn doctor(
         secrets_store,
         tool_version,
         ambient_variable,
+        boundary,
+        bundle.map(|dir| {
+            super::compile_in_realm(
+                &workspace,
+                dir,
+                world.as_ref().ok().and_then(Option::as_ref),
+                &workspace,
+            )
+        }),
     );
-    let workspace = std::env::current_dir().unwrap_or_default();
-    report_realm(&mut report, &workspace, realms, tool_version);
+    report_realm_world(&mut report, world, tool_version);
     report
 }
 
+#[cfg(test)]
 fn report_realm(
     report: &mut Report,
     workspace: &Path,
     named: Option<&Path>,
     probe: fn(&str) -> Option<String>,
 ) {
-    match brokkr_runtime::realms::World::discover(workspace, named) {
+    report_realm_world(
+        report,
+        brokkr_runtime::realms::World::discover(workspace, named),
+        probe,
+    );
+}
+
+fn report_realm_world(
+    report: &mut Report,
+    world: Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,
+    probe: fn(&str) -> Option<String>,
+) {
+    match world {
         Ok(Some(world)) => {
             report_realm_house_for_world(report, &world);
             report_realm_dialects(report, &world, probe);
@@ -399,6 +432,9 @@ fn report_realm_dialects(
     }
 }
 
+/// The machine's report in no realm: what every unit test asks, and
+/// what `doctor` asks under the boundary the discovered realm declares.
+#[cfg(test)]
 fn doctor_with_probe(
     bundle: Option<&Path>,
     db: &Path,
@@ -407,6 +443,31 @@ fn doctor_with_probe(
     secrets_store: &Path,
     probe: fn(&str) -> Option<String>,
     ambient: fn(&str) -> bool,
+) -> Report {
+    doctor_in(
+        bundle,
+        db,
+        library_root,
+        adapters_root,
+        secrets_store,
+        probe,
+        ambient,
+        Boundary::Namespace,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn doctor_in(
+    bundle: Option<&Path>,
+    db: &Path,
+    library_root: &Path,
+    adapters_root: &Path,
+    secrets_store: &Path,
+    probe: fn(&str) -> Option<String>,
+    ambient: fn(&str) -> bool,
+    boundary: Boundary,
+    compiled: Option<anyhow::Result<Bundle>>,
 ) -> Report {
     let mut report = Report {
         healthy: true,
@@ -436,31 +497,29 @@ fn doctor_with_probe(
     // Compile now so the hands probe can name the exact boxed sites in
     // the bundle the operator asked doctor to inspect. The bundle result
     // is still rendered at the end, after the other diagnostics.
-    let compiled = bundle.map(|dir| (dir, Bundle::compile_with(dir, library_root, adapters_root)));
+    let compiled = bundle.map(|dir| {
+        (
+            dir,
+            compiled.unwrap_or_else(|| {
+                Bundle::compile_under(dir, library_root, adapters_root, boundary)
+                    .map_err(Into::into)
+            }),
+        )
+    });
     let hands: Vec<&str> = compiled
         .as_ref()
         .and_then(|(_, result)| result.as_ref().ok())
         .map(|bundle| bundle.hands.keys().map(String::as_str).collect())
         .unwrap_or_default();
-    // Decision 0043: a bundle whose seats box their hands cannot run
-    // without bubblewrap, and the boundary is never simulated.
-    match probe("bwrap") {
-        Some(v) if hands.is_empty() => report.ok("hands", format!("{v} · boxed seats can run")),
-        Some(v) => report.ok(
-            "hands",
-            format!("{v} · seats {hands:?} declare hands and can run"),
-        ),
-        None if hands.is_empty() => report.warn(
-            "hands",
-            "bubblewrap (bwrap) not found — seats declaring hands will refuse to spawn".into(),
-        ),
-        None => report.warn(
-            "hands",
-            format!(
-                "bubblewrap (bwrap) not found — seats {hands:?} declare hands and will refuse \
-                 to spawn"
-            ),
-        ),
+    // Decision 0046 ruling 2: one line naming the boundaries a run can
+    // start under here, and the `hands` line judged against the realm's
+    // boundary rather than against bubblewrap alone (decision 0043's
+    // consequence, generalised). The boundary is never simulated.
+    let offers = boundary::offered(&probe);
+    report.ok("boundaries", boundary::doctor_line(&offers));
+    match boundary::hands_line(boundary, &offers[&boundary], &hands) {
+        (true, line) => report.ok("hands", line),
+        (false, line) => report.warn("hands", line),
     }
     // Optional: each agent CLI matters only to bundles whose seats use
     // its driver. The five-tuple that used to live here is now READ FROM

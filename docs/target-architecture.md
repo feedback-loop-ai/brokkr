@@ -278,8 +278,8 @@ Drivers may be implemented in any language. Trust selects the runner:
 | Trust | Default runner |
 |---|---|
 | `trusted` | Native child process in its assigned worktree. |
-| `policy-confined` | OCI container with pinned digest and least-privilege mounts/network. |
-| `public-evidence-only` | Container or remote runner with no private repository or credential mount. |
+| `policy-confined` | Decision 0046's `container` boundary — a pinned image with the worktree mounted and least-privilege mounts/network — declared by the realm, not the seat, and refused at start until slice (iii) measures it. |
+| `public-evidence-only` | The same `container` boundary, or a remote runner, with no private repository or credential mount. |
 
 The coordinator never exposes its database, signing material, or container
 control socket to a seat. It grants only declared worktree, artifact, tool, and

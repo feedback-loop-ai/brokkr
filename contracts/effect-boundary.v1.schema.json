@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/effect-boundary.v1.json",
+  "title": "Forge effect boundary v1 (an additive payload extension at event_schema 1)",
+  "description": "The optional, absent-by-default payload field decision 0046 ruling 3 adds to effect/started: which boundary stood at every invocation site of the attempt. Legal at event_schema 1 under the amended rule in contracts/README.md: optional, absent by default, published here as a numbered extension schema, and never read by fold — RunState gains nothing from it, and a run over a bundle that boxes nothing journals byte-identical payloads. This is a narrowed reading of ruling 3's 'every effect/started', named as such: a field on every start would be a v2 event, which the closed type enum forbids; ruling 3's 'every' is carried by the seat record instead (seat-record.v4). The data carries the plain word; every readout renders the adjective unboxed for a run in which any gate-class site stood under harness or open.",
+  "type": "object",
+  "properties": {
+    "boundary": {
+      "type": "array",
+      "description": "Present on effect/started ONLY when at least one invocation site of this attempt declares hands. A LIST keyed by invocation site with the same member tags effect-provenance.v1 uses, built from the same traversal, one entry per site of the attempt whether or not that site has hands.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["member", "boundary", "gate"],
+        "additionalProperties": false,
+        "properties": {
+          "member": {
+            "type": ["string", "null"],
+            "description": "The invocation-site tag the engine already uses for checkpoints and provenance: null for a single seat, '<member>' for a panel member, '<step>' for a sequence step, '<step>:<member>' for a member inside a step panel."
+          },
+          "boundary": {
+            "enum": ["namespace", "seatbelt", "container", "harness", "open", "not applicable"],
+            "description": "The realm's word for a site with hands (decision 0046 ruling 1); decision 0031's sentinel for a site without."
+          },
+          "gate": {
+            "type": "boolean",
+            "description": "Whether the site is gate class (decision 0021), read where the compiler keeps it. A run is rendered unboxed exactly when an entry has gate true and a word of harness or open."
+          }
+        }
+      }
+    }
+  }
+}
