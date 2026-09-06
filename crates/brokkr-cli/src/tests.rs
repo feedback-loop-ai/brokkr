@@ -304,6 +304,23 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
     run_with(cli, workspace, ui::serve, None, None, run_tui)
 }
 
+/// `brokkr operator <command>` as it was before decision 0047: one run,
+/// one word, one reason and one journal. The supersede-only arguments
+/// are absent, which is what any `retry` or `stop` invocation carries.
+fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
+    Cmd::Operator {
+        run: run.to_string(),
+        command: command.to_string(),
+        reason: reason.to_string(),
+        findings: Vec::new(),
+        by_run: None,
+        by_seq: None,
+        by_realm: None,
+        realms: None,
+        db: Some(db.to_path_buf()),
+    }
+}
+
 #[test]
 fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let dir = tempfile::tempdir().unwrap();
@@ -314,13 +331,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert_eq!(status_str(&Status::Running), "running");
     assert_eq!(finish(&state), ExitCode::from(1));
     running_store(&db, "ops");
-    assert!(run(cli(Cmd::Operator {
-        run: "ops".into(),
-        command: "widen".into(),
-        reason: "not allowed".into(),
-        db: db.clone(),
-    }))
-    .is_err());
+    assert!(run(cli(operator("ops", "widen", "not allowed", &db))).is_err());
     // `ops` is RUNNING, never parked. A `retry` there is refused and
     // says so with a failing exit code: accepting it would write an
     // `operator/accepted` that fold reads as `OutOfPlace` — a journal
@@ -328,13 +339,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     // wherever the run stands, so it is accepted.
     for (command, expected) in [("retry", ExitCode::FAILURE), ("stop", ExitCode::SUCCESS)] {
         assert_eq!(
-            run(cli(Cmd::Operator {
-                run: "ops".into(),
-                command: command.into(),
-                reason: "test".into(),
-                db: db.clone(),
-            }))
-            .unwrap(),
+            run(cli(operator("ops", command, "test", &db))).unwrap(),
             expected,
             "operator {command} on a running run",
         );
@@ -2162,6 +2167,7 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
             created_at: "2026-08-30T22:20:34Z",
             state: folded.as_ref().ok(),
             detail: folded.as_ref().err().map(String::as_str),
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "healthy",
@@ -2169,6 +2175,7 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
             created_at: "2026-08-30T22:21:00Z",
             state: None,
             detail: None,
+            residuals: &[],
         },
     ];
     let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
@@ -2319,6 +2326,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
                 created_at,
                 state: folded.as_ref().ok(),
                 detail: folded.as_ref().err().map(String::as_str),
+                residuals: &[],
             },
         )
         .collect();
@@ -2734,6 +2742,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         created_at: &listed[0].2,
         state: Some(&state),
         detail: None,
+        residuals: &[],
     }];
     let fleet = serde_json::to_string(&brokkr_view::run_rows(&entries)).unwrap();
     assert!(!fleet.contains("import"), "{fleet}");
@@ -3356,4 +3365,214 @@ fn brokkr_seats_is_a_thin_verb_over_inspects_view() {
     .unwrap_err()
     .to_string();
     assert!(unknown.contains("nobody"), "{unknown}");
+}
+// ------------------------------------------ decision 0047: supersede
+
+/// A run stopped on a review ruling that carries a security residual
+/// (ruling at seq 6, stop at seq 7), and beside it a run whose review
+/// ruled clean at seq 6 — the pair every supersede names.
+fn held_and_shipped(db: &std::path::Path) {
+    for (run_id, result, rule, next, inputs, terminal) in [
+        (
+            "held",
+            "residual",
+            "REVIEW-SECURITY-HOLD",
+            Value::Null,
+            json!({"has_security_residual": true}),
+            Some(EventType::RunStopped),
+        ),
+        (
+            "later",
+            "clean",
+            "REVIEW-OK",
+            json!("ship"),
+            json!({}),
+            None,
+        ),
+    ] {
+        let mut store = Store::open(db).unwrap();
+        store
+            .create_run(run_id, "close the finding by name", "test", &json!({}))
+            .unwrap();
+        let mut append = |kind, payload| {
+            store
+                .append_next(run_id, kind, payload, None, None)
+                .unwrap();
+        };
+        append(
+            EventType::RunStarted,
+            json!({"feature": "close the finding by name", "manifest": {}}),
+        );
+        append(EventType::PhaseEntered, json!({"phase": "review"}));
+        append(
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "review", "phase": "review"}),
+        );
+        append(
+            EventType::EffectStarted,
+            json!({"effect_id": "eff", "attempt_id": "att"}),
+        );
+        append(
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff", "attempt_id": "att", "result": {"result": result}}),
+        );
+        append(
+            EventType::TransitionDecided,
+            json!({"from": "review", "result": result, "rule_id": rule, "next": next,
+                   "severity": null, "inputs": inputs, "problem": null}),
+        );
+        if let Some(kind) = terminal {
+            append(kind, json!({"reason": "security residual above the bar"}));
+        }
+    }
+}
+
+/// `brokkr operator supersede` end to end (decision 0047 rulings 1 and
+/// 2): the verb writes one annotation, and every way of asking for it
+/// wrong is refused with nothing written.
+#[test]
+fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    held_and_shipped(&db);
+    let cited = |findings: Vec<u64>, by_run: Option<&str>, by_seq: Option<u64>| Cmd::Operator {
+        run: "held".into(),
+        command: "supersede".into(),
+        reason: "both residuals fixed and shipped".into(),
+        findings,
+        by_run: by_run.map(str::to_string),
+        by_seq,
+        by_realm: None,
+        realms: None,
+        db: Some(db.clone()),
+    };
+
+    // Ruling 2's refusals first, so the success below is proved to be
+    // the only thing that ever wrote.
+    for (what, command) in [
+        (
+            "no findings at all",
+            cited(Vec::new(), Some("later"), Some(6)),
+        ),
+        ("no citation", cited(vec![6], None, None)),
+        (
+            "a citation that does not resolve",
+            cited(vec![6], Some("no-such-run"), Some(6)),
+        ),
+    ] {
+        assert!(
+            run_in(unmapped(), cli(command)).is_err(),
+            "{what} is refused"
+        );
+        assert_eq!(
+            Store::open(&db).unwrap().load("held").unwrap().len(),
+            7,
+            "{what} wrote nothing",
+        );
+    }
+
+    // A realm the world does not name is refused before any journal is
+    // opened: a citation nobody can follow back is not a citation.
+    let mut elsewhere = cited(vec![6], Some("later"), Some(6));
+    if let Cmd::Operator { by_realm, .. } = &mut elsewhere {
+        *by_realm = Some("no-such-realm".into());
+    }
+    let refusal = run_in(unmapped(), cli(elsewhere)).unwrap_err().to_string();
+    assert!(
+        refusal.contains("names no realm in this world"),
+        "{refusal}"
+    );
+
+    // And the verb itself.
+    assert_eq!(
+        run_in(unmapped(), cli(cited(vec![6], Some("later"), Some(6)))).unwrap(),
+        ExitCode::SUCCESS,
+    );
+    let events = Store::open(&db).unwrap().load("held").unwrap();
+    assert_eq!(events.len(), 8);
+    assert_eq!(events[7].event_type, EventType::OperatorCommanded);
+    assert_eq!(events[7].payload["command"], "supersede");
+    let findings = brokkr_view::residual_findings("held", &events);
+    assert_eq!(
+        findings[0]
+            .superseded
+            .as_ref()
+            .expect("the finding is marked")
+            .by
+            .run_id,
+        "later",
+    );
+    // `brokkr runs --json` prints the finding and its mark (ruling 3).
+    assert_eq!(
+        run_in(
+            unmapped(),
+            cli(Cmd::Runs {
+                realms: None,
+                db: Some(db.clone()),
+                json: true,
+            }),
+        )
+        .unwrap(),
+        ExitCode::SUCCESS,
+    );
+
+    // A world with two hearths: the finding is in one journal and the
+    // run that closed it in the other, so `--by-realm` is what makes
+    // the citation followable (decision 0026 ruling 3).
+    let workspace = tempfile::tempdir().unwrap();
+    let held = workspace.path().join("held.db");
+    let neighbouring = workspace.path().join("neighbour.db");
+    held_and_shipped(&held);
+    held_and_shipped(&neighbouring);
+    std::fs::write(
+        workspace.path().join("realms.json"),
+        serde_json::to_string_pretty(&json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "here", "path": ".", "default_branch": "main",
+                 "journal": "held.db"},
+                {"name": "next-door", "path": ".", "default_branch": "main",
+                 "journal": "neighbour.db"},
+            ],
+            "journal": "held.db",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run_in(
+            workspace.path(),
+            cli(Cmd::Operator {
+                run: "held".into(),
+                command: "supersede".into(),
+                reason: "closed next door".into(),
+                findings: vec![6],
+                by_run: Some("later".into()),
+                by_seq: Some(6),
+                by_realm: Some("next-door".into()),
+                realms: Some(workspace.path().join("realms.json")),
+                db: None,
+            }),
+        )
+        .unwrap(),
+        ExitCode::SUCCESS,
+    );
+    let events = Store::open(&held).unwrap().load("held").unwrap();
+    assert_eq!(
+        events[7].payload["args"]["by"]["realm"], "next-door",
+        "the mark names the hearth the citation was read in",
+    );
+
+    // The supersede-only arguments belong to supersede: a `retry`
+    // carrying one is refused rather than silently ignoring it.
+    let refusal = run_in(unmapped(), {
+        let mut command = cited(vec![6], Some("later"), Some(6));
+        if let Cmd::Operator { command: word, .. } = &mut command {
+            *word = "retry".into();
+        }
+        cli(command)
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(refusal.contains("belong to 'supersede'"), "{refusal}");
 }

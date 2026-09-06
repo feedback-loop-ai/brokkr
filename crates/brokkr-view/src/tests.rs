@@ -300,6 +300,7 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
             created_at: T0,
             state: None,
             detail: Some("event 93: OperatorAccepted is impossible at cursor EffectInFlight"),
+            residuals: &[],
         },
         RunEntry {
             run_id: "new",
@@ -307,6 +308,7 @@ fn run_rows_are_newest_first_and_carry_the_whole_feature() {
             created_at: T1,
             state: Some(&running),
             detail: None,
+            residuals: &[],
         },
     ];
     let view = run_rows(&entries);
@@ -347,6 +349,7 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
             created_at: T0,
             state: Some(&running),
             detail: None,
+            residuals: &[],
         },
         RunEntry {
             run_id: "a-new",
@@ -354,6 +357,7 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
             created_at: T1,
             state: Some(&running),
             detail: None,
+            residuals: &[],
         },
     ];
     let beta = [RunEntry {
@@ -362,6 +366,7 @@ fn fleet_rows_group_by_realm_and_never_merge_two_journals() {
         created_at: T1,
         state: None,
         detail: Some("event 4: the journal does not fold"),
+        residuals: &[],
     }];
     let view = fleet_rows(&[
         HearthEntries {
@@ -417,6 +422,7 @@ fn one_hearth_groups_to_the_same_rows_run_rows_derives() {
         created_at: T0,
         state: Some(&running),
         detail: None,
+        residuals: &[],
     }];
     let flat = serde_json::to_value(run_rows(&entries)).unwrap();
     let grouped = serde_json::to_value(fleet_rows(&[HearthEntries {
@@ -1949,13 +1955,15 @@ fn the_strategy_is_shown_beside_the_triage_phase_only() {
 
 #[test]
 fn a_decision_without_a_rule_id_is_not_a_ruling() {
-    assert!(ruling_of(None).is_none());
-    assert!(ruling_of(Some(&json!("a string"))).is_none());
-    assert!(ruling_of(Some(&json!({"from": "a"}))).is_none());
-    let bare = ruling_of(Some(
-        &json!({"rule_id": null, "result": "", "problem": null}),
-    ))
+    assert!(ruling_of(None, None).is_none());
+    assert!(ruling_of(Some(&json!("a string")), None).is_none());
+    assert!(ruling_of(Some(&json!({"from": "a"})), None).is_none());
+    let bare = ruling_of(
+        Some(&json!({"rule_id": null, "result": "", "problem": null})),
+        None,
+    )
     .unwrap();
+    assert!(bare.superseded.is_none(), "no annotation, no mark");
     assert_eq!(bare.rule_id, "?");
     assert_eq!(bare.from, "?", "an absent from renders the mark");
     assert_eq!(bare.next, "?");
@@ -3244,15 +3252,17 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
     assert_eq!(view.boundary.text, "open");
 }
 
-/// The wire: version 9, `model` and `boundary` as siblings on every
-/// carrier, the run-level fact at the root, and every absence a
+/// The wire: version 10 — two shape changes met in one merge, decision
+/// 0046's boundary cells and decision 0047's supersede marks, and each
+/// had independently claimed 9 — with `model` and `boundary` as siblings
+/// on every carrier, the run-level fact at the root, and every absence a
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 9);
+    assert_eq!(VIEW_VERSION, 10);
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 9);
+    assert_eq!(json["view_version"], 10);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));
@@ -3478,4 +3488,287 @@ fn retry_rows_keep_their_own_attempt_and_a_new_attempt_clears_old_boundary_evide
         "not applicable"
     );
     assert_eq!(stamped.journal[13].served.boundary.text, "not applicable");
+}
+
+/// One `operator/commanded` carrying a supersede annotation, as
+/// decision 0047 ruling 1 shapes its `args`.
+fn annotation(seq: u64, findings: Value, by: Value, at: &str) -> EventEnvelope {
+    ev(
+        seq,
+        EventType::OperatorCommanded,
+        json!({"command_id": "cmd", "command": "supersede",
+               "operator": "operator",
+               "args": {"findings": findings, "by": by,
+                        "reason": "closed by the later run"}}),
+        at,
+    )
+}
+
+/// The one ruling every test below supersedes: a review hold carrying a
+/// security residual.
+fn security_hold(seq: u64) -> EventEnvelope {
+    ev(
+        seq,
+        EventType::TransitionDecided,
+        json!({"from": "review", "rule_id": "REVIEW-SECURITY-HOLD", "next": null,
+               "result": "residual",
+               "inputs": {"has_security_residual": true}}),
+        T0,
+    )
+}
+
+/// Decision 0047 ruling 3: the view reads the annotation the fold
+/// ignores. The finding stays derived, stays listed and stays cited —
+/// it gains the operator's mark, on the model and on the rendered line.
+#[test]
+fn a_superseded_finding_carries_the_operators_mark_and_stays_a_finding() {
+    let ruling = security_hold(4);
+    let plain = residual_findings("r1", std::slice::from_ref(&ruling));
+    assert_eq!(plain.len(), 1);
+    assert!(plain[0].superseded.is_none(), "no annotation, no mark");
+
+    let marked = residual_findings(
+        "r1",
+        &[
+            ruling.clone(),
+            annotation(
+                9,
+                json!([4]),
+                json!({"realm": null, "run_id": "later", "seq": 21}),
+                T1,
+            ),
+        ],
+    );
+    assert_eq!(marked.len(), 1, "a superseded finding is still a finding");
+    let mark = marked[0]
+        .superseded
+        .as_ref()
+        .expect("the finding carries the mark");
+    assert_eq!(mark.seq, 9, "the ANNOTATION's own seq, not the ruling's");
+    assert_eq!(mark.by.run_id, "later");
+    assert_eq!(mark.by.seq, 21);
+    assert!(mark.by.realm.is_none());
+    assert_eq!(mark.reason, "closed by the later run");
+    assert_eq!(mark.operator, "operator");
+    assert_eq!(mark.recorded_at, T1);
+    assert_eq!(
+        marked[0].line,
+        "r1 seq 4 · review · REVIEW-SECURITY-HOLD · has_security_residual: true \
+         · superseded by later seq 21",
+        "every surface printing the line prints the mark"
+    );
+
+    // The same fact, keyed by the realm it was read in (decision 0026
+    // ruling 3), reads as `realm/run` wherever a citation is rendered.
+    let keyed = residual_findings(
+        "r1",
+        &[
+            ruling.clone(),
+            annotation(
+                9,
+                json!([4]),
+                json!({"realm": "brokkr", "run_id": "later", "seq": 21}),
+                T1,
+            ),
+        ],
+    );
+    let by = &keyed[0].superseded.as_ref().expect("the mark reads").by;
+    assert_eq!(by.realm.as_deref(), Some("brokkr"));
+    assert_eq!(cited(by), "brokkr/later seq 21");
+    assert!(keyed[0].line.ends_with("superseded by brokkr/later seq 21"));
+
+    // A finding named by more than one supersede carries the LAST in
+    // journal order; the earlier annotation stays in the journal.
+    let twice = residual_findings(
+        "r1",
+        &[
+            ruling,
+            annotation(
+                9,
+                json!([4]),
+                json!({"realm": null, "run_id": "first", "seq": 21}),
+                T1,
+            ),
+            annotation(
+                10,
+                json!([4]),
+                json!({"realm": null, "run_id": "second", "seq": 22}),
+                T2,
+            ),
+        ],
+    );
+    assert_eq!(
+        twice[0]
+            .superseded
+            .as_ref()
+            .expect("the mark reads")
+            .by
+            .run_id,
+        "second",
+        "the last annotation in journal order wins"
+    );
+
+    // A quarantine finding is the fleet read's own claim about a
+    // journal that will not fold, and carries no mark.
+    assert!(quarantine_finding("r1", 6, "boom").superseded.is_none());
+}
+
+/// A citation that is not there to read is not half-read into a mark:
+/// deriving structure from a broken payload is repair (decision 0001).
+/// Every field the annotation must carry, absent one at a time.
+#[test]
+fn an_unreadable_supersede_annotation_marks_nothing() {
+    let ruling = security_hold(4);
+    let commanded = |payload: Value| ev(9, EventType::OperatorCommanded, payload, T1);
+    let by = json!({"realm": null, "run_id": "later", "seq": 21});
+    for (what, event) in [
+        (
+            "another operator command entirely",
+            commanded(json!({"command_id": "c", "command": "stop", "args": {},
+                             "operator": "operator"})),
+        ),
+        (
+            "an event that is not an operator command",
+            ev(
+                9,
+                EventType::OperatorRejected,
+                json!({"command_id": "c", "command": "supersede", "operator": "o"}),
+                T1,
+            ),
+        ),
+        (
+            "no args at all",
+            commanded(json!({"command_id": "c", "command": "supersede", "operator": "o"})),
+        ),
+        (
+            "no by",
+            commanded(
+                json!({"command_id": "c", "command": "supersede", "operator": "o",
+                             "args": {"findings": [4], "reason": "why"}}),
+            ),
+        ),
+        (
+            "findings that are not a list",
+            commanded(
+                json!({"command_id": "c", "command": "supersede", "operator": "o",
+                             "args": {"findings": 4, "by": by, "reason": "why"}}),
+            ),
+        ),
+        (
+            "a by with no run_id",
+            commanded(
+                json!({"command_id": "c", "command": "supersede", "operator": "o",
+                             "args": {"findings": [4], "reason": "why",
+                                      "by": {"realm": null, "seq": 21}}}),
+            ),
+        ),
+        (
+            "a by whose seq is not a number",
+            commanded(
+                json!({"command_id": "c", "command": "supersede", "operator": "o",
+                             "args": {"findings": [4], "reason": "why",
+                                      "by": {"run_id": "later", "seq": "21"}}}),
+            ),
+        ),
+    ] {
+        let findings = residual_findings("r1", &[ruling.clone(), event]);
+        assert!(
+            findings[0].superseded.is_none(),
+            "{what} marks nothing: {}",
+            findings[0].line
+        );
+    }
+    // A well-formed annotation with no operator and no reason recorded
+    // still reads, with the absence mark where the words would be, and
+    // a findings entry that is not a sequence number names nothing.
+    let bare = residual_findings(
+        "r1",
+        &[
+            ruling,
+            commanded(json!({"command_id": "c", "command": "supersede",
+                             "args": {"findings": [4, "not a seq"], "by": by}})),
+        ],
+    );
+    let mark = bare[0].superseded.as_ref().expect("the citation reads");
+    assert_eq!(mark.operator, ABSENT);
+    assert_eq!(mark.reason, ABSENT);
+}
+
+/// Ruling 3's surfaces: `inspect` and `tui` read the mark off the
+/// ruling line — the header ruling for the run's last one, the trail row
+/// for the ruling it was ruled on — and `runs --json` carries the
+/// findings with their marks.
+#[test]
+fn the_ruling_line_and_the_run_rows_carry_the_mark() {
+    let mut events = seat_journal();
+    let ruled = events.len() as u64 + 1;
+    events.push(security_hold(ruled));
+    events.push(annotation(
+        ruled + 1,
+        json!([ruled]),
+        json!({"realm": null, "run_id": "later", "seq": 21}),
+        T2,
+    ));
+    let stopped = state(
+        Some("review"),
+        Status::Stopped,
+        Some(json!({"from": "review", "rule_id": "REVIEW-SECURITY-HOLD",
+                    "next": null, "result": "residual"})),
+    );
+    let view = run_view(&events, Some(&stopped));
+    let mark = view
+        .ruling
+        .as_ref()
+        .expect("the run has a ruling")
+        .superseded
+        .as_ref()
+        .expect("the last ruling carries the mark");
+    assert_eq!(mark.by.run_id, "later");
+    assert_eq!(mark.seq, ruled + 1);
+    let row = view
+        .journal
+        .iter()
+        .find(|row| row.seq == ruled)
+        .expect("the ruling has a trail row");
+    assert!(
+        row.what.text.ends_with("superseded by later seq 21"),
+        "the trail's ruling line carries it too: {}",
+        row.what.text
+    );
+
+    // The same journal without the annotation renders exactly what it
+    // always did — nothing is marked and no line grew.
+    let plain = run_view(&events[..events.len() - 1], Some(&stopped));
+    assert!(plain
+        .ruling
+        .as_ref()
+        .expect("the ruling still reads")
+        .superseded
+        .is_none());
+    assert!(!plain
+        .journal
+        .iter()
+        .any(|row| row.what.text.contains("superseded")));
+
+    // `brokkr runs --json` is a surface that prints a residual finding,
+    // so it prints the mark.
+    let residuals = residual_findings("r1", &events);
+    let entries = [RunEntry {
+        run_id: "r1",
+        feature: "the finding is closed by name",
+        created_at: T0,
+        state: Some(&stopped),
+        detail: None,
+        residuals: &residuals,
+    }];
+    let json = serde_json::to_value(run_rows(&entries)).unwrap();
+    assert_eq!(json["runs"][0]["residuals"][0]["seq"], ruled);
+    assert_eq!(
+        json["runs"][0]["residuals"][0]["superseded"]["seq"],
+        ruled + 1
+    );
+    assert_eq!(
+        json["runs"][0]["residuals"][0]["superseded"]["by"]["run_id"],
+        "later"
+    );
 }

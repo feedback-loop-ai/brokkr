@@ -22,8 +22,8 @@ pub use bundle::{
     SequenceStep, StepBody, ENGINE_VERSION,
 };
 pub use engine::{
-    apply_fenced_operator_command, conclude, git_head, operator_command, DriveEnd, Engine,
-    EngineError, FencedCommandOutcome, LOST_FENCE,
+    apply_fenced_operator_command, conclude, git_head, operator_command, operator_supersede,
+    DriveEnd, Engine, EngineError, FencedCommandOutcome, Supersede, LOST_FENCE,
 };
 pub use keep_refs::{
     delete as delete_keep_refs, list as list_keep_refs, plant as plant_keep_refs, plant_or_report,

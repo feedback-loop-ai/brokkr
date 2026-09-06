@@ -11,7 +11,8 @@ from the run journals and it is complete for this purpose: run ids,
 status, phase, sequence numbers, age, park reasons, the operator
 commands each parked run admits, consecutive failures, the last ruling
 per run, per-seat cost, and the residual findings the verify and review
-rulings recorded. Do not go looking for anything else. You have no
+rulings recorded — each finding carrying the operator's supersede mark
+when one closes it. Do not go looking for anything else. You have no
 repository, no journal access, and no credentials; your working
 directory is an empty scratch directory that exists only to hold your
 result file.
@@ -23,7 +24,11 @@ Write the result file named in your task block, with `result` set to
 
 - `fleet_summary` — one short paragraph in plain language: how many runs
   there are, how many are parked, running, stopped and completed, and
-  what an operator should look at first. No lists, no headings.
+  what an operator should look at first. No lists, no headings. If the
+  dossier's `fleet` carries a non-zero `superseded_findings`, say in one
+  clause how many findings were superseded and by which runs closed
+  them, so the operator sees the closure without being asked to act on
+  it.
 - `parked_runs` — one object per parked run you have advice for, each
   with `run_id`, `seq`, `command`, and `reasoning`. `command` must be
   one of the operator commands the dossier states for that run;
@@ -53,6 +58,15 @@ Write the result file named in your task block, with `result` set to
    parked, say the dossier does not say. Reconstructing a cause you
    cannot see is the one failure this seat cannot recover from, because
    nobody downstream can tell it from a real reading.
+5. **A superseded finding is not queued.** A residual finding whose
+   dossier entry carries a `superseded` object has been closed by the
+   operator, by name, citing the run and ruling that closed it. Leave it
+   out of `work_queue`. It stays out even when the superseding run is
+   itself stopped or carries residual findings of its own: those
+   findings are the superseding run's, and they reach the queue on their
+   own citation, not through the one they closed. Never propose a
+   `supersede` — it is not an operator command the dossier states for
+   any run, and closing the record is the operator's act alone.
 
 If the fleet is empty or nothing warrants advice, still write the file:
 `fleet_summary` saying so, and both arrays empty. That is a complete

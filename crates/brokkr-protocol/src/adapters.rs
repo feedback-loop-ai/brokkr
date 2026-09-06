@@ -227,7 +227,12 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
          — MANDATORY\n\nWhen your work is finished, {asked}:\n\n    {result_path}\n\nwith the shape:\n\n    {{\"result\": \
          \"<one of: {allowed}>\",\n      \"inputs\": {{ ...optional typed facts for \
          the phase machine... }},\n      \"notes\": \"<short human summary of what \
-         you did and why>\"}}\n\n{only} You never decide the next phase — the engine's policy table rules \
+         you did and why>\"}}
+
+{only} The object carries exactly these top-level \
+         keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE \
+         inputs, and a record with any other top-level key is refused where it is \
+         sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
         house = house,

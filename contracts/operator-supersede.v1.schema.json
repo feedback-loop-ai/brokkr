@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/operator-supersede.v1.json",
+  "title": "Forge operator supersede args v1 (a payload value at event_schema 1)",
+  "description": "The shape of operator/commanded.args for command 'supersede', and for nothing else (decision 0047 ruling 1). This is not a widening of the v1 event envelope: 'command' is already an open string there and 'args' an already-legal open object the reducer never reads, so a new command word with structured args is a v1 event byte for byte — no new event type, no new payload field, no manifest digest moved. The event is written only on a run that has already gone completed or stopped, where fold admits an operator annotation that changes nothing (the 'OperatorCommanded | OperatorRejected' arm). No operator/accepted follows: there is nothing to execute, and fold refuses an acceptance on a terminal run by design. The annotation is read by brokkr-view and the fleet dossier, never by fold, and RunState gains nothing from it.",
+  "type": "object",
+  "required": ["findings", "by", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The sequence numbers of the rulings on THIS run whose residual findings are closed. Each must be the seq of a residual finding brokkr_view::residual_findings derives for the run at write time (ruling 2); the verb refuses any other and writes nothing. Verified when written and never re-verified when read: the journal is append-only, so what was true stays true.",
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "by": {
+      "type": "object",
+      "description": "The run and the ruling that closed them. Only the operator knows that run B closed run A's finding, and only the operator may say so (decision 0020 ruling 2).",
+      "required": ["realm", "run_id", "seq"],
+      "additionalProperties": false,
+      "properties": {
+        "realm": {
+          "type": ["string", "null"],
+          "description": "The realm whose journal the superseding run was read in, keyed as decision 0026 ruling 3 keys every fleet fact. Null in a one-hearth world, which is every world that never drew a second journal."
+        },
+        "run_id": {
+          "type": "string",
+          "description": "The superseding run. Must exist in the journal 'realm' names (the workspace journal when null) and must not be the annotated run itself."
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A transition/decided event in that run — the RULING that closed the findings, not the run's head."
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "The operator's own sentence. It rides here rather than on an operator/accepted, because a supersede has no acceptance: the commanded event is the whole record."
+    }
+  }
+}

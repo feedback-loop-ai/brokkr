@@ -299,16 +299,39 @@ enum Cmd {
         #[arg(long, default_value = DEFAULT_DB)]
         db: PathBuf,
     },
-    /// Record an operator command (retry | stop) as journal events.
+    /// Record an operator command (retry | stop | supersede) as journal
+    /// events.
     Operator {
         #[arg(long)]
         run: String,
-        /// "retry" re-runs the current phase; "stop" ends the run.
+        /// "retry" re-runs the current phase; "stop" ends the run;
+        /// "supersede" records that residual findings on a run that has
+        /// already finished are closed by another run (decision 0047).
         command: String,
         #[arg(long)]
         reason: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        /// supersede only: the residual findings this closes, by the
+        /// sequence number of the ruling each was read from. Repeatable,
+        /// or one comma-separated list.
+        #[arg(long, value_delimiter = ',')]
+        findings: Vec<u64>,
+        /// supersede only: the run that closed them.
+        #[arg(long)]
+        by_run: Option<String>,
+        /// supersede only: the `transition/decided` in that run which
+        /// closed them.
+        #[arg(long)]
+        by_seq: Option<u64>,
+        /// supersede only: the realm that run was read in. Omitted for
+        /// the workspace journal, which is every one-hearth world.
+        #[arg(long)]
+        by_realm: Option<String>,
+        /// supersede only: the world's map, so a citation may name a
+        /// run in another hearth.
+        #[arg(long)]
+        realms: Option<PathBuf>,
+        #[arg(long)]
+        db: Option<PathBuf>,
     },
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
@@ -1069,6 +1092,27 @@ pub(crate) fn fold_or_quarantine(
     fold(events).map_err(|error| error.to_string())
 }
 
+/// One run of a fleet listing, read ONCE: what the fold says about it,
+/// and the residual findings its journal carries with the operator's
+/// supersede marks on them (decision 0047 ruling 3). Re-opening the
+/// journal for the marks would be a second derivation waiting to
+/// disagree with the first. A journal that will not open at all states
+/// neither, which is exactly the quarantined row it always was.
+pub(crate) fn listed_run(
+    store: &Store,
+    run_id: &str,
+) -> (
+    Option<Result<RunState, String>>,
+    Vec<brokkr_view::ResidualFinding>,
+) {
+    let read = store.load(run_id).ok();
+    let residuals = read
+        .as_deref()
+        .map(|events| brokkr_view::residual_findings(run_id, events))
+        .unwrap_or_default();
+    (read.map(|events| fold_or_quarantine(&events)), residuals)
+}
+
 /// One refresh for `brokkr tui`: the only place a store is opened on that
 /// path, and the reason `tui.rs` can name none. The head is compared on
 /// **both** seq and hash — a rewritten journal at equal seq is the
@@ -1137,16 +1181,13 @@ fn tui_views(
         // The absence mark is `RunRow.status_known`'s job (0001), and
         // the fold's own words now ride along as the row's detail
         // instead of being discarded.
-        let folded_run = store
-            .load(&run_id)
-            .ok()
-            .map(|events| fold_or_quarantine(&events));
-        folded.push((run_id, feature, created_at, folded_run));
+        let (folded_run, residuals) = listed_run(&store, &run_id);
+        folded.push((run_id, feature, created_at, folded_run, residuals));
     }
     let entries: Vec<brokkr_view::RunEntry> = folded
         .iter()
         .map(
-            |(run_id, feature, created_at, folded_run)| brokkr_view::RunEntry {
+            |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
                 run_id,
                 feature,
                 created_at,
@@ -1155,6 +1196,7 @@ fn tui_views(
                     .as_ref()
                     .and_then(|folded| folded.as_ref().err())
                     .map(String::as_str),
+                residuals,
             },
         )
         .collect();
@@ -1461,6 +1503,83 @@ impl Invocation {
     }
 }
 
+/// `brokkr operator supersede` (decision 0047 ruling 1): one annotation
+/// on a run that has already finished, saying which of its residual
+/// findings another run closed. Every citation is verified before
+/// anything is written and a refusal writes nothing (ruling 2), so this
+/// reports a refusal as an error rather than as a journaled rejection.
+///
+/// The world is opened the way the fleet verbs open it — `--realms`, an
+/// ambient `./realms.json`, `--db` outranking both — because `by` may
+/// name a run in another hearth, and a citation into a journal this
+/// process never opened is one nobody can follow back.
+fn supersede(
+    workspace: &std::path::Path,
+    run: &str,
+    reason: &str,
+    findings: &[u64],
+    by: (Option<String>, Option<u64>, Option<String>),
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+) -> Result<ExitCode> {
+    let (by_run, by_seq, by_realm) = by;
+    anyhow::ensure!(
+        !findings.is_empty(),
+        "supersede needs --findings: the sequence numbers of the rulings whose \
+         residual findings this closes"
+    );
+    let (Some(by_run), Some(by_seq)) = (by_run, by_seq) else {
+        anyhow::bail!(
+            "supersede needs --by-run and --by-seq: the run that closed the \
+             findings, and the ruling in it that did"
+        );
+    };
+    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
+    let cited_journal = match &by_realm {
+        None => invocation.journal.clone(),
+        Some(realm) => invocation
+            .world
+            .as_ref()
+            .map(World::hearths)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|hearth| hearth.realms.iter().any(|known| known == realm))
+            .map(|hearth| hearth.journal)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--by-realm '{realm}' names no realm in this world; --realms \
+                     names the map that would"
+                )
+            })?,
+    };
+    let mut store = Store::open(&invocation.journal)?;
+    // The cited journal is opened READ-ONLY: a citation is checked
+    // against a world this command only looks at (decision 0026 ruling
+    // 5), and the one journal it writes to is the annotated run's.
+    let cited = Store::open_read_only(&cited_journal)?;
+    let operator = std::env::var("USER").unwrap_or("operator".into());
+    let written = brokkr_runtime::operator_supersede(
+        &mut store,
+        &cited,
+        run,
+        &brokkr_runtime::Supersede {
+            findings,
+            by_realm: by_realm.as_deref(),
+            by_run: &by_run,
+            by_seq,
+            reason,
+            operator: &operator,
+        },
+    )?;
+    eprintln!(
+        "recorded supersede at seq {} on {run}; the findings stay in the journal, \
+         marked, and the run's status is untouched. Read it with: brokkr inspect \
+         --run {run}",
+        written.seq
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 /// The journal alone, for the read surfaces that take a map only to know
 /// which world's fleet they are reading.
 fn journal_of(
@@ -1511,7 +1630,17 @@ fn hearths_of(
 /// Opened READ-ONLY, and deliberately: a reading surface that creates the
 /// journal it came to read has written to a world it was only asked to
 /// look at (decision 0026 ruling 5).
-type FoldedRun = (String, String, String, Result<RunState, String>);
+///
+/// One folded run: its id, its feature, when it started, what the fold
+/// says about it, and the residual findings its journal carries
+/// (decision 0047 ruling 3) — all read together, from one load.
+type FoldedRun = (
+    String,
+    String,
+    String,
+    Result<RunState, String>,
+    Vec<brokkr_view::ResidualFinding>,
+);
 
 fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
     // One error voice for the three doors: what a hearth refuses with is
@@ -1523,7 +1652,14 @@ fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
     let mut folded = Vec::new();
     for (run_id, feature, created_at) in store.list_runs().map_err(hearth_error)? {
         let events = store.load(&run_id).map_err(hearth_error)?;
-        folded.push((run_id, feature, created_at, fold_or_quarantine(&events)));
+        let residuals = brokkr_view::residual_findings(&run_id, &events);
+        folded.push((
+            run_id,
+            feature,
+            created_at,
+            fold_or_quarantine(&events),
+            residuals,
+        ));
     }
     Ok(folded)
 }
@@ -1919,12 +2055,49 @@ fn run_with(
             run,
             command,
             reason,
+            findings,
+            by_run,
+            by_seq,
+            by_realm,
+            realms,
             db,
         } => {
             anyhow::ensure!(
-                command == "retry" || command == "stop",
-                "operator command must be 'retry' or 'stop'"
+                command == "retry" || command == "stop" || command == brokkr_view::SUPERSEDE,
+                "operator command must be 'retry', 'stop' or 'supersede'"
             );
+            // Whether any argument that belongs to `supersede` alone
+            // was typed. Asked HERE, before the branch below takes
+            // those arguments, because on a `retry` or a `stop` one of
+            // them is a refusal rather than something quietly ignored.
+            let cited = [
+                !findings.is_empty(),
+                by_run.is_some(),
+                by_seq.is_some(),
+                by_realm.is_some(),
+                realms.is_some(),
+            ]
+            .contains(&true);
+            if command == brokkr_view::SUPERSEDE {
+                return supersede(
+                    workspace,
+                    &run,
+                    &reason,
+                    &findings,
+                    (by_run, by_seq, by_realm),
+                    realms,
+                    db,
+                );
+            }
+            anyhow::ensure!(
+                !cited,
+                "--findings, --by-run, --by-seq, --by-realm and --realms belong to \
+                 'supersede'; '{command}' takes --run, --reason and --db"
+            );
+            // The journal `retry` and `stop` have always opened: this
+            // pair takes no map, so `--db` or the default and nothing
+            // else decides it.
+            let db = db.unwrap_or(PathBuf::from(DEFAULT_DB));
             let mut store = Store::open(&db)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             // The command is fenced against a concurrently-driving
@@ -2267,15 +2440,16 @@ fn run_with(
                         Err(_) => Vec::new(),
                         Ok(runs) => runs
                             .iter()
-                            .map(
-                                |(run_id, feature, created_at, state)| brokkr_view::RunEntry {
+                            .map(|(run_id, feature, created_at, state, residuals)| {
+                                brokkr_view::RunEntry {
                                     run_id,
                                     feature,
                                     created_at,
                                     state: state.as_ref().ok(),
                                     detail: state.as_ref().err().map(String::as_str),
-                                },
-                            )
+                                    residuals,
+                                }
+                            })
                             .collect(),
                     })
                     .collect();
@@ -2315,18 +2489,21 @@ fn run_with(
                 // run becomes a quarantined row carrying the fold's own
                 // words, and the rest of the fleet is still listed. The
                 // journal is never touched — the refusal is reported.
-                let folded_run = fold_or_quarantine(&store.load(&run_id)?);
-                folded.push((run_id, feature, created_at, folded_run));
+                let events = store.load(&run_id)?;
+                let residuals = brokkr_view::residual_findings(&run_id, &events);
+                let folded_run = fold_or_quarantine(&events);
+                folded.push((run_id, feature, created_at, folded_run, residuals));
             }
             let entries: Vec<brokkr_view::RunEntry> = folded
                 .iter()
                 .map(
-                    |(run_id, feature, created_at, folded_run)| brokkr_view::RunEntry {
+                    |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
                         run_id,
                         feature,
                         created_at,
                         state: folded_run.as_ref().ok(),
                         detail: folded_run.as_ref().err().map(String::as_str),
+                        residuals,
                     },
                 )
                 .collect();

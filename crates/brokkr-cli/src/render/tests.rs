@@ -177,6 +177,7 @@ fn runs_view() -> brokkr_view::RunsView {
             created_at: T0,
             state: Some(&older),
             detail: None,
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "run-7",
@@ -184,6 +185,7 @@ fn runs_view() -> brokkr_view::RunsView {
             created_at: T1,
             state: Some(&newer),
             detail: None,
+            residuals: &[],
         },
     ];
     brokkr_view::run_rows(&entries)
@@ -201,6 +203,7 @@ fn fleet_view() -> brokkr_view::FleetView {
         created_at: T1,
         state: Some(&running),
         detail: None,
+        residuals: &[],
     }];
     let beta = [
         brokkr_view::RunEntry {
@@ -209,6 +212,7 @@ fn fleet_view() -> brokkr_view::FleetView {
             created_at: T0,
             state: Some(&running),
             detail: None,
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "run-b2",
@@ -216,6 +220,7 @@ fn fleet_view() -> brokkr_view::FleetView {
             created_at: T1,
             state: Some(&running),
             detail: None,
+            residuals: &[],
         },
     ];
     brokkr_view::fleet_rows(&[
@@ -366,6 +371,7 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
         created_at: T0,
         state: Some(&hostile),
         detail: None,
+        residuals: &[],
     }];
     let rows = brokkr_view::run_rows(&entries);
     let out = runs(&rows, NOW, &Style::plain(80));
@@ -462,6 +468,7 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
         created_at: T0,
         state: Some(&running),
         detail: None,
+        residuals: &[],
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(40));
     assert!(out.ends_with("…\n"), "{out:?}");
@@ -506,6 +513,7 @@ fn a_run_whose_journal_does_not_fold_still_lists() {
         created_at: "not a time",
         state: None,
         detail: None,
+        residuals: &[],
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(80));
     assert_eq!(out, "r1 ? - seq - — unfoldable\n");
@@ -528,6 +536,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
                 "event 93: OperatorAccepted is impossible at cursor \
                  EffectInFlight\r\x1b[2Jforged",
             ),
+            residuals: &[],
         },
         brokkr_view::RunEntry {
             run_id: "healthy",
@@ -535,6 +544,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
             created_at: T1,
             state: Some(&healthy),
             detail: None,
+            residuals: &[],
         },
     ];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
@@ -741,6 +751,52 @@ fn a_ruling_with_a_problem_prints_it_under_the_ruling_line() {
     let out = inspect(&view, None, false, &Style::plain(80));
     assert!(out.contains("ruling  HARD-STOP  design → ?\n"), "{out}");
     assert!(out.contains("        the seat refused\n"), "{out}");
+}
+
+/// Decision 0047 ruling 3: `inspect` prints the mark on the ruling
+/// line. The ruling above it is printed exactly as it was ruled — a
+/// supersede is not a correction — and the mark names the annotation,
+/// the run that closed the finding, the operator and the reason.
+#[test]
+fn a_superseded_ruling_prints_the_operators_mark_under_the_ruling_line() {
+    let mut events = journal();
+    let ruled = events.len() as u64 + 1;
+    events.push(ev(
+        ruled,
+        EventType::TransitionDecided,
+        json!({"from": "review", "rule_id": "REVIEW-SECURITY-HOLD", "next": null,
+               "result": "residual",
+               "inputs": {"has_security_residual": true}}),
+        T1,
+    ));
+    events.push(ev(
+        ruled + 1,
+        EventType::OperatorCommanded,
+        json!({"command_id": "cmd", "command": "supersede", "operator": "operator",
+               "args": {"findings": [ruled],
+                        "by": {"realm": null, "run_id": "later", "seq": 21},
+                        "reason": "fixed and shipped"}}),
+        T1,
+    ));
+    let stopped = state(
+        Status::Stopped,
+        None,
+        Some(json!({"rule_id": "REVIEW-SECURITY-HOLD", "from": "review",
+                    "result": "residual"})),
+    );
+    let view = brokkr_view::run_view(&events, Some(&stopped));
+    let out = inspect(&view, None, false, &Style::plain(200));
+    assert!(
+        out.contains("ruling  REVIEW-SECURITY-HOLD  review → ? · residual\n"),
+        "the ruling is printed as it was ruled: {out}"
+    );
+    assert!(
+        out.contains(&format!(
+            "        superseded at seq {} by later seq 21 · operator · fixed and shipped\n",
+            ruled + 1
+        )),
+        "{out}"
+    );
 }
 
 #[test]

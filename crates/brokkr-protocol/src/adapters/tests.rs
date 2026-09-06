@@ -104,6 +104,11 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     );
     assert!(prompt.contains("trusted role"));
     assert!(prompt.contains("clean, residual"));
+    // Decision 0034 rulings 6 and 7 seal the record with no extra
+    // top-level key; the contract says so, because an analyst that wrote
+    // its finding beside `inputs` as well as inside it lost a whole pass.
+    assert!(prompt.contains("exactly these top-level keys"));
+    assert!(prompt.contains("goes INSIDE inputs"));
     assert!(prompt.contains("\"fact\": true"));
 
     let housed = render_prompt(
