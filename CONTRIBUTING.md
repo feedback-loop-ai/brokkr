@@ -42,7 +42,7 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 | `preflight` | Verify and review an existing branch without implementing or shipping it. | review, verify | medium |
 | `research` | Read articles and propose registry entries with cited classifications; the operator rules them. | research, verify | low |
 | `research-dsh` | The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on. | research, verify | low |
-| `standby` | Fast's shape with every model seat on the other vendor, so delivery survives one account's exhausted limit. | implement, review, ship, verify | medium |
+| `standby` | Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit. | implement, review, ship, verify | medium |
 | `triage` | Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | variable |
 | `wager-harness` | Driver evaluation that swaps only implementation to Codex for a fair wager. | implement, review, ship, verify | medium |
 | `wager-harness-dsh` | Driver evaluation that swaps only implementation to DSH for a fair wager. | implement, review, ship, verify | medium |

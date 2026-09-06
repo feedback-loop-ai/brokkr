@@ -12,12 +12,16 @@ role charter and the policy table itself are `fast`'s, inherited:
 
 | Seat | `fast` | `standby` |
 |---|---|---|
-| implement | claude `fable` @ high | codex `astra` @ high, sandbox `danger-full-access` |
+| implement | claude `fable` @ high | codex `astra` @ xhigh, sandbox `danger-full-access` |
 | review | claude `fable` @ high | codex `astra` @ xhigh, sandbox `read-only` |
 | verify, ship | boxed exec scripts | unchanged — no model, no vendor |
 
 `astra` is a judge in `adapters/codex.json`, which is what lets it hold
-the review gate (decision 0041 ruling 3). The reviewer reads under
+the review gate (decision 0041 ruling 3). The smith is hired at `xhigh`
+rather than `fast`'s `high` on the operator's instruction of 2026-09-06:
+a hedge is reached for when the other crew cannot run at all, so it is
+carrying work the default crew would otherwise have done, and a returned
+heat costs more than the effort. The reviewer reads under
 codex's own `read-only` class; the smith writes under
 `danger-full-access`, as the wager harness's codex arm does, because a
 smith that cannot write is not a smith.

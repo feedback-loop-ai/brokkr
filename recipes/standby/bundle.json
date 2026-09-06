@@ -1,6 +1,6 @@
 {
   "name": "standby",
-  "description": "Fast's shape with every model seat on the other vendor, so delivery survives one account's exhausted limit.",
+  "description": "Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.",
   "cost": "medium",
   "extends": "fast",
   "override": {
@@ -36,7 +36,7 @@
           "--model",
           "gpt-6-astra",
           "--effort",
-          "high",
+          "xhigh",
           "--sandbox",
           "danger-full-access"
         ]
