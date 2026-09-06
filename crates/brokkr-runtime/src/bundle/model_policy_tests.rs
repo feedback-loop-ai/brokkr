@@ -3437,7 +3437,10 @@ fn a_literal_backslash_filename_cannot_hide_a_changed_pinned_script() {
     );
 }
 
-#[cfg(unix)]
+// Linux filesystems allow arbitrary filename bytes. APFS and HFS+ on
+// macOS refuse this non-UTF-8 name at creation, so the no-lossy-alias
+// property holds there by construction, before the manifest walk runs.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_filename_that_json_cannot_represent_is_refused_without_lossy_aliasing() {
     use std::os::unix::ffi::OsStringExt;
