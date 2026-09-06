@@ -60,15 +60,26 @@ property `boundary` on the checkpoint and on the successful result —
 the five words or the sentinel `not applicable` — with v1, v2 and v3
 not edited and the store embedding v4 beside them under the
 embedded-copy pin test. The schema admits the property on any
-checkpoint because draft-07 cannot tell a finishing checkpoint from a
-per-turn one; the engine SHALL stamp it on exactly two records — the
-finishing checkpoint, which is the one whose `step` ends in
-`-session-finished`, and the successful result — and never on a
-per-turn checkpoint. The stamp is the realm's word for a site with
-hands and `not applicable` for a site without, written before the
-record is appended, and it SHALL replace any `boundary` a driver wrote,
-because the engine is the only party that knows which boundary it
-built; drivers and their conformance field sets SHALL not change. The
+checkpoint because draft-07 cannot tell one record from another; the
+engine SHALL stamp it by one rule — a record that names a `model`
+carries `boundary` beside it, and a record that names none carries no
+`boundary` — applied to every driver checkpoint and successful result
+at the two pass-throughs through which they reach the store, and to
+the engine's own `panel-member-finished` and `sequence-step-finished`
+markers, which name a member's or a step's model. So the finishing
+checkpoint, whose `model` the driver conformance suite asserts for
+every built-in driver, and the successful result carry it, as does any
+per-turn checkpoint on which a driver names a model; a per-turn
+checkpoint that names none carries none (design DD19). The stamp is
+the realm's word for a site with hands and `not applicable` for a site
+without, written before the record is appended, and it SHALL replace
+any `boundary` a driver wrote — dropping it from a record that names no
+model — because the engine is the only party that knows which boundary
+it built; drivers and their conformance field sets SHALL not change. A
+panel's aggregate result, which the engine composes and which names no
+model, SHALL carry no `boundary`; a sequence's ending result is its
+ending step's driver result and SHALL carry that step's word (design
+DD19). The
 store's append fence SHALL validate the stamped record under v4 and
 refuse a word outside the vocabulary at the seq it would have taken
 (decision 0046 ruling 3 with the commission's erratum; decision 0034
@@ -84,7 +95,11 @@ rulings 1, 5 and 6; decision 0031 ruling 1 for the sentinel).
 
 #### Scenario: The engine's word wins
 - **WHEN** a driver writes `boundary` `open` onto the finishing checkpoint of a seat boxed under `namespace`
-- **THEN** the appended checkpoint carries `namespace`, and the seat's per-turn checkpoints carry no `boundary` at all
+- **THEN** the appended checkpoint carries `namespace`; a per-turn checkpoint on which the driver wrote `boundary` and named no `model` is appended without it; and a per-turn checkpoint on which the driver names a `model` carries `namespace` beside it
+
+#### Scenario: A panel's aggregate carries none, a sequence's ending result its step's word
+- **WHEN** a panel of boxed members under `harness` succeeds, and a sequence whose ending step is a boxed dialect check step under `namespace` succeeds
+- **THEN** the panel's `effect/succeeded` result carries no `boundary`, as it carries no `model`; each member's finishing checkpoint and the engine's `panel-member-finished` marker for it carry `harness`; and the sequence's result and its `sequence-step-finished` marker carry `namespace`
 
 #### Scenario: A wrong word is refused at append
 - **WHEN** a result carrying `boundary` `chroot` is offered to the store's append fence under v4

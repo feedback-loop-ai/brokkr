@@ -4,8 +4,9 @@ Groups are the commission's items; their order is the design's landing
 order (DD16), which is the order another smith executes them in:
 deletion first so `hands_command`'s call sites are touched once, the
 word and the pin before anything reads them, availability before the
-engine composes, the gate law before run time, the record before the
-readouts that render it, then one re-pin, then the prose. Every task
+engine composes, the gate law before the unboxed composition and the
+adapters' fragments after both (DD16's steps 4a to 4c), the record
+before the readouts that render it, then one re-pin, then the prose. Every task
 names the requirement it serves as `<capability> / <Requirement>`.
 
 Conventions binding on every task below, restated once rather than per
@@ -54,7 +55,8 @@ one helper, because the coverage gate is literal.
 
 - [ ] 2.1 Add `Boundary { Namespace, Seatbelt, Container, Harness, Open }`
       beside `Realm` in `crates/brokkr-core/src/realms.rs` with a
-      `FromStr`/`Display` pair, `Default` of `Namespace`, and a refusal
+      `FromStr`/`Display` pair, no `Default` — absence resolves to
+      `namespace` only in `Realm::boundary()` — and a refusal
       message that lists the five words and says a new boundary is a new
       decision, citing 0046 (DD1) — realm-boundary / The boundary
       vocabulary is closed and lives in one type.
@@ -65,7 +67,9 @@ one helper, because the coverage gate is literal.
       The seat record carries the boundary as seat-record/v4.
 - [ ] 2.3 Tests in `crates/brokkr-core/src/realms/tests.rs`: each of the
       five words parses and displays itself; `chroot` is refused with the
-      five words and the new-decision sentence — realm-boundary / The
+      five words and the new-decision sentence; a reader of evidence
+      carrying no word holds an absence, the type offering no default —
+      realm-boundary / The
       boundary vocabulary is closed and lives in one type.
 - [ ] 2.4 Write `contracts/realms.v4.schema.json` as v3 plus the optional
       per-realm `boundary` (the five-word enum, description saying
@@ -281,30 +285,236 @@ one helper, because the coverage gate is literal.
       instead of saying the shipped gates require Linux —
       boundary-availability / init's warning speaks the vocabulary.
 
-## 6. The adapters' `hands.harness` (ruling 4)
+## 6. The gate law and the pinned-script grammar (ruling 4, DD16 step 4a)
 
-- [ ] 6.1 Extend the adapter loader
+- [ ] 6.1 Extract the manifest walk's skip rule (`realms.json`, `dialects/…`)
+      from `manifest_for` into one function and share it with the
+      pinned-script lookup, so the two cannot drift (DD9) —
+      gate-boundary-policy / An exec gate under harness or open holds only
+      for pinned bytes.
+- [ ] 6.2 Add the pinned-script check as a pure grammar and lookup over
+      the raw command, before `expand_command`, exactly as
+      gate-boundary-policy / An exec gate under harness or open holds only
+      for pinned bytes states it — that requirement is the one copy of the
+      grammar and the lookup; the walk's skip rule is 6.1's shared
+      function; nothing is canonicalised and no two spellings are
+      compared (DD9) — gate-boundary-policy / An exec gate under harness
+      or open holds only for pinned bytes.
+- [ ] 6.3 Admit an exec gate with hands under `harness` and `open` only on
+      that verdict, refusing otherwise naming decision 0046 ruling 4,
+      decision 0021 and, for a spelling, the spelling; hand the check the
+      declaring layer's directory the caller of `expand_command` already
+      holds — gate-boundary-policy / An exec gate under harness or open
+      holds only for pinned bytes.
+- [ ] 6.4 Refuse a dialect validate or check step — the compiler's
+      synthetic boxed exec gate — under `harness` and `open` at compile,
+      naming the step, decision 0046 ruling 4, decision 0042 ruling 4 and
+      a boxed boundary as the road open today; under `namespace`,
+      `seatbelt` and `container` the step compiles exactly as today
+      (DD8) — gate-boundary-policy / An exec gate under harness or open
+      holds only for pinned bytes.
+- [ ] 6.5 Give `enforce_model_policy`
+      (`crates/brokkr-runtime/src/bundle.rs`) the boundary axis for sites
+      that declare hands, decision 0021's refusals unchanged under every
+      boundary: `namespace`, `seatbelt` and `container` admit a model gate
+      as today; `harness` admits one only when every link of the resolved
+      chain declares `hands.harness.gate` as a fragment — a member group 8
+      teaches the loader to read, so until then no link declares one and
+      the arm refuses, fail-closed — refusing otherwise by link, provider
+      and missing declaration; `open` refuses a model gate naming ruling
+      4; a gate-class site without hands compiles as today under every
+      boundary (D1) — gate-boundary-policy / The gate law reads the
+      boundary for sites that declare hands.
+- [ ] 6.6 Refuse a work-class site with hands under `harness` whose chain
+      has a link declaring no `hands.harness.work` fragment, as the
+      capability gap it is, naming the link (DD7) —
+      gate-boundary-policy / The gate law reads the boundary for sites that
+      declare hands.
+- [ ] 6.7 Refuse an inline model site with hands under `harness` or `open`
+      at compile, naming the seat and the repair — seat it through an
+      agent, or run the realm under a boxed boundary (D10) —
+      gate-boundary-policy / The argv of a site with hands follows the
+      boundary and the class.
+- [ ] 6.8 Add the pure layer re-walk beside `manifest_for`:
+      `layer_drift(layer_dir, pinned) -> Option<key>` re-derives the
+      declaring layer's pinned identity with the same walk — the leaf's
+      `files` map, or an ancestor's compose digest by the same
+      `manifest_for` call over `Ancestor.dir` and its deeper chain — and
+      names the first key whose bytes moved, went missing or appeared
+      (DD9); the engine calls it at spawn (task 7.7) —
+      gate-boundary-policy / An exec gate under harness or open holds only
+      for pinned bytes.
+- [ ] 6.9 Pinned-script tests in
+      `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`:
+      `bundles/self`'s verify seat admitted under `open`;
+      `["{brokkr}","driver","exec","--","true"]` refused; `./../outside.sh`,
+      `/usr/bin/true`, `.\scripts\s.sh` and `/private/var/b/scripts/s.sh`
+      each refused naming the token with no path compared;
+      `./scripts/missing.sh` refused naming the token and the directory
+      searched; `bash -c ./scripts/s.sh` refused naming `-c` as an option
+      token; `./dialects/run.sh` refused as a path the walk does not pin;
+      `recipes/wager-harness`'s inherited verify seat admitted against
+      `recipes/fast/scripts/verify-seat.sh`; the shipped ship seat
+      admitted with `{brokkr}` among its unjudged arguments; a fixture
+      bundle with an artifact phase, its chief on a fixture provider that
+      declares both `hands.harness` members, refused under `harness`
+      naming its synthetic validate step, ruling 4, 0042 ruling 4 and a
+      boxed boundary, and compiling under `namespace` — gate-boundary-policy
+      / An exec gate under harness or open holds only for pinned bytes.
+- [ ] 6.10 Model-policy tests in the same file: a `harness` gate on a
+      provider declaring the fragment admitted; on one declaring none
+      refused naming provider, `hands.harness.gate` and ruling 4; a chain
+      whose second link declares none refused naming the second link; an
+      `open` model gate refused; a `seatbelt` and a `container` gate
+      admitted at compile with the word pinned; a `harness` work seat
+      without a `work` fragment refused as a capability gap; an inline
+      trusted model gate with a tool list and no hands admitted under
+      `open` exactly as under `namespace`; and every shipped bundle's
+      refusals and admissions under `namespace` unchanged —
+      gate-boundary-policy / The gate law reads the boundary for sites
+      that declare hands.
+- [ ] 6.11 Re-walk tests as a pure function over a temporary layer: an
+      untouched layer names no key; an edited script, an edited sibling
+      the script sources, a deleted pinned file and an added file each
+      name the first key that differs; an ancestor layer's digest is
+      re-derived for an inherited seat and names the ancestor when its
+      script moved (DD9) — gate-boundary-policy / An exec gate under
+      harness or open holds only for pinned bytes.
+
+## 7. Run-time composition of the unboxed exec dispatch (ruling 4, DD16 step 4b)
+
+- [ ] 7.1 Add `SpawnEnv { Inherit, Exactly(table) }` to
+      `DriverProcess::spawn` (`crates/brokkr-protocol/src/process.rs`),
+      `Inherit` being today's behaviour, and thread it through every
+      spawn site (D25, DD18) — gate-boundary-policy / An unboxed exec
+      dispatch runs in a fixed environment.
+- [ ] 7.2 Add the pure unboxed-environment function beside the box's own
+      table in `crates/brokkr-protocol/src/hands.rs`, of the engine's
+      environment, the engine's home, the site's spec, the identity and
+      the two scratch paths, composing exactly the table
+      gate-boundary-policy / An unboxed exec dispatch runs in a fixed
+      environment lists — that requirement is the one copy of the table;
+      DD10 carries the reason for each entry that differs from the box's,
+      `USER` and `LOGNAME` included — gate-boundary-policy / An unboxed
+      exec dispatch runs in a fixed environment.
+- [ ] 7.3 Add the network prefix and its probe in the same module, the
+      prefix's tokens and the probe's arms exactly as gate-boundary-policy /
+      The argv of a site with hands follows the boundary and the class
+      spells them — that requirement is the one copy — the probe run once
+      per engine process at the first unboxed exec dispatch, in that
+      dispatch's environment against its search path, its answer
+      remembered on the engine for every later dispatch, consulted only
+      on Linux, never journaled (D12, DD15) — gate-boundary-policy / The argv of a site
+      with hands follows the boundary and the class.
+- [ ] 7.4 Replace the `hands_command(confined_command(..))` nesting at the
+      four call sites (single, panel member, sequence step, dialect step)
+      with `compose_site(boundary, class, command, hands,
+      harness_fragments, workdir, roots, result_path, prefix) -> SiteSpawn
+      { argv, env }` (DD18), a three-arm match over the boundaries this
+      engine builds so no unreachable arm exists (DD2); the dialect-step
+      call site composes under a boxed boundary only, because 6.4 refuses
+      the step elsewhere — gate-boundary-policy / The argv of a site with
+      hands follows the boundary and the class.
+- [ ] 7.5 Compose per boundary: `namespace` today's argv token for token
+      with `SpawnEnv::Inherit`; `harness` the adapter's `gate` fragment
+      for a gate-class site and `work` for a work-class one, with
+      `{result_path}` and `{brokkr}` expanded, no MCP server served and no
+      box built (the fragments group 8 lands); `open` the adapter's base
+      driver argv and nothing of Brokkr's. An exec dispatch under
+      `harness` and `open` is the compiled command itself —
+      `{prompt_file}` left literal for the exec driver — behind the prefix
+      when the probe passes, with `SpawnEnv::Exactly(table)` and the
+      worktree as its working directory. A model site keeps the engine's
+      environment under every boundary — gate-boundary-policy / The argv
+      of a site with hands follows the boundary and the class; An unboxed
+      exec dispatch runs in a fixed environment.
+- [ ] 7.6 Keep `hands.network` and `hands.binds` pinned in the manifest as
+      declared under `harness` and `open`, enforced by nothing of
+      Brokkr's (D18) — gate-boundary-policy / The argv of a site with hands
+      follows the boundary and the class.
+- [ ] 7.7 Before an unboxed exec dispatch spawns, call `layer_drift` (6.8)
+      over the declaring layer against the identity the run manifest
+      pins, and on a named key refuse the dispatch — nothing spawned, the
+      attempt's failure journaled naming the layer and the key — so the
+      bytes that run are the bytes the digest names, the residual being
+      the interval between the re-walk and the `exec` (DD9) —
+      gate-boundary-policy / An exec gate under harness or open holds only
+      for pinned bytes.
+- [ ] 7.8 Argv tests as pure argv, no spawning: a boxed model site and a
+      boxed exec site under `namespace` equal to what `hands_command`
+      produced before this change, token for token; a codex gate under
+      `harness` carrying `--sandbox read-only --output-last-message
+      <result path>` with no `mcp_servers.brokkr`, no `{hands_mcp_json}`
+      expansion and no literal `{result_path}`; a codex work site carrying
+      `--sandbox workspace-write` and no MCP server; an `open` work site
+      carrying the base driver argv with the model and effort pins alone;
+      a site declaring `network: false` keeping its manifest entry with no
+      network switch in its argv — gate-boundary-policy / The argv of a
+      site with hands follows the boundary and the class.
+- [ ] 7.9 Pin the unboxed exec dispatch token for token:
+      `bundles/self`'s verify seat under `harness` on Linux with the probe
+      passing is exactly `unshare`, `--map-root-user`, `--net`, `--`,
+      `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid>
+      --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`,
+      `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`,
+      `{prompt_file}`; with the probe failing, and on macOS and Windows,
+      and under `open`, exactly the compiled command alone; the probe's
+      command is the eight-token prefix around `true`; the probe answers
+      no-without-spawning, no and yes on a search path with no `unshare`,
+      a planted non-zero `unshare` and a planted zero one, and a second
+      dispatch of the same engine spawning no second probe —
+      gate-boundary-policy / The argv of a site with hands follows the
+      boundary and the class.
+- [ ] 7.10 Environment tests as a pure function: the shipped verify seat on
+      a rustup machine carries `PATH` verbatim, the private `HOME` and
+      `TMPDIR`, `CARGO_HOME` and `RUSTUP_HOME` from the declared binds,
+      the fixed entries and the git identity, and none of `GH_TOKEN`,
+      `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or
+      `BROKKR_HANDS_BOX`; a planted `.ssh/id` under the engine's home is
+      not reached by a spawned `sh -c 'cat "$HOME/.ssh/id"'` — a proof
+      about the environment and not the filesystem, named as such —
+      while `CARGO_HOME` names the planted `.cargo`; the locators follow the
+      binds and not the engine's environment, `~/.npm` giving
+      `NPM_CONFIG_CACHE`; the marker is inherited and never set; the
+      Windows names are carried verbatim on Windows and not consulted
+      elsewhere — gate-boundary-policy / An unboxed exec dispatch runs in a
+      fixed environment.
+- [ ] 7.11 Re-walk tests in the engine's tests, skipping under
+      `BROKKR_HANDS_BOX` where a real spawn is driven: an unboxed exec
+      gate whose verify script was edited after compile fails the attempt
+      naming the layer and the key with nothing spawned and the failure
+      journaled; the same gate with an edited sibling script fails the
+      same way; an untouched layer spawns; an inherited seat whose
+      ancestor layer moved fails naming the ancestor; a `namespace` gate
+      over the same edited layer is composed as today, because the box
+      is its admission — gate-boundary-policy / An exec gate under harness
+      or open holds only for pinned bytes.
+
+## 8. The adapters' `hands.harness` and the judge's door (ruling 4, DD16 step 4c)
+
+- [ ] 8.1 Extend the adapter loader
       (`crates/brokkr-protocol/src/adapters.rs` and the runtime's
       resolver) with an optional `hands.harness` object of exactly three
       members: `gate` and `work`, each an argv fragment or
       `{"unsupported": "<measured reason>"}`, an absent member reading
       unsupported without a reason (fail-closed, the three-shape
       convention `tool_permissions` uses); and `result`, optional, one of
-      `file` and `last-message`, absent reading `file` —
+      `file` and `last-message`, absent reading `file`; the gate law's
+      `harness` arms (6.5, 6.6) now read the members —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
-- [ ] 6.2 Admit `{result_path}` and `{brokkr}` in `hands.harness`
+- [ ] 8.2 Admit `{result_path}` and `{brokkr}` in `hands.harness`
       fragments and refuse `{hands_mcp_json}` and `{hands_args_toml}`
       there, saying no workspace tool is served under `harness` (D23) —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
-- [ ] 6.3 Loader tests: an unknown member (`hands.harness.judge`) refused
+- [ ] 8.3 Loader tests: an unknown member (`hands.harness.judge`) refused
       naming the three the vocabulary admits; `result` `stdout` refused
       naming `file` and `last-message`; a workspace token in either
       fragment refused; an empty fragment accepted as a legal measured
       declaration — gate-boundary-policy / An adapter declares how its
       harness stands under the harness boundary.
-- [ ] 6.4 Declare `adapters/codex.json`'s `hands.harness`: `gate`
+- [ ] 8.4 Declare `adapters/codex.json`'s `hands.harness`: `gate`
       `["--sandbox","read-only","--output-last-message","{result_path}"]`
       with `result` `last-message`, `work` `["--sandbox",
       "workspace-write"]`, from codex's own documented sandbox classes and
@@ -312,10 +522,10 @@ one helper, because the coverage gate is literal.
       read-only` being ruling 4's own word for codex, so the declaration
       is from the decision and the tool's record, not a guess; the one
       fact still unmeasured, whether the capture lands under the
-      read-only class, is task 6.9's —
+      read-only class, is task 8.9's —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
-- [ ] 6.5 Measure claude's fragments against the installed claude 2.1.x
+- [ ] 8.5 Measure claude's fragments against the installed claude 2.1.x
       and record them in `adapters/claude.json` — never guessed — only
       where a `claude` the seat may run is reachable: the implementing
       seat's tool grant is `cargo` and `git`, so this measurement is the
@@ -337,22 +547,22 @@ one helper, because the coverage gate is literal.
       report — gate-boundary-policy / An adapter declares how its harness
       stands under the harness boundary; Every shipped bundle compiles
       under harness once the fragments are measured.
-- [ ] 6.6 Where a measured mode leaves no door for a judge, or no writable
+- [ ] 8.6 Where a measured mode leaves no door for a judge, or no writable
       mode a work seat can stand in, declare that member
       `{"unsupported": "<measured reason>"}` — never an unmeasured
       fragment (DD20) — gate-boundary-policy / A judge under harness still
       delivers its result file.
-- [ ] 6.7 Leave `adapters/dsh.json` and `adapters/lanetally.json` without
+- [ ] 8.7 Leave `adapters/dsh.json` and `adapters/lanetally.json` without
       `hands.harness`, and test that each is refused at a `harness` gate
       exactly as it is refused at a boxed gate today —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
-- [ ] 6.8 Adapter data tests: codex's two fragments and its door load as
+- [ ] 8.8 Adapter data tests: codex's two fragments and its door load as
       declared; claude's `gate` and `work` are each undeclared, a
       fragment, or `unsupported` with a reason, a `gate` fragment naming
       `{result_path}` as its door — gate-boundary-policy / An adapter
       declares how its harness stands under the harness boundary.
-- [ ] 6.9 Record codex's door: `--output-last-message {result_path}`
+- [ ] 8.9 Record codex's door: `--output-last-message {result_path}`
       under `--sandbox read-only` is declared from the tool's record, and
       whether the capture lands under the read-only class is measured by
       the same recipe — one gate seat under the fragment delivering its
@@ -360,172 +570,9 @@ one helper, because the coverage gate is literal.
       the implementing seat is nowhere; record the measurement in the
       guide when made (task 12.1) and, until then, that it is pending and
       the operator's, listed in task 11.6's note; if it fails, declare
-      `gate` unsupported with the reason (task 6.6) —
+      `gate` unsupported with the reason (task 8.6) —
       gate-boundary-policy / A judge under harness still delivers its
       result file.
-
-## 7. The gate law and the pinned-script grammar (ruling 4)
-
-- [ ] 7.1 Give `enforce_model_policy`
-      (`crates/brokkr-runtime/src/bundle.rs`) the boundary axis for sites
-      that declare hands, decision 0021's refusals unchanged under every
-      boundary: `namespace`, `seatbelt` and `container` admit a model gate
-      as today; `harness` admits one only when every link of the resolved
-      chain declares `hands.harness.gate` as a fragment, refusing
-      otherwise by link, provider and missing declaration; `open` refuses
-      a model gate naming ruling 4; a gate-class site without hands
-      compiles as today under every boundary (D1) —
-      gate-boundary-policy / The gate law reads the boundary for sites that
-      declare hands.
-- [ ] 7.2 Refuse a work-class site with hands under `harness` whose chain
-      has a link declaring no `hands.harness.work` fragment, as the
-      capability gap it is, naming the link (DD7) —
-      gate-boundary-policy / The gate law reads the boundary for sites that
-      declare hands.
-- [ ] 7.3 Refuse an inline model site with hands under `harness` or `open`
-      at compile, naming the seat and the repair — seat it through an
-      agent, or run the realm under a boxed boundary (D10) —
-      gate-boundary-policy / The argv of a site with hands follows the
-      boundary and the class.
-- [ ] 7.4 Extract the manifest walk's skip rule (`realms.json`,
-      `dialects/…`) from `manifest_for` into one function and share it
-      with the pinned-script lookup, so the two cannot drift (DD9) —
-      gate-boundary-policy / An exec gate under harness or open holds only
-      for pinned bytes.
-- [ ] 7.5 Add the pinned-script check as a pure grammar and lookup over
-      the raw command, before `expand_command`, exactly as
-      gate-boundary-policy / An exec gate under harness or open holds only
-      for pinned bytes states it — that requirement is the one copy of the
-      grammar and the lookup; the walk's skip rule is 7.4's shared
-      function; nothing is canonicalised and no two spellings are
-      compared (DD9) — gate-boundary-policy / An exec gate under harness
-      or open holds only for pinned bytes.
-- [ ] 7.6 Admit an exec gate with hands under `harness` and `open` only on
-      that verdict, refusing otherwise naming decision 0046 ruling 4,
-      decision 0021 and, for a spelling, the spelling; hand the check the
-      declaring layer's directory the caller of `expand_command` already
-      holds — gate-boundary-policy / An exec gate under harness or open
-      holds only for pinned bytes.
-- [ ] 7.7 Admit a dialect validate or check step under `harness` and
-      `open` on the same terms, its argv pinned by the dialect's content
-      digest and the tool's declared name and version (D6/DD8) —
-      gate-boundary-policy / An exec gate under harness or open holds only
-      for pinned bytes.
-- [ ] 7.8 Add to `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`:
-      a `harness` gate on a provider declaring the fragment admitted; on
-      one declaring none refused naming provider, `hands.harness.gate` and
-      ruling 4; a chain whose second link declares none refused naming the
-      second link; an `open` model gate refused; a `seatbelt` and a
-      `container` gate admitted at compile with the word pinned; a
-      `harness` work seat without a `work` fragment refused as a
-      capability gap; an inline trusted model gate with a tool list and no
-      hands admitted under `open` exactly as under `namespace`; and every
-      shipped bundle's refusals and admissions under `namespace` unchanged
-      — gate-boundary-policy / The gate law reads the boundary for sites
-      that declare hands.
-- [ ] 7.9 Pinned-script tests in the same file: `bundles/self`'s verify
-      seat admitted under `open`; `["{brokkr}","driver","exec","--","true"]`
-      refused; `./../outside.sh`, `/usr/bin/true`, `.\scripts\s.sh` and
-      `/private/var/b/scripts/s.sh` each refused naming the token with no
-      path compared; `./scripts/missing.sh` refused naming the token and
-      the directory searched; `bash -c ./scripts/s.sh` refused naming `-c`
-      as an option token; `./dialects/run.sh` refused as a path the walk
-      does not pin; `recipes/wager-harness`'s inherited verify seat
-      admitted against `recipes/fast/scripts/verify-seat.sh`; the shipped
-      ship seat admitted with `{brokkr}` among its unjudged arguments; a
-      fixture bundle's dialect validate and check steps admitted under
-      `harness` — gate-boundary-policy / An exec gate under harness or open
-      holds only for pinned bytes.
-
-## 8. Run-time composition: argv, environment, the door (ruling 4)
-
-- [ ] 8.1 Add `SpawnEnv { Inherit, Exactly(table) }` to
-      `DriverProcess::spawn` (`crates/brokkr-protocol/src/process.rs`),
-      `Inherit` being today's behaviour, and thread it through every
-      spawn site (D25) — gate-boundary-policy / An unboxed exec dispatch
-      runs in a fixed environment.
-- [ ] 8.2 Add the pure unboxed-environment function beside the box's own
-      table in `crates/brokkr-protocol/src/hands.rs`, of the engine's
-      environment, the engine's home, the site's spec, the identity and
-      the two scratch paths, composing exactly the table
-      gate-boundary-policy / An unboxed exec dispatch runs in a fixed
-      environment lists — that requirement is the one copy of the table;
-      DD10 carries the reason for each entry that differs from the box's,
-      `USER` and `LOGNAME` included — gate-boundary-policy / An unboxed
-      exec dispatch runs in a fixed environment.
-- [ ] 8.3 Add the network prefix and its probe in the same module, the
-      prefix's tokens and the probe's arms exactly as gate-boundary-policy /
-      The argv of a site with hands follows the boundary and the class
-      spells them — that requirement is the one copy — the probe run at
-      each unboxed exec dispatch's spawn in that dispatch's environment
-      against its search path, consulted only on Linux, its answer never
-      journaled (D12, DD15) — gate-boundary-policy / The argv of a site
-      with hands follows the boundary and the class.
-- [ ] 8.4 Replace the `hands_command(confined_command(..))` nesting at the
-      four call sites (single, panel member, sequence step, dialect step)
-      with `compose_site(boundary, class, command, hands,
-      harness_fragments, workdir, roots, result_path, probe) -> SiteSpawn
-      { argv, env }` (DD18), a three-arm match over the boundaries this
-      engine builds so no unreachable arm exists (DD2) —
-      gate-boundary-policy / The argv of a site with hands follows the
-      boundary and the class.
-- [ ] 8.5 Compose per boundary: `namespace` today's argv token for token
-      with `SpawnEnv::Inherit`; `harness` the adapter's `gate` fragment
-      for a gate-class site and `work` for a work-class one, with
-      `{result_path}` and `{brokkr}` expanded, no MCP server served and no
-      box built; `open` the adapter's base driver argv and nothing of
-      Brokkr's. An exec dispatch under `harness` and `open` is the
-      compiled command itself — `{prompt_file}` left literal for the exec
-      driver — behind the prefix when the probe passes, with
-      `SpawnEnv::Exactly(table)` and the worktree as its working
-      directory. A model site keeps the engine's environment under every
-      boundary — gate-boundary-policy / The argv of a site with hands
-      follows the boundary and the class; An unboxed exec dispatch runs in
-      a fixed environment.
-- [ ] 8.6 Keep `hands.network` and `hands.binds` pinned in the manifest as
-      declared under `harness` and `open`, enforced by nothing of
-      Brokkr's (D18) — gate-boundary-policy / The argv of a site with hands
-      follows the boundary and the class.
-- [ ] 8.7 Argv tests as pure argv, no spawning: a boxed model site and a
-      boxed exec site under `namespace` equal to what `hands_command`
-      produced before this change, token for token; a codex gate under
-      `harness` carrying `--sandbox read-only --output-last-message
-      <result path>` with no `mcp_servers.brokkr`, no `{hands_mcp_json}`
-      expansion and no literal `{result_path}`; a codex work site carrying
-      `--sandbox workspace-write` and no MCP server; an `open` work site
-      carrying the base driver argv with the model and effort pins alone;
-      a site declaring `network: false` keeping its manifest entry with no
-      network switch in its argv — gate-boundary-policy / The argv of a
-      site with hands follows the boundary and the class.
-- [ ] 8.8 Pin the unboxed exec dispatch token for token:
-      `bundles/self`'s verify seat under `harness` on Linux with the probe
-      passing is exactly `unshare`, `--map-root-user`, `--net`, `--`,
-      `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid>
-      --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`,
-      `--`, `bash`, `<repo>/bundles/self/scripts/verify-seat.sh`,
-      `{prompt_file}`; with the probe failing, and on macOS and Windows,
-      and under `open`, exactly the compiled command alone; the probe's
-      command is the eight-token prefix around `true`; the probe answers
-      no-without-spawning, no and yes on a search path with no `unshare`,
-      a planted non-zero `unshare` and a planted zero one; a dialect
-      validate step under `open` with the probe passing is the prefix
-      followed by `<brokkr> driver exec -- openspec validate <change>
-      --strict --no-interactive` — gate-boundary-policy / The argv of a
-      site with hands follows the boundary and the class.
-- [ ] 8.9 Environment tests as a pure function: the shipped verify seat on
-      a rustup machine carries `PATH` verbatim, the private `HOME` and
-      `TMPDIR`, `CARGO_HOME` and `RUSTUP_HOME` from the declared binds,
-      the fixed entries and the git identity, and none of `GH_TOKEN`,
-      `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or
-      `BROKKR_HANDS_BOX`; a planted `.ssh/id` under the engine's home is
-      unreachable by a spawned `sh -c 'cat "$HOME/.ssh/id"'` while
-      `CARGO_HOME` names the planted `.cargo`; the locators follow the
-      binds and not the engine's environment, `~/.npm` giving
-      `NPM_CONFIG_CACHE`; the marker is inherited and never set; the
-      Windows names are carried verbatim on Windows and not consulted
-      elsewhere; a dialect step gets the same table —
-      gate-boundary-policy / An unboxed exec dispatch runs in a fixed
-      environment.
 - [ ] 8.10 Deliver the judge's result under `harness`: the engine expands
       `{result_path}` at spawn to the seat's own result path and reads the
       result file as today under both doors; a final message that is not
@@ -581,19 +628,28 @@ one helper, because the coverage gate is literal.
       validates the stamped record under v4 —
       boundary-record / The seat record carries the boundary as
       seat-record/v4.
-- [ ] 9.6 Add the `stamp_boundary(record, Option<Boundary>)` helper where
-      a driver's checkpoint and result pass from `run_driver` to the
-      store (DD19), applied to the finishing checkpoint — the one whose
-      `step` ends in `-session-finished` — and the successful result,
-      replacing any value a driver wrote, never touching a per-turn
-      checkpoint; drivers and their conformance field sets do not change —
-      boundary-record / The seat record carries the boundary as
-      seat-record/v4.
+- [ ] 9.6 Add the `stamp_boundary(record, Option<Boundary>)` helper with
+      one rule — a record that names a `model` carries `boundary` beside
+      it, a record that names none carries no `boundary`, a driver's
+      value replaced or dropped — applied at the two pass-throughs
+      through which every driver checkpoint and result reach the store
+      (the `run_driver` closure and the panel receiver loop, beside
+      `tag_member`) and at the engine's own `panel-member-finished` and
+      `sequence-step-finished` markers, which name a model (DD19);
+      drivers and their conformance field sets do not change; a panel's
+      aggregate result, which names no model, carries no `boundary`, and
+      a sequence's ending result — its ending step's driver result —
+      carries that step's word — boundary-record / The seat record
+      carries the boundary as seat-record/v4.
 - [ ] 9.7 Record tests: a boxed exec gate under `namespace` carries the
       word on both records and `brokkr export` and `verify-run` accept the
       journal; a hands-less inline exec seat and a tool-list model seat
       carry `not applicable`; a driver's `open` on a `namespace` seat is
-      replaced and per-turn checkpoints carry nothing; a result carrying
+      replaced, a per-turn checkpoint that names no model is appended
+      without the driver's word and one that names a model carries the
+      engine's; the engine's member- and step-finished markers carry the
+      site's word; a panel's aggregate carries none and a sequence's
+      ending result its step's word; a result carrying
       `chroot` is refused at append naming the schema path with nothing
       written and the attempt's failure journaled as 0034 ruling 6 reads;
       the 0.9/0.8/earlier dispatch, and a tagged-0.9.0 journal with no
@@ -647,28 +703,36 @@ one helper, because the coverage gate is literal.
       absent for an event belonging to no effect —
       boundary-readouts / The view derives the boundary beside every model
       cell.
-- [ ] 10.3 Read whether a site declared hands from the `run/started`
-      manifest's `hands` keys under every engine, and render absence
-      accordingly (DD13): a site named there with no recorded word is the
-      absent mark with the note `no boundary recorded`; a site not named
-      there reads `not applicable` with the note `no hands declared`; an
-      entry outside the vocabulary or lacking a `member` tag is not
-      recorded, never boxed or unboxed (DD14) —
+- [ ] 10.3 Fall back, for a participant whose attempt journaled no entry,
+      to the `boundary` a record of its attempt carries beside a `model`
+      — its finishing checkpoint, its successful result or the engine's
+      own marker (DD19) — and otherwise render the absent mark with the note
+      `no boundary recorded` — every model row of a pre-0046 journal,
+      boxed or not, and a running seat whose record has not landed —
+      never `not applicable` derived from the manifest and never a
+      default (DD13); read one boolean from the `run/started` manifest,
+      whether the run declares hands, beside the agents roster the view
+      already reads there, for the run-level fact alone; an entry outside
+      the vocabulary or lacking a `member` tag is not recorded, never
+      boxed or unboxed (DD14) —
       boundary-readouts / The view derives the boundary beside every model
       cell.
 - [ ] 10.4 Add `RunView.boundary: RunBoundary { word, unboxed, text }`,
       derived once: `unboxed` true exactly when a valid entry has `gate`
-      true and a word of `harness` or `open`; the data carries the plain
-      word and only `text` carries the adjective —
+      true and a word of `harness` or `open`, absent with the note
+      `no boundary recorded` when the manifest declares hands and no valid
+      entry exists, and nothing when it declares none; the data carries
+      the plain word and only `text` carries the adjective —
       boundary-readouts / A run whose gate stood under harness or open is
       rendered unboxed.
 - [ ] 10.5 View tests: a boxed seat under `harness` reading `harness`
       beside its model; a pre-0046 journal rendering the absent mark and
       the note everywhere with no surface printing `namespace`; a
-      hands-less site reading `not applicable`; a boxed seat with three
+      hands-less site reading `not applicable` from its finishing
+      checkpoint and the absent mark while it still runs; a boxed seat with three
       turns carrying the cell on its participant, node, three checkpoint
       rows and journal rows with a `run/started` row's cell absent; an old
-      journal with no `hands` key at all reading `not applicable`
+      journal with no `hands` key at all reading the absent mark
       throughout and rendering no run-level fact; a `chroot` entry and a
       tagless entry read as not recorded; `--json` from `inspect`
       carrying `view_version` 9 with the boundary fields present as
@@ -695,8 +759,8 @@ one helper, because the coverage gate is literal.
       model names its boundary.
 - [ ] 10.8 Add the thin `brokkr seats --run <id> [--db] [--json]` verb
       (DD11) rendering the seats block `inspect` renders from the same
-      `RunView`, `--json` emitting `{view_version, boundary,
-      participants}` and deriving nothing of its own; test both shapes —
+      `RunView`, `--json` printing the view model verbatim — byte-identical to
+      `inspect --json` — and deriving nothing of its own; test both faces —
       boundary-readouts / Every readout that names a seat's model names its
       boundary.
 - [ ] 10.9 Carry the pair in the TUI (`crates/brokkr-cli/src/tui.rs`) —
@@ -766,18 +830,23 @@ one helper, because the coverage gate is literal.
       hands and pins neither changed adapter keeps its digest —
       boundary-manifest-pin / Every pinned digest that moves is re-pinned
       with 0046 as the reason.
-- [ ] 11.4 Test that every bundle under `recipes/` and `bundles/` compiles
-      under `harness` in a realm declaring the openspec dialect, each
-      hands site's manifest `boundary` entry reading `harness`, against a
-      scratch copy of the shipped adapter library with the codex and
-      claude `hands.harness` members planted as fragments — the shipped
-      files themselves once the measurement lands —
+- [ ] 11.4 Test that every bundle under `recipes/` and `bundles/` without a
+      dialect step — eleven of the thirteen — compiles under `harness` in
+      a realm declaring the openspec dialect, each hands site's manifest
+      `boundary` entry reading `harness`, and that `recipes/triage` and
+      `recipes/night-shift` refuse naming a dialect step and decision
+      0046 ruling 4 (DD8), against a scratch copy of the shipped adapter
+      library with the codex and claude `hands.harness` members planted
+      as fragments — the shipped files themselves once the measurement
+      lands —
       gate-boundary-policy / Every shipped bundle compiles under harness
       once the fragments are measured.
 - [ ] 11.5 Test the measured-gap path: with claude's `work` declared
-      unsupported, `recipes/triage` and `recipes/night-shift` refuse under
-      `harness` naming `claude`, `hands.harness.work` and the site, while
-      every other shipped bundle still compiles —
+      unsupported, a fixture bundle seating the chief architect as a work
+      seat with hands refuses under `harness` naming `claude`,
+      `hands.harness.work` and the site, `recipes/triage` and
+      `recipes/night-shift` refuse, and every other shipped bundle still
+      compiles —
       gate-boundary-policy / Every shipped bundle compiles under harness
       once the fragments are measured.
 - [ ] 11.6 Report in the completion note, for the operator to rule on,
@@ -786,18 +855,21 @@ one helper, because the coverage gate is literal.
       `harness` and why, the measurement as the operator's with the
       recipe, the candidates and the version to measure against, that
       landing it is a data change to `adapters/claude.json` moving the
-      pins that name its digest, and codex's door measurement as pending
-      (task 6.9). Never widen a rule, seat another provider, declare an
+      pins that name its digest, codex's door measurement as pending (task 8.9), and the dialect
+      step's refusal under `harness` with the amendment DD8 records as
+      the operator's to accept or refuse. Never widen a rule, seat another provider, declare an
       unmeasured fragment, or report the run blocked to make the shipped
       bundles compile (DD20) — gate-boundary-policy / Every shipped bundle
       compiles under harness once the fragments are measured.
-- [ ] 11.7 Pin the shipped state: with the adapters as they stand in the
-      tree, compiling every bundle under `recipes/` and `bundles/` under
+- [ ] 11.7 In the same test as 11.4, as its second half (DD20): with the
+      adapters as they stand in the tree, compiling every bundle under `recipes/` and `bundles/` under
       `harness` refuses exactly `bundles/self`, `recipes/panel-review`,
       `recipes/triage` and `recipes/night-shift` — the bundles that seat
       an agent with hands whose chain reaches claude — naming `claude`,
-      the member and the site, and compiles every other; the pin moves
-      when the operator's measurement lands — gate-boundary-policy /
+      the member and the site — the agent link of every sequence precedes
+      its dialect step, so `claude` is the first refusal the compiler
+      reaches — and compiles every other; the pin moves when the
+      operator's measurement lands — gate-boundary-policy /
       Every shipped bundle compiles under harness once the fragments are
       measured.
 
@@ -807,8 +879,7 @@ one helper, because the coverage gate is literal.
       with `gate`, `work` and `result`, the `{result_path}` token and the
       two workspace tokens refused there, the three-shape convention,
       codex's fragments and its `last-message` door — the door's
-      measurement recorded when made and named as pending and the
-      operator's until then (6.9) — and, per claude member, the
+      measurement recorded when made and named as pending and the operator's until then (8.9) — and, per claude member, the
       measurement with the claude version and what the mode denies and
       allows, or that it is undeclared pending the operator's
       measurement with the candidates and the recipe; its doctor section names the `boundaries`
@@ -817,7 +888,8 @@ one helper, because the coverage gate is literal.
       section.
 - [ ] 12.2 `docs/guides/recipe-authoring.md`: the `hands` row stops saying
       Linux only, says the boundary lives in the realm and that a bind's
-      `mask` is declared and not enforced under `harness` and `open`; the
+      `mask` is declared and not enforced under `harness` and `open` and
+      that clearing the environment confines nothing on disk (DD10); the
       `driver.confine` row says the field is refused and points at
       decision 0046 ruling 5 —
       boundary-guides / The guides document the boundary and never lose a
@@ -826,9 +898,15 @@ one helper, because the coverage gate is literal.
       say a realm on macOS or Windows declares `boundary: harness` today,
       what that means (judged under the harness's own sandbox, rendered
       *unboxed*), that `namespace` is the default and needs bubblewrap,
-      and that `seatbelt` and `container` are named by 0046 and refuse at
-      start until slices (ii) and (iii); and its `rerun` line says the
-      rerun compiles in the discovered realm as `run` does —
+      that `seatbelt` and `container` are named by 0046 and refuse at
+      start until slices (ii) and (iii), and which shipped bundles run
+      under `harness` today — the nine whose hands sites are their own
+      `./` exec gates — and which four refuse by name and on which
+      ground (the claude measurement for `bundles/self`,
+      `recipes/panel-review`, `recipes/triage` and `recipes/night-shift`;
+      the dialect step for the last two), pointing at the pin test of
+      11.4 and 11.7 as the record (DD8, DD20); and its `rerun` line says
+      the rerun compiles in the discovered realm as `run` does —
       boundary-guides / The guides document the boundary and never lose a
       section.
 - [ ] 12.4 `docs/guides/journal-and-verification.md`: add the unboxed
@@ -838,7 +916,8 @@ one helper, because the coverage gate is literal.
       section.
 - [ ] 12.5 `docs/guides/read-surfaces.md`: refresh the seats-table example
       from the renderer's header line showing the `boundary` column beside
-      `model`, and add `brokkr seats` to the verb list beside `inspect` —
+      `model`, and add `brokkr seats` to the verb list beside `inspect`,
+      its `--json` named as `inspect`'s own view model —
       boundary-guides / The guides document the boundary and never lose a
       section.
 - [ ] 12.6 `docs/guides/repository-layout.md`: name `boundary` beside
@@ -852,7 +931,10 @@ one helper, because the coverage gate is literal.
       hands exec` of `namespace` and adds that under `harness` and `open`
       the same `exec` dispatch runs with no verb of Brokkr's around it, in
       a fixed environment, the network narrowed on Linux where `unshare`
-      permits, and that the `hands` subcommand gains no verb for it —
+      permits, that the declaring layer is re-walked at every unboxed spawn and a
+      pinned byte that moved refuses the gate, the residual being the
+      interval between the re-walk and the `exec` (DD9),
+      and that the `hands` subcommand gains no verb for it —
       boundary-guides / The guides document the boundary and never lose a
       section.
 - [ ] 12.8 State in no guide that the network was off under `harness` or

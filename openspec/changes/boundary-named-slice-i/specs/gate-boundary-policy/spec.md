@@ -140,22 +140,37 @@ manifest walk does, and not a key the walk skips (`realms.json`,
 That directory is the one the compiler already expands `./` against and
 the one the manifest walk digests, so a token that passes is pinned by
 the manifest of the layer that declared it, and no path is canonicalised
-and no two spellings are compared (design DD9). The tokens
+and no two spellings are compared (design DD9). The verdict is a
+compile fact, and it is re-derived where it matters: at every unboxed
+exec dispatch spawn the engine SHALL re-walk the declaring layer with
+the walk the compiler already performs — the leaf's `files` map, or an
+ancestor's compose digest by the same `manifest_for` call over
+`Ancestor.dir` and its deeper chain — against the identity the run
+manifest pins, and SHALL refuse the dispatch, spawning nothing and
+journaling the attempt's failure naming the layer and the first key
+that differs, when any pinned file moved, went missing or appeared.
+The whole layer is re-walked, not the script alone, because a script
+sources its siblings; the residual is the interval between the re-walk
+and the `exec`, which the guide states. The namespace box keeps no
+re-walk: a boxed gate is admitted by its walls, an unboxed one by its
+bytes (decision 0043 ruling 3; decision 0046 ruling 4). The tokens
 after the script are its arguments and are not judged, which is how the
 shipped ship gate hands `{brokkr}` to its own script. A command with no
 such script — a bare program, a `{brokkr}` verb, an absolute path, a
 `\`-spelled or `/private/var`-spelled token, a `../` that escapes, or a
 `./` token naming no file — SHALL be refused naming decision 0046
 ruling 4 and decision 0021 and, for a spelling, the spelling. A dialect
-validate or check step, whose argv is the dialect's own and pinned by
-the dialect's content digest in the run manifest beside the tool's
-declared name and version, SHALL be admitted on the same environment
-and network terms, the run marked unboxed all the same; the tool's
-binary is not pinned by digest, as `bash` and `cargo` are not pinned
-under a bundle-pinned script — both readings pin a declaration and run
-a host tool — and the reading is recorded in the proposal's D6 and the
-design's DD8 for the operator to confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
-4).
+validate or check step holds its gate today boxed — decision 0042
+ruling 4's own words, and the compiler's synthetic boxed exec gate
+passed through the gate law — and its argv, the dialect's own, is not
+the bundle's pinned script; under `harness` and `open` it SHALL be
+refused at compile naming the step, decision 0046 ruling 4, decision
+0042 ruling 4 and a boxed boundary as the road open today, until a
+decision admits the realm's pinned dialect declaration on the
+pinned-script terms — the proposal's D6 and the design's DD8 record the
+amendment for the operator, and no design note may widen a ruling
+(decision 0046 ruling 4; decision 0042 rulings 1 and 4; decision 0042's
+addendum, ruling 1).
 
 #### Scenario: The shipped verifier under open is admitted
 - **WHEN** `bundles/self`, whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
@@ -189,9 +204,25 @@ design's DD8 for the operator to confirm or refuse (decision 0046 ruling 4; deci
 - **WHEN** the shipped ship seat, `["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]` with hands, compiles under `harness`
 - **THEN** it is admitted, because the tokens after the script are its arguments and the `{brokkr}` among them names no command
 
-#### Scenario: A dialect step under harness is admitted
+#### Scenario: A pinned script edited after compile refuses at spawn
+- **WHEN** an exec gate with hands compiles under `harness`, its verify script is edited after the compile, and the dispatch reaches its spawn
+- **THEN** the engine refuses the dispatch naming the layer and the script's key, spawns nothing, and journals the attempt's failure
+
+#### Scenario: A sibling the script sources is covered
+- **WHEN** the script is untouched and a sibling file under the same layer is edited after the compile
+- **THEN** the dispatch is refused the same way, naming the sibling's key
+
+#### Scenario: An untouched layer spawns
+- **WHEN** no pinned file of the declaring layer changed since the compile
+- **THEN** the re-walk names no key and the dispatch spawns
+
+#### Scenario: An inherited seat's ancestor is re-derived
+- **WHEN** `recipes/wager-harness`'s inherited verify seat reaches its spawn under `harness` after `recipes/fast/scripts/verify-seat.sh` was edited
+- **THEN** the ancestor's compose digest is re-derived and differs, and the dispatch is refused naming `fast` as the layer
+
+#### Scenario: A dialect step under harness is refused until a decision admits it
 - **WHEN** a fixture bundle with an artifact phase, its chief seated on a fixture provider that declares both `hands.harness` members as fragments, compiles under `harness` in a realm that declares a dialect
-- **THEN** its synthetic validate and check steps are admitted and the bundle compiles
+- **THEN** compilation is refused naming the synthetic validate step, decision 0046 ruling 4, decision 0042 ruling 4 and a boxed boundary as the road; and the same bundle compiles under `namespace` exactly as today
 
 ### Requirement: Every shipped bundle compiles under harness once the fragments are measured
 Decision 0046 ruling 6 promises that after this slice a macOS operator
@@ -202,10 +233,14 @@ which chains claude and codex (fable, astra, opus) and is seated by
 by `recipes/night-shift`, and the sdd intake, which chains claude alone
 (sonnet, opus) and is hired by no shipped bundle — `recipes/sdd` folded
 into `recipes/triage`'s strategy select in #176 and no longer exists.
-So the promise holds exactly when `adapters/codex.json` and
-`adapters/claude.json` declare
+So the promise holds, for every shipped bundle without a dialect step,
+exactly when `adapters/codex.json` and `adapters/claude.json` declare
 `hands.harness.gate` and `hands.harness.work` as fragments, each `gate`
-with a measured door. Every bundle under `recipes/` and `bundles/` SHALL
+with a measured door; `recipes/triage` and `recipes/night-shift`, the
+two with dialect steps, refuse under `harness` on a second ground until
+a decision admits the step (design DD8), and the implementation SHALL
+report that unmet part of the promise beside the measurement. Every
+bundle under `recipes/` and `bundles/` without a dialect step SHALL
 compile under `harness` on that condition. If the measurement finds a
 claude mode that cannot be declared as a fragment, the refusal SHALL
 name the adapter, the member and the site, and the implementation SHALL
@@ -219,24 +254,25 @@ commit, SHALL NOT report itself blocked for want of the measurement,
 and SHALL name the measurement as the operator's in its completion note
 with the recipe, the candidates and the version. The tree's own proof
 of the promise SHALL therefore run in a scratch copy of the shipped
-adapter library with the two members planted as fragments, and a second
-test SHALL pin, against the shipped adapters as they stand, exactly
-which shipped bundles refuse and why — a pin that moves when the
-measurement lands (decision 0046 rulings 4 and 6; decision 0042's
+adapter library with the two members planted as fragments, and the same
+test's second half SHALL pin, against the shipped adapters as they
+stand, exactly which shipped bundles refuse and why — one test, two
+halves, the second a pin that moves once, when the measurement lands
+(design DD20; decision 0046 rulings 4 and 6; decision 0042's
 addendum, ruling 1: a decision is amended only by a decision).
 
 #### Scenario: The shipped bundles compile under harness
 - **GIVEN** an adapter library in which the codex and claude adapters declare both `hands.harness` members as fragments — the shipped files once the measurement lands, a scratch copy with the members planted until then
 - **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` against it, in a realm that declares the openspec dialect
-- **THEN** each compiles, and each hands site's manifest `boundary` entry reads `harness`
+- **THEN** each bundle without a dialect step compiles — eleven of the thirteen — with each hands site's manifest `boundary` entry reading `harness`, and `recipes/triage` and `recipes/night-shift` refuse naming a dialect step and decision 0046 ruling 4
 
 #### Scenario: The measurement is not reachable from the implementing seat
 - **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness`
-- **THEN** exactly the bundles that seat an agent with hands whose chain reaches claude — `bundles/self`, `recipes/panel-review`, `recipes/triage` and `recipes/night-shift` — refuse naming `claude`, the member and the site; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
+- **THEN** exactly the bundles that seat an agent with hands whose chain reaches claude — `bundles/self`, `recipes/panel-review`, `recipes/triage` and `recipes/night-shift` — refuse naming `claude`, the member and the site, the agent link of every sequence preceding its dialect step so that `claude` is the first refusal the compiler reaches; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported
-- **THEN** `recipes/triage` and `recipes/night-shift` — every shipped bundle under `recipes/` and `bundles/` that seats the chief architect — refuse under `harness` naming `claude`, `hands.harness.work` and the site; every other shipped bundle still compiles; and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
+- **THEN** a fixture bundle that seats the chief architect as a work seat with hands refuses under `harness` naming `claude`, `hands.harness.work` and the site; `recipes/triage` and `recipes/night-shift` — every shipped bundle under `recipes/` and `bundles/` that seats the chief architect — refuse under `harness`; every other shipped bundle still compiles; and the implementation reports the unmet promise instead of amending the adapter, the roster or the rule
 
 ### Requirement: The argv of a site with hands follows the boundary and the class
 At run time the engine SHALL compose the argv of every site with hands
@@ -253,8 +289,8 @@ Brokkr's at all. Under `harness` and `open` the site's `hands.network`
 and `hands.binds` stay pinned in the manifest as declared and are
 enforced by nothing of Brokkr's: the harness's own sandbox decides what
 the hands may reach, which is the fact the *unboxed* rendering states.
-Under `harness` and `open` alike an exec dispatch — an exec gate's or
-a dialect step's — SHALL be the compiled command itself, spawned by
+Under `harness` and `open` alike an exec dispatch — an admitted exec
+gate's — SHALL be the compiled command itself, spawned by
 the engine through `DriverProcess::spawn` with no verb of Brokkr's
 around it: `{brokkr}` and `./` were expanded at compile by
 `expand_command` against the declaring layer's directory, and
@@ -270,10 +306,12 @@ mapping root back to the operator, so the dispatch runs as the
 operator with its capabilities dropped on exec and the network
 namespace inherited. Every layer replaces itself by exec, so the PID
 the engine holds is the driver's and the deadline kill reaches it as
-today. The probe SHALL be that prefix around `true`, run in the
-dispatch's environment against its search path: with no `unshare` on
-the path nothing is spawned and the answer is no; with a non-zero exit
-the prefix is skipped and the dispatch runs with the network on. The
+today. The probe SHALL be that prefix around `true`, run once per engine
+process at the first unboxed exec dispatch, in that dispatch's
+environment against its search path, its answer remembered for every
+later dispatch of the run (design DD15): with no `unshare` on the path
+nothing is spawned and the answer is no; with a non-zero exit the
+prefix is skipped and the dispatch runs with the network on. The
 prefixed argv SHALL be one pure function of the dispatch, the probe's
 answer and the ids, which the argv tests read directly; the probe's
 answer is not journaled, and the record marks the run unboxed all the
@@ -284,8 +322,10 @@ refused at compile naming the repair, because its argv is the author's
 and carries the box's own tokens.
 `seatbelt` and `container` never reach composition: the engine refuses
 them at its entry before any journal row (boundary-availability), and
-composition is written over the three boundaries this engine builds
-(decision 0046 rulings 1 and 4; decision 0043 rulings 1 and 3).
+composition is written over the three boundaries this engine builds; a
+dialect step under `harness` or `open` is refused at compile and never
+reaches composition either (decision 0046 rulings 1 and 4; decision
+0043 rulings 1 and 3).
 
 #### Scenario: namespace is byte-identical to today
 - **WHEN** a boxed model site and a boxed exec site are composed under `namespace`
@@ -317,15 +357,11 @@ composition is written over the three boundaries this engine builds
 
 #### Scenario: The probe is the prefix around true
 - **WHEN** the probe runs
-- **THEN** the command it spawns is the eight-token prefix followed by `true`, in the dispatch's environment, and nothing it learns is journaled
+- **THEN** the command it spawns is the eight-token prefix followed by `true`, in the dispatch's environment, nothing it learns is journaled, and a second unboxed exec dispatch of the same engine process spawns no second probe
 
 #### Scenario: The probe's arms on a planted search path
 - **WHEN** the probe is given a search path with no `unshare`, then one whose `unshare` is a planted executable exiting non-zero, then one exiting zero
 - **THEN** it answers no without spawning anything, no, and yes, in that order; and on macOS and Windows it is never consulted
-
-#### Scenario: A dialect step takes the same road
-- **WHEN** a dialect validate step is composed under `open` on Linux with the probe passing
-- **THEN** its argv is the prefix followed by `<brokkr>`, `driver`, `exec`, `--`, `openspec`, `validate`, `<change>`, `--strict`, `--no-interactive`, in the fixed environment
 
 #### Scenario: A model site keeps the engine's environment
 - **WHEN** a gate-class agent site with hands on codex is composed under `harness`
@@ -366,19 +402,21 @@ The environment SHALL be composed by one pure function of the engine's
 environment, the engine's home, the site's spec, the identity and the
 two scratch paths, which the tests read directly; the network probe
 runs in it, and the dispatch's working directory is the worktree, as
-every driver's is. A dialect step under `harness` or `open` runs in the
-same environment (decision 0046 ruling 4; decision 0043 ruling 1's
-allow-list, from which the table is taken).
+every driver's is. Clearing the environment confines nothing on disk:
+an unboxed script may open any host path the operator's uid may read,
+which the guide states beside the mask and the *unboxed* rendering
+reports (decision 0046 ruling 4; decision 0043 ruling 1's allow-list,
+from which the table is taken).
 
 #### Scenario: The shipped verify gate under harness on a rustup machine
 - **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
 - **WHEN** `bundles/self`'s verify seat, whose binds declare `~/.cargo` and `~/.rustup`, is composed under `harness`
 - **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/bundles/self/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
 
-#### Scenario: A planted secret in the operator's home is out of reach
+#### Scenario: A planted secret is not handed over through the environment
 - **GIVEN** an engine `HOME` under which `.ssh/id` and `.cargo/credentials.toml` are planted, and a site whose binds declare `~/.cargo`
 - **WHEN** a dispatch of `sh -c 'cat "$HOME/.ssh/id"'` is spawned in the composed environment
-- **THEN** it fails, because `HOME` is the private directory; and `CARGO_HOME` names the planted `.cargo`, because the bind declares it and a mask is not enforced outside a namespace, which the guide states
+- **THEN** it fails, because `HOME` is the private directory — a proof about the environment and not the filesystem: the same script naming the operator's home by its absolute path reads the file, which the guide states; and `CARGO_HOME` names the planted `.cargo`, because the bind declares it and a mask is not enforced outside a namespace, which the guide states too
 
 #### Scenario: The locators follow the binds, not the engine's environment
 - **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE` and the site declares no bind
@@ -391,10 +429,6 @@ allow-list, from which the table is taken).
 #### Scenario: Windows starts its processes
 - **WHEN** the environment is composed on Windows with `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE` and `TEMP` set
 - **THEN** each is carried verbatim, and on Linux and macOS the Windows names are not consulted
-
-#### Scenario: A dialect step gets the same environment
-- **WHEN** a dialect validate step is composed under `open`
-- **THEN** its environment is the same table, and its dispatch is `<brokkr> driver exec -- openspec validate <change> --strict --no-interactive` behind the same prefix on the same terms
 
 ### Requirement: A judge under harness still delivers its result file
 Under `harness` a gate-class model site SHALL be able to deliver exactly

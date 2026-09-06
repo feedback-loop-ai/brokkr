@@ -29,8 +29,11 @@ rendered *unboxed* wherever the run is summarised — the delivery gate's
 check summary included. `driver.confine` retires into the `container`
 boundary and is refused until slice (iii) measures it.
 
-After this slice a macOS operator runs every shipped bundle, the review
-offices under their harness's own sandbox, and every readout says so.
+After this slice a macOS operator runs every shipped bundle whose gates
+are its own scripts — nine of the thirteen — and, once the claude
+measurement lands and a decision admits the dialect step, every shipped
+bundle, the review offices under their harness's own sandbox; every
+readout says so either way (D19, D6).
 
 A specification is worth writing because the commission leaves facts to
 record before a line is built: the seat-record version is v4, not the
@@ -99,11 +102,13 @@ In the commission's order of value:
    `enforce_model_policy` gains the boundary axis for sites that declare
    hands; an exec gate under `harness` or `open` is admitted only for
    the bundle's own pinned script — a `./` token naming a file under the
-   layer that declared the seat (D24) — run in the fixed environment D22
-   lists, the in-box marker never set, and the network off where the
-   platform can say so — with no new verb: the engine spawns the
-   dispatch it already spawns, behind a network prefix on Linux (D25,
-   D12). At run time the argv of a site with hands
+   layer that declared the seat, the layer re-walked at every unboxed
+   spawn (D24) — run in the fixed environment D22 lists, the in-box
+   marker never set, and the network off where the platform can say so
+   — with no new verb: the engine spawns the dispatch it already spawns,
+   behind a network prefix on Linux (D25, D12); a dialect validate or
+   check step, which holds its gate boxed today, is refused under
+   `harness` and `open` until a decision admits it (D6). At run time the argv of a site with hands
    follows the boundary: today's box under `namespace`, the harness's
    own sandbox under `harness`, nothing of Brokkr's under `open`.
 5. **`driver.confine` is refused (ruling 5).** The parser refuses the
@@ -144,9 +149,10 @@ with 0046 as the stated reason.
   delivery gate's check summary.
 - `gate-boundary-policy`: decision 0021's gate law under the boundary
   axis — `hands.harness` in the adapters, model gates per boundary, the
-  bundle-pinned-script reading for exec gates and dialect steps, the
-  run-time argv per boundary and class with the unboxed exec dispatch
-  pinned token for token, and the judge's result door.
+  bundle-pinned-script reading for exec gates with its spawn-time
+  re-walk, the dialect step's refusal at an unboxed gate, the run-time
+  argv per boundary and class with the unboxed exec dispatch pinned
+  token for token, and the judge's result door.
 - `driver-confine-retirement`: decision 0008's container confinement
   refused by name, its engine wrapper and type deleted.
 - `boundary-guides`: the prose — provider-adapters, recipe-authoring,
@@ -262,23 +268,30 @@ the artifact rather than raising the finding again (decision 0042 ruling
   `tool_permissions` already uses. A work site under `harness` whose
   adapter declares no `work` fragment is refused at compile as the
   capability gap it is.
-- **D6 — Dialect steps are admitted under `harness` and `open` as pinned
-  argv** (amended in design, DD8). A dialect validate or check step is
-  an exec gate whose argv is the dialect's own, pinned in the run
-  manifest by the dialect's content digest (0042 ruling 1) together
-  with the tool's name and version (dialect v2), and admitted today
-  outside `enforce_model_policy` by that ruling. It is admitted under
-  `harness` and `open` on the same environment and network terms as a
-  bundle-pinned script, with the run marked unboxed. The design
-  withdraws the earlier characterisation of this as the weaker reading:
-  a `./` script's bytes are pinned and the `bash` and `cargo` it runs
-  are not; the dialect file's bytes are pinned and the `openspec` it
-  names is not — both readings pin a declaration and run a host tool.
-  It is still the reading most in need of the operator's word: if the
-  operator refuses it, the scenario "A dialect step under harness is
-  admitted" is the one line to delete, and `recipes/triage` and
-  `recipes/night-shift`, which extends it — the only shipped bundles
-  with dialect steps — then compile only under a boxed boundary (D26).
+- **D6 — A dialect step is refused under `harness` and `open` until a
+  decision admits it** (amended in design, DD8; flipped on the third
+  sitting). A dialect validate or check step holds its gate today
+  boxed: decision 0042 ruling 4 says the validator is "run as a boxed
+  exec step ... boxed under decision 0040 ruling 3, class gate", and
+  the compiler passes a synthetic boxed exec gate through
+  `enforce_model_policy` for every dialect step, so it is admitted by
+  0043 ruling 3's box exactly as the shipped verify script is. Under
+  `harness` or `open` no box stands, and its command — the dialect's
+  argv behind `{brokkr} driver exec --` — is not the bundle's own
+  pinned script, which is the one thing 0046 ruling 4 admits at an
+  unboxed gate. Earlier sittings read the step as admitted on the
+  argument that both readings pin a declaration and run a host tool;
+  the argument holds about the bytes and widens a ruling by a design
+  note, which 0042's addendum ruling 1 forbids, so it is withdrawn. The
+  compiler refuses the step under `harness` and `open` naming the step,
+  ruling 4, 0042 ruling 4 and a boxed boundary as the road.
+  Consequence: `recipes/triage` and `recipes/night-shift`, which
+  extends it — the only shipped bundles with dialect steps (D26) —
+  compile under boxed boundaries only, and ruling 6's promise is unmet
+  for them on this ground as well as the claude measurement's until the
+  operator rules; the design records the amendment's text (DD8, Open
+  questions) so the operator can accept or refuse it in a decision of
+  its own number, after which the refusal is one arm to delete.
 - **D7 — A judge under `harness` still delivers its result file.** The
   result file is the only channel the engine reads, and a read-only
   harness sandbox leaves nothing writable. The `gate` fragment must
@@ -410,13 +423,18 @@ the artifact rather than raising the finding again (decision 0042 ruling
   every other cell is; a seat-costs record is JSON data and says `not
   recorded`, the way the same record says `not reported` for a model no
   driver reported.
-- **D17 — The finishing checkpoint is the one whose `step` ends in
-  `-session-finished`.** The schema cannot tell a finishing checkpoint
-  from a per-turn one, so v4 admits `boundary` on any checkpoint, and
-  the engine stamps only the record the view already treats as the
-  finishing one. The engine's stamp replaces a driver's word: a driver
-  never learns which boundary stood, so a value it wrote can only be a
-  guess.
+- **D17 — The stamp rides beside the model** (amended in design, DD19).
+  The schema cannot tell one checkpoint from another, so v4 admits
+  `boundary` on any checkpoint, and the engine stamps by one rule: a
+  record that names a `model` carries `boundary` beside it — the
+  finishing checkpoint, whose `model` the driver conformance suite
+  asserts for every built-in driver, the successful result, the
+  engine's own member- and step-finished markers, and any per-turn
+  checkpoint a driver names a model on — and a record that names none
+  carries none. The trigger is the record's own key, never a step
+  name. The engine's stamp replaces a driver's word and drops it from a
+  model-less record: a driver never learns which boundary stood, so a
+  value it wrote can only be a guess.
 - **D18 — Under `harness` and `open` the hands policy is declared, not
   enforced.** `hands.network` and `hands.binds` stay in the manifest as
   the site declared them, because they are bundle identity; nothing of
@@ -544,7 +562,12 @@ the artifact rather than raising the finding again (decision 0042 ruling
   are compared, which is how the rule is platform-neutral — a
   `/private/var` or `C:\` spelling is refused as not `./`-relative,
   never compared, and `bash -c '…'` is refused because an option token
-  precedes the script.
+  precedes the script. The verdict is re-derived where it matters: at
+  every unboxed exec dispatch spawn the engine re-walks the declaring
+  layer against the identity the manifest pins and refuses on a moved,
+  missing or added byte (DD9), because the unboxed gate is admitted for
+  its bytes where the boxed one is admitted for its walls, and the
+  implement seat writes the tree the layer lives in.
 - **D25 — No new verb: the engine spawns the dispatch it already
   spawns, in a fixed environment, behind a prefix.** The clarify seat
   found the unboxed exec wrapper unnamed and its argv unpinned. Ruled:
@@ -563,8 +586,8 @@ the artifact rather than raising the finding again (decision 0042 ruling
   because the exec driver stages the prompt and expands it. The argv is
   one pure function of the dispatch, the probe's answer and the
   engine's ids, pinned token for token in gate-boundary-policy for the
-  shipped verify seat with the probe passing and failing; dialect steps
-  take the same road. No guide row is added because no verb is;
+  shipped verify seat with the probe passing and failing; a dialect step
+  is refused before it could take the road (D6). No guide row is added because no verb is;
   driver-authoring.md's sentence about `brokkr hands exec` is
   qualified instead.
 - **D26 — The bundles named are the ones that exist.** `recipes/sdd`
@@ -701,10 +724,11 @@ network probe passing and failing, the probe's own arms on a planted
 search path, and `DriverProcess::spawn`'s two environments; the view's cell beside every model cell and its run-level fact,
 an old journal's absence, a hands-less site's `not applicable` under any
 engine, `costs` and `compare` naming the word, the engine's stamp
-replacing a driver's, every shipped bundle compiling under `harness`
+replacing a driver's, every shipped bundle without a dialect step compiling under `harness`
 in a scratch copy of the adapter library with both `hands.harness`
-members planted as fragments and, against the shipped adapters as they
-stand, exactly the bundles that seat a claude-chained agent with hands
+members planted as fragments while the two with dialect steps refuse
+naming the step, and, against the shipped adapters as they stand,
+exactly the bundles that seat a claude-chained agent with hands
 refusing by name until the measurement lands, `compare`'s `resolution`
 map carrying the pair and diverging on it, and every readout pinned
 roster-style; the
@@ -718,7 +742,8 @@ a rustup machine, a secret that does not pass, the operator's own
 locators that do, the marker never set; the loader's `result` and token
 refusals; the pinned-script check on the shipped verifier, on an
 inherited seat, on every refused spelling and on a `./` token naming no
-file; a harness gate composed with its door pointing at that seat's real
+file; the layer re-walk at spawn on an untouched, an edited and an
+inherited layer, and a dialect step refused under `harness`; a harness gate composed with its door pointing at that seat's real
 result path; and, from the design: `brokkr seats` rendering the block
 `inspect` prints and its `--json` shape; `rerun` compiling and starting
 under the discovered realm and refusing under a word the machine

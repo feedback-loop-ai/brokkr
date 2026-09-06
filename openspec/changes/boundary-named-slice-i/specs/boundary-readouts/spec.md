@@ -29,16 +29,21 @@ and site the row's model is read beside, and absent with the note
 as the row's model cell is absent there. `RunView` SHALL expose a
 run-level `boundary` fact carrying the run's word, whether the run is
 rendered *unboxed*, and a rendered text. The data SHALL carry the plain
-word and the adjective SHALL appear only in rendered text. Whether a
-site declared hands is
-read from the `run/started` manifest's `hands` keys under every engine:
-a site named there whose journal recorded no boundary — a journal
-written before this change — SHALL render an explicit absence, the
-absent mark with the note `no boundary recorded`, and never a default;
-a site not named there SHALL read `not applicable` with the note `no
-hands declared`, a derivation from the pinned manifest and never a
-default, which is true of it whatever engine wrote the journal; and an
-entry whose word is outside the vocabulary or which lacks a `member` tag
+word and the adjective SHALL appear only in rendered text. A
+participant whose attempt journaled no entry — an attempt no site of
+which declares hands — SHALL read the `boundary` a record of its
+attempt carries beside a `model` — its finishing checkpoint, its
+successful result or the engine's own member- or step-finished marker
+(design DD19) — `not applicable` when that is the stamp; a participant with neither an entry nor a stamp SHALL render
+an explicit absence, the absent mark with the note `no boundary
+recorded`, and never a default — every model row of a journal written
+before this change, boxed or not, and a running seat whose finishing
+record has not landed; `not applicable` is rendered only where an entry
+or a record carries it and never derived from the manifest (design
+DD13). Whether the run declares hands at all is read once from the
+`run/started` manifest — the one manifest the view already reads there,
+beside the agents roster — for the run-level fact alone; and an entry
+whose word is outside the vocabulary or which lacks a `member` tag
 SHALL be read as not recorded for that site, never as boxed or unboxed
 (design DD14). `VIEW_VERSION` SHALL advance to 9,
 because an additive model field moves the wire version (decision 0046
@@ -50,19 +55,23 @@ ruling 3; decision 0031 ruling 3; decision 0013).
 
 #### Scenario: A pre-0046 journal renders absence
 - **WHEN** the view derives a journal whose `run/started` manifest carries `hands` but no `boundary` and whose `effect/started` events carry no `boundary`
-- **THEN** each boxed participant's `boundary` cell is absent with the note `no boundary recorded`, the run-level fact is absent with the same note, and no surface prints `namespace` for it
+- **THEN** every participant's `boundary` cell, boxed or not, is absent with the note `no boundary recorded`, the run-level fact is absent with the same note, and no surface prints `namespace` for it
 
-#### Scenario: A site without hands reads not applicable
-- **WHEN** a participant's site declared no hands in a journal this engine wrote
-- **THEN** its `boundary` cell reads `not applicable`
+#### Scenario: A site without hands reads not applicable from its record
+- **WHEN** a participant's attempt journaled no `boundary` entry and its finishing checkpoint carries `not applicable`, as the engine stamps a site without hands
+- **THEN** its `boundary` cell reads `not applicable`, read from the record and never from the manifest
 
 #### Scenario: Every model cell has a boundary cell beside it
 - **WHEN** the view is derived for a run with a boxed seat that journaled three turns
 - **THEN** the seat's participant, its phase-rail node, each of its three checkpoint rows and each journal row of its effect carry a `boundary` cell reading the same word as the participant's, and a `run/started` row's `boundary` cell is absent
 
-#### Scenario: A hands-less site in an old journal reads not applicable
-- **WHEN** the view derives a journal whose `run/started` manifest carries no `hands` key at all
-- **THEN** every participant's `boundary` cell reads `not applicable`, none carries the absent mark, and the run-level fact renders nothing
+#### Scenario: An old plain journal renders absence and no run-level fact
+- **WHEN** the view derives a journal written before this change whose `run/started` manifest carries no `hands` key at all
+- **THEN** every participant's `boundary` cell is absent with the note `no boundary recorded`, none reads `not applicable`, and the run-level fact renders nothing, because the run declares no hands
+
+#### Scenario: A hands-less seat still running renders absence
+- **WHEN** a hands-less seat's attempt has started and its finishing checkpoint has not yet landed
+- **THEN** its `boundary` cell is absent with the note `no boundary recorded`, never `namespace` and never `not applicable`
 
 #### Scenario: An entry outside the vocabulary is not recorded
 - **WHEN** a journal's `effect/started.boundary` carries an entry whose word is `chroot`, or one without `member`
@@ -77,7 +86,11 @@ The run-level fact SHALL be *unboxed* exactly when any
 `effect/started.boundary` entry of the run has `gate` true and a word of
 `harness` or `open`; a run with no boxed site is neither boxed nor
 unboxed and renders nothing for it; a run whose boxed sites stood under
-`namespace`, `seatbelt` or `container` renders the word alone. Every
+`namespace`, `seatbelt` or `container` renders the word alone; a run
+whose manifest declares hands and whose journal holds no valid entry —
+a journal written before this change, or a run before its first boxed
+attempt — renders the fact absent with the note `no boundary recorded`
+and never a word (design DD13). Every
 surface that summarises a run — `brokkr inspect`'s header line, `brokkr
 watch`'s frame header, the TUI's run header, and the web console's run
 header — SHALL print the adjective from this one derivation and never
@@ -105,15 +118,17 @@ beside it, from the same derivation and never composed on its own. In
 this tree those surfaces are: the terminal's seats table and its
 per-seat lines under `brokkr inspect`, `inspect --seat`, `brokkr watch`
 and `brokkr seats` — a thin verb that renders the seats block `inspect`
-renders, from the same view, and with `--json` emits the participants
-beside the run-level boundary fact and the view version (design DD11) —
+renders, from the same view, and with `--json` prints the view model
+verbatim, the bytes `inspect --json` prints under the same
+`view_version`, so no wire object is versioned for the verb (design
+DD11) —
 and the terminal's decision-trail rows, which print `· model <x>`; the TUI's seat table, seat detail, checkpoint rows and
 journal rows; and the web console's participants table, seat detail,
 checkpoint stream and journal rows. `brokkr costs` and `brokkr compare`
 name a seat's model from the seat records themselves, through the one
 seat-costs derivation, so their per-seat record SHALL gain `boundary`
-reduced exactly as `model` is — the set of words the seat's finishing
-checkpoints and successful results carry, one word or a joined list —
+reduced exactly as `model` is — the set of words the seat's records
+that name a model carry, one word or a joined list —
 reading `not recorded` when no record carries one, an explicit absence
 and never a default; and `compare` SHALL report a boundary difference
 between two runs as a first-class divergence, the way it reports a
@@ -140,7 +155,7 @@ decision 0031 ruling 1's list of the readouts).
 
 #### Scenario: brokkr seats
 - **WHEN** `brokkr seats --run <id>` renders a run with a boxed seat, and again with `--json`
-- **THEN** the seats block is the one `brokkr inspect` prints, with the `boundary` column beside `model`, and the JSON carries `view_version`, the run-level `boundary` fact and the participants
+- **THEN** the seats block is the one `brokkr inspect` prints, with the `boundary` column beside `model`, and the JSON is byte-identical to `brokkr inspect --run <id> --json`
 
 #### Scenario: The TUI
 - **WHEN** the TUI renders the seat table, a seat's detail pane, its checkpoint rows and the journal rows

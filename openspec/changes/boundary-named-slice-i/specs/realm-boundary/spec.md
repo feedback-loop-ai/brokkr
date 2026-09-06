@@ -16,7 +16,10 @@ every crate that reads, pins, records or renders a boundary uses the same
 closed vocabulary (decision 0046 ruling 1: the enumeration is frozen the
 way a contract is). A sixth word SHALL be refused wherever a boundary is
 parsed, with a message that lists the five words and says a new boundary
-is a new decision.
+is a new decision. The type SHALL carry no ambient default: absence
+becomes `namespace` only in the realm's own resolver, so a reader of
+evidence — a journal, a manifest, a record — holds an absence and cannot
+print `namespace` by default (design DD1).
 
 #### Scenario: Each word parses and prints itself
 - **WHEN** each of `namespace`, `seatbelt`, `container`, `harness` and `open` is parsed as a boundary
@@ -25,6 +28,10 @@ is a new decision.
 #### Scenario: An unknown word is refused by name
 - **WHEN** `chroot` is parsed as a boundary
 - **THEN** parsing is refused with a message that lists the five words and says a new boundary is a new decision, citing decision 0046
+
+#### Scenario: Absence resolves only in the realm
+- **WHEN** a boundary is read from a record, a manifest or a journal that carries none
+- **THEN** the reader holds an absence and not `namespace`; only the realm's own resolver turns a realm's missing field into `namespace`
 
 ### Requirement: The realm map declares the boundary as forge.realms/v4
 `contracts/realms.v4.schema.json` SHALL be v3 plus one optional
