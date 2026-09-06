@@ -3,42 +3,54 @@
 ## Purpose
 
 Which boundaries may hold a gate: decision 0021's gate law under the
-boundary axis, the adapters' `hands.harness`, the bundle-pinned-script
-reading for exec gates, and the run-time argv per boundary (decision
-0046 ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2
-and 7).
+boundary axis, the adapters' `hands.harness` and its result door, the
+bundle-pinned-script reading for exec gates, the environment an unboxed
+exec dispatch runs in, and the run-time argv per boundary (decision 0046
+ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2 and 7).
 
 ## ADDED Requirements
 
 ### Requirement: An adapter declares how its harness stands under the harness boundary
 The adapter loader SHALL admit, beside `hands.workspace`, an optional
-`hands.harness` object with two members, `gate` and `work`, each either
-an argv fragment (an array of strings) or `{"unsupported": "<measured
-reason>"}`; an absent member reads unsupported without a reason,
-fail-closed, on the three-shape convention `tool_permissions` uses.
-`gate` is the read-only fragment decision 0046 ruling 4 names — the
-harness's own sandbox with reads only and one write door, the result
-path — under which a model may judge; `work` is the harness's own
-writable sandbox, under which a work-class site with hands writes the
-worktree as its charter requires. `adapters/codex.json` SHALL declare
-`gate` as `["--sandbox", "read-only"]` plus whatever the measured result
-door needs, and `work` as `["--sandbox", "workspace-write"]`;
-`adapters/claude.json` SHALL declare both as fragments measured against
-the installed claude 2.1.x and never guessed; `adapters/dsh.json` and
-`adapters/lanetally.json` SHALL declare no `hands.harness`. The loader
-SHALL refuse any other key under `hands.harness`. An empty fragment is
-a legal declaration: it says the adapter's driver argv already stands
-in that mode — claude's driver carries `--permission-mode acceptEdits`,
-the candidate `work` answer — and it is a measured declaration like any
-other, recorded in the guide with what the mode denies and allows.
+`hands.harness` object with three members and no other: `gate` and
+`work`, each either an argv fragment (an array of strings) or
+`{"unsupported": "<measured reason>"}`, an absent member reading
+unsupported without a reason, fail-closed, on the three-shape convention
+`tool_permissions` uses; and `result`, optional, one of `file` and
+`last-message`, absent reading `file`. `gate` is the read-only fragment
+decision 0046 ruling 4 names — the harness's own sandbox with reads only
+and one write door, the result path — under which a model may judge;
+`work` is the harness's own writable sandbox, under which a work-class
+site with hands writes the worktree as its charter requires; `result`
+says how a gate seat's result reaches the engine under the `gate`
+fragment: `file` when the seat writes the result file itself through a
+door the fragment scopes to that path, `last-message` when the harness's
+own capture writes the seat's final message to that path. A fragment
+under `hands.harness` MAY carry `{result_path}`, expanded by the engine
+at spawn to the seat's own result path, and `{brokkr}`; the loader SHALL
+refuse `{hands_mcp_json}` and `{hands_args_toml}` there, because no
+workspace tool is served under `harness`. `adapters/codex.json` SHALL
+declare `gate` as `["--sandbox", "read-only", "--output-last-message",
+"{result_path}"]` with `result` `last-message` — the capture flag
+`codex exec` documents and the codex driver already admits on a
+resume — and `work` as `["--sandbox", "workspace-write"]`;
+`adapters/claude.json` SHALL declare `gate` and `work` as fragments
+measured against the installed claude 2.1.x and never guessed, its
+`gate` door scoped to `{result_path}`; `adapters/dsh.json` and
+`adapters/lanetally.json` SHALL declare no `hands.harness`. An empty
+fragment is a legal declaration: it says the adapter's driver argv
+already stands in that mode — claude's driver carries
+`--permission-mode acceptEdits`, a candidate `work` answer — and it is
+a measured declaration like any other, recorded in the guide with what
+the mode denies and allows.
 
-#### Scenario: codex declares both fragments
+#### Scenario: codex declares both fragments and its door
 - **WHEN** `adapters/codex.json` is loaded
-- **THEN** `hands.harness.gate` begins `--sandbox read-only` and `hands.harness.work` is `--sandbox workspace-write`
+- **THEN** `hands.harness.gate` is `--sandbox read-only --output-last-message {result_path}`, `hands.harness.result` is `last-message`, and `hands.harness.work` is `--sandbox workspace-write`
 
 #### Scenario: claude's fragments are measured, not guessed
 - **WHEN** `adapters/claude.json` is loaded
-- **THEN** `hands.harness.gate` and `hands.harness.work` are each an argv fragment or `unsupported` with a measured reason, and the provider-adapters guide records the claude version they were measured against and what each denies and allows
+- **THEN** `hands.harness.gate` and `hands.harness.work` are each an argv fragment or `unsupported` with a measured reason, a `gate` fragment names `{result_path}` as its door, and the provider-adapters guide records the claude version they were measured against and what each denies and allows
 
 #### Scenario: dsh and lanetally declare none
 - **WHEN** `adapters/dsh.json` and `adapters/lanetally.json` are loaded
@@ -46,7 +58,15 @@ other, recorded in the guide with what the mode denies and allows.
 
 #### Scenario: An unknown member is refused
 - **WHEN** an adapter declares `hands.harness.judge`
-- **THEN** loading is refused naming the key and the two members the vocabulary admits
+- **THEN** loading is refused naming the key and the three members the vocabulary admits
+
+#### Scenario: A result outside the vocabulary is refused
+- **WHEN** an adapter declares `hands.harness.result` as `stdout`
+- **THEN** loading is refused naming `file` and `last-message`
+
+#### Scenario: A workspace token in a harness fragment is refused
+- **WHEN** an adapter's `hands.harness.gate` or `hands.harness.work` names `{hands_mcp_json}` or `{hands_args_toml}`
+- **THEN** loading is refused saying no workspace tool is served under `harness`
 
 ### Requirement: The gate law reads the boundary for sites that declare hands
 `enforce_model_policy` SHALL apply decision 0021's gate refusals as
@@ -54,16 +74,18 @@ today under every boundary and, for a gate-class site that declares
 hands, SHALL additionally rule by the boundary the bundle compiles
 under: under `namespace`, `seatbelt` and `container` a model gate is
 admitted as today and a boxed exec gate as decision 0043 ruling 3
-reads; under `harness` a model gate is admitted only when every link of
-its resolved chain declares `hands.harness.gate` as a fragment, and
-refused otherwise naming the link, the provider and the missing
-declaration; under `open` a model gate is refused naming decision 0046
-ruling 4. A work-class site with hands under `harness` SHALL be refused
-as a capability gap when a link declares no `hands.harness.work`
-fragment. A gate-class site without hands has no box whose boundary
-could be named and SHALL compile as it does today under every boundary
-(decision 0046 ruling 4; decision 0021 rulings 2 and 7; decision 0041
-ruling 3).
+reads — the compile defines the identity now, and a run under
+`seatbelt` or `container` refuses at start until its slice lands, which
+is boundary-availability's rule and not this one's; under `harness` a
+model gate is admitted only when every link of its resolved chain
+declares `hands.harness.gate` as a fragment, and refused otherwise
+naming the link, the provider and the missing declaration; under `open`
+a model gate is refused naming decision 0046 ruling 4. A work-class site
+with hands under `harness` SHALL be refused as a capability gap when a
+link declares no `hands.harness.work` fragment. A gate-class site
+without hands has no box whose boundary could be named and SHALL compile
+as it does today under every boundary (decision 0046 ruling 4; decision
+0021 rulings 2 and 7; decision 0041 ruling 3).
 
 #### Scenario: A harness gate on a provider that declares the fragment is admitted
 - **WHEN** a gate-class agent site with hands resolves to a trusted judging provider whose adapter declares `hands.harness.gate`, and the bundle compiles under `harness`
@@ -81,6 +103,10 @@ ruling 3).
 - **WHEN** a gate-class agent site with hands compiles under `open`, whatever its adapter declares
 - **THEN** compilation is refused naming decision 0046 ruling 4
 
+#### Scenario: A seatbelt gate is admitted at compile
+- **WHEN** a gate-class agent site with hands compiles under `seatbelt`, and again under `container`
+- **THEN** compilation succeeds exactly as under `namespace` and the manifest pins the word, whatever the compiling machine holds
+
 #### Scenario: A harness work seat without a work fragment is refused
 - **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`
 - **THEN** compilation is refused as a capability gap naming the provider and `hands.harness.work`
@@ -96,41 +122,51 @@ ruling 3).
 ### Requirement: An exec gate under harness or open holds only for pinned bytes
 An exec gate that declares hands, compiled under `harness` or `open`,
 SHALL be admitted only when its command is the bundle's own pinned
-script: after the `--` that ends the `{brokkr} driver exec` dispatch,
-the first token that is a `./`-relative path resolves inside the
-bundle's own root — or an ancestor root under composition — by a
-comparison that canonicalises both sides and compares path components,
-so a macOS `/private/var` spelling and a Windows `\` spelling compare
-equal to their other spellings, and every token before it is a bare
-interpreter name without a path separator; the tokens after it are
-its arguments and are not judged, which is how the shipped ship gate
-hands `{brokkr}` to its own script. A command with no such
-script — a bare program, an absolute path, a `{brokkr}` verb, or a
-`../` that escapes the root — SHALL be refused naming decision 0046
-ruling 4 and decision 0021. A dialect validate or check step, whose
-argv is the dialect's own and pinned by the dialect's content digest in
-the run manifest beside the tool's declared name and version, SHALL be
-admitted on the same cleared-environment and network terms, the run
-marked unboxed all the same; the tool's binary is not pinned by digest,
-which makes this the weaker of the two readings, recorded as such in
-the proposal's D6 for the operator to confirm or refuse (decision 0046
-ruling 4; decision 0042 rulings 1 and 4).
+script, checked by construction: after the `--` that ends the
+`{brokkr} driver exec` dispatch, every token before the script is a bare
+interpreter name without a path separator, and the script token is
+`./`-relative, every component after `./` a plain name — no `..`, no
+`.`, no empty component, no `\`, no absolute prefix — and, joined to the
+directory of the layer that declared the seat (the bundle's own
+directory, or the ancestor's that wrote the seat under composition), a
+regular file at compile. That directory is the one the compiler already
+expands `./` against and the one the manifest walk digests, so a token
+that passes is pinned by the manifest of the layer that declared it, and
+no path is canonicalised and no two spellings are compared. The tokens
+after the script are its arguments and are not judged, which is how the
+shipped ship gate hands `{brokkr}` to its own script. A command with no
+such script — a bare program, a `{brokkr}` verb, an absolute path, a
+`\`-spelled or `/private/var`-spelled token, a `../` that escapes, or a
+`./` token naming no file — SHALL be refused naming decision 0046
+ruling 4 and decision 0021 and, for a spelling, the spelling. A dialect
+validate or check step, whose argv is the dialect's own and pinned by
+the dialect's content digest in the run manifest beside the tool's
+declared name and version, SHALL be admitted on the same environment
+and network terms, the run marked unboxed all the same; the tool's
+binary is not pinned by digest, which makes this the weaker of the two
+readings, recorded as such in the proposal's D6 for the operator to
+confirm or refuse (decision 0046 ruling 4; decision 0042 rulings 1 and
+4).
 
 #### Scenario: The shipped verifier under open is admitted
-- **WHEN** a bundle whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands compiles under `open`
-- **THEN** it is admitted
+- **WHEN** `bundles/self`, whose verify seat is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
+- **THEN** it is admitted, because `bundles/self/scripts/verify-seat.sh` is a file the bundle's own manifest walk pins
 
 #### Scenario: A brokkr-external command under open is refused
 - **WHEN** an exec gate with hands whose command is `["{brokkr}","driver","exec","--","true"]` compiles under `open`
 - **THEN** compilation is refused naming decision 0046 ruling 4
 
-#### Scenario: An escaping or absolute script is refused
-- **WHEN** the script token is `./../outside.sh` or `/usr/bin/true` under `harness`
-- **THEN** compilation is refused naming the token
+#### Scenario: An escaping, absolute or platform-spelled script is refused
+- **WHEN** the script token is `./../outside.sh`, `/usr/bin/true`, `.\scripts\s.sh` or `/private/var/b/scripts/s.sh` under `harness`
+- **THEN** compilation is refused naming the token, and no path is compared to judge it
 
-#### Scenario: Platform spellings compare equal
-- **WHEN** the comparison is given a root spelled `/private/var/b` and a script resolved as `/var/b/scripts/s.sh` on a host where `/var` links to `/private/var`, or a root `C:\b` and a script `C:/b/scripts/s.sh`
-- **THEN** both are judged inside the root, and a script under a sibling root is not
+#### Scenario: A pinned-looking token that names no file is refused
+- **WHEN** the script token is `./scripts/missing.sh` and no such file exists under the declaring layer's directory
+- **THEN** compilation is refused naming the token and the directory searched
+
+#### Scenario: An inherited seat resolves against the layer that wrote it
+- **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/fast`, compiles under `harness`
+- **THEN** the verify seat is admitted, the file checked being `recipes/fast/scripts/verify-seat.sh`
 
 #### Scenario: The shipped ship gate under harness is admitted
 - **WHEN** the shipped ship seat, `["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]` with hands, compiles under `harness`
@@ -146,15 +182,16 @@ runs every shipped bundle, the review offices under their harness's own
 sandbox. The work offices that declare hands — `chief-architect` and
 `intake-sdd` — chain claude and codex, so the promise holds exactly when
 `adapters/codex.json` and `adapters/claude.json` declare
-`hands.harness.gate` and `hands.harness.work` as fragments. Every bundle
-under `recipes/` and `bundles/` SHALL compile under `harness` on that
-condition. If the measurement finds a claude mode that cannot be
-declared as a fragment, the refusal SHALL name the adapter, the member
-and the site, and the implementation SHALL report ruling 6's promise as
-unmet for the operator to rule on — never widen the rule, seat another
-provider or declare an unmeasured fragment to make the shipped bundles
-compile (decision 0046 rulings 4 and 6; decision 0042's addendum,
-ruling 1: a decision is amended only by a decision).
+`hands.harness.gate` and `hands.harness.work` as fragments, each `gate`
+with a measured door. Every bundle under `recipes/` and `bundles/` SHALL
+compile under `harness` on that condition. If the measurement finds a
+claude mode that cannot be declared as a fragment, the refusal SHALL
+name the adapter, the member and the site, and the implementation SHALL
+report ruling 6's promise as unmet for the operator to rule on — never
+widen the rule, seat another provider or declare an unmeasured fragment
+to make the shipped bundles compile (decision 0046 rulings 4 and 6;
+decision 0042's addendum, ruling 1: a decision is amended only by a
+decision).
 
 #### Scenario: The shipped bundles compile under harness
 - **GIVEN** the codex and claude adapters declare both `hands.harness` members as fragments
@@ -173,31 +210,36 @@ adapter's `hands.workspace` fragment with `{hands_mcp_json}`,
 `{hands_args_toml}` and `{brokkr}` expanded, and `brokkr hands exec`
 around an exec dispatch; under `harness` the adapter's
 `hands.harness.gate` fragment for a gate-class site and
-`hands.harness.work` for a work-class site, no workspace tool served and
-no box built; under `open` no fragment of Brokkr's at all. Under
-`harness` and `open` the site's `hands.network` and `hands.binds` stay
-pinned in the manifest as declared and are enforced by nothing of
-Brokkr's: the harness's own sandbox decides what the hands may reach,
-which is the fact the *unboxed* rendering states. Under `harness` and
-`open` an exec dispatch SHALL run with the environment
-cleared to the box's own allow-list, its `./` script at its real path in
-the bundle root, and, on Linux, inside a new network namespace through
-`unshare`'s unprivileged form when `unshare` is on PATH and the kernel
-permits it, otherwise with the network on; the record marks the run
-unboxed all the same. An inline model site with hands under `harness`
-or `open` SHALL be refused at compile naming the repair, because its
-argv is the author's and carries the box's own tokens. `seatbelt` and
-`container` are refused by `refuse_unboxable` before the engine
-composes anything (decision 0046 rulings 1 and 4; decision 0043
-rulings 1 and 3).
+`hands.harness.work` for a work-class site, with `{result_path}`
+expanded to the seat's own result path and `{brokkr}` to this binary,
+no workspace tool served and no box built; under `open` no fragment of
+Brokkr's at all. Under `harness` and `open` the site's `hands.network`
+and `hands.binds` stay pinned in the manifest as declared and are
+enforced by nothing of Brokkr's: the harness's own sandbox decides what
+the hands may reach, which is the fact the *unboxed* rendering states.
+Under `harness` and `open` an exec dispatch SHALL run through the
+engine's unboxed wrapper — a `brokkr hands` verb beside `exec` that
+builds no namespace — with its script at the real path the compiler
+expanded, in the environment the next requirement lists, and, on Linux,
+inside a new network namespace through `unshare`'s unprivileged form (a
+user namespace mapping the current user, then a network namespace) when
+`unshare` is on PATH and a probe at run time shows the kernel and the
+`unshare` at hand accept it, otherwise with the network on; the record
+marks the run unboxed all the same. An inline model site with hands
+under `harness` or `open` SHALL be refused at compile naming the repair,
+because its argv is the author's and carries the box's own tokens.
+`seatbelt` and `container` never reach composition: the engine refuses
+them at its entry before any journal row (boundary-availability), and
+composition is written over the three boundaries this engine builds
+(decision 0046 rulings 1 and 4; decision 0043 rulings 1 and 3).
 
 #### Scenario: namespace is byte-identical to today
 - **WHEN** a boxed model site and a boxed exec site are composed under `namespace`
 - **THEN** their argv equal what `hands_command` produced before this change, token for token
 
-#### Scenario: A harness gate takes the read-only fragment
-- **WHEN** a gate-class agent site with hands on codex is composed under `harness`
-- **THEN** its argv carries `--sandbox read-only`, no `mcp_servers.brokkr` entry, and no `{hands_mcp_json}` expansion
+#### Scenario: A harness gate takes the read-only fragment and its door
+- **WHEN** a gate-class agent site with hands on codex, whose result path is `<workdir>/.forge/results/<effect>.json`, is composed under `harness`
+- **THEN** its argv carries `--sandbox read-only --output-last-message <workdir>/.forge/results/<effect>.json`, no `mcp_servers.brokkr` entry, no `{hands_mcp_json}` expansion, and no literal `{result_path}`
 
 #### Scenario: A harness work seat takes the work fragment
 - **WHEN** a work-class agent site with hands on codex is composed under `harness`
@@ -211,32 +253,87 @@ rulings 1 and 3).
 - **WHEN** a site declaring `"hands": {"kind": "workspace", "network": false, "binds": []}` is composed under `harness`
 - **THEN** its manifest `hands` entry still says `network` false, its argv carries no network switch of Brokkr's, and the run is rendered *unboxed*
 
-#### Scenario: An exec script under harness runs unboxed with the environment cleared
-- **WHEN** a boxed exec site is composed under `harness` on Linux with `unshare` on PATH
-- **THEN** its argv does not begin with `brokkr hands exec`, names the script at its real path, clears the environment to the box's allow-list, and wraps the command in `unshare`'s unprivileged network namespace; with `unshare` absent the wrapper is skipped and the command still runs
+#### Scenario: An exec script under harness runs unboxed
+- **WHEN** a boxed exec site is composed under `harness` on Linux with `unshare` on PATH and the probe passing
+- **THEN** its argv does not begin with `brokkr hands exec`, names the script at its real path under the declaring layer's directory, and wraps the command in `unshare`'s unprivileged network namespace; with `unshare` absent or the probe failing the wrapper is skipped and the command still runs
 
 #### Scenario: An inline model site with hands under harness is refused
 - **WHEN** an inline seat whose command is a `{brokkr} driver claude` dispatch declares `hands` and compiles under `harness`
 - **THEN** compilation is refused naming the seat and the repair
 
+### Requirement: An unboxed exec dispatch runs in a fixed environment
+Under `harness` and `open` the engine's unboxed wrapper SHALL start an
+exec dispatch from an empty environment and set exactly these keys and
+no other: inherited verbatim from the engine's own environment, each
+only when set there, `PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`,
+`CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`, the in-box marker
+`BROKKR_HANDS_BOX` — true of the child exactly when the engine itself
+already stands inside a box — and, on Windows only, `USERPROFILE`,
+`HOMEDRIVE`, `HOMEPATH`, `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`,
+`COMSPEC`, `PATHEXT`, `TEMP`, `TMP`, `USERNAME`, `APPDATA`,
+`LOCALAPPDATA` and `PROGRAMDATA`, without which no Windows process
+starts; fixed as the box sets them, `LANG` and `LC_ALL` as `C.UTF-8`,
+`CI` as `true`, `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`,
+and `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as
+the `commit.gpgsign=false` triple; and the bundle's `git.identity`
+entries. The wrapper SHALL never set the in-box marker itself, because
+no box stands and the marker is what every box-building test skips on.
+The environment SHALL be composed by one pure function the tests read
+directly, and the wrapper's working directory is the worktree. A
+dialect step under `harness` or `open` runs in the same environment
+(decision 0046 ruling 4; decision 0043 ruling 1's allow-list, from which
+the table is taken).
+
+#### Scenario: The shipped verify gate under harness on a rustup machine
+- **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
+- **WHEN** `bundles/self`'s verify seat is composed under `harness`
+- **THEN** the environment holds `PATH` and `HOME` verbatim, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `CARGO_HOME` or `BROKKR_HANDS_BOX`; the command is `bash <bundles/self>/scripts/verify-seat.sh <prompt>` in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the real `~/.rustup`
+
+#### Scenario: The operator's own locators pass through
+- **WHEN** the engine's environment sets `CARGO_HOME`, `RUSTUP_HOME` and `NPM_CONFIG_CACHE`
+- **THEN** the composed environment carries each verbatim, and carries none of them when the engine's environment does not
+
+#### Scenario: The marker is inherited, never set
+- **WHEN** the engine's environment carries `BROKKR_HANDS_BOX`, and again when it does not
+- **THEN** the composed environment carries it in the first case and not in the second
+
+#### Scenario: Windows starts its processes
+- **WHEN** the environment is composed on Windows with `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE` and `TEMP` set
+- **THEN** each is carried verbatim, and on Linux and macOS the Windows names are not consulted
+
+#### Scenario: A dialect step gets the same environment
+- **WHEN** a dialect validate step is composed under `open`
+- **THEN** its environment is the same table, with the dialect's own argv in place of the script
+
 ### Requirement: A judge under harness still delivers its result file
-Under `harness` a gate-class model site SHALL be able to write exactly
-its result file: the adapter's `gate` fragment, as measured, leaves that
-one write door open — for claude through a permission rule scoped to the
-result path or an equivalent measured mechanism, for codex through the
-harness's own last-message capture into the result path or an
-equivalent measured mechanism — and the prompt paragraph under `harness`
-tells the seat how the file reaches the engine. An adapter whose
-measured read-only mode leaves no such door SHALL declare
-`hands.harness.gate` as `{"unsupported": "<measured reason>"}` and is
-refused at a `harness` gate. The result file stays the only channel the
-engine reads (decision 0046 ruling 4; decision 0043 as amended by the
-boxed-marker fix).
+Under `harness` a gate-class model site SHALL be able to deliver exactly
+its result: with `result` `file`, the adapter's `gate` fragment, as
+measured, leaves the one write door the expanded `{result_path}` names
+and the seat writes the file as the result contract says; with `result`
+`last-message`, the fragment's capture flag carries the expanded path,
+the seat input carries `result_delivery: last-message`, and the prompt's
+result contract tells the seat that its final message must be exactly
+the result object, which the harness writes to the path. The engine
+reads the result file as today in both cases; a final message that is
+not the bare object is a missing result, exactly as a malformed file is.
+An adapter whose measured read-only mode leaves no such door SHALL
+declare `hands.harness.gate` as `{"unsupported": "<measured reason>"}`
+and is refused at a `harness` gate. The result file stays the only
+channel the engine reads (decision 0046 ruling 4; decision 0043 as
+amended by the boxed-marker fix).
+
+#### Scenario: The door points at the seat's own result path
+- **WHEN** a gate-class site on codex whose result path is `P` is composed under `harness`
+- **THEN** its argv carries `--output-last-message P`, its input carries `result_delivery: last-message`, and its prompt says the final message must be exactly the result object and names `P`
+
+#### Scenario: A file door names the path and changes nothing else
+- **WHEN** a gate-class site on an adapter with `result` absent and a `gate` fragment carrying `{result_path}` is composed under `harness`
+- **THEN** the expanded argv names the seat's result path where the token stood, the input carries no `result_delivery`, and the prompt's result contract is today's
 
 #### Scenario: The measured door is recorded
 - **WHEN** an adapter declares `hands.harness.gate` as a fragment
-- **THEN** the provider-adapters guide records the measurement that showed a seat under it writing its result file and nothing else
+- **THEN** the provider-adapters guide records the measurement that showed a seat under it delivering its result and nothing else
 
 #### Scenario: No door means unsupported
-- **WHEN** a harness's read-only mode is measured to leave no way to write the result file
+- **WHEN** a harness's read-only mode is measured to leave no way to deliver the result
 - **THEN** its adapter declares `hands.harness.gate` unsupported with that reason, and a `harness` gate on it is refused at compile

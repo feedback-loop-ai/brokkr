@@ -68,8 +68,11 @@ in the discovered or named map; `brokkr resume` SHALL compile against
 the realm embedded in the run's pinned world and never against the
 workspace's map as it stands today, as it already does for the dialect;
 `brokkr rerun` compiles as it does today, without a world and therefore
-under `namespace` (decision 0046 ruling 1; the resume rule of decision
-0042 ruling 1's enactment).
+under `namespace`. Compilation consults no machine and no engine
+capability: a realm declaring `seatbelt` or `container` compiles and
+pins the word, and the refusal that stops a run under either comes at
+start and is boundary-availability's (decision 0046 ruling 1; the
+resume rule of decision 0042 ruling 1's enactment).
 
 #### Scenario: Run resolves the operated realm's boundary
 - **WHEN** a `forge.realms/v4` map declares the operated repository's realm with `"boundary": "harness"` and `brokkr run` compiles a bundle in it
@@ -83,6 +86,10 @@ under `namespace` (decision 0046 ruling 1; the resume rule of decision
 #### Scenario: Compile without a map is namespace
 - **WHEN** a bundle compiles through `Bundle::compile_with` with no realm context
 - **THEN** its boundary is `namespace` and its manifest is what this tree's witness table pins
+
+#### Scenario: A seatbelt realm compiles and pins the word
+- **WHEN** a `forge.realms/v4` map declares the operated repository's realm with `"boundary": "seatbelt"` and `brokkr compile` runs over a boxed bundle on a machine without `sandbox-exec`
+- **THEN** the bundle compiles and its manifest's `boundary` map says `seatbelt` for every hands site; the refusal that stops a run under it comes at start and names slice (ii)
 
 ### Requirement: A bundle never names the boundary
 The bundle parser SHALL refuse a `boundary` key at any site — a seat, a

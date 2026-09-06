@@ -101,28 +101,38 @@ word, under every boundary, and SHALL carry the `hands: boxed` marker
 exactly when Brokkr builds the box — under `namespace`, `seatbelt` and
 `container` — so the marker is never a false statement: under `harness`
 and `open` no box of Brokkr's stands and no workspace tool is served,
-and the marker is absent. The rendered prompt paragraph SHALL follow
-`boundary`: under `namespace`, `seatbelt` and `container` exactly
+and the marker is absent. Under `harness` the input of a gate-class site
+whose resolved adapter declares `hands.harness.result` as `last-message`
+SHALL also carry `result_delivery: last-message`; with `file`, or for a
+work-class site, no such field is present. The rendered prompt SHALL
+follow the two: under `namespace`, `seatbelt` and `container` exactly
 today's paragraph, which names the `mcp__brokkr__workspace` tool as the
 only writer; under `harness` a paragraph that names the word, says the
 seat runs under its harness's own sandbox with no workspace tool served,
-and says how the result file reaches the engine as the adapter's
-measured fragment requires; under `open` the same with the word `open`.
-A site without hands SHALL carry neither field and today's prompt
-unchanged (decision 0046 rulings 1, 3 and 4; decision 0043 as amended by
-the boxed-marker fix).
+and — with `file` — says the result path is the one file that sandbox
+lets it write, or — with `last-message` — says the seat's final message
+must be exactly the result object, which the harness writes to the
+result path, in which case the result contract's line that asks for a
+file written says so too; under `open` the same with the word `open`
+and no delivery change. A site without hands SHALL carry neither field
+and today's prompt unchanged (decision 0046 rulings 1, 3 and 4;
+decision 0043 as amended by the boxed-marker fix).
 
 #### Scenario: namespace keeps today's words
 - **WHEN** a boxed site's input and prompt are rendered under `namespace`
 - **THEN** the input carries `hands: boxed` and `boundary: namespace`, and the paragraph is byte-identical to today's, naming the workspace tool as the only writer
 
 #### Scenario: harness does not claim the workspace tool
-- **WHEN** a boxed site's input and prompt are rendered under `harness`
-- **THEN** the input carries `boundary: harness` and no `hands` marker, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says how the result file is written
+- **WHEN** a boxed gate site's input and prompt are rendered under `harness` on an adapter whose `result` is `file`
+- **THEN** the input carries `boundary: harness`, no `hands` marker and no `result_delivery`, and the paragraph names `harness`, does not name `mcp__brokkr__workspace`, and says the result path is the one file the sandbox lets the seat write
+
+#### Scenario: harness with a last-message door changes the contract
+- **WHEN** a boxed gate site's input and prompt are rendered under `harness` on an adapter whose `result` is `last-message`
+- **THEN** the input carries `boundary: harness` and `result_delivery: last-message`, and the prompt says the final message must be exactly the result object, names the result path the harness writes it to, and does not ask the seat to write a file
 
 #### Scenario: open carries the word and no marker
 - **WHEN** a boxed site's input is rendered under `open`
-- **THEN** it carries `boundary: open` and no `hands` marker
+- **THEN** it carries `boundary: open`, no `hands` marker and no `result_delivery`
 
 #### Scenario: A site without hands carries neither
 - **WHEN** a site without hands is rendered under `harness`

@@ -14,16 +14,21 @@ erratum).
 ### Requirement: The guides document the boundary and never lose a section
 The guides SHALL be updated as follows, each section kept and amended,
 none removed: `docs/guides/provider-adapters.md`'s Hands section
-documents `hands.harness` with its `gate` and `work` members, the
-three-shape convention, codex's fragments, and the measured claude
-fragments with the claude version and what each denies and allows;
+documents `hands.harness` with its `gate`, `work` and `result` members,
+the `{result_path}` token and the two workspace tokens refused there,
+the three-shape convention, codex's fragments and its `last-message`
+door, and the measured claude fragments with the claude version and
+what each denies and allows, and its doctor section names the
+`boundaries` line and what *offered* and *ready* mean on it;
 `docs/guides/recipe-authoring.md`'s `hands` row stops saying Linux only
 and says the boundary lives in the realm, and its `driver.confine` row
 says the field is refused and points at decision 0046 ruling 5;
 `docs/guides/quickstart.md`'s platform paragraph says that a realm on
 macOS or Windows declares `boundary: harness` today, what that means —
 judged under the harness's own sandbox, rendered *unboxed* — and that
-`namespace` is the default and needs bubblewrap;
+`namespace` is the default and needs bubblewrap, and that `seatbelt`
+and `container` are named by decision 0046 and refuse at start until
+slices (ii) and (iii) build them;
 `docs/guides/journal-and-verification.md` gains the unboxed rendering
 and what `boundary` on a record and on `effect/started` means;
 `docs/guides/read-surfaces.md`'s seats-table example is refreshed from
@@ -38,7 +43,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: provider-adapters documents hands.harness
 - **WHEN** `docs/guides/provider-adapters.md` is read
-- **THEN** its Hands section names `hands.harness`, `gate`, `work`, the codex fragments, and the claude version the claude fragments were measured against
+- **THEN** its Hands section names `hands.harness`, `gate`, `work`, `result`, `{result_path}`, the codex fragments and door, and the claude version the claude fragments were measured against, and its doctor section names the `boundaries` line
 
 #### Scenario: recipe-authoring points the two rows at the realm and at 0046
 - **WHEN** the site vocabulary table is read
@@ -46,7 +51,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: quickstart's platform paragraph
 - **WHEN** the quickstart's platform paragraph is read
-- **THEN** it says a realm on macOS or Windows declares `boundary: harness` today, that such a run is judged under the harness's own sandbox and rendered *unboxed*, and it no longer says macOS and Windows adopters need a Linux box
+- **THEN** it says a realm on macOS or Windows declares `boundary: harness` today, that such a run is judged under the harness's own sandbox and rendered *unboxed*, that `seatbelt` lands in slice (ii), and it no longer says macOS and Windows adopters need a Linux box
 
 #### Scenario: journal-and-verification and read-surfaces show the rendering
 - **WHEN** the two guides are read
