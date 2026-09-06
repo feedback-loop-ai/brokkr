@@ -139,3 +139,91 @@ Local validation passes formatting, clippy with warnings denied,
 `bundles/self` and `bundles/verify`. Exact coverage records
 21,228/21,228 source lines, 3,300/3,300 branches and 2,015/2,015 logical
 functions. The frozen files and witness and compose digests do not move.
+
+## Windows environment repair — 2026-09-06 (proposed)
+
+The follow-up commission names the unboxed exec dispatch's fixed
+environment and asks that the Windows startup list remain explicit and
+closed. Inspection of `1f3546a` changes the diagnosis: both capability
+specs and `hands.rs` already carry all fourteen Windows startup names,
+including `SYSTEMROOT`, `WINDIR`, `COMSPEC` and `PATHEXT`. That list is
+not missing. Its implementation already matches names without ASCII
+case, but the common inherited names use `BTreeMap<String, String>::get`,
+which drops an engine entry spelled `Path` when asking for `PATH`.
+
+The [Windows CI run at that head](https://github.com/feedback-loop-ai/brokkr/actions/runs/34056215971)
+records four failures among the five `boundary_verbs` tests. The dumped
+unboxed attempt reaches the exec driver and reports `could not invoke
+the agent CLI: program not found`. The engine spawns its own binary by
+path in `SpawnEnv::Exactly`; that driver then looks up `sh` in its own,
+already cleared environment. Losing `Path` at the first spawn removes
+the search path from the second one. The passing `agent_fallback`
+sequence in the same job also invokes `sh`, so the evidence does not
+justify changing the fixture's shell or installing another one.
+
+[Rust's Command documentation](https://doc.rust-lang.org/std/process/struct.Command.html#method.env)
+states Windows environment-name matching is case insensitive while
+preserving spelling. [Rust 1.98.0's Windows resolver](https://github.com/rust-lang/rust/blob/1.98.0/library/std/src/sys/process/windows.rs#L424-L547)
+appends `.exe` itself, independently of `PATHEXT`, and produces this
+`program not found` error before calling `CreateProcessW`. Missing
+`PATHEXT` or a loader dependency therefore is not the demonstrated
+cause. The pure regression fails on Linux before the lookup repair:
+the Windows table lacks `PATH`, `USER`, `LOGNAME` and the inherited
+marker when their input names have mixed case. It passes afterward.
+
+The proposed clarification of decision 0046 ruling 4 is:
+
+- Keep the existing Unix keys and all fourteen explicitly named Windows
+  startup keys. Inherit each Windows startup entry only when set,
+  including an empty value, retaining its spelling and value verbatim.
+  Consult none of that list on Linux or macOS.
+- Match the common inherited names `PATH`, `USER`, `LOGNAME` and
+  `BROKKR_HANDS_BOX` without ASCII case on Windows, emitting their
+  stated uppercase keys with values unchanged. Unix remains case
+  sensitive. The marker is never synthesized, and toolchain locators
+  still follow binds rather than operator environment overrides.
+- Keep both platform compositions in the same pure implementation.
+  The public function selects the native platform; Linux tests execute
+  both full tables, asserting literal key-set equality against lists
+  independent of production, mixed-case inheritance, absent and empty
+  entries, bind-derived values and exclusion of secrets and lookalikes.
+
+**Enforcement binding:** `unboxed_environment_on` and `bootstrap` in
+`crates/brokkr-protocol/src/hands.rs`, and
+`the_unboxed_environment_has_exact_keys_on_both_platforms` in its tests.
+This changes neither script-directory pinning nor a manifest field.
+
+One failing CI case removes hands and inherits its environment, so the
+cleared-table defect alone cannot explain that case. A separate Linux
+regression proves the shared gate fixture's prompt parser exits 2 for
+a Windows verbatim drive path (`\\?\C:\...`). The fixture now strips
+that prefix before recognizing the result path; production filenames
+and script pins are unchanged. The regression exercises ordinary and
+verbatim drive spellings and a Windows home value through a real shell.
+All formerly opaque run assertions now include events on failure.
+Matching this additional fixture defect to the undumped CI failure
+still requires a native Windows run; none was available in this seat.
+
+The `anchor gap ... Author identity unknown` message belongs to runner
+identity configuration. `anchor::anchor` runs Git in the engine's
+inherited environment, after the run's disposition is decided. This
+fixture supplies `git -c user.name=... -c user.email=...` only to its
+initial commit, not to later `commit-tree` calls, and CI configures no
+persistent identity. The gap is best effort and does not park the run.
+No anchor code or runner configuration is changed by this repair.
+
+Archive maintenance is explicit: the fixed-environment requirement and
+its **Windows starts its processes** scenario are amended in both
+`openspec/changes/archive/2026-09-06-boundary-named-slice-i/specs/gate-boundary-policy/spec.md`
+and `openspec/specs/gate-boundary-policy/spec.md`. The archived completion
+note records this later amendment; its original close-out remains
+historical evidence. This section remains proposed, not an operator
+acceptance.
+
+Local validation for this repair passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, and both `brokkr compile
+--bundle bundles/self` and `--bundle bundles/verify`. A fresh exact
+coverage run records 21,262/21,262 source lines, 3,306/3,306 branches
+and 2,018/2,018 logical functions. The frozen trees are unchanged and
+the witness and compose digest tests pass without repinning.

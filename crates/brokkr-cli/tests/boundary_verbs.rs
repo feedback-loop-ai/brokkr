@@ -44,6 +44,7 @@ result_path=""
 while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"
     trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    trimmed="${trimmed#'\\?\'}"
     case "$trimmed" in /*.json|?:*.json) result_path="$trimmed" ;; esac
 done < "$prompt_file"
 [ -n "$result_path" ] || exit 2
@@ -184,6 +185,39 @@ fn run_id(stderr: &str) -> String {
         .unwrap_or_else(|| panic!("no run id in stderr: {stderr}"))
 }
 
+/// A Windows drive path is just a filename on Linux, which lets this
+/// fixture's prompt parser prove both native and verbatim spellings
+/// without pretending to exercise a Windows process loader.
+#[cfg(unix)]
+#[test]
+fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("gate.sh");
+    std::fs::write(&script, GATE).unwrap();
+    for prefix in ["", r"\\?\"] {
+        let result = r"C:\gate result.json";
+        let prompt = dir.path().join("prompt.md");
+        std::fs::write(&prompt, format!("Result path:\n\n    {prefix}{result}\n\n")).unwrap();
+        let output = Command::new("sh")
+            .arg(&script)
+            .arg(&prompt)
+            .arg("pass")
+            .env("HOME", r"C:\Users\carol")
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{prefix:?}: {output:?}");
+        let path = dir.path().join(result);
+        let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(record["result"], "pass");
+        assert!(record["notes"]
+            .as_str()
+            .unwrap()
+            .starts_with("home=C:/Users/carol "));
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
 #[test]
 fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes() {
     for boundary in ["harness", "open"] {
@@ -315,7 +349,12 @@ fn a_plain_compile_has_no_boundary_map_and_resume_keeps_its_pinned_namespace() {
     assert!(compiled["manifest"].get("boundary").is_none());
     assert!(compiled.get("boundary").is_none());
     let (code, _, stderr) = ws.run();
-    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        code,
+        Some(0),
+        "{stderr}\n{:#?}",
+        ws.events(&run_id(&stderr))
+    );
     let id = run_id(&stderr);
     let before = ws.events(&id);
     assert_eq!(
@@ -355,7 +394,12 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
     // `seatbelt` and both `resume` and `rerun` refuse the same way.
     ws.map("harness");
     let (code, _, stderr) = ws.run();
-    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        code,
+        Some(0),
+        "{stderr}\n{:#?}",
+        ws.events(&run_id(&stderr))
+    );
     let first = run_id(&stderr);
     let bundle = ws.bundle_dir();
     let db = ws.db();
@@ -444,7 +488,12 @@ fn run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal() {
 fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
     let ws = Workspace::new("harness");
     let (code, _, stderr) = ws.run();
-    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        code,
+        Some(0),
+        "{stderr}\n{:#?}",
+        ws.events(&run_id(&stderr))
+    );
     let id = run_id(&stderr);
     let events = ws.events(&id);
     let started: Vec<&Value> = events

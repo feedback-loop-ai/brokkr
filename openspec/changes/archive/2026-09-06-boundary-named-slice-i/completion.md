@@ -77,3 +77,23 @@ The post-archive rename guard now treats only the four exact quoted schema
 titles required by the deltas as contract data; surrounding retired product
 prose still fails. The archived deltas themselves were not rewritten. Final
 workspace and exact-coverage runs include the new living specs and this guard.
+
+## Later archive amendment — Windows environment repair, 2026-09-06
+
+The follow-up implementation explicitly amends this archive's
+`specs/gate-boundary-policy/spec.md`, requirement **An unboxed exec
+dispatch runs in a fixed environment** and scenario **Windows starts
+its processes**, together with the promoted capability spec. The
+original close-out's statement that the deltas were not rewritten
+describes that earlier operation; this is a recorded later amendment.
+
+The fourteen Windows startup variables were already named and copied.
+The confirmed omission was a mixed-case `Path` in the engine environment:
+the common inherited keys used case-sensitive lookup. The amended text
+states Windows name matching, verbatim values, absence semantics and
+both exact key sets' Linux-executable proof. No startup key or secret
+is added to the closed list. Proposed decision 0048's Windows environment
+repair section records the CI evidence, the failing-then-passing Linux
+regression, the gate fixture's verbatim-drive-path regression, the
+unverified native Windows behavior and the unrelated runner Git identity
+gap. The original proposal, design and task history are retained.

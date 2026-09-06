@@ -1133,3 +1133,199 @@ fn windows_bootstrap_is_verbatim_on_windows_and_absent_elsewhere() {
         );
     }
 }
+
+/// Both complete tables run on Linux too: a Windows-only test cannot
+/// protect the Windows allow-list in the literal coverage gate.
+#[test]
+fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let home = Path::new("engine-home");
+    let private_home = Path::new("private-home");
+    let private_tmp = Path::new("private-tmp");
+    let spec = spec_of(json!({"kind": "workspace", "binds": [
+        {"path": "~/.cargo", "mode": "ro"},
+        {"path": "~/.rustup", "mode": "ro"},
+        {"path": "~/.npm", "mode": "ro"}
+    ]}));
+    let identity = [
+        ("GIT_AUTHOR_NAME".to_string(), "Seat".to_string()),
+        (
+            "GIT_AUTHOR_EMAIL".to_string(),
+            "seat@example.invalid".to_string(),
+        ),
+        ("GIT_COMMITTER_NAME".to_string(), "Seat".to_string()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "seat@example.invalid".to_string(),
+        ),
+    ];
+    // Deliberately independent of WINDOWS_BOOTSTRAP: dropping a name
+    // from production must fail this proof. Mixed case is native on
+    // Windows; startup names and their values are preserved verbatim.
+    let windows_names = [
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "SystemRoot",
+        "SYSTEMDRIVE",
+        "windir",
+        "ComSpec",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERNAME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+    ];
+    let mut engine = engine_env(home);
+    for name in windows_names {
+        engine.insert(name.to_string(), format!("value-for-{name}"));
+    }
+    engine.insert("TEMP".to_string(), String::new());
+    engine.insert("BROKKR_HANDS_BOX".to_string(), "1".to_string());
+    for name in [
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "SYSTEMROOT_SECRET",
+        "PathSecret",
+    ] {
+        engine.insert(name.to_string(), "must-not-be-inherited".to_string());
+    }
+
+    for windows in [false, true] {
+        let table = unboxed_environment_on(
+            windows,
+            &engine,
+            home,
+            &spec,
+            &identity,
+            private_home,
+            private_tmp,
+        );
+        let mut expected: BTreeSet<&str> = [
+            "HOME",
+            "TMPDIR",
+            "PATH",
+            "USER",
+            "LOGNAME",
+            "BROKKR_HANDS_BOX",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "NPM_CONFIG_CACHE",
+            "LANG",
+            "LC_ALL",
+            "CI",
+            "DISABLE_AUTOUPDATER",
+            "DISABLE_TELEMETRY",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ]
+        .into();
+        if windows {
+            expected.extend(windows_names);
+            for name in windows_names {
+                assert_eq!(table[name], engine[name], "{name}");
+            }
+        }
+        assert_eq!(
+            table.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            expected
+        );
+        assert_eq!(
+            table["CARGO_HOME"],
+            home.join(".cargo").display().to_string()
+        );
+        assert_eq!(
+            table["RUSTUP_HOME"],
+            home.join(".rustup").display().to_string()
+        );
+        assert_eq!(
+            table["NPM_CONFIG_CACHE"],
+            home.join(".npm").display().to_string()
+        );
+        assert_eq!(
+            unboxed_environment(&engine, home, &spec, &identity, private_home, private_tmp),
+            unboxed_environment_on(
+                cfg!(windows),
+                &engine,
+                home,
+                &spec,
+                &identity,
+                private_home,
+                private_tmp
+            ),
+        );
+
+        let mut mixed = engine.clone();
+        for (canonical, spelling) in [
+            ("PATH", "Path"),
+            ("USER", "User"),
+            ("LOGNAME", "LogName"),
+            ("BROKKR_HANDS_BOX", "brokkr_hands_box"),
+        ] {
+            let value = mixed.remove(canonical).unwrap();
+            mixed.insert(spelling.to_string(), value);
+            if !windows {
+                expected.remove(canonical);
+            }
+        }
+        let mixed_table = unboxed_environment_on(
+            windows,
+            &mixed,
+            home,
+            &spec,
+            &identity,
+            private_home,
+            private_tmp,
+        );
+        assert_eq!(
+            mixed_table
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            expected
+        );
+        if windows {
+            assert_eq!(
+                mixed_table, table,
+                "Path must survive as PATH, with its value verbatim"
+            );
+        }
+
+        // Nothing inherited is synthesized when absent, including the
+        // Windows startup names, the marker and undeclared locators.
+        let minimal = unboxed_environment_on(
+            windows,
+            &BTreeMap::new(),
+            home,
+            &HandsSpec::default(),
+            &[],
+            private_home,
+            private_tmp,
+        );
+        let expected: BTreeSet<&str> = [
+            "HOME",
+            "TMPDIR",
+            "LANG",
+            "LC_ALL",
+            "CI",
+            "DISABLE_AUTOUPDATER",
+            "DISABLE_TELEMETRY",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+        ]
+        .into();
+        assert_eq!(
+            minimal.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            expected
+        );
+    }
+}

@@ -411,7 +411,9 @@ table with the paths a namespace would remap replaced by the paths that
 stand outside one (design DD10): `HOME` and `TMPDIR`, two private
 directories created for the attempt under the run's scratch and never
 the operator's; `PATH`, `USER` and `LOGNAME`, inherited verbatim from
-the engine's own environment, each only when set there; `CARGO_HOME`,
+the engine's own environment, each only when set there (on Windows,
+these names SHALL match without ASCII case and be emitted with the
+stated uppercase spelling, so `Path` supplies `PATH`); `CARGO_HOME`,
 `RUSTUP_HOME` and `NPM_CONFIG_CACHE`, set to the operator's `~/.cargo`,
 `~/.rustup` and `~/.npm` — `~` the engine's home as `expand_home` reads
 it — exactly when the site's `hands.binds` declare that path, as the box
@@ -421,13 +423,20 @@ true of the child exactly when the engine itself already stands inside
 a box; and, on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
 `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
 `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
-verbatim, without which no Windows process starts; fixed as the box
+the closed Windows process-startup list, each inherited verbatim only
+when set in the engine's environment, matching names without ASCII
+case and preserving their spelling and values (`SystemRoot`, `windir`
+and `ComSpec` therefore match the stated names). No absent startup
+variable SHALL be synthesized, and Linux and macOS SHALL inherit none
+of these Windows-only names; fixed as the box
 sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
 `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and
 `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as the
 `commit.gpgsign=false` triple; and the bundle's `git.identity` entries.
 The engine SHALL never set the in-box marker on the dispatch, because
 no box stands and the marker is what every box-building test skips on.
+An inherited marker SHALL use the same platform name matching as
+`PATH`, with the stated uppercase spelling and its value unchanged.
 The environment SHALL be composed by one pure function of the engine's
 environment, the engine's home, the site's spec, the identity and the
 two scratch paths, which the tests read directly; the network probe
@@ -457,8 +466,10 @@ from which the table is taken).
 - **THEN** the composed environment carries it in the first case and not in the second
 
 #### Scenario: Windows starts its processes
-- **WHEN** the environment is composed on Windows with `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `USERPROFILE` and `TEMP` set
-- **THEN** each is carried verbatim, and on Linux and macOS the Windows names are not consulted
+- **GIVEN** an engine environment with `Path` locating the script's shell, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `SystemRoot`, `SYSTEMDRIVE`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA` set, alongside `GH_TOKEN`, `ANTHROPIC_API_KEY` and `SSH_AUTH_SOCK`
+- **WHEN** an unboxed exec dispatch is composed on Windows from an empty environment
+- **THEN** `PATH` holds `Path`'s value verbatim, all fourteen named Windows startup variables retain their spelling and values (including a set but empty value), and the driver can resolve the shell on that path and start its script; an unset startup variable remains absent, and none of the three secrets travels
+- **AND** the exact composed key set contains only this requirement's fixed, inherited, bind-gated and identity entries; composing the same input for Linux or macOS carries none of the Windows-only names and does not treat `Path` as `PATH`; a unit test exercises both complete platform tables on Linux as well as the native platform selection
 
 ### Requirement: A judge under harness still delivers its result file
 Under `harness` a gate-class model site SHALL be able to deliver exactly

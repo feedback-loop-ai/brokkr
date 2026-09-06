@@ -550,10 +550,9 @@ pub fn ids() -> (u32, u32) {
     (65_534, 65_534)
 }
 
-/// The Windows process-bootstrap set, without which no Windows process
-/// starts. Carried verbatim on Windows only (decision 0046 ruling 4;
+/// The closed Windows process-startup set. Carried verbatim when set
+/// on Windows only (decision 0046 ruling 4;
 /// design DD10); on every other host these names are not consulted.
-#[cfg(windows)]
 const WINDOWS_BOOTSTRAP: [&str; 14] = [
     "USERPROFILE",
     "HOMEDRIVE",
@@ -583,7 +582,9 @@ const WINDOWS_BOOTSTRAP: [&str; 14] = [
 ///   carries `.ssh`, `.netrc` and `.cargo/credentials.toml`;
 /// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
 ///   there — the box's fixed `PATH` names mounts that exist only inside a
-///   namespace, and a `runner` name would not match the operator's uid;
+///   namespace, and a `runner` name would not match the operator's uid.
+///   Windows matches names without ASCII case and emits these canonical
+///   keys, so the engine's `Path` survives the cleared environment;
 /// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
 ///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
 ///   declare that path, as the box sets them; a bind's `mask` is declared
@@ -593,12 +594,37 @@ const WINDOWS_BOOTSTRAP: [&str; 14] = [
 ///   box-building test skips on;
 /// - the box's fixed switches, the gpgsign triple, and the bundle's git
 ///   identity;
-/// - on Windows only, the bootstrap set, verbatim.
+/// - on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
+///   `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
+///   `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
+///   matched without ASCII case and inherited verbatim only when set.
 ///
 /// Pure over its inputs, so the table is read directly by tests.
 /// Clearing the environment confines nothing on disk: an unboxed script
 /// may open any host path the operator's uid may read.
 pub fn unboxed_environment(
+    engine_env: &std::collections::BTreeMap<String, String>,
+    home: &Path,
+    spec: &HandsSpec,
+    identity: &[(String, String)],
+    private_home: &Path,
+    private_tmp: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    unboxed_environment_on(
+        cfg!(windows),
+        engine_env,
+        home,
+        spec,
+        identity,
+        private_home,
+        private_tmp,
+    )
+}
+
+/// Keep both platform tables executable on every host, so Linux tests
+/// pin Windows inheritance as well as the Unix table.
+fn unboxed_environment_on(
+    windows: bool,
     engine_env: &std::collections::BTreeMap<String, String>,
     home: &Path,
     spec: &HandsSpec,
@@ -613,7 +639,15 @@ pub fn unboxed_environment(
     set("HOME", private_home.to_string_lossy().into_owned());
     set("TMPDIR", private_tmp.to_string_lossy().into_owned());
     for key in ["PATH", "USER", "LOGNAME", HANDS_BOX_ENV] {
-        if let Some(value) = engine_env.get(key) {
+        let value = if windows {
+            engine_env
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                .map(|(_, value)| value)
+        } else {
+            engine_env.get(key)
+        };
+        if let Some(value) = value {
             set(key, value.clone());
         }
     }
@@ -646,16 +680,19 @@ pub fn unboxed_environment(
     for (key, value) in identity {
         set(key, value.clone());
     }
-    bootstrap(engine_env, &mut table);
+    bootstrap(windows, engine_env, &mut table);
     table
 }
 
 /// On Windows only, the process-bootstrap set passes verbatim.
-#[cfg(windows)]
 fn bootstrap(
+    windows: bool,
     engine_env: &std::collections::BTreeMap<String, String>,
     table: &mut std::collections::BTreeMap<String, String>,
 ) {
+    if !windows {
+        return;
+    }
     for (key, value) in engine_env {
         if WINDOWS_BOOTSTRAP
             .iter()
@@ -664,14 +701,6 @@ fn bootstrap(
             table.insert(key.clone(), value.clone());
         }
     }
-}
-
-/// Everywhere else the Windows names are not consulted.
-#[cfg(not(windows))]
-fn bootstrap(
-    _engine_env: &std::collections::BTreeMap<String, String>,
-    _table: &mut std::collections::BTreeMap<String, String>,
-) {
 }
 
 /// The network narrowing an unboxed exec dispatch runs behind on Linux
