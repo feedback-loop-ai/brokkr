@@ -43,7 +43,8 @@ rather than a promise: which shipped bundles run under `harness` today
 refuse, by name and why — `bundles/self`, `recipes/panel-review`,
 `recipes/triage` and `recipes/night-shift` until the operator's claude
 measurement lands, and the last two until a decision admits the dialect
-step — pointing at the pin test that is the record (design DD8, DD20);
+step, the ground the compiler reaches first for them — pointing at the
+pin test that is the record (design DD8, DD20);
 `docs/guides/journal-and-verification.md` gains the unboxed rendering
 and what `boundary` on a record and on `effect/started` means;
 `docs/guides/read-surfaces.md`'s seats-table example is refreshed from
@@ -67,7 +68,17 @@ where `unshare` permits and never stated as off, that the declaring
 layer is re-walked at every unboxed spawn and a pinned byte that moved
 refuses the gate, the residual being the interval between the re-walk
 and the `exec` (design DD9), and that the `hands` subcommand gains no
-verb for it; and `contracts/README.md` gains rows
+verb for it; the two blueprint pages that still present the container trust class follow the same
+way, every section kept — `docs/extension-model.md`'s seat-field table,
+whose `trust` row says the tier "decides what the engine mounts into
+the sandbox", says the wall itself is the realm's `boundary` (decision
+0046) and that the tier decides what is mounted inside it, and
+`docs/target-architecture.md`'s runner table, whose `policy-confined`
+row is an OCI container with a pinned digest, points at decision 0046's
+`container` boundary — declared by the realm, refused at start until
+slice (iii) measures it — and whose `public-evidence-only` row names
+the same boundary for its container form, each page's status line
+untouched; and `contracts/README.md` gains rows
 and a paragraph for `realms.v4`, `run-manifest.v9`, `seat-record.v4`
 and `effect-boundary.v1` in the style of the rows before them.
 
@@ -90,6 +101,11 @@ and `effect-boundary.v1` in the style of the rows before them.
 #### Scenario: The layout, driver and architecture pages follow
 - **WHEN** `repository-layout.md`, `driver-authoring.md` and `ARCHITECTURE.md` are read
 - **THEN** the realm row names `boundary`, the contracts row names the four new files, no page describes `driver.confine` as a working trust class, and driver-authoring's opening paragraph qualifies `brokkr hands exec` with `namespace`, describes the unboxed dispatch, states that the layer is re-walked at every unboxed spawn and a moved byte refuses the gate, and names no new verb
+
+#### Scenario: The blueprint pages point at the boundary
+- **WHEN** `docs/extension-model.md` and `docs/target-architecture.md` are read
+- **THEN** the seat-field `trust` row names the realm's `boundary` as the wall and decision 0046, the runner table's `policy-confined` row names the `container` boundary and slice (iii) in place of a working OCI wrapper, no row is removed, and each page keeps every section and its status line
+
 
 #### Scenario: The contracts README lists the four files
 - **WHEN** `contracts/README.md` is read

@@ -87,8 +87,13 @@ a model gate is refused naming decision 0046 ruling 4. A work-class site
 with hands under `harness` SHALL be refused as a capability gap when a
 link declares no `hands.harness.work` fragment. A gate-class site
 without hands has no box whose boundary could be named and SHALL compile
-as it does today under every boundary (decision 0046 ruling 4; decision
-0021 rulings 2 and 7; decision 0041 ruling 3).
+as it does today under every boundary. Ruling 4's own binding —
+`model_policy_tests.rs`, "a `harness` gate on codex admitted, on dsh
+refused" — SHALL be pinned in that file against the shipped adapter
+library, the files under `adapters/` as they stand, and not against a
+fixture provider shaped like either; the arms of the chain rule stay on
+fixture providers, as that file's charter requires (decision 0046
+ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 
 #### Scenario: A harness gate on a provider that declares the fragment is admitted
 - **WHEN** a gate-class agent site with hands resolves to a trusted judging provider whose adapter declares `hands.harness.gate`, and the bundle compiles under `harness`
@@ -97,6 +102,15 @@ as it does today under every boundary (decision 0046 ruling 4; decision
 #### Scenario: A harness gate on a provider that declares none is refused
 - **WHEN** the same site resolves to a provider whose adapter declares no `hands.harness`, and the bundle compiles under `harness`
 - **THEN** compilation is refused naming the provider, `hands.harness.gate` and decision 0046 ruling 4
+
+#### Scenario: A harness gate on the shipped codex adapter is admitted
+- **WHEN** a fixture gate-class agent whose agent file declares hands and whose chain is `astra` alone compiles under `harness` against the shipped adapter library — `adapters/` as it stands in the tree — in `model_policy_tests.rs`, beside the pins that compile the shipped codex adapter at a boxed gate
+- **THEN** compilation succeeds and the manifest's agents entry pins the shipped codex adapter's digest: decision 0046 ruling 4's "a `harness` gate on codex admitted", read against the file it names
+
+#### Scenario: A harness gate on the shipped dsh or lanetally adapter is refused as at a boxed gate
+- **WHEN** a fixture gate-class agent with hands whose chain is one dsh model alone, and again one whose chain is one lanetally model alone, compiles against the shipped adapter library under `namespace` and then under `harness`, in the same file
+- **THEN** each is refused under both, and the refusal under `harness` is the refusal under `namespace` word for word — decision 0021's refusals come first under every boundary, and neither adapter declares `hands.harness`
+
 
 #### Scenario: A fallback link without the fragment refuses the chain
 - **WHEN** a gate's chain has a first link whose adapter declares `hands.harness.gate` and a second whose adapter does not, under `harness`
@@ -256,19 +270,21 @@ with the recipe, the candidates and the version. The tree's own proof
 of the promise SHALL therefore run in a scratch copy of the shipped
 adapter library with the two members planted as fragments, and the same
 test's second half SHALL pin, against the shipped adapters as they
-stand, exactly which shipped bundles refuse and why — one test, two
-halves, the second a pin that moves once, when the measurement lands
-(design DD20; decision 0046 rulings 4 and 6; decision 0042's
-addendum, ruling 1: a decision is amended only by a decision).
+stand, exactly which shipped bundles refuse and, per bundle, the ground
+the compiler reaches first — one test, two halves, the second a pin
+that moves for a known reason: the measurement landing, or a decision
+admitting the dialect step (design DD20; decision 0046 rulings 4 and 6;
+decision 0042's addendum, ruling 1: a decision is amended only by a
+decision).
 
 #### Scenario: The shipped bundles compile under harness
 - **GIVEN** an adapter library in which the codex and claude adapters declare both `hands.harness` members as fragments — the shipped files once the measurement lands, a scratch copy with the members planted until then
 - **WHEN** every bundle under `recipes/` and `bundles/` compiles under `harness` against it, in a realm that declares the openspec dialect
-- **THEN** each bundle without a dialect step compiles — eleven of the thirteen — with each hands site's manifest `boundary` entry reading `harness`, and `recipes/triage` and `recipes/night-shift` refuse naming a dialect step and decision 0046 ruling 4
+- **THEN** each bundle without a dialect step compiles — eleven of the thirteen — with each hands site's manifest `boundary` entry reading `harness`, and `recipes/triage` and `recipes/night-shift` refuse naming the `analyze` sequence's `check` step — the first dialect step the compiler reaches, phases compiling in name order — and decision 0046 ruling 4
 
 #### Scenario: The measurement is not reachable from the implementing seat
-- **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness`
-- **THEN** exactly the bundles that seat an agent with hands whose chain reaches claude — `bundles/self`, `recipes/panel-review`, `recipes/triage` and `recipes/night-shift` — refuse naming `claude`, the member and the site, the agent link of every sequence preceding its dialect step so that `claude` is the first refusal the compiler reaches; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
+- **WHEN** the shipped adapters are loaded as they stand, `adapters/claude.json` declaring no `hands.harness` member because no claude the implementing seat may run was reachable, and every bundle under `recipes/` and `bundles/` compiles under `harness` in a realm that declares the openspec dialect
+- **THEN** exactly four bundles refuse, each naming the ground the compiler reaches first: `bundles/self` at `review`, whose reviewer chains `astra`, `fable`, `opus`, and `recipes/panel-review` at `review:correctness`, whose judge chains `sol`, `opus`, each naming `claude`, `hands.harness.gate` and the site; and `recipes/triage` and `recipes/night-shift`, which inherits the seat, naming the `analyze` sequence's `check` step, decision 0046 ruling 4 and decision 0042 ruling 4 — the compiler walks phases in name order (`serde_json::Map` is a `BTreeMap` in this tree; `preserve_order` is off), so `analyze` compiles first and its first step is the dialect check, reached before any claude link, and the claude ground stands behind that refusal unreached; the pin names `claude` for those two only if a decision admits the dialect step before the measurement lands; every other shipped bundle compiles; and the implementation completes and commits every other task, reports nothing blocked, and names the measurement in its completion note as the operator's with the recipe, the candidates and the version
 
 #### Scenario: A measured gap is reported, not papered over
 - **WHEN** the measurement declares claude's `work` member unsupported

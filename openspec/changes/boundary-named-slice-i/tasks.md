@@ -376,7 +376,10 @@ one helper, because the coverage gate is literal.
       without a `work` fragment refused as a capability gap; an inline
       trusted model gate with a tool list and no hands admitted under
       `open` exactly as under `namespace`; and every shipped bundle's
-      refusals and admissions under `namespace` unchanged —
+      refusals and admissions under `namespace` unchanged — these arms
+      on fixture providers, as the file's charter requires; the shipped
+      codex, dsh and lanetally adapters are compiled at a `harness` gate
+      in 8.12, once 8.4 has landed codex's fragment —
       gate-boundary-policy / The gate law reads the boundary for sites
       that declare hands.
 - [ ] 6.11 Re-walk tests as a pure function over a temporary layer: an
@@ -563,8 +566,9 @@ one helper, because the coverage gate is literal.
       fragment (DD20) — gate-boundary-policy / A judge under harness still
       delivers its result file.
 - [ ] 8.7 Leave `adapters/dsh.json` and `adapters/lanetally.json` without
-      `hands.harness`, and test that each is refused at a `harness` gate
-      exactly as it is refused at a boxed gate today —
+      `hands.harness`; their refusal at a `harness` gate, word for word
+      the refusal at a boxed gate today, is pinned in
+      `model_policy_tests.rs` against the shipped files by 8.12 —
       gate-boundary-policy / An adapter declares how its harness stands
       under the harness boundary.
 - [ ] 8.8 Adapter data tests: codex's two fragments and its door load as
@@ -598,6 +602,19 @@ one helper, because the coverage gate is literal.
       declaring `gate` unsupported is refused at a `harness` gate at
       compile — gate-boundary-policy / A judge under harness still delivers
       its result file.
+- [ ] 8.12 Pin ruling 4's own binding in
+      `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` against
+      the shipped adapter library (`shipped_adapters()`), beside the pins
+      that compile the shipped codex adapter at a boxed gate: a fixture
+      gate-class agent whose agent file declares hands and whose chain is
+      `astra` alone compiles under `harness` and is admitted, its manifest
+      pinning the shipped codex adapter's digest; the same fixture chaining
+      one dsh model alone (`flash`), and one chaining one lanetally model
+      alone (`fable-tallied`), each compiled under `namespace` and then
+      under `harness`, refused under both with the two refusal texts
+      equal (D29) — gate-boundary-policy / The gate law reads the
+      boundary for sites that declare hands; An adapter declares how its
+      harness stands under the harness boundary.
 
 ## 9. The record (ruling 3)
 
@@ -779,9 +796,13 @@ one helper, because the coverage gate is literal.
       seat table, seat detail, checkpoint rows, journal rows — and in the
       web console (`crates/brokkr-cli/src/ui.html`) — participants table,
       seat detail, checkpoint stream, journal rows — read from the model
-      `/api/view/<run>` serves and computed nowhere on the page; test
-      each — boundary-readouts / Every readout that names a seat's model
-      names its boundary.
+      `/api/view/<run>` serves and computed nowhere on the page, the
+      page's reads of `item.model`, `part.model` and `e.model` replaced
+      by one page-side pair helper — a single script function taking the
+      carrier and returning the two cells, the only place in the page
+      that names `.model` (DD12, D28); test each, the console's tests
+      proving the two cells land in one row — boundary-readouts / Every
+      readout that names a seat's model names its boundary.
 - [ ] 10.10 Reduce `boundary` in the one seat-costs derivation
       (`crates/brokkr-cli/src/compare.rs`) exactly as `model` is reduced —
       the set of words the seat's records that name a model carry (its
@@ -799,9 +820,12 @@ one helper, because the coverage gate is literal.
       `crates/brokkr-runtime/tests/roster.rs`) that reads every readout
       source and fails, naming the source, where `served.model` is read
       outside the pair helper's two faces or a seat-costs record's
-      `model` key is rendered without the boundary beside it —
-      boundary-readouts / Every readout that names a seat's model names its
-      boundary.
+      `model` key is rendered without the boundary beside it; and that
+      scans `ui.html` — as `agent_readouts.rs` already scans it for a
+      composed provenance sentence — failing and naming the line where
+      `.model` is read off a carrier outside the page-side pair helper
+      (DD12, D28) — boundary-readouts / Every readout that names a seat's
+      model names its boundary.
 - [ ] 10.12 Test `brokkr export` as the record itself: the exported
       `effect/started` events and seat records of a `harness`-judged run
       carry the plain word, `verify-run` accepts the file and no adjective
@@ -874,17 +898,20 @@ one helper, because the coverage gate is literal.
       unmeasured fragment, or report the run blocked to make the shipped
       bundles compile (DD20) — gate-boundary-policy / Every shipped bundle
       compiles under harness once the fragments are measured.
-- [ ] 11.7 In the same test as 11.4, as its second half (DD20): with the
-      adapters as they stand in the tree, compiling every bundle under `recipes/` and `bundles/` under
-      `harness` refuses exactly `bundles/self`, `recipes/panel-review`,
-      `recipes/triage` and `recipes/night-shift` — the bundles that seat
-      an agent with hands whose chain reaches claude — naming `claude`,
-      the member and the site — the agent link of every sequence precedes
-      its dialect step, so `claude` is the first refusal the compiler
-      reaches — and compiles every other; the pin moves when the
-      operator's measurement lands — gate-boundary-policy /
-      Every shipped bundle compiles under harness once the fragments are
-      measured.
+- [ ] 11.7 In the same test as 11.4, as its second half (DD20, D27):
+      with the adapters as they stand in the tree, compiling every bundle
+      under `recipes/` and `bundles/` under `harness` in the same realm
+      refuses exactly four, each naming the ground the compiler reaches
+      first — `bundles/self` at `review` and `recipes/panel-review` at
+      `review:correctness` naming `claude`, `hands.harness.gate` and the
+      site; `recipes/triage` and `recipes/night-shift` naming the
+      `analyze` sequence's `check` step, decision 0046 ruling 4 and
+      decision 0042 ruling 4, because phases compile in name order and
+      that step comes before any claude link — and compiles every other;
+      the pin moves when the operator's measurement lands and, for the
+      last two, when a decision admits the dialect step —
+      gate-boundary-policy / Every shipped bundle compiles under harness
+      once the fragments are measured.
 
 ## 12. The guides and the erratum
 
@@ -970,10 +997,21 @@ one helper, because the coverage gate is literal.
       `docs/decisions/README.md` unchanged —
       boundary-guides / Decision 0046 carries the erratum.
 - [ ] 12.11 Test that the guides keep every section they had and gained
-      the rows above, and that the decisions index test passes without a
-      change to `docs/decisions/README.md` —
+      the rows above, the two blueprint pages of 12.12 included, and that
+      the decisions index test passes without a change to
+      `docs/decisions/README.md` —
       boundary-guides / The guides document the boundary and never lose a
       section; Decision 0046 carries the erratum.
+- [ ] 12.12 `docs/extension-model.md` and `docs/target-architecture.md`:
+      the seat-field `trust` row says the wall is the realm's `boundary`
+      (decision 0046) and the tier decides what is mounted inside it; the
+      runner table's `policy-confined` row points at decision 0046's
+      `container` boundary — declared by the realm, refused at start
+      until slice (iii) measures it — and its `public-evidence-only` row
+      names the same boundary for its container form; no row or section
+      removed, each page's status line untouched (D30) —
+      boundary-guides / The guides document the boundary and never lose a
+      section.
 
 ## 13. Gates and the commit
 

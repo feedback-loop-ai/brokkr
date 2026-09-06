@@ -157,8 +157,10 @@ with 0046 as the stated reason.
   refused by name, its engine wrapper and type deleted.
 - `boundary-guides`: the prose — provider-adapters, recipe-authoring,
   quickstart, journal-and-verification, read-surfaces, repository-layout,
-  driver-authoring, ARCHITECTURE, the contracts README, and the
-  decision's erratum.
+  driver-authoring, ARCHITECTURE, the two blueprint pages
+  (extension-model, target-architecture) whose trust rows still present
+  the container class, the contracts README, and the decision's
+  erratum.
 
 ### Modified Capabilities
 
@@ -209,7 +211,9 @@ that authorises it.
 - **Scripts and CI:** `scripts/delivered-by-brokkr.sh` renders the word;
   `.github/workflows/ci.yml` is unchanged (the job runs the base branch's
   script).
-- **Docs:** the eight guides and pages named under `boundary-guides`, the
+- **Docs:** the eight guides and pages named under `boundary-guides`,
+  the two blueprint pages whose trust rows still present the container
+  class (`docs/extension-model.md`, `docs/target-architecture.md`), the
   contracts README, and the erratum in
   `docs/decisions/0046-the-boundary-is-named.md`.
 - **Deleted:** `Confine`, `confined_command`,
@@ -418,7 +422,10 @@ the artifact rather than raising the finding again (decision 0042 ruling
   face for `compare`'s map, which carries `boundary` beside `model` and
   diverges on it as it does on `model`; and the pin test scans for a
   model cell read outside that helper rather than for a list of
-  surfaces this proposal could leave short. The absence word differs by
+  surfaces this proposal could leave short; the web console, which
+  reads the flattened wire and has no Rust helper to route through,
+  carries one pair helper of its own in the page and is scanned for a
+  `.model` read outside it (D28). The absence word differs by
   surface for a reason: a view cell is the absent mark with a note, as
   every other cell is; a seat-costs record is JSON data and says `not
   recorded`, the way the same record says `not reported` for a model no
@@ -462,7 +469,10 @@ the artifact rather than raising the finding again (decision 0042 ruling
   absence is the loader's fail-closed reading, refused at a `harness`
   gate or work seat naming `claude`, the member and the site — every
   shipped bundle that seats a claude-chained agent with hands refuses
-  under `harness` by name, every other task is finished and committed,
+  under `harness`, `bundles/self` and `recipes/panel-review` naming
+  `claude` and `recipes/triage` and `recipes/night-shift` naming the
+  dialect step the compiler reaches first with the claude ground behind
+  it (D27), every other task is finished and committed,
   and the completion note names the measurement as the operator's with
   the recipe, the candidates and the version to measure against.
   Nothing is reported blocked for want of it: the fail-closed tree is
@@ -597,9 +607,85 @@ the artifact rather than raising the finding again (decision 0042 ruling
   by `recipes/night-shift`, which overrides only its implement seat;
   `agents/intake-sdd.json` is hired by no shipped bundle. The
   measured-gap scenario and D6 name those two bundles, and the
-  obligation stays the one the requirement above them states — every
+    obligation stays the one the requirement above them states — every
   bundle under `recipes/` and `bundles/` — so no scenario names a
   bundle no test can compile.
+- **D27 — The shipped pin names the ground the compiler reaches first,
+  per bundle** (returned from analyze, 2026-09-06). An earlier draft
+  said the agent link of every sequence precedes its dialect step, so
+  that `claude` would be the first refusal the compiler reaches for
+  all four bundles that refuse under `harness` against the shipped
+  adapters. That is false for two of them: the compiler walks a
+  bundle's seats as a `serde_json::Map`, a `BTreeMap` in this tree
+  (`preserve_order` is off), so phases compile in name order and
+  `analyze` is first; `recipes/triage`'s `analyze` and `clarify`
+  sequences are `[check (dialect), judge (agent)]` and the openspec
+  dialect declares an `analyze` check, so the dialect step's refusal
+  (D6) is reached before any claude link, in triage and in
+  `recipes/night-shift`, which inherits the seat. The scenario and the
+  task therefore pin `bundles/self` (at `review`) and
+  `recipes/panel-review` (at `review:correctness`, panel members
+  compiling in name order too) as refusing naming `claude`, the member
+  and the site, and `recipes/triage` and `recipes/night-shift` as
+  refusing naming `analyze:check`, with the claude ground behind it
+  unreached; the "precedes" reasoning is deleted rather than
+  qualified. Reason: a pin's value is that it names why each bundle
+  refuses today, and it moves for two known reasons — the measurement
+  landing, and a decision admitting the dialect step — both of which
+  the record now states.
+- **D28 — The web console has a page-side pair helper, and the pin
+  scans the page for it** (returned from analyze, 2026-09-06). The pin
+  rule "`served.model` read outside the pair helper" cannot reach
+  `ui.html`: the page reads `item.model`, `part.model` and `e.model`
+  off the flattened wire, which carries `model` and `boundary` as
+  siblings and no `served`, and there is no Rust helper to route
+  through, so as written the console either always failed the pin or
+  silently escaped it. Ruled: the page carries one pair helper of its
+  own — a single script function taking a carrier and returning the
+  two cells, the only place in the page that names `.model` — and the
+  pin test scans `ui.html` as it scans the Rust sources, failing and
+  naming the line where `.model` is read outside that function, the
+  way `agent_readouts.rs` already scans the page for a composed
+  provenance sentence; the console's own rendering tests prove the
+  cells land in one row. Reason: one rule, held in each language by
+  its one helper, is what makes the pin a pin; excluding the page from
+  the scan would leave the one surface without a Rust type to a test
+  that proves today's rendering and nothing about tomorrow's edit.
+- **D29 — Ruling 4's binding is pinned against the shipped adapters,
+  not a fixture shaped like them** (returned from analyze,
+  2026-09-06). Ruling 4 names `model_policy_tests.rs` and says "a
+  `harness` gate on codex admitted, on dsh refused"; an earlier draft
+  of the verification obligations softened that to "a provider shaped
+  like codex", and no test then compiled the shipped
+  `adapters/codex.json` at a `harness` gate — every shipped hands agent
+  chains `opus`, so the shipped-bundle pin exercises only claude
+  refusals, the scratch-library test plants the members into a copy,
+  and the data test only loads the file. Ruled: one fixture gate agent
+  whose agent file declares hands and whose chain is `astra` alone
+  compiles under `harness` against the shipped adapter library in
+  `model_policy_tests.rs` and is admitted, its manifest pinning codex's
+  digest; the same fixture chaining one dsh model alone, and one
+  lanetally model alone, is refused under `harness` with the refusal
+  it earns under `namespace`, word for word, in the same file. The
+  chain arms stay on fixture providers, as that file's charter
+  requires. Reason: the decision binds by name, and a test against the
+  file it names is the only one that moves when that file does.
+- **D30 — The blueprint pages follow the guides** (returned from
+  analyze, 2026-09-06). The sweep of pages describing the container
+  trust class named driver-authoring, recipe-authoring and
+  ARCHITECTURE and missed two: `docs/extension-model.md`'s seat-field
+  table, whose `trust` row says the tier "decides what the engine
+  mounts into the sandbox", and `docs/target-architecture.md`'s runner
+  table, whose `policy-confined` row is an OCI container with a pinned
+  digest. Both are living blueprints — target-architecture carries a
+  name note dated 2026-09-02 — so both are amended rather than left as
+  they are: the `trust` row says the wall is the realm's `boundary`
+  (0046) and the tier decides what is mounted inside it; the runner
+  rows point at 0046's `container` boundary, declared by the realm and
+  refused at start until slice (iii) measures it. No row or section is
+  removed, and the pages' status lines are untouched. Reason: a reader
+  who reaches either page from ARCHITECTURE would otherwise find the
+  retired wrapper presented as a working runner.
 
 ## Measurements the implementing seat cannot make
 
@@ -712,8 +798,10 @@ under an older label and for an unknown word; parser refusals for
 `driver.confine`; the manifest map present exactly with `hands` and
 every witness manifest valid under v9; `refuse_unboxable` once per
 boundary on an empty PATH, `harness` and `open` passing; the doctor
-line; `model_policy_tests.rs` — a `harness` gate on a provider shaped
-like codex admitted, on one shaped like dsh refused, an `open` model
+line; `model_policy_tests.rs` — a `harness` gate on the shipped codex
+adapter admitted and on the shipped dsh and lanetally adapters refused
+as at a boxed gate, each compiled against the shipped adapter library,
+the chain arms on fixture providers (D29), an `open` model
 gate refused, an `open` exec gate admitted for a bundle-pinned `./`
 script and refused for a `{brokkr}`-external command, an escaping and an
 absolute path refused, a `/private/var` spelling and a `\`-spelled token
@@ -728,10 +816,13 @@ replacing a driver's, every shipped bundle without a dialect step compiling unde
 in a scratch copy of the adapter library with both `hands.harness`
 members planted as fragments while the two with dialect steps refuse
 naming the step, and, against the shipped adapters as they stand,
-exactly the bundles that seat a claude-chained agent with hands
-refusing by name until the measurement lands, `compare`'s `resolution`
-map carrying the pair and diverging on it, and every readout pinned
-roster-style; the
+exactly four bundles refusing on the ground the compiler reaches first
+— two naming `claude`, two naming their `analyze` check step (D27) —
+until the measurement lands, `compare`'s `resolution`
+map carrying the pair and diverging on it, every readout pinned
+roster-style with the console's page scanned for a `.model` read
+outside its own pair helper (D28), and the two blueprint pages' trust
+rows pointing at the boundary (D30); the
 gate script printing *unboxed* for a harness-judged run and nothing for
 a boxed one; `seatbelt` with a `sandbox-exec` on the path and
 `container` with a `docker` or a `podman` still refusing naming the

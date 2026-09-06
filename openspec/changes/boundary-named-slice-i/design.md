@@ -24,6 +24,21 @@ trigger changes from a step name to the record's own `model`, and DD16
 refines its fourth step; DD5, DD12, DD18 and DD20 are restated where the
 objection was new; the rest stand.
 
+Returned from analyze a second time (2026-09-06) with four findings
+whose earliest owner is the proposal (D27–D30); three amend this
+document and none moves a ruling. DD20's shipped pin now names, per
+bundle, the ground the compiler reaches first — `claude` for
+`bundles/self` and `recipes/panel-review`, the `analyze` check step for
+`recipes/triage` and `recipes/night-shift` — because phases compile in
+name order and the earlier clause "the agent link of every sequence
+precedes its dialect step" was false for the two dialect recipes; DD20
+also places ruling 4's own binding, a `harness` gate on the shipped
+codex adapter admitted and on dsh refused, in `model_policy_tests.rs`
+against the shipped library; DD12 gains the console's page-side pair
+helper, because `ui.html` reads the flattened wire and no Rust helper
+can reach it; and the docs list gains the two blueprint pages that
+still present the container trust class.
+
 ## Context
 
 What the tree holds, read for this design (paths are the evidence a
@@ -680,7 +695,22 @@ and the objection is withdrawn: the four carriers derive `Serialize`
 only, so `flatten` changes no wire byte and no `--json` reader can tell
 the two shapes apart; a construction site changes once whether a field
 or a unit is added; and the divergence axis is free. What the unit
-buys is a name, `served`, for the pin test to grep. Simplicity's
+buys is a name, `served`, for the pin test to grep.
+
+The web console is the one readout with no Rust source to scan.
+`ui.html` reads `item.model`, `part.model` and `e.model` off the
+flattened wire — `model` and `boundary` as siblings — and a rule
+phrased as "`served.model` read outside the pair helper" never reaches
+it, since the page has no `served`; as first written the console either
+always failed the pin or silently escaped it. The page therefore
+carries its own pair helper: one script function that takes a carrier
+and returns the two cells, the only place in the page that names
+`.model`, and the pin test scans `ui.html` for a `.model` read outside
+that function — the way `agent_readouts.rs` already scans the page for
+a composed provenance sentence — as it scans the Rust sources for
+`served.model` outside theirs. The console's rendering tests (task
+10.9) prove the cells land in one row; the scan proves no later edit
+reads one without the other. Simplicity's
 third-sitting cut of `RunBoundary.text` is refused: the web console
 prints from the model `/api/view/<run>` serves and the readouts
 requirement forbids it to compose the adjective on the page, so the
@@ -929,14 +959,49 @@ planted as fragments, every shipped bundle without a dialect step
 compiles under `harness` — eleven of the thirteen — and `recipes/triage`
 and `recipes/night-shift` refuse naming their dialect step and ruling 4
 (DD8); against the shipped adapters as they stand, exactly the four
-bundles above refuse naming `claude`, the member and the site — the
-agent link of every artifact or judged sequence precedes its dialect
-step, so the claude refusal is the first the compiler reaches — and the
-nine others compile. The second half is the pin that names the
-operator's unmet part, and it moves once, when the measurement lands
-as a data change to `adapters/claude.json` and the pins that name its
-digest — simplicity is right that it is a pin, and that is why it
-stays: a pin that moves for a known reason is the record of the reason.
+bundles above refuse, each naming the ground the compiler reaches
+first, and the nine others compile. That ground is not the same for all
+four, and an earlier draft of this paragraph said it was: it claimed
+the agent link of every sequence precedes its dialect step, so that
+`claude` would be the first refusal everywhere. The tree says otherwise.
+The compiler walks a bundle's seats as a `serde_json::Map`, which is a
+`BTreeMap` here (`preserve_order` is not enabled; the lock carries no
+`indexmap`), so phases compile in name order and `analyze` is first;
+`recipes/triage`'s `analyze` and `clarify` sequences are `[check
+(dialect), judge (agent)]`, and the openspec dialect declares an
+`analyze` check, so the DD8 refusal of `analyze:check` is reached
+before any claude link — in triage, and in night-shift, which inherits
+the seat. The pin therefore reads: `bundles/self` refuses at `review`
+naming `claude`, `hands.harness.gate` and the site (its reviewer chains
+`astra`, `fable`, `opus`; the second link is claude's);
+`recipes/panel-review` refuses at `review:correctness` the same way
+(its judge chains `sol`, `opus`; panel members compile in name order
+too); `recipes/triage` and `recipes/night-shift` refuse naming
+`analyze:check`, ruling 4 and 0042 ruling 4, the claude ground standing
+behind that refusal unreached. The second half is the pin that names
+the operator's unmet part, and it moves for a known reason: the
+measurement landing as a data change to `adapters/claude.json` and the
+pins that name its digest, or a decision admitting the dialect step,
+after which the last two name `claude` until the measurement lands —
+simplicity is right that it is a pin, and that is why it stays: a pin
+that moves for a known reason is the record of the reason.
+
+Ruling 4's own binding — `model_policy_tests.rs`, "a `harness` gate on
+codex admitted, on dsh refused" — is pinned in that file against the
+shipped adapter library, not against a fixture shaped like either
+provider, because the shipped `adapters/codex.json` is otherwise never
+compiled at a `harness` gate: every shipped hands agent chains `opus`,
+so the shipped-bundle half above exercises only claude refusals, the
+scratch half plants the members into a copy, and the data test only
+loads the file. One fixture gate agent whose agent file declares hands
+and whose chain is `astra` alone compiles under `harness` against
+`adapters/` as it stands and is admitted, its manifest pinning codex's
+digest; the same fixture chaining one dsh model alone, and one lanetally
+model alone, is refused under `harness` with the refusal it earns under
+`namespace`, the two texts equal, because 0021's refusals come first
+under every boundary and neither adapter declares `hands.harness`. The
+arms of the chain rule stay on fixture providers, as the file's charter
+requires (D29).
 
 ## Shape, by crate
 
@@ -981,7 +1046,10 @@ stays: a pin that moves for a known reason is the record of the reason.
 - **Docs** — the pages `boundary-guides` names and the erratum, plus a
   `seats` row in read-surfaces and a `rerun` note in its verb row; the
   quickstart names which shipped bundles run under `harness` today and
-  which refuse, and why.
+  which refuse, and why; and the two blueprint pages whose trust rows
+  still present the container class — `docs/extension-model.md` and
+  `docs/target-architecture.md` — point at 0046's `container` boundary
+  and slice (iii), no row or section removed (D30).
 
 ## Risks
 
