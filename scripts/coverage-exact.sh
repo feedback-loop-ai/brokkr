@@ -22,11 +22,17 @@ mkdir -p target/coverage
 # no stale instrumented executable can participate in this candidate's merge.
 export CARGO_LLVM_COV_TARGET_DIR="$forge_coverage_dir/target"
 
+# The toolchain is the pin's, not "whatever nightly is current": a nightly
+# release changes the instrumented set, so an unpinned compiler makes this
+# gate and a developer's local run disagree on identical bytes. One file,
+# read here and by the workflow (issue #235).
+nightly="$(tr -d '[:space:]' < "$(dirname "$0")/../rust-nightly-version.txt")"
+
 # A report is candidate-bound only when no instrumented executable or profile
 # from an earlier source graph can participate in the merge.
-cargo +nightly llvm-cov clean --workspace
+cargo "+$nightly" llvm-cov clean --workspace
 
-cargo +nightly llvm-cov \
+cargo "+$nightly" llvm-cov \
   --workspace \
   --all-features \
   --locked \
@@ -38,7 +44,7 @@ cargo +nightly llvm-cov \
 # gate must still leave operators enough evidence to see and burn down every
 # missing region instead of returning only an opaque non-zero exit.
 cp "$forge_coverage_dir/coverage.json" target/coverage/coverage-exact.json
-cargo +nightly llvm-cov report --branch --lcov --output-path target/coverage/lcov.info
+cargo "+$nightly" llvm-cov report --branch --lcov --output-path target/coverage/lcov.info
 
 jq -e '
   [.data[0].files[].filename |
