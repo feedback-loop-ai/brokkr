@@ -12,6 +12,7 @@
 //! driven over a real repository so its two answers are pinned too.
 
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::Command;
 
 use brokkr_runtime::Bundle;
@@ -154,6 +155,7 @@ fn prose_is_judged_and_code_is_built_and_both_pass_review() {
     );
 }
 
+#[cfg(unix)]
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")
         .args(args)
@@ -167,6 +169,7 @@ fn git(repo: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 
+#[cfg(unix)]
 fn classify(repo: &Path) -> Value {
     let results = repo.join(".forge/results");
     std::fs::create_dir_all(&results).unwrap();
@@ -194,6 +197,14 @@ fn classify(repo: &Path) -> Value {
 /// The classify script over a real repository: a docs-only branch
 /// answers `docs`, one code path turns the whole branch `code`, and a
 /// repository without a docs class lands everything as code.
+///
+/// Unix only, like every test that drives a seat script through `bash`
+/// (`delivered_by_brokkr.rs`, `driver_conformance.rs`): the seat runs in
+/// the box on the platforms that have one, and on Windows the result
+/// path the prompt carries is a drive path the script's `/…json` reader
+/// does not recognise. Decision 0049 ruling 3: named as not holding
+/// there, not pursued.
+#[cfg(unix)]
 #[test]
 fn the_classify_gate_reads_the_repositorys_own_docs_class() {
     let temp = tempfile::tempdir().unwrap();
