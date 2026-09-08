@@ -12,6 +12,27 @@ use thiserror::Error;
 pub const ARTIFACT_PHASES: [&str; 3] = ["specify", "design", "tasks"];
 pub const DIALECT_PHASES: [&str; 5] = ["specify", "design", "tasks", "clarify", "analyze"];
 
+/// Decision 0042's first slice: the closed map, with no install identity
+/// and no archive instruction.
+pub const SCHEMA_V1: &str = "brokkr.dialect/v1";
+/// The addendum of 2026-09-04, landed 2026-09-05: the tool names what
+/// installs it.
+pub const SCHEMA_V2: &str = "brokkr.dialect/v2";
+/// The addendum of 2026-09-06: a dialect that promotes a truth tree names
+/// the instruction its archive step carries.
+pub const SCHEMA_V3: &str = "brokkr.dialect/v3";
+
+/// Every dialect version a run's PIN may carry. A file on disk is v3 and
+/// only v3 (`parse`); a pin is read at the version it was written
+/// (`parse_pinned`), because a dialect is not only a file: a run pins its
+/// resolved content into the manifest and a resume rehydrates that pin
+/// through this module. `realms.json` has declared a dialect since
+/// 2026-09-04, so runs have pinned v1 and v2 bodies; a build that read v3
+/// everywhere would strand every one of them, and would say so only as a
+/// serde variant mismatch. Each version's own shape is enforced below, so
+/// an older dialect cannot borrow a younger one's fields.
+pub const SCHEMAS: [&str; 3] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+
 #[derive(Debug, Error)]
 pub enum DialectError {
     #[error("reading dialect {path}: {source}")]
@@ -35,7 +56,10 @@ pub enum DialectError {
 pub struct Tool {
     pub binary: String,
     pub version: String,
-    pub install: Install,
+    /// Absent in a `brokkr.dialect/v1` file and required from v2 on; the
+    /// version gate in `check` holds that boundary, not this default.
+    #[serde(default)]
+    pub install: Option<Install>,
 }
 
 /// What installs the tool, because the binary's name is not its
@@ -106,7 +130,11 @@ pub struct ArchiveCommand {
     pub argv: Vec<String>,
     #[serde(default)]
     pub state: Option<Vec<String>>,
-    pub instructions: String,
+    /// Absent below `brokkr.dialect/v3` and required from v3 on. A v1 or
+    /// v2 dialect folds exactly as it did before the addendum, which is
+    /// what a resume of a run pinned under it must get.
+    #[serde(default)]
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -227,11 +255,54 @@ impl Dialect {
         Ok((dialect, value))
     }
 
+    /// A dialect FILE: the newest version only. A file is written now, so
+    /// it is written at the version this build writes, and the archive
+    /// instruction decision 0042's addendum requires cannot be escaped by
+    /// declaring an older version.
     pub fn parse(path: &str, text: &str) -> Result<(Self, Value), DialectError> {
+        Self::read(
+            path,
+            text,
+            &[SCHEMA_V3],
+            "an older version is read only from a run's own pin",
+        )
+    }
+
+    /// A dialect rehydrated from a run's PIN: every version this build has
+    /// ever written. The pinned content was written on the day the run
+    /// started, and a resume must get back the world it pinned, not the
+    /// world this build would write today.
+    pub fn parse_pinned(path: &str, text: &str) -> Result<(Self, Value), DialectError> {
+        Self::read(path, text, &SCHEMAS, "a pinned dialect may be any of them")
+    }
+
+    fn read(
+        path: &str,
+        text: &str,
+        accepted: &[&str],
+        note: &str,
+    ) -> Result<(Self, Value), DialectError> {
         let value: Value = serde_json::from_str(text).map_err(|error| DialectError::Malformed {
             path: path.to_string(),
             detail: error.to_string(),
         })?;
+        // The version is read from the bytes BEFORE they are given a
+        // shape, because a version this surface does not read must be
+        // refused by its version and not by whichever field the newer or
+        // older shape happens to trip over. A v2 archive carries no
+        // `instructions`, so typed deserialization alone would tell an
+        // operator only that some untagged enum matched no variant.
+        if let Some(schema) = value.get("schema").and_then(Value::as_str) {
+            if !accepted.contains(&schema) {
+                return Err(DialectError::Invalid {
+                    path: path.to_string(),
+                    problem: format!(
+                        "it calls itself '{schema}'; this reads {} ({note})",
+                        accepted.join(", ")
+                    ),
+                });
+            }
+        }
         let dialect: Dialect =
             serde_json::from_value(value.clone()).map_err(|error| DialectError::Malformed {
                 path: path.to_string(),
@@ -246,27 +317,57 @@ impl Dialect {
             path: path.to_string(),
             problem,
         };
-        // v1 and v2 are not read by this build, and that costs nothing:
-        // v2 added the install identity on 2026-09-04 and v3 adds the
-        // archive instruction on 2026-09-06, both before a journal pinned
-        // a dialect for a resume to reload. Their bytes stay frozen
-        // beside v3 all the same.
-        if self.schema != "brokkr.dialect/v3" {
+        // Every read version keeps its own shape: an older file may not
+        // borrow a field that landed after it, and a file that claims a
+        // version must carry what that version requires. Version-tolerant
+        // reading is how a pinned world survives (the realm map reads v1
+        // through v4 the same way); version-blind reading is not.
+        match (self.schema.as_str(), self.tool.install.is_some()) {
+            (SCHEMA_V1, true) => {
+                return Err(invalid(format!(
+                    "a '{SCHEMA_V1}' dialect carries no tool install; \
+                     the install identity landed in {SCHEMA_V2}"
+                )))
+            }
+            (SCHEMA_V2 | SCHEMA_V3, false) => {
+                return Err(invalid(format!(
+                    "a '{}' dialect names what installs its tool",
+                    self.schema
+                )))
+            }
+            _ => {}
+        }
+        let instructed = match &self.archive {
+            ArchiveOrUnsupported::Command(command) => command.instructions.is_some(),
+            ArchiveOrUnsupported::Unsupported(_) => false,
+        };
+        if instructed && self.schema != SCHEMA_V3 {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads brokkr.dialect/v3",
+                "a '{}' archive carries no instruction; \
+                 the archive instruction landed in {SCHEMA_V3}",
                 self.schema
             )));
+        }
+        if self.schema == SCHEMA_V3 && !instructed {
+            if let ArchiveOrUnsupported::Command(_) = &self.archive {
+                // Folding without the provenance rule would silently break
+                // the two-way trail, so a promoting v3 dialect must say how
+                // it records the change that wrote each capability.
+                return Err(invalid(format!(
+                    "a '{SCHEMA_V3}' archive command names the instruction it carries"
+                )));
+            }
         }
         if self.name.trim().is_empty()
             || self.tool.binary.trim().is_empty()
             || self.tool.version.trim().is_empty()
-            || self.tool.install.package.trim().is_empty()
-            || self
-                .tool
-                .install
-                .source
-                .as_ref()
-                .is_some_and(|source| source.trim().is_empty())
+            || self.tool.install.as_ref().is_some_and(|install| {
+                install.package.trim().is_empty()
+                    || install
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.trim().is_empty())
+            })
         {
             return Err(invalid(
                 "name, tool binary, measured version and install package must be non-empty".into(),
@@ -376,7 +477,7 @@ impl Dialect {
                 self.phases.analyze.taxonomy.as_str(),
             ])
             .chain(match &self.archive {
-                ArchiveOrUnsupported::Command(command) => Some(command.instructions.as_str()),
+                ArchiveOrUnsupported::Command(command) => command.instructions.as_deref(),
                 ArchiveOrUnsupported::Unsupported(_) => None,
             })
             .collect()
@@ -463,7 +564,7 @@ impl Dialect {
             let (archive, instruction) = match &self.archive {
                 ArchiveOrUnsupported::Command(command) => (
                     serde_json::to_string(&command.argv).unwrap_or_default(),
-                    Some(command.instructions.as_str()),
+                    command.instructions.as_deref(),
                 ),
                 ArchiveOrUnsupported::Unsupported(reason) => {
                     (format!("unsupported: {}", reason.unsupported), None)
