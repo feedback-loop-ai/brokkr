@@ -124,14 +124,31 @@ Alternatives weighed:
      repository as the common directory — and the runner would then bind
      its `objects`, `refs` and `logs` read-write for the next seat in
      the same worktree.
-   - **The `gitdir` back-pointer exists and names this workspace's own
-     `.git`.** The topology check alone is not enough, because a
-     workspace `.git` file may name a REAL administrative directory
-     belonging to another worktree of another repository. The
-     back-pointer lives inside the git directory, outside the workspace
-     and outside anything a seat can write, so it is the trustworthy end
-     of the pair. A directory with no back-pointer is refused, not
-     excused: git writes one for every worktree it creates.
+   - **The `gitdir` back-pointer exists, and the worktree ROOT it names
+     is this seat's workspace directory.** The topology check alone is
+     not enough, because a workspace `.git` file may name a REAL
+     administrative directory belonging to another worktree of another
+     repository. The back-pointer lives inside the git directory,
+     outside the workspace and outside anything a seat can write, so it
+     is the trustworthy end of the pair. A directory with no
+     back-pointer is refused, not excused: git writes one for every
+     worktree it creates.
+
+     **What is compared is the DIRECTORY, not `<workspace>/.git`.**
+     `<workspace>/.git` is a path the seat owns, and every comparison
+     resolves symlinks: a seat that replaces its own `.git` with a
+     symlink to another worktree's `.git` file — or simply copies that
+     file — makes Git resolve the victim's real administrative
+     directory, and a comparison against `<workspace>/.git` then
+     resolves the seat's own side to the victim's path and finds the two
+     ends agreeing. That was measured against a real `git rev-parse` and
+     a real `bwrap`, and it granted read-write access to an unrelated
+     repository's `objects`, `refs`, `logs` and `packed-refs`. The
+     worktree root the pointer names is the end no workspace write can
+     move: the victim's root is not this seat's workspace however the
+     seat spells its own `.git`. A symlink AT `<workspace>/.git` is
+     refused outright as a second belt, because `git worktree` never
+     writes one, so its presence is evidence rather than a spelling.
 
    A back-pointer that names a worktree CONTAINING this workspace is the
    subdirectory case, and it is refused by its own name — the seat was
@@ -141,8 +158,9 @@ Alternatives weighed:
    **Enforcement binding:** `scope_refusal` in
    `brokkr-protocol::dsh_sandbox`, called by `dsh_sandbox_row_for`
    before the seat starts and by `runner_argv` on every command; unit
-   tests for each arm, including the workspace-local redirect measured
-   against a real `git rev-parse` in the behavioral proof.
+   tests for each arm, including the workspace-local redirect and both
+   spellings of the borrowed-back-pointer alias (symlink and copy)
+   measured against a real `git rev-parse` in the behavioral proof.
 
 4. **The runner is `brokkr dsh-sandbox-runner`, named in the sandbox
    row's `runnerCommand`, and it adds exactly the scoped write set.**
@@ -254,8 +272,10 @@ workspace and nothing outside it. What it may try, and what stops it:
 | Attempt | Stopped by |
 |---|---|
 | Rewrite `<workspace>/.git` to point at a fake administrative directory in the workspace, with `commondir` naming another repository | Ruling 3's topology check: `git_dir` must be `<common>/worktrees/<name>` |
-| Point `<workspace>/.git` at a REAL administrative directory of another worktree or another repository | Ruling 3's back-pointer check, read from a file outside the workspace |
-| Reach a repository through a symlinked alias so the paths compare unequal | Every comparison resolves symlinks before comparing |
+| Point `<workspace>/.git` at a REAL administrative directory of another worktree or another repository | Ruling 3's back-pointer check: the worktree ROOT the pointer names must be this seat's workspace directory |
+| Spell the same borrowed metadata as a SYMLINK at `<workspace>/.git`, so that a resolving comparison against `<workspace>/.git` agrees with the victim | The comparison is against the back-pointer's parent DIRECTORY, which no workspace write can move; and a symlink at `<workspace>/.git` is refused outright, because `git worktree` writes a plain file there |
+| Spell it as a plain COPY of another worktree's `.git` file, so no symlink is involved at all | The same directory comparison: Git resolves the victim's administrative directory, whose back-pointer names the victim's root |
+| Reach a repository through a symlinked alias so the paths compare unequal | Every comparison resolves symlinks before comparing — but never a path the seat owns against a path the seat owns (see the two rows above) |
 | Rewrite `commondir` or `gitdir` from inside the box, so the HOST's next `git` reads a config the box wrote | Both bound read-only and hard: write is `EROFS`, unlink and rename over the mount point are `EBUSY` |
 | Create `config.worktree` so `extensions.worktreeConfig` makes the host honour a `core.hooksPath` the box chose | Masked with an empty read-only regular file, whether or not the host file exists |
 | Fill the mask itself through its source path | The source is staged outside the workspace and refused if it is inside one; dsh's own profile replaces `/tmp` with a fresh tmpfs, so the box has no path to it |
@@ -313,9 +333,16 @@ workspace and nothing outside it. What it may try, and what stops it:
   namespace boundary's own git handling. That handling is wider: 0043
   ruling 6 binds a linked worktree's whole shared `.git` read-write with
   `hooks` masked and `config` read-only, which leaves the per-worktree
-  `commondir` and `gitdir` writable and carries the same redirect
-  residual this decision closes for the harness runner. Tightening the
-  namespace box is a change under 0043, not here.
+  `commondir`, `gitdir` and `config.worktree` writable and carries the
+  same redirect residual this decision closes for the harness runner —
+  in a repository carrying `extensions.worktreeConfig`, a boxed command
+  can write `<common>/worktrees/<name>/config.worktree` and the host's
+  next `git` in that worktree honours a `core.hooksPath` the box chose.
+  That is not a regression here (the write set predates this work under
+  the old field name) and the commission scopes this run to the
+  harness-owned sandbox, so it is recorded as a known-open path in the
+  sibling module rather than silently fixed: tightening the namespace
+  box is a change under 0043, with its own issue and its own number.
 
 ## The question this decision asks
 

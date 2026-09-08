@@ -32,8 +32,10 @@
 //!
 //! Only ONE layout is served: a genuine linked worktree, whose
 //! administrative directory Git itself would have placed at
-//! `<common>/worktrees/<name>` and whose `gitdir` back-pointer names this
-//! seat's own workspace. Everything else refuses before the seat starts
+//! `<common>/worktrees/<name>` and whose `gitdir` back-pointer names a
+//! `.git` in this seat's own workspace directory — the directory, not
+//! the `.git` path, because that path is one the seat can replace with a
+//! symlink to somebody else's. Everything else refuses before the seat starts
 //! (decision 0054's threat model). Git resolves `--git-dir` and
 //! `--git-common-dir` by FOLLOWING a `.git` file, and a `.git` file
 //! inside the workspace is a file the model can write: without the
@@ -235,13 +237,27 @@ fn within(inner: &Path, outer: &Path) -> bool {
 ///    `<workspace>/fake/commondir` with an unrelated repository's path
 ///    makes Git report that repository as the common directory, and the
 ///    runner would bind its objects, refs and reflogs read-write.
-/// 3. **The `gitdir` back-pointer exists and names this workspace's own
-///    `.git`.** The topology check alone is not enough: a workspace
-///    `.git` file may name a REAL administrative directory belonging to
-///    another worktree of another repository. The back-pointer lives
-///    inside `git_dir`, outside the workspace and therefore outside
-///    anything a seat can write, so it is the trustworthy end of the
-///    pair. A directory with no back-pointer is refused, not excused.
+/// 3. **The `gitdir` back-pointer exists and names a `.git` INSIDE this
+///    seat's workspace directory.** The topology check alone is not
+///    enough: a workspace `.git` file may name a REAL administrative
+///    directory belonging to another worktree of another repository. The
+///    back-pointer lives inside `git_dir`, outside the workspace and
+///    therefore outside anything a seat can write, so it is the
+///    trustworthy end of the pair. A directory with no back-pointer is
+///    refused, not excused.
+///
+///    What is compared is the back-pointer's PARENT against the
+///    workspace, never the back-pointer against `<workspace>/.git`.
+///    `<workspace>/.git` is a path the seat OWNS, and the comparison
+///    resolves symlinks: a seat that replaces its own `.git` with a
+///    symlink to another worktree's `.git` file makes both sides resolve
+///    to the victim's path, and the two ends of the pair then agree
+///    about a repository this seat does not own. The parent is the one
+///    end no workspace write can move — the victim's worktree root is
+///    not this seat's workspace however the seat spells it. A symlink at
+///    `<workspace>/.git` is refused outright as well: `git worktree`
+///    never writes one, so its presence is evidence rather than a
+///    spelling.
 pub fn scope_refusal(scope: &GitScope) -> Option<String> {
     if scope.common_dir.starts_with(&scope.workspace) {
         return None;
@@ -272,6 +288,21 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
             administrative.join("<name>").display()
         ));
     }
+    // A seat can write its own `.git`, and `git worktree` writes a plain
+    // file there. A SYMLINK is a second name for a `.git` this seat does
+    // not own, and it exists only to make a resolving comparison agree
+    // with the wrong repository, so it is refused before anything is
+    // compared.
+    let workspace_git = scope.workspace.join(".git");
+    if std::fs::symlink_metadata(&workspace_git).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Some(format!(
+            "this seat's workspace has a symbolic link at {}, and `git worktree` writes a \
+             plain file there; the scoped runner refuses a `.git` that is a second name for \
+             another worktree's metadata. Run the seat from a linked `git worktree` git \
+             itself created",
+            workspace_git.display()
+        ));
+    }
     let Some(recorded) = recorded_worktree(scope) else {
         return Some(format!(
             "the per-worktree git directory {} carries no `gitdir` back-pointer, so nothing \
@@ -282,14 +313,21 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
             scope.workspace.display()
         ));
     };
-    if same_path(&recorded, &scope.workspace.join(".git")) {
+    // The DIRECTORY the back-pointer names is what must be this seat's
+    // workspace. Comparing the pointer itself against
+    // `<workspace>/.git` would compare against a path the seat owns, and
+    // a symlink there would make both sides resolve to the victim's
+    // `.git`; the worktree root the pointer names is the end no
+    // workspace write can move.
+    let recorded_root = recorded.parent();
+    if recorded_root.is_some_and(|root| same_path(root, &scope.workspace)) {
         return None;
     }
     // The back-pointer names a real worktree that CONTAINS this seat's
     // workspace: the seat was started in a subdirectory of its worktree.
     // Nothing is pointing at another worktree here, and saying so would
     // misname the cause; the remedy is the worktree's own root.
-    if let Some(root) = recorded.parent() {
+    if let Some(root) = recorded_root {
         if within(&scope.workspace, root) {
             return Some(format!(
                 "this seat's workspace {} is a subdirectory of the linked worktree at {}, and \

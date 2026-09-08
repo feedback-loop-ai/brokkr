@@ -260,14 +260,25 @@ by following the workspace's own `.git` file — a file the model can write
 — so resolving them early is not enough on its own. A scope is served
 only when the git directory is not the shared repository, sits where git
 itself would have put it (`<common>/worktrees/<name>`, symlinks
-resolved), and carries a `gitdir` back-pointer naming this seat's own
-workspace. Everything else refuses at seat start and again in the runner,
-each naming its own cause: a git directory that IS the shared repository
-(a primary checkout reached through a subdirectory, a
-`--separate-git-dir` checkout, a `.git` file redirected at the parent), a
-workspace-local git directory naming an unrelated repository as its
+resolved), and carries a `gitdir` back-pointer whose worktree ROOT is this
+seat's own workspace directory. Everything else refuses at seat start and
+again in the runner, each naming its own cause: a git directory that IS
+the shared repository (a primary checkout reached through a subdirectory,
+a `--separate-git-dir` checkout, a `.git` file redirected at the parent),
+a workspace-local git directory naming an unrelated repository as its
 common directory, a back-pointer naming a different worktree or missing
 entirely, and a seat rooted in a subdirectory of its own worktree.
+
+The back-pointer is compared as a DIRECTORY against the workspace, never
+as a path against `<workspace>/.git`, and a symlink at `<workspace>/.git`
+is itself a refusal. `<workspace>/.git` is a path the seat owns: point it
+at another worktree's `.git` — by symlink or by copying the file — and
+Git hands back that worktree's REAL administrative directory, so the
+topology check holds and a comparison that resolves symlinks finds both
+ends of the pair agreeing about a repository the seat does not own. The
+worktree root the back-pointer names is the end no workspace write can
+move, and both spellings of that alias are refused under a real `git
+rev-parse` in the behavioral proof.
 
 The whole shared `.git`, the parent checkout, every sibling worktree
 DIRECTORY and every sibling's per-worktree metadata (`HEAD`, `index`,

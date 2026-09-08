@@ -466,6 +466,63 @@ fn the_back_pointer_must_exist_and_name_this_seats_workspace() {
     );
 }
 
+/// The alias the review measured: a seat replaces its own `.git` with a
+/// SYMLINK to another worktree's `.git` file. Git then resolves an
+/// administrative directory Git itself created, so the topology check
+/// holds — and a comparison of the back-pointer against
+/// `<workspace>/.git` resolves the seat's OWN side through the symlink
+/// to the victim's path, so both ends of the pair appear to agree. The
+/// seat owns that path; the worktree ROOT the back-pointer names is the
+/// end it cannot move, and that is what the check compares.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_workspace_git_cannot_borrow_another_worktrees_back_pointer() {
+    let victim = Layout::linked();
+    let seat = victim.dir.path().join("seat");
+    std::fs::create_dir_all(&seat).unwrap();
+    let victim_git_file = victim.scope.workspace.join(".git");
+    std::os::unix::fs::symlink(&victim_git_file, seat.join(".git")).unwrap();
+    // The alias really does resolve to the victim's `.git`: a comparison
+    // against `<workspace>/.git` would have found the two ends agreeing.
+    assert_eq!(
+        std::fs::canonicalize(seat.join(".git")).unwrap(),
+        std::fs::canonicalize(&victim_git_file).unwrap()
+    );
+    let scope = GitScope {
+        workspace: seat.clone(),
+        ..victim.scope.clone()
+    };
+    let refused = scope_refusal(&scope).unwrap();
+    assert!(refused.contains("symbolic link"), "{refused}");
+    assert!(refused.contains("linked `git worktree`"), "{refused}");
+
+    // The runner is the last gate and refuses the same scope rather than
+    // binding the victim's object store and refs read-write.
+    let refused = runner_argv(&runner_args_for(
+        Path::new(BWRAP),
+        &scope,
+        &victim.mask,
+        &dsh_workspace_write_profile(&seat),
+        &["true"],
+    ))
+    .unwrap_err();
+    assert!(refused.contains("symbolic link"), "{refused}");
+
+    // With the symlink gone the borrowed metadata is refused on
+    // OWNERSHIP rather than on spelling: the back-pointer's parent is
+    // the victim's worktree root, which is not this seat's workspace
+    // however the seat spells its own `.git`. A plain COPY of the
+    // victim's `.git` file — no symlink anywhere — lands here too.
+    std::fs::remove_file(seat.join(".git")).unwrap();
+    std::fs::copy(&victim_git_file, seat.join(".git")).unwrap();
+    let refused = scope_refusal(&scope).unwrap();
+    assert!(refused.contains("another worktree's metadata"), "{refused}");
+    assert!(
+        refused.contains(&victim.scope.workspace.display().to_string()),
+        "{refused}"
+    );
+}
+
 /// A seat started in a SUBDIRECTORY of its linked worktree resolves the
 /// worktree's own git directory, whose back-pointer names the worktree
 /// root rather than this workspace. Nothing is pointing at another
@@ -1122,6 +1179,58 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     ))
     .unwrap_err();
     assert!(refused.contains("administrative directories"), "{refused}");
+
+    // The ALIAS variant, against the same real git: a seat whose own
+    // `.git` is a symlink to this worktree's `.git` file. Git resolves a
+    // REAL administrative directory it created itself, so the topology
+    // check holds and the refusal has to come from ownership. Both
+    // spellings of the borrowed pointer are measured — the symlink, and
+    // a plain copy with no symlink anywhere.
+    let alias = dir.path().join("alias seat");
+    std::fs::create_dir_all(&alias).unwrap();
+    std::os::unix::fs::symlink(worktree.join(".git"), alias.join(".git")).unwrap();
+    let alias_facts = crate::hands::git_facts(&alias);
+    let alias_scope = GitScope {
+        workspace: alias.clone(),
+        git_dir: alias_facts.git_dir.clone().unwrap(),
+        common_dir: alias_facts.common_dir.clone().unwrap(),
+    };
+    // Git really does hand back the victim's metadata through the alias:
+    // the refusal is load-bearing, not a check against something git
+    // would never say.
+    assert_eq!(
+        std::fs::canonicalize(&alias_scope.git_dir).unwrap(),
+        std::fs::canonicalize(&git_dir).unwrap()
+    );
+    assert_eq!(
+        std::fs::canonicalize(&alias_scope.common_dir).unwrap(),
+        std::fs::canonicalize(&common_dir).unwrap()
+    );
+    let alias_profile = dsh_workspace_write_profile(&alias);
+    let refused = runner_argv(&runner_args_for(
+        &bwrap,
+        &alias_scope,
+        config_mask.path(),
+        &alias_profile,
+        &["true"],
+    ))
+    .unwrap_err();
+    assert!(refused.contains("symbolic link"), "{refused}");
+    std::fs::remove_file(alias.join(".git")).unwrap();
+    std::fs::copy(worktree.join(".git"), alias.join(".git")).unwrap();
+    let refused = runner_argv(&runner_args_for(
+        &bwrap,
+        &alias_scope,
+        config_mask.path(),
+        &alias_profile,
+        &["true"],
+    ))
+    .unwrap_err();
+    assert!(refused.contains("another worktree's metadata"), "{refused}");
+    assert!(
+        refused.contains(&worktree.display().to_string()),
+        "the refusal names the worktree that owns the metadata: {refused}"
+    );
 
     // An ordinary standalone repository still works under the runner: no
     // scoped bind is added and the workspace bind covers its `.git`.

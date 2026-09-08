@@ -2778,6 +2778,31 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
             );
         }
     }
+
+    // The borrowed back-pointer, refused at the FIRST gate: a workspace
+    // whose own `.git` is a symlink to the real worktree's, and then a
+    // plain copy of the same file. Git resolves the worktree's real
+    // metadata for both, and the driver refuses before the seat starts
+    // rather than writing a row that binds another worktree's objects
+    // and refs read-write (decision 0054 ruling 3).
+    let alias = dir.path().join("alias");
+    std::fs::create_dir_all(&alias).unwrap();
+    std::os::unix::fs::symlink(worktree.join(".git"), alias.join(".git")).unwrap();
+    let alias_facts = crate::hands::git_facts(&alias);
+    assert_eq!(
+        std::fs::canonicalize(alias_facts.common_dir.clone().unwrap()).unwrap(),
+        std::fs::canonicalize(facts.common_dir.clone().unwrap()).unwrap(),
+        "git really does resolve the victim's metadata through the alias"
+    );
+    let refused =
+        dsh_sandbox_row_for(alias.to_str().unwrap(), &alias_facts, "workspace-write").unwrap_err();
+    assert!(refused.starts_with("dsh driver: "), "{refused}");
+    assert!(refused.contains("symbolic link"), "{refused}");
+    std::fs::remove_file(alias.join(".git")).unwrap();
+    std::fs::copy(worktree.join(".git"), alias.join(".git")).unwrap();
+    let refused =
+        dsh_sandbox_row_for(alias.to_str().unwrap(), &alias_facts, "workspace-write").unwrap_err();
+    assert!(refused.contains("another worktree's metadata"), "{refused}");
 }
 
 /// The gpgsign triple and the host identity reach the dsh child, so a
