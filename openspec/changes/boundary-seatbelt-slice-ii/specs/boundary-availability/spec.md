@@ -4,13 +4,44 @@
 
 Availability SHALL be judged only when the compiled bundle declares at
 least one hands site, against the actual host and the supplied search path.
-`namespace` retains the existing bubblewrap check and requires 0.10 or
-newer for overlay binds. `seatbelt` requires macOS and a usable system
-`sandbox-exec` available through that search path; a same-named executable
-on Linux or Windows does not make Seatbelt available. A repository-planted
-launcher does not establish system-tool availability. `container` remains
-unbuilt as the following requirement states, whatever tools are found.
-`harness` and `open` remain available without boundary tooling.
+The activation requirement below governs whether Seatbelt is built at all;
+positive availability and execution scenarios assume that prerequisite.
+An unresolved policy/peer ruling or a partial implementation SHALL retain
+the unbuilt refusal, even when launch readiness can be reported separately.
+`namespace` retains its existing PATH lookup and 0.10-or-newer check for
+overlay binds without a new ownership, executable-bit or sandbox probe rule.
+`container` remains unbuilt, whatever tools are found. `harness` and `open`
+remain available without boundary tooling.
+
+For built `seatbelt`, the host SHALL be macOS and the launcher SHALL be the
+literal absolute `/usr/bin/sandbox-exec`. The supplied search path SHALL
+contain a literal `/usr/bin` entry; an empty path or one containing only
+other entries SHALL refuse, even if the system launcher exists elsewhere
+in the process's environment. Relative entries, dot entries, alternate
+spellings, symlinked directories and copied or same-named launchers SHALL
+NOT establish this prerequisite. Other PATH entries SHALL never be executed
+as a Seatbelt probe or launcher, including one before `/usr/bin`.
+
+The fixed launcher and its ancestors through `/usr/bin` and `/usr` SHALL
+be nonsymlink system entries owned by uid 0 and not writable by group or
+others; the launcher SHALL be a regular file executable by the calling
+user. This defines the trusted system location, not a search for any
+root-owned file. The operator's OS installation is trusted; a hostile
+repository or declared writable bind SHALL not supply or alias a writable
+launcher. A failed metadata or protection check SHALL refuse by name.
+
+Usable SHALL additionally require a real policy probe of that fixed
+launcher, with a total five-second budget and bounded diagnostics. The
+probe SHALL use trusted test operations, private disposable sentinels and
+an engine-authored policy: one permitted read must return its nonce and
+one prohibited read must fail without returning its nonce. Failure to
+start, nonzero positive-control exit, successful prohibited read, timeout
+or unexpected output SHALL refuse. Running `true` alone, file existence,
+version output or a launcher stub that merely exits zero SHALL not pass.
+Doctor and start SHALL share this rule; probes execute no repository code,
+start no seat, and append no journal. A wrong host SHALL refuse without
+executing any launcher or probe. The probe proves readiness only; the full
+native adversarial suite remains mandatory.
 
 A refusal SHALL name the boundary, failed prerequisite or unsupported
 policy, observed host/tool facts, affected hands sites and decision 0046
@@ -39,8 +70,20 @@ boundary or execute the payload after a failed preflight.
 - **THEN** preflight admits the bundle and execution uses the Seatbelt path; the old slice (ii) unbuilt refusal does not fire
 
 #### Scenario: An unusable or untrusted launcher is not offered
-- **WHEN** macOS lookup finds a non-executable file, a repository-controlled lookalike or a system launcher that cannot apply the required policy
-- **THEN** the boundary refuses with the tool or policy cause before user code, rather than accepting file existence as evidence
+- **WHEN** macOS has only a repository-controlled lookalike on the supplied PATH, or the fixed system launcher is non-executable, a symlink, non-root-owned or writable by group/others
+- **THEN** Seatbelt refuses naming `/usr/bin/sandbox-exec` and the missing literal PATH entry or failed trust check before user code; the lookalike is never invoked
+
+#### Scenario: The system pin ignores an earlier lookalike
+- **WHEN** a macOS supplied PATH is `<worktree>/bin:/usr/bin` and the worktree contains an executable named sandbox-exec
+- **THEN** only `/usr/bin/sandbox-exec` is checked, probed and invoked, the planted marker stays absent, and a passing system probe admits an enforceable policy; `<worktree>/bin` alone or a symlink to `/usr/bin` alone refuses
+
+#### Scenario: A no-op launcher fails the denial probe
+- **WHEN** the readiness probe receives exit zero without executing its operations, or a launcher executes both sentinel reads without applying the policy
+- **THEN** the missing expected nonce or successful forbidden read makes the result unusable and no payload starts; an actual native launcher must pass both controls within five seconds
+
+#### Scenario: Readiness does not widen namespace lookup
+- **WHEN** existing namespace lookup and overlay-version fixtures run with their supplied PATHs
+- **THEN** their previous results are unchanged; Seatbelt's fixed-path provenance checks and allow/deny probe are never applied to bwrap
 
 #### Scenario: container on an empty PATH refuses
 - **WHEN** a hands bundle compiles under `container` with no container engine on the supplied path
@@ -70,14 +113,42 @@ boundary or execute the payload after a failed preflight.
 - **WHEN** preflight succeeds but the system tool disappears or rejects preparation before a workspace call or exec dispatch
 - **THEN** that invocation fails naming Seatbelt and the cause, no payload marker appears, and no unboxed fallback runs
 
+### Requirement: init's warning speaks the vocabulary
+
+`brokkr init` SHALL keep naming the scaffolded hands seats and `namespace`
+as the default requiring bubblewrap. On macOS its advice SHALL also name
+`seatbelt` as the realm choice intended by 0046 slice (ii), with the same
+activation and fixed-system-launcher facts used by doctor. When built and
+ready it SHALL tell the operator to declare `boundary: seatbelt` in the
+realm and check the scaffold with `brokkr doctor --bundle <dir>`. When
+unbuilt or unavailable it SHALL name that condition and its cause without
+promising the scaffold can run. It SHALL retain `harness` as an explicitly
+unboxed alternative subject to its gate/adapter restrictions. On other
+hosts the existing absent-bubblewrap advice SHALL remain. Init SHALL not
+edit or select a realm boundary, infer a security ruling, or treat a
+readiness probe as acceptance of the slice.
+
+#### Scenario: init without bubblewrap
+- **WHEN** init runs on a non-macOS host without bwrap on PATH
+- **THEN** its warning names the scaffolded seats, namespace, bubblewrap, and harness as the realm alternative, and cites decision 0046
+
+#### Scenario: init on macOS describes the available Seatbelt road
+- **WHEN** init runs on macOS without bwrap and Seatbelt is built with a trusted launcher passing the readiness probe
+- **THEN** its advice names Seatbelt as the macOS realm choice, the unchanged namespace default, the doctor bundle check and the unboxed harness alternative; the realm file is unchanged
+
+#### Scenario: init does not recommend an unbuilt boundary as usable
+- **WHEN** init runs on macOS while the policy/peer prerequisites remain unresolved, or the built boundary lacks a trusted usable launcher
+- **THEN** its advice identifies unbuilt Seatbelt and slice (ii), or the precise missing/unusable tool fact, respectively; it does not promise the scaffold can run under Seatbelt or silently switch its boundary
+
 ## REMOVED Requirements
 
 ### Requirement: A boundary this engine does not build refuses at start until its slice lands
 
 **Reason**: Its slice-I inventory permanently describes Seatbelt and container
-as unbuilt. Slice II replaces that inventory with an implemented Seatbelt path
-and a continuing container refusal; preserving a scenario that refuses a
-capable Mac solely for slice (ii) would contradict the commissioned behavior.
+as unbuilt. The target after slice II's activation replaces that inventory
+with implemented Seatbelt and a continuing container refusal. Until the
+activation conditions below hold, Seatbelt's unbuilt refusal is retained;
+removing this requirement in a draft is not authority to lift that fence.
 
 **Migration**: Use "Only container remains unbuilt after Seatbelt implementation"
 and the modified host/tool availability requirement in this capability.
@@ -87,9 +158,9 @@ engine-present and runtime-entry refusal scenarios remain covered.
 ### Requirement: doctor names the boundaries this machine offers
 
 **Reason**: The old requirement and its Seatbelt warning scenario describe the
-pre-slice-II engine even on a capable Mac. Doctor now diagnoses an implemented
-Seatbelt boundary using host, tool and policy facts instead of promising a
-future slice. This replacement retains diagnosis for the other boundaries.
+pre-slice-II engine even on a capable Mac. After activation doctor diagnoses
+Seatbelt using host, tool and policy facts. Until then it retains the unbuilt
+slice (ii) diagnosis. This replacement retains all other boundary diagnoses.
 
 **Migration**: Use "doctor reports the implemented boundaries and their actual
 prerequisites" with the same single boundaries line and per-bundle hands line;
@@ -101,11 +172,26 @@ an actionable refusal, while container still names slice (iii).
 ### Requirement: Only container remains unbuilt after Seatbelt implementation
 
 The engine SHALL treat `seatbelt` as built only when both workspace and
-boxed exec composition paths actually implement the hands policy described
-by `seatbelt-execution`. Removing a refusal or generating profile strings
-alone does not build a boundary. The implementation can be prepared for
-native CI while Mac acceptance evidence remains explicitly pending; the
-availability fact SHALL not be reported as completion of the whole slice.
+boxed exec paths actually implement the whole hands policy described by
+`seatbelt-execution`, including the shipped masked overlays and the git and
+process guarantees. Unresolved differences in overlays, masks, hooks view
+or lifetime SHALL keep Seatbelt unbuilt under 0046's addendum. Operator
+rulings are required before enabling a semantic difference or asserting
+that a different hooks view is peer-equivalent. A policy-preserving
+mechanism and its evidence can discharge a feasibility question without
+weakening the guarantee. Code and experiments may be prepared for Mac
+measurement with the activation fence retained while questions are open.
+Reporting Seatbelt built requires the settled semantics and actual paths;
+pending full-suite Mac evidence SHALL not be reported as slice completion.
+
+Refusing a malformed or conflicting individual layout is required safety
+behavior. Refusing all overlays, all masked binds, ordinary linked-worktree
+Git or all commands that might fork SHALL NOT count as implementing those
+features. A boundary supporting only a bind-free subset SHALL stay unbuilt
+for this deliverable; removing the start fence is not its completion test.
+If the operator commissions a reduced deliverable, its built status and
+shipped declarations SHALL first be amended upstream with reasons and
+corresponding scenarios. This draft chooses no such reduction.
 
 `container` SHALL remain named, pinned and admitted by the compile-time
 gate law but unbuilt in slice II. Every CLI and runtime start/resume/rerun
@@ -118,7 +204,16 @@ hands SHALL not be refused merely for its realm's boundary word.
 
 #### Scenario: Seatbelt becomes built through actual execution paths
 - **WHEN** the implementation exposes Seatbelt as built
-- **THEN** both hands entry points have a real sandbox-exec execution path with policy enforcement and failure handling, and native tests are required before the overall slice is accepted
+- **THEN** the overlay, mask, hooks-view/peer and lifetime prerequisites are resolved, both entry points implement their complete ruled policy through real sandbox-exec with failure handling, and the required Mac suite must still pass before overall slice acceptance
+
+#### Scenario: Shipped overlay users cannot be refused into a built claim
+- **GIVEN** a macOS host with a trusted usable system launcher and the unchanged self/verify verifier and review-agent declarations containing masked cargo overlays
+- **WHEN** a candidate can execute a bind-free smoke test but cannot realize those declared overlays or masks
+- **THEN** self and verify remain refused at start before any journal row, doctor reports Seatbelt unbuilt for slice (ii) with the unmet policy, and that candidate fails this slice's deliverable; a per-bind refusal does not make the boundary built
+
+#### Scenario: An upstream ruling must precede a different deliverable
+- **WHEN** relocated snapshots, denied-read masks, residual detached processes or harness-grade Seatbelt are proposed without an operator ruling
+- **THEN** Seatbelt activation remains fenced and the discrepancy is returned upstream with its owning requirement; no successful Seatbelt gate, peer marker or completion claim is produced
 
 #### Scenario: container with either engine present still refuses
 - **WHEN** a bundle with hands site `work` compiles under `container` and the path holds Docker, Podman or both
@@ -133,9 +228,12 @@ hands SHALL not be refused merely for its realm's boundary word.
 `brokkr doctor` SHALL print one `boundaries` line using the same host/tool
 availability rules as the start refusal: `namespace` with its bubblewrap
 fact, `seatbelt` only on macOS with the usable system launcher and actual
-implementation, and `harness` and `open` always. For an unavailable built
-boundary it SHALL state the specific wrong-host, missing-tool or unusable-
-tool reason. `container` SHALL be shown as not yet built, naming slice
+implementation, and `harness` and `open` always. Before Seatbelt activation
+it SHALL instead say not yet built,
+slice (ii), and name the unresolved policy/peer prerequisite; tool readiness
+is a separate fact, never an offer. For an unavailable built boundary it
+SHALL state the specific wrong-host, missing-tool or unusable-tool reason.
+`container` SHALL be shown as not yet built, naming slice
 (iii) and whether Docker/Podman is present as a readiness fact only.
 
 With `--bundle`, doctor SHALL compile in the discovered realm and judge

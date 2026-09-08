@@ -4,6 +4,11 @@ Execute workspace commands and boxed exec seats on macOS through a real
 Seatbelt boundary, preserving declared hands policy and separating tested
 security claims from pending measurements and proposed semantic rulings.
 
+The positive execution scenarios define the commissioned target after
+`boundary-availability`'s activation conditions hold. On this returned visit
+R1–R4 remain upstream questions; no partial implementation or refusal-only
+path satisfies the target. The current unbuilt refusal remains in force.
+
 ## ADDED Requirements
 
 ### Requirement: Both hands entry points execute inside the declared Seatbelt boundary
@@ -138,11 +143,16 @@ A masked file's host content SHALL be unavailable and its host bytes SHALL
 remain unchanged, including through symlinks, hard links, overlapping binds
 and replacement of the mask entry. Preparation SHALL not follow a link and
 copy an undeclared secret into readable scratch. An absent masked file
-SHALL not be created on the host. The existing `/dev/null` view of a present
-mask and same-path bind access remain the compatibility baseline; a denied
-read or a relocated view SHALL NOT silently be reported as that behavior.
-Any necessary semantic difference requires the proposed-ruling procedure
-below, not an implicit downgrade.
+SHALL not be created on the host. The observable for a present mask is
+explicit: opening it for a normal
+read at the declared path SHALL succeed and yield zero bytes, as the
+existing `/dev/null` mask does. Direct denied reads SHALL NOT count as
+readable-empty. Aliases SHALL expose no original content; an unsafe alias
+layout SHALL refuse preparation. Same-path bind access remains required.
+A mechanism unable to provide this view SHALL refuse the affected policy,
+remain ineligible for Seatbelt activation under this deliverable, and
+return the denied-read alternative upstream (R2). The proposed-ruling
+procedure cannot count as an unspecified future test oracle.
 
 #### Scenario: Read-only and writable binds differ only as declared
 - **WHEN** each hands path reads and modifies test-owned `ro` and `rw` binds outside the worktree
@@ -151,7 +161,16 @@ below, not an implicit downgrade.
 #### Scenario: Credentials remain hidden under every bind mode
 - **GIVEN** synthetic credential files masked in `ro`, `rw` and `overlay` binds, plus ordinary readable neighbors
 - **WHEN** commands read the neighbors, read each credential by direct and alias paths, and try replacement, deletion and rewriting of the masked entries
-- **THEN** neighbors remain usable, no credential content reaches output or scratch, and all host credential bytes and directory entries remain unchanged; mask-read behavior matches the explicitly ruled contract
+- **THEN** neighbors remain usable, direct reads of present masked entries succeed with zero bytes, aliases reveal no credential content, and all host credential bytes and directory entries remain unchanged; denial at the declared path fails the readable-empty assertion
+
+#### Scenario: Present masks have a readable-empty view
+- **GIVEN** a declared bind containing a present masked credential with nonempty synthetic bytes and an ordinary neighbor
+- **WHEN** each real hands path opens and reads the credential by the declared path
+- **THEN** open/read succeeds with zero bytes and the neighbor is readable; a denied open, absent-file error or original credential byte fails the scenario
+
+#### Scenario: Denied-mask access is a proposed difference rather than an answer
+- **WHEN** a candidate can hide credential content only by returning a permission error at the declared masked path
+- **THEN** it refuses that policy before user code under the current contract, records R2's exact denied-read alternative for the operator, and cannot count the refusal as mask support or Seatbelt activation
 
 #### Scenario: Missing masks do not create host files
 - **WHEN** a declaration masks a file absent from the source, including after an earlier call created a same-named private overlay file
@@ -179,6 +198,11 @@ those semantics. It SHALL not share writable file storage with the lower
 layer or make the unmasked original source another way to reach masked
 content. Writable state SHALL not outlive the seat as a host executable.
 Differences from the declared overlay contract require an explicit ruling.
+R1 retains the existing contract until then: neither a relocated snapshot
+nor blanket overlay refusal is this slice's successful deliverable. The
+shipped masked cargo overlays and the node recipe's npm overlay SHALL stay
+acceptance inputs unless their declarations are explicitly recommissioned.
+A smoke test without an overlay does not exercise this requirement.
 
 #### Scenario: Overlay mutation matrix survives the next call
 - **WHEN** a first call creates, edits, deletes, renames and updates a test executable in an overlay, and a second call observes those paths
@@ -190,7 +214,7 @@ Differences from the declared overlay contract require an explicit ruling.
 
 #### Scenario: Locator-only copies do not pass as arbitrary overlays
 - **WHEN** a candidate passes a cargo test using a relocated `CARGO_HOME` but direct access to a declared arbitrary overlay path fails or reaches the original host tree
-- **THEN** that candidate does not satisfy this requirement; the path difference is presented for a focused ruling instead of marking overlay support complete
+- **THEN** that candidate does not satisfy this requirement or Seatbelt activation; R1 asks the operator whether relocated snapshot/locator semantics for every arbitrary bind are authorized, or whether same-path semantics must be preserved, with refusal-only scope or amended shipped declarations requiring their own explicit commission
 
 ### Requirement: Git metadata protection prevents host hook and configuration persistence
 
@@ -235,15 +259,26 @@ and linked worktrees under the resolved seat identity. The host SHALL see
 the resulting object/ref update in the intended worktree. Host hooks and
 signing programs SHALL not execute during these commits, even when host
 configuration enables them, and host hooks/configuration SHALL remain
-unchanged. The hooks view and how it satisfies 0043 ruling 6 SHALL be
-specified and measured, including the distinction between an empty view
-and denied access. A benign unsigned commit alone SHALL not establish
-protection against hostile commands.
+unchanged. The 0043 ruling 6 baseline is a successful empty listing at the
+original
+hooks directory, alongside read-only protected configuration. Denying the
+original listing and using a different empty private `core.hooksPath` is
+an observable change, even when unsigned commits work. R4 requires an
+operator ruling on that difference and Seatbelt's peer status before
+activation. The new private hooksPath is only an ordinary Git behavior
+candidate; independent enforcement against raw writes remains mandatory.
+A benign unsigned commit alone SHALL not establish protection against
+hostile commands.
 
 #### Scenario: Linked-worktree commit is visible and unsigned
 - **GIVEN** a primary repository, a linked worktree outside it, synthetic identity, enabled signing with a sentinel signing program, and existing sentinel hooks
 - **WHEN** each hands path stages and commits a worktree change
 - **THEN** the host sees the expected author/committer, message and content on that worktree's ref, the commit has no signature, no hook/signing sentinel ran, and protected metadata is unchanged
+
+#### Scenario: Empty private hooksPath does not prove an empty original view
+- **GIVEN** a primary or linked worktree with existing sentinel hooks and host-enabled signing
+- **WHEN** a candidate's ordinary unsigned commit succeeds using a private empty core.hooksPath but listing the original hooks directory returns a permission error
+- **THEN** the result records both observations and the full raw-write adversary outcome; it fails the unchanged empty-view target and is submitted for R4's explicit view/peer ruling, not reported as namespace-equivalent
 
 #### Scenario: No repository does not grant a git directory
 - **WHEN** a workspace command runs in a non-repository directory
@@ -285,9 +320,21 @@ SHALL bound the whole payload tree. Timeout, cancellation, server shutdown
 and normal completion SHALL not leave descendants executing or holding
 output pipes indefinitely. Tests SHALL include grandchildren, background
 children after the immediate parent exits, ignored termination signals and
-double-fork/session-detach attempts. Any detached-process operation that
-cannot be supervised SHALL be prevented or the unsupported execution
-policy refused; killing only the immediate child is not sufficient.
+double-fork/session-detach attempts. The mechanism SHALL prevent those
+operations or terminate their descendants within the same bound while
+still supporting ordinary shell, build and Git children. Killing only the
+immediate child or the initial process group is not sufficient. There is
+no declared hands policy distinguishing commands that may detach: all
+commands are arbitrary hostile code. A check over command text, a caller
+promise not to daemonize, or refusing every forking command SHALL NOT
+satisfy this requirement.
+
+R3 is a feasibility prerequisite for the boundary as a whole. Until a
+named mechanism demonstrates the requirement, Seatbelt SHALL stay unbuilt;
+a generic per-command unsupported-policy refusal cannot make it built.
+A proposal to permit detached survivors must return upstream with the
+exact weakened deadline, cancellation and scratch guarantees and their
+consequence for boundary grade. No such relaxation is adopted here.
 Private state SHALL not be reused or removed through hostile links while
 payload processes can still mutate it. The mechanism SHALL not be described
 as PID, IPC, UTS or user namespace isolation.
@@ -297,8 +344,17 @@ as PID, IPC, UTS or user namespace isolation.
 - **THEN** each invocation reports timeout within its deadline plus five seconds, all observed descendants cease, and the heartbeat stays unchanged during a further one-second observation; an outer test watchdog fails and cleans up a hang rather than counting it as success
 
 #### Scenario: Parent exit and cancellation leave no background payload
-- **WHEN** the direct parent exits while background or detached descendants retain stdout/stderr, or the controller closes/cancels the seat
-- **THEN** the call/seat terminates within the same five-second teardown budget and no descendant keeps a pipe or continues host-visible worktree writes
+- **WHEN** the direct parent exits while background or detached descendants retain stdout/stderr, or the controller closes/cancels the seat, including abrupt supervisor death
+- **THEN** the call/seat and its payload end within the same five-second teardown budget and no descendant keeps a pipe or continues host-visible worktree writes
+
+#### Scenario: Session detachment is part of the ordinary command threat model
+- **GIVEN** a native helper that forks, calls setsid in the child, forks again, reports its descendant identities to the outside test observer, ignores termination signals and writes a heartbeat while holding output pipes
+- **WHEN** it runs under each hands path and the deadline expires or the supervisor is killed
+- **THEN** every reported descendant is terminated or its creation was prevented, the heartbeat stops within the teardown bound and remains unchanged for one second, and the observer's watchdog cleans up any escape as a test failure; signaling only the original process group cannot pass through lost observations
+
+#### Scenario: A group-only supervisor cannot activate Seatbelt
+- **WHEN** a candidate terminates the initial process group but has no mechanism or native evidence covering the detachment helper
+- **THEN** R3 remains an unmet boundary-wide prerequisite, Seatbelt stays unbuilt, and neither a timeout return nor a refusal of arbitrary commands counts as the no-survivor guarantee
 
 ### Requirement: Output stays bounded without corrupting driver or MCP transport
 
@@ -342,9 +398,26 @@ that a successful sandbox execution occurred. Hands-less and historical
 records retain their existing sentinel/absence behavior. A run with a
 `harness` or `open` gate remains unboxed under the existing derivation.
 
+These are full-peer target scenarios, not a decision on R4. Before the
+activation conditions hold, production start SHALL retain the unbuilt
+fence, so no Seatbelt invocation is spawned or stamped as a successful
+peer. If the operator rules harness-grade instead, `boundary-record`,
+`boundary-readouts`, gate policy and these scenarios SHALL be amended
+upstream before activation, including any required additive schema version.
+This change SHALL NOT reuse the current boxed marker or plain Seatbelt
+summary to imply a guarantee the operator declined.
+
 #### Scenario: A real Seatbelt gate round-trips through the record
 - **WHEN** a native Seatbelt exec gate succeeds and its journal is exported and verified
 - **THEN** the manifest, effect entry, finishing checkpoint and successful model-bearing result name `seatbelt`; all model readouts agree, the run is not rendered unboxed on that gate's account, and driver-supplied false boundary stamps cannot replace the engine's word
+
+#### Scenario: An unresolved hooks ruling cannot produce a peer gate
+- **WHEN** the hooks mechanism's view or peer status is unresolved, even with a successful private-hooksPath commit experiment
+- **THEN** production Seatbelt start refuses before a journal row or seat spawn; no successful Seatbelt record, hands-boxed prompt or delivery vouch is produced from that experiment, and R4 is returned upstream
+
+#### Scenario: A harness-grade ruling requires coherent upstream deltas
+- **WHEN** the operator rules Seatbelt harness-grade rather than accepting the full-peer target
+- **THEN** this change is returned upstream to revise gate admission, boundary-record, boundary-readouts, delivery summary and guide behavior together before enabling execution; the implementation never silently relabels the realm word harness or emits a full-peer marker
 
 #### Scenario: Compilation pins a word and not a scratch directory
 - **WHEN** identical inputs compile twice with different temporary directories and then under `namespace` instead of `seatbelt`
@@ -362,8 +435,12 @@ process-lifetime mechanisms, alternatives and residual differences. New
 semantic choices SHALL have a focused decision document with status
 `proposed`. An observed difference from an accepted guarantee SHALL name
 the precise operator question; absent a ruling the guarantee stands and
-unsupported operations refuse. A finding owned by an earlier artifact
-SHALL be returned upstream and dependent artifacts kept coherent.
+unsupported operations refuse. That refusal SHALL NOT discharge any
+unimplemented required feature. R1–R4 SHALL be closed with the exact
+operator ruling or policy-preserving mechanism evidence before the
+activation fence is lifted. A finding owned by an earlier artifact SHALL
+be returned upstream and dependent artifacts kept coherent; a successful
+OpenSpec syntax check SHALL not be presented as resolution of those facts.
 
 Acceptance SHALL require behavioral/adversarial tests using actual
 `sandbox-exec` on the existing macOS CI runner. Required native tests
@@ -383,8 +460,16 @@ this check), formatting, clippy, and compilation of `bundles/self` and
 nonzero 100% source-line/branch/function equality and its pinned compiler;
 no exclusions, denominator changes or lowered gate can substitute for tests.
 It SHALL be run by CI or the controller outside the workspace box, because
-namespace tests cannot nest here. The design SHALL keep policy tests
-executable on Linux as well as providing Mac behavioral tests.
+namespace tests cannot nest here. The design SHALL keep shared policy,
+composition and lifecycle decisions
+compiled and executable on Linux through injected host, path/probe and
+process outcomes as recorded under Decisions below. No target-gated
+Seatbelt production module, coverage attribute, name-based exclusion or
+weakened denominator SHALL substitute for these tests. Actual Darwin
+execution remains the native suite's separate obligation. Any required
+native binding that cannot fit this seam SHALL be returned with its exact
+coverage gap and a proposed additional native measurement before adopting
+it; Linux coverage SHALL never be claimed as coverage of uncompiled code.
 
 The evidence handoff SHALL identify the candidate commit, host OS/version
 and architecture, system launcher, compiler, commands, test names/counts,
@@ -398,6 +483,14 @@ relevant change SHALL not be attributed to the final candidate.
 - **WHEN** a candidate blocks hook reads instead of exposing the empty view required by 0043, or a proposed mechanism cannot protect a linked-worktree hook/config alias
 - **THEN** design records the measured difference, its security consequence and the precise proposed ruling; it does not silently label a weakened boundary a full peer or reclassify it as harness to pass a gate
 
+#### Scenario: Linux exercises both policy arms without claiming native enforcement
+- **WHEN** the candidate's host-independent tests run on Linux with supplied Linux/macOS/Windows host facts, trusted and untrusted paths, probe success/failure/timeout, and child completion/failure/timeout outcomes
+- **THEN** they exercise the same compiled production policy, composition and lifecycle decisions used for native Seatbelt, including refusal and cleanup arms; the handoff labels this logical coverage and still requires actual sandbox-exec behavior on macOS
+
+#### Scenario: The exact gate cannot be satisfied by hiding Seatbelt source
+- **WHEN** coverage is prepared for the candidate
+- **THEN** shared Seatbelt production logic is present in the Linux source denominator, the pinned script still demands all lines, branches and logical functions, and any native-only binding coverage is identified separately instead of counted as Linux-tested; a coverage failure or unavailable external run remains pending/failing, never passed by exclusion
+
 #### Scenario: Mac evidence remains pending after Linux preparation
 - **WHEN** implementation and Linux checks are prepared on this controller without any real Mac run
 - **THEN** the handoff says Mac behavioral evidence is pending, gives the CI test invocation and expected cases for the controller, lists any unavailable local checks, and makes no overall slice-complete claim
@@ -409,3 +502,38 @@ relevant change SHALL not be attributed to the final candidate.
 #### Scenario: The controller supplies final candidate evidence
 - **WHEN** real native and exact-coverage runs exist for the candidate after the implementation is complete
 - **THEN** their actual outcomes and links replace only the corresponding pending entries; failures remain actionable findings, and unrelated historical channel versions, journals and evidence are unchanged
+
+## Decisions
+
+- **R1/R2 — observable baseline, with upstream questions.** Same-path
+  overlays and successful empty reads are the explicit test oracle. The
+  returned concern is accepted: an unspecified future ruling is not an
+  oracle. Proposed snapshots or denied-read masks must be ruled before
+  replacing these scenarios. Refusing them is safe but does not complete
+  arbitrary binds or allow activation; the shipped declarations stay put.
+- **R3 — a mechanism must precede a lifetime claim.** The namespace argv's
+  PID isolation supports today's direct-child kill. Apple's documented
+  `setsid` and group-directed `kill` behavior, linked in the proposal,
+  shows why the original process group is insufficient. This reasoning
+  does not establish that every possible Mac supervisor is impossible;
+  the missing item is a named mechanism and real detach/death measurements.
+  None is claimed here, and the no-survivor requirement is retained.
+- **R4 — peer-only target, not inferred peer acceptance.** The private
+  hooksPath proposal can make ordinary Git work; raw-write protection and
+  the observable empty-view question are separate. This specification
+  refuses to invent a harness-grade branch before its ruling because the
+  accepted gate and record laws otherwise make that branch a false peer.
+  Retaining the start fence makes those downstream successful scenarios
+  unreachable until the policy and grade are settled. The exact alternative
+  and required dependent deltas are recorded in the proposal.
+- **R6 — shared decisions and explicit host adapters.** Council design must
+  place policy construction, environment/path composition, readiness
+  verdicts, process supervision decisions and error/cleanup routing in
+  ordinary Rust compiled on every test host. Narrow host/process adapters
+  supply facts; deterministic tests supply outcomes at those same seams.
+  No test-only replacement of the production decision algorithm is valid.
+  Mac-specific operations, if needed by the eventual mechanism, require
+  separately named native coverage evidence for any source Linux cannot
+  compile. Wrapping the whole Seatbelt module in a macOS cfg to achieve a
+  green Linux denominator is refused. The exact external run on the final
+  candidate remains controller-owned and pending.

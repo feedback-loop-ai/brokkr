@@ -24,10 +24,14 @@ any host path the operator's uid may read (design DD10), and its
 says the field is refused and points at decision 0046 ruling 5;
 `docs/guides/quickstart.md`'s platform paragraph says that macOS is
 supported on arm64 and x86_64 (0049), that a macOS realm declares
-`boundary: seatbelt` when the actual implementation can enforce its
-policy, and how doctor diagnoses a wrong host or missing/unusable system
-`sandbox-exec`. During preparation it names the pending Mac measurement
-and does not claim slice II complete. Windows remains best-effort under
+`boundary: seatbelt` after its complete policy and peer prerequisites are
+resolved and implemented, and how doctor diagnoses the fixed trusted
+`/usr/bin/sandbox-exec`, its required literal `/usr/bin` PATH entry and its
+real allow/deny readiness probe. While activation is unresolved it states
+that Seatbelt is unbuilt for slice (ii). During preparation it names the
+pending Mac measurement and does not claim slice II complete. Its init
+advice follows the same macOS status and never silently selects a boundary.
+Windows remains best-effort under
 `harness` or `open`, Linux/WSL2 keeps `namespace`, absence still resolves
 `namespace`, and container refuses until slice (iii). The paragraph keeps
 the harness alternative and its *unboxed* meaning, provider-fragment and
@@ -88,7 +92,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: quickstart's platform paragraph
 - **WHEN** the quickstart's platform paragraph is read
-- **THEN** it identifies supported macOS with the implemented Seatbelt boundary and any pending native measurement, best-effort Windows with harness/open, namespace as the default on Linux/WSL2, and container as unbuilt slice (iii); it keeps the harness alternative with its unboxed meaning and the actual measured shipped-bundle inventory and refusals
+- **THEN** it identifies supported macOS with Seatbelt's actual activation/implementation status and any pending native measurement, best-effort Windows with harness/open, namespace as the default on Linux/WSL2, and container as unbuilt slice (iii); it keeps the harness alternative with its unboxed meaning and the actual measured shipped-bundle inventory and refusals
 
 #### Scenario: journal-and-verification and read-surfaces show the rendering
 - **WHEN** the two guides are read
@@ -132,7 +136,14 @@ output/deadline limits and any explicit unsupported layout refusal. The
 network explanation SHALL distinguish shared macOS loopback from a private
 Linux network namespace; a host loopback allowance is not isolation.
 Native measurement status and any proposed ruling SHALL be adjacent to the
-claim they qualify. An implementation-only Linux handoff SHALL provide the
+claim they qualify. While R1–R4 remain unresolved, examples SHALL be labeled
+as target behavior and Seatbelt SHALL be described as unbuilt. Refusing the
+shipped overlays SHALL be reported as an unmet deliverable, not supported
+Seatbelt with an optional limitation. Direct readable-empty masks, original
+empty hooks listings and complete descendant teardown SHALL not be replaced
+with denial or process-group-only claims. An upstream grade change SHALL
+be reflected in gate/record/readout specs before guides describe it as usable.
+An implementation-only Linux handoff SHALL provide the
 exact native CI invocation and expected cases for the controller, not an
 invented success count or an instruction to weaken the gate.
 
@@ -159,3 +170,11 @@ untested guarantee by matching a word.
 #### Scenario: A semantic difference is not hidden in wording
 - **WHEN** design proposes denied-mask reads, relocated overlays or a different hooks view
 - **THEN** documentation names the exact difference and focused proposed decision, preserves refusal where the accepted guarantee cannot hold, and does not claim the proposed behavior was already accepted
+
+#### Scenario: An unresolved policy is not a working macOS example
+- **WHEN** Seatbelt has only a bind-free execution experiment or unresolved overlay, mask, lifetime or hooks-view/peer prerequisites
+- **THEN** the guide says slice (ii) remains unbuilt, labels positive examples as targets, identifies the affected shipped declarations and R1–R4 questions, and never presents the unchanged shipped library as runnable under that experiment
+
+#### Scenario: Init advice and launcher diagnosis agree
+- **WHEN** the macOS setup instructions explain init and doctor
+- **THEN** they name the fixed system launcher, literal `/usr/bin` search-path requirement, readiness probe and actual activation status, with no change to namespace lookup; harness remains an explicitly unboxed alternative and init never writes the realm choice

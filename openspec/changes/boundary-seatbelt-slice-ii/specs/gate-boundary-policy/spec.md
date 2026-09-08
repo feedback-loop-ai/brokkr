@@ -9,10 +9,11 @@ DD22) — SHALL additionally rule by the boundary the bundle compiles
 under: under `namespace`, `seatbelt` and `container` a model gate is
 admitted as today and a boxed exec gate as decision 0043 ruling 3
 reads — the compile defines the identity now, and a run under
-`seatbelt` requires its implemented macOS boundary and a run under
-`container` still refuses until slice (iii), availability being
-boundary-availability's rule and not this one's; under `harness` a
-model gate is admitted only when every link of its resolved chain
+`seatbelt` requires the complete policy and peer-status activation defined
+by boundary-availability, with the unbuilt slice (ii) fence retained until
+then, and a run under `container` still refuses until slice (iii),
+availability being boundary-availability's rule and not this one's; under
+`harness` a model gate is admitted only when every link of its resolved chain
 declares `hands.harness.gate` as a fragment, and refused otherwise
 naming the link, the provider and the missing declaration; under `open`
 a model gate is refused naming decision 0046 ruling 4. A work-class site
@@ -54,6 +55,10 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 #### Scenario: A seatbelt gate is admitted at compile
 - **WHEN** a gate-class agent site with hands compiles under `seatbelt`, and again under `container`
 - **THEN** compilation succeeds exactly as under `namespace` and the manifest pins the word, whatever the compiling machine holds
+
+#### Scenario: Compile admission is not a peer ruling
+- **WHEN** a Seatbelt gate compiles while overlay, mask, hooks-view/peer or lifetime prerequisites are unresolved, including a candidate passing only an unsigned-commit smoke test
+- **THEN** compilation pins the realm word as before, but start retains the unbuilt slice (ii) refusal before any journal row or seat; compile admission does not authorize a weaker runtime gate
 
 #### Scenario: A harness work seat without a work fragment is refused
 - **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`, in a bundle that seats no gate and binds no secret, so nothing but the hands law stands before the gate law's work-class early return (design DD22)
@@ -104,8 +109,9 @@ corrected security ruling). Decision 0049 names Linux first-class,
 macOS supported and Windows best-effort; where operating-system behaviour
 defeats a stated guarantee, the guarantee SHALL be named as not holding
 there rather than pursued. Decision 0046's addendum still refuses
-`container` at start until slice (iii); Seatbelt availability is the
-implemented macOS path's requirement, never a compile-time tool probe.
+`container` at start until slice (iii), and Seatbelt until its complete
+policy and peer prerequisites are resolved and implemented. Availability
+is a runtime requirement, never a compile-time tool probe.
 
 The compiler SHALL additionally refuse the measured startup-character set
 `*`, `?`, `[`, `]`, `{`, `}`, `(`, `)`, `'`, `"`, `\`, `~`, CR (`\r`,
@@ -302,8 +308,9 @@ refused at compile naming the repair, because its argv is the author's
 and carries the box's own tokens.
 `container` never reaches composition: the engine refuses it at its
 entry before any journal row (boundary-availability). Seatbelt reaches
-composition only through its implemented and available macOS boundary;
-all model, exec and synthetic dialect sites use that same boundary
+composition only after boundary-availability's policy/peer activation and
+host/tool checks; no partial or unruled implementation reaches a production
+seat. All model, exec and synthetic dialect sites use that same boundary
 transport, including panel members, sequence steps and selected cases. A
 dialect step under `harness` or `open` is refused at compile and never
 reaches composition either (decision 0046 rulings 1 and 4; decision
@@ -375,3 +382,13 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 #### Scenario: Namespace and unboxed behavior remain covered
 - **WHEN** the existing namespace, harness and open composition and gate-policy suites run after adding Seatbelt
 - **THEN** their admissions, refusals, identity and prompt delivery remain unchanged, including decision 0048's script-directory checks and decision 0049's unboxed interpreter limitation
+
+## Decisions
+
+- **R4 — no unruled gate-grade branch.** Compile remains machine-independent
+  under accepted 0046. The runtime fence, not a compiler trust promotion,
+  prevents an incomplete or unruled Seatbelt mechanism from holding a gate.
+  A harness-grade ruling would change this requirement and the owning
+  boundary-record/readouts requirements together; inventing its gate law
+  here before that upstream ruling would exceed this specify visit's
+  authority. The target remains a full peer with no weaker fallback.
