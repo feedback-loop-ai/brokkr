@@ -14,6 +14,18 @@
 # carries only the route. The file is part of the bundle, so it is part
 # of the recipe's digest. The path is read from the repository root,
 # where the sweep runs.
+#
+# The model entry states its reasoning levels, because nothing else
+# can. A custom provider's entry with no `reasoningEfforts` is resolved
+# against dsh's installed catalog for the same provider key, and no
+# catalog ships for `dashscope`, so the model materialised as
+# non-reasoning and every pinned effort threw
+# (UNSUPPORTED_REASONING_EFFORT, workflow run 34115364530, 2026-09-07;
+# measured on dsh 0.1.2-rc.1 and again on 0.1.3-alpha.2, identical).
+# The levels are the ones dsh's own Qwen catalog lists for Qwen3.8-Max:
+# low, medium, xhigh; high and max are pinned unsupported there and are
+# left undeclared here, so they stay refused. Each key is the level a
+# seat may pin; each value is what goes on the wire.
 - id: llm-pi-ai
   config:
     providers:
@@ -26,3 +38,7 @@
           thinkingFormat: deepseek
         models:
           - id: qwen3.8-max
+            reasoningEfforts:
+              low: low
+              medium: medium
+              xhigh: xhigh

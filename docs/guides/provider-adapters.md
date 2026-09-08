@@ -31,7 +31,14 @@ keyed by `DEEPSEEK_API_KEY` in the engine's launching environment; a
 headless profile's own patch layer (`$DSH_HOME/profiles/headless/cordis.patch.yml`).
 The driver turns `--model <lane>` into the one-seat overlay dsh's
 launcher reads; neither key ever enters argv, the recipe, or the
-journal.
+journal. A custom route's model entry must also state its own
+`reasoningEfforts`, because dsh resolves an entry without them against
+its installed catalog for the same provider key and ships none for
+`dashscope`: left unstated, the model materialises as non-reasoning and
+any pinned `--effort` is refused at start. `recipes/research-dsh`
+states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
+own Qwen catalog lists, and pins `xhigh` (decision 0035, second
+addendum).
 
 The same adapter reaches Muse Spark 1.3 through OpenRouter
 (`https://openrouter.ai/api/v1`, OpenAI-compatible, Meta as the sole
