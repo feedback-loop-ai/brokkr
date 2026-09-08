@@ -251,6 +251,7 @@ exactly as it does for a driver the machine cannot reach.
 | Your process exits **after** `accepted` and without a result | `indeterminate`, reason `driver exited after accepting, before a result — attempt cannot be established as complete` | The run **parks**. |
 | You send `result` with `status: "failed"` | `failed` | A retry may follow, inside the seat's `max_attempts`; after `accepted` it is the SAME model, and the chain does not fall back. |
 | You violate the protocol | `failed` (driver defect) | A retry is a new attempt. |
+| The engine's deadline watchdog kills you | `failed`, reason `attempt exceeded its Ns deadline and was killed` | The run **parks**, whether or not you had accepted: the kill made non-completion determinate, but you never got to say whether a session opened (decision 0053 ruling 5). |
 
 The reason indeterminacy always parks rather than retrying is decision
 0003: the engine cannot distinguish "did nothing" from "already opened a
@@ -274,6 +275,22 @@ currently reject a `result` that arrives without one — but it records
 `accepted: false` on the attempt report, and that bit is what the
 fail-to-start fallback predicate reads. Send it — and, when the provider
 refuses before your first turn, send the failure without it.
+
+Three rules go with the withholding, all of them the built-ins':
+
+- **Classify from machine-readable records, and bound what you quote.**
+  The token and any prose excerpt come off your harness's stream, so
+  collapse their whitespace, drop control characters and clamp them (80
+  characters for the token, 160 for the excerpt) before they reach a
+  record the journal keeps forever.
+- **Name the transcript in the reason.** A refused attempt sends no
+  checkpoint, so the locator it would have carried goes in the failure
+  string — `[transcript claude-session/<id>]`. It is the only pointer a
+  reader has at the prose that explains the refusal.
+- **Do not stop reading.** A harness that errs and then works has not
+  refused to start: keep folding the whole stream, and let the fact that
+  work began decide. The turns behind the error are the seat's served
+  model, its usage and its resumable session id.
 
 ## Checkpoints
 

@@ -158,6 +158,11 @@ fn prose_is_judged_and_code_is_built_and_both_pass_review() {
 #[cfg(unix)]
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")
+        // The fixture repository is the test's own, so it must not
+        // inherit the operator's global signing config: a machine whose
+        // `commit.gpgsign` is true fails `git commit` here on a pinentry
+        // it cannot open, and the failure looks like this test's.
+        .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(repo)
         .env("GIT_AUTHOR_NAME", "landing")

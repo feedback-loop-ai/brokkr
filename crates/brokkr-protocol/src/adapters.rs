@@ -254,13 +254,18 @@ struct Invocation {
     stderr: String,
     state: Option<String>,
     /// A provider refusal the harness recorded BEFORE its first turn
-    /// (decision 0053). `Some(reason)` is a determinate refusal to
-    /// start: no turn opened, no work exists for a different model to
-    /// fail to inherit, and the attempt is reported with `result:
-    /// failed` and NO `accepted` so the engine's structural fail-to-start
-    /// predicate can advance the chain. `None` is every other shape,
-    /// including a refusal that arrived after the first turn — that one
-    /// stays a mid-session failure under decision 0016.
+    /// (decision 0053). `Some(reason)` is a candidate refusal to start:
+    /// no turn had opened when it was classified, so — IF no work began
+    /// afterwards — no work exists for a different model to fail to
+    /// inherit, and the attempt is reported with `result: failed` and NO
+    /// `accepted` so the engine's structural fail-to-start predicate can
+    /// advance the chain. `None` is every other shape, including a
+    /// refusal that arrived after the first turn — that one stays a
+    /// mid-session failure under decision 0016.
+    ///
+    /// The "if" is `run_seat`'s to settle, not the fold's: a harness may
+    /// report an error and then go on to work, and a session that worked
+    /// is not one that refused to start.
     refusal: Option<String>,
 }
 
@@ -499,27 +504,62 @@ fn run_cli(
     io_context(child.wait_with_output(), "agent CLI did not conclude")
 }
 
+/// One line of wire text, whitespace-collapsed and clamped: every field
+/// a refusal reason quotes comes off the harness's stream, so it is
+/// arbitrary-length and may carry newlines. The journal is append-only
+/// and every readout renders what lands in it, so a reason is bounded
+/// here rather than trusted — the same discipline as the ≤80-char tool
+/// names and targets and the 4000-byte stderr tail. Control characters
+/// go with the newlines: a terminal escape belongs in a record no more
+/// than a line break does.
+fn bounded_wire_line(text: &str, limit: usize) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(limit)
+        .collect()
+}
+
+/// The token's own bound. A machine token is a short identifier
+/// (`rate_limit`, `authentication_error`); the checkpoint bound for a
+/// harness-supplied name governs it too.
+const REFUSAL_TOKEN_LIMIT: usize = 80;
+
+/// And the excerpt's, which may be a sentence.
+const REFUSAL_TEXT_LIMIT: usize = 160;
+
 /// Bound one refusal reason for the journal: a single line, clamped, and
 /// never empty. The reason is the provider's own machine token when it
 /// gave one, the HTTP status when it gave that, and a short excerpt of
 /// its prose when it gave that — the same evidence a stderr tail already
 /// carries on a failed attempt, and nothing executable is derived from it.
+///
+/// The token is bounded exactly like the excerpt. It is read from the
+/// harness's stream, so "the provider's own token" is only ever a claim
+/// about where the bytes came from: a harness emitting a 200KB
+/// newline-bearing `error` must not put that in a durable record.
 fn refusal_reason(token: &str, status: Option<i64>, text: Option<&str>) -> String {
+    let token = bounded_wire_line(token, REFUSAL_TOKEN_LIMIT);
+    // Never empty: a refusal with no token at all is still a refusal,
+    // and an empty one would leave the line dangling after its colon.
+    let token = if token.is_empty() {
+        "api_error"
+    } else {
+        &token
+    };
     let mut reason = format!("provider refused before the first turn: {token}");
     if let Some(status) = status {
         reason.push_str(&format!(" (HTTP {status})"));
     }
     if let Some(text) = text {
-        let excerpt: String = text
-            .chars()
-            .map(|c| if c.is_whitespace() { ' ' } else { c })
-            .collect::<String>()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let excerpt = bounded_wire_line(text, REFUSAL_TEXT_LIMIT);
         if !excerpt.is_empty() {
             reason.push_str(": ");
-            reason.extend(excerpt.chars().take(160));
+            reason.push_str(&excerpt);
         }
     }
     reason
@@ -647,11 +687,17 @@ fn fold_stream_event(
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                // Journaled NOW, not only at session end: the
-                // transcript drilldowns can only locate — and live-
-                // stream — a WORKING seat's prose if the id is known
-                // from the first message. Decision 0032's shared module
-                // clamps and journals the one transcript shape.
+                // Recorded NOW, not only at session end: the transcript
+                // drilldowns can only locate — and live-stream — a
+                // WORKING seat's prose if the id is known from the first
+                // message. Decision 0032's shared module clamps and
+                // shapes the one transcript row. Since decision 0053 the
+                // row reaches the JOURNAL one beat later: `run_seat`
+                // buffers it until a checkpoint proves work began,
+                // because a checkpoint before that would put a refused
+                // attempt on the mid-session side of decision 0016's
+                // boundary. A refused attempt keeps the locator in its
+                // failure reason instead.
                 transcript.record(session_id, session_meta, emit);
             }
         }
@@ -1508,9 +1554,14 @@ fn invoke_stream_json(
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     let mut assistant_turns = 0u64;
-    // Decision 0053: the first pre-turn refusal wins, and the fold stops
-    // reading once it is known — a later record cannot turn a refusal
-    // into work.
+    // Decision 0053: the FIRST pre-turn refusal is the one reported, and
+    // the fold keeps reading the whole stream after it. A latched
+    // refusal is not a decision to stop listening: a harness that
+    // retried and then worked emits turns behind it, and those turns are
+    // the seat's served model, usage, cost and resumable session id
+    // (decision 0030). Whether the refusal ends the attempt is settled
+    // by whether any work began — `run_seat` reads that from the
+    // checkpoints, not from where the classifier stopped.
     let mut refusal: Option<String> = None;
     for line in std::io::BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
@@ -1519,15 +1570,14 @@ fn invoke_stream_json(
         let Ok(event) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if refusal.is_none() {
-            refusal = fold_stream_event(
-                &event,
-                &mut assistant_turns,
-                &mut session_meta,
-                &mut transcript,
-                emit,
-            );
-        }
+        let classified = fold_stream_event(
+            &event,
+            &mut assistant_turns,
+            &mut session_meta,
+            &mut transcript,
+            emit,
+        );
+        refusal = refusal.or(classified);
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
     transcript.finish(&mut session_meta, emit);
@@ -1867,21 +1917,22 @@ fn invoke_codex(
     // Decision 0053: codex's wire protocol DOES carry the distinction —
     // a machine-readable `error`/`turn.failed` before the first
     // `turn.started` is a refusal to start. After a turn it is 0016's
-    // mid-session failure, so the fold classifies only at `turn == 0`.
+    // mid-session failure, so the fold classifies only at `turn == 0`,
+    // and — as in the claude arm — it keeps folding the rest of the
+    // stream so a session that recovered keeps its thread id and totals.
     let mut refusal: Option<String> = None;
     for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
         let Ok(line) = line else { break };
         if let Ok(event) = serde_json::from_str::<Value>(&line) {
-            if refusal.is_none() {
-                refusal = fold_codex_event(
-                    &event,
-                    &mut turn,
-                    &mut session_meta,
-                    &mut transcript,
-                    &mut echo,
-                    emit,
-                );
-            }
+            let classified = fold_codex_event(
+                &event,
+                &mut turn,
+                &mut session_meta,
+                &mut transcript,
+                &mut echo,
+                emit,
+            );
+            refusal = refusal.or(classified);
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -2595,6 +2646,24 @@ fn begins_work(step: &str) -> bool {
     !matches!(step, "transcript" | "harness-started")
 }
 
+/// The refused attempt's pointer at its own prose: `<kind>/<locator>`
+/// off the transcript row decision 0032 already shapes, or nothing when
+/// the harness never announced a session. Both halves are already
+/// clamped where they are recorded, and neither is read for anything —
+/// it is an address a person types into a drilldown.
+fn transcript_locator(session_meta: &Map<String, Value>) -> Option<String> {
+    let transcript = session_meta.get("transcript")?;
+    let locator = transcript.get("locator").and_then(Value::as_str)?;
+    if locator.is_empty() {
+        return None;
+    }
+    let kind = transcript
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
+    Some(format!("{kind}/{locator}"))
+}
+
 /// `session` is the prior session the engine handed back for this seat
 /// (decision 0030), or `None` for the cold start every attempt was
 /// before it. Only the codex arm knows what to do with one; the rest
@@ -2799,7 +2868,11 @@ fn run_seat(
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal
     // keeps the refused attempt and why the chain descends. The buffered
-    // pre-session rows are dropped with it.
+    // pre-session rows are dropped with it — a checkpoint would put the
+    // attempt on 0016's other side — so the reason carries the transcript
+    // locator instead. That pointer is the evidence #219 was diagnosed
+    // from, and a refused attempt that named nowhere to look would make
+    // the next such diagnosis start from scratch.
     if let Some(reason) = refusal {
         if !began_work {
             let stderr_tail_start = stderr_tail_start(&stderr);
@@ -2809,7 +2882,10 @@ fn run_seat(
                 attempt_id,
                 status: ResultStatus::Failed,
                 result: None,
-                error: Some(reason),
+                error: Some(match transcript_locator(&session_meta) {
+                    Some(locator) => format!("{reason} [transcript {locator}]"),
+                    None => reason,
+                }),
             });
             return;
         }

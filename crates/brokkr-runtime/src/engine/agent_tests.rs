@@ -184,7 +184,7 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
 }
 
 /// AC-14: the predicate is structural. No stderr is read, no message is
-/// matched — the three facts the process layer already knows decide it.
+/// matched — the four facts the process layer already knows decide it.
 #[test]
 fn the_fail_to_start_predicate_reads_only_structure() {
     let failed = |accepted: bool, checkpoints: Vec<Value>| AttemptReport {
@@ -195,12 +195,21 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         checkpoints,
         stderr: "provider says: unknown model".into(),
         accepted,
+        deadline_killed: false,
     };
     assert!(failed_to_start(&failed(false, Vec::new())));
     // Accepted: the session opened, so this is 0006's territory.
     assert!(!failed_to_start(&failed(true, Vec::new())));
     // Checkpointed: work happened that another model does not inherit.
     assert!(!failed_to_start(&failed(false, vec![json!({"step": "x"})])));
+    // Killed by our own watchdog: `Failed` because the kill made
+    // non-completion determinate, but the driver never got to say
+    // whether a session opened (decision 0053 ruling 5). A hung first
+    // turn must not walk the chain down every link on the same vendor.
+    assert!(!failed_to_start(&AttemptReport {
+        deadline_killed: true,
+        ..failed(false, Vec::new())
+    }));
     // Succeeded and indeterminate are never fail-to-start.
     for outcome in [
         AttemptOutcome::Succeeded { result: json!({}) },
@@ -214,6 +223,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
             checkpoints: Vec::new(),
             stderr: String::new(),
             accepted: false,
+            deadline_killed: false,
         }));
     }
 }
@@ -249,6 +259,7 @@ fn start_failure_sites_names_the_members_that_never_started() {
         checkpoints: Vec::new(),
         stderr: String::new(),
         accepted,
+        deadline_killed: false,
     };
     let reports = vec![("a".to_string(), report(false)), ("b".into(), report(true))];
     assert_eq!(start_failure_sites(&reports, ""), vec![Some("a".into())]);
@@ -377,6 +388,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
                 checkpoints: Vec::new(),
                 stderr: String::new(),
                 accepted: false,
+                deadline_killed: false,
             }),
             &selection,
             None,

@@ -1764,6 +1764,9 @@ impl Engine {
                                 // accepted: the structural
                                 // fail-to-start predicate holds.
                                 accepted: false,
+                                // No process existed for a watchdog to
+                                // kill.
+                                deadline_killed: false,
                             },
                             Ok(process) => process.run_attempt(
                                 ENGINE_VERSION,
@@ -3666,10 +3669,20 @@ fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> 
 /// rather than described in a comment. A seat that ran for forty turns
 /// and then hit a quota wall has produced work a different model does
 /// not inherit, and it follows 0006 unchanged.
+///
+/// The fourth fact is the engine's own (decision 0053 ruling 5): an
+/// attempt this watchdog KILLED is `Failed` because the kill made
+/// non-completion determinate, not because anything refused to start.
+/// The driver died with no chance to say which side of the boundary it
+/// was on, so the ambiguity decision 0003 parks on holds — and without
+/// this term a vendor that hangs a first turn would walk the chain down
+/// every link, each one hanging for a full deadline, and journal
+/// per-model start failures for one vendor-wide stall.
 fn failed_to_start(report: &AttemptReport) -> bool {
     matches!(report.outcome, AttemptOutcome::Failed { .. })
         && !report.accepted
         && report.checkpoints.is_empty()
+        && !report.deadline_killed
 }
 
 /// Which panel members failed to start, tagged as the journal tags them.

@@ -118,14 +118,30 @@ unreachable by construction rather than by convention.
    | `dsh` | No: the headless profile prints only its final answer; a rejection is stderr prose plus a non-zero exit | Not classified; follows 0006 unchanged |
    | `exec` | Not applicable: no model turn, no provider | Not classified |
 
-   A driver that vanishes before any machine-readable refusal is still
+   A driver that vanishes before any machine-readable refusal is
    `indeterminate`, and decision 0003 rules that it parks because Brokkr
-   cannot tell "did nothing" from "already opened a billed session". No
-   adapter sniffs a provider's prose to decide either case: that read is
-   what decision 0001 forbids. The engine's boundary is unchanged — the
-   fix is the driver reporting which side of it the attempt stands on,
-   because a bound that applies "unless a new feature is in play" has
-   stopped being a bound.
+   cannot tell "did nothing" from "already opened a billed session". An
+   attempt the engine's own deadline watchdog killed is `Failed` rather
+   than indeterminate — the kill is what makes non-completion
+   determinate (decision 0006) — but it parks too: the driver died
+   without saying whether a session opened, so `deadline_killed` keeps it
+   off the fail-to-start side (decision 0053 ruling 5). Otherwise one
+   hanging vendor would walk the chain down every link, each hanging for
+   a full deadline. No adapter sniffs a provider's prose to decide any of
+   these cases: that read is what decision 0001 forbids. The engine's
+   boundary is unchanged — the fix is the driver reporting which side of
+   it the attempt stands on, because a bound that applies "unless a new
+   feature is in play" has stopped being a bound.
+
+   Two consequences of the withheld `accepted` are worth knowing at the
+   readout. The transcript locator row is buffered until the first turn
+   checkpoints, so a live drilldown cannot locate a seat's prose during
+   a long first turn; and a refused attempt journals no checkpoint at
+   all, carrying its locator in its failure reason instead
+   (`[transcript claude-session/<id>]`). A refusal that a later turn
+   overtakes — the harness erred, retried and worked — is not a failure
+   to start at all: the fold reads the whole stream, and the attempt
+   reports its own result.
 
 ## Hands
 

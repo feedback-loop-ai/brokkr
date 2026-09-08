@@ -3460,6 +3460,12 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
     };
     assert!(error.contains("rate_limit"), "{error}");
     assert!(error.contains("You have reached your limit"), "{error}");
+    // The refused attempt still says where its prose is: no checkpoint
+    // may carry the locator, so the reason does.
+    assert!(
+        error.contains("[transcript claude-session/refused-1]"),
+        "{error}"
+    );
 }
 
 /// Decision 0053: codex's `error` before any `turn.started` is the same
@@ -3724,4 +3730,138 @@ fn a_codex_that_cannot_spawn_flushes_its_launch_row_after_accepting() {
         panic!("expected one failed result: {messages:?}")
     };
     assert!(error.contains("could not invoke"), "{error}");
+}
+
+/// Decision 0053: the token is wire data like everything else beside it.
+/// A harness — or anything standing in for one, which this suite already
+/// models with adversarial shims — can put arbitrary bytes in the `error`
+/// field the classifier reads, and the journal is append-only: a blob of
+/// newline-bearing prose must not become an attempt's recorded reason.
+#[test]
+fn a_refusal_token_is_bounded_like_every_other_wire_field() {
+    let hostile = format!("rate\nlimit\u{1b}[2J{}", "x".repeat(400));
+    let reason = refusal_reason(&hostile, None, Some("fine"));
+    assert!(!reason.contains('\n'), "{reason}");
+    assert!(!reason.chars().any(char::is_control), "{reason}");
+    assert!(
+        reason.len()
+            <= "provider refused before the first turn: ".len()
+                + REFUSAL_TOKEN_LIMIT
+                + ": fine".len(),
+        "{}",
+        reason.len()
+    );
+    // The same blob through the arm that actually reads a harness field.
+    let classified =
+        claude_refusal(&json!({"type":"result","is_error":true,"error":hostile})).unwrap();
+    assert!(!classified.contains('\n'), "{classified}");
+    assert!(classified.len() < 400, "{}", classified.len());
+    // A token that collapses to nothing still names a refusal rather
+    // than trailing off after its colon.
+    assert_eq!(
+        refusal_reason(" \n ", None, None),
+        "provider refused before the first turn: api_error"
+    );
+}
+
+/// Decision 0053: a refused attempt carries no checkpoint — one would
+/// put it on the mid-session side of decision 0016 — so the pointer at
+/// its own prose rides the reason. It is present only when the harness
+/// announced a session; nothing is invented.
+#[test]
+fn a_refused_attempt_names_its_transcript_only_when_there_is_one() {
+    let with = |value: Value| {
+        let mut meta = Map::new();
+        meta.insert("transcript".into(), value);
+        meta
+    };
+    assert_eq!(transcript_locator(&Map::new()), None);
+    assert_eq!(
+        transcript_locator(&with(json!({"kind":"claude-session"}))),
+        None
+    );
+    assert_eq!(
+        transcript_locator(&with(json!({"kind":"claude-session","locator":""}))),
+        None
+    );
+    assert_eq!(
+        transcript_locator(&with(json!({"locator":"abc"}))),
+        Some("none/abc".to_string())
+    );
+    assert_eq!(
+        transcript_locator(&with(json!({"kind":"codex-thread","locator":"t-1"}))),
+        Some("codex-thread/t-1".to_string())
+    );
+}
+
+/// Decision 0053: a classified refusal does not stop the fold. A harness
+/// that reported an error and then went on to work has NOT refused to
+/// start — the attempt is decision 0016's mid-session territory, its
+/// result is its own, and the turns behind the error are the seat's
+/// served model, usage and resumable thread id (decision 0030). Reading
+/// the stream only up to the first error threw all of that away and
+/// reported a completed session as a failure to start.
+#[cfg(unix)]
+#[test]
+fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
+    let shim = executable(
+        dir.path(),
+        "codex-errs-then-works",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             printf '{{\"type\":\"error\",\"message\":\"stream error: retrying\"}}\\n'\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{thread}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":11}}}}\\n'\n\
+             printf '%s' '{{\"result\":\"complete\",\"notes\":\"n\"}}' > '{result}'\n",
+            thread = thread,
+            result = result.display(),
+        ),
+    );
+    let mut messages = Vec::new();
+    with_codex_bin(&shim, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|body| matches!(body, Body::Accepted { .. }))
+            .count(),
+        1,
+        "work began, so the attempt accepted exactly once: {messages:?}"
+    );
+    let finished = messages
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } if data["step"] == "codex-session-finished" => Some(data),
+            _ => None,
+        })
+        .next_back()
+        .unwrap_or_else(|| panic!("the session finished: {messages:?}"));
+    assert_eq!(finished["transcript"]["locator"], thread);
+    assert_eq!(finished["input_tokens"], 11);
+    let Body::Result {
+        status: ResultStatus::Succeeded,
+        result: Some(seat_result),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("the session's own result is reported: {messages:?}")
+    };
+    assert_eq!(seat_result["result"], "complete");
 }

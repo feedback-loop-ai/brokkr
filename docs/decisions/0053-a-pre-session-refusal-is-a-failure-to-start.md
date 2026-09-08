@@ -36,6 +36,20 @@ turn opened and no work exists for a different model to fail to inherit.
 What is wrong is not 0016's boundary but the driver's report of which
 side of it the attempt stands on.
 
+Withholding `accepted` moves one other shape, and a review of the first
+delivery measured it: an attempt the engine's own deadline watchdog
+KILLS. The watchdog SIGKILLs the driver tree, so the driver reports
+nothing at all; `eof_outcome` calls that `Failed` — the kill is what
+makes non-completion determinate under decision 0006 — and with
+`accepted` no longer sent at spawn, a first turn that simply hangs
+reaches the engine as `Failed`, never accepted, no checkpoint. That is
+the structural fail-to-start predicate, so a vendor outage that hangs
+the CLI would walk the chain down every link, each one hanging for a
+full deadline, and journal per-model `start_failure_sites` for one
+vendor-wide stall. Nothing about that attempt says a provider refused
+it; the only fact is that we ended it. Ruling 5 answers the question the
+withholding forced.
+
 Alternatives weighed:
 
 - **Widen the engine's predicate to treat an accepted attempt with no
@@ -56,6 +70,13 @@ Alternatives weighed:
   Rejected: dsh's headless profile emits no machine-readable pre-session
   refusal and exec has no model turn at all. Inventing a classification
   from their stderr prose is the same forbidden read.
+- **Let the deadline kill fall where the withholding puts it, and
+  record the widening.** Rejected: it makes the chain's own bound
+  meaningless exactly when a vendor is down — the case fallback exists
+  for is a provider that refuses fast, not one that hangs — and it
+  journals a per-model start failure for a fact about no model. The
+  boundary this decision draws is "did a provider refuse before its
+  first turn"; an attempt the engine killed answers neither yes nor no.
 
 ## Rulings
 
@@ -77,7 +98,9 @@ Alternatives weighed:
    that follows decision 0006 unchanged. This ruling classifies only the
    pre-session shape; it widens nothing about mid-session failure, and
    `accepted` still reaches the engine before any checkpoint on every
-   path that starts work.
+   path that starts work. The one other shape the withheld `accepted`
+   would otherwise have moved — an attempt the engine's own watchdog
+   killed — is held on its old side by ruling 5, not left to fall.
 
 3. **The classification is the driver's, per built-in adapter, from
    machine-readable records only.** No classifier reads model or
@@ -111,6 +134,50 @@ Alternatives weighed:
    to the next candidate; the existing fold-blindness test keeps every
    new field out of the fold.
 
+5. **An attempt the engine's own watchdog killed is not a failure to
+   start.** The deadline kill makes non-completion determinate
+   (decision 0006), which is why its outcome is `Failed` and not
+   `Indeterminate` — but the driver died with no chance to say whether a
+   session had opened, so the question this decision answers has no
+   answer for it. `AttemptReport` carries the fact (`deadline_killed`),
+   the structural predicate reads it as its fourth term, and a hung
+   attempt stays on the mid-session side of the boundary exactly as it
+   did before `accepted` was withheld. This includes the one shape that
+   changes in the other direction: a driver that hangs its whole
+   deadline BEFORE the handshake used to descend the chain and now
+   parks — the same ambiguity decision 0003 parks on, reached by a
+   driver that stalled rather than one the machine could not reach,
+   which fails immediately and still descends.
+
+   **Enforcement binding:**
+   `crates/brokkr-protocol/src/process/tests.rs`'s deadline-kill test
+   pins the fact on the report; the structural-predicate test in
+   `agent_tests.rs` pins that a killed attempt is not a failure to start.
+
+6. **A refusal is bounded wire data, and it names its own evidence.**
+   Every field the classifiers read — the token as much as the prose
+   excerpt — comes off the harness's stream, so all of it is
+   whitespace-collapsed, stripped of control characters and clamped
+   before it enters an append-only record: the token to 80 characters
+   like a tool name, the excerpt to 160. A refused attempt emits no
+   checkpoint, so the transcript locator it would have carried rides its
+   reason instead (`[transcript <kind>/<locator>]`) — that transcript is
+   the evidence #219 itself was diagnosed from, and a refused attempt
+   that named nowhere to look would make the next such diagnosis start
+   from scratch.
+
+7. **A classified refusal does not end the fold.** The driver keeps
+   reading its harness's whole stream after classifying one: a harness
+   that reported an error and then went on to work has not refused to
+   start, and its turns are the seat's served model, usage, cost and
+   resumable session id (decision 0030). Whether the refusal ends the
+   attempt is settled by whether any work began — the checkpoint the
+   fold emitted, not the point the classifier stopped at.
+
+   **Enforcement binding:** `crates/brokkr-protocol/src/adapters/tests.rs`
+   drives a shim that errs and then works, and pins that the attempt
+   accepts, keeps its thread id and totals, and reports its own result.
+
 ## Consequences
 
 - An exhausted per-model limit no longer parks a seat whose chain has
@@ -119,6 +186,16 @@ Alternatives weighed:
 - The driver protocol's `accepted` now means "a turn began", not "the
   process spawned". The engine's predicate is unchanged, and no
   checkpoint is ever sent before `accepted`.
+- The shared transcript row reaches the JOURNAL one beat later than it
+  did: the driver still records the locator at the harness's first
+  message, but `run_seat` buffers that checkpoint until work begins,
+  because a checkpoint before then would put a refused attempt on the
+  mid-session side of the boundary. During a long first turn a live
+  drilldown therefore cannot yet locate the seat's prose; the row is
+  flushed, in order and unchanged, the moment the first turn checkpoints.
+- A refused attempt has no transcript checkpoint at all. Its locator is
+  in its failure reason (ruling 6), which is where a readout of a
+  fail-to-start attempt already looks.
 - A seat whose provider refuses before its first turn on every link
   still parks — the chain is bounded and a gate whose judges are all
   unavailable parks rather than descends (decision 0041 ruling 3). This

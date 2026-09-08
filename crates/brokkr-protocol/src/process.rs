@@ -217,6 +217,9 @@ impl DriverProcess {
             checkpoints,
             stderr,
             accepted,
+            // Read after the watchdog is disarmed and the child reaped,
+            // so the bit is the one that decided this attempt's end.
+            deadline_killed: self.timed_out.load(Ordering::SeqCst),
         }
     }
 
