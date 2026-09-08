@@ -3784,7 +3784,10 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // of 2026-09-06): the hedge is `fast`'s shape with both model seats
     // pinned inline to the other vendor, so it boxes only the verify and
     // ship gates it inherits and compiles under harness like the rest.
-    assert_eq!(dirs.len(), 14, "{dirs:?}");
+    // Fifteen since `recipes/landing` (decision 0051): `fast` entered at
+    // a classify gate, one more `./scripts` exec gate of its own, so it
+    // compiles under harness like `fast`.
+    assert_eq!(dirs.len(), 15, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3847,7 +3850,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 12, "{compiled:?}");
+    assert_eq!(compiled.len(), 13, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();

@@ -543,6 +543,7 @@ fn the_unruled_valuations_are_pinned_per_table() {
         ("bundles/self", (47, 4)),
         ("bundles/verify", (16, 0)),
         ("recipes/fast", (46, 4)),
+        ("recipes/landing", (48, 4)),
         ("recipes/night-shift", (1072, 128)),
         ("recipes/node", (46, 4)),
         ("recipes/panel-review", (47, 4)),

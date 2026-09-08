@@ -2,7 +2,11 @@
 
 Every pull request to `main` goes through Brokkr. The run implements,
 verifies, reviews, and prepares the change; you review the result and
-open the pull request that names the run.
+open the pull request that names the run. A branch you wrote yourself —
+a decision, a pin, a fix, a sweep of prose — goes through Brokkr too:
+the `landing` recipe reads it, verifies it when it is code, judges it,
+sends findings back to a smith, and ships it, so the pull request names
+a run all the same (decision 0051).
 
 ## 1. Install Brokkr
 
@@ -30,12 +34,14 @@ git switch -c <your-branch>
 ## 3. Pick one recipe
 
 Costs are relative, not quotes; provider rates and retries vary. Pick a
-delivery recipe; `preflight` is an optional branch check, not a delivery.
+delivery recipe. `landing` is the delivery for a branch that already
+exists; `preflight` is an optional branch check, not a delivery.
 
 <!-- recipe-table:start -->
 | Recipe | When to use it | What it seats | Rough cost |
 |---|---|---|---|
 | `fast` | Default Rust delivery from implementation through verification, review, and ship. | implement, review, ship, verify | medium |
+| `landing` | A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label. | classify, implement, review, ship, verify | low |
 | `night-shift` | Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | medium-high |
 | `node` | Node and TypeScript repositories using JavaScript-specific seats and tools. | implement, review, ship, verify | medium |
 | `panel-review` | General delivery needing independent correctness and security reviewers. | implement, intake, review[correctness+security], ship, verify | high |
@@ -53,10 +59,13 @@ delivery recipe; `preflight` is an optional branch check, not a delivery.
 
 ```console
 brokkr run --recipe <name> --feature "<what you want>"
+brokkr run --recipe landing --repo . --feature "landing: <what the branch is, and why>"
 ```
 
-Let the machine finish its verify, review, and ship seats. Fixes return
-through the same policy; do not substitute hand-run checks for the run.
+The second form is for a branch you already wrote: it starts by reading
+the branch, not by writing one. Let the machine finish its verify,
+review, and ship seats. Fixes return through the same policy; do not
+substitute hand-run checks for the run.
 
 ## 5. Review, publish the evidence, and propose
 
@@ -74,7 +83,7 @@ judged (decision 0038): a rebase that leaves your slice's patch unchanged
 keeps the vouch; a delta confined to docs needs `brokkr run --recipe
 preflight` on the new head, named as `Brokkr-Preflight: <run-id>`; a code
 delta needs a new run. Only the operator may apply the visible `by-hand`
-escape-hatch label.
+escape-hatch label, and only where no landing can stand (decision 0051).
 
 Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.
 
