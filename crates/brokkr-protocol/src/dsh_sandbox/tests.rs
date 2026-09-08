@@ -93,6 +93,11 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     assert!(text.contains("--ro-bind-try /main/.git/config /main/.git/config"));
     assert!(text
         .contains("--ro-bind-try /main/.git/worktrees/wt/config /main/.git/worktrees/wt/config"));
+    // `config.worktree` is masked, not ro-bound-try: the per-worktree file
+    // is normally absent, and the writable directory around it would let a
+    // boxed command create one the host then reads.
+    assert!(text.contains("--ro-bind /dev/null /main/.git/worktrees/wt/config.worktree"));
+    assert!(!text.contains("--ro-bind-try /main/.git/worktrees/wt/config.worktree"));
 
     // The worktree's pointers back to the shared repository are read-only:
     // a boxed rewrite would redirect git at a config it wrote.
@@ -217,6 +222,130 @@ fn a_per_worktree_dir_inside_the_workspace_is_not_bound_twice() {
     let text = argv.join(" ");
     assert!(!text.contains("--bind /work/wt/.git-meta"), "{text}");
     assert!(text.contains("--bind-try /shared/.git/objects /shared/.git/objects"));
+}
+
+#[test]
+fn a_profile_that_does_not_root_at_the_read_only_host_root_is_refused() {
+    // The shape guard has three arms, and each one alone refuses.
+    let scope = linked_scope();
+    for bad in [
+        ["--bind", "/", "/", "true"],
+        ["--ro-bind", "/tmp", "/", "true"],
+        ["--ro-bind", "/", "/tmp", "true"],
+    ] {
+        let profile: Vec<String> = bad.iter().map(|part| part.to_string()).collect();
+        let refused = runner_argv(&runner_args(&scope, &profile, &["true"])).unwrap_err();
+        assert!(refused.contains("--ro-bind / /"), "{bad:?}: {refused}");
+    }
+}
+
+#[test]
+fn a_bind_whose_source_is_not_its_destination_is_not_the_workspace_grant() {
+    let scope = linked_scope();
+    let mut profile: Vec<String> = ["--ro-bind", "/", "/", "--dev", "/dev"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    // The destination names the workspace, but the source does not: this is
+    // not the `--bind <workspace> <workspace>` grant `workspace-write`
+    // composes, so no scoped bind may ride on it.
+    profile.extend([
+        "--bind".to_string(),
+        "/src".to_string(),
+        scope.workspace.to_string_lossy().into_owned(),
+    ]);
+    let argv = runner_argv(&runner_args(&scope, &profile, &["true"])).unwrap();
+    assert!(
+        !argv.join(" ").contains("--bind-try /main/.git/objects"),
+        "a mismatched source/destination pair is not the workspace grant"
+    );
+}
+
+/// Decision 0053 addendum: the two layouts the runner refuses instead of
+/// widening the boundary, and the layouts it serves.
+#[test]
+fn a_shared_git_directory_and_a_redirected_worktree_are_refused() {
+    // The common directory already sits inside the writable root: nothing
+    // to add, and never a refusal.
+    let primary = GitScope {
+        workspace: PathBuf::from("/repo"),
+        git_dir: PathBuf::from("/repo/.git"),
+        common_dir: PathBuf::from("/repo/.git"),
+    };
+    assert!(scope_refusal(&primary).is_none());
+
+    // The git directory IS the shared repository: a subdirectory of a
+    // primary checkout, a `--separate-git-dir` checkout, or a `.git` file
+    // redirected at the parent. Serving it would need the whole shared
+    // `.git` writable.
+    let subdir = GitScope {
+        workspace: PathBuf::from("/repo/src"),
+        git_dir: PathBuf::from("/repo/.git"),
+        common_dir: PathBuf::from("/repo/.git"),
+    };
+    let refused = scope_refusal(&subdir).unwrap();
+    assert!(
+        refused.contains("shared repository's own git directory"),
+        "{refused}"
+    );
+    assert!(refused.contains("linked `git worktree`"), "{refused}");
+
+    // A per-worktree directory whose `gitdir` pointer names another
+    // worktree is a redirect: git follows a rewritten `.git` file without
+    // checking the back-pointer, so this is refused rather than bound.
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().join("wt");
+    let git_dir = dir.path().join("main/.git/worktrees/wt");
+    std::fs::create_dir_all(&git_dir).unwrap();
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::write(
+        workspace.join(".git"),
+        format!("gitdir: {}\n", git_dir.display()),
+    )
+    .unwrap();
+    let scope = GitScope {
+        workspace: workspace.clone(),
+        git_dir: git_dir.clone(),
+        common_dir: dir.path().join("main/.git"),
+    };
+    // No pointer file: nothing to compare, and no refusal on this evidence.
+    assert!(scope_refusal(&scope).is_none());
+    // An empty pointer says nothing either.
+    std::fs::write(git_dir.join("gitdir"), "\n").unwrap();
+    assert!(scope_refusal(&scope).is_none());
+    // This workspace's own `.git` file, spelled absolute and relative.
+    std::fs::write(
+        git_dir.join("gitdir"),
+        format!("{}\n", workspace.join(".git").display()),
+    )
+    .unwrap();
+    assert!(scope_refusal(&scope).is_none());
+    std::fs::write(git_dir.join("gitdir"), "../../../../wt/.git").unwrap();
+    assert!(scope_refusal(&scope).is_none());
+    // Another worktree's `.git` file is the redirect.
+    std::fs::write(
+        git_dir.join("gitdir"),
+        format!("{}\n", dir.path().join("sib/.git").display()),
+    )
+    .unwrap();
+    let refused = scope_refusal(&scope).unwrap();
+    assert!(refused.contains("records"), "{refused}");
+    assert!(refused.contains("another worktree's metadata"), "{refused}");
+}
+
+#[test]
+fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
+    let scope = GitScope {
+        workspace: PathBuf::from("/repo/src"),
+        git_dir: PathBuf::from("/repo/.git"),
+        common_dir: PathBuf::from("/repo/.git"),
+    };
+    let profile = dsh_workspace_write_profile(&scope.workspace);
+    let refused = runner_argv(&runner_args(&scope, &profile, &["true"])).unwrap_err();
+    assert!(
+        refused.contains("shared repository's own git directory"),
+        "{refused}"
+    );
 }
 
 #[test]
@@ -444,6 +573,9 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     git(&main, &["config", "user.email", "host@example.invalid"]);
     git(&main, &["config", "commit.gpgsign", "true"]);
     git(&main, &["config", "gpg.program", "/nonexistent/gpg"]);
+    // A repository that has run sparse-checkout carries this extension, so
+    // a per-worktree `config.worktree` is honoured by the host's git.
+    git(&main, &["config", "extensions.worktreeConfig", "true"]);
     std::fs::write(main.join("a.txt"), "a\n").unwrap();
     git(&main, &["add", "-A"]);
     git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
@@ -504,6 +636,9 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
          echo \"hooks=$(ls '{common}/hooks' | wc -l)\"\n\
          echo x > '{hook}' 2>/dev/null || true\n\
          if git config --local core.hooksPath /evil 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READONLY; fi\n\
+         if git config --worktree core.hooksPath /evil 2>/dev/null; then echo WORKTREE_CONFIG_WRITABLE; else echo WORKTREE_CONFIG_READONLY; fi\n\
+         echo evil > '{worktree_config}' 2>/dev/null || true\n\
+         if echo evil > '{sibling_config}' 2>/dev/null; then echo SIBLING_CONFIG_WRITABLE; else echo SIBLING_CONFIG_READONLY; fi\n\
          echo evil > '{scratch}'\n\
          if mv '{scratch}' '{commondir}' 2>/dev/null; then echo COMMONDIR_REPLACED; else echo COMMONDIR_INTACT; fi\n\
          rm -f '{scratch}'\n\
@@ -518,6 +653,8 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         scratch = git_dir.join("probe-scratch").display(),
         commondir = commondir_file.display(),
         gitdir = gitdir_file.display(),
+        worktree_config = git_dir.join("config.worktree").display(),
+        sibling_config = main.join(".git/worktrees/sibling/config.worktree").display(),
     );
     let args = runner_args_for(&bwrap, &scope, &profile, &["bash", "-lc", &script]);
     let argv = runner_argv(&args).unwrap();
@@ -548,6 +685,12 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     assert!(stdout.contains("SIBLING_GIT_READONLY"), "{stdout}");
     assert!(stdout.contains("hooks=0"), "{stdout}");
     assert!(stdout.contains("CONFIG_READONLY"), "{stdout}");
+    // The per-worktree config the host honours is masked, not merely
+    // ro-bound-try: the box can neither write it nor create it, and a
+    // sibling's is outside the write set entirely.
+    assert!(stdout.contains("WORKTREE_CONFIG_READONLY"), "{stdout}");
+    assert!(stdout.contains("SIBLING_CONFIG_READONLY"), "{stdout}");
+    assert!(!stdout.contains("WORKTREE_CONFIG_WRITABLE"), "{stdout}");
     assert!(stdout.contains("COMMONDIR_INTACT"), "{stdout}");
     assert!(stdout.contains("COMMONDIR_READONLY"), "{stdout}");
     assert!(stdout.contains("COMMONDIR_STAYS"), "{stdout}");
@@ -564,6 +707,15 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     assert!(!std::fs::read_to_string(main.join(".git/config"))
         .unwrap()
         .contains("evil"));
+    // The mask's mount point is at worst an empty file on the host; the
+    // box wrote nothing into it.
+    let masked = std::fs::read_to_string(git_dir.join("config.worktree")).unwrap_or_default();
+    assert!(!masked.contains("evil"), "{masked}");
+    assert!(
+        !std::fs::read_to_string(main.join(".git/worktrees/sibling/config.worktree"))
+            .unwrap_or_default()
+            .contains("evil")
+    );
     // The worktree's pointers are byte-for-byte what the host wrote, and
     // the host's git still resolves the real common directory: nothing
     // the box wrote redirected it at a config in the workspace.

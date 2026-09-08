@@ -97,6 +97,13 @@ fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
         seen.contains("--ro-bind-try\n/main/.git/config\n/main/.git/config\n"),
         "{seen}"
     );
+    // `config.worktree` is masked with an empty read-only file, not
+    // `--ro-bind-try`: the per-worktree file is normally absent and the
+    // writable directory around it would let the box create one.
+    assert!(
+        seen.contains("--ro-bind\n/dev/null\n/main/.git/worktrees/wt/config.worktree\n"),
+        "{seen}"
+    );
     assert!(
         seen.contains(
             "--ro-bind-try\n/main/.git/worktrees/wt/commondir\n/main/.git/worktrees/wt/commondir\n"
@@ -245,4 +252,50 @@ fn the_runner_refuses_a_malformed_profile_and_a_missing_bwrap_as_runner_failures
     assert_eq!(run.status.code(), Some(127));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("is not an absolute path"), "{stderr}");
+}
+
+/// Decision 0053 addendum: a scope whose git directory IS the shared
+/// repository would need the whole shared `.git` writable, so the real
+/// runner refuses it with the signature dsh classifies as a runner
+/// failure rather than mounting it.
+#[cfg(unix)]
+#[test]
+fn the_runner_refuses_a_scope_that_would_mount_the_whole_shared_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let dump = dir.path().join("argv");
+    let bwrap = fake_bwrap(dir.path());
+    let run = brokkr(
+        &[
+            "dsh-sandbox-runner",
+            "--workspace",
+            "/repo/src",
+            "--git-dir",
+            "/repo/.git",
+            "--common-dir",
+            "/repo/.git",
+            "--bwrap",
+            bwrap.to_str().unwrap(),
+            "--ro-bind",
+            "/",
+            "/",
+            "--bind",
+            "/repo/src",
+            "/repo/src",
+            "--",
+            "true",
+        ],
+        dir.path(),
+        Some(&dump),
+    );
+    assert_eq!(run.status.code(), Some(127));
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
+    assert!(
+        stderr.contains("shared repository's own git directory"),
+        "{stderr}"
+    );
+    assert!(
+        !dump.exists(),
+        "bwrap must never be exec'd for a refused scope"
+    );
 }

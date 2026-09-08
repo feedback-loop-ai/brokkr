@@ -85,37 +85,72 @@ Alternatives weighed:
 
 2. **Only a confining workspace-write seat whose git metadata lies
    outside the session workspace gets the scoped runner.** A primary
-   checkout, a `read-only` seat and a `danger-full-access` seat are left
-   to dsh's own provider; the driver changes nothing for them.
+   checkout whose workspace IS the repository root, a `read-only` seat
+   and a `danger-full-access` seat are left to dsh's own provider; the
+   driver changes nothing for them. A workspace that is a subdirectory of
+   a primary checkout does lie outside its git directory, but serving it
+   would need the whole shared `.git` writable, so the driver refuses it
+   at start (ruling 3) rather than running a seat that cannot commit or
+   one that widens the boundary.
 
    **Enforcement binding:** `dsh_git_runner_scope` returns `None` for
-   each of those cases, and `dsh_sandbox_row_for` then writes no row.
+   each of those cases; `dsh_sandbox_row_for` refuses the
+   shared-directory layout and otherwise writes the row.
 
 3. **The runner is `brokkr dsh-sandbox-runner`, named in the sandbox
    row's `runnerCommand`, and it adds exactly the scoped write set.**
    The per-worktree git directory, `objects`, `refs`, `logs` and
    `packed-refs` are writable; `hooks` is an empty tmpfs; `config`,
-   `config.worktree`, `commondir` and `gitdir` are read-only. The whole
-   shared `.git`, the parent checkout and every sibling worktree stay
-   outside the write set. The worktree's `commondir` and `gitdir` are
-   read-only with the config files because each is a pointer git follows
-   to a config: left writable, a boxed command could redirect the host's
-   next `git` invocation at a `config` it wrote in the workspace. A
-   read-only bind refuses the write (EROFS) and refuses unlinking or
-   renaming over the mount point (EBUSY). The runner's own flags
-   (`--workspace`, `--git-dir`, `--common-dir`, `--bwrap`) are the
-   driver's trusted paths, and a profile that does not root at
-   `--ro-bind / /`, or has no `--` before the command, is refused rather
-   than guessed at. A profile with no workspace bind (a `read-only` seat)
-   gets no added bind.
+   `commondir` and `gitdir` are read-only and `config.worktree` is masked
+   by an empty read-only file. The whole shared `.git`, the parent
+   checkout and every sibling worktree stay outside the write set. The
+   worktree's `commondir` and `gitdir` are read-only with the config files
+   because each is a pointer git follows to a config: left writable, a
+   boxed command could redirect the host's next `git` invocation at a
+   `config` it wrote in the workspace. A read-only bind refuses the write
+   (EROFS) and refuses unlinking or renaming over the mount point (EBUSY).
+   `config.worktree` is masked rather than bound read-only because
+   `--ro-bind-try` no-ops when the host file is absent — the normal state
+   of a linked worktree — while the writable directory around it would let
+   the box create one the host then honours; bubblewrap creates the mount
+   point for the missing destination, so the host gains an empty file and
+   the box gains no way to fill it (revision of 2026-09-09, below).
+
+   Two layouts are refused instead of bound, because serving either one
+   mounts the whole shared `.git` or another worktree's metadata:
+
+   - **A resolved git directory that IS the shared repository is
+     refused.** A primary checkout reached through a subdirectory, a
+     `--separate-git-dir` checkout, and a worktree `.git` file rewritten
+     to point at the parent all resolve `git_dir == common_dir` outside
+     the workspace. A commit needs `index.lock` and `HEAD.lock` in that
+     directory, so the only way to serve it is a read-write bind of the
+     whole shared `.git` — every sibling worktree and every submodule git
+     directory with it. The driver refuses before the seat starts, and the
+     runner refuses the same scope with its failure signature, naming the
+     remedy: run the seat from the repository root or from a linked
+     worktree.
+   - **A per-worktree directory whose `gitdir` pointer names a different
+     worktree is refused.** Git follows a rewritten `.git` file without
+     checking the back-pointer, so without this check one seat could bind
+     and write a sibling's `index` and `HEAD`. The pointer must name this
+     workspace's own `.git` file; a directory with no pointer has nothing
+     to compare and is not refused on this evidence alone.
+
+   The runner's own flags (`--workspace`, `--git-dir`, `--common-dir`,
+   `--bwrap`) are the driver's trusted paths, and a profile that does not
+   root at `--ro-bind / /`, or has no `--` before the command, is refused
+   rather than guessed at. A profile with no workspace bind (a
+   `read-only` seat) gets no added bind.
 
    **Enforcement binding:** `brokkr-protocol::dsh_sandbox`
-   (`runner_argv`, `scoped_git_binds`, `sandbox_row`); the `--patch`
-   row `dsh_seat_overlay_with` composes; `brokkr dsh-sandbox-runner`
-   dispatched before clap in `brokkr-cli`; unit tests over the argv and
-   row, and a behavioral test that stages and commits in a real linked
-   worktree under dsh's real bwrap profile, rooted outside the profile's
-   `/tmp` tmpfs and asserting the host's bytes back.
+   (`runner_argv`, `scope_refusal`, `scoped_git_binds`, `sandbox_row`);
+   the `--patch` row `dsh_seat_overlay_with` composes; `brokkr
+   dsh-sandbox-runner` dispatched before clap in `brokkr-cli`; unit tests
+   over the argv and row, the two refusals and the pointer, and a
+   behavioral test that stages and commits in a real linked worktree
+   under dsh's real bwrap profile, rooted outside the profile's `/tmp`
+   tmpfs and asserting the host's bytes back.
 
 4. **Unsupported hosts refuse at seat start, not at commit time, and the
    runner execs the bubblewrap the driver probed.** A host that is not
@@ -152,6 +187,26 @@ Alternatives weighed:
    **Enforcement binding:** no contract or `policy/` change; the guide's
    dsh section; the frozen-contracts test unchanged.
 
+## Revision, 2026-09-09 — the shared directory is refused, not bound
+
+The first slice of ruling 3 bound the per-worktree git directory
+whenever it lay outside the workspace. That is right for the linked
+worktree it was written for — `$GIT_COMMON_DIR/worktrees/<name>` — but it
+also fires when the two resolved directories are the SAME path: a
+primary checkout reached through a subdirectory, a `--separate-git-dir`
+checkout, or a worktree `.git` file rewritten by an earlier seat to point
+at the parent. Binding that path read-write mounts the WHOLE shared
+`.git`, and with it every sibling worktree and every submodule git
+directory, which ruling 3 and this decision's own boundary statement
+forbid. Git offers no narrower answer: a commit creates `index.lock` and
+`HEAD.lock` in that directory, so the directory itself must be writable.
+Ruling 3 is therefore revised to refuse that layout, to require the
+per-worktree `gitdir` pointer to name this workspace, and to mask
+`config.worktree` instead of binding it read-only-try. The revision is
+part of the same proposed decision, not a new number: it narrows the
+capability the decision already claims, and it asks the operator nothing
+further.
+
 ## The question this decision asks
 
 Ruling 6 is the semantic choice, and it is the operator's: **does a
@@ -161,7 +216,9 @@ scoped git metadata a linked worktree needs?** This decision proposes
 yes, and the code ships behind it. If the operator rules otherwise, the
 alternatives are a new boundary value that Brokkr builds (0046 slice
 (iii)'s `container`), or a first-class scoped-commit mechanism outside
-the harness; either is a new number, not an edit here.
+the harness; either is a new number, not an edit here. The 2026-09-09
+revision narrows what the runner serves; it does not widen the
+authorization this question asks for.
 
 ## Consequences
 
@@ -173,6 +230,17 @@ the harness; either is a new number, not an edit here.
   because a commit writes there; the per-worktree directory is the
   worktree's own, and sibling worktree directories, the parent checkout
   and credentials stay outside the write set.
+- **A primary checkout reached through a subdirectory and a
+  `--separate-git-dir` checkout refuse at start**, because the only
+  writable answer is the whole shared `.git`; the remedy is to run the
+  seat from the repository root or from a linked worktree. A worktree
+  whose `.git` file has been rewritten to point at another worktree or at
+  the parent refuses for the same reason.
+- **The `config.worktree` mask creates an empty file on the host when it
+  was absent.** Bubblewrap creates the mount point for a missing
+  destination; the box sees an empty read-only file, and the host file
+  stays empty. The alternative — `--ro-bind-try` — silently protects
+  nothing when the file is absent.
 - **The runner is an operator assertion to dsh.** dsh skips its own
   runner probe when `runnerCommand` is set, so the driver probes the
   same `bwrap` itself and refuses on a failure; the runner also prints

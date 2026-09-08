@@ -278,26 +278,7 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
         .current_dir(workdir)
         .output()
     {
-        Ok(out) if out.status.success() => {
-            // One path per line, in the order asked, and no trim: a path
-            // may end in a space. A path that itself spans a line makes
-            // the output ambiguous, and an ambiguous git directory is no
-            // git directory: both stay None and the box has no git to
-            // bind.
-            let reported = String::from_utf8_lossy(&out.stdout);
-            let mut lines = reported.lines();
-            match (lines.next(), lines.next(), lines.next()) {
-                (Some(git_dir), Some(common_dir), None)
-                    if !git_dir.is_empty() && !common_dir.is_empty() =>
-                {
-                    (
-                        Some(PathBuf::from(git_dir)),
-                        Some(PathBuf::from(common_dir)),
-                    )
-                }
-                _ => (None, None),
-            }
-        }
+        Ok(out) if out.status.success() => parse_git_dirs(&String::from_utf8_lossy(&out.stdout)),
         _ => (None, None),
     };
     let mut identity = Vec::new();
@@ -311,6 +292,26 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
         git_dir,
         common_dir,
         identity,
+    }
+}
+
+/// The two git directories `git rev-parse --git-dir --git-common-dir`
+/// printed: one path per line, in the order asked, and no trim — a path
+/// may end in a space. A path that itself spans a line makes the output
+/// ambiguous, and an ambiguous git directory is no git directory: both
+/// stay `None` and the box has no git to bind.
+fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+    let mut lines = reported.lines();
+    match (lines.next(), lines.next(), lines.next()) {
+        (Some(git_dir), Some(common_dir), None)
+            if !git_dir.is_empty() && !common_dir.is_empty() =>
+        {
+            (
+                Some(PathBuf::from(git_dir)),
+                Some(PathBuf::from(common_dir)),
+            )
+        }
+        _ => (None, None),
     }
 }
 

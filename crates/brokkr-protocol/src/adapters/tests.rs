@@ -1003,6 +1003,40 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
     assert!(dsh_seat_overlay_with(Some("deepseek-v4-flash"), None, root, None).is_ok());
 }
 
+/// A transcript root the overlay cannot write as one YAML scalar refuses
+/// the seat before the launcher starts, through the same
+/// `dsh_seat_overlay_with` the invocation propagates (decision 0053's
+/// early-refusal discipline). The root is the operator's harness home, so
+/// the failure is reachable without moving any other test's environment.
+#[cfg(unix)]
+#[test]
+fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home\nline");
+    std::fs::create_dir_all(&home).unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let mut emitted = Vec::new();
+    let refused = match invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| emitted.push(event.clone()),
+    ) {
+        Ok(_) => panic!("a transcript root that spans a line must refuse the seat"),
+        Err(problem) => problem,
+    };
+    assert!(refused.contains("spans more than one line"), "{refused}");
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
 /// An effort pinned with no model beside it is refused, not dropped: the
 /// level rides a complete default-model selection, and the driver does
 /// not read the profile's default back to invent one. With a model, the
@@ -2554,9 +2588,17 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
         identity: Vec::new(),
     };
     assert!(dsh_git_runner_scope("/repo", &primary, "workspace-write").is_none());
-    // A subdirectory of a checkout still cannot reach the git directory
-    // the session cwd does not contain.
+    // A subdirectory of a checkout cannot reach the git directory the
+    // session cwd does not contain, but its git directory IS the shared
+    // repository: the driver refuses rather than mounting the whole shared
+    // `.git` writable (decision 0053 addendum).
     assert!(dsh_git_runner_scope("/repo/src", &primary, "workspace-write").is_some());
+    let refused = dsh_sandbox_row_for("/repo/src", &primary, "workspace-write").unwrap_err();
+    assert!(
+        refused.contains("shared repository's own git directory"),
+        "{refused}"
+    );
+    assert!(refused.starts_with("dsh driver: "), "{refused}");
     // No writes to confine, and not a repository at all.
     for mode in ["read-only", "danger-full-access"] {
         assert!(dsh_git_runner_scope("/work/wt", &linked, mode).is_none());

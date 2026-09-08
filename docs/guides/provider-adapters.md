@@ -247,18 +247,25 @@ outside the workspace, points dsh's supported sandbox `runnerCommand` at
 `brokkr dsh-sandbox-runner` with those paths as trusted argv. The runner
 adds exactly the scoped write set a commit needs — the per-worktree
 directory, `objects`, `refs`, `logs` and `packed-refs` — masks `hooks`
-as an empty tmpfs, and makes `config`, `config.worktree`, `commondir`
-and `gitdir` read-only, so a boxed command can neither write a program
-the host later runs nor redirect git at a `config` it wrote; the whole
-shared `.git`, the parent checkout and sibling worktrees stay
-unwritable. The driver also passes the absolute `bwrap` it probed as a
-fourth trusted argv path, and the runner execs that binary rather than
-searching `PATH` again. It is bubblewrap-only: a non-Linux host, no
-`bwrap`, or a `bwrap` that cannot build the empty-root namespace refuses
-the seat at start, naming the remedies, rather than burning an
-implementation that cannot commit. A primary checkout, a `read-only`
-seat and a `danger-full-access` seat are left to dsh's own provider. The
-driver also sets `commit.gpgsign=false` and the host identity on the
-child, so seat commits are unsigned (CONTRIBUTING). The boundary in the
-record is still `harness`; this is the harness's own runner, not a
-Brokkr boundary (decision 0053, proposed).
+as an empty tmpfs, masks `config.worktree` with an empty read-only file,
+and makes `config`, `commondir` and `gitdir` read-only, so a boxed
+command can neither write a program the host later runs nor redirect git
+at a `config` it wrote; the whole shared `.git`, the parent checkout and
+sibling worktrees stay unwritable. Two layouts are refused at start
+rather than served, because serving either one would mount the whole
+shared `.git` or another worktree's metadata: a resolved git directory
+that IS the shared repository (a primary checkout reached through a
+subdirectory, a `--separate-git-dir` checkout, or a `.git` file
+redirected at the parent), and a per-worktree directory whose `gitdir`
+pointer names a different worktree. The driver also passes the absolute
+`bwrap` it probed as a fourth trusted argv path, and the runner execs
+that binary rather than searching `PATH` again. It is bubblewrap-only: a
+non-Linux host, no `bwrap`, or a `bwrap` that cannot build the empty-root
+namespace refuses the seat at start, naming the remedies, rather than
+burning an implementation that cannot commit. A primary checkout whose
+workspace is the repository root, a `read-only` seat and a
+`danger-full-access` seat are left to dsh's own provider. The driver also
+sets `commit.gpgsign=false` and the host identity on the child, so seat
+commits are unsigned (CONTRIBUTING). The boundary in the record is still
+`harness`; this is the harness's own runner, not a Brokkr boundary
+(decision 0053, proposed).

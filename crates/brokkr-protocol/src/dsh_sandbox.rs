@@ -19,12 +19,22 @@
 //! needs. It never mounts the parent checkout or the whole shared
 //! `.git`: the per-worktree directory — its `index`, `HEAD` and reflogs —
 //! and the shared `objects`, `refs` and `logs` are writable; `hooks` is
-//! an empty tmpfs; the per-worktree and shared `config`,
-//! `config.worktree`, `commondir` and `gitdir` are read-only, so nothing
-//! a boxed command writes can become a program the host runs on its next
-//! git invocation — nor can it point git at a `config` it wrote in the
-//! workspace. Sibling worktrees, the parent checkout and every credential
-//! path stay outside the write set.
+//! an empty tmpfs; the per-worktree and shared `config`, the per-worktree
+//! `config.worktree`, `commondir` and `gitdir` are masked or read-only,
+//! so nothing a boxed command writes can become a program the host runs
+//! on its next git invocation — nor can it point git at a `config` it
+//! wrote in the workspace. Sibling worktrees, the parent checkout and
+//! every credential path stay outside the write set.
+//!
+//! Two layouts the first slice bound are refused instead, because
+//! serving them would widen the boundary past what a linked worktree
+//! needs (decision 0053 addendum, 2026-09-09): a resolved git directory
+//! that IS the shared repository (a primary checkout reached through a
+//! subdirectory, a `--separate-git-dir` checkout, or a worktree `.git`
+//! file redirected at the parent), which would need the whole shared
+//! `.git` writable; and a per-worktree directory whose `gitdir` pointer
+//! names a different worktree, which would let one seat write another's
+//! metadata. Both refuse before the seat starts.
 //!
 //! The trusted paths travel in the runner's own argv, resolved by the
 //! trusted driver BEFORE the seat starts, never re-resolved from a
@@ -74,7 +84,7 @@ pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
     let mut argv = vec![bwrap.to_string_lossy().into_owned()];
     argv.extend(profile.iter().cloned());
     if workspace_writable(profile, &scope.workspace) {
-        argv.extend(scoped_git_binds(&scope));
+        argv.extend(scoped_git_binds(&scope)?);
     }
     argv.push("--".to_string());
     argv.extend(command.iter().cloned());
@@ -168,13 +178,85 @@ fn same_path(left: &Path, right: &Path) -> bool {
     resolve(left) == resolve(right)
 }
 
+/// Why this scope cannot be served under the declared boundary, or
+/// `None`. The driver calls it before the seat starts so an unsupported
+/// layout refuses early, naming the remedy; the runner calls it again
+/// because its argv is the last gate before bubblewrap.
+///
+/// Two layouts are refused rather than bound:
+///
+/// - the git directory IS the shared repository (`git_dir ==
+///   common_dir` outside the workspace). A commit needs to create
+///   `index.lock` and `HEAD.lock` in that directory, so serving it means
+///   mounting the whole shared `.git` writable — every sibling worktree
+///   and every submodule config and hook with it. A primary checkout
+///   reached through a subdirectory, a `--separate-git-dir` checkout and
+///   a worktree `.git` file redirected at the parent all resolve here.
+/// - the per-worktree directory records a different worktree in its
+///   `gitdir` pointer. Git follows a rewritten `.git` file without
+///   checking the back-pointer, so without this check one seat could
+///   bind and write a sibling's metadata.
+///
+/// A scope whose common directory already sits inside the workspace
+/// needs nothing and is never refused: the provider's own bind covers
+/// it.
+pub fn scope_refusal(scope: &GitScope) -> Option<String> {
+    if scope.common_dir.starts_with(&scope.workspace) {
+        return None;
+    }
+    if same_path(&scope.git_dir, &scope.common_dir) {
+        return Some(format!(
+            "the seat's git directory {} is the shared repository's own git directory, so a \
+             commit would need the whole shared .git writable; the scoped runner refuses that \
+             (a primary checkout reached through a subdirectory, a `--separate-git-dir` \
+             checkout, or a `.git` file redirected at the parent). Run the seat from the \
+             repository root, or from a linked `git worktree`",
+            scope.git_dir.display()
+        ));
+    }
+    if let Some(recorded) = recorded_worktree(scope) {
+        if !same_path(&recorded, &scope.workspace.join(".git")) {
+            return Some(format!(
+                "the per-worktree git directory {} records {} as its worktree, not this seat's \
+                 workspace {}; refusing to bind another worktree's metadata",
+                scope.git_dir.display(),
+                recorded.display(),
+                scope.workspace.display()
+            ));
+        }
+    }
+    None
+}
+
+/// The worktree `.git` file a linked worktree's `gitdir` pointer names,
+/// when the host has one. `None` for a directory that carries no such
+/// pointer: the caller then has nothing to compare and does not refuse
+/// on this evidence alone.
+fn recorded_worktree(scope: &GitScope) -> Option<PathBuf> {
+    let recorded = std::fs::read_to_string(scope.git_dir.join("gitdir")).ok()?;
+    let recorded = recorded.trim();
+    if recorded.is_empty() {
+        return None;
+    }
+    let recorded = Path::new(recorded);
+    Some(if recorded.is_absolute() {
+        recorded.to_path_buf()
+    } else {
+        scope.git_dir.join(recorded)
+    })
+}
+
 /// The scoped write set, in mount order: later binds sit over earlier
-/// ones, so a mask always follows the bind it hides.
-fn scoped_git_binds(scope: &GitScope) -> Vec<String> {
+/// ones, so a mask always follows the bind it hides. Refuses a scope
+/// that [`scope_refusal`] rejects rather than mounting it wider.
+fn scoped_git_binds(scope: &GitScope) -> Result<Vec<String>, String> {
     // A primary checkout keeps its whole git directory under the
     // workspace the provider already made writable: nothing to add.
     if scope.common_dir.starts_with(&scope.workspace) {
-        return Vec::new();
+        return Ok(Vec::new());
+    }
+    if let Some(problem) = scope_refusal(scope) {
+        return Err(problem);
     }
     let mut argv = Vec::new();
     let git = &scope.git_dir;
@@ -188,7 +270,16 @@ fn scoped_git_binds(scope: &GitScope) -> Vec<String> {
     // Config, wherever git reads it, stays read-only: a hook path or a
     // signing program written here would be a program the host runs.
     bind("--ro-bind-try", &mut argv, &git.join("config"));
-    bind("--ro-bind-try", &mut argv, &git.join("config.worktree"));
+    // `config.worktree` is masked with an empty read-only file, not
+    // `--ro-bind-try`: that flag no-ops when the host file is absent —
+    // the normal state of a linked worktree — and the per-worktree
+    // directory around it is writable, so a boxed command could CREATE
+    // it. A repository that has run `git sparse-checkout` carries
+    // `extensions.worktreeConfig`, so the host would then honour a
+    // `core.hooksPath` the box wrote. Bubblewrap creates the mount point
+    // for a missing destination, so the host gains an empty file and the
+    // box gains no way to fill it.
+    mask(&mut argv, &git.join("config.worktree"));
     // `commondir` and `gitdir` are the worktree's pointers back to the
     // shared repository and to its own `.git` file. Left writable, a
     // boxed command could redirect git at a `config` it wrote in the
@@ -205,15 +296,28 @@ fn scoped_git_binds(scope: &GitScope) -> Vec<String> {
     }
     bind("--bind-try", &mut argv, &common.join("packed-refs"));
     // The shared hooks are hidden and the shared config is read-only.
-    // Nothing else under `.git` — sibling worktrees included — is bound.
+    // Nothing else under `.git` — sibling worktrees and submodule git
+    // directories included — is bound.
     tmpfs(&mut argv, &common.join("hooks"));
     bind("--ro-bind-try", &mut argv, &common.join("config"));
-    argv
+    Ok(argv)
 }
 
 fn bind(flag: &str, argv: &mut Vec<String>, path: &Path) {
     let path = path.to_string_lossy().into_owned();
     argv.extend([flag.to_string(), path.clone(), path]);
+}
+
+/// Hide a path behind an empty read-only file, whether or not the host
+/// file exists. Bubblewrap creates the mount point for a missing
+/// destination under a writable parent, so the host gains an empty file
+/// rather than a writable path.
+fn mask(argv: &mut Vec<String>, path: &Path) {
+    argv.extend([
+        "--ro-bind".to_string(),
+        "/dev/null".to_string(),
+        path.to_string_lossy().into_owned(),
+    ]);
 }
 
 fn tmpfs(argv: &mut Vec<String>, path: &Path) {

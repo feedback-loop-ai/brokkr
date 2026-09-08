@@ -2295,6 +2295,11 @@ impl DshSeatOverlay {
 /// repository. The session cwd — not the repository toplevel — is the
 /// provider's writable root, so a git directory outside it is the defect
 /// whether the seat's cwd is a linked worktree or a subdirectory.
+///
+/// A scope this returns is not automatically served: `dsh_sandbox_row_for`
+/// asks `scope_refusal` first, because a git directory that IS the shared
+/// repository would need the whole shared `.git` writable (decision 0053
+/// addendum).
 fn dsh_git_runner_scope(
     workdir: &str,
     facts: &GitFacts,
@@ -2334,6 +2339,12 @@ fn dsh_sandbox_row_for(
     let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
         return Ok(None);
     };
+    // A layout the scoped runner will not serve refuses here, before the
+    // seat spends an implementation, rather than at the seat's first
+    // commit (decision 0053 addendum).
+    if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
+        return Err(format!("dsh driver: {problem}"));
+    }
     let bwrap = dsh_bwrap()?;
     let program = dsh_runner_program();
     dsh_sandbox::sandbox_row(&program, &bwrap, &scope).map(Some)

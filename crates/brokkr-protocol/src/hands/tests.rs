@@ -917,6 +917,37 @@ fn a_git_directory_whose_path_spans_a_line_is_not_a_git_directory() {
     assert_eq!(facts.common_dir, None);
 }
 
+/// The same ambiguity read directly, so every arm of the parse is a plain
+/// test: two non-empty lines and nothing else is the only shape that names
+/// a git directory.
+#[test]
+fn two_non_empty_lines_and_nothing_else_are_a_git_directory() {
+    let two = |reported: &str| {
+        let (git_dir, common_dir) = parse_git_dirs(reported);
+        (git_dir.map(|p| p.display().to_string()), common_dir)
+    };
+    assert_eq!(
+        two("/repo/.git\n/repo/.git"),
+        (
+            Some("/repo/.git".to_string()),
+            Some(PathBuf::from("/repo/.git"))
+        )
+    );
+    // No trim: a path may end in a space.
+    assert_eq!(
+        two("/repo/.git \n/repo/.git \n"),
+        (
+            Some("/repo/.git ".to_string()),
+            Some(PathBuf::from("/repo/.git "))
+        )
+    );
+    // An empty line on either side, a missing line, or a third line makes
+    // the answer ambiguous and both stay absent.
+    for reported in ["", "\n", "/repo/.git\n\n", "\n/repo/.git\n", "/a\n/b\n/c\n"] {
+        assert_eq!(two(reported), (None, None), "{reported:?}");
+    }
+}
+
 // ─────────────── decision 0046 ruling 4: the unboxed exec dispatch
 
 fn engine_env(home: &Path) -> std::collections::BTreeMap<String, String> {
