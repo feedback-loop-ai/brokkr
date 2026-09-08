@@ -96,10 +96,18 @@ verify_evidence() {
 #                            nothing, so it is neither boxed nor unboxed
 #   · boundary not recorded  the manifest declares hands and no boundary
 #                            (a journal written before the word existed), or
-#                            an entry's word is outside the six (five words
-#                            and `not applicable`) or lacks its `member` tag
-#                            — never read as boxed, never as unboxed
+#                            the manifest declares hands and boundary but the
+#                            journal holds no `effect/started.boundary` entry
+#                            yet, or an entry's word is outside the six (five
+#                            words and `not applicable`) or lacks its `member`
+#                            tag — never read as boxed, never as unboxed
 #   · unboxed                an entry has `gate` true and `harness` or `open`
+#
+# The manifest-declares-hands-and-boundary-but-no-entry case is
+# unreachable for a completed anchored run over any shipped bundle — each
+# runs a hands gate before `done`, so at least one entry stands — but the
+# view renders `no boundary recorded` for it and the two surfaces state
+# one law, never nothing (decision 0046 ruling 3; proposal D34).
 #
 # Read after `verify_evidence`, from the journal it verified.
 boundary_suffix() {
@@ -112,6 +120,7 @@ boundary_suffix() {
         | if type == "object" then . else {} end ] as $entries
     | if ($manifest | has("hands") | not) then ""
       elif ($manifest | has("boundary") | not) then " · boundary not recorded"
+      elif ($entries | length) == 0 then " · boundary not recorded"
       elif any($entries[]; (has("member") | not) or ((.boundary | IN(words[])) | not)) then " · boundary not recorded"
       elif any($entries[]; .gate == true and (.boundary | IN("harness", "open"))) then " · unboxed"
       else "" end

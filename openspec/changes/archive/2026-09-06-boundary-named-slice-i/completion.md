@@ -183,3 +183,30 @@ both bundle compiles pass. Fresh exact coverage is 21,335/21,335 source
 lines, 3,328/3,328 branches and 2,025/2,025 logical functions. Frozen files,
 canonical pins and shipped bundle inputs are unchanged; witness and
 compose digest tests pass without repinning. Decision 0048 stays proposed.
+
+## Later archive amendment — D34's two residuals closed, 2026-09-08
+
+Issue #221 closed the two residuals the operator accepted under D34
+rather than return slice (i) a fourth time. Both align the written law
+with the built machine; neither changes what any boundary does.
+
+The delivery gate's `boundary_suffix` now appends ` · boundary not
+recorded` when the manifest carries both `hands` and `boundary` and the
+journal holds no `effect/started.boundary` entry yet — the state the
+view already renders `no boundary recorded`. The script's comment states
+why the state is unreachable for a completed anchored run over any
+shipped bundle, each of which runs a hands gate before `done`, rather
+than implying it is expected. `a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so`
+drives the case through the real gate.
+
+`gate-boundary-policy`'s requirement and its scenario now state the arm
+design DD22 and task 6.10 already carried: a work-class chain site with
+hands under `open` is admitted asking no fragment of any link.
+`the_gate_law_reads_the_boundary_for_sites_that_declare_hands` proves it.
+The promoted capability specs and the archived deltas are edited
+together and agree, and the archived change validates strictly.
+
+Formatting, clippy with warnings denied, the full workspace suite and
+both bundle compiles pass. Exact coverage is a host validation outside
+this box and is not lowered; the change adds no Rust production line.
+The original proposal, design and task history are retained.

@@ -157,10 +157,10 @@ fn prose_is_judged_and_code_is_built_and_both_pass_review() {
 
 #[cfg(unix)]
 fn git(repo: &Path, args: &[&str]) {
-    // The temp repository must not inherit the host's signing config:
-    // decision 0043 ruling 6 forces seat commits unsigned, and
-    // `delivered_by_brokkr.rs` sets the same key false for the same reason.
     let status = Command::new("git")
+        // The fixture must not inherit a host's `commit.gpgsign=true`,
+        // which cannot sign where no agent is reachable; every other git
+        // fixture in the tree disables signing for the same reason.
         .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(repo)
