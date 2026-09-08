@@ -122,8 +122,11 @@ not bite. What bit was around it, and each incident is cited:
 **The experiment.** `brokkr compile` admitted the exchanged table. The
 four checks this decision rules were then run on 2026-09-08 over every
 shipped table — the nine with their own `policy.json` and the six
-composed by `extends`, 2,613 valuations in all — by a reimplementation of
-the loader's condition semantics, outside the tree:
+composed by `extends`, 2,613 valuations in all — by
+`crates/brokkr-runtime/tests/table_lints.rs`, which walks the tables
+through the real composer and the real `Machine::evaluate`, reading only
+the guards from the flat table, and PINS today's findings so that a
+table change that moves one is a reviewed change:
 
 | Check | Shipped tables | Negative cases |
 |---|---|---|
@@ -225,10 +228,10 @@ Alternatives weighed:
 
    **Enforcement binding:** the compiler in
    `crates/brokkr-runtime/src/bundle.rs`, refusing with the first unruled
-   valuation named; a test beside `model_policy_tests.rs` — a table with
-   a hole refused, every shipped table admitted, the sweep size pinned
-   per shipped table so a table change that moves it is a reviewed
-   change.
+   valuation named; `crates/brokkr-runtime/tests/table_lints.rs`, which
+   pins the sweep size and the holes per shipped table today, and whose
+   pins the enactment drives to zero — a table with a hole refused,
+   every shipped table admitted.
 
 5. **Stated properties.** Every shipped table with a protected phase
    carries three tests over the composed table: a `clean` verdict rules
