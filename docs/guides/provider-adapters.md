@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.2-rc.1 · serves flash, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.2-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ```
 
@@ -32,6 +32,11 @@ headless profile's own patch layer (`$DSH_HOME/profiles/headless/cordis.patch.ym
 The driver turns `--model <lane>` into the one-seat overlay dsh's
 launcher reads; neither key ever enters argv, the recipe, or the
 journal.
+
+The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
+on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
+it was not yet included in the API's model list. Its name indicates a
+September 10 expiry; the exact cutoff time is unconfirmed.
 
 The same adapter reaches Muse Spark 1.3 through OpenRouter
 (`https://openrouter.ai/api/v1`, OpenAI-compatible, Meta as the sole
