@@ -1,0 +1,131 @@
+# 0053 — A provider's pre-session refusal is a failure to start, and the driver classifies it
+
+Status: proposed
+Date: 2026-09-08
+
+## Context
+
+Decision 0016 makes fallback narrow and structural: an attempt that
+**fails to start** — the driver binary is absent, the provider rejects
+the model, or no `Accepted` message ever arrives — retries on the next
+model in the chain, and a mid-session failure does not. The engine
+mechanises that boundary in `failed_to_start`: `Failed`, never
+`Accepted`, no checkpoint. The guide
+(`docs/guides/agent-library.md`, the limits section) already names the
+consequence and the fix: "No `Accepted` ever arrives" parks, and "the
+honest fix is at the driver — report a provider's pre-session model
+rejection as a determinate failure — not at the engine".
+
+Issue #219 measured the gap between that rule and the drivers. The
+claude driver answers `accepted` the moment the CLI spawns. The
+account's limit refusal (`rate_limit`, "You've reached your ... limit")
+arrives on the stream after that, so the engine sees an accepted attempt
+that failed and — correctly, under 0016 — refuses to fall back. On run
+`decision-0046-enactment-slice-i--165601b4` the engine smith chained
+`fable@high -> opus@high`, exited 1 twice with empty stderr (seq
+3646/3652), both seat transcripts carrying `rate_limit`, while a probe
+seconds later answered `ok` on both `claude-fable-5-1` and
+`claude-opus-5`: the limit is per model, opus was serving throughout, and
+the chain's own second link would have taken the work. The same run
+parked this way once before in design (seq 2133). Two of that run's six
+parks are this bug.
+
+The refusal is not a mid-session failure in fact. It is a refusal to
+start: the provider rejected the request before any inference, so no
+turn opened and no work exists for a different model to fail to inherit.
+What is wrong is not 0016's boundary but the driver's report of which
+side of it the attempt stands on.
+
+Alternatives weighed:
+
+- **Widen the engine's predicate to treat an accepted attempt with no
+  checkpoint as a failure to start.** Rejected: `accepted` means the
+  session opened, and the engine reading a driver's timing to guess that
+  it did not is the control-plane inference decision 0001 forbids. The
+  guide already says the fix belongs at the driver.
+- **Sniff stderr for "limit", "quota", "rate_limit".** Rejected: that is
+  a model reading a provider's prose to make a control decision
+  (decision 0001), and it would be a classifier that drifts with every
+  provider's wording. Only machine-readable wire records may decide it.
+- **Withhold `accepted` from every driver until the attempt ends.**
+  Rejected: `accepted` is what tells the engine a session opened and
+  starts the live readout; deferring it to the end would blind the run
+  for its whole life. It is withheld only until a checkpoint proves a
+  turn began.
+- **Make every built-in classify a refusal, including dsh and exec.**
+  Rejected: dsh's headless profile emits no machine-readable pre-session
+  refusal and exec has no model turn at all. Inventing a classification
+  from their stderr prose is the same forbidden read.
+
+## Rulings
+
+1. **A provider refusal recorded before the first turn is a determinate
+   failure to start.** A driver withholds `accepted` until a checkpoint
+   proves the harness began work — the first record that is neither the
+   transcript locator nor the harness launch row. A refusal recorded
+   before that point is reported as `result: failed` carrying the
+   refusal's own machine token and, where the harness gave one, its HTTP
+   status and a bounded excerpt of its message, with **no `accepted` and
+   no checkpoint**. That is exactly the engine's structural
+   `failed_to_start`, so the chain advances to the next judge as it does
+   for a driver the machine cannot reach at all. The refused attempt
+   stays in the journal with its reason; neither the fold nor any readout
+   invents a success for it.
+
+2. **The boundary does not move.** A refusal that arrives after the
+   first turn is what decision 0016 says it is — a mid-session failure
+   that follows decision 0006 unchanged. This ruling classifies only the
+   pre-session shape; it widens nothing about mid-session failure, and
+   `accepted` still reaches the engine before any checkpoint on every
+   path that starts work.
+
+3. **The classification is the driver's, per built-in adapter, from
+   machine-readable records only.** No classifier reads model or
+   provider prose. Each built-in states what it does with the shape:
+
+   | Adapter | Wire protocol carries a pre-session refusal? | What the driver does |
+   |---|---|---|
+   | `claude` | Yes: the synthetic `assistant` record with `isApiErrorMessage` and an `error` token (`rate_limit`, `authentication_error`, …), the error `result` record with `is_error`, or a `rate_limit_event` lifecycle message | Classifies it before the first counted turn; refuses to start |
+   | `lanetally` | Yes: byte-for-byte the claude stream | Same arm, same classifier |
+   | `codex` | Yes: the harness's own `error` event, or a `turn.failed` before the first `turn.started` | Classifies it before the first counted turn; refuses to start |
+   | `dsh` | No: the headless profile prints only its final answer, and a provider rejection reaches the driver as stderr prose plus a non-zero exit | Classifies nothing; a refusal follows decision 0006 unchanged |
+   | `exec` | Not applicable: no model turn and no provider to refuse it | Classifies nothing; its failures are the script's own |
+
+   **Enforcement binding:** the classifiers and the withheld-`accepted`
+   path in `crates/brokkr-protocol/src/adapters.rs`;
+   `crates/brokkr-protocol/src/adapters/tests.rs` folds each measured
+   record shape and pins that a record after the first turn is not
+   classified; `crates/brokkr-cli/tests/driver_conformance.rs` drives a
+   refusing shim per built-in adapter; `docs/guides/agent-library.md` and
+   `docs/guides/driver-authoring.md` state the table above.
+
+4. **A refusal keeps the refused attempt with its reason, and the chain
+   descent is journaled.** The reason is the provider's own token, never
+   a verdict about the model; the engine's `start_failure` fields record
+   which site failed to start, so the readout shows the chain descending
+   and why. No success is synthesized for the refused attempt.
+
+   **Enforcement binding:**
+   `crates/brokkr-runtime/src/engine/agent_tests.rs` proves a
+   refusal-shaped report is `failed_to_start` and advances `chain_index`
+   to the next candidate; the existing fold-blindness test keeps every
+   new field out of the fold.
+
+## Consequences
+
+- An exhausted per-model limit no longer parks a seat whose chain has
+  another judge that a probe would have served. On the #219 run this
+  turns two of six parks into a fallback that does the work.
+- The driver protocol's `accepted` now means "a turn began", not "the
+  process spawned". The engine's predicate is unchanged, and no
+  checkpoint is ever sent before `accepted`.
+- A seat whose provider refuses before its first turn on every link
+  still parks — the chain is bounded and a gate whose judges are all
+  unavailable parks rather than descends (decision 0041 ruling 3). This
+  ruling changes which failures count as "failed to start", not what
+  happens when they are all spent.
+- **Deliberately unruled.** Whether a future dsh release exposes a
+  machine-readable pre-session refusal; if it does, this decision's
+  table gains a row and dsh gains a classifier. The exact prose of a
+  provider's message stays out of every control decision, before the
+  first turn and after it.

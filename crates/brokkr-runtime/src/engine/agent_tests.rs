@@ -6,6 +6,8 @@ use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{PanelMember, SequenceStep};
 
+use super::tests::{engine, single_body};
+
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     EventEnvelope {
         run_id: "run".into(),
@@ -339,4 +341,65 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
     assert_eq!(provenance_before, provenance_after);
     assert_eq!(before[&None].model, "third");
     assert_eq!(provenance_before.unwrap()[0]["chain_index"], 2);
+}
+
+/// Decision 0053: a provider refusal the driver classified before the
+/// first turn arrives as `Failed` with no `accepted` and no checkpoint —
+/// the structural fail-to-start shape — so the chain advances to the next
+/// candidate, and the refused attempt keeps its reason in the journal.
+#[test]
+fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let mut selection = Selection::new();
+    selection.insert(
+        None,
+        Candidate {
+            agent: "implementer".into(),
+            model: "fable".into(),
+            effort: Some("high".into()),
+            provider: "claude".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
+            argv: vec!["driver".into(), "--model".into(), "fable".into()],
+        },
+    );
+    let reason = "provider refused before the first turn: rate_limit (HTTP 429): \
+                  You have reached your limit";
+    engine
+        .conclude_single(
+            "effect",
+            "attempt",
+            DriverRun::Ran(AttemptReport {
+                outcome: AttemptOutcome::Failed {
+                    error: reason.into(),
+                },
+                session_ref: None,
+                checkpoints: Vec::new(),
+                stderr: String::new(),
+                accepted: false,
+            }),
+            &selection,
+            None,
+        )
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectFailed)
+        .unwrap();
+    assert_eq!(failed.payload["start_failure"], json!(true));
+    assert_eq!(failed.payload["start_failure_sites"], json!([null]));
+    assert!(failed.payload["error"]
+        .as_str()
+        .unwrap()
+        .contains("rate_limit"));
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == EventType::EffectCheckpointed),
+        "a refused attempt writes no checkpoint"
+    );
+    // The chain index counts the journaled start failure, so the next
+    // attempt is hired from the next link rather than the exhausted one.
+    assert_eq!(chain_index(&events, "effect", &None, 2), 1);
 }

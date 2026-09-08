@@ -102,13 +102,30 @@ unreachable by construction rather than by convention.
    Lifting it needs a jointly agreed v2-lineage manifest version.
 2. **Provenance does not cross the Looper bridge.** The bridge's payload
    allowlist drops it, asserted by a test rather than assumed.
-3. **"No `Accepted` ever arrives" parks, it does not fall back.** That
-   shape is `indeterminate` today, and decision 0003 rules that it parks
-   because Brokkr cannot tell "did nothing" from "already opened a
-   billed session". The honest fix is at the driver — report a
-   provider's pre-session model rejection as a determinate failure — not
-at the engine, because a bound that applies "unless a new feature is
-in play" has stopped being a bound.
+3. **A pre-session refusal falls back; "no `Accepted` ever arrives"
+   parks.** A provider that refuses before the first turn is a
+   determinate failure to start, classified at the driver (decision
+   0053): the driver withholds `accepted` until a checkpoint proves a
+   turn began, so the refused attempt reaches the engine as `Failed`,
+   never `Accepted`, no checkpoint — the structural predicate above —
+   and the chain hires the next model. The classification is the
+   driver's, per adapter, from machine-readable records only:
+
+   | Adapter | Pre-session refusal in the wire protocol? | Behavior |
+   |---|---|---|
+   | `claude`, `lanetally` | Yes: the `isApiErrorMessage` `assistant` record, the error `result`, or a `rate_limit_event` | Fails to start; the chain falls |
+   | `codex` | Yes: an `error` event or `turn.failed` before the first `turn.started` | Fails to start; the chain falls |
+   | `dsh` | No: the headless profile prints only its final answer; a rejection is stderr prose plus a non-zero exit | Not classified; follows 0006 unchanged |
+   | `exec` | Not applicable: no model turn, no provider | Not classified |
+
+   A driver that vanishes before any machine-readable refusal is still
+   `indeterminate`, and decision 0003 rules that it parks because Brokkr
+   cannot tell "did nothing" from "already opened a billed session". No
+   adapter sniffs a provider's prose to decide either case: that read is
+   what decision 0001 forbids. The engine's boundary is unchanged — the
+   fix is the driver reporting which side of it the attempt stands on,
+   because a bound that applies "unless a new feature is in play" has
+   stopped being a bound.
 
 ## Hands
 

@@ -3226,3 +3226,502 @@ printf '%s' '{message}' > "$capture"
         }
     }
 }
+
+/// Decision 0053: the claude/lanetally stream carries a pre-session
+/// refusal in machine-readable fields, and the classifier reads only
+/// those — never the prose beside them.
+#[test]
+fn claude_pre_session_refusals_are_read_from_machine_fields_only() {
+    for (event, token) in [
+        (
+            json!({"type":"assistant","isApiErrorMessage":true,"error":"rate_limit",
+                   "message":{"content":[{"type":"text","text":"You've reached your limit"}]}}),
+            "rate_limit",
+        ),
+        (
+            json!({"type":"result","is_error":true,"error":"authentication_error",
+                   "result":"invalid api key"}),
+            "authentication_error",
+        ),
+        (
+            json!({"type":"rate_limit_event","message":"slow down"}),
+            "rate_limit",
+        ),
+    ] {
+        let reason = claude_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        assert!(
+            reason.starts_with("provider refused before the first turn:"),
+            "{reason}"
+        );
+        assert!(reason.contains(token), "{reason}");
+    }
+    // An ordinary record is never a refusal, whatever its prose says.
+    assert!(
+        claude_refusal(&json!({"type":"assistant","message":{"content":[
+        {"type":"text","text":"You've reached your limit, apparently"}]}}))
+        .is_none()
+    );
+    assert!(claude_refusal(&json!({"type":"system","subtype":"init","session_id":"s"})).is_none());
+    assert!(claude_refusal(&json!({"type":"result","num_turns":2})).is_none());
+}
+
+/// Decision 0053: codex's own error events, before any `turn.started`.
+#[test]
+fn codex_pre_session_refusals_are_machine_events_not_prose() {
+    for (event, needle) in [
+        (
+            json!({"type":"error","message":"stream error: rate limit"}),
+            "rate limit",
+        ),
+        (
+            json!({"type":"turn.failed","error":{"message":"quota exceeded"}}),
+            "quota exceeded",
+        ),
+    ] {
+        let reason = codex_refusal(&event).unwrap();
+        assert!(reason.contains(needle), "{reason}");
+    }
+    assert!(codex_refusal(&json!({"type":"turn.started"})).is_none());
+    assert!(codex_refusal(&json!({"type":"item.completed","item":{
+        "type":"command_execution","aggregated_output":"rate limit"}}))
+    .is_none());
+}
+
+/// Decision 0053: a refusal is classified ONLY before the first counted
+/// turn. The same record after a turn is decision 0016's mid-session
+/// failure, which nothing here narrows.
+#[test]
+fn a_refusal_is_classified_only_before_the_first_counted_turn() {
+    let refusal = json!({"type":"assistant","isApiErrorMessage":true,"error":"rate_limit",
+        "message":{"content":[{"type":"text","text":"limit"}]}});
+    let mut turns = 0;
+    let mut meta = Map::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
+    let mut emitted: Vec<Value> = Vec::new();
+    assert!(
+        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
+            emitted.push(c.clone())
+        })
+        .is_some()
+    );
+    assert!(
+        emitted.is_empty(),
+        "a refusal emits no checkpoint: {emitted:?}"
+    );
+    fold_stream_event(
+        &json!({"type":"assistant","message":{"content":[]}}),
+        &mut turns,
+        &mut meta,
+        &mut transcript,
+        &mut |c| emitted.push(c.clone()),
+    );
+    assert_eq!(turns, 1);
+    assert!(
+        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
+            emitted.push(c.clone())
+        })
+        .is_none()
+    );
+
+    let mut turn = 0;
+    let mut meta = Map::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
+    let mut echo = CodexThreadEcho::default();
+    let mut emitted: Vec<Value> = Vec::new();
+    assert!(fold_codex_event(
+        &json!({"type":"error","message":"rate limit"}),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut |c| emitted.push(c.clone())
+    )
+    .is_some());
+    assert!(emitted.is_empty());
+    fold_codex_event(
+        &json!({"type":"turn.started"}),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut |c| emitted.push(c.clone()),
+    );
+    assert_eq!(turn, 1);
+    assert!(fold_codex_event(
+        &json!({"type":"error","message":"rate limit"}),
+        &mut turn,
+        &mut meta,
+        &mut transcript,
+        &mut echo,
+        &mut |c| emitted.push(c.clone())
+    )
+    .is_none());
+}
+
+/// Decision 0053: only the shared transcript locator and the harness
+/// launch row are pre-session; the first row that is neither flips the
+/// attempt across the boundary, and exec's own launch row is its start.
+#[test]
+fn only_the_shared_pre_session_rows_do_not_begin_work() {
+    assert!(!begins_work("transcript"));
+    assert!(!begins_work("harness-started"));
+    for step in [
+        "seat-turn",
+        "turn-started",
+        "item-started",
+        "item-completed",
+        "turn-completed",
+        "exec-started",
+        "claude-code-session-finished",
+        "deepseek-harness-session-finished",
+    ] {
+        assert!(begins_work(step), "{step} begins work");
+    }
+}
+
+/// Decision 0053: the reason is one bounded line, never empty and never
+/// the raw multi-line prose.
+#[test]
+fn a_refusal_reason_is_one_bounded_line() {
+    let reason = refusal_reason(
+        "rate_limit",
+        Some(429),
+        Some("You've reached your\n  limit\nfor this model"),
+    );
+    assert!(reason.contains("rate_limit"));
+    assert!(reason.contains("(HTTP 429)"));
+    assert!(reason.contains("You've reached your limit for this model"));
+    assert!(!reason.contains('\n'));
+    let long = refusal_reason("api_error", None, Some(&"x".repeat(400)));
+    assert!(long.len() <= "provider refused before the first turn: api_error: ".len() + 160);
+    assert_eq!(
+        refusal_reason("api_error", None, None),
+        "provider refused before the first turn: api_error"
+    );
+}
+
+/// Decision 0053: end to end through `run_seat`, a claude stream that
+/// refuses before its first turn produces `capabilities`-shaped silence:
+/// no `accepted`, no checkpoint, and one `result: failed` carrying the
+/// reason — the structural fail-to-start the engine's chain reads.
+#[cfg(unix)]
+#[test]
+fn a_refusing_claude_stream_is_reported_without_accepted_or_checkpoint() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-refusal",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '{"type":"system","subtype":"init","session_id":"refused-1"}\n'
+printf '{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","message":{"content":[{"type":"text","text":"You have reached your limit"}]}}\n'
+printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have reached your limit"}\n'
+"#,
+    );
+    let result = dir.path().join("result.json");
+    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
+    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
+    }
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "a refusal must not accept: {messages:?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Checkpoint { .. })),
+        "a refusal must not checkpoint: {messages:?}"
+    );
+    let Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("expected one failed result: {messages:?}")
+    };
+    assert!(error.contains("rate_limit"), "{error}");
+    assert!(error.contains("You have reached your limit"), "{error}");
+}
+
+/// Decision 0053: codex's `error` before any `turn.started` is the same
+/// determinate shape through `run_seat`.
+#[cfg(unix)]
+#[test]
+fn a_refusing_codex_stream_is_reported_without_accepted_or_checkpoint() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "codex-refusal",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '{"type":"error","message":"stream error: rate limit"}\n'
+printf '{"type":"error","message":"stream error: still refused"}\n'
+"#,
+    );
+    let result = dir.path().join("result.json");
+    let mut messages = Vec::new();
+    with_codex_bin(&shim, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "a refusal must not accept: {messages:?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Checkpoint { .. })),
+        "a refusal must not checkpoint: {messages:?}"
+    );
+    let Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("expected one failed result: {messages:?}")
+    };
+    assert!(error.contains("rate limit"), "{error}");
+}
+
+/// Decision 0053: every machine-readable field the two classifiers read is
+/// exercised — the token, the HTTP status, the prose excerpt, and each
+/// documented fallback — with no branch left to a prose sniff.
+#[test]
+fn claude_and_codex_refusals_cover_every_machine_field_shape() {
+    for (event, needle) in [
+        (
+            json!({"type":"assistant","error":"authentication_error",
+                   "message":{"content":[{"type":"text","text":"bad key"}]}}),
+            "authentication_error",
+        ),
+        (
+            json!({"type":"assistant","isApiErrorMessage":true,
+                   "message":{"content":[{"type":"text","text":"no token"}]}}),
+            "api_error",
+        ),
+        (
+            json!({"type":"assistant","isApiErrorMessage":true,"apiErrorStatus":429,
+                   "message":{"content":[{"type":"text","text":"slow"}]}}),
+            "HTTP 429",
+        ),
+        (
+            json!({"type":"assistant","isApiErrorMessage":true}),
+            "api_error",
+        ),
+        (
+            json!({"type":"rate_limit_event","error":"rate_limit"}),
+            "rate_limit",
+        ),
+        (
+            json!({"type":"result","error":"api_error","result":"x"}),
+            "api_error",
+        ),
+        (
+            json!({"type":"result","is_error":true,"apiErrorStatus":500}),
+            "HTTP 500",
+        ),
+    ] {
+        let reason = claude_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        assert!(reason.contains(needle), "{event}: {reason}");
+    }
+    for (event, needle) in [
+        (json!({"type":"error","error":{"message":"boom"}}), "boom"),
+        (json!({"type":"turn.failed","message":"boom"}), "boom"),
+    ] {
+        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        assert!(reason.contains(needle), "{event}: {reason}");
+    }
+}
+
+/// Decision 0053: a text field that collapses to nothing contributes no
+/// excerpt at all, so the reason never ends in a dangling colon.
+#[test]
+fn a_refusal_reason_with_empty_text_adds_no_excerpt() {
+    assert_eq!(
+        refusal_reason("api_error", None, Some("   ")),
+        "provider refused before the first turn: api_error"
+    );
+}
+
+/// Decision 0053: an exec command that cannot be spawned is NOT a
+/// classified provider refusal. Its launch row has already accepted, so
+/// the attempt keeps its single `accepted` and fails as itself — the
+/// fail-to-start boundary moves for a provider refusal and nothing else.
+#[cfg(unix)]
+#[test]
+fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Exec,
+        &["forge-command-does-not-exist".into()],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|body| matches!(body, Body::Accepted { .. }))
+            .count(),
+        1,
+        "the launch row accepts exactly once: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|body| matches!(body, Body::Checkpoint { .. })),
+        "the launch row is flushed: {messages:?}"
+    );
+    let Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("expected one failed result: {messages:?}")
+    };
+    assert!(error.contains("could not invoke"), "{error}");
+}
+
+/// Decision 0053: a refusal classified after a checkpoint already proved
+/// work began is NOT a failure to start — decision 0016's mid-session
+/// boundary is unchanged. The `began_work` guard is what keeps the two
+/// apart, and this shape (codex's `item` before its first `turn.started`)
+/// is how a machine-readable refusal can arrive after that point.
+#[cfg(unix)]
+#[test]
+fn a_refusal_after_work_began_is_not_a_failure_to_start() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "codex-item-first",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '{"type":"item.completed","item":{"type":"command_execution"}}\n'
+printf '{"type":"error","message":"stream error: rate limit"}\n'
+"#,
+    );
+    let result = dir.path().join("result.json");
+    let mut messages = Vec::new();
+    with_codex_bin(&shim, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    assert!(
+        messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "work began, so the attempt accepted: {messages:?}"
+    );
+    let Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("expected one failed result: {messages:?}")
+    };
+    assert!(
+        !error.contains("provider refused"),
+        "a refusal after work is a mid-session failure, not a fail-to-start: {error}"
+    );
+}
+
+/// Decision 0053: a driver that cannot be invoked at all is not a
+/// classified provider refusal, so it keeps its `accepted`; the launch
+/// row it buffered while the session was opening is flushed after that
+/// `accepted` before the failure result. Codex emits `harness-started`
+/// before it spawns, so a missing codex binary reaches exactly this path.
+#[cfg(unix)]
+#[test]
+fn a_codex_that_cannot_spawn_flushes_its_launch_row_after_accepting() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let missing = dir.path().join("codex-does-not-exist");
+    let mut messages = Vec::new();
+    with_codex_bin(&missing, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    let accepted = messages
+        .iter()
+        .position(|body| matches!(body, Body::Accepted { .. }))
+        .expect("an unclassified failure keeps its accepted");
+    let launch = messages
+        .iter()
+        .position(|body| matches!(body, Body::Checkpoint { .. }))
+        .expect("the buffered launch row is flushed");
+    assert!(
+        accepted < launch,
+        "the launch row is flushed after accepted: {messages:?}"
+    );
+    let Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("expected one failed result: {messages:?}")
+    };
+    assert!(error.contains("could not invoke"), "{error}");
+}
