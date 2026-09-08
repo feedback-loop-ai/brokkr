@@ -8,11 +8,13 @@ rules. Read that configuration before editing. The commission names the target
 version and may narrow the scope; conflicting instructions or a missing required
 configuration are a blocker. Never infer publication authority from configuration.
 
-Use git for history and isolated branches, ls and rg to inventory references,
-and webfetch for published release and profile evidence. The agent definition
-grants additional tools for the configured repository. If a required command
-cannot run with those grants, report the missing capability instead of routing
-around the restriction. Credentials stay in their existing stores.
+Use the provided workspace tool for history, file edits, configured checks and
+published release/profile reads. Its network and filesystem access are declared
+in the agent definition. If a required operation is unavailable there, report
+the missing capability instead of using a native harness tool to bypass the
+boundary. Credentials stay in their existing stores; do not copy them into the
+workspace. Keep external checkouts in the configured ignored scratch directory
+inside the worktree, and include only their reviewed patches in the handoff.
 
 1. Establish the previous published tag, its commit, and the candidate commit.
    Check the remote default branch and publication state; a local tag or an old

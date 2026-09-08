@@ -28,12 +28,13 @@ publication step: a run's local journal cannot prove another repository changed.
    house digest covers the inline configuration. This is prompt configuration,
    not an executable schema: additional deterministic checks require the normal
    recipe verifier override. An unsupported required item blocks preparation.
-3. **The release office may fetch named release and profile pages.** This extends
-   decision 0044 ruling 5's roster of read grants for the operator's commissioned
-   release work. Research retains fetch and search; the release manager receives
-   fetch only. Neither office may hold secret bindings or be seated at a gate.
-   The grant adds reading capability, not publication authority or a new egress
-   class.
+3. **The hire is fable then astra, both at medium effort.** The operator
+   selected this chain during preparation. Both use the workspace tool; a native
+   tool allow-list cannot be expressed by Codex. Workspace networking is enabled
+   to read release and organization-profile evidence, with repository-specific
+   toolchain, resolver and CA binds in the agent definition. Registry credentials
+   are masked. This is a network-enabled work office, not a URL allow-list or a
+   new native fetch grant; decision 0044's native fetch roster stays unchanged.
 4. **Preparation retains independent review.** The release recipe inherits
    `fast`'s policy and boxed exec verify and ship seats, and seats the library
    reviewer separately from the release manager. Findings return through the
@@ -52,8 +53,9 @@ publication step: a run's local journal cannot prove another repository changed.
 - `recipes/release/configuration.example.md` documents the extensible shape.
 - `crates/brokkr-runtime/tests/release_shape.rs` compares the inherited delivery
   rules and deterministic gates and checks the configured documentation paths.
-- `crates/brokkr-runtime/tests/roster.rs` restricts fetch to the two work offices,
-  refuses search on the release manager, and checks gate and binding exclusions.
+- `crates/brokkr-runtime/tests/release_shape.rs` also pins the medium-effort
+  chain and the networked workspace on the work seat. Existing roster tests
+  retain the researcher-only native fetch grant and the boxed Codex rule.
 - Claim accuracy, extension completion and live external state require review
   and operator verification; the configuration does not pretend to prove them.
 

@@ -1,11 +1,46 @@
 {
   "description": "Prepares a release from committed changes, reconciles documentation and organization profiles, and records the remaining publication work from the realm's release configuration.",
   "charter": "charters/release-manager.md",
-  "models": ["fable", "opus"],
-  "efforts": {"fable": "high", "opus": "high"},
-  "tools": {
-    "allow": ["cargo", "git", "ls", "rg", "webfetch"],
-    "mcp": []
+  "models": [
+    "fable",
+    "astra"
+  ],
+  "efforts": {
+    "fable": "medium",
+    "astra": "medium"
   },
-  "limits": {"max_attempts": 2, "timeout_seconds": 7200}
+  "hands": {
+    "kind": "workspace",
+    "network": true,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      },
+      {
+        "path": "/etc/resolv.conf",
+        "mode": "ro"
+      },
+      {
+        "path": "/etc/nsswitch.conf",
+        "mode": "ro"
+      },
+      {
+        "path": "/etc/ssl/certs",
+        "mode": "ro"
+      }
+    ]
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 7200
+  }
 }

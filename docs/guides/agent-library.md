@@ -31,7 +31,7 @@ intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request b
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
-release-manager	fable → opus	Prepares a configured release, its documentation and organization-profile patches.
+release-manager	fable → astra	Prepares a configured release, its documentation and organization-profile patches.
 review-adversarial	astra → fable → opus	Review panel member: tries to break the delivered change with concrete adversarial cases.
 review-chief	astra → fable → opus	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?

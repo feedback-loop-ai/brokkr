@@ -35,6 +35,7 @@ not current-version references to replace.
   "version_update": "Bump the workspace package and six path-dependency versions together. Run cargo update --workspace --offline without upgrading registry dependencies. Measure and update the witness and compose manifest digests because the engine version participates in their identity.",
   "release_notes": "docs/releases/v{version}.md",
   "handoff_directory": "docs/releases/v{version}",
+  "scratch_directory": ".forge/release",
   "documentation": ["README.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "docs/guides/", "packaging/README.md"],
   "validation": [
     {"name": "format", "command": "cargo fmt --all -- --check"},

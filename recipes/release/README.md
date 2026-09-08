@@ -34,9 +34,14 @@ that cannot be performed blocks preparation; the charter does not silently
 ignore it. Keep configuration inline in the house file so the existing pin
 covers it; merely linking to another mutable file does not pin its contents.
 
-The shipped agent definition supplies this repository's tool grants and model
-chain separately from the portable charter. An adopter changes those in its own
-agent library; resolution still refuses grants a provider cannot express.
+The shipped hire is **fable → astra, both at medium effort**, as ruled by the
+operator. Both use the workspace tool because Codex cannot express a native
+tool allow-list. The agent definition enables workspace networking for release
+and profile reads, binds the Rust toolchain and Linux resolver/CA files, and
+masks registry credentials. These are this repository's configuration, separate
+from the charter. Adopters configure their own model chain and binds. Native
+fetch/search grants are unchanged. Networking is enabled, not restricted to a
+URL allow-list; the charter limits its purpose to the commissioned preparation.
 
 ## Verification is still a machine job
 
@@ -50,6 +55,10 @@ mechanism covers both cases; declaring a command in house text does not install
 it, grant it or add it to the gate.
 
 ## Organization profiles and publication
+
+The shipped networked workspace can read public release/profile repositories;
+private targets need an explicitly configured access mechanism or preparation
+reports the missing access. It does not expose the host's GitHub credentials.
 
 A configured profile is a repository and path, with a project selector and an
 application stage. The manager reads the remote file, prepares a local patch

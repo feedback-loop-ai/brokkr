@@ -3787,8 +3787,8 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Fifteen since `recipes/landing` (decision 0051): `fast` entered at
     // a classify gate, one more `./scripts` exec gate of its own, so it
     // compiles under harness like `fast`.
-    // Sixteen with release preparation: its library reviewer retains the
-    // same missing claude harness fragment as bundles/self.
+    // Sixteen with release preparation: its boxed work office reaches the
+    // missing claude harness.work fragment before its reviewer.
     assert_eq!(dirs.len(), 16, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
@@ -3870,7 +3870,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             Err(error) => {
                 let refusal = error.to_string();
                 match name.as_str() {
-                    "bundles/self" | "recipes/release" => {
+                    "bundles/self" => {
                         assert!(
                             refusal.contains(
                                 "seat 'review' gate link 2 resolves to provider 'claude', which \
@@ -3878,6 +3878,10 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
                             ),
                             "{name}: {refusal}"
                         );
+                    }
+                    "recipes/release" => {
+                        assert!(refusal.contains("seat 'implement' link 1"), "{refusal}");
+                        assert!(refusal.contains("hands.harness.work"), "{refusal}");
                     }
                     "recipes/panel-review" => {
                         assert!(
@@ -3963,9 +3967,17 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
     for dir in shipped_bundles() {
         let name = relative(&dir);
         if let Err(error) = compile_shipped(&dir, measured.path(), &dialect, Boundary::Harness) {
-            assert_refused_at_the_dialect_step(&name, &error.to_string());
+            if name == "recipes/release" {
+                assert!(error.to_string().contains("hands.harness.work"), "{error}");
+                assert!(error.to_string().contains("a capability gap"), "{error}");
+            } else {
+                assert_refused_at_the_dialect_step(&name, &error.to_string());
+            }
             refused.push(name);
         }
     }
-    assert_eq!(refused, ["recipes/night-shift", "recipes/triage"]);
+    assert_eq!(
+        refused,
+        ["recipes/night-shift", "recipes/release", "recipes/triage"]
+    );
 }
