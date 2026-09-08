@@ -10,6 +10,10 @@ fn one(text: &str) -> Vec<String> {
 }
 
 #[cfg(target_os = "linux")]
+/// Whether a boundary proof can build a real namespace here. A proof
+/// that cannot is logged as a skip, or failed outright on a host that
+/// declared [`BOUNDARY_EVIDENCE_ENV`]: a skipped proof prints `... ok`
+/// and is otherwise indistinguishable from a pass (decision 0054).
 fn can_create_namespace() -> bool {
     if std::env::var_os(HANDS_BOX_ENV).is_some() {
         return false;
@@ -611,7 +615,10 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 #[test]
 fn the_box_hides_the_host_and_holds_the_worktree() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -750,7 +757,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 #[test]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -892,7 +902,31 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     let _ = std::fs::remove_dir_all(&session);
 }
 
-/// Decision 0053: the two git paths arrive one per line, so a path that
+/// Decision 0054: a boundary proof that cannot open a namespace logs a
+/// skip on a developer's laptop and FAILS on the host whose job is to
+/// produce the evidence. Both answers are reachable from one process
+/// because the requirement is passed in rather than read at the call
+/// site, so neither arm rests on a process-wide environment change.
+#[test]
+fn a_skipped_boundary_proof_passes_only_where_the_evidence_is_optional() {
+    skip_boundary_proof(false, "no bubblewrap here");
+    // An empty value is not a declaration: a workflow expanding an unset
+    // variable must not arm the gate for a leg with no namespace to open.
+    assert!(!boundary_evidence_declared(None));
+    assert!(!boundary_evidence_declared(Some(std::ffi::OsString::new())));
+    assert!(boundary_evidence_declared(Some("1".into())));
+    // And the host's own answer reads that same variable.
+    let _ = boundary_evidence_required();
+    assert_eq!(BOUNDARY_EVIDENCE_ENV, "BROKKR_REQUIRE_BOUNDARY_EVIDENCE");
+}
+
+#[test]
+#[should_panic(expected = "must produce real boundary evidence")]
+fn a_required_boundary_proof_may_not_skip() {
+    skip_boundary_proof(true, "no bubblewrap here");
+}
+
+/// Decision 0054: the two git paths arrive one per line, so a path that
 /// itself spans a line makes the answer ambiguous — and an ambiguous git
 /// directory is no git directory. The box then has no git to bind, which
 /// is the fail-closed reading.

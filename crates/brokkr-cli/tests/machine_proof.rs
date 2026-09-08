@@ -928,12 +928,13 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
     // The marker catches a Brokkr box; a harness-owned sandbox (a dsh seat,
     // for one) refuses the namespace without setting it, so the probe
     // decides the same way the hands tests do.
+    let required = brokkr_protocol::hands::boundary_evidence_required();
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
-        eprintln!("skipped: this environment is already a box");
+        brokkr_protocol::hands::skip_boundary_proof(required, "this environment is already a box");
         return;
     }
     let Ok(bwrap) = brokkr_protocol::hands::require_bwrap() else {
-        eprintln!("skipped: no bubblewrap on PATH");
+        brokkr_protocol::hands::skip_boundary_proof(required, "no bubblewrap on PATH");
         return;
     };
     let can_open_a_box = std::process::Command::new(bwrap)
@@ -941,7 +942,10 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
         .output()
         .is_ok_and(|out| out.status.success());
     if !can_open_a_box {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        brokkr_protocol::hands::skip_boundary_proof(
+            required,
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let script = json!({"seats": {

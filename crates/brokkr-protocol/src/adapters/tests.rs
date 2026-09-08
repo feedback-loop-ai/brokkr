@@ -1005,7 +1005,7 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 
 /// A transcript root the overlay cannot write as one YAML scalar refuses
 /// the seat before the launcher starts, through the same
-/// `dsh_seat_overlay_with` the invocation propagates (decision 0053's
+/// `dsh_seat_overlay_with` the invocation propagates (decision 0054's
 /// early-refusal discipline). The root is the operator's harness home, so
 /// the failure is reachable without moving any other test's environment.
 #[cfg(unix)]
@@ -2564,7 +2564,7 @@ fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
     assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
 }
 
-/// Decision 0053: the driver resolves the two git directories through
+/// Decision 0054: the driver resolves the two git directories through
 /// Git and only a workspace-write seat whose git metadata lies outside
 /// the writable root needs the scoped runner.
 #[test]
@@ -2591,7 +2591,7 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     // A subdirectory of a checkout cannot reach the git directory the
     // session cwd does not contain, but its git directory IS the shared
     // repository: the driver refuses rather than mounting the whole shared
-    // `.git` writable (decision 0053 addendum).
+    // `.git` writable (decision 0054).
     assert!(dsh_git_runner_scope("/repo/src", &primary, "workspace-write").is_some());
     let refused = dsh_sandbox_row_for("/repo/src", &primary, "workspace-write").unwrap_err();
     assert!(
@@ -2604,19 +2604,41 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
         assert!(dsh_git_runner_scope("/work/wt", &linked, mode).is_none());
     }
     assert!(dsh_git_runner_scope("/work/wt", &GitFacts::default(), "workspace-write").is_none());
+    // A workdir that is not a path at all names no writable root to be
+    // outside of, so there is nothing to scope.
+    assert!(dsh_git_runner_scope("", &linked, "workspace-write").is_none());
+    // A repository that reports a common directory but no per-worktree
+    // one is read as the shared directory itself — which `scope_refusal`
+    // then refuses, rather than the driver guessing a worktree name.
+    let shared_only = GitFacts {
+        git_dir: None,
+        common_dir: Some(PathBuf::from("/main/.git")),
+        identity: Vec::new(),
+    };
+    let scope = dsh_git_runner_scope("/work/wt", &shared_only, "workspace-write").unwrap();
+    assert_eq!(scope.git_dir, scope.common_dir);
+    assert!(dsh_sandbox::scope_refusal(&scope)
+        .unwrap()
+        .contains("shared repository's own git directory"));
 }
 
 #[test]
 fn the_scoped_runner_program_prefers_the_override_then_this_binary_then_the_name() {
     assert_eq!(
-        dsh_runner_program_from(Some("/opt/brokkr".into()), Err("unused".into())),
+        dsh_runner_program_from(
+            Some("/opt/brokkr".into()),
+            Err(std::io::Error::other("unused"))
+        ),
         "/opt/brokkr"
     );
     assert_eq!(
         dsh_runner_program_from(None, Ok(PathBuf::from("/usr/bin/brokkr"))),
         "/usr/bin/brokkr"
     );
-    assert_eq!(dsh_runner_program_from(None, Err("gone".into())), "brokkr");
+    assert_eq!(
+        dsh_runner_program_from(None, Err(std::io::Error::other("gone"))),
+        "brokkr"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -2647,7 +2669,13 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
         git_dir: PathBuf::from("/main/.git/worktrees/wt"),
         common_dir: PathBuf::from("/main/.git"),
     };
-    let row = dsh_sandbox::sandbox_row("/opt/brokkr", Path::new("/opt/bwrap"), &scope).unwrap();
+    let row = dsh_sandbox::sandbox_row(
+        "/opt/brokkr",
+        Path::new("/opt/bwrap"),
+        Path::new("/tmp/mask"),
+        &scope,
+    )
+    .unwrap();
     let overlay = dsh_seat_overlay_with(None, None, root.path(), Some(&row)).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert!(
@@ -2659,6 +2687,8 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
     assert!(written.contains("      - '--workspace'\n"), "{written}");
     assert!(written.contains("      - '--bwrap'\n"), "{written}");
     assert!(written.contains("      - '/opt/bwrap'\n"), "{written}");
+    assert!(written.contains("      - '--mask'\n"), "{written}");
+    assert!(written.contains("      - '/tmp/mask'\n"), "{written}");
 
     // Without the row the overlay names no sandbox at all.
     let plain = dsh_seat_overlay_with(None, None, root.path(), None).unwrap();
@@ -2711,8 +2741,17 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
 
     let facts = crate::hands::git_facts(&worktree);
     match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
-        Ok(Some(row)) => {
+        Ok(Some((row, mask))) => {
             assert!(row.contains("- id: sandbox\n"), "{row}");
+            // The staged mask is a real empty file and the row names it,
+            // so every command in the seat masks the per-worktree config
+            // with something git can read and nothing can fill.
+            assert!(row.contains("      - '--mask'\n"), "{row}");
+            assert!(
+                row.contains(&format!("      - '{}'\n", mask.path().display())),
+                "{row}"
+            );
+            assert_eq!(std::fs::metadata(mask.path()).unwrap().len(), 0);
             assert!(row.contains("      - '--git-dir'\n"), "{row}");
             assert!(row.contains("      - '--common-dir'\n"), "{row}");
             assert!(

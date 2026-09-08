@@ -3117,14 +3117,19 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
 #[cfg(target_os = "linux")]
 #[test]
 fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
+    let required = brokkr_protocol::hands::boundary_evidence_required();
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        brokkr_protocol::hands::skip_boundary_proof(required, "this environment is already a box");
         return;
     }
     let namespace = Command::new("bwrap")
         .args(["--ro-bind", "/", "/", "--", "true"])
         .output();
     if !namespace.is_ok_and(|output| output.status.success()) {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        brokkr_protocol::hands::skip_boundary_proof(
+            required,
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();

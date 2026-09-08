@@ -1839,7 +1839,7 @@ fn invoke_dsh_with(
     })?;
     let root = root_dir.as_path();
     // The dsh harness sandbox confines writes to the session workspace
-    // (decision 0053). A linked worktree's git metadata lives outside it,
+    // (decision 0054). A linked worktree's git metadata lives outside it,
     // so the driver resolves the two git directories through Git NOW —
     // before the seat can edit anything — and, when the seat's mode
     // confines writes, points dsh's sandbox provider at the scoped
@@ -1851,12 +1851,14 @@ fn invoke_dsh_with(
         crate::hands::git_facts(Path::new(workdir))
     };
     let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
-    let sandbox = dsh_sandbox_row_for(workdir, &facts, &mode)?;
+    // The mask file is named in every command's runner argv, so it is
+    // held here for the seat's whole life and dropped with this call.
+    let (sandbox_row, _config_mask) = dsh_sandbox_row_for(workdir, &facts, &mode)?.unzip();
     let overlay = dsh_seat_overlay_with(
         model.as_deref(),
         effort.as_deref(),
         root,
-        sandbox.as_deref(),
+        sandbox_row.as_deref(),
     )?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
@@ -2289,7 +2291,7 @@ impl DshSeatOverlay {
 }
 
 /// The git metadata a dsh `workspace-write` seat cannot reach, resolved
-/// by the trusted driver before the seat starts (decision 0053). `None`
+/// by the trusted driver before the seat starts (decision 0054). `None`
 /// when the workspace's git directory already sits inside the writable
 /// root, when the mode needs no writes, or when the workspace is not a
 /// repository. The session cwd — not the repository toplevel — is the
@@ -2297,9 +2299,9 @@ impl DshSeatOverlay {
 /// whether the seat's cwd is a linked worktree or a subdirectory.
 ///
 /// A scope this returns is not automatically served: `dsh_sandbox_row_for`
-/// asks `scope_refusal` first, because a git directory that IS the shared
-/// repository would need the whole shared `.git` writable (decision 0053
-/// addendum).
+/// asks `scope_refusal` first, because only a linked worktree Git itself
+/// created can be bound without widening the boundary (decision 0054
+/// ruling 3).
 fn dsh_git_runner_scope(
     workdir: &str,
     facts: &GitFacts,
@@ -2327,27 +2329,33 @@ fn dsh_git_runner_scope(
     })
 }
 
-/// The scoped-runner row for one seat, or `None` when its git metadata
-/// already sits inside the writable workspace. A seat whose linked
-/// worktree cannot reach its git directory refuses here, before it spends
-/// an implementation.
+/// The scoped-runner row for one seat and the config mask it names, or
+/// `None` when the seat's git metadata already sits inside the writable
+/// workspace. A seat whose linked worktree cannot reach its git directory
+/// refuses here, before it spends an implementation.
+///
+/// The mask is a staged empty file, and the caller must hold it for the
+/// seat's whole life: dropping it unlinks the source every command in the
+/// seat mounts over `config` and `config.worktree`.
 fn dsh_sandbox_row_for(
     workdir: &str,
     facts: &GitFacts,
     mode: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<(String, tempfile::NamedTempFile)>, String> {
     let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
         return Ok(None);
     };
     // A layout the scoped runner will not serve refuses here, before the
     // seat spends an implementation, rather than at the seat's first
-    // commit (decision 0053 addendum).
+    // commit (decision 0054).
     if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
         return Err(format!("dsh driver: {problem}"));
     }
     let bwrap = dsh_bwrap()?;
     let program = dsh_runner_program();
-    dsh_sandbox::sandbox_row(&program, &bwrap, &scope).map(Some)
+    let mask = dsh_sandbox::stage_mask_file()?;
+    let row = dsh_sandbox::sandbox_row(&program, &bwrap, mask.path(), &scope)?;
+    Ok(Some((row, mask)))
 }
 
 /// The bwrap binary the scoped runner needs, or the refusal that names
@@ -2387,10 +2395,12 @@ fn dsh_bwrap() -> Result<PathBuf, String> {
 /// The runner program the sandbox row names: the override a test or a
 /// non-`PATH` installation sets, else this binary, else the name a
 /// `PATH` lookup resolves. The `dsh-sandbox-runner` verb is appended by
-/// the row, never stored here.
+/// the row, never stored here. The executable arrives as the host's own
+/// answer rather than as a rendered error, so the one way it can fail
+/// needs no translation step of its own.
 fn dsh_runner_program_from(
     override_value: Option<String>,
-    executable: Result<PathBuf, String>,
+    executable: std::io::Result<PathBuf>,
 ) -> String {
     if let Some(program) = override_value {
         return program;
@@ -2404,12 +2414,12 @@ fn dsh_runner_program_from(
 fn dsh_runner_program() -> String {
     dsh_runner_program_from(
         crate::legacy::env("BROKKR_DSH_RUNNER", None),
-        std::env::current_exe().map_err(|error| error.to_string()),
+        std::env::current_exe(),
     )
 }
 
 /// The seat overlay with the scoped sandbox row a linked-worktree seat
-/// needs (decision 0053). It is one patch file because `--patch` is the
+/// needs (decision 0054). It is one patch file because `--patch` is the
 /// launcher's only override channel.
 fn dsh_seat_overlay_with(
     model: Option<&str>,

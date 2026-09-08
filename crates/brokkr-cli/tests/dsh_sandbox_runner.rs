@@ -1,10 +1,14 @@
-//! Decision 0053: `brokkr dsh-sandbox-runner` is the bwrap-compatible
+//! Decision 0054: `brokkr dsh-sandbox-runner` is the bwrap-compatible
 //! runner `brokkr driver dsh` points dsh's sandbox provider at. It is
 //! dispatched before clap because dsh hands it bubblewrap's own argv,
 //! including the bare `--`; these tests drive the real binary and a fake
 //! `bwrap`, so the argv hand-off is proven end to end without a model
-//! loop. The bubblewrap to exec is a trusted argv path, not a `PATH`
-//! lookup: the boundary is the binary the driver probed.
+//! loop. The bubblewrap to exec and the config mask to mount are trusted
+//! argv paths, not lookups: the boundary is what the driver measured.
+//!
+//! The scope checks read the host, so these fixtures are real linked
+//! worktree layouts on disk rather than the invented paths an argv test
+//! could otherwise get away with.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -37,46 +41,121 @@ fn fake_bwrap(dir: &Path) -> PathBuf {
     )
 }
 
+/// The administrative layout `git worktree add` writes, by hand: the
+/// per-worktree directory under `<common>/worktrees/<name>` with its
+/// `gitdir` back-pointer, the worktree's own `.git` file, and the empty
+/// config mask the driver stages outside the workspace.
+struct Layout {
+    dir: tempfile::TempDir,
+    workspace: PathBuf,
+    git_dir: PathBuf,
+    common_dir: PathBuf,
+    mask: PathBuf,
+}
+
+impl Layout {
+    fn linked() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let common_dir = dir.path().join("main/.git");
+        let git_dir = common_dir.join("worktrees/wt");
+        let workspace = dir.path().join("wt");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            workspace.join(".git"),
+            format!("gitdir: {}\n", git_dir.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            git_dir.join("gitdir"),
+            format!("{}\n", workspace.join(".git").display()),
+        )
+        .unwrap();
+        std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        let mask = dir.path().join("config-mask");
+        std::fs::write(&mask, "").unwrap();
+        Layout {
+            workspace,
+            git_dir,
+            common_dir,
+            mask,
+            dir,
+        }
+    }
+
+    /// The runner's five trusted flags, as the sandbox row spells them.
+    fn flags(&self, bwrap: &Path) -> Vec<String> {
+        [
+            "--workspace",
+            self.workspace.to_str().unwrap(),
+            "--git-dir",
+            self.git_dir.to_str().unwrap(),
+            "--common-dir",
+            self.common_dir.to_str().unwrap(),
+            "--bwrap",
+            bwrap.to_str().unwrap(),
+            "--mask",
+            self.mask.to_str().unwrap(),
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    }
+}
+
+/// `dsh-sandbox-runner`, the trusted flags, the profile and the command.
+fn runner_args(layout: &Layout, bwrap: &Path, profile: &[&str], command: &[&str]) -> Vec<String> {
+    let mut args = vec!["dsh-sandbox-runner".to_string()];
+    args.extend(layout.flags(bwrap));
+    args.extend(profile.iter().map(|part| part.to_string()));
+    args.push("--".to_string());
+    args.extend(command.iter().map(|part| part.to_string()));
+    args
+}
+
+fn borrow(args: &[String]) -> Vec<&str> {
+    args.iter().map(String::as_str).collect()
+}
+
+/// The workspace-write profile dsh composes, with the session workspace
+/// spelled where the provider spells it.
+fn profile_for(workspace: &Path) -> Vec<String> {
+    [
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--unshare-pid",
+        "--proc",
+        "/proc",
+        "--die-with-parent",
+        "--tmpfs",
+        "/tmp",
+        "--bind",
+        workspace.to_str().unwrap(),
+        workspace.to_str().unwrap(),
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
 #[cfg(unix)]
 #[test]
 fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
-    let dir = tempfile::tempdir().unwrap();
-    let dump = dir.path().join("argv");
-    let bwrap = fake_bwrap(dir.path());
-
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/work/wt",
-            "--git-dir",
-            "/main/.git/worktrees/wt",
-            "--common-dir",
-            "/main/.git",
-            "--bwrap",
-            bwrap.to_str().unwrap(),
-            "--ro-bind",
-            "/",
-            "/",
-            "--dev",
-            "/dev",
-            "--unshare-pid",
-            "--proc",
-            "/proc",
-            "--die-with-parent",
-            "--tmpfs",
-            "/tmp",
-            "--bind",
-            "/work/wt",
-            "/work/wt",
-            "--",
-            "bash",
-            "-lc",
-            "git add -A",
-        ],
-        dir.path(),
-        Some(&dump),
+    let layout = Layout::linked();
+    let dump = layout.dir.path().join("argv");
+    let bwrap = fake_bwrap(layout.dir.path());
+    let profile = profile_for(&layout.workspace);
+    let args = runner_args(
+        &layout,
+        &bwrap,
+        &borrow(&profile),
+        &["bash", "-lc", "git add -A"],
     );
+
+    let run = brokkr(&borrow(&args), layout.dir.path(), Some(&dump));
     assert_eq!(
         run.status.code(),
         Some(0),
@@ -84,30 +163,39 @@ fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
         String::from_utf8_lossy(&run.stderr)
     );
     let seen = std::fs::read_to_string(&dump).unwrap();
+    let git = layout.git_dir.display().to_string();
+    let common = layout.common_dir.display().to_string();
+    let mask = layout.mask.display().to_string();
+    assert!(seen.contains(&format!("--bind\n{git}\n{git}\n")), "{seen}");
     assert!(
-        seen.contains("--bind\n/main/.git/worktrees/wt\n/main/.git/worktrees/wt\n"),
+        seen.contains(&format!("--bind-try\n{common}/objects\n{common}/objects\n")),
         "{seen}"
     );
     assert!(
-        seen.contains("--bind-try\n/main/.git/objects\n/main/.git/objects\n"),
-        "{seen}"
-    );
-    assert!(seen.contains("--tmpfs\n/main/.git/hooks\n"), "{seen}");
-    assert!(
-        seen.contains("--ro-bind-try\n/main/.git/config\n/main/.git/config\n"),
-        "{seen}"
-    );
-    // `config.worktree` is masked with an empty read-only file, not
-    // `--ro-bind-try`: the per-worktree file is normally absent and the
-    // writable directory around it would let the box create one.
-    assert!(
-        seen.contains("--ro-bind\n/dev/null\n/main/.git/worktrees/wt/config.worktree\n"),
+        seen.contains(&format!("--tmpfs\n{common}/hooks\n")),
         "{seen}"
     );
     assert!(
-        seen.contains(
-            "--ro-bind-try\n/main/.git/worktrees/wt/commondir\n/main/.git/worktrees/wt/commondir\n"
-        ),
+        seen.contains(&format!(
+            "--ro-bind-try\n{common}/config\n{common}/config\n"
+        )),
+        "{seen}"
+    );
+    // The per-worktree config paths are masked with the staged empty
+    // regular file — never `--ro-bind-try`, which no-ops on the absent
+    // file a linked worktree normally has, and never a device node, which
+    // bubblewrap binds with MS_NODEV and git then calls fatal.
+    assert!(
+        seen.contains(&format!("--ro-bind\n{mask}\n{git}/config.worktree\n")),
+        "{seen}"
+    );
+    assert!(
+        seen.contains(&format!("--ro-bind\n{mask}\n{git}/config\n")),
+        "{seen}"
+    );
+    assert!(!seen.contains("/dev/null"), "{seen}");
+    assert!(
+        seen.contains(&format!("--ro-bind\n{git}/commondir\n{git}/commondir\n")),
         "{seen}"
     );
     assert!(seen.ends_with("--\nbash\n-lc\ngit add -A\n"), "{seen}");
@@ -116,46 +204,31 @@ fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
 #[cfg(unix)]
 #[test]
 fn the_runner_execs_the_absolute_bwrap_it_was_given_and_never_a_path_lookup() {
-    let dir = tempfile::tempdir().unwrap();
-    let chosen = dir.path().join("chosen");
+    let layout = Layout::linked();
+    let chosen = layout.dir.path().join("chosen");
     std::fs::create_dir_all(&chosen).unwrap();
-    let dump = dir.path().join("argv");
+    let dump = layout.dir.path().join("argv");
     let recording = fake_bwrap(&chosen);
 
     // A decoy `bwrap` first on PATH: if the runner looked it up, this
     // would run and leave its marker.
-    let decoy = dir.path().join("decoy");
+    let decoy = layout.dir.path().join("decoy");
     std::fs::create_dir_all(&decoy).unwrap();
-    let marker = dir.path().join("decoy-ran");
+    let marker = layout.dir.path().join("decoy-ran");
     executable(
         &decoy,
         "bwrap",
         &format!("#!/bin/sh\n: > '{}'\nexit 7\n", marker.display()),
     );
 
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/work/wt",
-            "--git-dir",
-            "/main/.git/worktrees/wt",
-            "--common-dir",
-            "/main/.git",
-            "--bwrap",
-            recording.to_str().unwrap(),
-            "--ro-bind",
-            "/",
-            "/",
-            "--bind",
-            "/work/wt",
-            "/work/wt",
-            "--",
-            "true",
-        ],
-        &decoy,
-        Some(&dump),
+    let workspace = layout.workspace.to_str().unwrap().to_string();
+    let args = runner_args(
+        &layout,
+        &recording,
+        &["--ro-bind", "/", "/", "--bind", &workspace, &workspace],
+        &["true"],
     );
+    let run = brokkr(&borrow(&args), &decoy, Some(&dump));
     assert_eq!(
         run.status.code(),
         Some(0),
@@ -169,26 +242,14 @@ fn the_runner_execs_the_absolute_bwrap_it_was_given_and_never_a_path_lookup() {
 #[cfg(unix)]
 #[test]
 fn the_runner_refuses_a_malformed_profile_and_a_missing_bwrap_as_runner_failures() {
+    let layout = Layout::linked();
+    let workspace = layout.workspace.to_str().unwrap().to_string();
+
     // No `--` before the command: the profile is not one the runner knows.
-    let dir = tempfile::tempdir().unwrap();
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/w",
-            "--git-dir",
-            "/g",
-            "--common-dir",
-            "/c",
-            "--bwrap",
-            "/bin/bwrap",
-            "--ro-bind",
-            "/",
-            "/",
-        ],
-        dir.path(),
-        None,
-    );
+    let mut args = vec!["dsh-sandbox-runner".to_string()];
+    args.extend(layout.flags(Path::new("/bin/bwrap")));
+    args.extend(["--ro-bind", "/", "/"].map(str::to_string));
+    let run = brokkr(&borrow(&args), layout.dir.path(), None);
     assert_eq!(run.status.code(), Some(127));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
@@ -197,105 +258,99 @@ fn the_runner_refuses_a_malformed_profile_and_a_missing_bwrap_as_runner_failures
     // The profile is well formed but the named bubblewrap is not there:
     // the exec refusal carries the same runner-failure signature.
     let empty = tempfile::tempdir().unwrap();
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/work/wt",
-            "--git-dir",
-            "/main/.git/worktrees/wt",
-            "--common-dir",
-            "/main/.git",
-            "--bwrap",
-            "/nonexistent/bwrap",
-            "--ro-bind",
-            "/",
-            "/",
-            "--bind",
-            "/work/wt",
-            "/work/wt",
-            "--",
-            "true",
-        ],
-        empty.path(),
-        None,
+    let args = runner_args(
+        &layout,
+        Path::new("/nonexistent/bwrap"),
+        &["--ro-bind", "/", "/", "--bind", &workspace, &workspace],
+        &["true"],
     );
+    let run = brokkr(&borrow(&args), empty.path(), None);
     assert_eq!(run.status.code(), Some(127));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
 
     // A relative bubblewrap is refused before any exec: the runner never
     // resolves one through a working directory the seat can move.
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/work/wt",
-            "--git-dir",
-            "/main/.git/worktrees/wt",
-            "--common-dir",
-            "/main/.git",
-            "--bwrap",
-            "bwrap",
-            "--ro-bind",
-            "/",
-            "/",
-            "--bind",
-            "/work/wt",
-            "/work/wt",
-            "--",
-            "true",
-        ],
-        empty.path(),
-        None,
+    let args = runner_args(
+        &layout,
+        Path::new("bwrap"),
+        &["--ro-bind", "/", "/", "--bind", &workspace, &workspace],
+        &["true"],
     );
+    let run = brokkr(&borrow(&args), empty.path(), None);
     assert_eq!(run.status.code(), Some(127));
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains("is not an absolute path"), "{stderr}");
 }
 
-/// Decision 0053 addendum: a scope whose git directory IS the shared
-/// repository would need the whole shared `.git` writable, so the real
-/// runner refuses it with the signature dsh classifies as a runner
-/// failure rather than mounting it.
+/// Decision 0054: the runner serves ONE layout, and refuses the rest with
+/// the signature dsh classifies as a runner failure rather than mounting
+/// them. A scope whose git directory IS the shared repository would need
+/// the whole shared `.git` writable; a workspace-local git directory
+/// naming an unrelated repository as its common directory would bind that
+/// repository's objects and refs read-write.
 #[cfg(unix)]
 #[test]
-fn the_runner_refuses_a_scope_that_would_mount_the_whole_shared_git() {
-    let dir = tempfile::tempdir().unwrap();
-    let dump = dir.path().join("argv");
-    let bwrap = fake_bwrap(dir.path());
-    let run = brokkr(
-        &[
-            "dsh-sandbox-runner",
-            "--workspace",
-            "/repo/src",
-            "--git-dir",
-            "/repo/.git",
-            "--common-dir",
-            "/repo/.git",
-            "--bwrap",
-            bwrap.to_str().unwrap(),
-            "--ro-bind",
-            "/",
-            "/",
-            "--bind",
-            "/repo/src",
-            "/repo/src",
-            "--",
-            "true",
-        ],
-        dir.path(),
-        Some(&dump),
+fn the_runner_refuses_every_layout_that_is_not_a_linked_worktree() {
+    let layout = Layout::linked();
+    let dump = layout.dir.path().join("argv");
+    let bwrap = fake_bwrap(layout.dir.path());
+    let mask = layout.mask.to_str().unwrap();
+
+    let refuse = |workspace: &Path, git_dir: &Path, common_dir: &Path| {
+        let workspace = workspace.to_str().unwrap();
+        let run = brokkr(
+            &[
+                "dsh-sandbox-runner",
+                "--workspace",
+                workspace,
+                "--git-dir",
+                git_dir.to_str().unwrap(),
+                "--common-dir",
+                common_dir.to_str().unwrap(),
+                "--bwrap",
+                bwrap.to_str().unwrap(),
+                "--mask",
+                mask,
+                "--ro-bind",
+                "/",
+                "/",
+                "--bind",
+                workspace,
+                workspace,
+                "--",
+                "true",
+            ],
+            layout.dir.path(),
+            Some(&dump),
+        );
+        assert_eq!(run.status.code(), Some(127));
+        let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
+        assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
+        assert!(
+            !dump.exists(),
+            "bwrap must never be exec'd for a refused scope"
+        );
+        stderr
+    };
+
+    let shared = refuse(
+        Path::new("/repo/src"),
+        Path::new("/repo/.git"),
+        Path::new("/repo/.git"),
     );
-    assert_eq!(run.status.code(), Some(127));
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
     assert!(
-        stderr.contains("shared repository's own git directory"),
-        "{stderr}"
+        shared.contains("shared repository's own git directory"),
+        "{shared}"
     );
+
+    // The redirect: a `.git` file and a fake administrative directory the
+    // seat wrote inside its own workspace, naming another repository.
+    let seat = layout.dir.path().join("seat");
+    std::fs::create_dir_all(seat.join("fake")).unwrap();
+    let redirected = refuse(&seat, &seat.join("fake"), &layout.common_dir);
     assert!(
-        !dump.exists(),
-        "bwrap must never be exec'd for a refused scope"
+        redirected.contains("administrative directories"),
+        "{redirected}"
     );
 }

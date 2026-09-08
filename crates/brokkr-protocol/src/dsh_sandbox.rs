@@ -1,4 +1,4 @@
-//! The dsh harness sandbox runner (decision 0053).
+//! The dsh harness sandbox runner (decision 0054).
 //!
 //! A dsh seat is confined by dsh's OWN sandbox
 //! (`@deepseek-ai/dsh-sandbox-local`): a read-only host root plus a
@@ -23,25 +23,31 @@
 //! `config.worktree`, `commondir` and `gitdir` are masked or read-only,
 //! so nothing a boxed command writes can become a program the host runs
 //! on its next git invocation — nor can it point git at a `config` it
-//! wrote in the workspace. Sibling worktrees, the parent checkout and
-//! every credential path stay outside the write set.
+//! wrote in the workspace. Every sibling worktree DIRECTORY and its own
+//! per-worktree metadata, the parent checkout and every credential path
+//! stay outside the write set. The shared ref store does not: a commit
+//! must write it, so a seat can move a branch a sibling has checked out.
+//! That residual is inherent to sharing a ref store through a kernel
+//! bind and is recorded in decision 0054's consequences.
 //!
-//! Two layouts the first slice bound are refused instead, because
-//! serving them would widen the boundary past what a linked worktree
-//! needs (decision 0053 addendum, 2026-09-09): a resolved git directory
-//! that IS the shared repository (a primary checkout reached through a
-//! subdirectory, a `--separate-git-dir` checkout, or a worktree `.git`
-//! file redirected at the parent), which would need the whole shared
-//! `.git` writable; and a per-worktree directory whose `gitdir` pointer
-//! names a different worktree, which would let one seat write another's
-//! metadata. Both refuse before the seat starts.
+//! Only ONE layout is served: a genuine linked worktree, whose
+//! administrative directory Git itself would have placed at
+//! `<common>/worktrees/<name>` and whose `gitdir` back-pointer names this
+//! seat's own workspace. Everything else refuses before the seat starts
+//! (decision 0054's threat model). Git resolves `--git-dir` and
+//! `--git-common-dir` by FOLLOWING a `.git` file, and a `.git` file
+//! inside the workspace is a file the model can write: without the
+//! topology and back-pointer checks a seat could hand the driver a
+//! `commondir` naming an unrelated repository and have the runner bind
+//! that repository's object store and refs read-write.
 //!
 //! The trusted paths travel in the runner's own argv, resolved by the
 //! trusted driver BEFORE the seat starts, never re-resolved from a
 //! workspace file the model can edit: the session workspace, the two
-//! git directories, and the bubblewrap the driver probed. The runner
-//! executes that absolute bubblewrap itself; it never searches `PATH`
-//! for one, so the boundary is the binary the driver measured.
+//! git directories, the bubblewrap the driver probed, and the empty file
+//! the driver staged as a config mask. The runner executes that absolute
+//! bubblewrap itself; it never searches `PATH` for one, so the boundary
+//! is the binary the driver measured.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -72,7 +78,7 @@ pub struct GitScope {
 /// program is the absolute bubblewrap named by `--bwrap`, never a `PATH`
 /// lookup.
 pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
-    let (scope, bwrap, rest) = parse_scope(args)?;
+    let (scope, paths, rest) = parse_scope(args)?;
     let (profile, command) = split_profile(rest)?;
     if profile.len() < 3 || profile[0] != "--ro-bind" || profile[1] != "/" || profile[2] != "/" {
         return Err(
@@ -81,26 +87,36 @@ pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
                 .to_string(),
         );
     }
-    let mut argv = vec![bwrap.to_string_lossy().into_owned()];
+    let mut argv = vec![paths.bwrap.to_string_lossy().into_owned()];
     argv.extend(profile.iter().cloned());
     if workspace_writable(profile, &scope.workspace) {
-        argv.extend(scoped_git_binds(&scope)?);
+        argv.extend(scoped_git_binds(&scope, &paths.mask)?);
     }
     argv.push("--".to_string());
     argv.extend(command.iter().cloned());
     Ok(argv)
 }
 
+/// The two host paths the runner needs beside the git scope: the
+/// bubblewrap the driver probed and the empty file it staged as a
+/// config mask.
+struct RunnerPaths {
+    bwrap: PathBuf,
+    mask: PathBuf,
+}
+
 /// The runner's own flags, and the profile that follows them. A flag
 /// given twice, or without its path, is a malformed runner invocation,
-/// not something to interpret generously. `--bwrap` must be absolute:
-/// the runner executes the binary the driver probed, and a relative
-/// spelling would be resolved by a working directory the seat can move.
-fn parse_scope(args: &[String]) -> Result<(GitScope, PathBuf, &[String]), String> {
+/// not something to interpret generously. `--bwrap` and `--mask` must be
+/// absolute: the runner executes the binary and mounts the file the
+/// driver staged, and a relative spelling would be resolved by a working
+/// directory the seat can move.
+fn parse_scope(args: &[String]) -> Result<(GitScope, RunnerPaths, &[String]), String> {
     let mut workspace: Option<PathBuf> = None;
     let mut git_dir: Option<PathBuf> = None;
     let mut common_dir: Option<PathBuf> = None;
     let mut bwrap: Option<PathBuf> = None;
+    let mut mask: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
         let slot = match args[index].as_str() {
@@ -108,6 +124,7 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, PathBuf, &[String]), String
             "--git-dir" => &mut git_dir,
             "--common-dir" => &mut common_dir,
             "--bwrap" => &mut bwrap,
+            "--mask" => &mut mask,
             _ => break,
         };
         let value = args
@@ -125,12 +142,15 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, PathBuf, &[String]), String
     let git_dir = required(git_dir, "--git-dir")?;
     let common_dir = required(common_dir, "--common-dir")?;
     let bwrap = required(bwrap, "--bwrap")?;
-    if !bwrap.is_absolute() {
-        return Err(format!(
-            "dsh sandbox runner: --bwrap {} is not an absolute path; the runner executes the \
-             bubblewrap the driver probed and never a `PATH` lookup",
-            bwrap.display()
-        ));
+    let mask = required(mask, "--mask")?;
+    for (flag, path) in [("--bwrap", &bwrap), ("--mask", &mask)] {
+        if !path.is_absolute() {
+            return Err(format!(
+                "dsh sandbox runner: {flag} {} is not an absolute path; the runner uses the \
+                 host paths the driver staged and never a `PATH` or working-directory lookup",
+                path.display()
+            ));
+        }
     }
     Ok((
         GitScope {
@@ -138,7 +158,7 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, PathBuf, &[String]), String
             git_dir,
             common_dir,
         },
-        bwrap,
+        RunnerPaths { bwrap, mask },
         &args[index..],
     ))
 }
@@ -174,32 +194,54 @@ fn workspace_writable(profile: &[String], workspace: &Path) -> bool {
 /// Path identity for the bind check: resolved where both resolve, so a
 /// symlinked spelling agrees with the provider's canonical workspace.
 fn same_path(left: &Path, right: &Path) -> bool {
-    let resolve = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     resolve(left) == resolve(right)
+}
+
+/// A path with every symlink and `..` component resolved where the host
+/// can resolve it, so a symlinked alias of a repository cannot pass a
+/// comparison the real path would fail. A path that does not exist keeps
+/// its literal spelling and therefore never equals a real one.
+fn resolve(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// True when `inner` lies at or under `outer`, both resolved.
+fn within(inner: &Path, outer: &Path) -> bool {
+    resolve(inner).starts_with(resolve(outer))
 }
 
 /// Why this scope cannot be served under the declared boundary, or
 /// `None`. The driver calls it before the seat starts so an unsupported
-/// layout refuses early, naming the remedy; the runner calls it again
-/// because its argv is the last gate before bubblewrap.
-///
-/// Two layouts are refused rather than bound:
-///
-/// - the git directory IS the shared repository (`git_dir ==
-///   common_dir` outside the workspace). A commit needs to create
-///   `index.lock` and `HEAD.lock` in that directory, so serving it means
-///   mounting the whole shared `.git` writable — every sibling worktree
-///   and every submodule config and hook with it. A primary checkout
-///   reached through a subdirectory, a `--separate-git-dir` checkout and
-///   a worktree `.git` file redirected at the parent all resolve here.
-/// - the per-worktree directory records a different worktree in its
-///   `gitdir` pointer. Git follows a rewritten `.git` file without
-///   checking the back-pointer, so without this check one seat could
-///   bind and write a sibling's metadata.
+/// layout refuses early, naming the remedy; the runner calls it again on
+/// every command, because its argv is the last gate before bubblewrap.
 ///
 /// A scope whose common directory already sits inside the workspace
 /// needs nothing and is never refused: the provider's own bind covers
-/// it.
+/// it. Every other scope must be a genuine linked worktree, proved
+/// against the host and not against anything the model could have
+/// written, because Git resolves both directories by FOLLOWING the
+/// workspace's own `.git` file:
+///
+/// 1. **The git directory is not the shared repository.** A commit needs
+///    `index.lock` and `HEAD.lock` inside it, so serving `git_dir ==
+///    common_dir` means mounting the whole shared `.git` writable — every
+///    sibling worktree and every submodule config and hook with it. A
+///    primary checkout reached through a subdirectory, a
+///    `--separate-git-dir` checkout and a worktree `.git` file redirected
+///    at the parent all resolve here.
+/// 2. **The git directory sits where Git itself would have put it**, at
+///    `<common_dir>/worktrees/<name>`. Without this, a seat that writes
+///    `<workspace>/.git` -> `gitdir: <workspace>/fake` and fills
+///    `<workspace>/fake/commondir` with an unrelated repository's path
+///    makes Git report that repository as the common directory, and the
+///    runner would bind its objects, refs and reflogs read-write.
+/// 3. **The `gitdir` back-pointer exists and names this workspace's own
+///    `.git`.** The topology check alone is not enough: a workspace
+///    `.git` file may name a REAL administrative directory belonging to
+///    another worktree of another repository. The back-pointer lives
+///    inside `git_dir`, outside the workspace and therefore outside
+///    anything a seat can write, so it is the trustworthy end of the
+///    pair. A directory with no back-pointer is refused, not excused.
 pub fn scope_refusal(scope: &GitScope) -> Option<String> {
     if scope.common_dir.starts_with(&scope.workspace) {
         return None;
@@ -214,24 +256,64 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
             scope.git_dir.display()
         ));
     }
-    if let Some(recorded) = recorded_worktree(scope) {
-        if !same_path(&recorded, &scope.workspace.join(".git")) {
+    let administrative = scope.common_dir.join("worktrees");
+    if !scope
+        .git_dir
+        .parent()
+        .is_some_and(|parent| same_path(parent, &administrative))
+    {
+        return Some(format!(
+            "the seat's git directory {} is not one of the linked-worktree administrative \
+             directories {} that its shared repository owns, so Git reached it through a \
+             `.git` file rather than through `git worktree`; the scoped runner refuses to \
+             bind a repository a workspace file pointed it at. Run the seat from the \
+             repository root, or from a linked `git worktree`",
+            scope.git_dir.display(),
+            administrative.join("<name>").display()
+        ));
+    }
+    let Some(recorded) = recorded_worktree(scope) else {
+        return Some(format!(
+            "the per-worktree git directory {} carries no `gitdir` back-pointer, so nothing \
+             outside this seat's workspace ties it to {}; the scoped runner refuses to write \
+             git metadata it cannot tie to the seat. Run the seat from a linked `git \
+             worktree` git itself created",
+            scope.git_dir.display(),
+            scope.workspace.display()
+        ));
+    };
+    if same_path(&recorded, &scope.workspace.join(".git")) {
+        return None;
+    }
+    // The back-pointer names a real worktree that CONTAINS this seat's
+    // workspace: the seat was started in a subdirectory of its worktree.
+    // Nothing is pointing at another worktree here, and saying so would
+    // misname the cause; the remedy is the worktree's own root.
+    if let Some(root) = recorded.parent() {
+        if within(&scope.workspace, root) {
             return Some(format!(
-                "the per-worktree git directory {} records {} as its worktree, not this seat's \
-                 workspace {}; refusing to bind another worktree's metadata",
-                scope.git_dir.display(),
-                recorded.display(),
-                scope.workspace.display()
+                "this seat's workspace {} is a subdirectory of the linked worktree at {}, and \
+                 the scoped runner serves a worktree at its own root: the writable root dsh \
+                 gives the seat would not cover the rest of the worktree. Run the seat from {}",
+                scope.workspace.display(),
+                root.display(),
+                root.display()
             ));
         }
     }
-    None
+    Some(format!(
+        "the per-worktree git directory {} records {} as its worktree, not this seat's \
+         workspace {}; refusing to bind another worktree's metadata",
+        scope.git_dir.display(),
+        recorded.display(),
+        scope.workspace.display()
+    ))
 }
 
-/// The worktree `.git` file a linked worktree's `gitdir` pointer names,
-/// when the host has one. `None` for a directory that carries no such
-/// pointer: the caller then has nothing to compare and does not refuse
-/// on this evidence alone.
+/// The worktree `.git` file a linked worktree's `gitdir` pointer names.
+/// `None` when the host has no readable, non-empty pointer — which for a
+/// directory Git itself created never happens, and which the caller
+/// therefore treats as a refusal rather than as an excuse.
 fn recorded_worktree(scope: &GitScope) -> Option<PathBuf> {
     let recorded = std::fs::read_to_string(scope.git_dir.join("gitdir")).ok()?;
     let recorded = recorded.trim();
@@ -246,10 +328,39 @@ fn recorded_worktree(scope: &GitScope) -> Option<PathBuf> {
     })
 }
 
+/// Why the staged mask file cannot stand in for the per-worktree
+/// `config` and `config.worktree`, or `None`. It must be a real, empty,
+/// regular file the seat cannot reach: a bind is only as read-only as
+/// its SOURCE is unreachable, and a mask source inside the writable
+/// workspace would let the box fill the file it is being masked with.
+fn mask_refusal(mask: &Path, workspace: &Path) -> Option<String> {
+    let problem = match std::fs::symlink_metadata(mask) {
+        Err(error) => format!("cannot be read ({error})"),
+        Ok(meta) if !meta.file_type().is_file() => {
+            // `/dev/null` is the obvious wrong answer: bubblewrap mounts
+            // every bind source with `MS_NODEV`, so a bound character
+            // device cannot be opened inside the box and git calls an
+            // unreadable config file a fatal error.
+            "is not a regular file; bubblewrap mounts a bind source with MS_NODEV, so a device \
+             node masks the path with something the box cannot open and git calls an \
+             unreadable config file fatal"
+                .to_string()
+        }
+        Ok(meta) if meta.len() != 0 => format!("is not empty ({} bytes)", meta.len()),
+        Ok(_) if within(mask, workspace) => {
+            "lies inside the seat's own writable workspace, where a boxed command could fill \
+             the very file the mask stands for"
+                .to_string()
+        }
+        Ok(_) => return None,
+    };
+    Some(format!("the config mask {} {problem}", mask.display()))
+}
+
 /// The scoped write set, in mount order: later binds sit over earlier
 /// ones, so a mask always follows the bind it hides. Refuses a scope
 /// that [`scope_refusal`] rejects rather than mounting it wider.
-fn scoped_git_binds(scope: &GitScope) -> Result<Vec<String>, String> {
+fn scoped_git_binds(scope: &GitScope, mask_source: &Path) -> Result<Vec<String>, String> {
     // A primary checkout keeps its whole git directory under the
     // workspace the provider already made writable: nothing to add.
     if scope.common_dir.starts_with(&scope.workspace) {
@@ -258,35 +369,37 @@ fn scoped_git_binds(scope: &GitScope) -> Result<Vec<String>, String> {
     if let Some(problem) = scope_refusal(scope) {
         return Err(problem);
     }
+    if let Some(problem) = mask_refusal(mask_source, &scope.workspace) {
+        return Err(problem);
+    }
     let mut argv = Vec::new();
     let git = &scope.git_dir;
     let common = &scope.common_dir;
-    // The per-worktree directory holds index, HEAD and its reflog. A
-    // primary checkout keeps it under the workspace, where the provider
-    // already made it writable.
-    if !git.starts_with(&scope.workspace) {
-        bind("--bind", &mut argv, git);
-    }
-    // Config, wherever git reads it, stays read-only: a hook path or a
-    // signing program written here would be a program the host runs.
-    bind("--ro-bind-try", &mut argv, &git.join("config"));
-    // `config.worktree` is masked with an empty read-only file, not
-    // `--ro-bind-try`: that flag no-ops when the host file is absent —
-    // the normal state of a linked worktree — and the per-worktree
-    // directory around it is writable, so a boxed command could CREATE
-    // it. A repository that has run `git sparse-checkout` carries
-    // `extensions.worktreeConfig`, so the host would then honour a
-    // `core.hooksPath` the box wrote. Bubblewrap creates the mount point
-    // for a missing destination, so the host gains an empty file and the
-    // box gains no way to fill it.
-    mask(&mut argv, &git.join("config.worktree"));
+    // The per-worktree directory holds index, HEAD and its reflog. Every
+    // served scope keeps it outside the workspace (`scope_refusal` proves
+    // it is `<common>/worktrees/<name>`), so it always needs the bind.
+    bind("--bind", &mut argv, git);
+    // Config, wherever git reads it, is masked rather than bound
+    // read-only-try: `--ro-bind-try` no-ops when the host file is absent —
+    // the normal state of a linked worktree's per-worktree directory —
+    // and the writable directory around it would then let a boxed command
+    // CREATE one. A repository that has run `git sparse-checkout` carries
+    // `extensions.worktreeConfig`, so the host would honour a
+    // `core.hooksPath` written into `config.worktree`. Bubblewrap creates
+    // the mount point for a missing destination, so the host gains an
+    // empty file and the box gains no way to fill it.
+    mask(&mut argv, mask_source, &git.join("config"));
+    mask(&mut argv, mask_source, &git.join("config.worktree"));
     // `commondir` and `gitdir` are the worktree's pointers back to the
     // shared repository and to its own `.git` file. Left writable, a
     // boxed command could redirect git at a `config` it wrote in the
     // workspace — a program the host then runs. Read-only: a write fails
     // EROFS, and unlinking or renaming over the mount point fails EBUSY.
-    bind("--ro-bind-try", &mut argv, &git.join("commondir"));
-    bind("--ro-bind-try", &mut argv, &git.join("gitdir"));
+    // These are hard binds, not `-try`: git writes both when it creates a
+    // linked worktree, and a `-try` that no-oped on a missing source
+    // would leave the box free to CREATE the pointer it may not rewrite.
+    bind("--ro-bind", &mut argv, &git.join("commondir"));
+    bind("--ro-bind", &mut argv, &git.join("gitdir"));
     tmpfs(&mut argv, &git.join("hooks"));
     // The shared store, refs and reflogs: the minimum a commit writes.
     // `--bind-try` keeps a directory git has not created yet from
@@ -308,16 +421,57 @@ fn bind(flag: &str, argv: &mut Vec<String>, path: &Path) {
     argv.extend([flag.to_string(), path.clone(), path]);
 }
 
-/// Hide a path behind an empty read-only file, whether or not the host
-/// file exists. Bubblewrap creates the mount point for a missing
-/// destination under a writable parent, so the host gains an empty file
-/// rather than a writable path.
-fn mask(argv: &mut Vec<String>, path: &Path) {
+/// Hide a path behind the empty read-only file the driver staged,
+/// whether or not the host file exists. Bubblewrap creates the mount
+/// point for a missing destination under a writable parent, so the host
+/// gains an empty file rather than a writable path.
+///
+/// The source is a REGULAR file, never `/dev/null`: bubblewrap mounts
+/// every bind source with `MS_NODEV`, so a bound character device cannot
+/// be opened inside the box, and git answers an unreadable configuration
+/// file with `fatal: unknown error occurred while reading the
+/// configuration files` — which would break every git command in the
+/// seat, in exactly the repositories (`extensions.worktreeConfig`) the
+/// mask exists for. Measured on Linux 6.17 with bubblewrap 0.11.
+fn mask(argv: &mut Vec<String>, source: &Path, path: &Path) {
     argv.extend([
         "--ro-bind".to_string(),
-        "/dev/null".to_string(),
+        source.to_string_lossy().into_owned(),
         path.to_string_lossy().into_owned(),
     ]);
+}
+
+/// Stage the empty regular file the runner masks a linked worktree's
+/// per-worktree `config` and `config.worktree` with. The driver holds it
+/// for the seat's whole life and names it in the runner's argv, so every
+/// command in the seat masks with a file no boxed command can reach: it
+/// lives outside the session workspace, and the seat's own `/tmp` is a
+/// fresh tmpfs of dsh's making.
+pub fn stage_mask_file() -> Result<tempfile::NamedTempFile, String> {
+    stage_mask_file_in(|| {
+        tempfile::Builder::new()
+            .prefix("brokkr-dsh-config-mask-")
+            .tempfile()
+    })
+}
+
+/// The mask over an injected file, so the one way staging can fail is
+/// reachable from a test without a full disk.
+fn stage_mask_file_in(
+    create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
+) -> Result<tempfile::NamedTempFile, String> {
+    let file = create().map_err(|error| {
+        format!("dsh driver: could not stage the git config mask for the seat: {error}")
+    })?;
+    // The read-only bind is what actually refuses the write; this only
+    // makes the host file say the same thing, and a host that will not
+    // set the mode changes nothing about the boundary.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(0o444));
+    }
+    Ok(file)
 }
 
 fn tmpfs(argv: &mut Vec<String>, path: &Path) {
@@ -351,10 +505,16 @@ pub fn require_usable_bwrap(bwrap: &Path) -> Result<(), String> {
 /// The `--patch` row that points dsh's sandbox provider at the runner.
 /// One patch file is the launcher's only override channel, so this row
 /// travels beside the seat's transcript and model rows. The resolved
-/// bubblewrap is a trusted path too: the runner executes it by absolute
-/// path, so the boundary is the binary the driver probed, not whatever
-/// `PATH` holds when the seat runs.
-pub fn sandbox_row(program: &str, bwrap: &Path, scope: &GitScope) -> Result<String, String> {
+/// bubblewrap and the staged config mask are trusted paths too: the
+/// runner executes and mounts exactly what the driver staged, so the
+/// boundary is what the driver measured rather than whatever the seat's
+/// environment holds when a command runs.
+pub fn sandbox_row(
+    program: &str,
+    bwrap: &Path,
+    mask: &Path,
+    scope: &GitScope,
+) -> Result<String, String> {
     let mut row = format!(
         "# Written by `brokkr driver dsh` for one seat: the sandbox provider\n\
          # runs every command through this bwrap-compatible runner, which adds\n\
@@ -371,6 +531,7 @@ pub fn sandbox_row(program: &str, bwrap: &Path, scope: &GitScope) -> Result<Stri
         ("--git-dir", scope.git_dir.as_path()),
         ("--common-dir", scope.common_dir.as_path()),
         ("--bwrap", bwrap),
+        ("--mask", mask),
     ] {
         row.push_str(&format!(
             "\x20     - '{flag}'\n\x20     - '{}'\n",

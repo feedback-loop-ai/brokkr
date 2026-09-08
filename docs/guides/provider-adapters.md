@@ -247,25 +247,51 @@ outside the workspace, points dsh's supported sandbox `runnerCommand` at
 `brokkr dsh-sandbox-runner` with those paths as trusted argv. The runner
 adds exactly the scoped write set a commit needs — the per-worktree
 directory, `objects`, `refs`, `logs` and `packed-refs` — masks `hooks`
-as an empty tmpfs, masks `config.worktree` with an empty read-only file,
-and makes `config`, `commondir` and `gitdir` read-only, so a boxed
-command can neither write a program the host later runs nor redirect git
-at a `config` it wrote; the whole shared `.git`, the parent checkout and
-sibling worktrees stay unwritable. Two layouts are refused at start
-rather than served, because serving either one would mount the whole
-shared `.git` or another worktree's metadata: a resolved git directory
-that IS the shared repository (a primary checkout reached through a
-subdirectory, a `--separate-git-dir` checkout, or a `.git` file
-redirected at the parent), and a per-worktree directory whose `gitdir`
-pointer names a different worktree. The driver also passes the absolute
-`bwrap` it probed as a fourth trusted argv path, and the runner execs
-that binary rather than searching `PATH` again. It is bubblewrap-only: a
-non-Linux host, no `bwrap`, or a `bwrap` that cannot build the empty-root
-namespace refuses the seat at start, naming the remedies, rather than
-burning an implementation that cannot commit. A primary checkout whose
-workspace is the repository root, a `read-only` seat and a
-`danger-full-access` seat are left to dsh's own provider. The driver also
-sets `commit.gpgsign=false` and the host identity on the child, so seat
+as an empty tmpfs, masks the per-worktree `config` and `config.worktree`
+with a staged empty read-only file, and binds the shared `config` and
+the worktree's `commondir` and `gitdir` read-only, so a boxed command can
+neither write a program the host later runs nor redirect git at a
+`config` it wrote. The mask source is a real empty file the driver
+stages, never `/dev/null`: bubblewrap binds a source with `MS_NODEV`, and
+a device node the box cannot open makes git call every command fatal.
+
+**One layout is served, and it is proved.** Git resolves both directories
+by following the workspace's own `.git` file — a file the model can write
+— so resolving them early is not enough on its own. A scope is served
+only when the git directory is not the shared repository, sits where git
+itself would have put it (`<common>/worktrees/<name>`, symlinks
+resolved), and carries a `gitdir` back-pointer naming this seat's own
+workspace. Everything else refuses at seat start and again in the runner,
+each naming its own cause: a git directory that IS the shared repository
+(a primary checkout reached through a subdirectory, a
+`--separate-git-dir` checkout, a `.git` file redirected at the parent), a
+workspace-local git directory naming an unrelated repository as its
+common directory, a back-pointer naming a different worktree or missing
+entirely, and a seat rooted in a subdirectory of its own worktree.
+
+The whole shared `.git`, the parent checkout, every sibling worktree
+DIRECTORY and every sibling's per-worktree metadata (`HEAD`, `index`,
+`config.worktree`) stay unwritable. The shared ref store does not: a
+commit must write `refs`, `logs` and `packed-refs`, so a seat can move a
+branch a sibling worktree has checked out. That residual is inherent to
+sharing a ref store through a kernel bind and is recorded in decision
+0054's threat model.
+
+The driver also passes the absolute `bwrap` it probed and the staged mask
+as trusted argv paths, and the runner execs that binary rather than
+searching `PATH` again. It is bubblewrap-only: a non-Linux host, no
+`bwrap`, or a `bwrap` that cannot build the empty-root namespace refuses
+the seat at start, naming the remedies, rather than burning an
+implementation that cannot commit. A primary checkout whose workspace is
+the repository root, a `read-only` seat and a `danger-full-access` seat
+are left to dsh's own provider. The driver also sets
+`commit.gpgsign=false` and the host identity on the child, so seat
 commits are unsigned (CONTRIBUTING). The boundary in the record is still
 `harness`; this is the harness's own runner, not a Brokkr boundary
-(decision 0053, proposed).
+(decision 0054, proposed).
+
+The behavioral proof builds a real linked worktree and runs the real
+bubblewrap. On a machine that cannot open a namespace it skips, and a
+skipped Rust test prints `ok`, so CI's Linux legs set
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`: every boundary proof then fails
+rather than skips. Set it locally to check that a proof really ran.

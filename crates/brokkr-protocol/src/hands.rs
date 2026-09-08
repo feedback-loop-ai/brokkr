@@ -41,6 +41,42 @@ const SANDBOX_HOME: &str = "/runtime/home";
 pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
 /// Set by the engine in every namespace so box-building tests do not recurse.
 pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
+/// Set on a host that must PRODUCE the boundary evidence, not merely be
+/// allowed to. A boundary proof that cannot build a real namespace — no
+/// `bwrap`, an environment that is already a box, no fixture root — is
+/// worth logging as a skip on a developer's laptop and is worth failing
+/// on the host whose whole job is to run it. Without this, a skipped
+/// proof prints `... ok` and is indistinguishable in CI output from a
+/// pass, which is how a red behavioral test once reached a commit
+/// (decision 0054).
+pub const BOUNDARY_EVIDENCE_ENV: &str = "BROKKR_REQUIRE_BOUNDARY_EVIDENCE";
+
+/// Whether this host has declared that boundary proofs must really run.
+pub fn boundary_evidence_required() -> bool {
+    boundary_evidence_declared(std::env::var_os(BOUNDARY_EVIDENCE_ENV))
+}
+
+/// The declaration, read from a value rather than from the process, so a
+/// test can ask all three answers without changing the environment every
+/// other test in the binary shares. An empty value is not a declaration:
+/// a workflow that expands an unset variable must not silently arm the
+/// gate for a matrix leg that has no namespace to open.
+fn boundary_evidence_declared(value: Option<std::ffi::OsString>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
+}
+
+/// Log a boundary proof's skip, or fail the test when this host declared
+/// that it must produce the evidence. `required` is passed in rather than
+/// read here so both answers are reachable from one process.
+#[track_caller]
+pub fn skip_boundary_proof(required: bool, reason: &str) {
+    assert!(
+        !required,
+        "{BOUNDARY_EVIDENCE_ENV} is set, so this host must produce real boundary evidence, \
+         but a proof skipped: {reason}"
+    );
+    eprintln!("skipped: {reason}");
+}
 /// Where the boundary lives (decision 0046 ruling 1), said once for
 /// every site that tries to write it into a bundle or an agent file.
 pub const BOUNDARY_IS_THE_REALMS: &str = "the boundary is declared by the realm \
