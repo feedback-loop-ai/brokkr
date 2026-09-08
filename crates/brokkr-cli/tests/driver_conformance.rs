@@ -124,6 +124,132 @@ printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source
 
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
 
+// Decision 0053: a provider that refuses before the first turn. The
+// claude/lanetally stream carries the refusal machine-readably — the
+// synthetic `assistant` record the #219 run measured, then the error
+// `result` — so the driver withholds `accepted` and the attempt is a
+// determinate failure to start.
+const CLAUDE_REFUSAL_SHIM: &str = r#"#!/bin/sh
+cat > /dev/null
+printf '{"type":"system","subtype":"init","session_id":"refused-1"}\n'
+printf '{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","message":{"content":[{"type":"text","text":"You have reached your limit"}]}}\n'
+printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have reached your limit"}\n'
+"#;
+
+// Codex announces the same refusal as its own machine event, before any
+// `turn.started`.
+const CODEX_REFUSAL_SHIM: &str = r#"#!/bin/sh
+cat > /dev/null
+printf '{"type":"error","message":"stream error: rate limit"}\n'
+"#;
+
+// dsh's headless profile makes no machine-readable refusal available: a
+// rejection reaches the driver as stderr prose plus a non-zero exit, and
+// the adapter must NOT sniff it (decision 0001). exec has no provider at
+// all. Both therefore accept and then fail, as decision 0006 has it.
+const REFUSING_STDERR_SHIM: &str = r#"#!/bin/sh
+echo "dsh: error: rate limit exceeded" >&2
+exit 1
+"#;
+
+/// The determinate shape decision 0053 requires: capabilities, then one
+/// failed result, and neither an `accepted` nor a checkpoint ever.
+fn assert_determinate_refusal(out: &[Value], label: &str, needle: &str) {
+    let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["capabilities", "result"], "{label}: {out:?}");
+    assert!(
+        !out.iter().any(|m| m["type"] == "accepted"),
+        "{label}: a refusal must not accept: {out:?}"
+    );
+    assert!(
+        !out.iter().any(|m| m["type"] == "checkpoint"),
+        "{label}: a refusal must not checkpoint: {out:?}"
+    );
+    let result = out.last().unwrap();
+    assert_eq!(result["status"], "failed", "{label}: {result}");
+    let error = result["error"].as_str().unwrap_or_default();
+    assert!(error.contains(needle), "{label}: {error}");
+}
+
+/// An adapter whose wire protocol has no machine-readable refusal keeps
+/// decision 0016's boundary: it accepts, then fails mid-session.
+fn assert_accepted_failure(out: &[Value], label: &str) {
+    assert!(
+        out.iter().any(|m| m["type"] == "accepted"),
+        "{label}: this adapter has no machine-readable refusal, so it accepts: {out:?}"
+    );
+    assert!(
+        out.iter().any(|m| m["type"] == "checkpoint"),
+        "{label}: {out:?}"
+    );
+    let result = out.last().unwrap();
+    assert_eq!(result["type"], "result", "{label}: {result}");
+    assert_eq!(result["status"], "failed", "{label}: {result}");
+}
+
+#[test]
+fn claude_refusal_before_the_first_turn_is_determinate() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), CLAUDE_REFUSAL_SHIM);
+    let out = drive(
+        &["claude", "--", "--model", "claude-fable-5-1"],
+        &shim,
+        dir.path(),
+    );
+    assert_determinate_refusal(&out, "claude", "rate_limit");
+}
+
+#[test]
+fn lanetally_refusal_before_the_first_turn_is_determinate() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), CLAUDE_REFUSAL_SHIM);
+    let out = drive(
+        &["lanetally", "--", "--model", "claude-fable-5-1"],
+        &shim,
+        dir.path(),
+    );
+    assert_determinate_refusal(&out, "lanetally", "rate_limit");
+}
+
+#[test]
+fn codex_refusal_before_the_first_turn_is_determinate() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), CODEX_REFUSAL_SHIM);
+    let out = drive(
+        &["codex", "--", "--model", "gpt-5.6-sol"],
+        &shim,
+        dir.path(),
+    );
+    assert_determinate_refusal(&out, "codex", "rate limit");
+}
+
+#[test]
+fn dsh_refusal_has_no_machine_readable_shape_and_stays_mid_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), REFUSING_STDERR_SHIM);
+    let out = drive(
+        &[
+            "dsh",
+            "--",
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--effort",
+            "medium",
+        ],
+        &shim,
+        dir.path(),
+    );
+    assert_accepted_failure(&out, "dsh");
+}
+
+#[test]
+fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = make_shim(dir.path(), REFUSING_STDERR_SHIM);
+    let out = drive(&["exec", "--", shim.to_str().unwrap()], &shim, dir.path());
+    assert_accepted_failure(&out, "exec");
+}
+
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
     let path = dir.join("shim");
     std::fs::write(&path, body).unwrap();
