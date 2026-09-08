@@ -48,7 +48,14 @@ while IFS= read -r line; do
     case "$trimmed" in /*.json|?:*.json) result_path="$trimmed" ;; esac
 done < "$prompt_file"
 [ -n "$result_path" ] || exit 2
-printf '{"result":"%s","notes":"home=%s token=%s marker=%s"}\n' "$verdict" "$(printf '%s' "$HOME" | sed 's|\\|/|g')" "${GH_TOKEN:-unset}" "${BROKKR_HANDS_BOX:-unset}" > "$result_path"
+# Git Bash may expose HOME in MSYS path syntax. Its own converter reports
+# the native path that the Rust assertion can canonicalize on Windows.
+if command -v cygpath >/dev/null 2>&1; then
+    reported_home="$(cygpath -am "$HOME")" || exit 2
+else
+    reported_home="$(printf '%s' "$HOME" | sed 's|\\|/|g')"
+fi
+printf '{"result":"%s","notes":"home=%s token=%s marker=%s"}\n' "$verdict" "$reported_home" "${GH_TOKEN:-unset}" "${BROKKR_HANDS_BOX:-unset}" > "$result_path"
 "#;
 
 // GATE reports its token in result notes, which failure assertions dump.
@@ -640,7 +647,11 @@ fn a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word() {
         .next()
         .unwrap();
     let expected_scratch = ws.path().join(".forge/scratch").canonicalize().unwrap();
-    let reported_home = Path::new(reported_home).canonicalize().unwrap();
+    let reported_home = Path::new(reported_home)
+        .canonicalize()
+        .unwrap_or_else(|error| {
+            panic!("cannot resolve the gate's reported home: {error}; {notes}")
+        });
     assert!(reported_home.starts_with(expected_scratch), "{notes}");
     assert!(
         !notes.contains("/runtime/home"),
