@@ -24,8 +24,18 @@
 //! new word is refused in a map that still calls itself v1: a version is
 //! a promise about what a file may say, and a loader that shrugged at
 //! v2 vocabulary under a v1 label would have made the promise a hint.
+//!
+//! v4 (decision 0046 ruling 1) adds one more optional field on the same
+//! terms: a realm may name the `boundary` its boxed hands stand behind,
+//! one of a closed vocabulary that lives here as [`Boundary`] so every
+//! crate that pins, records or renders the word reads the same five. A
+//! realm that names none stands under `namespace`, which is what every
+//! bundle meant before the word existed.
 
-use serde::Deserialize;
+use std::fmt;
+use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -40,6 +50,142 @@ pub const SCHEMA_V2: &str = "forge.realms/v2";
 /// The realm's prompt constitution and specification dialect. Both are
 /// declarations here; only the house is acted on by this slice.
 pub const SCHEMA_V3: &str = "forge.realms/v3";
+
+/// The boundary a realm's boxed hands stand behind (decision 0046 ruling
+/// 1): v3 plus one optional per-realm `boundary`, and nothing else.
+pub const SCHEMA_V4: &str = "forge.realms/v4";
+
+/// What stands between a box's hands and the machine (decision 0046
+/// ruling 1). A closed vocabulary that names the MECHANISM and never the
+/// operating system, frozen the way a contract is: a sixth word is a new
+/// decision, not a new variant.
+///
+/// Deliberately no `Default`. Absence becomes `namespace` in exactly one
+/// place — [`Realm::boundary`], the realm's own resolver — so a reader of
+/// evidence (a journal, a manifest, a record) holds an `Option<Boundary>`
+/// and cannot print `namespace` where nothing was recorded (decision 0031
+/// ruling 3's pattern; design DD1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Boundary {
+    /// Decision 0043's empty-root user namespace built by bubblewrap.
+    Namespace,
+    /// The same box built by the system sandbox (`sandbox-exec`).
+    Seatbelt,
+    /// A pinned image with the worktree mounted — decision 0008's
+    /// `confine`, re-homed.
+    Container,
+    /// Nothing of Brokkr's; the harness's own sandbox as its adapter
+    /// fragment addresses it.
+    Harness,
+    /// Nothing at all.
+    Open,
+}
+
+/// The five words, in ruling order, for every refusal that spells the
+/// closed set out.
+pub const BOUNDARIES: [Boundary; 5] = [
+    Boundary::Namespace,
+    Boundary::Seatbelt,
+    Boundary::Container,
+    Boundary::Harness,
+    Boundary::Open,
+];
+
+/// The word a record writes where a site has no hands at all: decision
+/// 0031 ruling 1's sentinel, reused rather than reinvented. It is never a
+/// boundary — the realms enum cannot admit it — which is why the record
+/// carries an `Option<Boundary>` and this module spells the `None`.
+pub const NOT_APPLICABLE: &str = "not applicable";
+
+/// Serde's record vocabulary for `Option<Boundary>`. A missing field can
+/// remain absent; a present sentinel means the site declared no hands.
+pub mod recorded_boundary {
+    use super::{Boundary, BoundaryError};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        boundary: &Option<Boundary>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(Boundary::recorded(*boundary))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Boundary>, D::Error> {
+        let word = String::deserialize(deserializer)?;
+        Boundary::from_recorded(&word).ok_or_else(|| serde::de::Error::custom(BoundaryError(word)))
+    }
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error(
+    "'{0}' is not a boundary; the vocabulary is namespace, seatbelt, container, \
+     harness and open, and a new boundary is a new decision (decision 0046 ruling 1)"
+)]
+pub struct BoundaryError(pub String);
+
+impl Boundary {
+    /// The word the operator writes and the record carries.
+    pub fn word(self) -> &'static str {
+        match self {
+            Boundary::Namespace => "namespace",
+            Boundary::Seatbelt => "seatbelt",
+            Boundary::Container => "container",
+            Boundary::Harness => "harness",
+            Boundary::Open => "open",
+        }
+    }
+
+    /// The word a seat record or an `effect/started` entry carries for a
+    /// site: the boundary's own, or the sentinel for a site without
+    /// hands. The one spelling of the sentinel (design DD1).
+    pub fn recorded(site: Option<Boundary>) -> &'static str {
+        match site {
+            Some(boundary) => boundary.word(),
+            None => NOT_APPLICABLE,
+        }
+    }
+
+    /// Read a recorded word back: `Some(Some(word))` for a boundary,
+    /// `Some(None)` for the sentinel, `None` for a word outside the six —
+    /// which every reader renders as *not recorded*, never as a boundary
+    /// (design DD14).
+    pub fn from_recorded(word: &str) -> Option<Option<Boundary>> {
+        if word == NOT_APPLICABLE {
+            return Some(None);
+        }
+        word.parse().ok().map(Some)
+    }
+
+    /// Does Brokkr itself build this boundary's box? Under these three
+    /// the workspace tool is served and the seat is told its hands are
+    /// boxed; under `harness` and `open` nothing of Brokkr's stands.
+    pub fn is_boxed(self) -> bool {
+        matches!(
+            self,
+            Boundary::Namespace | Boundary::Seatbelt | Boundary::Container
+        )
+    }
+}
+
+impl fmt::Display for Boundary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.word())
+    }
+}
+
+impl FromStr for Boundary {
+    type Err = BoundaryError;
+
+    fn from_str(word: &str) -> Result<Boundary, BoundaryError> {
+        BOUNDARIES
+            .into_iter()
+            .find(|boundary| boundary.word() == word)
+            .ok_or_else(|| BoundaryError(word.to_string()))
+    }
+}
 
 /// The file an invocation defaults to when it names no map.
 pub const DEFAULT_MAP_FILE: &str = "realms.json";
@@ -81,6 +227,23 @@ pub struct Realm {
     /// belongs to decision 0042's later slice; this version only records it.
     #[serde(default)]
     pub dialect: Option<String>,
+    /// The boundary this realm's boxed hands stand behind — `forge.realms/v4`
+    /// vocabulary (decision 0046 ruling 1), absent in every older map and
+    /// refused in one. Absent means `namespace`, which is what every
+    /// bundle meant until the word existed: see [`Realm::boundary`], the
+    /// one place that absence is resolved.
+    #[serde(default)]
+    pub boundary: Option<Boundary>,
+}
+
+impl Realm {
+    /// The boundary this realm runs under: the word it declares, else
+    /// `namespace`. This is the whole of decision 0046 ruling 1's
+    /// resolution, in one place, so no reader of evidence has to guess
+    /// what an absent word meant.
+    pub fn boundary(&self) -> Boundary {
+        self.boundary.unwrap_or(Boundary::Namespace)
+    }
 }
 
 /// The map as written: realms, and the journal the world writes.
@@ -131,18 +294,40 @@ impl RealmMap {
     /// than as a file. Same refusals, same words: a world read back out
     /// of evidence is held to what it was held to going in.
     pub fn of(path: &str, content: Value) -> Result<(RealmMap, Value), RealmsError> {
+        let invalid = |problem: String| RealmsError::Invalid {
+            path: path.to_string(),
+            problem,
+        };
+        // The boundary word is judged before the shape is read, so a
+        // refusal can name the realm that wrote it and the five words
+        // it may write (decision 0046 ruling 1) rather than serde's
+        // anonymous "unknown variant". Only a string is judged here; any
+        // other shape is the malformed-map refusal below, as for every
+        // other field.
+        for realm in content
+            .get("realms")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(word) = realm.get("boundary").and_then(Value::as_str) {
+                if let Err(error) = word.parse::<Boundary>() {
+                    return Err(invalid(format!(
+                        "realm '{}' declares boundary {error}",
+                        realm.get("name").and_then(Value::as_str).unwrap_or("?")
+                    )));
+                }
+            }
+        }
         let map: RealmMap =
             serde_json::from_value(content.clone()).map_err(|error| RealmsError::Malformed {
                 path: path.to_string(),
                 detail: error.to_string(),
             })?;
-        let invalid = |problem: String| RealmsError::Invalid {
-            path: path.to_string(),
-            problem,
-        };
-        if map.schema != SCHEMA_V1 && map.schema != SCHEMA_V2 && map.schema != SCHEMA_V3 {
+        if ![SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4].contains(&map.schema.as_str()) {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2} and {SCHEMA_V3}",
+                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3} \
+                 and {SCHEMA_V4}",
                 map.schema
             )));
         }
@@ -193,9 +378,18 @@ impl RealmMap {
                 }
                 _ => {}
             }
+            // The v4 word, held to its version exactly as the v2 and v3
+            // words are held to theirs (decision 0046 ruling 1).
+            if realm.boundary.is_some() && map.schema != SCHEMA_V4 {
+                return Err(invalid(format!(
+                    "realm '{}' names its boundary, which is {SCHEMA_V4} vocabulary in a map \
+                     calling itself {}",
+                    realm.name, map.schema
+                )));
+            }
             for (field, value) in [("house", &realm.house), ("dialect", &realm.dialect)] {
                 match value {
-                    Some(_) if map.schema != SCHEMA_V3 => {
+                    Some(_) if map.schema != SCHEMA_V3 && map.schema != SCHEMA_V4 => {
                         return Err(invalid(format!(
                             "realm '{}' names its {field}, which is {SCHEMA_V3} vocabulary in a map calling itself {}",
                             realm.name, map.schema

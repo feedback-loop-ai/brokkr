@@ -8,6 +8,7 @@
 //! makes non-completion determinate, so bounded retry stays safe
 //! (decision 0006).
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,6 +30,22 @@ pub enum SpawnError {
         command: String,
         source: std::io::Error,
     },
+}
+
+/// The environment a driver starts in (decision 0046 ruling 4; design
+/// DD18). `Inherit` is the engine's own environment — every model site
+/// under every boundary, because its harness needs the operator's keys,
+/// and every driver before this enum existed. `Exactly` is a composed
+/// table and nothing else: an unboxed exec dispatch under `harness` or
+/// `open` starts from an empty environment holding the box's own
+/// allow-list, so the credentials the environment carried never reach
+/// the script. A named two-variant enum rather than an `Option`, because
+/// a `None` at a spawn site would read as *no environment*, the opposite
+/// of inheriting the engine's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnEnv {
+    Inherit,
+    Exactly(BTreeMap<String, String>),
 }
 
 pub struct DriverProcess {
@@ -93,19 +110,23 @@ impl DriverProcess {
         command: &[String],
         workdir: &std::path::Path,
         deadline: Option<Duration>,
+        env: &SpawnEnv,
     ) -> Result<Self, SpawnError> {
         let (program, args) = command.split_first().ok_or(SpawnError::EmptyCommand)?;
-        let mut child = Command::new(program)
+        let mut builder = Command::new(program);
+        builder
             .args(args)
             .current_dir(workdir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|source| SpawnError::Spawn {
-                command: command.join(" "),
-                source,
-            })?;
+            .stderr(Stdio::piped());
+        if let SpawnEnv::Exactly(table) = env {
+            builder.env_clear().envs(table);
+        }
+        let mut child = builder.spawn().map_err(|source| SpawnError::Spawn {
+            command: command.join(" "),
+            source,
+        })?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
         let mut stderr = child.stderr.take().expect("piped stderr");

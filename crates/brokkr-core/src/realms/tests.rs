@@ -36,6 +36,7 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 journal: None,
                 house: None,
                 dialect: None,
+                boundary: None,
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -92,14 +93,124 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v4"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v5"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v4'"),
+        refusal.contains("it calls itself 'forge.realms/v5'"),
         "{refusal}"
     );
     assert!(refusal.contains(SCHEMA_V1), "{refusal}");
     assert!(refusal.contains(SCHEMA_V2), "{refusal}");
     assert!(refusal.contains(SCHEMA_V3), "{refusal}");
+    assert!(refusal.contains(SCHEMA_V4), "{refusal}");
+}
+
+/// Decision 0046 ruling 1: the five words parse and display themselves;
+/// a sixth is refused with the five and the sentence that a new
+/// boundary is a new decision; the record's sentinel is read as an
+/// absence and never as a boundary; and the type offers no default — a
+/// reader of evidence that carries no word holds `None`.
+#[test]
+fn the_boundary_vocabulary_is_closed_and_lives_in_one_type() {
+    for (boundary, word) in
+        BOUNDARIES
+            .into_iter()
+            .zip(["namespace", "seatbelt", "container", "harness", "open"])
+    {
+        assert_eq!(boundary.word(), word);
+        assert_eq!(boundary.to_string(), word);
+        assert_eq!(word.parse::<Boundary>(), Ok(boundary));
+        assert_eq!(Boundary::from_recorded(word), Some(Some(boundary)));
+        assert_eq!(Boundary::recorded(Some(boundary)), word);
+        assert_eq!(
+            boundary.is_boxed(),
+            matches!(
+                boundary,
+                Boundary::Namespace | Boundary::Seatbelt | Boundary::Container
+            )
+        );
+    }
+    let refusal = "chroot".parse::<Boundary>().unwrap_err().to_string();
+    assert!(
+        refusal.starts_with("'chroot' is not a boundary"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("namespace, seatbelt, container, harness and open"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("a new boundary is a new decision (decision 0046 ruling 1)"),
+        "{refusal}"
+    );
+    assert_eq!(Boundary::recorded(None), NOT_APPLICABLE);
+    assert_eq!(Boundary::from_recorded(NOT_APPLICABLE), Some(None));
+    assert_eq!(Boundary::from_recorded("chroot"), None);
+    let absent: Option<Boundary> = serde_json::from_value(json!(null)).unwrap();
+    assert_eq!(absent, None);
+    assert_eq!(
+        serde_json::to_value(Boundary::Harness).unwrap(),
+        json!("harness")
+    );
+}
+
+/// Decision 0046 ruling 1, the map loader: a v4 map declaring the five
+/// words loads and each realm reports its word; a v4 realm without the
+/// field, and a v3 realm, resolve to `namespace`; the word under a v3
+/// label is refused naming the realm, the field and v4; an unknown word
+/// in a v4 map is refused naming the realm and the five words.
+#[test]
+fn a_v4_map_declares_the_boundary_and_older_labels_refuse_it() {
+    let realm = |name: &str, boundary: Option<&str>| {
+        let mut realm = json!({"name": name, "path": name, "default_branch": "main"});
+        if let Some(word) = boundary {
+            realm["boundary"] = json!(word);
+        }
+        realm
+    };
+    let five: Vec<Value> = BOUNDARIES
+        .iter()
+        .map(|boundary| realm(boundary.word(), Some(boundary.word())))
+        .chain([realm("plain", None)])
+        .collect();
+    let map = json!({"schema": SCHEMA_V4, "realms": five, "journal": "forge.db"});
+    let (map, _) = RealmMap::parse("realms.json", &map.to_string()).unwrap();
+    for (realm, boundary) in map.realms.iter().zip(BOUNDARIES) {
+        assert_eq!(realm.boundary, Some(boundary));
+        assert_eq!(realm.boundary(), boundary);
+    }
+    let plain = map.realms.last().unwrap();
+    assert_eq!(plain.boundary, None);
+    assert_eq!(plain.boundary(), Boundary::Namespace);
+
+    let v3 = json!({"schema": SCHEMA_V3, "realms": [realm("app", None)], "journal": "forge.db"});
+    let (v3, _) = RealmMap::parse("realms.json", &v3.to_string()).unwrap();
+    assert_eq!(v3.realms[0].boundary(), Boundary::Namespace);
+
+    let under_v3 = json!({"schema": SCHEMA_V3, "realms": [realm("app", Some("harness"))], "journal": "forge.db"});
+    let held = refusal(&under_v3.to_string());
+    assert!(
+        held.contains("realm 'app' names its boundary, which is forge.realms/v4 vocabulary"),
+        "{held}"
+    );
+    assert!(held.contains("calling itself forge.realms/v3"), "{held}");
+
+    let unknown = json!({"schema": SCHEMA_V4, "realms": [realm("app", Some("chroot"))], "journal": "forge.db"});
+    let sixth = refusal(&unknown.to_string());
+    assert!(
+        sixth.contains("realm 'app' declares boundary 'chroot' is not a boundary"),
+        "{sixth}"
+    );
+    assert!(
+        sixth.contains("namespace, seatbelt, container, harness and open"),
+        "{sixth}"
+    );
+    // A shape other than a string is the malformed-map refusal, as for
+    // every other field; the word is judged only where one was written.
+    let mut numbered = realm("app", None);
+    numbered["boundary"] = json!(7);
+    let shaped = json!({"schema": SCHEMA_V4, "realms": [numbered], "journal": "forge.db"});
+    let malformed = refusal(&shaped.to_string());
+    assert!(malformed.contains("not a readable"), "{malformed}");
 }
 
 #[test]
@@ -355,4 +466,27 @@ fn a_record_that_is_not_a_head_map_answers_nothing() {
     assert_eq!(recorded_head(&json!({}), None), None);
     assert_eq!(recorded_head(&json!({"brokkr": 7}), Some("brokkr")), None);
     assert_eq!(recorded_head(&json!({"brokkr": 7}), None), None);
+}
+
+#[test]
+fn the_record_serde_helper_round_trips_words_and_the_sentinel_without_defaulting() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Record {
+        #[serde(with = "super::recorded_boundary")]
+        boundary: Option<Boundary>,
+    }
+    for boundary in BOUNDARIES.into_iter().map(Some).chain([None]) {
+        let record = Record { boundary };
+        let value = serde_json::to_value(&record).unwrap();
+        assert_eq!(value, json!({"boundary": Boundary::recorded(boundary)}));
+        assert_eq!(serde_json::from_value::<Record>(value).unwrap(), record);
+    }
+    for value in [
+        json!({}),
+        json!({"boundary": null}),
+        json!({"boundary": "chroot"}),
+    ] {
+        assert!(serde_json::from_value::<Record>(value).is_err());
+    }
+    assert!(serde_json::from_value::<Boundary>(json!("not applicable")).is_err());
 }

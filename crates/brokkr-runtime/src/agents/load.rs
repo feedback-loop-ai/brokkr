@@ -18,8 +18,8 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::{
-    valid_name, Adapter, Agent, EgressClass, McpNeed, McpSupport, ToolPermissions, TrustTier,
-    NAME_GRAMMAR,
+    valid_name, Adapter, Agent, EgressClass, HarnessHands, McpNeed, McpSupport, ResultDoor,
+    ToolPermissions, TrustTier, NAME_GRAMMAR,
 };
 use crate::bundle::Limits;
 
@@ -855,26 +855,29 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // with decision 0043, and an adapter written before it — including
     // every `brokkr init` scaffold in the field — must keep compiling.
     // Absent reads as unsupported with no reason, fail-closed.
-    let (hands, hands_gap) = match map.get("hands").map(|_| capability(map, "hands", &what)) {
-        None | Some(Ok(None)) => (None, None),
-        Some(Err(error)) => return Err(error),
-        Some(Ok(Some(value))) => {
-            let raw = object(value, &format!("{what} 'hands'"))?;
-            if raw.contains_key("unsupported") {
-                only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
-                (
-                    None,
-                    Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
-                )
-            } else {
-                only_keys(raw, &["workspace"], &format!("{what} 'hands'"))?;
-                (
-                    Some(string_array(raw, "workspace", &format!("{what} 'hands'"))?),
-                    None,
-                )
+    let (hands, hands_gap, harness) =
+        match map.get("hands").map(|_| capability(map, "hands", &what)) {
+            None | Some(Ok(None)) => (None, None, HarnessHands::default()),
+            Some(Err(error)) => return Err(error),
+            Some(Ok(Some(value))) => {
+                let raw = object(value, &format!("{what} 'hands'"))?;
+                if raw.contains_key("unsupported") {
+                    only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
+                    (
+                        None,
+                        Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
+                        HarnessHands::default(),
+                    )
+                } else {
+                    only_keys(raw, &["workspace", "harness"], &format!("{what} 'hands'"))?;
+                    (
+                        Some(string_array(raw, "workspace", &format!("{what} 'hands'"))?),
+                        None,
+                        harness_hands(raw, &what)?,
+                    )
+                }
             }
-        }
-    };
+        };
     Ok(Adapter {
         provider,
         trust_tier: trust_tier(map, &what)?,
@@ -893,7 +896,76 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         tool_permissions_gap,
         hands,
         hands_gap,
+        harness,
         mcp,
         digest: sha256_bytes(&std::fs::read(path)?),
+    })
+}
+
+/// The two workspace tokens the engine expands only where it serves the
+/// workspace tool; under `harness` none is served, so a fragment that
+/// names one is a fragment that would run with a literal token in it.
+const WORKSPACE_TOKENS: [&str; 2] = ["{hands_mcp_json}", "{hands_args_toml}"];
+
+/// An adapter's `hands.harness` (decision 0046 ruling 4): an object of
+/// at most three members — `gate` and `work`, each an argv fragment or
+/// `{"unsupported": "<measured reason>"}` on the three-shape convention
+/// `tool_permissions` uses, an absent member reading unsupported with
+/// no reason; and `result`, `file` or `last-message`, absent reading
+/// `file`. A fragment may carry `{result_path}` and `{brokkr}`, which
+/// the engine expands at spawn, and may not carry a workspace token.
+fn harness_hands(hands: &Map<String, Value>, what: &str) -> Result<HarnessHands, LibraryError> {
+    let Some(declared) = hands.get("harness") else {
+        return Ok(HarnessHands::default());
+    };
+    let what = format!("{what} 'hands.harness'");
+    let raw = object(declared, &what)?;
+    only_keys(raw, &["gate", "work", "result"], &what)?;
+    let member = |name: &str| -> Result<(Option<Vec<String>>, Option<String>), LibraryError> {
+        let what = format!("{what}.{name}");
+        match raw.get(name) {
+            None => Ok((None, None)),
+            Some(Value::Object(shape)) => {
+                only_keys(shape, &["unsupported"], &what)?;
+                Ok((None, Some(string(shape, "unsupported", &what)?)))
+            }
+            Some(_) => {
+                let fragment = string_array(raw, name, &what)?;
+                if let Some(token) = fragment
+                    .iter()
+                    .find(|token| WORKSPACE_TOKENS.iter().any(|name| token.contains(name)))
+                {
+                    return invalid(format!(
+                        "{what} names '{token}', but no workspace tool is served under the \
+                         `harness` boundary — a fragment there may carry {{result_path}} and \
+                         {{brokkr}} and nothing of the box's (decision 0046 ruling 4)"
+                    ));
+                }
+                Ok((Some(fragment), None))
+            }
+        }
+    };
+    let (gate, gate_gap) = member("gate")?;
+    let (work, work_gap) = member("work")?;
+    let result = match raw.get("result") {
+        None => ResultDoor::File,
+        Some(_) => match string(raw, "result", &format!("{what}.result"))?.as_str() {
+            "file" => ResultDoor::File,
+            "last-message" => ResultDoor::LastMessage,
+            other => {
+                return invalid(format!(
+                    "{what}.result is '{other}'; a gate's result reaches the engine through \
+                     'file' (the seat writes it) or 'last-message' (the harness's capture \
+                     writes the final message to it) and nothing else"
+                ))
+            }
+        },
+    };
+    Ok(HarnessHands {
+        gate,
+        gate_gap,
+        work,
+        work_gap,
+        result,
     })
 }

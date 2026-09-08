@@ -84,14 +84,45 @@ gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 Put the binary somewhere on your `PATH`. The rest of this guide assumes
 plain `brokkr`.
 
-The shipped verify and ship gates also require Linux with bubblewrap
-0.10 or newer on `PATH` (`bwrap --version`). Their boundary is never
-simulated: a run refuses at start when bubblewrap is unavailable. macOS
-and Windows adopters need a Linux box for those gates today. Decision
-0046 (accepted 2026-09-05) names the boundary a realm runs under and
-adds a `harness` boundary that lets every shipped bundle run on every
-OS, judged under the harness's own sandbox and marked unboxed; its
-first slice is the road out of this paragraph.
+Every shipped bundle boxes its verify and ship gates, and what stands
+between a boxed seat's hands and your machine is the realm's
+**boundary** (decision
+[0046](../decisions/0046-the-boundary-is-named.md), accepted
+2026-09-05) — one word in `realms.json` beside `house` and `dialect`,
+never in a bundle. The default, and what every bundle meant before the
+word existed, is `namespace`: decision 0043's empty-root box built by
+bubblewrap 0.10 or newer on `PATH` (`bwrap --version`), on Linux and
+WSL2. That boundary is never simulated: a run under it refuses at start
+when bubblewrap is unavailable, naming the seats that need it. A realm
+on macOS or Windows declares `"boundary": "harness"` today, under
+`forge.realms/v4`, and then Brokkr builds no box at all: a model gate
+is judged under the harness's own sandbox as the adapter's
+`hands.harness` fragment addresses it, an exec gate runs the bundle's
+own pinned script with the environment cleared, and every readout —
+the run header, `brokkr seats`, the TUI, the web console and the
+delivery gate's check summary on the pull request — renders such a run
+*unboxed*. `open`, nothing at all, is the fifth word; `seatbelt` (the
+same box built by macOS's `sandbox-exec`) and `container` (a pinned
+image) are named by the decision and refuse at start until slices (ii)
+and (iii) build them. `brokkr doctor` prints one `boundaries` line
+saying which this machine offers.
+
+Which shipped bundles run under `harness` today is a fact of the tree,
+not a promise: the nine whose hands sites are their own `./` exec gates
+compile — `recipes/fast`, `recipes/node`, `recipes/preflight`,
+`recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
+`recipes/wager-harness-dsh`, `recipes/wager-harness-muse` and
+`bundles/verify`. Four refuse, each naming the ground the compiler
+reaches first: `bundles/self` and `recipes/panel-review` because their
+reviewer's chain reaches claude and `adapters/claude.json` declares no
+`hands.harness.gate` until the operator's measurement lands (see
+[provider adapters](provider-adapters.md)); `recipes/triage` and
+`recipes/night-shift` because their `analyze:check` dialect step is an
+exec gate whose argv is not the bundle's own script, refused under
+`harness` and `open` until a decision admits it — and, once it is,
+still on the claude ground until that measurement lands. The pin test
+in `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the
+record of that split.
 
 ```
 $ brokkr --version
@@ -541,6 +572,11 @@ Not an escape hatch so much as the next experiment:
 brokkr rerun --run <id> --recipe panel-review   # same feature, other strategy, new run id
 brokkr compare <a> <b>                          # trails, first divergence, per-seat costs
 ```
+
+The rerun compiles the new recipe in the discovered realm exactly as
+`run` does: its manifest carries the realms pin, the dialect and the
+boundary of the world it starts in, and it is judged against this
+machine's `boundaries` line the same way.
 
 ### What it cost
 

@@ -124,7 +124,6 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
     SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command,
-        confine: None,
         candidates,
     }
 }
@@ -137,6 +136,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
         cost: String::new(),
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
+        boundary: Boundary::Namespace,
         chain: Vec::new(),
         machine: machine(),
         seats,
@@ -259,6 +259,8 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
         effort: Some("medium".into()),
         provider: "codex".into(),
         argv: command,
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
     };
     // The first link fails to START on its first invocation and behaves
     // on every one after it: that is what lets the second link open a

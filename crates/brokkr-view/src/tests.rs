@@ -1144,13 +1144,16 @@ fn panel_and_terminal_rows_aggregate_one_or_several_served_models() {
     };
 
     let one = run_view(&with_models("model-a"), None);
-    assert_eq!(one.participants[0].model.text, "model-a");
-    assert_eq!(one.journal.last().unwrap().model.text, "model-a");
+    assert_eq!(one.participants[0].served.model.text, "model-a");
+    assert_eq!(one.journal.last().unwrap().served.model.text, "model-a");
 
     let several = run_view(&with_models("model-b"), None);
-    assert_eq!(several.participants[0].model.text, "model-a, model-b");
     assert_eq!(
-        several.journal.last().unwrap().model.text,
+        several.participants[0].served.model.text,
+        "model-a, model-b"
+    );
+    assert_eq!(
+        several.journal.last().unwrap().served.model.text,
         "model-a, model-b"
     );
 }
@@ -2403,26 +2406,29 @@ fn served_model_is_distinct_from_selection_and_reaches_every_view_model() {
     ];
     let view = run_view(&events, None);
     let participant = &view.participants[0];
-    assert_eq!(participant.model.text, "claude-fable-5-1");
+    assert_eq!(participant.served.model.text, "claude-fable-5-1");
     assert_eq!(
         participant.provenance.as_ref().unwrap().model,
         "abstract-choice"
     );
-    assert_eq!(participant.checkpoints[0].model.text, "claude-fable-5-1");
     assert_eq!(
-        view.phases[0].columns[0].nodes[0].model.text,
+        participant.checkpoints[0].served.model.text,
         "claude-fable-5-1"
     );
-    assert_eq!(view.journal[3].model.text, "claude-fable-5-1");
-    assert_eq!(view.journal[4].model.text, "claude-fable-5-1");
+    assert_eq!(
+        view.phases[0].columns[0].nodes[0].served.model.text,
+        "claude-fable-5-1"
+    );
+    assert_eq!(view.journal[3].served.model.text, "claude-fable-5-1");
+    assert_eq!(view.journal[4].served.model.text, "claude-fable-5-1");
 }
 
 #[test]
 fn old_journals_keep_model_absent_instead_of_borrowing_the_selected_pin() {
     let view = run_view(&adopting_journal(), None);
     let participant = &view.participants[0];
-    assert!(participant.model.absent);
-    assert_eq!(participant.model.text, ABSENT);
+    assert!(participant.served.model.absent);
+    assert_eq!(participant.served.model.text, ABSENT);
     assert_eq!(participant.provenance.as_ref().unwrap().model, "opus");
 }
 
@@ -2963,6 +2969,525 @@ fn a_cache_only_record_is_usage_without_a_total() {
         finish_usage(TokenUsage::default()).is_none(),
         "a record reporting nothing is not usage"
     );
+}
+
+// ------------------------------ decision 0046 ruling 3: the boundary
+
+/// The manifest of a bundle that boxes its `verify` seat: `hands` is the
+/// one key the view reads, and only for the run-level boolean. The
+/// `boundary` map beside it is deliberately present so a test can prove
+/// no cell was ever read from it.
+fn boxed_manifest() -> Value {
+    json!({"hands": {"verify": {"binds": []}}, "boundary": {"verify": "namespace"}})
+}
+
+/// A manifest that boxes nothing: no `hands` key at all.
+fn plain_manifest() -> Value {
+    json!({"agents": {}})
+}
+
+fn entry(member: Option<&str>, word: &str, gate: bool) -> Value {
+    json!({"member": member, "boundary": word, "gate": gate})
+}
+
+/// A `verify` seat with three turns under one attempt. `entries` is the
+/// attempt's `effect/started.boundary` (absent when null), and `stamp`
+/// is the word the engine wrote beside every record that names a model
+/// (design DD19) — absent for a journal written before this change.
+/// The first turn names no model, so its row can only read the site's
+/// entry, never a stamp.
+fn boxed_journal(manifest: Value, entries: Value, stamp: Option<&str>) -> Vec<EventEnvelope> {
+    let stamped = |mut record: Value| {
+        if let Some(word) = stamp {
+            record["boundary"] = json!(word);
+        }
+        record
+    };
+    let mut started = json!({"effect_id": "eff1", "attempt_id": "att1"});
+    if !entries.is_null() {
+        started["boundary"] = entries;
+    }
+    vec![
+        ev(
+            1,
+            EventType::RunStarted,
+            json!({"feature": "box it", "manifest": manifest}),
+            T0,
+        ),
+        ev(2, EventType::PhaseEntered, json!({"phase": "verify"}), T0),
+        ev(
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "verify", "phase": "verify"}),
+            T0,
+        ),
+        ev(4, EventType::EffectStarted, started, T0),
+        ev(
+            5,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": {"step": "seat-turn", "turn": 1, "tool": "Read"}}),
+            T0,
+        ),
+        ev(
+            6,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": stamped(json!({"step": "seat-turn", "turn": 2, "tool": "Read",
+                                                "model": "claude-fable-5-1"}))}),
+            T0,
+        ),
+        ev(
+            7,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": stamped(json!({"step": "seat-turn", "turn": 3, "tool": "Bash",
+                                                "model": "claude-fable-5-1"}))}),
+            T1,
+        ),
+        ev(
+            8,
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": stamped(json!({"step": "claude-session-finished",
+                                                "model": "claude-fable-5-1",
+                                                "total_cost_usd": 0.01}))}),
+            T1,
+        ),
+        ev(
+            9,
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "result": stamped(json!({"result": "pass", "model": "claude-fable-5-1"}))}),
+            T2,
+        ),
+    ]
+}
+
+fn absent_with_note(cell: &Cell, note: &str) -> bool {
+    cell.absent && cell.text == ABSENT && cell.note.as_deref() == Some(note)
+}
+
+/// A boxed gate seat that started under `harness`: its participant's
+/// cell reads the plain word beside its model, and the run is rendered
+/// unboxed from that one entry.
+#[test]
+fn a_boxed_seats_row_carries_the_word() {
+    let events = boxed_journal(
+        boxed_manifest(),
+        json!([entry(None, "harness", true)]),
+        Some("harness"),
+    );
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert_eq!(seat.served.model.text, "claude-fable-5-1");
+    assert_eq!(seat.served.boundary.text, "harness");
+    assert!(!seat.served.boundary.absent);
+    assert!(seat.served.boundary.note.is_none());
+    assert_eq!(view.boundary.word.text, "harness");
+    assert!(view.boundary.unboxed);
+    assert_eq!(view.boundary.text, "harness · unboxed");
+}
+
+/// Every model cell has a boundary cell beside it reading the same
+/// word: the participant, its phase-rail node, each of its checkpoint
+/// rows — including the turn that named no model and therefore reads
+/// the attempt's entry — and every journal row of its effect. A
+/// `run/started` row belongs to no effect and reads the absence.
+#[test]
+fn every_model_cell_has_a_boundary_cell_beside_it() {
+    let events = boxed_journal(
+        boxed_manifest(),
+        json!([entry(None, "namespace", true)]),
+        Some("namespace"),
+    );
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert_eq!(seat.served.boundary.text, "namespace");
+    assert_eq!(
+        view.phases[0].columns[0].nodes[0].served.boundary.text,
+        "namespace"
+    );
+    assert_eq!(seat.checkpoints.len(), 4);
+    for row in &seat.checkpoints {
+        assert_eq!(row.served.boundary.text, "namespace", "{}", row.step);
+    }
+    assert!(seat.checkpoints[0].served.model.absent);
+    for row in &view.journal[2..] {
+        assert_eq!(row.served.boundary.text, "namespace", "seq {}", row.seq);
+    }
+    assert!(absent_with_note(
+        &view.journal[0].served.boundary,
+        NO_BOUNDARY
+    ));
+    assert!(absent_with_note(
+        &view.journal[1].served.boundary,
+        NO_BOUNDARY
+    ));
+    assert_eq!(view.boundary.text, "namespace");
+    assert!(!view.boundary.unboxed);
+}
+
+/// A journal written before this change whose manifest boxes a seat:
+/// no entry and no stamp anywhere, so every cell renders the one
+/// absence, the run-level fact does too, and nothing reads `namespace`
+/// — not even from the manifest that names it.
+#[test]
+fn a_pre_0046_journal_renders_absence() {
+    let events = boxed_journal(boxed_manifest(), Value::Null, None);
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert_eq!(seat.served.model.text, "claude-fable-5-1");
+    assert!(absent_with_note(&seat.served.boundary, NO_BOUNDARY));
+    assert!(absent_with_note(
+        &view.phases[0].columns[0].nodes[0].served.boundary,
+        NO_BOUNDARY
+    ));
+    for row in &seat.checkpoints {
+        assert!(absent_with_note(&row.served.boundary, NO_BOUNDARY));
+    }
+    for row in &view.journal {
+        assert!(absent_with_note(&row.served.boundary, NO_BOUNDARY));
+    }
+    assert!(absent_with_note(&view.boundary.word, NO_BOUNDARY));
+    assert!(!view.boundary.unboxed);
+    assert_eq!(view.boundary.text, "not recorded");
+    // No surface prints `namespace` for it: the cells carry none. (The
+    // journal rows' verbatim payloads carry the manifest, which is the
+    // record, not a cell.)
+    let json = serde_json::to_value(&view).unwrap();
+    let cells = format!(
+        "{}{}{}",
+        json["participants"], json["boundary"], json["phases"]
+    );
+    assert!(!cells.contains("namespace"), "{cells}");
+}
+
+/// A site without hands journals no entry; its finishing checkpoint
+/// carries the engine's stamp, and the cell reads that stamp — while the
+/// manifest beside it names `namespace`, which nothing reads.
+#[test]
+fn a_site_without_hands_reads_not_applicable_from_its_record() {
+    let events = boxed_journal(boxed_manifest(), Value::Null, Some("not applicable"));
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert_eq!(seat.served.boundary.text, "not applicable");
+    assert!(!seat.served.boundary.absent);
+    // The run-level fact reads entries alone: with none, the run that
+    // declares hands is not recorded — the stamp never boxes a run.
+    assert!(absent_with_note(&view.boundary.word, NO_BOUNDARY));
+    assert_eq!(view.boundary.text, "not recorded");
+}
+
+/// A journal whose manifest carries no `hands` key at all: absence on
+/// every seat, `not applicable` nowhere, and no run-level fact.
+#[test]
+fn an_old_plain_journal_renders_absence_and_no_run_level_fact() {
+    let events = boxed_journal(plain_manifest(), Value::Null, None);
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert!(absent_with_note(&seat.served.boundary, NO_BOUNDARY));
+    let json = serde_json::to_string(&serde_json::to_value(&view).unwrap()).unwrap();
+    assert!(!json.contains("not applicable"), "{json}");
+    assert!(view.boundary.word.absent);
+    assert_eq!(view.boundary.word.text, ABSENT);
+    assert!(view.boundary.word.note.is_none());
+    assert!(!view.boundary.unboxed);
+    assert_eq!(view.boundary.text, "");
+}
+
+/// A hands-less seat whose attempt has started and whose finishing
+/// record has not landed: the absence, never `namespace` and never
+/// `not applicable`.
+#[test]
+fn a_hands_less_seat_still_running_renders_absence() {
+    let mut events = boxed_journal(boxed_manifest(), Value::Null, Some("not applicable"));
+    events.truncate(5);
+    let view = run_view(&events, None);
+    let seat = &view.participants[0];
+    assert_eq!(seat.status, "working");
+    assert!(absent_with_note(&seat.served.boundary, NO_BOUNDARY));
+    assert!(absent_with_note(
+        &seat.checkpoints[0].served.boundary,
+        NO_BOUNDARY
+    ));
+}
+
+/// Design DD14: an entry whose word is outside the six, one without its
+/// `member` key, and one without a word are all not recorded — the
+/// site's cell is absent, the run is not unboxed on their account, and
+/// no cell prints the word. A stamp outside the vocabulary is refused
+/// the same way.
+#[test]
+fn an_entry_outside_the_vocabulary_is_not_recorded() {
+    for entries in [
+        json!([entry(None, "chroot", true)]),
+        json!([{"boundary": "harness", "gate": true}]),
+        json!([{"member": null, "gate": true}]),
+        json!("harness"),
+    ] {
+        let events = boxed_journal(boxed_manifest(), entries.clone(), Some("chroot"));
+        let view = run_view(&events, None);
+        let seat = &view.participants[0];
+        assert!(
+            absent_with_note(&seat.served.boundary, NO_BOUNDARY),
+            "{entries}"
+        );
+        assert!(!view.boundary.unboxed, "{entries}");
+        assert!(absent_with_note(&view.boundary.word, NO_BOUNDARY));
+        assert_eq!(view.boundary.text, "not recorded");
+        for row in &seat.checkpoints {
+            assert!(absent_with_note(&row.served.boundary, NO_BOUNDARY));
+        }
+    }
+    // An entry without `gate` is read, and reads as no gate.
+    let events = boxed_journal(
+        boxed_manifest(),
+        json!([{"member": null, "boundary": "open"}]),
+        Some("open"),
+    );
+    let view = run_view(&events, None);
+    assert_eq!(view.participants[0].served.boundary.text, "open");
+    assert!(!view.boundary.unboxed);
+    assert_eq!(view.boundary.text, "open");
+}
+
+/// The wire: version 10 — two shape changes met in one merge, decision
+/// 0046's boundary cells and decision 0047's supersede marks, and each
+/// had independently claimed 9 — with `model` and `boundary` as siblings
+/// on every carrier, the run-level fact at the root, and every absence a
+/// null-bearing cell rather than a skipped key.
+#[test]
+fn the_wire_version_moves() {
+    assert_eq!(VIEW_VERSION, 10);
+    let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(json["view_version"], 10);
+    let seat = &json["participants"][0];
+    assert_eq!(seat["model"]["text"], "claude-fable-5-1");
+    assert_eq!(seat["boundary"]["absent"], json!(true));
+    assert_eq!(seat["boundary"]["note"], NO_BOUNDARY);
+    assert!(seat.get("served").is_none(), "the unit is flattened");
+    assert!(seat["checkpoints"][0].get("boundary").is_some());
+    assert!(json["phases"][0]["columns"][0]["nodes"][0]
+        .get("boundary")
+        .is_some());
+    assert!(json["journal"][0].get("boundary").is_some());
+    assert_eq!(json["boundary"]["word"]["text"], ABSENT);
+    assert_eq!(json["boundary"]["word"]["note"], Value::Null);
+    assert!(json["boundary"]["word"].get("note").is_some());
+    assert_eq!(json["boundary"]["unboxed"], json!(false));
+    assert_eq!(json["boundary"]["text"], "");
+}
+
+/// The adjective: `harness` and `open` under a gate are unboxed; the
+/// three boxes render their word alone; a work-class seat under
+/// `harness` is not unboxed because no gate stood there; and a run
+/// whose boxed sites disagree names every word.
+#[test]
+fn a_run_is_unboxed_exactly_when_a_gate_stood_under_harness_or_open() {
+    let text_of = |word: &str, gate: bool| {
+        let view = run_view(
+            &boxed_journal(
+                boxed_manifest(),
+                json!([entry(None, word, gate)]),
+                Some(word),
+            ),
+            None,
+        );
+        (view.boundary.text, view.boundary.unboxed)
+    };
+    assert_eq!(text_of("harness", true), ("harness · unboxed".into(), true));
+    assert_eq!(text_of("open", true), ("open · unboxed".into(), true));
+    assert_eq!(text_of("namespace", true), ("namespace".into(), false));
+    assert_eq!(text_of("seatbelt", true), ("seatbelt".into(), false));
+    assert_eq!(text_of("container", true), ("container".into(), false));
+    assert_eq!(text_of("harness", false), ("harness".into(), false));
+
+    // Two attempts, two words: the gate stood under `open` on the second.
+    let mut events = boxed_journal(
+        boxed_manifest(),
+        json!([entry(None, "namespace", true)]),
+        Some("namespace"),
+    );
+    events[3].payload["boundary"] = json!([entry(None, "open", true)]);
+    let view = run_view(&events, None);
+    assert_eq!(view.boundary.word.text, "open");
+    // An earlier attempt under `namespace`, before the one that ran.
+    events.insert(
+        3,
+        ev(
+            10,
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "att0",
+                   "boundary": [entry(None, "namespace", true)]}),
+            T0,
+        ),
+    );
+    let view = run_view(&events, None);
+    assert_eq!(view.boundary.word.text, "namespace, open");
+    assert_eq!(view.boundary.text, "namespace, open · unboxed");
+    // The participant's is the LAST attempt's, as provenance is.
+    assert_eq!(view.participants[0].served.boundary.text, "open");
+
+    // A run that boxes nothing prints nothing for it.
+    let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
+    assert_eq!(view.boundary.text, "");
+}
+
+/// A panel: each member's cell is its own site's entry; the parent seat
+/// has no site of its own and reports what its members reported,
+/// aggregated exactly as its model cell is. A member with neither an
+/// entry nor a stamp stays absent, and a journal row of a member's
+/// checkpoint reads that member's word.
+#[test]
+fn a_panel_parent_aggregates_its_members_boundaries_as_it_does_their_models() {
+    let mut events = panel_journal();
+    events[2].payload["boundary"] = json!([
+        entry(Some("simplicity"), "harness", false),
+        entry(Some("robustness"), "not applicable", false),
+    ]);
+    let view = run_view(&events, None);
+    let by_label = |label: &str| {
+        view.participants
+            .iter()
+            .find(|part| part.label == label)
+            .unwrap_or_else(|| panic!("{label}"))
+    };
+    assert_eq!(
+        by_label("design:simplicity").served.boundary.text,
+        "harness"
+    );
+    assert_eq!(
+        by_label("design:robustness").served.boundary.text,
+        "not applicable"
+    );
+    assert_eq!(
+        by_label("design").served.boundary.text,
+        "harness, not applicable"
+    );
+    // No gate stood under `harness`: the word alone.
+    assert_eq!(view.boundary.text, "harness");
+    let member_rows: Vec<&JournalRow> = view
+        .journal
+        .iter()
+        .filter(|row| row.event_type == "effect/checkpointed")
+        .collect();
+    assert!(!member_rows.is_empty());
+    for row in member_rows {
+        let member = serde_json::from_str::<Value>(&row.payload_json).unwrap()["checkpoint"]
+            ["member"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let expected = by_label(&format!("design:{member}"))
+            .served
+            .boundary
+            .text
+            .clone();
+        assert_eq!(row.served.boundary.text, expected, "seq {}", row.seq);
+    }
+
+    // A member the entries never name, with no stamp, is absent — and
+    // the parent aggregates only what was reported.
+    events[2].payload["boundary"] = json!([entry(Some("simplicity"), "namespace", true)]);
+    let view = run_view(&events, None);
+    let by_label = |label: &str| {
+        view.participants
+            .iter()
+            .find(|part| part.label == label)
+            .unwrap()
+    };
+    assert!(absent_with_note(
+        &by_label("design:robustness").served.boundary,
+        NO_BOUNDARY
+    ));
+    assert_eq!(by_label("design").served.boundary.text, "namespace");
+    assert_eq!(view.boundary.text, "namespace");
+}
+
+/// A successful result's stamp reaches the seat when no entry was
+/// journaled, and the terminal row reads it too.
+#[test]
+fn a_results_stamp_serves_the_seat_when_no_entry_was_journaled() {
+    let mut events = boxed_journal(boxed_manifest(), Value::Null, None);
+    events[8].payload["result"]["boundary"] = json!("container");
+    let view = run_view(&events, None);
+    assert_eq!(view.participants[0].served.boundary.text, "container");
+    assert_eq!(view.journal[8].served.boundary.text, "container");
+    // The checkpoint rows carry no stamp and the site no entry: absent.
+    for row in &view.participants[0].checkpoints {
+        assert!(absent_with_note(&row.served.boundary, NO_BOUNDARY));
+    }
+}
+
+#[test]
+fn retry_rows_keep_their_own_attempt_and_a_new_attempt_clears_old_boundary_evidence() {
+    let mut events = boxed_journal(
+        boxed_manifest(),
+        json!([entry(None, "namespace", true)]),
+        Some("open"),
+    );
+    // The entry is authoritative even when a foreign stamp disagrees.
+    let first = run_view(&events, None);
+    assert!(first.participants[0]
+        .checkpoints
+        .iter()
+        .all(|row| row.served.boundary.text == "namespace"));
+    assert_eq!(
+        first.journal.last().unwrap().served.boundary.text,
+        "namespace"
+    );
+    events.push(ev(
+        10,
+        EventType::EffectStarted,
+        json!({"effect_id":"eff1", "attempt_id":"att2", "boundary":[entry(None, "harness", true)]}),
+        T2,
+    ));
+    events.push(ev(11, EventType::EffectCheckpointed, json!({"effect_id":"eff1", "attempt_id":"att2", "checkpoint":{"step":"seat-turn", "turn":1}}), T2));
+    let retried = run_view(&events, None);
+    assert_eq!(retried.participants[0].served.boundary.text, "harness");
+    assert_eq!(
+        retried.participants[0].checkpoints[0].served.boundary.text,
+        "namespace"
+    );
+    assert_eq!(
+        retried.participants[0]
+            .checkpoints
+            .last()
+            .unwrap()
+            .served
+            .boundary
+            .text,
+        "harness"
+    );
+    assert_eq!(retried.journal[8].served.boundary.text, "namespace");
+    assert_eq!(retried.journal[10].served.boundary.text, "harness");
+    events.push(ev(
+        12,
+        EventType::EffectStarted,
+        json!({"effect_id":"eff1", "attempt_id":"att3"}),
+        T2,
+    ));
+    // A late old checkpoint cannot provide the new attempt's fallback.
+    events.push(ev(13, EventType::EffectCheckpointed, json!({"effect_id":"eff1", "attempt_id":"att1", "checkpoint":{"step":"seat-turn", "turn":4, "model":"m", "boundary":"namespace"}}), T2));
+    let absent = run_view(&events, None);
+    assert!(absent_with_note(
+        &absent.participants[0].served.boundary,
+        NO_BOUNDARY
+    ));
+    assert!(absent_with_note(
+        &absent.journal[11].served.boundary,
+        NO_BOUNDARY
+    ));
+    assert_eq!(absent.journal[12].served.boundary.text, "namespace");
+    events.push(ev(14, EventType::EffectCheckpointed, json!({"effect_id":"eff1", "attempt_id":"att3", "checkpoint":{"step":"seat-turn", "turn":1, "model":"m", "boundary":"not applicable"}}), T2));
+    let stamped = run_view(&events, None);
+    assert_eq!(
+        stamped.participants[0].served.boundary.text,
+        "not applicable"
+    );
+    assert_eq!(stamped.journal[13].served.boundary.text, "not applicable");
 }
 
 /// One `operator/commanded` carrying a supersede annotation, as

@@ -4,6 +4,8 @@
 //! a release is gone; one bin target enters here (ruling 9).
 
 mod agents;
+mod boundary;
+mod cli_args;
 mod compare;
 mod doctor;
 mod init;
@@ -26,6 +28,7 @@ use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use clap::{ArgGroup, Parser, Subcommand};
+use cli_args::*;
 use serde_json::{json, Value};
 
 /// The workspace journal a command opens when neither a map nor `--db`
@@ -70,39 +73,15 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Scaffold a minimal reviewable bundle and prove it compiles.
-    Init { dir: PathBuf },
+    Init(InitArgs),
     /// Per-seat cost and session accounting from journal checkpoints —
     /// the LaneTally join surface (stable seat ids, journal-derived).
-    Costs {
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-    },
+    Costs(CostsArgs),
     /// Render the shipper's delivery ledger from journal and repository evidence.
-    Ledger {
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        /// Write `.forge/ledger/<run>.md` here; without it, print the ledger.
-        #[arg(long)]
-        repo: Option<PathBuf>,
-    },
+    Ledger(LedgerArgs),
     /// Anchor a run's journal head in refs/forge/<run> (tamper evidence),
     /// or verify the existing anchor with --check.
-    Anchor {
-        /// Full run id, a unique run-id prefix, or `latest`.
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        #[arg(long, default_value = ".")]
-        repo: PathBuf,
-        /// Verify instead of writing a new anchor.
-        #[arg(long)]
-        check: bool,
-    },
+    Anchor(AnchorArgs),
     /// Keep-refs (decision 0028): the git objects a run's journal cites,
     /// held by refs/forge/keep/<run>/<sha> so a squash-merge, a branch
     /// delete and a gc cannot collect the evidence the journal names.
@@ -114,142 +93,31 @@ enum Cmd {
         command: KeepRefsCmd,
     },
     /// Serve the embedded read-only surface on loopback.
-    Ui {
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        #[arg(long, default_value_t = 8383)]
-        port: u16,
-        /// Open the system browser after binding.
-        #[arg(long)]
-        open: bool,
-    },
+    Ui(UiArgs),
     /// Explore runs interactively in the terminal: the fleet as a
     /// navigable table, one run's phase graph, seats and decision
     /// trail, and one seat's own checkpoint and session stream.
     /// Read-only like every other readout (decision 0014) — it issues
     /// no operator commands and writes nothing to the journal.
-    Tui {
-        /// Full run id, a unique run-id prefix, or `latest`; opens
-        /// directly at that run's level.
-        #[arg(long)]
-        run: Option<String>,
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-    },
+    Tui(TuiArgs),
     /// Verify tools, drivers, the workspace database, and optionally a
     /// bundle, without executing any agent.
-    Doctor {
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-        /// The world's map whose realm house declarations doctor checks
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        /// Operator-side secrets store, so doctor can say which declared
-        /// credentials a route is taking from the ambient environment
-        /// instead (decision 0036 ruling 5).
-        #[arg(long, default_value = DEFAULT_SECRETS)]
-        secrets_file: PathBuf,
-    },
+    Doctor(DoctorArgs),
     /// Validate a bundle and print its pinned manifest and digest.
-    Compile {
-        #[arg(long)]
-        bundle: PathBuf,
-    },
+    Compile(CompileArgs),
     /// Start a new run and drive it until it parks or finishes.
     #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
-    Run {
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-        /// Named recipe, resolved to <recipes-dir>/<name>.
-        #[arg(long)]
-        recipe: Option<String>,
-        #[arg(long, default_value = "recipes")]
-        recipes_dir: PathBuf,
-        #[arg(long)]
-        feature: String,
-        /// The world's map: realms and the journal they share (decision
-        /// 0023). Defaults to ./realms.json when there is one; a map
-        /// named here and missing or malformed is a refusal, never a
-        /// silent fallback.
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        #[arg(long)]
-        repo: Option<PathBuf>,
-        /// Canonical forge-dispatch/v2 JSON. When present the run id,
-        /// Looper/grant correlation, recipe, repository, budget, and producer
-        /// bounds are pinned into an immutable run-manifest/v2.
-        #[arg(long)]
-        dispatch: Option<PathBuf>,
-        /// Operator-side secrets store for seats with declared bindings
-        /// (default <workdir>/.forge/secrets.env).
-        #[arg(long)]
-        secrets_file: Option<PathBuf>,
-    },
+    Run(RunArgs),
     /// Resume an existing run under its exact pinned bundle.
     #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
-    Resume {
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-        /// Named recipe, resolved to <recipes-dir>/<name>.
-        #[arg(long)]
-        recipe: Option<String>,
-        #[arg(long, default_value = "recipes")]
-        recipes_dir: PathBuf,
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        #[arg(long)]
-        repo: Option<PathBuf>,
-        /// Operator-side secrets store for seats with declared bindings
-        /// (default <workdir>/.forge/secrets.env).
-        #[arg(long)]
-        secrets_file: Option<PathBuf>,
-    },
+    Resume(ResumeArgs),
     /// Re-run a past run's feature as a NEW run under another bundle or
     /// recipe, so outcomes can be compared by run id. No stored linkage.
     #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
-    Rerun {
-        /// The source run whose feature is re-run.
-        #[arg(long)]
-        run: String,
-        #[arg(long)]
-        bundle: Option<PathBuf>,
-        /// Named recipe, resolved to <recipes-dir>/<name>.
-        #[arg(long)]
-        recipe: Option<String>,
-        #[arg(long, default_value = "recipes")]
-        recipes_dir: PathBuf,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        #[arg(long)]
-        repo: Option<PathBuf>,
-        /// Operator-side secrets store for seats with declared bindings
-        /// (default <workdir>/.forge/secrets.env).
-        #[arg(long)]
-        secrets_file: Option<PathBuf>,
-    },
+    Rerun(RerunArgs),
     /// Compare two runs' aligned outcomes: decision trails, first
     /// divergence, phases visited, per-seat costs. Read-only.
-    Compare {
-        run_a: String,
-        run_b: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-    },
+    Compare(CompareArgs),
     /// The recipe library: bundle directories as named, swappable
     /// delivery strategies.
     Recipes {
@@ -290,206 +158,49 @@ enum Cmd {
     /// dead: every write is fenced, so a journal that moves beneath the
     /// conclusion — something still driving the run — refuses instead
     /// of being closed over (decision 0029). Check `brokkr runs` first.
-    Conclude {
-        #[arg(long)]
-        run: String,
-        #[arg(long)]
-        reason: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-    },
+    Conclude(ConcludeArgs),
     /// Record an operator command (retry | stop | supersede) as journal
     /// events.
-    Operator {
-        #[arg(long)]
-        run: String,
-        /// "retry" re-runs the current phase; "stop" ends the run;
-        /// "supersede" records that residual findings on a run that has
-        /// already finished are closed by another run (decision 0047).
-        command: String,
-        #[arg(long)]
-        reason: String,
-        /// supersede only: the residual findings this closes, by the
-        /// sequence number of the ruling each was read from. Repeatable,
-        /// or one comma-separated list.
-        #[arg(long, value_delimiter = ',')]
-        findings: Vec<u64>,
-        /// supersede only: the run that closed them.
-        #[arg(long)]
-        by_run: Option<String>,
-        /// supersede only: the `transition/decided` in that run which
-        /// closed them.
-        #[arg(long)]
-        by_seq: Option<u64>,
-        /// supersede only: the realm that run was read in. Omitted for
-        /// the workspace journal, which is every one-hearth world.
-        #[arg(long)]
-        by_realm: Option<String>,
-        /// supersede only: the world's map, so a citation may name a
-        /// run in another hearth.
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        #[arg(long)]
-        db: Option<PathBuf>,
-    },
+    Operator(OperatorArgs),
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
     /// verbs the console's clicks became; `--json` emits the view model.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
-    Inspect {
-        /// Full run id, a unique run-id prefix, or `latest`.
-        #[arg(long)]
-        run: String,
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        /// Emit the view model verbatim — this is what scripts read.
-        #[arg(long)]
-        json: bool,
-        /// Scope the readout to one phase.
-        #[arg(long)]
-        phase: Option<String>,
-        /// Scope the readout to one seat, by label or participant key.
-        #[arg(long)]
-        seat: Option<String>,
-    },
+    Inspect(InspectArgs),
+    /// The seats of a run: the seats block `inspect` renders — every
+    /// seat's model with the boundary its hands stood behind beside it
+    /// (decision 0046 ruling 3) — from the same view. `--json` prints
+    /// that view verbatim, the bytes `inspect --json` prints.
+    Seats(SeatsArgs),
     /// Watch a run live: redraw the graph, seats, last ruling and seat
     /// activity whenever the journal head moves; exit when the run
     /// reaches a terminal status. Read-only, like every other readout.
-    Watch {
-        /// Full run id, a unique run-id prefix, or `latest`.
-        #[arg(long)]
-        run: String,
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        /// Print one frame and exit.
-        #[arg(long)]
-        once: bool,
-        /// Poll interval in milliseconds (floored at 100).
-        #[arg(long = "interval", default_value_t = 750)]
-        interval_ms: u64,
-    },
+    Watch(WatchArgs),
     /// Rebuild state from the journal twice and verify determinism.
-    Replay {
-        /// Full run id, a unique run-id prefix, or `latest`.
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-    },
+    Replay(ReplayArgs),
     /// Write the canonical NDJSON journal and pinned manifest.
-    Export {
-        /// Full run id, a unique run-id prefix, or `latest`.
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = ".")]
-        out: PathBuf,
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        /// Also write a sanitized copy for publishable fixtures —
-        /// `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` —
-        /// with every absolute path in event payloads rewritten to a
-        /// stable placeholder. The verbatim pair is written unchanged;
-        /// the redacted copy's recorded hashes no longer verify, and its
-        /// manifest says so.
-        #[arg(long)]
-        redact: bool,
-    },
+    Export(ExportArgs),
     /// Adopt an exported run into this journal, byte-identically — the
     /// verb paired with `export`. Journals never merge; one run
     /// relocates. Nothing lands unless the whole chain verifies, the
     /// events fold, the run_id does not already exist here, and the
     /// export is not a redacted derivative.
-    Import {
-        /// The exported `<run>.ndjson`. Its `<run>.manifest.json`
-        /// sidecar is read from beside it and must be there.
-        #[arg(long)]
-        from: PathBuf,
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The destination journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-    },
+    Import(ImportArgs),
     /// Verify an exported journal offline: chain, envelopes, fold.
-    VerifyRun { file: PathBuf },
+    VerifyRun(VerifyRunArgs),
     /// Synchronize a Looper-bound run over the authenticated producer API.
     /// The API key is read from an environment variable and is never stored.
-    Bridge {
-        #[arg(long)]
-        run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
-        #[arg(long)]
-        looper_url: String,
-        #[arg(long, default_value = "LOOPER_API_KEY")]
-        token_env: String,
-        /// Keep tailing the verified journal and command feed.
-        #[arg(long)]
-        follow: bool,
-        #[arg(long, default_value_t = 750)]
-        interval_ms: u64,
-    },
+    Bridge(BridgeArgs),
     /// List runs in the workspace database: one clamped line per run,
     /// newest first. `--json` emits the view model for scripts.
-    Runs {
-        /// The world's map — the journal it names is the one opened
-        /// (default ./realms.json when present).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        /// Emit the view model verbatim — this is what scripts read.
-        #[arg(long)]
-        json: bool,
-    },
+    Runs(RunsArgs),
     /// List the world (decision 0023): each realm with its path, default
     /// branch and current HEAD, and the journal the world writes.
     /// Read-only, like every other readout.
-    Realms {
-        /// The map to read (default ./realms.json).
-        #[arg(long)]
-        realms: Option<PathBuf>,
-        /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
-        #[arg(long)]
-        db: Option<PathBuf>,
-        /// Emit the view model verbatim — this is what scripts read.
-        #[arg(long)]
-        json: bool,
-    },
+    Realms(RealmsArgs),
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
-    Driver {
-        kind: String,
-        /// Arguments after -- pass to the agent CLI
-        /// (claude/lanetally/codex/dsh) or form the command template
-        /// (exec).
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
+    Driver(DriverArgs),
     /// The model's hands are one tool, and the tool runs in an empty root
     /// (decision 0043): serve the `workspace` tool over MCP on stdio, or
     /// run one command whole inside the same box.
@@ -499,24 +210,7 @@ enum Cmd {
     },
     /// (internal) Scripted forge-driver/v1 driver for machine proof.
     #[command(hide = true)]
-    FakeDriver {
-        #[arg(long)]
-        script: PathBuf,
-        #[arg(long)]
-        state: PathBuf,
-        /// The concrete model an adapter pinned (decision 0016). Echoed
-        /// back as a checkpoint so a proof can assert the pin actually
-        /// reached the driver rather than trusting the composed argv.
-        #[arg(long)]
-        model: Option<String>,
-        /// The concrete effort an adapter pinned (decision 0035 ruling
-        /// 5), taken and echoed on exactly the terms `--model` is: the
-        /// other half of the hire travels the same argv, so a fake seat
-        /// that could not be told its effort would prove the pin
-        /// reached the composed command and nothing further.
-        #[arg(long)]
-        effort: Option<String>,
-    },
+    FakeDriver(FakeDriverArgs),
 }
 
 #[derive(Subcommand)]
@@ -965,28 +659,7 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Decision 0043 ruling 7: a bundle whose seats box their hands refuses
-/// to start without bubblewrap, naming the seats — before any journal is
-/// opened or seat spawned. The boundary is Linux's and is never simulated.
-fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &std::ffi::OsStr) -> anyhow::Result<()> {
-    if bundle.hands.is_empty() {
-        return Ok(());
-    }
-    match brokkr_protocol::hands::bwrap_on(path) {
-        Ok(bwrap) => {
-            for (site, spec) in &bundle.hands {
-                brokkr_protocol::hands::overlay_supported(spec, &bwrap)
-                    .map_err(|reason| anyhow::anyhow!("seat '{site}': {reason}"))?;
-            }
-            Ok(())
-        }
-        Err(reason) => anyhow::bail!(
-            "{reason}; the seats {:?} declare hands and cannot run on this machine \
-             (decision 0043 ruling 7 — hands are a Linux boundary)",
-            bundle.hands.keys().collect::<Vec<_>>()
-        ),
-    }
-}
+use boundary::refuse_unboxable;
 
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
     if let Some(index) = args.iter().position(|arg| arg == "--") {
@@ -1710,12 +1383,18 @@ fn compile_in_realm(
         (Some(world), Some(realm)) => world.dialect_for_realm(realm)?,
         _ => None,
     };
+    // The realm's boundary, or `namespace` for a repository no map
+    // names (decision 0046 ruling 1): the one word the run stands under.
+    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
+        realm.boundary()
+    });
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
+        boundary,
     )?)
 }
 
@@ -1733,20 +1412,28 @@ fn compile_from_manifest(
         .pointer("/realms/realm")
         .and_then(Value::as_str)
         .unwrap_or("<unmapped>");
-    let dialect = world
+    let realm = world
         .map
         .realms
         .iter()
-        .find(|realm| realm.name == realm_name)
+        .find(|realm| realm.name == realm_name);
+    let dialect = realm
         .map(|realm| world.dialect_for_realm(realm))
         .transpose()?
         .flatten();
+    // The boundary the run was started under, read from the pinned
+    // world and never from the workspace's map as it stands today
+    // (decision 0046 ruling 1): a resume stands where the run stood.
+    let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
+        realm.boundary()
+    });
     Ok(Bundle::compile_with_realm(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
+        boundary,
     )?)
 }
 
@@ -1763,7 +1450,7 @@ fn run_with(
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<ExitCode>,
 ) -> Result<ExitCode> {
     match cli.command {
-        Cmd::Init { dir } => {
+        Cmd::Init(InitArgs { dir }) => {
             // The recipe lands in `dir`; the repository it describes is
             // the WORKSPACE, read for its manifests so the implement and
             // verify seats are told commands that would actually run
@@ -1786,18 +1473,22 @@ fn run_with(
                  the trust tier and the tool grants its seats run under",
                 dir.display()
             );
+            // Decision 0046: the scaffolded seats run under the realm's
+            // boundary, and `namespace` — the default — is the one that
+            // needs bubblewrap; a realm may declare `harness` instead.
             if let Err(reason) =
                 brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
             {
                 eprintln!(
                     "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
-                     declare hands and will refuse to run here — the shipped gates \
-                     require Linux with bubblewrap on PATH"
+                     declare hands and run under the realm's boundary — `namespace`, \
+                     the default, needs bubblewrap on PATH, and a realm may declare \
+                     `harness` instead (decision 0046)"
                 );
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Costs { run, db } => {
+        Cmd::Costs(CostsArgs { run, db }) => {
             let store = Store::open(&db)?;
             let events = store.load(&run)?;
             let (report, total) = compare::seat_costs(&events);
@@ -1811,7 +1502,7 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Ledger { run, db, repo } => {
+        Cmd::Ledger(LedgerArgs { run, db, repo }) => {
             anyhow::ensure!(
                 db.is_file(),
                 "journal does not exist: {}; ledger reads never create one",
@@ -1826,12 +1517,12 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Anchor {
+        Cmd::Anchor(AnchorArgs {
             run,
             db,
             repo,
             check,
-        } => {
+        }) => {
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             if check {
@@ -1844,11 +1535,11 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::KeepRefs { command } => keep_refs(command),
-        Cmd::Ui { db, port, open } => {
+        Cmd::Ui(UiArgs { db, port, open }) => {
             serve_ui(db, port, open)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Tui { run, realms, db } => {
+        Cmd::Tui(TuiArgs { run, realms, db }) => {
             let hearths = hearths_of(workspace, realms, db)?;
             // Selectors resolve through decision 0015's one resolver —
             // but resolving needs a store, and `brokkr tui` refuses a
@@ -1866,12 +1557,12 @@ fn run_with(
             };
             run_tui(hearths, run, tab)
         }
-        Cmd::Doctor {
+        Cmd::Doctor(DoctorArgs {
             bundle,
             realms,
             db,
             secrets_file,
-        } => {
+        }) => {
             let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file, realms.as_deref());
             println!("{}", report.render());
             Ok(if report.healthy {
@@ -1880,13 +1571,13 @@ fn run_with(
                 ExitCode::from(1)
             })
         }
-        Cmd::Compile { bundle } => {
+        Cmd::Compile(CompileArgs { bundle }) => {
             let world = World::discover(workspace, None)?;
             let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
             println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Run {
+        Cmd::Run(RunArgs {
             bundle,
             recipe,
             recipes_dir,
@@ -1896,7 +1587,7 @@ fn run_with(
             repo,
             dispatch,
             secrets_file,
-        } => {
+        }) => {
             // The map is read BEFORE anything is compiled, opened or
             // spawned: a named map that is missing or malformed ends the
             // invocation here, with no journal touched and no seat run.
@@ -1957,7 +1648,7 @@ fn run_with(
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }
-        Cmd::Resume {
+        Cmd::Resume(ResumeArgs {
             bundle,
             recipe,
             recipes_dir,
@@ -1965,7 +1656,7 @@ fn run_with(
             db,
             repo,
             secrets_file,
-        } => {
+        }) => {
             let store = Store::open(&db)?;
             let manifest = store.manifest(&run)?;
             let bundle = compile_from_manifest(
@@ -1979,7 +1670,7 @@ fn run_with(
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }
-        Cmd::Rerun {
+        Cmd::Rerun(RerunArgs {
             run,
             bundle,
             recipe,
@@ -1987,7 +1678,7 @@ fn run_with(
             db,
             repo,
             secrets_file,
-        } => {
+        }) => {
             let store = Store::open(&db)?;
             let events = store
                 .load(&run)
@@ -2001,9 +1692,24 @@ fn run_with(
                     anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
                 })?
                 .to_string();
-            let bundle = compile_in(workspace, &recipes::resolve(bundle, recipe, &recipes_dir)?)?;
+            // A rerun is a NEW run, and it stands where `run` stands
+            // (decision 0046 ruling 1; design DD6): the workspace map is
+            // discovered, the bundle compiles against the operated
+            // repository's realm — its boundary and its dialect — and
+            // the world is pinned into the new run's manifest. A rerun
+            // that ignored the realm's word would refuse on a `harness`
+            // Mac for want of bubblewrap, and run boxed on a `harness`
+            // Linux while the realm said otherwise.
+            let world = World::discover(workspace, None)?;
+            let operated_repo = repo.as_deref().unwrap_or(workspace);
+            let bundle = compile_in_realm(
+                workspace,
+                &recipes::resolve(bundle, recipe, &recipes_dir)?,
+                world.as_ref(),
+                operated_repo,
+            )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let mut engine = Engine::start(store, bundle, &feature, repo)?;
+            let mut engine = Engine::start_in_world(store, bundle, &feature, repo, world)?;
             engine.secrets_file = secrets_file;
             eprintln!(
                 "rerun of {run} as {} under {}",
@@ -2012,13 +1718,13 @@ fn run_with(
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }
-        Cmd::Conclude { run, reason, db } => {
+        Cmd::Conclude(ConcludeArgs { run, reason, db }) => {
             let mut store = Store::open(&db)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             let state = conclude(&mut store, &run, &operator, &reason)?;
             Ok(finish(&state))
         }
-        Cmd::Operator {
+        Cmd::Operator(OperatorArgs {
             run,
             command,
             reason,
@@ -2028,7 +1734,7 @@ fn run_with(
             by_realm,
             realms,
             db,
-        } => {
+        }) => {
             anyhow::ensure!(
                 command == "retry" || command == "stop" || command == brokkr_view::SUPERSEDE,
                 "operator command must be 'retry', 'stop' or 'supersede'"
@@ -2095,14 +1801,14 @@ fn run_with(
                 }
             }
         }
-        Cmd::Inspect {
+        Cmd::Inspect(InspectArgs {
             run,
             realms,
             db,
             json,
             phase,
             seat,
-        } => {
+        }) => {
             let db = journal_of(workspace, realms, db)?;
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
@@ -2126,13 +1832,37 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Watch {
+        Cmd::Seats(SeatsArgs {
+            run,
+            realms,
+            db,
+            json,
+        }) => {
+            // A thin verb (design DD11): the journal `inspect` would
+            // open, the view `inspect` would derive, and either the
+            // seats block of `inspect`'s readout or `inspect --json`'s
+            // own bytes. Nothing is derived here and no wire object is
+            // versioned for the verb.
+            let db = journal_of(workspace, realms, db)?;
+            let store = Store::open(&db)?;
+            let run = selector::resolve_run(&store, &run)?;
+            let events = store.load(&run)?;
+            let state = fold(&events)?;
+            let view = brokkr_view::run_view(&events, Some(&state));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+            print!("{}", render::seats(&view, &render::Style::detect()));
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Watch(WatchArgs {
             run,
             realms,
             db,
             once,
             interval_ms,
-        } => {
+        }) => {
             let db = journal_of(workspace, realms, db)?;
             // Selectors resolve once, before the loop: a prefix that is
             // unique now stays this frame's run even if another run is
@@ -2157,7 +1887,7 @@ fn run_with(
                 iterations,
             )
         }
-        Cmd::Replay { run, db } => {
+        Cmd::Replay(ReplayArgs { run, db }) => {
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
@@ -2176,13 +1906,13 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export {
+        Cmd::Export(ExportArgs {
             run,
             out,
             realms,
             db,
             redact,
-        } => {
+        }) => {
             let db = journal_of(workspace, realms, db)?;
             let store = Store::open(&db)?;
             let run = selector::resolve_run(&store, &run)?;
@@ -2245,7 +1975,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Import { from, realms, db } => {
+        Cmd::Import(ImportArgs { from, realms, db }) => {
             let db = journal_of(workspace, realms, db)?;
             // The sidecar is required, not optional: it is where an
             // export declares itself redacted, and an import that
@@ -2286,7 +2016,7 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::VerifyRun { file } => {
+        Cmd::VerifyRun(VerifyRunArgs { file }) => {
             let ndjson =
                 std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
             let state = brokkr_store::verify_export(&ndjson)?;
@@ -2299,14 +2029,14 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Bridge {
+        Cmd::Bridge(BridgeArgs {
             run,
             db,
             looper_url,
             token_env,
             follow,
             interval_ms,
-        } => {
+        }) => {
             let token = std::env::var(&token_env)
                 .with_context(|| format!("reading producer credential from {token_env}"))?;
             anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
@@ -2342,7 +2072,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Realms { realms, db, json } => {
+        Cmd::Realms(RealmsArgs { realms, db, json }) => {
             let Invocation { world, journal, .. } =
                 Invocation::resolve(workspace, realms, db)?.announce();
             let world = world.ok_or_else(|| {
@@ -2367,7 +2097,7 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Runs { realms, db, json } => {
+        Cmd::Runs(RunsArgs { realms, db, json }) => {
             let hearths = hearths_of(workspace, realms, db)?;
             // A world with several hearths lists each one under its own
             // realm; a world with one is byte-for-byte the listing it
@@ -2462,7 +2192,7 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Hands { command } => hands(command),
-        Cmd::Driver { kind, args } => {
+        Cmd::Driver(DriverArgs { kind, args }) => {
             let kind = brokkr_protocol::adapters::AdapterKind::parse(&kind).ok_or_else(|| {
                 anyhow::anyhow!(
                     "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec"
@@ -2472,7 +2202,7 @@ fn run_with(
             brokkr_protocol::adapters::serve(kind, extra)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Compare { run_a, run_b, db } => {
+        Cmd::Compare(CompareArgs { run_a, run_b, db }) => {
             compare::compare(&run_a, &run_b, &db)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -2557,12 +2287,12 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::FakeDriver {
+        Cmd::FakeDriver(FakeDriverArgs {
             script,
             state,
             model,
             effort,
-        } => {
+        }) => {
             brokkr_protocol::fake::run_fake_driver(
                 &script,
                 &state,

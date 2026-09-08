@@ -90,15 +90,18 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     let dir = tempfile::tempdir().unwrap();
     let role = dir.path().join("role.md");
     std::fs::write(&role, "trusted role").unwrap();
-    let prompt = render_prompt(&json!({
-        "role_path": role,
-        "feature": "feature",
-        "phase": "review",
-        "workdir": "/work",
-        "result_path": "/result.json",
-        "context": {"fact": true},
-        "allowed_results": ["clean", 2, "residual"],
-    }));
+    let prompt = render_prompt(
+        &json!({
+            "role_path": role,
+            "feature": "feature",
+            "phase": "review",
+            "workdir": "/work",
+            "result_path": "/result.json",
+            "context": {"fact": true},
+            "allowed_results": ["clean", 2, "residual"],
+        }),
+        AdapterKind::Claude,
+    );
     assert!(prompt.contains("trusted role"));
     assert!(prompt.contains("clean, residual"));
     // Decision 0034 rulings 6 and 7 seal the record with no extra
@@ -108,17 +111,20 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert!(prompt.contains("goes INSIDE inputs"));
     assert!(prompt.contains("\"fact\": true"));
 
-    let housed = render_prompt(&json!({
-        "role_path": role,
-        "house_rules": "Keep the tree green.",
-        "spec_dialect": "Write the requirement scenarios.",
-        "feature": "feature",
-        "phase": "review",
-        "workdir": "/work",
-        "result_path": "/result.json",
-        "context": {},
-        "allowed_results": ["clean"],
-    }));
+    let housed = render_prompt(
+        &json!({
+            "role_path": role,
+            "house_rules": "Keep the tree green.",
+            "spec_dialect": "Write the requirement scenarios.",
+            "feature": "feature",
+            "phase": "review",
+            "workdir": "/work",
+            "result_path": "/result.json",
+            "context": {},
+            "allowed_results": ["clean"],
+        }),
+        AdapterKind::Claude,
+    );
     assert_eq!(housed.matches("## House rules").count(), 1);
     assert_eq!(housed.matches("## Spec dialect").count(), 1);
     assert!(housed.find("trusted role").unwrap() < housed.find("## House rules").unwrap());
@@ -130,16 +136,19 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
 
     // Decision 0043, learned at the first astra-judged gate: a boxed seat
     // is told which tool can write, inside the mandatory contract.
-    let boxed = render_prompt(&json!({
-        "role_path": role,
-        "hands": "boxed",
-        "feature": "feature",
-        "phase": "review",
-        "workdir": "/work",
-        "result_path": "/result.json",
-        "context": {},
-        "allowed_results": ["clean"],
-    }));
+    let boxed = render_prompt(
+        &json!({
+            "role_path": role,
+            "hands": "boxed",
+            "feature": "feature",
+            "phase": "review",
+            "workdir": "/work",
+            "result_path": "/result.json",
+            "context": {},
+            "allowed_results": ["clean"],
+        }),
+        AdapterKind::Claude,
+    );
     assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
     assert!(
         boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
@@ -3039,4 +3048,181 @@ fn dsh_reasoning_on_stderr_is_redacted_and_harness_lines_survive() {
         "Error: spawn failed\n"
     );
     assert_eq!(redact_dsh_reasoning(""), "");
+}
+
+/// Decision 0046 rulings 3 and 4 (design DD21): the hands paragraph
+/// follows the input's marker and word for the model kinds, and an
+/// exec driver's prompt carries none under any boundary.
+#[test]
+fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let role = dir.path().join("role.md");
+    std::fs::write(&role, "trusted role").unwrap();
+    let input = |extra: Value| {
+        let mut input = json!({
+            "role_path": role,
+            "feature": "feature",
+            "phase": "review",
+            "workdir": "/work",
+            "result_path": "/result.json",
+            "context": {},
+            "allowed_results": ["clean"],
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            input[key] = value.clone();
+        }
+        input
+    };
+    // `namespace`: today's paragraph, byte for byte, whatever the word.
+    let boxed = render_prompt(
+        &input(json!({"hands": "boxed", "boundary": "namespace"})),
+        AdapterKind::Claude,
+    );
+    let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex);
+    assert_eq!(boxed, legacy);
+    assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
+    assert!(boxed.contains("write a JSON object to exactly this file"));
+
+    // `harness` on a `file` door: the word, no workspace tool, the one
+    // file the sandbox lets the seat write.
+    let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude);
+    assert!(
+        filed.contains("stand under the `harness` boundary"),
+        "{filed}"
+    );
+    assert!(!filed.contains("mcp__brokkr__workspace"), "{filed}");
+    assert!(
+        filed.contains("the one file that sandbox lets you write"),
+        "{filed}"
+    );
+    assert!(
+        filed.contains("write a JSON object to exactly this file"),
+        "{filed}"
+    );
+    assert!(
+        filed.contains("Printing the JSON instead of writing the file"),
+        "{filed}"
+    );
+
+    // `harness` on a `last-message` door: the final message is the
+    // result object, the harness writes it, and no file is asked for.
+    let captured = render_prompt(
+        &input(json!({"boundary": "harness", "result_delivery": "last-message"})),
+        AdapterKind::Codex,
+    );
+    assert!(
+        captured.contains("Your FINAL message must be exactly the result object"),
+        "{captured}"
+    );
+    assert!(
+        captured.contains("your harness writes your final message there"),
+        "{captured}"
+    );
+    assert!(
+        captured.contains("    /result.json"),
+        "the path stays on its own line"
+    );
+    assert!(
+        !captured.contains("write a JSON object to exactly this file"),
+        "{captured}"
+    );
+    assert!(
+        !captured.contains("Printing the JSON instead of writing the file"),
+        "{captured}"
+    );
+    assert!(!captured.contains("mcp__brokkr__workspace"), "{captured}");
+
+    // `open`: the word and no delivery change.
+    let open = render_prompt(&input(json!({"boundary": "open"})), AdapterKind::Dsh);
+    assert!(open.contains("stand under the `open` boundary"), "{open}");
+    assert!(open.contains("Write the result file yourself"), "{open}");
+    assert!(!open.contains("mcp__brokkr__workspace"), "{open}");
+
+    // A site without hands: no paragraph, today's contract.
+    let plain = render_prompt(&input(json!({})), AdapterKind::Lanetally);
+    assert!(!plain.contains("Your hands"), "{plain}");
+    assert!(plain.contains("write a JSON object to exactly this file"));
+
+    // An exec site's prompt carries no hands paragraph under any of the
+    // three, and keeps the file contract even beside a captured door, so
+    // the shipped scripts read the result path off it by line.
+    for extra in [
+        json!({"hands": "boxed", "boundary": "namespace"}),
+        json!({"boundary": "harness"}),
+        json!({"boundary": "harness", "result_delivery": "last-message"}),
+        json!({"boundary": "open"}),
+    ] {
+        let exec = render_prompt(&input(extra), AdapterKind::Exec);
+        assert!(!exec.contains("Your hands"), "{exec}");
+        assert!(!exec.contains("mcp__brokkr__workspace"), "{exec}");
+        assert!(!exec.contains("harness"), "{exec}");
+        assert!(
+            exec.contains("write a JSON object to exactly this file"),
+            "{exec}"
+        );
+        assert!(
+            exec.lines().any(|line| line.trim() == "/result.json"),
+            "{exec}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_last_message_capture_uses_the_ordinary_result_file_door_and_rejects_prose() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("result.json");
+    for (message, valid) in [
+        (r#"{"result":"pass"}"#, true),
+        ("the result is pass", false),
+    ] {
+        let shim = executable(
+            dir.path(),
+            "capture",
+            &format!(
+                r#"#!/bin/sh
+capture=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--output-last-message" ]; then shift; capture="$1"; fi
+    shift
+done
+cat >/dev/null
+printf '%s' '{message}' > "$capture"
+"#
+            ),
+        );
+        let input = json!({"feature":"judge", "phase":"verify", "workdir":dir.path(), "result_path":path,
+            "boundary":"harness", "result_delivery":"last-message", "allowed_results":["pass","fail"]});
+        let prompt = render_prompt(&input, AdapterKind::Codex);
+        assert!(prompt.contains(path.to_str().unwrap()));
+        assert!(prompt.contains("final message"));
+        let mut messages = Vec::new();
+        with_codex_bin(&shim, || {
+            run_seat(
+                AdapterKind::Codex,
+                &[
+                    "--sandbox".into(),
+                    "read-only".into(),
+                    "--output-last-message".into(),
+                    path.display().to_string(),
+                ],
+                &json!({"effect_id":"effect", "attempt_id":"attempt", "input":input}),
+                None,
+                &mut |body| messages.push(body),
+            )
+        });
+        let Body::Result {
+            result: Some(result),
+            ..
+        } = messages.last().unwrap()
+        else {
+            panic!("no result: {messages:?}")
+        };
+        if valid {
+            assert_eq!(result["result"], "pass");
+        } else {
+            assert!(result.get("__unparseable_result_file__").is_some());
+        }
+    }
 }
