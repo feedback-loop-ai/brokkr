@@ -2,11 +2,11 @@
   "description": "Prepares a release from committed changes, reconciles documentation and organization profiles, and records the remaining publication work from the realm's release configuration.",
   "charter": "charters/release-manager.md",
   "models": [
-    "fable",
+    "opus",
     "astra"
   ],
   "efforts": {
-    "fable": "medium",
+    "opus": "medium",
     "astra": "medium"
   },
   "hands": {

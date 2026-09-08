@@ -28,7 +28,7 @@ publication step: a run's local journal cannot prove another repository changed.
    house digest covers the inline configuration. This is prompt configuration,
    not an executable schema: additional deterministic checks require the normal
    recipe verifier override. An unsupported required item blocks preparation.
-3. **The hire is fable then astra, both at medium effort.** The operator
+3. **The hire is opus then astra, both at medium effort.** The operator
    selected this chain during preparation. Both use the workspace tool; a native
    tool allow-list cannot be expressed by Codex. Workspace networking is enabled
    to read release and organization-profile evidence, with repository-specific

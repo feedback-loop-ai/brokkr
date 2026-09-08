@@ -120,10 +120,10 @@ fn release_manager_uses_the_operators_medium_effort_chain_in_the_box() {
         &std::fs::read(workspace().join("agents/release-manager.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(agent["models"], serde_json::json!(["fable", "astra"]));
+    assert_eq!(agent["models"], serde_json::json!(["opus", "astra"]));
     assert_eq!(
         agent["efforts"],
-        serde_json::json!({"fable": "medium", "astra": "medium"})
+        serde_json::json!({"opus": "medium", "astra": "medium"})
     );
     assert!(agent.get("tools").is_none());
     assert!(agent.get("bindings").is_none());
