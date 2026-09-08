@@ -161,10 +161,17 @@ Alternatives weighed:
   one reviewer chose to probe, and the `upstream` fail-open stood behind
   thirteen green checks until a second judgment was bought. A lint costs
   nothing per run.
-- **A general graph runtime for the inner machines.** Rejected; decision
-  0002 stands. The inner machines stay what they are — a cursor over a
-  journal, a sequence of steps — and gain a declared state space and
-  total arms, not new topology.
+- **A general graph runtime for the inner machines.** Not ruled on here,
+  and not ruled out. Decision 0002 sanctions concurrency inside an
+  executor — "seat fan-out and parallel sub-machines, journaled as
+  sub-events under the phase's span … concurrency inside, serialization
+  at the boundary" — and the target architecture names the primitives
+  (`parallel`, `join`, `loop`, `submachine`, `emit-result`). What this
+  decision asks of an inner machine is the same whether it is today's
+  cursor and sequence or a graph: a declared state space, total arms,
+  endings computed at compile, and the constitution's hard words crossing
+  into it (rulings 6 and 7). A graph runtime that arrives under that
+  discipline is welcome; one that arrives without it repeats #186.
 
 ## Rulings
 
@@ -301,7 +308,12 @@ Alternatives weighed:
   an attempt has *started* (decision 0016's fail-to-start fallback that
   never held), and a `retry` accepted with no engine driving it (the fold
   reading `running` with nothing behind it) — are lifecycle rulings, not
-  table rulings, and get their own number. And the ledger's scope: of
-  204 merged pull requests, 56 carry a run trailer and 52 the `by-hand`
-  label; a proof about the run says nothing about a delivery that went
-  around it, and decision 0038 is the lever on that axis.
+  table rulings, and get their own number. And the ledger's scope, read
+  precisely: since decision 0038's label has existed (2026-09-03), 67
+  pull requests merged; 54 carry `by-hand`, 57 carry a run trailer, and
+  45 carry both — so the label no longer distinguishes the escape hatch
+  from the road, which is noise where a signal was meant. The road
+  around the machine is the ten code merges in five days with neither a
+  run nor a preflight vouch, every one labelled as the gate requires. A
+  proof about the run says nothing about those, and decision 0038 is
+  the lever on that axis.
