@@ -108,12 +108,12 @@ and (iii) build them. `brokkr doctor` prints one `boundaries` line
 saying which this machine offers.
 
 Which shipped bundles run under `harness` today is a fact of the tree,
-not a promise: the nine whose hands sites are their own `./` exec gates
-compile — `recipes/fast`, `recipes/node`, `recipes/preflight`,
+not a promise: the eleven whose hands sites are their own `./` exec gates
+compile — `recipes/fast`, `recipes/landing`, `recipes/standby`, `recipes/node`, `recipes/preflight`,
 `recipes/research`, `recipes/research-dsh`, `recipes/wager-harness`,
 `recipes/wager-harness-dsh`, `recipes/wager-harness-muse` and
-`bundles/verify`. Four refuse, each naming the ground the compiler
-reaches first: `bundles/self` and `recipes/panel-review` because their
+`bundles/verify`. Five refuse, each naming the ground the compiler
+reaches first: `bundles/self` and `recipes/panel-review`, plus `recipes/release`, because their
 reviewer's chain reaches claude and `adapters/claude.json` declares no
 `hands.harness.gate` until the operator's measurement lands (see
 [provider adapters](provider-adapters.md)); `recipes/triage` and

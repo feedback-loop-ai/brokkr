@@ -3787,7 +3787,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Fifteen since `recipes/landing` (decision 0051): `fast` entered at
     // a classify gate, one more `./scripts` exec gate of its own, so it
     // compiles under harness like `fast`.
-    assert_eq!(dirs.len(), 15, "{dirs:?}");
+    assert_eq!(dirs.len(), 16, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3850,7 +3850,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 13, "{compiled:?}");
+    assert_eq!(compiled.len(), 14, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();
@@ -3868,7 +3868,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             Err(error) => {
                 let refusal = error.to_string();
                 match name.as_str() {
-                    "bundles/self" => {
+                    "bundles/self" | "recipes/release" => {
                         assert!(
                             refusal.contains(
                                 "seat 'review' gate link 2 resolves to provider 'claude', which \
@@ -3901,6 +3901,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
         [
             "recipes/night-shift",
             "recipes/panel-review",
+            "recipes/release",
             "recipes/triage",
             "bundles/self",
         ]

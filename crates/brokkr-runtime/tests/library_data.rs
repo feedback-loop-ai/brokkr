@@ -85,10 +85,11 @@ const CHARTERS: [(&str, &str); 13] = [
 /// Charters authored here rather than moved: they have no pre-move
 /// bytes to be compared against, and are listed so the accounting below
 /// stays exact instead of merely permissive.
-const AUTHORED_CHARTERS: [&str; 5] = [
+const AUTHORED_CHARTERS: [&str; 6] = [
     "analyst.md",
     "clarifier.md",
     "muninn.md",
+    "release-manager.md",
     "researcher.md",
     "triage.md",
 ];
@@ -98,7 +99,7 @@ const AUTHORED_CHARTERS: [&str; 5] = [
 /// strategy-selected seats land. Decision 0044 ruling 4 seats the
 /// researcher: the one office that reads the field and holds the fetch
 /// grant, authored here like muninn and triage.
-const AGENTS: [&str; 19] = [
+const AGENTS: [&str; 20] = [
     "analyst",
     "chief-architect",
     "clarifier",
@@ -110,6 +111,7 @@ const AGENTS: [&str; 19] = [
     "muninn",
     "position-robustness",
     "position-simplicity",
+    "release-manager",
     "researcher",
     "review-adversarial",
     "review-chief",

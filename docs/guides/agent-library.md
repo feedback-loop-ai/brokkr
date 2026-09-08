@@ -31,6 +31,7 @@ intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request b
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
+release-manager	fable → opus	Prepares a configured release, its documentation and organization-profile patches.
 review-adversarial	astra → fable → opus	Review panel member: tries to break the delivered change with concrete adversarial cases.
 review-chief	astra → fable → opus	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
@@ -52,6 +53,11 @@ inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
 Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
 `validate` step are also model-free execs, but their checked argv comes from
 the realm's pinned dialect rather than from an agent definition.
+
+The `release-manager` follows a portable release process. The realm's **Release
+configuration** supplies the version sources, documentation targets, checks and
+organization profiles; the [release recipe](../../recipes/release/README.md)
+explains configuration and stack-specific verification.
 
 Verifier and shipper are deliberately absent from the agent library.
 They are boxed, inline `exec` scripts with no model: verification runs a

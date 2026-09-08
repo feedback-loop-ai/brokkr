@@ -32,6 +32,7 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
             | ("implementer-engine", "cargo" | "git")
             | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
+            | ("release-manager", "cargo" | "git")
             | ("intake", "git")
     )
 }
@@ -602,12 +603,11 @@ fn shipped_recipes_have_no_judges_fix_input_and_triage_would_bound_oversized() {
     }
 }
 
-/// Decision 0044 ruling 5: the fetch tools are an explicit grant held by
-/// one office. `WebFetch` and `WebSearch` appear on `researcher` and on no
-/// other agent, never beside a bindings block, and never at a gate site
-/// in a shipped recipe.
+/// Decision 0052 extends 0044's explicit read grant to release preparation:
+/// researcher may fetch and search; release-manager may fetch named release
+/// and profile pages. Neither may hold secret bindings or sit at a gate.
 #[test]
-fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
+fn the_fetch_grant_is_explicit_for_research_and_release_and_never_a_gate() {
     let root = workspace();
     const FETCH: [&str; 2] = ["webfetch", "websearch"];
     for entry in std::fs::read_dir(root.join("agents")).unwrap().flatten() {
@@ -624,16 +624,24 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
                     .any(|t| FETCH.contains(&t.as_str().unwrap_or("")))
             });
         let is_researcher = entry.file_name() == "researcher.json";
+        let is_release_manager = entry.file_name() == "release-manager.json";
         assert_eq!(
             holds,
-            is_researcher,
-            "{}: the fetch grant belongs to researcher.json alone (decision 0044 ruling 5)",
+            is_researcher || is_release_manager,
+            "{}: fetch is reserved for the researcher and release manager (decision 0052)",
             entry.path().display()
         );
+        if is_release_manager {
+            assert!(!agent["tools"]["allow"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool == "websearch"));
+        }
         if holds {
             assert!(
                 agent.get("bindings").is_none(),
-                "the researcher may not hold secret bindings beside the fetch grant"
+                "a fetch office may not hold secret bindings beside the fetch grant"
             );
         }
     }
@@ -652,10 +660,12 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
                     return;
                 }
                 let site = format!("{}:{}", bundle.display(), site.join("/"));
-                assert_ne!(
-                    object.get("agent").and_then(Value::as_str),
-                    Some("researcher"),
-                    "{site}: a gate site seats the researcher, which holds the fetch grant"
+                assert!(
+                    !matches!(
+                        object.get("agent").and_then(Value::as_str),
+                        Some("researcher" | "release-manager")
+                    ),
+                    "{site}: a gate site seats an office with the fetch grant"
                 );
                 let inline: Vec<&str> = value
                     .pointer("/driver/command")

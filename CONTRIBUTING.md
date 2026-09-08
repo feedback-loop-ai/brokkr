@@ -46,6 +46,7 @@ exists; `preflight` is an optional branch check, not a delivery.
 | `node` | Node and TypeScript repositories using JavaScript-specific seats and tools. | implement, review, ship, verify | medium |
 | `panel-review` | General delivery needing independent correctness and security reviewers. | implement, intake, review[correctness+security], ship, verify | high |
 | `preflight` | Verify and review an existing branch without implementing or shipping it. | review, verify | medium |
+| `release` | Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review. | implement, review, ship, verify | medium |
 | `research` | Read articles and propose registry entries with cited classifications; the operator rules them. | research, verify | low |
 | `research-dsh` | The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on. | research, verify | low |
 | `standby` | Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit. | implement, review, ship, verify | medium |

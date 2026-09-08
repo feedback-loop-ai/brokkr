@@ -35,17 +35,17 @@ a stable toolchain.
 |---|---|---|
 | A stable Rust toolchain | format, clippy, tests, the bundle compiles, the release build | `cargo --version` |
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
-| A nightly toolchain with `llvm-tools-preview` | the coverage gate | `cargo +nightly --version` |
+| The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` | the coverage gate | `cargo llvm-cov --version` |
 | `jq` | the coverage gate (the script refuses without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
-install 1.88.0`, `rustup toolchain install nightly --component
+install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
 llvm-tools-preview`, `cargo install cargo-llvm-cov cargo-deny`, and `jq`
 from your package manager. There is no `rust-toolchain.toml` in this
 tree, so your default toolchain is what `cargo` uses and the `+1.88.0`
-and `+nightly` prefixes are how the other two get selected.
+and dated-nightly prefixes are how the other two get selected.
 
 You do **not** need `cargo-audit`; the RustSec check runs only in CI.
 Installing it locally is a convenience, not a requirement — see

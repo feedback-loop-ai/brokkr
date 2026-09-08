@@ -1,0 +1,11 @@
+{
+  "description": "Prepares a release from committed changes, reconciles documentation and organization profiles, and records the remaining publication work from the realm's release configuration.",
+  "charter": "charters/release-manager.md",
+  "models": ["fable", "opus"],
+  "efforts": {"fable": "high", "opus": "high"},
+  "tools": {
+    "allow": ["cargo", "git", "ls", "rg", "webfetch"],
+    "mcp": []
+  },
+  "limits": {"max_attempts": 2, "timeout_seconds": 7200}
+}
