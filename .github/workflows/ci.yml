@@ -141,8 +141,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      # The exact gate demands literal 100%, so its compiler is pinned like
+      # every other tool CI installs: a nightly release changes the
+      # instrumented line, branch and function set, and an unpinned one
+      # turns "a test is missing" and "the compiler moved" into the same
+      # red. Bumping the pin is its own change, with the numbers in it.
+      - name: the pinned coverage toolchain
+        id: nightly
+        run: echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
