@@ -2136,7 +2136,7 @@ fn enforce_hands_boundary(
             Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
                 CompileError::Invalid(format!(
                     "seat '{what}' declares hands under the `{boundary}` boundary, where no \
-                     box stands, so its exec command may run only the bundle's own pinned \
+                     box stands, so its exec command must name the bundle's own pinned \
                      script: {problem} (decision 0046 ruling 4; decision 0021)"
                 ))
             }),
@@ -2225,11 +2225,14 @@ fn measured(gap: &Option<String>) -> String {
 /// more bare interpreter names, then exactly one `./`-relative script
 /// token, then arguments nobody judges. The token's components are plain
 /// names — no `..`, no `.`, no empty component, no `\`, no drive or UNC
-/// prefix, and no startup metacharacters (decision 0048) — and, joined
+/// prefix, and none of the measured startup metacharacters (0048) — and, joined
 /// to the declaring layer's directory, a regular
 /// file by `metadata` (following a symlink, as the manifest walk does)
 /// that the walk pins. Nothing is canonicalised and no two spellings are
 /// compared: a token spelled any other way is refused as not `./`-relative.
+/// This checks bundle bytes: under `harness` and `open` the interpreter
+/// is unpinned and resolved through inherited PATH, so admission defends
+/// a careless bundle, not a hostile seat (decision 0049 ruling 3).
 ///
 /// Returns the manifest key the script is pinned under.
 fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
@@ -2251,7 +2254,7 @@ fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
         if token.contains(['/', '\\']) {
             return Err(format!(
                 "'{token}' is spelled as a path that is not `./`-relative to the bundle; \
-                 only a `./` script the manifest walk pins may run unboxed"
+                 only a `./` script the manifest walk pins is admitted unboxed"
             ));
         }
         // A bare interpreter name (`bash`, `python3`, `true`): walked
@@ -2267,16 +2270,21 @@ fn pinned_script(dir: &Path, parts: &[String]) -> Result<String, String> {
 /// token, and the file they name under the declaring layer.
 fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String> {
     let components: Vec<&str> = relative.split('/').collect();
-    // Closed startup-parser vocabulary (decision 0048, security ruling):
+    // Closed against the interpreters measured in decision 0048 only:
     // * ? [ ] select glob matches; { } expand brace alternatives; ( )
     // trigger MSYS globify too; ' " delimit quotes and \ escapes them;
-    // ~ introduces tilde expansion; CR/LF split MSYS arguments but Rust
-    // does not autoquote them. Refuse each even unmatched or in a
+    // ~ introduces tilde expansion; ` is removed by powershell.exe;
+    // CR/LF split MSYS arguments but Rust does not autoquote them.
+    // A different interpreter may reinterpret other bytes. The execution
+    // guarantee rests on a boundary supplying the filesystem and PATH,
+    // never on this set (0049 ruling 3; 0046 ruling 4). The backtick is
+    // a small engineering refusal of the reviewed route, with no guarantee.
+    // Refuse each even unmatched or in a
     // later component: admission reads bundle bytes, never the host OS,
     // interpreter, environment, or which matching siblings exist today.
     // This changes admission only; walk_files and the canonical pin keep
-    // the exact filename bytes. See 0048 for sources and exclusions.
-    const STARTUP_METACHARACTERS: &str = "*?[]{}()'\"\\~\r\n";
+    // the exact filename bytes. See 0048 for evidence and scope.
+    const STARTUP_METACHARACTERS: &str = "*?[]{}()'\"\\~`\r\n";
     for component in &components {
         if let Some(character) = component
             .chars()
@@ -2284,8 +2292,8 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
         {
             return Err(format!(
                 "'{token}' has component {component:?} containing refused startup character \
-                 {character:?}; rename the component so an interpreter cannot reinterpret \
-                 the pinned script (decision 0048; decision 0046 ruling 4)"
+                 {character:?}; rename the component to meet the pinned-script admission \
+                 rule (decision 0048; decision 0046 ruling 4)"
             ));
         }
     }

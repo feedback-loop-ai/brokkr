@@ -2541,9 +2541,11 @@ fn exec_dispatch(tail: &[&str]) -> Value {
 /// against the declaring layer; every other spelling is refused naming
 /// the token, ruling 4 and 0021, and no path is compared to judge it.
 /// Under `namespace` every row compiles: a boxed gate is admitted by its
-/// walls, an unboxed one by its bytes (decision 0043 ruling 3).
+/// walls, an unboxed one by its bytes (decision 0043 ruling 3). This is
+/// compile admission only: the interpreter remains unpinned under
+/// `harness` and `open` (decision 0049 ruling 3).
 #[test]
-fn an_unboxed_exec_site_with_hands_holds_only_for_the_bundles_pinned_script() {
+fn an_unboxed_exec_site_with_hands_is_admitted_only_when_it_names_a_pinned_script() {
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
     fixture.script("scripts/x.sh");
@@ -2620,7 +2622,7 @@ fn an_unboxed_exec_site_with_hands_holds_only_for_the_bundles_pinned_script() {
             assert!(
                 refusal.contains(&format!(
                     "seat 'work' declares hands under the `{boundary}` boundary, where no box \
-                     stands, so its exec command may run only the bundle's own pinned script: "
+                     stands, so its exec command must name the bundle's own pinned script: "
                 )),
                 "{tail:?}: {refusal}"
             );
@@ -2655,7 +2657,7 @@ fn an_unboxed_exec_site_with_hands_holds_only_for_the_bundles_pinned_script() {
 /// refuses there, before either exec seat is reached (seats compile in
 /// name order).
 #[test]
-fn the_shipped_exec_gates_stand_unboxed_on_their_own_pinned_scripts() {
+fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_scripts() {
     let root = workspace();
     let self_dir = root.join("bundles/self");
     let self_config: Value =
@@ -2758,13 +2760,14 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
 /// refused characters cannot be filenames on Windows, so this matrix
 /// deliberately creates no such files: the grammar must refuse before
 /// lookup, regardless of the host filesystem or available interpreter.
-/// This does not exercise Windows' native command line or MSYS startup.
+/// This does not exercise Windows' native command line, MSYS startup or
+/// PowerShell command parsing, and claims no execution guarantee (0049).
 #[test]
 fn pinned_script_startup_metacharacters_are_refused_at_compile_on_every_host() {
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
     // Literal expected vocabulary, independent of the production constant.
-    for character in "*?[]{}()'\"\\~\r\n".chars() {
+    for character in "*?[]{}()'\"\\~`\r\n".chars() {
         let component = format!("name{character}part");
         for script in [
             format!("./{component}/gate.sh"),
@@ -2801,21 +2804,30 @@ fn pinned_script_startup_metacharacters_are_refused_at_compile_on_every_host() {
 /// that the matching sibling lies outside its re-walk. Compiling a gate
 /// on the spelling must fail even before that sibling exists, and after
 /// it is created or edited. No interpreter is spawned: in particular,
-/// this is not a native Windows/MSYS parser reproduction on Unix.
+/// this does not reproduce native Windows/MSYS or powershell.exe parsing
+/// on Unix. The PowerShell row models the review's backtick removal:
+/// scripts`1 becomes scripts1. This proves compile refusal of measured
+/// spellings, not execution integrity through an unpinned interpreter
+/// (decision 0049 ruling 3).
 #[test]
-fn a_mutable_matching_sibling_cannot_be_admitted_as_a_pinned_gate() {
-    for directory in ["scripts[1]", "scripts{1,2}", "scripts'1'"] {
+fn measured_script_spellings_refuse_at_compile_with_a_mutable_matching_sibling() {
+    for (interpreter, directory, filename) in [
+        ("sh", "scripts[1]", "gate.sh"),
+        ("sh", "scripts{1,2}", "gate.sh"),
+        ("sh", "scripts'1'", "gate.sh"),
+        ("powershell.exe", "scripts`1", "gate.ps1"),
+    ] {
         let fixture = Fixture::new();
         fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
         fixture.script("scripts/gate.sh");
-        fixture.script(&format!("{directory}/gate.sh"));
-        let token = format!("./{directory}/gate.sh");
+        fixture.script(&format!("{directory}/{filename}"));
+        let token = format!("./{directory}/{filename}");
         for boundary in [Boundary::Harness, Boundary::Open] {
-            let refusal = fixture.refusal_under(exec_dispatch(&["sh", &token]), boundary);
+            let refusal = fixture.refusal_under(exec_dispatch(&[interpreter, &token]), boundary);
             assert!(refusal.contains("decision 0048"), "{refusal}");
         }
 
-        fixture.script("scripts1/gate.sh");
+        fixture.script(&format!("scripts1/{filename}"));
         // An ordinary script still compiles with these files in its
         // layer: admission never rewrites or bans manifest file keys.
         let bundle = fixture
@@ -2825,16 +2837,21 @@ fn a_mutable_matching_sibling_cannot_be_admitted_as_a_pinned_gate() {
             )
             .unwrap();
         let files = bundle.manifest["files"].as_object().unwrap();
-        assert!(files.contains_key(&format!("{directory}/gate.sh")));
-        assert!(files.contains_key("scripts1/gate.sh"));
+        assert!(files.contains_key(&format!("{directory}/{filename}")));
+        assert!(files.contains_key(&format!("scripts1/{filename}")));
         let selected = bundle.dir.join(directory);
-        let original = std::fs::read(selected.join("gate.sh")).unwrap();
-        for sibling_bytes in ["#!/bin/sh\ntrue\n", "#!/bin/sh\nprintf forged-pass\n"] {
-            std::fs::write(bundle.dir.join("scripts1/gate.sh"), sibling_bytes).unwrap();
+        let original = std::fs::read(selected.join(filename)).unwrap();
+        for sibling_bytes in ["exit 1\n", "echo forged-pass\n"] {
+            std::fs::write(
+                bundle.dir.join(format!("scripts1/{filename}")),
+                sibling_bytes,
+            )
+            .unwrap();
             assert_eq!(layer_drift(&bundle, &selected), None);
-            assert_eq!(std::fs::read(selected.join("gate.sh")).unwrap(), original);
+            assert_eq!(std::fs::read(selected.join(filename)).unwrap(), original);
             for boundary in [Boundary::Harness, Boundary::Open] {
-                let refusal = fixture.refusal_under(exec_dispatch(&["sh", &token]), boundary);
+                let refusal =
+                    fixture.refusal_under(exec_dispatch(&[interpreter, &token]), boundary);
                 assert!(refusal.contains("decision 0048"), "{refusal}");
             }
         }
@@ -2845,14 +2862,16 @@ fn a_mutable_matching_sibling_cannot_be_admitted_as_a_pinned_gate() {
 fn ordinary_script_components_and_unjudged_arguments_keep_their_bytes() {
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
-    // Spaces are encoded by Command; punctuation that needs shell source
-    // evaluation is not interpreted by MSYS build_argv/globify alone.
-    let relative = "scripts plain-_,+@=!$`;中/verify.v1.sh";
+    // Admission preserves these bytes; a different interpreter may still
+    // reinterpret them. No interpreter runs here (decision 0049 ruling 3).
+    // The backtick is refused in script components but remains unjudged
+    // in later arguments.
+    let relative = "scripts plain-_,+@=!$;中/verify.v1.sh";
     fixture.script(relative);
     for boundary in [Boundary::Harness, Boundary::Open] {
         let bundle = fixture
             .compile_bounded(
-                exec_dispatch(&["sh", &format!("./{relative}"), "[unjudged]{'argument'}"]),
+                exec_dispatch(&["sh", &format!("./{relative}"), "[unjudged]{'`argument'}"]),
                 boundary,
             )
             .unwrap();
@@ -2861,7 +2880,7 @@ fn ordinary_script_components_and_unjudged_arguments_keep_their_bytes() {
             panic!("the gate is a single exec site")
         };
         assert_eq!(command[5], bundle.dir.join(relative).to_str().unwrap());
-        assert_eq!(command[6], "[unjudged]{'argument'}");
+        assert_eq!(command[6], "[unjudged]{'`argument'}");
     }
 }
 

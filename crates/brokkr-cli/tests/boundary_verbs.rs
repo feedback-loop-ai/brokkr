@@ -196,7 +196,9 @@ fn run_id(stderr: &str) -> String {
 /// compilation, before a journal or child interpreter exists. This runs
 /// on every OS, but on Unix it does NOT reproduce Rust's Windows command
 /// line encoding or Git Bash/MSYS startup globbing; that route is source
-/// traced in decision 0048. No boxed step is driven by this test.
+/// traced in decision 0048. This proves refusal of this measured spelling,
+/// not execution integrity through an unpinned interpreter (0049 ruling
+/// 3). No boxed step is driven by this test.
 #[test]
 fn a_metacharacter_gate_and_its_mutable_matching_sibling_refuse_before_run() {
     for boundary in ["harness", "open"] {

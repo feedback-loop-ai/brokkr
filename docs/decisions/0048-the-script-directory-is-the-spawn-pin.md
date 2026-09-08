@@ -72,11 +72,48 @@ journal paths and would still freeze the implementation's sources.
    inherited-seat refusal in `bundle/compose_tests.rs`, and the real
    `compile`/`run` refusal in the CLI's `tests/boundary_verbs.rs`.
 
+4. **The pin checks bundle integrity; execution depends on the boundary.**
+   Decision 0049, "The platform classes" (accepted by the operator,
+   2026-09-07; PR #233, not yet present in this tree), ruling 3 narrows
+   the guarantee of decision 0046 ruling 4 and this proposal. The
+   pinned-script rule is always an integrity check over the bundle's
+   own bytes. It is an execution guarantee only under a boundary that
+   supplies the filesystem and the `PATH`: `namespace`, `seatbelt`,
+   `container`. Decision 0046's addendum still refuses `seatbelt` and
+   `container` at start until their implementation slices land.
+
+   Under `harness` and `open` the interpreter is unpinned and resolved
+   through an inherited `PATH`. Here the rule defends a careless bundle,
+   not a hostile seat; the execution guarantee does not hold. A bare
+   interpreter name is not an identity: anything earlier on `PATH` can
+   answer to it, so closing a list of interpreter names would not close
+   the execution surface. The refused character set is closed against
+   the interpreters that have been measured only; a different interpreter
+   may reinterpret other bytes. The guarantee rests on the boundary,
+   not on the set.
+
+   Decision 0049 names Linux first-class, macOS supported and Windows
+   best-effort. Where operating-system behaviour defeats a stated
+   guarantee, ruling 3 requires naming the guarantee as not holding
+   there rather than pursuing it. The backtick refusal below is a small
+   engineering choice that closes the one route the PowerShell review
+   traced, with no guarantee attached. No interpreter survey, additional
+   refusals beyond the backtick, or parent-process attempt to defeat
+   shell startup handling belongs to this correction. Rulings 1 and 2's
+   exact filename identity and canonical pin stand unchanged.
+
+   **Enforcement binding:** `pinned_key`'s measured set and diagnostic in
+   `bundle.rs`; the backtick mutable-sibling compile regression in
+   `bundle/model_policy_tests.rs`; the scope stated here and in both the
+   archived and promoted `gate-boundary-policy` capability texts.
+
 ## Consequences
 
-The check covers the script directory, not every host file a script may
-read. Helpers outside that directory and the interval between the walk
-and exec are outside its guarantee; the run remains visibly unboxed.
+The integrity check covers the script directory, not every host file a
+script may read. Helpers outside that directory and the interval between
+the walk and exec are outside the check. Under `harness` and `open` the
+execution guarantee does not hold (0049 ruling 3); the run remains visibly
+unboxed.
 The original manifest still records the complete layer. Canonical paths
 are not compared with independently canonicalised script targets, so a
 symlink continues to pin the bytes read through its real entry name.
@@ -338,7 +375,7 @@ bundles/self` and `--bundle bundles/verify`, and `scripts/coverage-exact.sh`:
 21,328/21,328 source lines, 3,326/3,326 branches and 2,024/2,024 logical
 functions. Witness and compose digest tests pass without repinning.
 
-## Security ruling — refuse startup reinterpretation, 2026-09-07
+## Security ruling — refuse measured startup spellings, 2026-09-07 (corrected 2026-09-08)
 
 The HIGH security review of `69544d6..189257f` found that an admitted
 `./scripts[1]/gate.sh` can select `scripts1/gate.sh` at interpreter
@@ -359,7 +396,11 @@ enabled, using `GLOB_TILDE`, `GLOB_BRACE`, `GLOB_QUOTE` and
 `GLOB_NOCHECK`. This is source-traced evidence, not a native Windows
 reproduction by this Linux seat.
 
-The closed refused set is the following fourteen ASCII characters. Each
+The refused set is the following fifteen ASCII characters, including the
+backtick added under decision 0049 ruling 3. It is closed against the
+interpreters that have been measured only: a different interpreter may
+reinterpret other bytes. The execution guarantee rests on the boundary
+that supplies the filesystem and `PATH`, not on this set. Each character
 is refused alone, paired or unmatched, anywhere in any component after
 the script's `./`, before filesystem lookup:
 
@@ -371,19 +412,32 @@ the script's `./`, before filesystem lookup:
 | `'`, `"` | Startup quote parsing can remove delimiters or change which bytes are literal. |
 | `\` | Escape and quote processing can remove or reinterpret a backslash; the existing grammar already refused it as a component byte. |
 | `~` | The startup glob enables tilde expansion. Refusal is component-local even where the current absolute argv would suppress it. |
+| Backtick (U+0060) | The review traced `powershell.exe` removing it from ``scripts`1`` to select the mutable sibling `scripts1`. A small engineering refusal of that route, with no guarantee attached (0049 ruling 3). |
 | CR (`\r`, U+000D), LF (`\n`, U+000A) | The MSYS startup separator table splits on these bytes, while Rust's automatic quoting only recognizes space and tab. A filename could become separate arguments. |
 
 The last row follows [MSYS's `issep` definition](https://github.com/git-for-windows/msys2-runtime/blob/710e5275eb86d54b45b5f4d71ecc4e1cac1b9302/winsup/cygwin/local_includes/winsup.h#L136-L137),
-used by `build_argv` before glob expansion. It closes argument splitting
-as well as filename expansion; quoting characters alone do not cover it.
+used by `build_argv` before glob expansion. It addresses the measured
+argument-splitting route as well as filename expansion; it makes no claim
+about other interpreters.
 
-This is a startup argument rule, not shell-source validation. Commas and
-hyphens need braces or brackets to become pattern operators; those
-delimiters are already refused. `$`, backticks, `;`, `&`, `|`, `<`, `>`,
-`!`, `%` and `^` are not added: the traced startup parser does not
-evaluate shell source, and the existing grammar refuses interpreter
-options such as `-c`. Spaces and tabs remain admissible; Rust surrounds
-those arguments with quotes. No Unicode character class, locale,
+The earlier reasoning that refusing interpreter options such as `-c`
+excluded shell-source interpretation for every admitted interpreter was
+false. It inferred an open set's behaviour from one parser.
+`powershell.exe` disproved it: its first positional argument is a command
+string without an option token to refuse. The review traced a backtick
+being stripped from ``scripts`1`` to select the independently mutable
+`scripts1` sibling while the canonical pin still selected the literal
+backtick directory. The grammar refuses option tokens before the script;
+that is all the option check establishes. It cannot establish how an
+unpinned interpreter interprets a positional argument.
+
+This is a compile admission rule over measured spellings, with no claim
+of complete startup or shell-source validation. Apart from the backtick,
+no character is added to the existing refusals; `$`, `;`, `&`, `|`, `<`,
+`>`, `!`, `%` and `^` remain outside the set without a claim that another
+interpreter leaves them literal. Spaces and tabs remain admissible;
+Rust's argument quoting is not proof of another interpreter's parsing.
+No Unicode character class, locale,
 operating-system branch, environment variable or sibling lookup defines
 this set. The first offending component and its first refused character
 in token order are reported, naming this decision and 0046 ruling 4.
@@ -393,30 +447,62 @@ lookup and expansion, including inherited declarations. Later unjudged
 arguments, ordinary bundle files and canonical roots keep their existing
 meaning. The rule neither normalizes admitted names nor widens the
 re-walk to freeze siblings. The boxed and no-hands admission laws are
-unchanged; this closes the pinned-bytes exception for unboxed hands.
+unchanged. Under `harness` and `open` this is careless-bundle defence only,
+with no execution guarantee through the unpinned interpreter (0049 ruling
+3; 0046 ruling 4).
 
-Tests compile actual bracketed, braced and apostrophe directories before
-and after a matching sibling is created or edited, and prove that the
+Tests compile actual bracketed, braced, apostrophe and backtick directories
+before and after a matching sibling is created or edited, and prove that the
 sibling changes nothing inside the selected directory's re-walk. A
 separate ordinary-script compile proves both literal keys remain in the
 manifest. The CLI regression refuses both `compile` and `run` before a
 journal or result file exists. A grammar matrix needs no metacharacter
 files, including names Windows cannot create. Each test states that it
-does not exercise native Windows/MSYS startup on Unix; no pre-spawn argv
-assertion is represented as that proof. Native Windows and macOS
-execution remain for their platform CI jobs.
+does not exercise native Windows/MSYS startup or `powershell.exe` parsing
+on Unix; no pre-spawn argv assertion is represented as that proof. Native
+Windows and macOS execution remain for their platform CI jobs.
 
 Both copies of `gate-boundary-policy` carry the same refusal and
 scenarios. The archive's completion note records the dated amendment;
 the original proposal, design and tasks remain historical evidence.
 
-Temporarily emptying the refusal set made both the runtime's
+In the preceding fourteen-character implementation, temporarily emptying
+the refusal set made both the runtime's
 mutable-sibling regression and the CLI regression fail because the
-bracketed script compiled. The mutation was removed. The final
-fourteen-character rule passes `cargo fmt --all -- --check`,
+bracketed script compiled. The mutation was removed. That
+fourteen-character rule passed `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
 `cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
 bundles/self` and `--bundle bundles/verify`, and a fresh
 `scripts/coverage-exact.sh`: 21,335/21,335 source lines, 3,328/3,328
 branches and 2,025/2,025 logical functions. Frozen trees and shipped
 bundles are untouched; witness and compose digest tests need no repins.
+
+## Scope correction evidence — 2026-09-08
+
+This correction enacts decision 0049 ruling 3 as quoted by the operator
+in the commission, citing it by number while its accepted document is
+not yet in this tree. Decision 0048 remains proposed. The PowerShell
+counterexample is the review evidence supplied with that commission;
+no native Windows or macOS execution was available in this Linux seat.
+The evidence relied on is that reported backtick route, the earlier
+source trace recorded above, and the compiler and pure composition tests.
+They prove byte integrity, refusal of measured spellings and argv
+construction, without claiming native interpreter parsing.
+
+The extended mutable-sibling regression failed before the backtick was
+added because the spelling compiled under `harness`. With the refusal
+added it passes under both `harness` and `open`, before and after the
+sibling exists or changes, while the literal directory's bytes and
+manifest key remain unchanged. Later arguments still admit backticks.
+
+Local validation passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and a fresh
+`scripts/coverage-exact.sh`: 21,335/21,335 source lines, 3,328/3,328
+branches and 2,025/2,025 logical functions. Frozen files and shipped
+bundle inputs are unchanged; witness and compose pins pass without
+repinning. The archived completion note records this later correction
+to both capability copies; the proposal, design and tasks retain their
+historical claims rather than being rewritten as new evidence.

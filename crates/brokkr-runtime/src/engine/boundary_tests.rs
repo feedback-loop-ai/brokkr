@@ -599,10 +599,13 @@ fn retiring_confine_leaves_plain_seat_member_and_step_argv_untouched() {
 }
 
 /// The dispatch `bundles/self`'s verify seat becomes under `harness` on
-/// Linux with the probe passing, token for token; under `open`, on the
-/// other hosts, and with the probe failing, the compiled command alone.
+/// Linux with the probe passing, token for token; with an empty prefix,
+/// the compiled command alone under both `harness` and `open`. These are
+/// composition assertions: no interpreter starts, so they cannot prove
+/// Windows/MSYS or PowerShell parsing, or an execution guarantee through
+/// an unpinned interpreter (decision 0049 ruling 3).
 #[test]
-fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
+fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -689,6 +692,9 @@ fn the_unboxed_exec_dispatch_is_pinned_token_for_token() {
 /// No filesystem or child process: both platform policies run on Linux.
 /// Native joins keep the pin's components testable on each host; on Linux
 /// the Windows root is one literal component, still distinct from C:/... .
+/// These assertions prove composition only, not native Windows startup
+/// or command parsing: the interpreter remains unpinned under `harness`
+/// and `open`, with no execution guarantee (decision 0049 ruling 3).
 #[test]
 fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() {
     for (root, windows_argument) in [

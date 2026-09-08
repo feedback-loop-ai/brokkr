@@ -137,3 +137,49 @@ A fresh exact-coverage gate records 21,335/21,335 source lines,
 refusal temporarily reproduced admission in both the runtime and CLI
 regressions; the mutation is removed. Frozen files and shipped bundles
 remain unchanged, and witness and compose pins pass without repinning.
+
+## Later archive amendment — pinned-script scope, 2026-09-08
+
+Decision 0049, "The platform classes" (accepted by the operator,
+2026-09-07; PR #233), ruling 3 corrects the scope claimed by proposed
+decision 0048 and both copies of `gate-boundary-policy`. Its operative
+words are supplied by the commission while the decision is not yet in
+this tree. The rule always checks integrity over the bundle's own bytes;
+its execution guarantee requires a boundary supplying the filesystem and
+`PATH` (`namespace`, `seatbelt`, `container`). Under `harness` and `open`
+the interpreter is unpinned and resolved through inherited `PATH`, so the
+rule defends a careless bundle, not a hostile seat, and the execution
+guarantee does not hold (0049 ruling 3; 0046 ruling 4). The unbuilt
+boundaries still refuse at start under 0046's addendum.
+
+The capability requirement formerly titled **An exec site with hands
+under harness or open holds only for pinned bytes** now says **is admitted
+only for pinned bytes**. Its text and mutable-sibling scenario, in the
+archived delta and promoted spec together, state the same scope and
+fifteen-character refusal set. The sole added character is the backtick,
+closing the route the review traced through `powershell.exe` as a small
+engineering choice with no guarantee attached. The old `-c` reasoning is
+withdrawn: PowerShell takes its first positional argument as a command
+string with no option token to refuse. The set is closed against measured
+interpreters only; another may reinterpret other bytes, and the guarantee
+rests on the boundary. There is no further interpreter survey or parent
+startup repair. The original proposal, design and tasks remain historical
+evidence, including their earlier requirement title and stronger claims;
+the amended capability and decisions state the corrected scope.
+
+The backtick mutable-sibling compile regression failed before the code
+change and passes afterward under both unboxed boundaries. It preserves
+exact manifest keys and the selected directory's bytes through sibling
+edits; the grammar matrix refuses the backtick before lookup on every
+host, and later arguments retain it. Test names and comments distinguish
+compile admission, byte integrity and argv composition from execution.
+Windows and macOS were not verified natively in this Linux seat: the
+PowerShell evidence is the supplied review, the earlier MSYS route is
+source-traced in 0048, and the regressions start no interpreter to claim
+native startup or command parsing.
+
+Formatting, clippy with warnings denied, the full workspace suite and
+both bundle compiles pass. Fresh exact coverage is 21,335/21,335 source
+lines, 3,328/3,328 branches and 2,025/2,025 logical functions. Frozen files,
+canonical pins and shipped bundle inputs are unchanged; witness and
+compose digest tests pass without repinning. Decision 0048 stays proposed.

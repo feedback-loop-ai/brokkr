@@ -7,6 +7,9 @@ boundary axis, the adapters' `hands.harness` and its result door, the
 bundle-pinned-script reading for exec sites with hands, the environment an unboxed
 exec dispatch runs in, and the run-time argv per boundary (decision 0046
 ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2 and 7).
+The pinned-script rule always checks integrity over the bundle's own bytes;
+its execution guarantee requires a boundary supplying the filesystem and
+`PATH`, and does not hold under `harness` or `open` (decision 0049 ruling 3).
 
 ## ADDED Requirements
 
@@ -138,7 +141,7 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **WHEN** every shipped bundle compiles under `namespace`
 - **THEN** every refusal and admission is what it was before this change
 
-### Requirement: An exec site with hands under harness or open holds only for pinned bytes
+### Requirement: An exec site with hands under harness or open is admitted only for pinned bytes
 An exec site that declares hands — gate or work, the class deciding
 only whether the site may hold a gate (proposal D32) — compiled under
 `harness` or `open`, SHALL be admitted only when its command is the
@@ -159,16 +162,43 @@ the one the manifest walk digests, so a token that passes is pinned by
 the manifest of the layer that declared it, and no path is canonicalised
 and no two spellings are compared (design DD9).
 
-The compiler SHALL additionally refuse the closed startup-character set
+This rule SHALL always be stated as an integrity check over the bundle's
+own bytes. It is an execution guarantee only under a boundary that
+supplies the filesystem and the `PATH`: `namespace`, `seatbelt`,
+`container`. Under `harness` and `open` the interpreter is unpinned and
+resolved through an inherited `PATH`; here the rule is careless-bundle
+defence only, not a defence against a hostile seat, and the execution
+guarantee does not hold (decision 0049 ruling 3; decision 0046 ruling 4).
+Closing a list of interpreter names would not pin their identities:
+anything earlier on `PATH` can answer to a name. Refusing option tokens
+such as `-c` does not exclude shell-source interpretation by every
+interpreter: `powershell.exe` takes its first positional argument as a
+command string without any option token to refuse (decision 0048's
+corrected security ruling). Decision 0049 names Linux first-class,
+macOS supported and Windows best-effort; where operating-system behaviour
+defeats a stated guarantee, the guarantee SHALL be named as not holding
+there rather than pursued. Decision 0046's addendum still refuses
+`seatbelt` and `container` at start until their slices land.
+
+The compiler SHALL additionally refuse the measured startup-character set
 `*`, `?`, `[`, `]`, `{`, `}`, `(`, `)`, `'`, `"`, `\`, `~`, CR (`\r`,
-U+000D) and LF (`\n`, U+000A) in every
+U+000D), LF (`\n`, U+000A) and backtick (U+0060) in every
 script component after `./`, in this same grammar walk before lookup or
 expansion, on every platform (decision 0048, operator security ruling
 2026-09-07; decision 0046 ruling 4). Wildcards and brackets select glob
 matches; braces expand alternatives; parentheses also trigger MSYS
 `globify`; quotes and backslash change quoting or escaping; tilde
 introduces home expansion; CR and LF split startup arguments without
-triggering Rust's automatic quoting. Each character SHALL refuse even unmatched
+triggering Rust's automatic quoting. The backtick closes the one route the
+review traced through `powershell.exe` to a mutable sibling, a small
+engineering choice with no guarantee attached (decision 0049 ruling 3).
+The set is closed against the interpreters that have been measured only;
+a different interpreter may reinterpret other bytes. The execution
+guarantee rests on the boundary that supplies the filesystem and `PATH`,
+not on this set. No survey of further interpreters, additional refusals
+beyond the backtick, or parent-process attempt to defeat shell startup
+handling belongs to this correction (0049 ruling 3).
+Each character SHALL refuse even unmatched
 or where its position would suppress expansion. The refusal SHALL name
 the first offending component and its first refused character in token
 order, decision 0048 and decision 0046 ruling 4. The verdict SHALL depend
@@ -176,9 +206,9 @@ on the bundle token's bytes, never the host, interpreter, environment or
 presence of a matching sibling. This narrows admission only: manifest
 keys and the canonical directory pin SHALL retain exact filename bytes,
 and other bundle files and later unjudged arguments keep their existing
-meaning. Decision 0048 records why shell-source operators are outside
-this startup-parser set; spaces and tabs remain admissible because the
-argument encoder quotes them.
+meaning. Other bytes, including spaces and tabs, remain admissible
+without a claim that every interpreter preserves them literally;
+argument encoding alone proves no interpreter's parsing.
 
 The verdict is a compile fact, and it is re-derived where it matters:
 at every unboxed exec dispatch spawn the engine SHALL re-walk the script's containing
@@ -197,7 +227,8 @@ that cannot be represented without loss are refused. Helpers outside
 the selected directory and the interval between the re-walk and the
 `exec` are outside the check, which the guide states. The namespace box keeps no
 re-walk: a boxed gate is admitted by its walls, an unboxed one by its
-bytes (decision 0043 ruling 3; decision 0046 ruling 4). The tokens
+bytes, with only the integrity scope stated above (decision 0043 ruling 3;
+decision 0046 ruling 4; decision 0049 ruling 3). The tokens
 after the script are its arguments and are not judged, which is how the
 shipped ship gate hands `{brokkr}` to its own script. A command with no
 such script — a bare program, a `{brokkr}` verb, an absolute path, a
@@ -245,11 +276,12 @@ addendum, ruling 1).
 - **THEN** compilation SHALL refuse before lookup or expansion, naming the offending component, character, decision 0048 and decision 0046 ruling 4, including for an inherited declaration and on hosts whose filesystems cannot create that name
 - **AND** an ordinary script SHALL still compile with exact filename keys and unchanged later arguments, including when other files in the layer carry metacharacters
 
-#### Scenario: A matching sibling cannot substitute a gate at startup
+#### Scenario: Measured spellings refuse at compile with a mutable matching sibling
 - **GIVEN** a real `scripts[1]/gate.sh` and an independently mutable matching sibling `scripts1/gate.sh` outside the former directory's re-walk
 - **WHEN** the gate names `./scripts[1]/gate.sh`, before and after the sibling is created or edited
-- **THEN** the bundle SHALL refuse at compile on every host; the real CLI's `compile` and `run` SHALL refuse before a journal or result file exists, so no interpreter can select the sibling
-- **AND** compile regressions SHALL cover brace and apostrophe directory spellings too, preserve their exact manifest keys when compiling an ordinary script, and explicitly state in their own comments that Unix execution does not reproduce Windows native command-line encoding or MSYS startup parsing
+- **THEN** the bundle SHALL refuse at compile on every host; the real CLI's `compile` and `run` SHALL refuse before a journal or result file exists
+- **AND** compile regressions SHALL cover brace and apostrophe directory spellings and the backtick route reported for `powershell.exe` too, before and after the matching sibling is created or edited, and preserve their exact manifest keys when compiling an ordinary script
+- **AND** the tests' names and comments SHALL describe compile refusal and byte integrity, with no execution guarantee through an unpinned interpreter; their comments SHALL state that they start no interpreter and that Unix execution does not reproduce Windows native command-line encoding, MSYS startup parsing or `powershell.exe` command parsing (0049 ruling 3)
 
 #### Scenario: An option before the script is refused
 - **WHEN** the command is `["{brokkr}","driver","exec","--","bash","-c","./scripts/s.sh"]` under `harness`
@@ -422,6 +454,7 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 - **THEN** the script-directory pin SHALL retain the original canonical components, while only the script argv becomes an ordinary `C:/...` or `//server/share/...` path below 260 UTF-16 units; a path requiring the verbatim prefix because of length, namespace or filename components SHALL refuse before spawn (proposed decision 0048, Windows script argument repair)
 - **AND** the engine token and subsequent unjudged arguments SHALL stay unchanged; Unix argv SHALL retain its exact bytes, including literal backslashes; plain exec sites without hands SHALL use the same conversion without adding a re-walk
 - **AND** a pure composition test SHALL exercise both platform policies on Linux as well as on native hosts, asserting the complete child argv separately from the canonical directory pin, including an inherited script followed by an argument naming another layer
+- **AND** its comment SHALL state that it starts no interpreter and cannot prove native Windows startup or command parsing on Unix; argv and pin assertions SHALL claim composition only, with no execution guarantee under `harness` or `open` (decision 0049 ruling 3)
 
 #### Scenario: The same seat with the probe failing, and off Linux
 - **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS and on Windows
