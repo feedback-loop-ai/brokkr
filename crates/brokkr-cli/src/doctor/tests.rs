@@ -33,14 +33,39 @@ fn box_openspec(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, Stri
 }
 
 fn box_unbuildable(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, String> {
-    Err("no bwrap on PATH".into())
+    Err("the box could not be built: no bwrap on PATH".into())
 }
 
-/// One dialect report under one boundary, both surfaces injected: each
-/// test asserts wording, and no test here builds a namespace.
+/// The probe a REJECTED dialect must never reach: doctor reads the
+/// declaration before it runs anything, so an unusable dialect costs no
+/// process on either surface.
+fn unexpected_box(_: &HandsSpec, _: &Path, program: &str) -> Result<Option<String>, String> {
+    panic!("doctor must not build a box for rejected dialect binary {program}")
+}
+
+/// The realm-world report, with the box probe no test of a rejected
+/// dialect may reach. A test helper, so it lives here and not in the
+/// measured file beside the code it exercises.
+fn report_realm(
+    report: &mut Report,
+    workspace: &Path,
+    named: Option<&Path>,
+    probe: fn(&str) -> Option<String>,
+) {
+    report_realm_world(
+        report,
+        brokkr_runtime::realms::World::discover(workspace, named),
+        workspace,
+        probe,
+        unexpected_box,
+    );
+}
+
+/// One dialect report, both surfaces injected: each test asserts
+/// wording, and no test here builds a namespace. The boundary comes from
+/// the realm map, exactly as it does in a run.
 fn dialects(
     world: &brokkr_runtime::realms::World,
-    boundary: Boundary,
     host: fn(&str) -> Option<String>,
     inside: fn(&HandsSpec, &Path, &str) -> Result<Option<String>, String>,
 ) -> Report {
@@ -48,7 +73,7 @@ fn dialects(
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_dialects(&mut report, world, boundary, Path::new("."), host, inside);
+    report_realm_dialects(&mut report, world, Path::new("."), host, inside);
     report
 }
 
@@ -70,18 +95,35 @@ fn install_openspec_dialect(dir: &Path) {
     }
 }
 
-fn dialect_world(dir: &Path, with_dialect: bool) -> brokkr_runtime::realms::World {
-    let realm = if with_dialect {
-        json!({"name": "app", "path": "app", "default_branch": "main", "dialect": "openspec"})
-    } else {
-        json!({"name": "app", "path": "app", "default_branch": "main"})
+/// One realm declaration, named after its own directory, optionally
+/// carrying the dialect and optionally naming its boundary.
+fn realm_json(name: &str, with_dialect: bool, boundary: Option<Boundary>) -> serde_json::Value {
+    let mut realm = json!({"name": name, "path": name, "default_branch": "main"});
+    if with_dialect {
+        realm["dialect"] = json!("openspec");
+    }
+    if let Some(boundary) = boundary {
+        realm["boundary"] = json!(boundary.word());
+    }
+    realm
+}
+
+/// Write a map and load it. A realm may only name its boundary under
+/// `forge.realms/v4` (decision 0046 ruling 1), so the schema follows the
+/// realms rather than being chosen by hand at each call.
+fn world_of(dir: &Path, realms: Vec<serde_json::Value>) -> brokkr_runtime::realms::World {
+    let schema = match realms.iter().any(|realm| realm.get("boundary").is_some()) {
+        true => "forge.realms/v4",
+        false => "forge.realms/v3",
     };
-    std::fs::create_dir_all(dir.join("app")).unwrap();
+    for realm in &realms {
+        std::fs::create_dir_all(dir.join(realm["path"].as_str().unwrap())).unwrap();
+    }
     std::fs::write(
         dir.join("realms.json"),
         serde_json::to_vec(&json!({
-            "schema": "forge.realms/v3",
-            "realms": [realm],
+            "schema": schema,
+            "realms": realms,
             "journal": ".forge/forge.db"
         }))
         .unwrap(),
@@ -90,18 +132,36 @@ fn dialect_world(dir: &Path, with_dialect: bool) -> brokkr_runtime::realms::Worl
     brokkr_runtime::realms::World::load(&dir.join("realms.json")).unwrap()
 }
 
-#[test]
-fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
-    let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+/// The one-realm map most of these tests read: no boundary declared, so
+/// the realm stands behind `namespace`, the default every v1..v3 map has
+/// always meant.
+fn dialect_world(dir: &Path, with_dialect: bool) -> brokkr_runtime::realms::World {
+    world_of(dir, vec![realm_json("app", with_dialect, None)])
+}
+
+/// The same map with the realm naming its boundary.
+fn dialect_world_under(dir: &Path, boundary: Boundary) -> brokkr_runtime::realms::World {
+    world_of(dir, vec![realm_json("app", true, Some(boundary))])
+}
+
+/// The openspec dialect, its required file in place: the shape every
+/// wording test starts from.
+fn dialect_realm(dir: &Path, name: &str) {
+    install_openspec_dialect(dir);
+    std::fs::create_dir_all(dir.join(name).join("openspec")).unwrap();
     std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
+        dir.join(name).join("openspec/config.yaml"),
         "schema: spec-driven\n",
     )
     .unwrap();
+}
+
+#[test]
+fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
+    let dir = tempfile::tempdir().unwrap();
+    dialect_realm(dir.path(), "app");
     let world = dialect_world(dir.path(), true);
-    let report = dialects(&world, Boundary::Namespace, openspec_present, box_openspec);
+    let report = dialects(&world, openspec_present, box_openspec);
     let rendered = report.render();
     assert!(
         rendered.contains(
@@ -120,7 +180,7 @@ fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
 fn doctor_reports_a_realm_without_a_dialect() {
     let dir = tempfile::tempdir().unwrap();
     let world = dialect_world(dir.path(), false);
-    let report = dialects(&world, Boundary::Namespace, always_missing, box_missing);
+    let report = dialects(&world, always_missing, box_missing);
     assert_eq!(report.render(), "ok       dialect app: none declared");
     assert!(report.healthy);
 }
@@ -151,7 +211,6 @@ fn doctor_reports_a_broken_realm_map_and_an_unusable_dialect() {
     report_realm_dialects(
         &mut report,
         &world,
-        Boundary::Namespace,
         Path::new("."),
         unexpected_probe,
         unexpected_box,
@@ -167,16 +226,10 @@ fn doctor_reports_a_broken_realm_map_and_an_unusable_dialect() {
 #[test]
 fn doctor_checks_requires_beneath_an_absolute_realm_path() {
     let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
-    std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
+    dialect_realm(dir.path(), "app");
     let mut world = dialect_world(dir.path(), true);
     world.map.realms[0].path = dir.path().join("app").display().to_string();
-    let report = dialects(&world, Boundary::Namespace, openspec_present, box_openspec);
+    let report = dialects(&world, openspec_present, box_openspec);
     assert!(report
         .render()
         .contains("requires openspec/config.yaml: present"));
@@ -187,16 +240,16 @@ fn doctor_warns_for_a_missing_dialect_tool_but_fails_a_missing_required_file() {
     let dir = tempfile::tempdir().unwrap();
     install_openspec_dialect(dir.path());
     let world = dialect_world(dir.path(), true);
-    let report = dialects(&world, Boundary::Namespace, always_missing, box_missing);
+    let report = dialects(&world, always_missing, box_missing);
     let rendered = report.render();
-    assert!(rendered.contains("warn     dialect app: openspec · tool binary 'openspec' not found · pinned 1.12.0 — the design route will refuse to run"), "{rendered}");
+    assert!(rendered.contains("warn     dialect app: openspec · tool binary 'openspec' not found · pinned 1.12.0 — the design route will refuse to run · probed inside the box"), "{rendered}");
     assert!(
         rendered.contains("MISSING  dialect app requires openspec/config.yaml: missing at"),
         "{rendered}"
     );
     assert!(!report.healthy);
 
-    let mismatch = dialects(&world, Boundary::Namespace, always_present, box_present);
+    let mismatch = dialects(&world, always_present, box_present);
     assert!(mismatch
         .render()
         .contains("pinned 1.12.0 (version differs)"));
@@ -209,15 +262,9 @@ fn doctor_warns_for_a_missing_dialect_tool_but_fails_a_missing_required_file() {
 #[test]
 fn doctor_tells_the_host_path_from_the_box() {
     let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
-    std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
+    dialect_realm(dir.path(), "app");
     let world = dialect_world(dir.path(), true);
-    let report = dialects(&world, Boundary::Namespace, openspec_present, box_missing);
+    let report = dialects(&world, openspec_present, box_missing);
     let rendered = report.render();
     assert!(
         rendered.contains(
@@ -237,15 +284,9 @@ fn doctor_tells_the_host_path_from_the_box() {
 #[test]
 fn doctor_believes_the_box_over_the_host() {
     let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
-    std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
+    dialect_realm(dir.path(), "app");
     let world = dialect_world(dir.path(), true);
-    let report = dialects(&world, Boundary::Namespace, always_missing, box_openspec);
+    let report = dialects(&world, always_missing, box_openspec);
     let rendered = report.render();
     assert!(
         rendered.contains(
@@ -262,16 +303,10 @@ fn doctor_believes_the_box_over_the_host() {
 #[test]
 fn doctor_says_the_host_path_when_no_box_stands() {
     let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
-    std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
-    let world = dialect_world(dir.path(), true);
+    dialect_realm(dir.path(), "app");
     for boundary in [Boundary::Harness, Boundary::Open] {
-        let report = dialects(&world, boundary, openspec_present, unexpected_box);
+        let world = dialect_world_under(dir.path(), boundary);
+        let report = dialects(&world, openspec_present, unexpected_box);
         let rendered = report.render();
         assert!(
             rendered.contains(&format!(
@@ -289,20 +324,9 @@ fn doctor_says_the_host_path_when_no_box_stands() {
 #[test]
 fn doctor_says_when_the_box_could_not_be_built() {
     let dir = tempfile::tempdir().unwrap();
-    install_openspec_dialect(dir.path());
-    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
-    std::fs::write(
-        dir.path().join("app/openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
+    dialect_realm(dir.path(), "app");
     let world = dialect_world(dir.path(), true);
-    let report = dialects(
-        &world,
-        Boundary::Namespace,
-        openspec_present,
-        box_unbuildable,
-    );
+    let report = dialects(&world, openspec_present, box_unbuildable);
     assert!(
         report
             .render()
@@ -311,14 +335,118 @@ fn doctor_says_when_the_box_could_not_be_built() {
         report.render()
     );
 
-    // With no host answer either, the existing refusal stands.
-    let absent = dialects(&world, Boundary::Namespace, always_missing, box_unbuildable);
+    // With no host answer either, the existing refusal stands — and it
+    // still names the surface that answered, because "not found" read
+    // off a host whose box never stood is not the gate's verdict.
+    let absent = dialects(&world, always_missing, box_unbuildable);
     assert!(
-        absent
-            .render()
-            .contains("tool binary 'openspec' not found · pinned 1.12.0"),
+        absent.render().contains(
+            "tool binary 'openspec' not found · pinned 1.12.0 — the design route will \
+             refuse to run · probed on the host PATH (the box could not be built: no \
+             bwrap on PATH)"
+        ),
         "{}",
         absent.render()
+    );
+}
+
+/// Decision 0046 ruling 1 makes the boundary the REALM's own, so one map
+/// may stand `app` behind a namespace and `docs` in the open. Each
+/// dialect line must be answered on the surface ITS realm's gate will run
+/// on: doctor judging every realm by the boundary of whichever realm
+/// holds the current directory is issue #218's defect moved from the
+/// host/box axis to the realm axis — a box built for a realm whose
+/// dialect gate is refused at compile, or the host read for a realm that
+/// will run boxed.
+#[test]
+fn each_realm_is_probed_under_its_own_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    dialect_realm(dir.path(), "app");
+    dialect_realm(dir.path(), "docs");
+    let world = world_of(
+        dir.path(),
+        vec![
+            realm_json("app", true, Some(Boundary::Namespace)),
+            realm_json("docs", true, Some(Boundary::Open)),
+        ],
+    );
+    let report = dialects(&world, openspec_present, box_openspec);
+    let rendered = report.render();
+    assert!(
+        rendered.contains(
+            "ok       dialect app: openspec · tool 'openspec' OpenSpec 1.12.0 · \
+             pinned 1.12.0 · probed inside the box"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "ok       dialect docs: openspec · tool 'openspec' OpenSpec 1.12.0 · \
+             pinned 1.12.0 · probed on the host PATH (boundary `open` builds no box \
+             of Brokkr's)"
+        ),
+        "{rendered}"
+    );
+    assert!(report.healthy, "{rendered}");
+}
+
+fn executed(
+    exit_code: i32,
+    stdout: &str,
+    stderr: &str,
+    timed_out: bool,
+) -> brokkr_protocol::hands::Executed {
+    brokkr_protocol::hands::Executed {
+        stdout: stdout.into(),
+        stderr: stderr.into(),
+        exit_code,
+        timed_out,
+    }
+}
+
+/// A probe the box ran and a probe the box never ran are different
+/// answers. `bash -lc` reports a name it cannot find as 127, and that is
+/// the ONLY non-zero exit that says anything about the tool: reading
+/// every non-zero exit as "the box does not carry it" tells an operator
+/// whose kernel refuses the namespace to install what they already have,
+/// which is issue #218's own confusion in a second costume.
+#[test]
+fn only_a_missing_command_reads_as_a_tool_the_box_cannot_see() {
+    assert_eq!(
+        box_answer(&executed(0, "OpenSpec 1.12.0\n", "", false)),
+        Ok(Some("OpenSpec 1.12.0".into()))
+    );
+    assert_eq!(
+        box_answer(&executed(
+            127,
+            "",
+            "bash: line 1: openspec: command not found",
+            false
+        )),
+        Ok(None)
+    );
+    // bubblewrap's own refusal: the tool is beside the point, so the
+    // reason it gave rides back instead of advice about a binary.
+    assert_eq!(
+        box_answer(&executed(
+            1,
+            "",
+            "bwrap: setting up uid map: Permission denied\nmore",
+            false
+        )),
+        Err(
+            "the probe did not run in the box: exit 1, bwrap: setting up uid map: \
+             Permission denied"
+                .into()
+        )
+    );
+    assert_eq!(
+        box_answer(&executed(1, "", "", false)),
+        Err("the probe did not run in the box: exit 1".into())
+    );
+    assert_eq!(
+        box_answer(&executed(124, "", "", true)),
+        Err("the probe was still running in the box after 30 seconds".into())
     );
 }
 
@@ -577,7 +705,7 @@ fn report_and_tool_probe_expose_all_health_states() {
     assert_eq!(tool_version("false"), None);
     assert!(tool_version("true").is_some());
     assert_eq!(
-        safe_version(b"tool 1.0\x1b[31m\nforged line\n"),
+        safe_line(b"tool 1.0\x1b[31m\nforged line\n"),
         "tool 1.0[31m"
     );
 }
