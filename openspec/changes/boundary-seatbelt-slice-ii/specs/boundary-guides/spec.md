@@ -1,0 +1,161 @@
+## MODIFIED Requirements
+
+### Requirement: The guides document the boundary and never lose a section
+The guides SHALL be updated as follows, each section kept and amended,
+none removed: `docs/guides/provider-adapters.md`'s Hands section
+documents `hands.harness` with its `gate`, `work` and `result` members,
+the `{result_path}` token and the two workspace tokens refused there,
+the three-shape convention, codex's fragments and its `last-message`
+door — the fragment ruling 4's own word and the door the tool's
+documented capture, with the measurement of the capture under the
+read-only class recorded when made and named as the operator's and
+pending until then — and, per claude member, either the measurement,
+the claude version and what the mode denies and allows, or that the
+member is undeclared pending the operator's measurement, with the
+candidates and the recipe; and its doctor section names the
+`boundaries` line, actual host/tool availability and the distinction between
+an implemented boundary and pending native acceptance evidence;
+`docs/guides/recipe-authoring.md`'s `hands` row stops saying Linux only
+and says the boundary lives in the realm and that under `harness` and
+`open` a bind's `mask` is declared and not enforced and that clearing
+the environment confines nothing on disk, an unboxed script reaching
+any host path the operator's uid may read (design DD10), and its
+`driver.confine` row
+says the field is refused and points at decision 0046 ruling 5;
+`docs/guides/quickstart.md`'s platform paragraph says that macOS is
+supported on arm64 and x86_64 (0049), that a macOS realm declares
+`boundary: seatbelt` when the actual implementation can enforce its
+policy, and how doctor diagnoses a wrong host or missing/unusable system
+`sandbox-exec`. During preparation it names the pending Mac measurement
+and does not claim slice II complete. Windows remains best-effort under
+`harness` or `open`, Linux/WSL2 keeps `namespace`, absence still resolves
+`namespace`, and container refuses until slice (iii). The paragraph keeps
+the harness alternative and its *unboxed* meaning, provider-fragment and
+pinned-script limitations, and names the shipped bundles that compile or
+refuse under that boundary using the current compile inventory and each
+actual first refusal. The inventory is measured from the current shipped
+library, not copied from slice I's historical nine/thirteen counts; the
+existing pin test is the record of the current inventory;
+`docs/guides/journal-and-verification.md` gains the unboxed rendering
+and what `boundary` on a record and on `effect/started` means;
+`docs/guides/read-surfaces.md`'s seats-table example is refreshed from
+the renderer's header line, which already carries `model`, and shows the
+`boundary` column beside it, and its verb list gains `brokkr seats`
+beside `inspect`, its `--json` named as `inspect`'s own view model;
+`docs/guides/quickstart.md`'s `rerun` line says the
+rerun compiles in the discovered realm as `run` does; no guide states
+that the network was off under `harness` or `open` — the prefix is
+described as a narrowing the engine attempts on Linux (design DD15);
+`docs/guides/repository-layout.md` names `boundary` beside
+`house` and `dialect` in the `realms.json` row and the new contract
+files in the `contracts/` row; `docs/guides/driver-authoring.md` and
+`ARCHITECTURE.md` stop describing the `docker run` wrapper as a trust
+class and point at the boundary, and driver-authoring's opening
+paragraph, which says the engine runs the shipped verifier and shipper
+through `brokkr hands exec`, says so of `namespace` and `seatbelt`,
+explains their distinct path handling, and adds that under
+`harness` and `open` the same `exec` dispatch runs with no verb of
+Brokkr's around it, in a fixed environment, the network narrowed on Linux
+where `unshare` permits and never stated as off, that the script's
+containing directory and descendants are re-walked
+against the declaring layer's compiled file map at every unboxed spawn
+and a changed, missing or added file refuses the dispatch (0048), while
+helpers outside that directory and the interval between the re-walk and
+exec remain outside the integrity check. It preserves 0049's statement
+that inherited PATH leaves the interpreter unpinned under harness/open,
+and that the `hands` subcommand gains no
+verb for it; the two blueprint pages that still present the container trust class follow the same
+way, every section kept — `docs/extension-model.md`'s seat-field table,
+whose `trust` row says the tier "decides what the engine mounts into
+the sandbox", says the wall itself is the realm's `boundary` (decision
+0046) and that the tier decides what is mounted inside it, and
+`docs/target-architecture.md`'s runner table, whose `policy-confined`
+row is an OCI container with a pinned digest, points at decision 0046's
+`container` boundary — declared by the realm, refused at start until
+slice (iii) measures it — and whose `public-evidence-only` row names
+the same boundary for its container form, each page's status line
+untouched; and `contracts/README.md` gains rows
+and a paragraph for `realms.v4`, `run-manifest.v9`, `seat-record.v4`
+and `effect-boundary.v1` in the style of the rows before them.
+
+#### Scenario: provider-adapters documents hands.harness
+- **WHEN** `docs/guides/provider-adapters.md` is read
+- **THEN** its Hands section names `hands.harness`, `gate`, `work`, `result`, `{result_path}`, the codex fragments and door with the door's measurement recorded or named as pending and the operator's, and, per claude member, the claude version it was measured against or that it is undeclared pending the operator's measurement; and its doctor section names the `boundaries` line
+
+#### Scenario: recipe-authoring points the two rows at the realm and at 0046
+- **WHEN** the site vocabulary table is read
+- **THEN** the `hands` row says the boundary is the realm's, that a mask is not enforced under `harness` and `open`, that clearing the environment confines nothing on disk, and no longer says Linux only, and the `driver.confine` row says the field is refused under decision 0046 ruling 5
+
+#### Scenario: quickstart's platform paragraph
+- **WHEN** the quickstart's platform paragraph is read
+- **THEN** it identifies supported macOS with the implemented Seatbelt boundary and any pending native measurement, best-effort Windows with harness/open, namespace as the default on Linux/WSL2, and container as unbuilt slice (iii); it keeps the harness alternative with its unboxed meaning and the actual measured shipped-bundle inventory and refusals
+
+#### Scenario: journal-and-verification and read-surfaces show the rendering
+- **WHEN** the two guides are read
+- **THEN** one explains the unboxed rendering and the record's `boundary`, and the other's seats table carries a `boundary` column beside `model` and its verb list names `brokkr seats`
+
+#### Scenario: The layout, driver and architecture pages follow
+- **WHEN** `repository-layout.md`, `driver-authoring.md` and `ARCHITECTURE.md` are read
+- **THEN** the realm row names `boundary`, the contracts row names the four new files, no page describes `driver.confine` as a working trust class, and driver-authoring's opening paragraph qualifies `brokkr hands exec` with namespace and Seatbelt, explains their actual input paths, describes the unboxed dispatch and script-directory integrity check with its interpreter and timing limitations, and names no new unboxed verb
+
+#### Scenario: The blueprint pages point at the boundary
+- **WHEN** `docs/extension-model.md` and `docs/target-architecture.md` are read
+- **THEN** the seat-field `trust` row names the realm's `boundary` as the wall and decision 0046, the runner table's `policy-confined` row names the `container` boundary and slice (iii) in place of a working OCI wrapper, no row is removed, and each page keeps every section and its status line
+
+#### Scenario: The contracts README lists the four files
+- **WHEN** `contracts/README.md` is read
+- **THEN** it carries rows for `realms.v4`, `run-manifest.v9`, `seat-record.v4` and `effect-boundary.v1`, and its extension-schema paragraph names `effect/started.boundary` among the fields `fold` never reads
+
+#### Scenario: Current inventories replace obsolete slice-I counts with evidence
+- **WHEN** a guide's harness inventory is refreshed alongside the Seatbelt platform text
+- **THEN** the counts, names and refusal reasons match the current compile pin's measured output, the reason for any changed inventory is recorded, and historical examples and archived slice-I evidence are not rewritten as current results
+
+## ADDED Requirements
+
+### Requirement: Seatbelt documentation names its mechanism and evidence limits
+
+Hands CLI help, the MCP tool description, relevant model prompts, the
+provider/recipe/driver guides and architecture documentation SHALL describe
+Seatbelt's actual filesystem, network and process restrictions. They SHALL
+not claim an empty root, hidden host process namespace, Linux UID/capability
+mapping, PID/IPC/UTS isolation or mount remapping that Seatbelt does not
+provide. The guides SHALL distinguish the provider harness outside the
+boundary from commands using workspace hands, retaining decision 0043's
+Codex native read-only shell limitation instead of claiming the harness
+cannot read any host credential.
+
+The guides SHALL show the realm declaration and both hands entry points,
+explain private HOME/tmp versus seat-scoped overlay state, the controlled
+toolchain/SDK access, `ro`/`rw`/`overlay` and mask behavior, git protection
+including linked worktrees, unsigned commits, network-off/on semantics,
+output/deadline limits and any explicit unsupported layout refusal. The
+network explanation SHALL distinguish shared macOS loopback from a private
+Linux network namespace; a host loopback allowance is not isolation.
+Native measurement status and any proposed ruling SHALL be adjacent to the
+claim they qualify. An implementation-only Linux handoff SHALL provide the
+exact native CI invocation and expected cases for the controller, not an
+invented success count or an instruction to weaken the gate.
+
+No accepted decision SHALL be rewritten as newly accepted by this change.
+A focused semantic decision remains `proposed` until the operator rules;
+archive evidence, historical live channel versions and old journal examples
+retain their meaning. New contract requirements, if any, SHALL be documented
+as additive versions rather than edits of frozen bytes. Documentation tests
+SHALL check the maintained platform and boundary facts, not prescribe an
+untested guarantee by matching a word.
+
+#### Scenario: A Mac operator can tell what the boundary provides
+- **WHEN** the operator reads the hands description and macOS guide examples
+- **THEN** they see the actual policy and limitations, how to declare Seatbelt and diagnose a refusal, and no claim that Seatbelt supplies Linux namespaces or a nonexistent `/runtime/bundle` mount
+
+#### Scenario: Native Codex tools are not conflated with workspace hands
+- **WHEN** the guide describes the Codex workspace adapter under Seatbelt
+- **THEN** it states that Brokkr confines workspace-tool commands, that the provider harness remains outside, and that the native read-only shell limitation recorded by 0043 still applies
+
+#### Scenario: Preparation and measurement have different evidence
+- **WHEN** the guide or handoff is written before Mac CI and host exact coverage execute
+- **THEN** those checks are explicitly pending with their controller-owned invocations and required outcomes, no overall slice completion is asserted, and later real evidence is attributed to its actual candidate, host and tool versions
+
+#### Scenario: A semantic difference is not hidden in wording
+- **WHEN** design proposes denied-mask reads, relocated overlays or a different hooks view
+- **THEN** documentation names the exact difference and focused proposed decision, preserves refusal where the accepted guarantee cannot hold, and does not claim the proposed behavior was already accepted
