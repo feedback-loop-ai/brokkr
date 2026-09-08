@@ -199,6 +199,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // not bound again, but its hooks are hidden and its config read-only.
     let inside = GitFacts {
         git_dir: Some(workdir.join(".git")),
+        common_dir: Some(workdir.join(".git")),
         identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
     };
     let argv = box_argv(
@@ -227,7 +228,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // A `git worktree`: the common dir is elsewhere and must be bound.
     let common = dir.path().join("main/.git");
     let outside = GitFacts {
-        git_dir: Some(common.clone()),
+        git_dir: Some(common.join("worktrees/wt")),
+        common_dir: Some(common.clone()),
         identity: Vec::new(),
     };
     let argv = box_argv(
@@ -792,7 +794,15 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
 
     let facts = git_facts(&worktree);
-    assert_eq!(facts.git_dir.as_deref(), Some(main.join(".git").as_path()));
+    assert_eq!(
+        facts.common_dir.as_deref(),
+        Some(main.join(".git").as_path())
+    );
+    assert_eq!(
+        facts.git_dir.as_deref(),
+        Some(main.join(".git/worktrees/wt").as_path()),
+        "the per-worktree directory is distinct from the shared one"
+    );
     assert!(facts
         .identity
         .iter()
@@ -806,6 +816,7 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     // Not a repository: no git dir to mask (the identity is the host's
     // global one either way).
     assert_eq!(git_facts(dir.path()).git_dir, None);
+    assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
     let session = session_dir("git").unwrap();
@@ -879,6 +890,31 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .unwrap()
         .contains("evil"));
     let _ = std::fs::remove_dir_all(&session);
+}
+
+/// Decision 0053: the two git paths arrive one per line, so a path that
+/// itself spans a line makes the answer ambiguous — and an ambiguous git
+/// directory is no git directory. The box then has no git to bind, which
+/// is the fail-closed reading.
+#[cfg(unix)]
+#[test]
+fn a_git_directory_whose_path_spans_a_line_is_not_a_git_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let weird = dir.path().join("line\nbreak");
+    std::fs::create_dir_all(&weird).unwrap();
+    let out = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&weird)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let facts = git_facts(&weird);
+    assert_eq!(facts.git_dir, None);
+    assert_eq!(facts.common_dir, None);
 }
 
 // ─────────────── decision 0046 ruling 4: the unboxed exec dispatch

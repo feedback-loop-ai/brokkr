@@ -996,11 +996,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "a/b c/d",
     ] {
         assert!(
-            dsh_seat_overlay(Some(bad), None, root).is_err(),
+            dsh_seat_overlay_with(Some(bad), None, root, None).is_err(),
             "{bad:?} must be refused"
         );
     }
-    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), None, root).is_ok());
+    assert!(dsh_seat_overlay_with(Some("deepseek-v4-flash"), None, root, None).is_ok());
 }
 
 /// An effort pinned with no model beside it is refused, not dropped: the
@@ -1010,10 +1010,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 #[test]
 fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused = dsh_seat_overlay(None, Some("high"), root).unwrap_err();
+    let refused = dsh_seat_overlay_with(None, Some("high"), root, None).unwrap_err();
     assert!(refused.contains("needs a `--model` beside it"), "{refused}");
 
-    let overlay = dsh_seat_overlay(Some("dashscope/qwen3.8-max"), Some("xhigh"), root).unwrap();
+    let overlay =
+        dsh_seat_overlay_with(Some("dashscope/qwen3.8-max"), Some("xhigh"), root, None).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert_eq!(written.matches("- id: ").count(), 3, "{written}");
     assert!(
@@ -1570,10 +1571,11 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         (routed.provider, routed.model),
         ("meta-contributor", "meta/muse-spark-1.3-contributor")
     );
-    let file = dsh_seat_overlay(
+    let file = dsh_seat_overlay_with(
         Some("meta-contributor/meta/muse-spark-1.3-contributor"),
         Some("xhigh"),
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -1591,10 +1593,11 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         "{document}"
     );
     // The overlay carries the named route, not the default one.
-    let file = dsh_seat_overlay(
+    let file = dsh_seat_overlay_with(
         Some("dashscope/qwen3.8-max"),
         None,
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -2454,13 +2457,15 @@ fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
 #[test]
 fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused =
-        dsh_seat_overlay_in(None, None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
+    let refused = dsh_seat_overlay_in(None, None, root, None, || {
+        Err(std::io::Error::other("no tmp"))
+    })
+    .unwrap_err();
     assert!(
         refused.contains("could not stage the dsh seat overlay"),
         "{refused}"
     );
-    let sealed = dsh_seat_overlay_in(None, None, root, || {
+    let sealed = dsh_seat_overlay_in(None, None, root, None, || {
         let staged = tempfile::NamedTempFile::new()?;
         let (_, path) = staged.into_parts();
         let readonly = std::fs::File::open(&path)?;
@@ -2523,6 +2528,232 @@ fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
     let blocked = tempfile::tempdir().unwrap();
     std::fs::write(blocked.path().join("sessions"), b"not a directory").unwrap();
     assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
+}
+
+/// Decision 0053: the driver resolves the two git directories through
+/// Git and only a workspace-write seat whose git metadata lies outside
+/// the writable root needs the scoped runner.
+#[test]
+fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
+    let linked = GitFacts {
+        git_dir: Some(PathBuf::from("/main/.git/worktrees/wt")),
+        common_dir: Some(PathBuf::from("/main/.git")),
+        identity: Vec::new(),
+    };
+    let scope = dsh_git_runner_scope("/work/wt", &linked, "workspace-write")
+        .expect("a linked worktree needs the runner");
+    assert_eq!(scope.workspace, PathBuf::from("/work/wt"));
+    assert_eq!(scope.git_dir, PathBuf::from("/main/.git/worktrees/wt"));
+    assert_eq!(scope.common_dir, PathBuf::from("/main/.git"));
+
+    // The workspace's own git directory is already inside the writable
+    // root, so a primary checkout needs nothing.
+    let primary = GitFacts {
+        git_dir: Some(PathBuf::from("/repo/.git")),
+        common_dir: Some(PathBuf::from("/repo/.git")),
+        identity: Vec::new(),
+    };
+    assert!(dsh_git_runner_scope("/repo", &primary, "workspace-write").is_none());
+    // A subdirectory of a checkout still cannot reach the git directory
+    // the session cwd does not contain.
+    assert!(dsh_git_runner_scope("/repo/src", &primary, "workspace-write").is_some());
+    // No writes to confine, and not a repository at all.
+    for mode in ["read-only", "danger-full-access"] {
+        assert!(dsh_git_runner_scope("/work/wt", &linked, mode).is_none());
+    }
+    assert!(dsh_git_runner_scope("/work/wt", &GitFacts::default(), "workspace-write").is_none());
+}
+
+#[test]
+fn the_scoped_runner_program_prefers_the_override_then_this_binary_then_the_name() {
+    assert_eq!(
+        dsh_runner_program_from(Some("/opt/brokkr".into()), Err("unused".into())),
+        "/opt/brokkr"
+    );
+    assert_eq!(
+        dsh_runner_program_from(None, Ok(PathBuf::from("/usr/bin/brokkr"))),
+        "/usr/bin/brokkr"
+    );
+    assert_eq!(dsh_runner_program_from(None, Err("gone".into())), "brokkr");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_scoped_runner_refuses_a_missing_or_unusable_bubblewrap() {
+    let empty = tempfile::tempdir().unwrap();
+    let refused = dsh_bwrap_on(empty.path().as_os_str()).unwrap_err();
+    assert!(refused.contains("no `bwrap` on PATH"), "{refused}");
+    assert!(refused.contains("will not run the seat"), "{refused}");
+
+    let fake_dir = tempfile::tempdir().unwrap();
+    let fake = fake_dir.path().join("bwrap");
+    std::fs::write(&fake, "#!/bin/sh\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = dsh_bwrap_on(fake_dir.path().as_os_str()).unwrap_err();
+    assert!(
+        refused.contains("cannot build the empty-root namespace"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn the_seat_overlay_carries_the_scoped_sandbox_row() {
+    let root = tempfile::tempdir().unwrap();
+    let scope = dsh_sandbox::GitScope {
+        workspace: PathBuf::from("/work/wt"),
+        git_dir: PathBuf::from("/main/.git/worktrees/wt"),
+        common_dir: PathBuf::from("/main/.git"),
+    };
+    let row = dsh_sandbox::sandbox_row("/opt/brokkr", &scope).unwrap();
+    let overlay = dsh_seat_overlay_with(None, None, root.path(), Some(&row)).unwrap();
+    let written = std::fs::read_to_string(overlay.path()).unwrap();
+    assert!(
+        written.contains("- id: session-persistence-jsonl\n"),
+        "{written}"
+    );
+    assert!(written.contains("- id: sandbox\n"), "{written}");
+    assert!(written.contains("      - '/opt/brokkr'\n"), "{written}");
+    assert!(written.contains("      - '--workspace'\n"), "{written}");
+
+    // Without the row the overlay names no sandbox at all.
+    let plain = dsh_seat_overlay_with(None, None, root.path(), None).unwrap();
+    let written = std::fs::read_to_string(plain.path()).unwrap();
+    assert!(!written.contains("- id: sandbox\n"), "{written}");
+}
+
+/// The whole driver decision on a real linked worktree: the row is built
+/// where bubblewrap can stand in, and the refusal names the reason where
+/// it cannot.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "user.name", "Host Operator"]);
+    git(&main, &["config", "user.email", "host@example.invalid"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+    let worktree = dir.path().join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "slice",
+        ],
+    );
+
+    let facts = crate::hands::git_facts(&worktree);
+    match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
+        Ok(Some(row)) => {
+            assert!(row.contains("- id: sandbox\n"), "{row}");
+            assert!(row.contains("      - '--git-dir'\n"), "{row}");
+            assert!(row.contains("      - '--common-dir'\n"), "{row}");
+            assert!(
+                row.contains(worktree.to_string_lossy().as_ref()),
+                "the row names the session workspace: {row}"
+            );
+        }
+        Ok(None) => panic!("a linked worktree must need the scoped runner"),
+        Err(problem) => {
+            // This host has no usable bubblewrap: the refusal says so
+            // instead of starting a seat that cannot commit.
+            assert!(
+                problem.contains("bubblewrap") || problem.contains("no `bwrap` on PATH"),
+                "{problem}"
+            );
+        }
+    }
+}
+
+/// The gpgsign triple and the host identity reach the dsh child, so a
+/// seat's commit is unsigned and attributed to the operator.
+#[cfg(unix)]
+#[test]
+fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.name", "Host Operator"],
+        vec!["config", "user.email", "host@example.invalid"],
+    ] {
+        let out = Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+    let dump = dir.path().join("env");
+    let fake = executable(
+        dir.path(),
+        "dsh",
+        &format!("#!/bin/sh\nenv > {}\n", dump.display()),
+    );
+    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+
+    invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": repo}),
+        None,
+        &[],
+        &mut |_| {},
+    )
+    .unwrap();
+
+    match prior_bin {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+
+    let seen = std::fs::read_to_string(&dump).unwrap();
+    assert!(seen.contains("GIT_CONFIG_COUNT=1"), "{seen}");
+    assert!(seen.contains("GIT_CONFIG_KEY_0=commit.gpgsign"), "{seen}");
+    assert!(seen.contains("GIT_CONFIG_VALUE_0=false"), "{seen}");
+    assert!(seen.contains("GIT_AUTHOR_NAME=Host Operator"), "{seen}");
+    assert!(
+        seen.contains("GIT_COMMITTER_EMAIL=host@example.invalid"),
+        "{seen}"
+    );
 }
 
 #[test]

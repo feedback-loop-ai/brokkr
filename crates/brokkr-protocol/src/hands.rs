@@ -230,13 +230,24 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
 
 /// What the host knows about the worktree's git that the box must be
 /// told, gathered OUTSIDE the box before it is built (decision 0043
-/// ruling 6): where the git directory is, and who the seat commits as.
+/// ruling 6): where the two git directories are, and who the seat
+/// commits as.
+///
+/// A repository has two identities, and a linked `git worktree` makes
+/// the difference load-bearing: `--git-dir` names the per-worktree
+/// directory (the one holding this worktree's `index` and `HEAD`), while
+/// `--git-common-dir` names the shared one (the main checkout's `.git`,
+/// holding `objects`, `refs` and `config`). A primary checkout has one
+/// path for both.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitFacts {
-    /// The git directory's absolute path — inside the worktree for a
-    /// primary checkout, elsewhere for a `git worktree`. `None` when the
-    /// workdir is not a git repository.
+    /// The per-worktree git directory, absolute. Inside the worktree for
+    /// a primary checkout; under the shared `.git/worktrees/<name>` for
+    /// a linked worktree. `None` when the workdir is not a repository.
     pub git_dir: Option<PathBuf>,
+    /// The shared git directory, absolute — the main checkout's `.git`
+    /// for a linked worktree. `None` when the workdir is not a repository.
+    pub common_dir: Option<PathBuf>,
     /// `user.name` and `user.email` as the host resolves them, as the
     /// environment entries git reads them from.
     pub identity: Vec<(String, String)>,
@@ -257,8 +268,38 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .filter(|text| !text.is_empty())
     };
-    let git_dir =
-        git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from);
+    let (git_dir, common_dir) = match Command::new("git")
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .current_dir(workdir)
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            // One path per line, in the order asked, and no trim: a path
+            // may end in a space. A path that itself spans a line makes
+            // the output ambiguous, and an ambiguous git directory is no
+            // git directory: both stay None and the box has no git to
+            // bind.
+            let reported = String::from_utf8_lossy(&out.stdout);
+            let mut lines = reported.lines();
+            match (lines.next(), lines.next(), lines.next()) {
+                (Some(git_dir), Some(common_dir), None)
+                    if !git_dir.is_empty() && !common_dir.is_empty() =>
+                {
+                    (
+                        Some(PathBuf::from(git_dir)),
+                        Some(PathBuf::from(common_dir)),
+                    )
+                }
+                _ => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
     let mut identity = Vec::new();
     for (env, key) in [("NAME", "user.name"), ("EMAIL", "user.email")] {
         if let Some(value) = git(&["config", key]) {
@@ -266,7 +307,11 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             identity.push((format!("GIT_COMMITTER_{env}"), value));
         }
     }
-    GitFacts { git_dir, identity }
+    GitFacts {
+        git_dir,
+        common_dir,
+        identity,
+    }
 }
 
 /// Render a host path as a path inside the box. Paths inside the namespace
@@ -426,16 +471,18 @@ pub fn box_argv(
     // worktree and is bound so git works at all; either way its `hooks`
     // are hidden behind an empty tmpfs and its `config` is read-only, so
     // nothing a boxed command writes can become a program the host runs
-    // on its next git invocation.
-    if let Some(git_dir) = &git.git_dir {
-        if !git_dir.starts_with(workdir) {
-            argv.extend([s("--bind"), host_path(git_dir), namespace_path(git_dir)]);
+    // on its next git invocation. The per-worktree directory lies under
+    // the shared one for a linked worktree, so binding the common
+    // directory covers both.
+    if let Some(common) = &git.common_dir {
+        if !common.starts_with(workdir) {
+            argv.extend([s("--bind"), host_path(common), namespace_path(common)]);
         }
         argv.extend([
             s("--tmpfs"),
-            namespace_join(&namespace_path(git_dir), Path::new("hooks")),
+            namespace_join(&namespace_path(common), Path::new("hooks")),
         ]);
-        let config = git_dir.join("config");
+        let config = common.join("config");
         argv.extend([
             s("--ro-bind-try"),
             host_path(&config),

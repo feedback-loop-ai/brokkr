@@ -235,3 +235,26 @@ Of claude, codex and dsh, then, a `harness` gate stands on codex today
 and on claude once measured. A dsh work seat with hands may run under
 `open` at its harness's default; its gate refuses under `namespace`
 for the untrusted tier and under `harness` for the missing gate fragment.
+
+A dsh **work** seat under `harness` is confined by dsh's own sandbox,
+which writes only under the session workspace. A linked `git worktree`
+keeps its metadata under the shared repository's `.git`, outside that
+workspace, so `git add`/`git commit` would fail on `index.lock` (the
+defect the essay records). `brokkr driver dsh` resolves the worktree's
+`--git-dir` and `--git-common-dir` through Git before the seat starts
+and, when the seat's mode is `workspace-write` and the common dir lies
+outside the workspace, points dsh's supported sandbox `runnerCommand` at
+`brokkr dsh-sandbox-runner` with those paths as trusted argv. The runner
+adds exactly the scoped write set a commit needs — the per-worktree
+directory, `objects`, `refs`, `logs` and `packed-refs` — masks `hooks`
+as an empty tmpfs, and makes `config` and `config.worktree` read-only;
+the whole shared `.git`, the parent checkout and sibling worktrees stay
+unwritable. It is bubblewrap-only: a non-Linux host, no `bwrap`, or a
+`bwrap` that cannot build the empty-root namespace refuses the seat at
+start, naming the remedies, rather than burning an implementation that
+cannot commit. A primary checkout, a `read-only` seat and a
+`danger-full-access` seat are left to dsh's own provider. The driver
+also sets `commit.gpgsign=false` and the host identity on the child, so
+seat commits are unsigned (CONTRIBUTING). The boundary in the record is
+still `harness`; this is the harness's own runner, not a Brokkr
+boundary (decision 0053, proposed).

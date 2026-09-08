@@ -164,6 +164,12 @@ fn git(repo: &Path, args: &[&str]) {
         .env("GIT_AUTHOR_EMAIL", "landing@example")
         .env("GIT_COMMITTER_NAME", "landing")
         .env("GIT_COMMITTER_EMAIL", "landing@example")
+        // Seat commits are unsigned (CONTRIBUTING); a host whose global
+        // config signs would otherwise fail this fixture before the
+        // engine ever runs.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
         .status()
         .expect("git runs");
     assert!(status.success(), "git {args:?}");
