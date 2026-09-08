@@ -1535,6 +1535,16 @@ fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
     }
 }
 
+/// The box the compiler builds for every dialect `validate`/`check` step
+/// (decision 0042 ruling 4). Public so `brokkr doctor` probes the
+/// dialect's tool inside the SAME box its gate will run in, instead of
+/// answering for the host PATH while the gate runs with `$HOME` unbound
+/// (issue #218). One function, two readers: a spec that changes here
+/// changes both the box that runs and the box doctor measures.
+pub fn dialect_gate_hands() -> HandsSpec {
+    HandsSpec::default()
+}
+
 /// The synthetic boxed exec gate the compiler builds for a dialect
 /// validate or check step (decision 0042 ruling 4), shared by the two
 /// sites that build one. Under `harness` and `open` the step is refused
@@ -1555,7 +1565,7 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
     }
     Ok(json!({
         "class": "gate",
-        "hands": "workspace",
+        "hands": dialect_gate_hands().to_value(),
         "driver": {"command": ["{brokkr}", "driver", "exec", "--"]}
     }))
 }
