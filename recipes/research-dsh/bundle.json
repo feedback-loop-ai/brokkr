@@ -13,7 +13,7 @@
       "results": ["intake", "nothing-new", "escalate"],
       "class": "work",
       "limits": {"max_attempts": 1, "timeout_seconds": 5400},
-      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "dashscope/qwen3.8-max", "--effort", "high", "--patch", "recipes/research-dsh/drivers/research-web.yml"]}
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "dashscope/qwen3.8-max", "--effort", "xhigh", "--patch", "recipes/research-dsh/drivers/research-web.yml"]}
     }
   }
 }

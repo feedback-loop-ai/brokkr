@@ -1,6 +1,8 @@
 //! Decision 0046: hands sites now pin the realm boundary; codex
 //! harness fragments also move every identity that consults that adapter.
 //! Pins below are updated only from the tests' reported left/right pairs.
+//! Merging main's research-dsh xhigh effort pin with this boundary slice
+//! moves that recipe again; its witness covers both changes together.
 //! The byte-identity witnesses of the agent-library slice (decision
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
@@ -189,7 +191,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/research-dsh",
-        "0b40a3b54611c1e7900d340cd74414d75a0219790b5f7aac21bf889dde10f0fa",
+        "54579f5a2f955e0d027b6899270ab3f443e62006c2f392ca0aa89477afd40d12",
     ),
     (
         "bundles/verify",
