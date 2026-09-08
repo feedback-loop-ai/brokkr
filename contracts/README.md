@@ -98,7 +98,8 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
 | Specification dialect | `dialect.v1.schema.json` | superseded for new files by v2, below; bytes frozen |
-| Specification dialect, with the install identity | `dialect.v2.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
+| Specification dialect, with the install identity | `dialect.v2.schema.json` | superseded for new files by v3, below; bytes frozen |
+| Specification dialect, with the archive instruction | `dialect.v3.schema.json` | brokkr-runtime (loading, map checks, boxed dialect steps and the smith's fold) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are
@@ -108,6 +109,18 @@ maps artifact and judge phases to framework artifacts, instructions,
 validators, dependency order and lifecycle commands. The loader checks the
 map and pins the resolved JSON content, not merely its declaration. A v2 map
 remains byte- and behavior-compatible.
+
+Decision 0042's addendum of 2026-09-06 adds `dialect.v3`, v2 plus one thing:
+a dialect that folds a change into a living truth tree declares the
+instruction its archive step carries. The archive command's `instructions`
+is a dialect-relative Markdown file rendered into the smith's implement
+prompt, where it tells the smith to append one `## Provenance` line per
+capability the change touched — the archived directory's name and the day it
+was folded, appended and never rewritten. A dialect with no truth tree
+declares the archive `unsupported` and names no instruction. v1 and v2 are
+not edited; their bytes stay frozen beside v3, and this build reads v3 only,
+which costs nothing because no journal pins a dialect for a resume to
+reload.
 
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six

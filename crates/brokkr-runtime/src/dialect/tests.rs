@@ -23,14 +23,14 @@ fn refusal(value: Value) -> String {
 #[test]
 fn both_shipped_dialects_load_and_satisfy_the_contract() {
     let schema: Value = serde_json::from_slice(
-        &std::fs::read(root().join("contracts/dialect.v2.schema.json")).unwrap(),
+        &std::fs::read(root().join("contracts/dialect.v3.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
     for name in ["openspec", "speckit"] {
         let path = root().join(format!("dialects/{name}.json"));
         let (_, value) = Dialect::load(&path).unwrap();
-        assert!(validator.is_valid(&value), "{name} is outside dialect/v2");
+        assert!(validator.is_valid(&value), "{name} is outside dialect/v3");
     }
     let speckit = Dialect::load(&root().join("dialects/speckit.json"))
         .unwrap()
@@ -109,7 +109,7 @@ fn every_checked_dialect_boundary_is_named() {
 
     let mut wrong = openspec();
     wrong["schema"] = json!("brokkr.dialect/v1");
-    assert!(refusal(wrong).contains("brokkr.dialect/v2"));
+    assert!(refusal(wrong).contains("brokkr.dialect/v3"));
     for pointer in [
         "/name",
         "/tool/binary",
@@ -214,12 +214,14 @@ fn a_realm_path_dialect_loads_beside_its_instructions_and_missing_prose_is_refus
     }
     value["phases"]["clarify"]["taxonomy"] = json!("instructions/prompt.md");
     value["phases"]["analyze"]["taxonomy"] = json!("instructions/prompt.md");
+    value["archive"]["instructions"] = json!("instructions/prompt.md");
     let path = dialect_dir.join("openspec.json");
     std::fs::write(&path, value.to_string()).unwrap();
 
     let dialect = Dialect::load(&path).unwrap().0;
     assert_eq!(dialect.rendered["specify"], "Realm prompt.");
     assert_eq!(dialect.rendered["review"], "Realm prompt.");
+    assert!(dialect.rendered["implement"].contains("Realm prompt."));
 
     std::fs::remove_file(dialect_dir.join("instructions/prompt.md")).unwrap();
     let missing = dialect_dir.join("instructions/prompt.md");
@@ -228,6 +230,29 @@ fn a_realm_path_dialect_loads_beside_its_instructions_and_missing_prose_is_refus
             assert_eq!(Path::new(&path), missing)
         }
         other => panic!("expected missing instruction refusal, got {other}"),
+    }
+
+    // The archive instruction is read after the change-location line, not
+    // in the loop above, so a missing archive file is its own refusal and
+    // must name the archive path rather than the first artifact prose.
+    std::fs::write(
+        dialect_dir.join("instructions/prompt.md"),
+        "Realm prompt.\n",
+    )
+    .unwrap();
+    std::fs::write(dialect_dir.join("instructions/archive.md"), "Archive.\n").unwrap();
+    value["archive"]["instructions"] = json!("instructions/archive.md");
+    std::fs::write(&path, value.to_string()).unwrap();
+    Dialect::load(&path).unwrap();
+    std::fs::remove_file(dialect_dir.join("instructions/archive.md")).unwrap();
+    match Dialect::load(&path).unwrap_err() {
+        DialectError::UnreadableInstruction { path, .. } => {
+            assert_eq!(
+                Path::new(&path),
+                dialect_dir.join("instructions/archive.md")
+            )
+        }
+        other => panic!("expected missing archive instruction refusal, got {other}"),
     }
 }
 
@@ -272,6 +297,53 @@ fn rendered_instructions_cover_every_seated_phase_and_ignore_no_phase() {
             .prompt_for(&root().join("dialects"), "ship")
             .unwrap(),
         ""
+    );
+}
+
+/// Decision 0042's addendum of 2026-09-06: the archive step appends one
+/// provenance line per capability it touched, so a dialect that promotes
+/// a living truth tree names the instruction that says how. A dialect
+/// with no truth tree declares the archive unsupported and carries none.
+#[test]
+fn a_promoting_dialect_names_the_archive_instruction_that_appends_provenance() {
+    let (dialect, _) =
+        Dialect::parse("openspec", &serde_json::to_string(&openspec()).unwrap()).unwrap();
+    let ArchiveOrUnsupported::Command(archive) = &dialect.archive else {
+        panic!("the OpenSpec dialect promotes a truth tree and folds changes into it");
+    };
+    assert_eq!(
+        archive.instructions, "openspec/archive.md",
+        "the archive instruction is dialect data, not a hard-coded path"
+    );
+    let implement = dialect
+        .prompt_for(&root().join("dialects"), "implement")
+        .unwrap();
+    assert!(
+        implement.contains("## Provenance"),
+        "the implement prompt must tell the smith how folding records the change: {implement}"
+    );
+    assert!(implement.contains("never rewrite, reorder or remove"));
+
+    let (speckit, _) = Dialect::parse(
+        "speckit",
+        &String::from_utf8(std::fs::read(root().join("dialects/speckit.json")).unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        speckit.archive,
+        ArchiveOrUnsupported::Unsupported(_)
+    ));
+
+    // A command archive without the instruction is refused: folding
+    // without the provenance rule would silently break the two-way trail.
+    // Serde reports the untagged archive as matching neither the command
+    // (whose `instructions` is required) nor the unsupported form.
+    let mut bare = openspec();
+    bare["archive"] = json!({"argv": ["openspec", "archive", "{change}", "--yes"]});
+    let refused = refusal(bare);
+    assert!(
+        refused.contains("ArchiveOrUnsupported"),
+        "a command archive without an instruction must be refused: {refused}"
     );
 }
 

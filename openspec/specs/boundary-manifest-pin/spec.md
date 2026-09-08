@@ -80,3 +80,7 @@ the v2 lineage; decision 0046 ruling 1).
 #### Scenario: Dispatch refuses a boxed bundle by its keys
 - **WHEN** a manifest carrying `hands` and `boundary` is offered to the v2 lineage
 - **THEN** it is refused naming the keys the round-trip cannot carry, before any journal is created
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

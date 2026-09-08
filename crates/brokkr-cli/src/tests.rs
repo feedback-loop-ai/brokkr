@@ -3294,7 +3294,9 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     )
     .unwrap();
     std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
-    for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+    for name in [
+        "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
+    ] {
         std::fs::copy(
             root.join(format!("dialects/openspec/{name}.md")),
             dir.path().join(format!("dialects/openspec/{name}.md")),

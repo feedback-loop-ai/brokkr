@@ -1,5 +1,5 @@
 {
-  "schema": "brokkr.dialect/v2",
+  "schema": "brokkr.dialect/v3",
   "name": "speckit",
   "tool": {"binary": "specify", "version": "0.8.7", "install": {"manager": "uv", "package": "specify-cli", "source": "git+https://github.com/github/spec-kit.git@v0.8.7"}},
   "requires": [".specify/templates/spec-template.md", ".specify/scripts/bash/check-prerequisites.sh"],

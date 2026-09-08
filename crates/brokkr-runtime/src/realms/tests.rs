@@ -23,7 +23,9 @@ fn workspace(text: &str) -> tempfile::TempDir {
     )
     .unwrap();
     std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
-    for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+    for name in [
+        "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
+    ] {
         std::fs::copy(
             root.join(format!("dialects/openspec/{name}.md")),
             dir.path().join(format!("dialects/openspec/{name}.md")),
@@ -482,7 +484,9 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
     .unwrap();
     for base in [dir.path().join("brokkr/spec"), dir.path().join("brokkr")] {
         std::fs::create_dir_all(base.join("openspec")).unwrap();
-        for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+        for name in [
+            "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
+        ] {
             std::fs::copy(
                 dir.path().join(format!("dialects/openspec/{name}.md")),
                 base.join(format!("openspec/{name}.md")),

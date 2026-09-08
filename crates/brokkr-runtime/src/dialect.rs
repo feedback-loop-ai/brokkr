@@ -95,6 +95,27 @@ pub enum CommandOrUnsupported {
     Unsupported(Unsupported),
 }
 
+/// The archive step folds a change into standing truth, so it carries
+/// the prose that says how (decision 0042's addendum of 2026-09-06): one
+/// `## Provenance` line per capability the change touched, appended and
+/// never rewritten. A dialect that promotes no truth tree declares
+/// `unsupported` instead and needs no instruction.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveCommand {
+    pub argv: Vec<String>,
+    #[serde(default)]
+    pub state: Option<Vec<String>>,
+    pub instructions: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ArchiveOrUnsupported {
+    Command(ArchiveCommand),
+    Unsupported(Unsupported),
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Office {
@@ -185,7 +206,7 @@ pub struct Dialect {
     pub decisions: BTreeMap<String, DecisionLocation>,
     pub order: Vec<Dependency>,
     pub verify: CommandOrUnsupported,
-    pub archive: CommandOrUnsupported,
+    pub archive: ArchiveOrUnsupported,
     pub house: PathOrUnsupported,
     #[serde(skip)]
     pub rendered: BTreeMap<String, String>,
@@ -225,13 +246,14 @@ impl Dialect {
             path: path.to_string(),
             problem,
         };
-        // v1 is not read by this build, and that costs nothing: the
-        // dialect landed on 2026-09-04 with no realm declaring one, so
-        // no journal pins a v1 dialect for a resume to reload. v1's
-        // bytes stay frozen beside v2 all the same.
-        if self.schema != "brokkr.dialect/v2" {
+        // v1 and v2 are not read by this build, and that costs nothing:
+        // v2 added the install identity on 2026-09-04 and v3 adds the
+        // archive instruction on 2026-09-06, both before a journal pinned
+        // a dialect for a resume to reload. Their bytes stay frozen
+        // beside v3 all the same.
+        if self.schema != "brokkr.dialect/v3" {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads brokkr.dialect/v2",
+                "it calls itself '{}'; this build reads brokkr.dialect/v3",
                 self.schema
             )));
         }
@@ -353,6 +375,10 @@ impl Dialect {
                 self.phases.clarify.taxonomy.as_str(),
                 self.phases.analyze.taxonomy.as_str(),
             ])
+            .chain(match &self.archive {
+                ArchiveOrUnsupported::Command(command) => Some(command.instructions.as_str()),
+                ArchiveOrUnsupported::Unsupported(_) => None,
+            })
             .collect()
     }
 
@@ -434,18 +460,31 @@ impl Dialect {
             }
         }
         if phase == "implement" {
-            let archive = match &self.archive {
-                CommandOrUnsupported::Command(command) => {
-                    serde_json::to_string(&command.argv).unwrap_or_default()
-                }
-                CommandOrUnsupported::Unsupported(reason) => {
-                    format!("unsupported: {}", reason.unsupported)
+            let (archive, instruction) = match &self.archive {
+                ArchiveOrUnsupported::Command(command) => (
+                    serde_json::to_string(&command.argv).unwrap_or_default(),
+                    Some(command.instructions.as_str()),
+                ),
+                ArchiveOrUnsupported::Unsupported(reason) => {
+                    (format!("unsupported: {}", reason.unsupported), None)
                 }
             };
             rendered.push(format!(
                 "Change location: `{}`. Archive operation: {archive}.",
                 self.change
             ));
+            if let Some(relative) = instruction {
+                let path = root.join(relative);
+                let text = std::fs::read_to_string(&path).map_err(|source| {
+                    DialectError::UnreadableInstruction {
+                        path: path.display().to_string(),
+                        source,
+                    }
+                })?;
+                if !rendered.iter().any(|known| known == text.trim()) {
+                    rendered.push(text.trim().to_string());
+                }
+            }
         }
         Ok(rendered.join("\n\n"))
     }
@@ -462,24 +501,20 @@ impl Dialect {
 }
 
 fn check_command_tokens(dialect: &Dialect, path: &str) -> Result<(), DialectError> {
-    let commands = ARTIFACT_PHASES
-        .iter()
-        .filter_map(|phase| dialect.validation(phase))
-        .chain(
-            ["clarify", "analyze"]
-                .iter()
-                .filter_map(|phase| dialect.validation(phase)),
-        )
-        .chain(match &dialect.verify {
-            CommandOrUnsupported::Command(c) => Some(c),
-            _ => None,
-        })
-        .chain(match &dialect.archive {
-            CommandOrUnsupported::Command(c) => Some(c),
-            _ => None,
-        });
-    for command in commands {
-        for token in command.argv.iter().chain(command.state.iter().flatten()) {
+    let mut commands: Vec<(&Vec<String>, Option<&Vec<String>>)> = Vec::new();
+    for phase in ARTIFACT_PHASES.iter().chain(["clarify", "analyze"].iter()) {
+        if let Some(command) = dialect.validation(phase) {
+            commands.push((&command.argv, command.state.as_ref()));
+        }
+    }
+    if let CommandOrUnsupported::Command(command) = &dialect.verify {
+        commands.push((&command.argv, command.state.as_ref()));
+    }
+    if let ArchiveOrUnsupported::Command(command) = &dialect.archive {
+        commands.push((&command.argv, command.state.as_ref()));
+    }
+    for (argv, state) in commands {
+        for token in argv.iter().chain(state.into_iter().flatten()) {
             let stripped = token.replace("{change}", "");
             if stripped.contains('{') || stripped.contains('}') {
                 return Err(DialectError::Invalid {
