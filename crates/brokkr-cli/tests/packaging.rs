@@ -295,6 +295,51 @@ fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
 /// goes into a `.deb` the attestation then vouches for; a version is
 /// immutable through Go's checksum database. Both workflows read the
 /// same file, so the release path can never drift from what CI proved.
+/// The exact-coverage gate is the strictest in the repository — literal
+/// equality, no threshold — and rode the only unpinned toolchain in CI
+/// until a nightly release on 2026-09-07 reddened every pull request on
+/// bytes that had not changed (issue #235). One file names the compiler,
+/// the workflow and the script both read it, and neither may say a bare
+/// `nightly` again.
+#[test]
+fn the_coverage_toolchain_is_pinned_and_both_readers_use_one_pin() {
+    let pin = read("rust-nightly-version.txt");
+    let pin = pin.trim();
+    let date = pin
+        .strip_prefix("nightly-")
+        .expect("a dated nightly toolchain");
+    let parts: Vec<&str> = date.split('-').collect();
+    assert_eq!(parts.len(), 3, "{pin} is not nightly-YYYY-MM-DD");
+    for part in parts {
+        assert!(
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
+            "{pin} is not nightly-YYYY-MM-DD"
+        );
+    }
+
+    let workflow = read(".github/workflows/ci.yml");
+    assert!(
+        !workflow.contains("rust-toolchain@nightly"),
+        "ci.yml installs an unpinned nightly"
+    );
+    assert!(
+        workflow.contains(r#"echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT""#),
+        "ci.yml does not read the coverage pin"
+    );
+
+    let script = read("scripts/coverage-exact.sh");
+    assert!(
+        !script.contains("cargo +nightly"),
+        "coverage-exact.sh invokes an unpinned nightly"
+    );
+    assert!(
+        script.contains(
+            r#"nightly="$(tr -d '[:space:]' < "$(dirname "$0")/../rust-nightly-version.txt")""#
+        ),
+        "coverage-exact.sh does not read the coverage pin"
+    );
+}
+
 #[test]
 fn the_packaging_tool_is_pinned_and_both_workflows_read_one_pin() {
     let pin = read("packaging/nfpm-version.txt");
