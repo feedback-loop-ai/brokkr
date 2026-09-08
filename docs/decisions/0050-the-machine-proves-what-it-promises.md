@@ -309,11 +309,17 @@ Alternatives weighed:
   never held), and a `retry` accepted with no engine driving it (the fold
   reading `running` with nothing behind it) — are lifecycle rulings, not
   table rulings, and get their own number. And the ledger's scope, read
-  precisely: since decision 0038's label has existed (2026-09-03), 67
-  pull requests merged; 54 carry `by-hand`, 57 carry a run trailer, and
-  45 carry both — so the label no longer distinguishes the escape hatch
-  from the road, which is noise where a signal was meant. The road
-  around the machine is the ten code merges in five days with neither a
-  run nor a preflight vouch, every one labelled as the gate requires. A
-  proof about the run says nothing about those, and decision 0038 is
-  the lever on that axis.
+  from the gate's own log (decision 0038 ruling 6): since the label has
+  existed (2026-09-03), 67 pull requests merged. Ten passed at
+  `vouched` with no label; nine predate the gate script. Of the 48 the
+  gate saw labelled, 40 named no run at all — 29 said so in the body
+  ("Brokkr-Run: none — by hand"), 11 carried no line — three cited a
+  run that judged the branch but could not land it (stopped at the
+  reforging bound under the operator's ruling, or a judging pass that
+  never ships), three were labelled on a tier the gate would have
+  ruled `vouched`, and one carried a code delta after its judgment.
+  The tiers misfired once; the label marks a class of work the
+  constitution has no road for — hand-authored shop work, forty of
+  whose commits carry a session's co-author line. A proof about the run
+  says nothing about that class, and a recipe that enters at `verify`
+  and ships is the road, ruled under its own number.
