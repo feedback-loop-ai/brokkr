@@ -18,6 +18,40 @@ fn unexpected_probe(program: &str) -> Option<String> {
     panic!("doctor must not execute rejected dialect binary {program}")
 }
 
+/// Injected box probes (issue #218). Named functions, not closures,
+/// because `report_realm_dialects` takes plain `fn` pointers.
+fn box_missing(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+fn box_present(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, String> {
+    Ok(Some("1.0.0".into()))
+}
+
+fn box_openspec(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, String> {
+    Ok(Some("OpenSpec 1.12.0".into()))
+}
+
+fn box_unbuildable(_: &HandsSpec, _: &Path, _: &str) -> Result<Option<String>, String> {
+    Err("no bwrap on PATH".into())
+}
+
+/// One dialect report under one boundary, both surfaces injected: each
+/// test asserts wording, and no test here builds a namespace.
+fn dialects(
+    world: &brokkr_runtime::realms::World,
+    boundary: Boundary,
+    host: fn(&str) -> Option<String>,
+    inside: fn(&HandsSpec, &Path, &str) -> Result<Option<String>, String>,
+) -> Report {
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_dialects(&mut report, world, boundary, Path::new("."), host, inside);
+    report
+}
+
 fn install_openspec_dialect(dir: &Path) {
     std::fs::create_dir_all(dir.join("dialects/openspec")).unwrap();
     std::fs::copy(
@@ -67,11 +101,7 @@ fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
     )
     .unwrap();
     let world = dialect_world(dir.path(), true);
-    let mut report = Report {
-        healthy: true,
-        lines: Vec::new(),
-    };
-    report_realm_dialects(&mut report, &world, openspec_present);
+    let report = dialects(&world, Boundary::Namespace, openspec_present, box_openspec);
     let rendered = report.render();
     assert!(
         rendered.contains(
@@ -90,11 +120,7 @@ fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
 fn doctor_reports_a_realm_without_a_dialect() {
     let dir = tempfile::tempdir().unwrap();
     let world = dialect_world(dir.path(), false);
-    let mut report = Report {
-        healthy: true,
-        lines: Vec::new(),
-    };
-    report_realm_dialects(&mut report, &world, always_missing);
+    let report = dialects(&world, Boundary::Namespace, always_missing, box_missing);
     assert_eq!(report.render(), "ok       dialect app: none declared");
     assert!(report.healthy);
 }
@@ -122,7 +148,14 @@ fn doctor_reports_a_broken_realm_map_and_an_unusable_dialect() {
         healthy: true,
         lines: Vec::new(),
     };
-    report_realm_dialects(&mut report, &world, unexpected_probe);
+    report_realm_dialects(
+        &mut report,
+        &world,
+        Boundary::Namespace,
+        Path::new("."),
+        unexpected_probe,
+        unexpected_box,
+    );
     assert!(report
         .render()
         .contains("MISSING  dialect app: realm 'app' dialect is unusable: dialect"));
@@ -143,11 +176,7 @@ fn doctor_checks_requires_beneath_an_absolute_realm_path() {
     .unwrap();
     let mut world = dialect_world(dir.path(), true);
     world.map.realms[0].path = dir.path().join("app").display().to_string();
-    let mut report = Report {
-        healthy: true,
-        lines: Vec::new(),
-    };
-    report_realm_dialects(&mut report, &world, openspec_present);
+    let report = dialects(&world, Boundary::Namespace, openspec_present, box_openspec);
     assert!(report
         .render()
         .contains("requires openspec/config.yaml: present"));
@@ -158,11 +187,7 @@ fn doctor_warns_for_a_missing_dialect_tool_but_fails_a_missing_required_file() {
     let dir = tempfile::tempdir().unwrap();
     install_openspec_dialect(dir.path());
     let world = dialect_world(dir.path(), true);
-    let mut report = Report {
-        healthy: true,
-        lines: Vec::new(),
-    };
-    report_realm_dialects(&mut report, &world, always_missing);
+    let report = dialects(&world, Boundary::Namespace, always_missing, box_missing);
     let rendered = report.render();
     assert!(rendered.contains("warn     dialect app: openspec · tool binary 'openspec' not found · pinned 1.12.0 — the design route will refuse to run"), "{rendered}");
     assert!(
@@ -171,14 +196,208 @@ fn doctor_warns_for_a_missing_dialect_tool_but_fails_a_missing_required_file() {
     );
     assert!(!report.healthy);
 
-    let mut mismatch = Report {
-        healthy: true,
-        lines: Vec::new(),
-    };
-    report_realm_dialects(&mut mismatch, &world, always_present);
+    let mismatch = dialects(&world, Boundary::Namespace, always_present, box_present);
     assert!(mismatch
         .render()
         .contains("pinned 1.12.0 (version differs)"));
+}
+
+/// Issue #218: the host and the box are two surfaces, and doctor must
+/// tell them apart. This is the exact failure that lost the run — the
+/// tool on the host PATH, the box unable to see it — and the old line
+/// called it green.
+#[test]
+fn doctor_tells_the_host_path_from_the_box() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let world = dialect_world(dir.path(), true);
+    let report = dialects(&world, Boundary::Namespace, openspec_present, box_missing);
+    let rendered = report.render();
+    assert!(
+        rendered.contains(
+            "warn     dialect app: openspec · tool 'openspec' present on PATH, not reachable \
+             inside the box; install under /usr/local or declare a bind · pinned 1.12.0"
+        ),
+        "{rendered}"
+    );
+    // A warning, not a refusal: the machine is otherwise healthy, and the
+    // absence will be felt at the boxed gate, not at spawn.
+    assert!(report.healthy, "{rendered}");
+}
+
+/// The box answer is the one that counts: a tool the box carries is
+/// reachable even when the host PATH does not hold it, and the line says
+/// which surface answered.
+#[test]
+fn doctor_believes_the_box_over_the_host() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let world = dialect_world(dir.path(), true);
+    let report = dialects(&world, Boundary::Namespace, always_missing, box_openspec);
+    let rendered = report.render();
+    assert!(
+        rendered.contains(
+            "ok       dialect app: openspec · tool 'openspec' OpenSpec 1.12.0 · \
+             pinned 1.12.0 · probed inside the box"
+        ),
+        "{rendered}"
+    );
+    assert!(report.healthy, "{rendered}");
+}
+
+/// `harness` and `open` build no box of Brokkr's, so the host PATH IS the
+/// surface — and doctor says so instead of implying a box it never built.
+#[test]
+fn doctor_says_the_host_path_when_no_box_stands() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let world = dialect_world(dir.path(), true);
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let report = dialects(&world, boundary, openspec_present, unexpected_box);
+        let rendered = report.render();
+        assert!(
+            rendered.contains(&format!(
+                "probed on the host PATH (boundary `{boundary}` builds no box of Brokkr's)"
+            )),
+            "{boundary}: {rendered}"
+        );
+        assert!(report.healthy, "{boundary}: {rendered}");
+    }
+}
+
+/// A boxed boundary whose box cannot be built here (no bubblewrap, an
+/// unbuilt slice) is its own fact: the line names the host fallback and
+/// the reason, and does not pretend the box answered.
+#[test]
+fn doctor_says_when_the_box_could_not_be_built() {
+    let dir = tempfile::tempdir().unwrap();
+    install_openspec_dialect(dir.path());
+    std::fs::create_dir_all(dir.path().join("app/openspec")).unwrap();
+    std::fs::write(
+        dir.path().join("app/openspec/config.yaml"),
+        "schema: spec-driven\n",
+    )
+    .unwrap();
+    let world = dialect_world(dir.path(), true);
+    let report = dialects(
+        &world,
+        Boundary::Namespace,
+        openspec_present,
+        box_unbuildable,
+    );
+    assert!(
+        report
+            .render()
+            .contains("probed on the host PATH (the box could not be built: no bwrap on PATH)"),
+        "{}",
+        report.render()
+    );
+
+    // With no host answer either, the existing refusal stands.
+    let absent = dialects(&world, Boundary::Namespace, always_missing, box_unbuildable);
+    assert!(
+        absent
+            .render()
+            .contains("tool binary 'openspec' not found · pinned 1.12.0"),
+        "{}",
+        absent.render()
+    );
+}
+
+/// Can this process build a bubblewrap namespace at all? Nesting is
+/// refused by the engine-owned marker, not by a kernel policy (decision
+/// 0043).
+#[cfg(target_os = "linux")]
+fn can_create_namespace() -> bool {
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return false;
+    }
+    Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Issue #218's regression, measured against a real namespace: a tool
+/// that lives only on the host PATH — here a private HOME the box never
+/// binds — is reachable on the host and NOT inside the box the dialect's
+/// gate builds. This is the test that fails if doctor goes back to
+/// answering for the host. Skipped where a namespace cannot be created,
+/// including under `BROKKR_HANDS_BOX`, where nesting is refused.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
+    use std::os::unix::fs::PermissionsExt;
+    if !can_create_namespace() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let tools = dir.path().join("home/.volta/bin");
+    std::fs::create_dir_all(&tools).unwrap();
+    let tool = tools.join("brokkr-218-fixture");
+    std::fs::write(&tool, "#!/bin/sh\necho 'fixture 1.0.0'\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+
+    // The host PATH finds the fixture, which is the reading doctor used to
+    // take and report as green. PATH is prepended, never replaced, and
+    // restored before the box is opened, so no other test's lookup moves.
+    let original = std::env::var_os("PATH");
+    let mut search = tools.clone().into_os_string();
+    if let Some(path) = &original {
+        search.push(":");
+        search.push(path);
+    }
+    std::env::set_var("PATH", &search);
+    let on_host = tool_version("brokkr-218-fixture");
+    match original {
+        Some(path) => std::env::set_var("PATH", path),
+        None => std::env::remove_var("PATH"),
+    }
+    assert_eq!(on_host, Some("fixture 1.0.0".into()));
+
+    // ...but the gate's box binds no part of that home, so the same bare
+    // name is not on the box's PATH and the version probe cannot answer.
+    // This is the regression: before the fix doctor asked the host and
+    // called the dialect green.
+    let spec = brokkr_runtime::bundle::dialect_gate_hands();
+    assert_eq!(probe_in_box(&spec, &work, "brokkr-218-fixture"), Ok(None));
+    // The reachable arm, so both halves of the probe are exercised: a
+    // binary the box does carry answers inside it.
+    assert_eq!(
+        probe_in_box(&spec, &work, "sh"),
+        Ok(Some("POSIX shell".into()))
+    );
+}
+
+/// The dialect's binary reaches `bash -lc` as one quoted word, so a name
+/// carrying a metacharacter runs the tool and nothing else.
+#[test]
+fn a_dialect_binary_is_quoted_before_the_box_runs_it() {
+    assert_eq!(shell_quote("openspec"), "'openspec'");
+    assert_eq!(shell_quote("a; rm -rf /"), "'a; rm -rf /'");
+    assert_eq!(shell_quote("it's"), "'it'\\''s'");
 }
 
 /// The workspace's own `agents/` and `adapters/` trees: doctor's default
