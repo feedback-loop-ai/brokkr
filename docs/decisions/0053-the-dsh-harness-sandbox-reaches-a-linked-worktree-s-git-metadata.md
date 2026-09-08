@@ -40,7 +40,10 @@ its packages, not assumed:
   names a bwrap-compatible runner that receives the composed profile
   argv, and it is settable through the `--patch` overlay the driver
   already writes: `dsh --profile headless --patch <row> --dump-config`
-  composes the row over `@deepseek-ai/dsh-sandbox-local`.
+  composes the row over `@deepseek-ai/dsh-sandbox-local`. Re-measured
+  on 0.1.2-rc.1 (2026-09-09): a row with the four trusted flags
+  (`--workspace`, `--git-dir`, `--common-dir`, `--bwrap`) composes
+  verbatim, so the runner sees every path the driver resolved.
 - **Brokkr's namespace boundary already answers the same problem.**
   Decision 0043 ruling 6 binds a worktree's external git directory with
   its hooks hidden and its config read-only. This decision does the same
@@ -91,32 +94,45 @@ Alternatives weighed:
 3. **The runner is `brokkr dsh-sandbox-runner`, named in the sandbox
    row's `runnerCommand`, and it adds exactly the scoped write set.**
    The per-worktree git directory, `objects`, `refs`, `logs` and
-   `packed-refs` are writable; `hooks` is an empty tmpfs; `config` and
-   `config.worktree` are read-only. The whole shared `.git`, the parent
-   checkout and every sibling worktree stay outside the write set. The
-   runner's own flags (`--workspace`, `--git-dir`, `--common-dir`) are
-   the driver's trusted paths, and a profile that is not
-   `--ro-bind / /`-rooted, or has no `--` before the command, is
-   refused rather than guessed at. A profile with no workspace bind
-   (a `read-only` seat) gets no added bind.
+   `packed-refs` are writable; `hooks` is an empty tmpfs; `config`,
+   `config.worktree`, `commondir` and `gitdir` are read-only. The whole
+   shared `.git`, the parent checkout and every sibling worktree stay
+   outside the write set. The worktree's `commondir` and `gitdir` are
+   read-only with the config files because each is a pointer git follows
+   to a config: left writable, a boxed command could redirect the host's
+   next `git` invocation at a `config` it wrote in the workspace. A
+   read-only bind refuses the write (EROFS) and refuses unlinking or
+   renaming over the mount point (EBUSY). The runner's own flags
+   (`--workspace`, `--git-dir`, `--common-dir`, `--bwrap`) are the
+   driver's trusted paths, and a profile that does not root at
+   `--ro-bind / /`, or has no `--` before the command, is refused rather
+   than guessed at. A profile with no workspace bind (a `read-only` seat)
+   gets no added bind.
 
    **Enforcement binding:** `brokkr-protocol::dsh_sandbox`
    (`runner_argv`, `scoped_git_binds`, `sandbox_row`); the `--patch`
    row `dsh_seat_overlay_with` composes; `brokkr dsh-sandbox-runner`
    dispatched before clap in `brokkr-cli`; unit tests over the argv and
    row, and a behavioral test that stages and commits in a real linked
-   worktree under dsh's real bwrap profile.
+   worktree under dsh's real bwrap profile, rooted outside the profile's
+   `/tmp` tmpfs and asserting the host's bytes back.
 
-4. **Unsupported hosts refuse at seat start, not at commit time.** A
-   host that is not Linux, has no `bwrap` on `PATH`, or has a `bwrap`
-   that cannot build the empty-root namespace refuses before the model
-   runs, naming the reason and the remedies (a standalone checkout, or
-   a boundary Brokkr builds). There is no fallback to a wider mode and
-   no simulated boundary.
+4. **Unsupported hosts refuse at seat start, not at commit time, and the
+   runner execs the bubblewrap the driver probed.** A host that is not
+   Linux, has no `bwrap` on `PATH`, or has a `bwrap` that cannot build
+   the empty-root namespace refuses before the model runs, naming the
+   reason and the remedies (a standalone checkout, or a boundary Brokkr
+   builds). There is no fallback to a wider mode and no simulated
+   boundary. The absolute path the driver resolved and probed travels as
+   the runner's `--bwrap`; the runner execs that path and never searches
+   `PATH` again, so the boundary is the binary the driver measured rather
+   than whatever the seat's environment holds.
 
    **Enforcement binding:** `dsh_bwrap` / `dsh_bwrap_on` and the
-   non-Linux arm; `dsh_sandbox::require_usable_bwrap`; tests for a
-   missing `bwrap`, an unusable one, and the refusal text.
+   non-Linux arm; `dsh_sandbox::require_usable_bwrap`; the `--bwrap`
+   flag in `sandbox_row` / `runner_argv`; tests for a missing `bwrap`,
+   an unusable one, the refusal text, a relative `--bwrap`, and a decoy
+   `bwrap` on `PATH` that the runner must not exec.
 
 5. **Seat commits are unsigned and attributed to the host.** The driver
    sets `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=commit.gpgsign`,
@@ -165,4 +181,9 @@ the harness; either is a new number, not an edit here.
 - **What this does not do.** It does not make the seat's git history
   private, does not sign commits, and does not bound egress (decision
   0036). It does not give dsh `hands`, and it does not touch the
-  namespace boundary's own git handling.
+  namespace boundary's own git handling. That handling is wider: 0043
+  ruling 6 binds a linked worktree's whole shared `.git` read-write with
+  `hooks` masked and `config` read-only, which leaves the per-worktree
+  `commondir` and `gitdir` writable and carries the same redirect
+  residual this decision closes for the harness runner. Tightening the
+  namespace box is a change under 0043, not here.

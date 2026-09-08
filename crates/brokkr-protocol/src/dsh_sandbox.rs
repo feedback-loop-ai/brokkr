@@ -17,16 +17,21 @@
 //! `workspace-write` seat whose git metadata lies outside the
 //! workspace, and the runner adds exactly the scoped binds a commit
 //! needs. It never mounts the parent checkout or the whole shared
-//! `.git`: the per-worktree directory, `objects`, `refs` and `logs` are
-//! writable; the shared `hooks` are an empty tmpfs and the shared and
-//! per-worktree `config` files are read-only, so nothing a boxed
-//! command writes can become a program the host runs on its next git
-//! invocation. Sibling worktrees, the parent checkout and every
-//! credential path stay outside the write set.
+//! `.git`: the per-worktree directory — its `index`, `HEAD` and reflogs —
+//! and the shared `objects`, `refs` and `logs` are writable; `hooks` is
+//! an empty tmpfs; the per-worktree and shared `config`,
+//! `config.worktree`, `commondir` and `gitdir` are read-only, so nothing
+//! a boxed command writes can become a program the host runs on its next
+//! git invocation — nor can it point git at a `config` it wrote in the
+//! workspace. Sibling worktrees, the parent checkout and every credential
+//! path stay outside the write set.
 //!
-//! The three git paths travel in the runner's own argv, resolved by the
-//! trusted driver through Git BEFORE the seat starts, never re-resolved
-//! from a workspace file the model can edit.
+//! The trusted paths travel in the runner's own argv, resolved by the
+//! trusted driver BEFORE the seat starts, never re-resolved from a
+//! workspace file the model can edit: the session workspace, the two
+//! git directories, and the bubblewrap the driver probed. The runner
+//! executes that absolute bubblewrap itself; it never searches `PATH`
+//! for one, so the boundary is the binary the driver measured.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -38,8 +43,9 @@ pub const RUNNER_FAILURE_SIGNATURE: &str = "brokkr-dsh-sandbox-runner: ";
 /// The bwrap-compatible verb the adapter names as dsh's runner.
 pub const RUNNER_VERB: &str = "dsh-sandbox-runner";
 
-/// The three paths the driver resolved through Git before the seat
-/// started, carried in the runner's own argv.
+/// The three git paths the driver resolved through Git before the seat
+/// started, carried in the runner's own argv beside the bubblewrap the
+/// driver probed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitScope {
     /// The dsh session workspace — the seat's writable root.
@@ -52,9 +58,11 @@ pub struct GitScope {
 
 /// Build the bubblewrap argv from the runner's argv: the runner's own
 /// scope flags, then the profile the dsh provider composed, then the
-/// command. Only the profile prefix is read; the command is opaque.
+/// command. Only the profile prefix is read; the command is opaque. The
+/// program is the absolute bubblewrap named by `--bwrap`, never a `PATH`
+/// lookup.
 pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
-    let (scope, rest) = parse_scope(args)?;
+    let (scope, bwrap, rest) = parse_scope(args)?;
     let (profile, command) = split_profile(rest)?;
     if profile.len() < 3 || profile[0] != "--ro-bind" || profile[1] != "/" || profile[2] != "/" {
         return Err(
@@ -63,7 +71,7 @@ pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
                 .to_string(),
         );
     }
-    let mut argv = vec!["bwrap".to_string()];
+    let mut argv = vec![bwrap.to_string_lossy().into_owned()];
     argv.extend(profile.iter().cloned());
     if workspace_writable(profile, &scope.workspace) {
         argv.extend(scoped_git_binds(&scope));
@@ -75,17 +83,21 @@ pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
 
 /// The runner's own flags, and the profile that follows them. A flag
 /// given twice, or without its path, is a malformed runner invocation,
-/// not something to interpret generously.
-fn parse_scope(args: &[String]) -> Result<(GitScope, &[String]), String> {
+/// not something to interpret generously. `--bwrap` must be absolute:
+/// the runner executes the binary the driver probed, and a relative
+/// spelling would be resolved by a working directory the seat can move.
+fn parse_scope(args: &[String]) -> Result<(GitScope, PathBuf, &[String]), String> {
     let mut workspace: Option<PathBuf> = None;
     let mut git_dir: Option<PathBuf> = None;
     let mut common_dir: Option<PathBuf> = None;
+    let mut bwrap: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
         let slot = match args[index].as_str() {
             "--workspace" => &mut workspace,
             "--git-dir" => &mut git_dir,
             "--common-dir" => &mut common_dir,
+            "--bwrap" => &mut bwrap,
             _ => break,
         };
         let value = args
@@ -99,12 +111,24 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, &[String]), String> {
     let required = |value: Option<PathBuf>, flag: &str| {
         value.ok_or_else(|| format!("dsh sandbox runner: {flag} is required"))
     };
+    let workspace = required(workspace, "--workspace")?;
+    let git_dir = required(git_dir, "--git-dir")?;
+    let common_dir = required(common_dir, "--common-dir")?;
+    let bwrap = required(bwrap, "--bwrap")?;
+    if !bwrap.is_absolute() {
+        return Err(format!(
+            "dsh sandbox runner: --bwrap {} is not an absolute path; the runner executes the \
+             bubblewrap the driver probed and never a `PATH` lookup",
+            bwrap.display()
+        ));
+    }
     Ok((
         GitScope {
-            workspace: required(workspace, "--workspace")?,
-            git_dir: required(git_dir, "--git-dir")?,
-            common_dir: required(common_dir, "--common-dir")?,
+            workspace,
+            git_dir,
+            common_dir,
         },
+        bwrap,
         &args[index..],
     ))
 }
@@ -165,6 +189,13 @@ fn scoped_git_binds(scope: &GitScope) -> Vec<String> {
     // signing program written here would be a program the host runs.
     bind("--ro-bind-try", &mut argv, &git.join("config"));
     bind("--ro-bind-try", &mut argv, &git.join("config.worktree"));
+    // `commondir` and `gitdir` are the worktree's pointers back to the
+    // shared repository and to its own `.git` file. Left writable, a
+    // boxed command could redirect git at a `config` it wrote in the
+    // workspace — a program the host then runs. Read-only: a write fails
+    // EROFS, and unlinking or renaming over the mount point fails EBUSY.
+    bind("--ro-bind-try", &mut argv, &git.join("commondir"));
+    bind("--ro-bind-try", &mut argv, &git.join("gitdir"));
     tmpfs(&mut argv, &git.join("hooks"));
     // The shared store, refs and reflogs: the minimum a commit writes.
     // `--bind-try` keeps a directory git has not created yet from
@@ -215,8 +246,11 @@ pub fn require_usable_bwrap(bwrap: &Path) -> Result<(), String> {
 
 /// The `--patch` row that points dsh's sandbox provider at the runner.
 /// One patch file is the launcher's only override channel, so this row
-/// travels beside the seat's transcript and model rows.
-pub fn sandbox_row(program: &str, scope: &GitScope) -> Result<String, String> {
+/// travels beside the seat's transcript and model rows. The resolved
+/// bubblewrap is a trusted path too: the runner executes it by absolute
+/// path, so the boundary is the binary the driver probed, not whatever
+/// `PATH` holds when the seat runs.
+pub fn sandbox_row(program: &str, bwrap: &Path, scope: &GitScope) -> Result<String, String> {
     let mut row = format!(
         "# Written by `brokkr driver dsh` for one seat: the sandbox provider\n\
          # runs every command through this bwrap-compatible runner, which adds\n\
@@ -232,6 +266,7 @@ pub fn sandbox_row(program: &str, scope: &GitScope) -> Result<String, String> {
         ("--workspace", scope.workspace.as_path()),
         ("--git-dir", scope.git_dir.as_path()),
         ("--common-dir", scope.common_dir.as_path()),
+        ("--bwrap", bwrap),
     ] {
         row.push_str(&format!(
             "\x20     - '{flag}'\n\x20     - '{}'\n",

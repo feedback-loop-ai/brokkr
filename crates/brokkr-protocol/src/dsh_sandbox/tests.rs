@@ -28,6 +28,9 @@ fn dsh_workspace_write_profile(workspace: &Path) -> Vec<String> {
     .collect()
 }
 
+/// The absolute bubblewrap the driver probed and the runner must exec.
+const BWRAP: &str = "/usr/bin/bwrap";
+
 fn linked_scope() -> GitScope {
     GitScope {
         workspace: PathBuf::from("/work/wt"),
@@ -37,6 +40,18 @@ fn linked_scope() -> GitScope {
 }
 
 fn runner_args(scope: &GitScope, profile: &[String], command: &[&str]) -> Vec<String> {
+    runner_args_for(Path::new(BWRAP), scope, profile, command)
+}
+
+/// The runner argv with a chosen bubblewrap, so the behavioral test can
+/// exec the binary `require_bwrap` actually resolved rather than the
+/// spelling the unit tests assert.
+fn runner_args_for(
+    bwrap: &Path,
+    scope: &GitScope,
+    profile: &[String],
+    command: &[&str],
+) -> Vec<String> {
     let mut args = vec![
         "--workspace".to_string(),
         scope.workspace.to_string_lossy().into_owned(),
@@ -44,6 +59,8 @@ fn runner_args(scope: &GitScope, profile: &[String], command: &[&str]) -> Vec<St
         scope.git_dir.to_string_lossy().into_owned(),
         "--common-dir".to_string(),
         scope.common_dir.to_string_lossy().into_owned(),
+        "--bwrap".to_string(),
+        bwrap.to_string_lossy().into_owned(),
     ];
     args.extend(profile.iter().cloned());
     args.push("--".to_string());
@@ -57,7 +74,7 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     let profile = dsh_workspace_write_profile(&scope.workspace);
     let args = runner_args(&scope, &profile, &["bash", "-lc", "git add -A"]);
     let argv = runner_argv(&args).unwrap();
-    assert_eq!(argv[0], "bwrap");
+    assert_eq!(argv[0], BWRAP);
     let text = argv.join(" ");
 
     // The per-worktree directory and the shared write set a commit needs.
@@ -76,6 +93,14 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     assert!(text.contains("--ro-bind-try /main/.git/config /main/.git/config"));
     assert!(text
         .contains("--ro-bind-try /main/.git/worktrees/wt/config /main/.git/worktrees/wt/config"));
+
+    // The worktree's pointers back to the shared repository are read-only:
+    // a boxed rewrite would redirect git at a config it wrote.
+    assert!(text.contains(
+        "--ro-bind-try /main/.git/worktrees/wt/commondir /main/.git/worktrees/wt/commondir"
+    ));
+    assert!(text
+        .contains("--ro-bind-try /main/.git/worktrees/wt/gitdir /main/.git/worktrees/wt/gitdir"));
 
     // The whole shared `.git` is never writable, and no sibling is named.
     assert!(
@@ -112,7 +137,7 @@ fn a_read_only_profile_and_a_primary_checkout_get_no_scoped_binds() {
     assert_eq!(
         argv,
         [
-            "bwrap",
+            BWRAP,
             "--ro-bind",
             "/",
             "/",
@@ -229,6 +254,44 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
     assert!(runner_argv(&s(&["--workspace", "/w", "--git-dir", "/g"]))
         .unwrap_err()
         .contains("--common-dir is required"));
+    assert!(runner_argv(&s(&[
+        "--workspace",
+        "/w",
+        "--git-dir",
+        "/g",
+        "--common-dir",
+        "/c"
+    ]))
+    .unwrap_err()
+    .contains("--bwrap is required"));
+    assert!(runner_argv(&s(&[
+        "--workspace",
+        "/w",
+        "--git-dir",
+        "/g",
+        "--common-dir",
+        "/c",
+        "--bwrap",
+        "/bin/bwrap",
+        "--bwrap",
+        "/other/bwrap"
+    ]))
+    .unwrap_err()
+    .contains("--bwrap given twice"));
+    // The runner execs an absolute bubblewrap; a relative one would be
+    // resolved by a working directory the seat can move.
+    assert!(runner_argv(&s(&[
+        "--workspace",
+        "/w",
+        "--git-dir",
+        "/g",
+        "--common-dir",
+        "/c",
+        "--bwrap",
+        "bwrap"
+    ]))
+    .unwrap_err()
+    .contains("is not an absolute path"));
 
     // A profile with no command separator, and a profile that does not
     // stand for the boundary the runner knows.
@@ -249,7 +312,7 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
         git_dir: PathBuf::from("/main/.git/worktrees/wt"),
         common_dir: PathBuf::from("/main/.git"),
     };
-    let row = sandbox_row("/opt/brokkr's bin/brokkr", &scope).unwrap();
+    let row = sandbox_row("/opt/brokkr's bin/brokkr", Path::new("/opt/bwrap"), &scope).unwrap();
     assert!(row.contains("- id: sandbox\n"), "{row}");
     assert!(row.contains("    runnerCommand:\n"), "{row}");
     assert!(
@@ -261,6 +324,9 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
     assert!(row.contains("      - '/work/it''s a path'\n"), "{row}");
     assert!(row.contains("      - '--git-dir'\n"), "{row}");
     assert!(row.contains("      - '--common-dir'\n"), "{row}");
+    // The resolved bubblewrap is the runner's fourth trusted path.
+    assert!(row.contains("      - '--bwrap'\n"), "{row}");
+    assert!(row.contains("      - '/opt/bwrap'\n"), "{row}");
     assert!(
         row.contains(&format!("      - '{RUNNER_FAILURE_SIGNATURE}'\n")),
         "{row}"
@@ -271,14 +337,22 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
         workspace: PathBuf::from("/work\nline"),
         ..scope.clone()
     };
-    assert!(sandbox_row("brokkr", &broken)
+    assert!(sandbox_row("brokkr", Path::new("/opt/bwrap"), &broken)
         .unwrap_err()
         .contains("spans more than one line"));
     // The program itself is a scalar too, and gets the same refusal.
-    assert!(sandbox_row("/opt/brokkr\nline", &scope)
-        .unwrap_err()
-        .contains("spans more than one line"));
-    assert!(sandbox_row("/opt/brokkr\rline", &scope)
+    assert!(
+        sandbox_row("/opt/brokkr\nline", Path::new("/opt/bwrap"), &scope)
+            .unwrap_err()
+            .contains("spans more than one line")
+    );
+    assert!(
+        sandbox_row("/opt/brokkr\rline", Path::new("/opt/bwrap"), &scope)
+            .unwrap_err()
+            .contains("spans more than one line")
+    );
+    // So is the bubblewrap path.
+    assert!(sandbox_row("brokkr", Path::new("/opt/bwrap\nline"), &scope)
         .unwrap_err()
         .contains("spans more than one line"));
 }
@@ -294,12 +368,34 @@ fn a_bwrap_that_is_not_there_is_not_usable() {
     );
 }
 
-/// The boundary, for real: Linux with bubblewrap on PATH, which is where
-/// dsh's own sandbox runs and the only place this runner is claimed.
-/// The provider's profile confines the worktree; the runner widens it by
+/// A fixture root dsh's own profile cannot shadow. The workspace-write
+/// profile mounts a fresh tmpfs over `/tmp`, so a fixture under `/tmp`
+/// is not the host directory the assertions read back: the box would
+/// write to the tmpfs, the host paths would stay untouched, and the
+/// test would pass for a reason that has nothing to do with the
+/// boundary. The cargo target directory (beside this test binary) is
+/// outside that tmpfs and outside the session workspace. `None` when
+/// this binary has no target directory outside `/tmp` to root the
+/// fixture in.
+fn fixture_root() -> Option<tempfile::TempDir> {
+    let base = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    if base.starts_with("/tmp") {
+        return None;
+    }
+    tempfile::Builder::new()
+        .prefix("brokkr-dsh-sandbox-")
+        .tempdir_in(base)
+        .ok()
+}
+
+/// The boundary, for real: Linux with bubblewrap, which is where dsh's
+/// own sandbox runs and the only place this runner is claimed. The
+/// provider's profile confines the worktree; the runner widens it by
 /// exactly the scoped git metadata, so a linked worktree commits, the
-/// parent and sibling stay unreachable, and hooks and config cannot be
-/// written.
+/// parent and sibling stay unreachable, and hooks, config and the
+/// worktree's `commondir`/`gitdir` pointers cannot be written. The
+/// assertions read the HOST back: a marker printed inside the box would
+/// only prove what the box believes, not what landed on the host.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
@@ -311,12 +407,18 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         eprintln!("skipped: no bubblewrap on PATH");
         return;
     };
+    // The runner refuses a relative `--bwrap`, so the test hands it the
+    // resolved absolute path exactly as the driver does.
+    let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
     if !bwrap_usable(&bwrap) {
         eprintln!("skipped: this environment cannot create a bubblewrap namespace");
         return;
     }
+    let Some(dir) = fixture_root() else {
+        eprintln!("skipped: no fixture root outside the profile's `/tmp` tmpfs");
+        return;
+    };
 
-    let dir = tempfile::tempdir().unwrap();
     // A nested path with a space, so the argv carries what a host path
     // really can carry.
     let main = dir.path().join("main repo");
@@ -374,11 +476,21 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     std::fs::write(sibling.join("sibling-sentinel"), "sibling\n").unwrap();
 
     let facts = crate::hands::git_facts(&worktree);
+    let git_dir = facts.git_dir.clone().unwrap();
+    let common_dir = facts.common_dir.clone().unwrap();
     let scope = GitScope {
         workspace: worktree.clone(),
-        git_dir: facts.git_dir.clone().unwrap(),
-        common_dir: facts.common_dir.clone().unwrap(),
+        git_dir: git_dir.clone(),
+        common_dir: common_dir.clone(),
     };
+    // Read the pointers the box must not move BEFORE the box runs, so a
+    // rewrite is caught by comparing host bytes, not by trusting a
+    // marker.
+    let commondir_file = git_dir.join("commondir");
+    let gitdir_file = git_dir.join("gitdir");
+    let commondir_before = std::fs::read_to_string(&commondir_file).unwrap();
+    let gitdir_before = std::fs::read_to_string(&gitdir_file).unwrap();
+
     let profile = dsh_workspace_write_profile(&worktree);
     let script = format!(
         "set -e\n\
@@ -391,14 +503,23 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
          if echo x > '{sibling_index}' 2>/dev/null; then echo SIBLING_GIT_WRITABLE; else echo SIBLING_GIT_READONLY; fi\n\
          echo \"hooks=$(ls '{common}/hooks' | wc -l)\"\n\
          echo x > '{hook}' 2>/dev/null || true\n\
-         if git config --local core.hooksPath /evil 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READONLY; fi\n",
+         if git config --local core.hooksPath /evil 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READONLY; fi\n\
+         echo evil > '{scratch}'\n\
+         if mv '{scratch}' '{commondir}' 2>/dev/null; then echo COMMONDIR_REPLACED; else echo COMMONDIR_INTACT; fi\n\
+         rm -f '{scratch}'\n\
+         if echo x > '{commondir}' 2>/dev/null; then echo COMMONDIR_WRITABLE; else echo COMMONDIR_READONLY; fi\n\
+         if rm -f '{commondir}' 2>/dev/null; then echo COMMONDIR_UNLINKED; else echo COMMONDIR_STAYS; fi\n\
+         if echo x > '{gitdir}' 2>/dev/null; then echo GITDIR_WRITABLE; else echo GITDIR_READONLY; fi\n",
         parent = main.join("parent-sentinel").display(),
         sibling_sentinel = sibling.join("sibling-sentinel").display(),
         sibling_index = main.join(".git/worktrees/sibling/HEAD").display(),
         hook = main.join(".git/hooks/post-checkout").display(),
         common = main.join(".git").display(),
+        scratch = git_dir.join("probe-scratch").display(),
+        commondir = commondir_file.display(),
+        gitdir = gitdir_file.display(),
     );
-    let args = runner_args(&scope, &profile, &["bash", "-lc", &script]);
+    let args = runner_args_for(&bwrap, &scope, &profile, &["bash", "-lc", &script]);
     let argv = runner_argv(&args).unwrap();
     let run = Command::new(&argv[0])
         .args(&argv[1..])
@@ -427,6 +548,10 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     assert!(stdout.contains("SIBLING_GIT_READONLY"), "{stdout}");
     assert!(stdout.contains("hooks=0"), "{stdout}");
     assert!(stdout.contains("CONFIG_READONLY"), "{stdout}");
+    assert!(stdout.contains("COMMONDIR_INTACT"), "{stdout}");
+    assert!(stdout.contains("COMMONDIR_READONLY"), "{stdout}");
+    assert!(stdout.contains("COMMONDIR_STAYS"), "{stdout}");
+    assert!(stdout.contains("GITDIR_READONLY"), "{stdout}");
     assert_eq!(
         std::fs::read_to_string(main.join("parent-sentinel")).unwrap(),
         "parent\n"
@@ -439,6 +564,24 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     assert!(!std::fs::read_to_string(main.join(".git/config"))
         .unwrap()
         .contains("evil"));
+    // The worktree's pointers are byte-for-byte what the host wrote, and
+    // the host's git still resolves the real common directory: nothing
+    // the box wrote redirected it at a config in the workspace.
+    assert_eq!(
+        std::fs::read_to_string(&commondir_file).unwrap(),
+        commondir_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(&gitdir_file).unwrap(),
+        gitdir_before
+    );
+    assert_eq!(
+        git(
+            &worktree,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"]
+        ),
+        common_dir.to_string_lossy()
+    );
 
     // An ordinary standalone repository still works under the runner: no
     // scoped bind is added and the workspace bind covers its `.git`.
@@ -459,7 +602,13 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     let profile = dsh_workspace_write_profile(&standalone);
     let script =
         "echo s > s.txt && git add s.txt && git commit -q -m standalone && git log -1 --format=%s";
-    let argv = runner_argv(&runner_args(&scope, &profile, &["bash", "-lc", script])).unwrap();
+    let argv = runner_argv(&runner_args_for(
+        &bwrap,
+        &scope,
+        &profile,
+        &["bash", "-lc", script],
+    ))
+    .unwrap();
     let run = Command::new(&argv[0])
         .args(&argv[1..])
         .current_dir(&standalone)

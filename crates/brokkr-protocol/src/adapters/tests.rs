@@ -2605,7 +2605,7 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
         git_dir: PathBuf::from("/main/.git/worktrees/wt"),
         common_dir: PathBuf::from("/main/.git"),
     };
-    let row = dsh_sandbox::sandbox_row("/opt/brokkr", &scope).unwrap();
+    let row = dsh_sandbox::sandbox_row("/opt/brokkr", Path::new("/opt/bwrap"), &scope).unwrap();
     let overlay = dsh_seat_overlay_with(None, None, root.path(), Some(&row)).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert!(
@@ -2615,6 +2615,8 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
     assert!(written.contains("- id: sandbox\n"), "{written}");
     assert!(written.contains("      - '/opt/brokkr'\n"), "{written}");
     assert!(written.contains("      - '--workspace'\n"), "{written}");
+    assert!(written.contains("      - '--bwrap'\n"), "{written}");
+    assert!(written.contains("      - '/opt/bwrap'\n"), "{written}");
 
     // Without the row the overlay names no sandbox at all.
     let plain = dsh_seat_overlay_with(None, None, root.path(), None).unwrap();
@@ -2674,6 +2676,15 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
             assert!(
                 row.contains(worktree.to_string_lossy().as_ref()),
                 "the row names the session workspace: {row}"
+            );
+            // The bubblewrap the driver probed travels as an absolute
+            // path, so the runner never searches PATH again.
+            assert!(row.contains("      - '--bwrap'\n"), "{row}");
+            let bwrap = crate::hands::require_bwrap().expect("a usable bwrap was probed");
+            let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
+            assert!(
+                row.contains(&format!("      - '{}'\n", bwrap.display())),
+                "{row}"
             );
         }
         Ok(None) => panic!("a linked worktree must need the scoped runner"),

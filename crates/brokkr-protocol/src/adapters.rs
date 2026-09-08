@@ -2334,15 +2334,17 @@ fn dsh_sandbox_row_for(
     let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
         return Ok(None);
     };
-    dsh_bwrap()?;
+    let bwrap = dsh_bwrap()?;
     let program = dsh_runner_program();
-    dsh_sandbox::sandbox_row(&program, &scope).map(Some)
+    dsh_sandbox::sandbox_row(&program, &bwrap, &scope).map(Some)
 }
 
 /// The bwrap binary the scoped runner needs, or the refusal that names
 /// why the seat cannot start. A present-but-unusable bubblewrap is not
 /// support: dsh would have fallen back to its Landlock rung, which
-/// cannot express an extra writable root either.
+/// cannot express an extra writable root either. The path is absolute,
+/// so the runner executes exactly this binary rather than searching
+/// `PATH` again inside the seat.
 #[cfg(target_os = "linux")]
 fn dsh_bwrap_on(path: &std::ffi::OsStr) -> Result<PathBuf, String> {
     let bwrap = crate::hands::bwrap_on(path).map_err(|problem| {
@@ -2351,6 +2353,7 @@ fn dsh_bwrap_on(path: &std::ffi::OsStr) -> Result<PathBuf, String> {
              writable workspace and this driver will not run the seat without a scoped runner"
         )
     })?;
+    let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
     dsh_sandbox::require_usable_bwrap(&bwrap)?;
     Ok(bwrap)
 }
