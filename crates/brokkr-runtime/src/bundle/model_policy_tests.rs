@@ -3758,12 +3758,12 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// claude's two `hands.harness` members planted as fragments — the
 /// shipped files once the operator's measurement lands — every shipped
 /// bundle without a dialect step compiles under `harness` in a realm
-/// declaring the openspec dialect, eleven of the thirteen, each hands
+/// declaring the openspec dialect, fourteen of the sixteen, each hands
 /// site's manifest `boundary` entry reading `harness`; `recipes/triage`
 /// and `recipes/night-shift` refuse naming their dialect step and ruling 4.
 ///
 /// Second half: against the shipped adapters as they stand, claude
-/// declaring no member, exactly four refuse, each naming the ground the
+/// declaring no member, exactly five refuse, each naming the ground the
 /// compiler reaches first — `bundles/self` at `review` and
 /// `recipes/panel-review` at `review:correctness` naming `claude`,
 /// `hands.harness.gate` and the site; the two dialect bundles at
@@ -3787,7 +3787,9 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Fifteen since `recipes/landing` (decision 0051): `fast` entered at
     // a classify gate, one more `./scripts` exec gate of its own, so it
     // compiles under harness like `fast`.
-    assert_eq!(dirs.len(), 15, "{dirs:?}");
+    // Sixteen with release preparation: its boxed work office reaches the
+    // missing claude harness.work fragment before its reviewer.
+    assert_eq!(dirs.len(), 16, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3850,7 +3852,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 13, "{compiled:?}");
+    assert_eq!(compiled.len(), 14, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();
@@ -3877,6 +3879,10 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
                             "{name}: {refusal}"
                         );
                     }
+                    "recipes/release" => {
+                        assert!(refusal.contains("seat 'implement' link 1"), "{refusal}");
+                        assert!(refusal.contains("hands.harness.work"), "{refusal}");
+                    }
                     "recipes/panel-review" => {
                         assert!(
                             refusal.contains(
@@ -3901,6 +3907,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
         [
             "recipes/night-shift",
             "recipes/panel-review",
+            "recipes/release",
             "recipes/triage",
             "bundles/self",
         ]
@@ -3960,9 +3967,17 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
     for dir in shipped_bundles() {
         let name = relative(&dir);
         if let Err(error) = compile_shipped(&dir, measured.path(), &dialect, Boundary::Harness) {
-            assert_refused_at_the_dialect_step(&name, &error.to_string());
+            if name == "recipes/release" {
+                assert!(error.to_string().contains("hands.harness.work"), "{error}");
+                assert!(error.to_string().contains("a capability gap"), "{error}");
+            } else {
+                assert_refused_at_the_dialect_step(&name, &error.to_string());
+            }
             refused.push(name);
         }
     }
-    assert_eq!(refused, ["recipes/night-shift", "recipes/triage"]);
+    assert_eq!(
+        refused,
+        ["recipes/night-shift", "recipes/release", "recipes/triage"]
+    );
 }

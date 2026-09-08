@@ -548,6 +548,7 @@ fn the_unruled_valuations_are_pinned_per_table() {
         ("recipes/node", (46, 4)),
         ("recipes/panel-review", (47, 4)),
         ("recipes/preflight", (16, 0)),
+        ("recipes/release", (46, 4)),
         ("recipes/research", (5, 0)),
         ("recipes/research-dsh", (5, 0)),
         ("recipes/standby", (46, 4)),
