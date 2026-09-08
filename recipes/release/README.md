@@ -54,6 +54,11 @@ The existing [recipe composition](../../docs/guides/recipe-authoring.md)
 mechanism covers both cases; declaring a command in house text does not install
 it, grant it or add it to the gate.
 
+Checks that exercise the namespace boundary itself run outside the workspace
+box: nesting is deliberately refused. Brokkr's configuration therefore assigns
+full exact coverage to CI or host validation before tagging. The manager records
+that external check as pending; an in-box test run does not certify it.
+
 ## Organization profiles and publication
 
 The shipped networked workspace can read public release/profile repositories;

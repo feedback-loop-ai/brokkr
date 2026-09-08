@@ -43,7 +43,7 @@ not current-version references to replace.
     {"name": "tests", "command": "cargo test --workspace --all-features --locked"},
     {"name": "self bundle", "command": "cargo run --locked -p brokkr-cli -- compile --bundle bundles/self"},
     {"name": "verify bundle", "command": "cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify"},
-    {"name": "exact coverage", "command": "bash scripts/coverage-exact.sh"},
+    {"name": "exact coverage", "instructions": "Run bash scripts/coverage-exact.sh in CI or host validation outside the workspace box before tagging. Boundary tests require creating a namespace, which the box deliberately refuses to nest. Record this check as pending in the preparation handoff until that external result exists; never lower the coverage gate."},
     {"name": "release binary", "command": "cargo build --release --locked -p brokkr-cli"},
     {"name": "remote CI", "instructions": "Before tagging, require all applicable CI jobs on the final candidate commit, including all three operating systems, MSRV, licenses, audit, packaging and exact coverage."}
   ],
