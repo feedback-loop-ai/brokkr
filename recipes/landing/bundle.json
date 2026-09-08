@@ -1,0 +1,40 @@
+{
+  "name": "landing",
+  "description": "A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label.",
+  "cost": "low",
+  "extends": "fast",
+  "policy": "policy.json",
+  "override": {
+    "bundle": ["description", "cost"],
+    "table": ["initial", "description"]
+  },
+  "seats": {
+    "classify": {
+      "results": [
+        "docs",
+        "code"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 300
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "exec",
+          "--",
+          "bash",
+          "./scripts/classify-seat.sh",
+          "{prompt_file}"
+        ]
+      },
+      "hands": {
+        "kind": "workspace",
+        "network": false,
+        "binds": []
+      }
+    }
+  }
+}

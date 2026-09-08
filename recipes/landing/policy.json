@@ -1,0 +1,23 @@
+{
+  "schema": "forge.phase-machine/v2",
+  "description": "Landing (decision 0051): fast's constitution entered at a classify gate. The branch already exists, so there is no first implement; classify reads the branch's class against the repository's docs class (decision 0038 ruling 3) and routes prose to review and code to verify. Implement is the remediation seat the verify failure and the reforging edge return to, bounded as fast bounds them. Review stays unavoidable on every path to ship, and ship anchors the head with its patch map, so the gate vouches for the pull request without the by-hand label.",
+  "initial": "classify",
+  "phases": ["classify", "implement", "verify", "review", "ship", "done", "stop"],
+  "terminal": ["done", "stop"],
+  "rules": [
+    {
+      "id": "CLASSIFY-DOCS",
+      "from": "classify",
+      "result": "docs",
+      "next": "review",
+      "reason": "Every path the branch touches is in the repository's docs class (decision 0038 ruling 3). Prose is judged, not built — the reasoning decision 0039 applies to a docs-only return, applied at the front of a run; the platform suite stays the backstop for the tests that read prose."
+    },
+    {
+      "id": "CLASSIFY-CODE",
+      "from": "classify",
+      "result": "code",
+      "next": "verify",
+      "reason": "A path outside the docs class: the branch is verified before it is judged, exactly as a delivery is."
+    }
+  ]
+}

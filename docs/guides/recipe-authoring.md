@@ -45,6 +45,7 @@ verify	8054a434cc74	4 phases	review, verify			./bundles/verify
 | Recipe | Reach for it when | The difference it states |
 |---|---|---|
 | [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
+| [`landing`](../../recipes/landing/README.md) | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
 | [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
 | [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying |
 | [`standby`](../../recipes/standby/README.md) | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `astra`, the boxed verify and ship gates unchanged; a hedge forces its crew, so it takes no fallback |

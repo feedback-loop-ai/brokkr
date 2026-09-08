@@ -346,6 +346,21 @@ This is a recommendation, not a gate: nobody's pull request is rejected
 for skipping it. Its value is that the obvious findings are yours to fix
 before a human spends their attention on them.
 
+## The landing: let the machine finish what you wrote by hand
+
+Everything above is what a hand-authored branch has to satisfy. Since
+decision 0051 you do not have to run it yourself to propose the branch:
+light `brokkr run --recipe landing --repo . --feature "landing: <what
+the branch is>"` on it. A gate of seconds reads the branch's class
+against `.github/delivery-classes.json`; prose goes straight to the
+review seat, code goes through the verifier first — the same nine
+checks, boxed — and a failure or a finding above low comes back to an
+implement seat commissioned by that finding, twice at most. A clean
+judgment ships: the anchor carries the branch's patch map, and the
+contribution gate vouches for your pull request at tier `vouched`
+without the operator's `by-hand` label. Name the run as `Brokkr-Run:` in
+the pull request. `preflight` remains the way to ask without landing.
+
 ## The coverage gate, practically
 
 `scripts/coverage-exact.sh` demands literal integer equality on lines,
