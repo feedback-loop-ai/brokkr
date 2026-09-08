@@ -34,17 +34,33 @@ starting performance and whether revisions help.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Score a harness on held-out capability and execution efficiency together; cost is a quality axis, not metadata | alternative | decision 0010 and decision 0034: recipes are comparable by run id and the seat record carries per-seat usage and cost; Brokkr evaluates deliveries, not the harness as an artifact |
-| 2 | Withhold the evaluation tasks from the loop that develops against them | alternative | decision 0041 and `fixtures/`: judges are separate seats that change nothing, and the evaluator corpus is frozen and versioned rather than fed back as a training signal |
-| 3 | Do not expect a model to evolve its own harness reliably: gains are unstable and runtime-model dependent | alternative | decision 0001 and decision 0002: control-plane semantics are never repaired by a model; the outer machine is a fixed linear FSM whose changes arrive only as decisions |
-| 4 | Harness quality couples to the model that executes it, so pin the pairing | implemented | decision 0031 and decision 0035: every model-backed seat is pinned to the provider-reported served model and every pin carries an effort pin, so a run is attributable to one exact pairing |
+| 1 | Score a harness on held-out capability and execution efficiency together; cost is a quality axis, not metadata | alternative | decision 0010 and decision 0034; `crates/brokkr-cli/src/compare.rs`: run comparison reports recipe identity, verdict trails, attempts and reported cost, but does not score held-out harness capability or efficiency |
+| 2 | Withhold the evaluation tasks from the loop that develops against them | alternative | decision 0041; `fixtures/evaluator/corpus.ndjson` and `crates/brokkr-cli/tests/machine_proof.rs`: judge roles and frozen evaluator cases provide separate checks, but the cases are visible to implementers and are not held-out evaluation tasks |
+| 3 | Do not expect a model to evolve its own harness reliably: gains are unstable and runtime-model dependent | alternative | decision 0001 and decision 0002; `crates/brokkr-runtime/src/bundle.rs`: runs use a compiled, pinned policy and invalid control-plane results are not repaired by a model; changes to the machine require a separately reviewed change |
+| 4 | Harness quality couples to the model that executes it, so pin the pairing | implemented | decision 0031 and decision 0035; `crates/brokkr-cli/src/compare.rs`: model and effort configuration are pinned and selected hires are reported alongside provider-reported served models; the served name is a provider claim, not independently verified identity |
 | 5 | Report the variance across creator models in harness quality and cost | not-planned | |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+The current compare command exposes recipe, selected-hire, served-model,
+effort and boundary differences. Declared availability fallbacks mean a
+recipe's first choice is not necessarily the served model; missing
+provider evidence stays missing. The evaluator corpus is public in the
+tree, so freezing it does not provide HarnessDev's hidden-task protocol.
+No creator-variance or held-out harness ranking has landed.
 
 ## Candidates
 
-Finding 3 is field-side corroboration of the constitution: the
-evidence that self-evolving harnesses transfer poorly is a citation
-the operator can use when a self-modifying recipe is proposed.
-Finding 1: recipe comparison by run id is the substrate a
-HarnessDev-style capability-and-efficiency ranking of recipes would
-need; muninn could produce it from journaled seat records.
+Finding 3 remains supporting evidence for keeping runtime control-plane
+repair deterministic. A model may still propose a separately reviewed
+recipe change; this is not a ban on agent-authored harness work. Finding 1
+would build a capability-and-efficiency evaluation on the existing run
+comparison, with genuinely held-out tasks and consistent cost coverage.
+Muninn does not currently produce that ranking.
+
+[Issue #237](https://github.com/feedback-loop-ai/brokkr/issues/237)
+already proposes controlled model wagers with cumulative delivery and
+repair costs. It remains a backlog proposal and does not supply hidden
+evaluation tasks or a measured harness ranking.

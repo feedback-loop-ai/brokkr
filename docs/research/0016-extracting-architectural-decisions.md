@@ -29,14 +29,28 @@ architectural knowledge management.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Decision rationale is rarely recorded and hides implicitly in commits, where recovering it after the fact is unreliable | implemented | `docs/decisions/README.md`: Brokkr does not recover rationale; every semantic change carries a numbered decision with context, rulings and consequences, written at change time |
-| 2 | Model-generated decision summaries miss the rationale even when surface-similarity scores are high, so acceptance is a read, not a score | implemented | decision 0044 and `docs/decisions/README.md`: classification and acceptance are the operator's read of the argument; entries and decisions stay proposed until ruled |
+| 1 | Decision rationale is rarely recorded and hides implicitly in commits, where recovering it after the fact is unreliable | implemented | `docs/decisions/README.md`: semantic changes carry a numbered rationale with context, rulings and consequences, recorded when the decision is made; capability-spec links to source changes are a separate, still-unimplemented requirement of decision 0042 |
+| 2 | Model-generated decision summaries miss the rationale even when surface-similarity scores are high, so acceptance is a read, not a score | implemented | decision 0044 and `docs/decisions/README.md`: research classification and decision acceptance belong to the operator; grammar tests check structure and citations, not the quality or truth of the rationale |
 | 3 | Score decision extraction with ROUGE, BLEU, METEOR and BERTScore against a gold set | not-planned | |
 | 4 | Use few-shot examples of the house's recorded decisions to improve alignment | not-planned | |
 
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+Decision 0042 now makes the decision authoritative over its supporting
+change documents. Its later addendum rules source-change links in promoted
+capability specs, but [issue #231](https://github.com/feedback-loop-ai/brokkr/issues/231)
+remains open for the archive instruction, backfill and validator. The
+current dialect still invokes the framework's archive command without
+that added provenance mechanism. The decision index's accepted status
+records a ruling, not implementation. No extraction scorer or dedicated
+few-shot extraction workflow has been added.
+
 ## Candidates
 
-The paper's negative result is Brokkr's positive argument: precisely
-because extraction misses rationale, the product forces rationale to
-be written at change time. No uptake; the entry stands as a citation
-for the constitution's design.
+No new uptake proposed. The study supports recording rationale while
+making the change and reviewing it directly. Existing decisions provide
+that context; #231 already tracks the complementary source-change links.
+A matching schema or a high similarity score would still not establish
+that the rationale is sound.

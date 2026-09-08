@@ -33,17 +33,35 @@ prevents no misbehavior.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Anchor evidence of agent acts externally so a later auditor can verify existence and integrity without trusting the producing system | alternative | decision 0028 and decision 0033: Brokkr keeps the anchor inside the repository; every SHA the journal cites is planted as a keep-ref, and the ship anchor carries an offline-verifiable journal, rather than an external chain |
-| 2 | Separate the evidence properties: temporal anchoring and integrity are cheap, while ordering, capture authenticity, authorized anchoring and causal traceability each need their own control | implemented | decision 0002, decision 0007 and decision 0025: the totally-ordered journal gives ordering, provenance rules give capture authenticity, and the signed grant gives authorized anchoring |
-| 3 | Keep sensitive content out of the anchor: commit to the payload, never publish it | implemented | decision 0012 and decision 0032: secret bindings travel as names only and the journal carries paths or ids, never transcript bodies |
+| 1 | Anchor evidence of agent acts externally so a later auditor can verify existence and integrity without trusting the producing system | alternative | decision 0028 and decision 0033; `crates/brokkr-runtime/src/anchor.rs`: keep-refs preserve cited commits and a published Git anchor carries an offline-verifiable journal; this is repository evidence, not an independent timestamp or external trust root |
+| 2 | Separate the evidence properties: temporal anchoring and integrity are cheap, while ordering, capture authenticity, authorized anchoring and causal traceability each need their own control | alternative | decision 0002 and decision 0034; `crates/brokkr-store/src/lib.rs`: the journal hash chain, sequence and causation links preserve recorded order and integrity, and append validates seat-record shape; they do not prove capture truth or the signed authorization described in decision 0025 |
+| 3 | Keep sensitive content out of the anchor: commit to the payload, never publish it | alternative | decision 0012, decision 0032 and decision 0034; `crates/brokkr-store/src/seat_record.rs`: bindings use names, captured streams mask known secret encodings, and accounting carries transcript locators instead of bodies; the separate result/inputs/notes report can still carry prose |
 | 4 | Anchor to a vendor-neutral external chain for regulatory reporting | declined | decision 0003: the production runtime is one native binary with no services; an external chain is a dependency the product refuses |
-| 5 | Reconstruct incidents from the evidence stream: who, what, when, under which policy | implemented | decision 0020: muninn reads only journal-derived models and records every proposal with its provenance |
+| 5 | Reconstruct incidents from the evidence stream: who, what, when, under which policy | implemented | decision 0020 and decision 0047; `crates/brokkr-cli/src/muninn.rs` and `crates/brokkr-view/src/lib.rs`: journal-derived dossiers expose runs, rulings and residuals with citations, including operator-cited supersedes; Muninn records validated proposals and does not infer that a finding is fixed |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+Findings 2 and 3 no longer claim the whole evidence/authentication or
+privacy property is implemented. The new append fence validates record
+shape; it does not authenticate an upstream event. The anchor publishes
+the journal, including separately governed reports, rather than only a
+payload hash. Decision 0047 adds explicit, cited residual closure without
+changing the historical outcome. Neither it nor an accepted executor
+decision supplies signed-grant enforcement.
 
 ## Candidates
 
-The paper's five-property split of evidence is a clean skeleton for
-an audit story: if the operator ever wants a compliance document for
-the journal, temporal anchoring, integrity, ordering, capture
-authenticity, authorization and traceability are the headings, and
-each already has a decision behind it here. No external chain
-needed; the ruling would say so.
+An evidence-property matrix could document what the journal proves and
+what remains outside its trust boundary: recorded order and byte
+integrity have mechanisms; independent time, capture authenticity and
+signed authority need separate evidence. It would also need to state the
+privacy limits of report prose and transcript locators. Such a document
+would describe the implementation's limits, not assert compliance or
+complete coverage of the paper's properties.
+
+[Issue #217](https://github.com/feedback-loop-ai/brokkr/issues/217)
+proposes recording an orchestrator-reported outer wall separately from
+Brokkr's boundary. It remains a proposal for labelled testimony, not
+independent attestation or an implemented trust root.

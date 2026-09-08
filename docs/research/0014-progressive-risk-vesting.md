@@ -35,15 +35,30 @@ recursive authority sparingly, with an explicit risk charge.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Separate sandbox spawning from capability activation: exploration is free, irreversible action is a distinct grant | implemented | decision 0043 and decision 0025: every command runs in an empty-root box holding only the worktree, and the standing executor acts only within a signed, expiring grant |
-| 2 | Condition an activation on the full history that selected it, not only the local certificate | alternative | decision 0029: the fenced append binds a write to the head it folded from and refuses when the journal has moved; the check is against the journal's head, not a risk budget |
-| 3 | Hold a trajectory-level risk budget in escrow and debit it per activation | alternative | decision 0006: Brokkr's budget is per-seat attempts and deadlines, counted in attempts rather than in risk |
-| 4 | Grant recursive authority sparingly and treat delegation as an explicit, revocable loan | implemented | decision 0020 and decision 0025: muninn proposes and never rules, with delegation only by future recorded grant, and the executor's grant is signed, expiring and under a compiled never-list ceiling |
+| 1 | Separate sandbox spawning from capability activation: sandbox exploration and irreversible authority are distinct grants | alternative | decision 0046; `crates/brokkr-runtime/src/engine.rs`: sites with hands use a pinned namespace, harness or open boundary; Brokkr has no recursive spawn/activation controller or per-action risk certificate, and decision 0025 describes a signed executor grant not implemented in this tree |
+| 2 | Condition an activation on the full history that selected it, not only the local certificate | alternative | decision 0029; `crates/brokkr-store/src/lib.rs`: fenced appends reject a write when the journal head differs from the one the caller folded; this is a concurrency check, not a certificate conditioned on the full risk history |
+| 3 | Hold a trajectory-level risk budget in escrow and debit it per activation | alternative | decision 0006; `recipes/triage/policy.json`: seat attempts, deadlines and phase visits bound work and retries; there is no trajectory-level harm budget or activation escrow |
+| 4 | Grant recursive authority sparingly and treat delegation as an explicit, revocable loan | alternative | decision 0020; `crates/brokkr-cli/src/muninn.rs`: Muninn reads a dossier and records validated proposals without executing them; the signed, expiring grant and recursive-authority ceiling of decision 0025 are not implemented here |
 | 5 | Price risk and compute with shadow prices and let the prices set fanout thresholds | not-planned | |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+Findings 1 and 4 are corrected from implemented to alternative. This
+tree contains no Skírnir executor or signed-grant loader; acceptance of
+decision 0025 is not implementation evidence. The dispatch contract does
+check expiry, digest, bounds and forbidden actions
+(`crates/brokkr-core/src/dispatch.rs`); those checks do not implement the
+operator-GPG-signed grant. Decision 0046 slice (i)
+now supports namespace, harness and open, while seatbelt and container
+are refused as unbuilt. A boundary grant is also not the paper's
+per-activation risk certificate; sandbox spawning still consumes compute.
 
 ## Candidates
 
-Finding 3: Brokkr's attempt bound counts attempts, not harm. A
-risk-weighted debit would tell a judging seat that only reads apart
-from a shipper that can write; the operator may want to rule whether
-the attempts bound should carry a risk weight.
+Finding 3 remains a possible future design question, not an attempt
+counter with an extra label. Risk-weighted activation would require a
+harm model, conditional certificates and an enforcement point; none is
+provided by seat deadlines or an isolation boundary. The operator would
+need to rule the scope before an escrow mechanism could be planned.

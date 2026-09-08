@@ -38,16 +38,33 @@ success rates.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Treat acceptance as two separately checkable dimensions, functional correctness and review-derived constraints, and report the gap between them | alternative | decision 0041: acceptance is a judging gate seat that reads the tree and the spec, not a per-constraint executable test suite |
-| 2 | Give the worker the acceptance constraints in its input: explicit constraint guidance raises compliance without hurting functional success | implemented | decision 0042: the specify and design artifacts are written before the work and read from the journal by the seat that folds the change |
+| 1 | Treat acceptance as two separately checkable dimensions, functional correctness and review-derived constraints, and report the gap between them | alternative | decision 0041 and decision 0042; `recipes/triage/bundle.json`: deterministic verify and dialect-validation steps precede judging seats; functional and review verdicts are distinct, but there is no executable constraint taxonomy or hidden-failure metric |
+| 2 | Give the worker the acceptance constraints in its input: explicit constraint guidance raises compliance without hurting functional success | implemented | decision 0042; `recipes/triage/bundle.json` and `agents/charters/implementer-sdd.md`: the SDD path validates specify, design and tasks artifacts, journals their change identifier, and directs the smith to implement against those artifacts |
 | 3 | Catalogue acceptance constraints by category (error semantics, compatibility, ordering, encoding, idempotence) and track which categories agents fail | not-planned | |
 | 4 | Report the hidden-failure rate, the share of work that passes functional checks but fails acceptance, as a standing evaluation metric | not-planned | |
 
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+The SDD enactment now supplies framework validation and bounded clarify
+and analyze loops before implementation. Finding 2 applies to that
+path; it is not a promise that every recipe writes a spec. The journal
+carries the change identifier and validation state, while the artifacts
+live in the repository. Findings 3 and 4 remain gaps: no constraint-category
+report or hidden-failure-rate calculation is implemented.
+
 ## Candidates
 
-Finding 3: the paper's eleven categories are a ready checklist for
-what a functional pass is not; they could sharpen
-`agents/charters/review-chief.md`. Finding 4: Brokkr's journal
-already holds both the verify evidence and the gate verdicts, so
-muninn could compute the gap between verify-pass and ship-verdict as
-a home-grown hidden-failure rate without any new machinery.
+Findings 3 and 4 remain candidates for the operator: use the paper's
+categories to sharpen the review charter, and define a metric over runs
+that passed verify but failed review-derived acceptance. That metric
+needs a denominator and treatment of retries, residuals and later
+operator supersedes (decision 0047). Muninn's current dossier and report
+do not compute it; journaled verdicts are inputs for new deterministic
+aggregation, not an existing measure of real-world acceptance.
+
+[Issue #237](https://github.com/feedback-loop-ai/brokkr/issues/237)
+proposes cumulative wager accounting and reconciliation of the implemented
+candidate against specs and constitution. That is related backlog work;
+it has not added the paper's constraint taxonomy or hidden-failure metric.

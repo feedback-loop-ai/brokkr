@@ -59,6 +59,16 @@ different class; a later ruling is a dated erratum inside the file.
 equal to the entries in the directory, refuses a class outside the
 vocabulary, and refuses a citation that does not resolve.
 
+## Reconciled sweep, 2026-09-08
+
+Entries 0008–0017 retain the source summaries and intake from the
+2026-09-04 sweep. Their 46 findings were checked against main at
+`7b53e92`, after the boundary enactment (decision 0046 slice (i)). Each
+entry records the current evidence and remaining gaps under a dated
+reconciliation. All ten entries remain `proposed`; this update records
+no operator acceptance or planning ruling. A cited decision's acceptance
+is not by itself evidence that its capability has been implemented.
+
 ## Index
 
 | # | Article | Source | Findings | Status |

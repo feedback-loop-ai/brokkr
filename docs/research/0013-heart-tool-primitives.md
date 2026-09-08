@@ -31,17 +31,32 @@ times the average of three frontier commercial models.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Wrap every external tool in an LLM-facing interface and make natural language, not schemas, the invocation interface | alternative | decision 0043: Brokkr takes the opposite route; the model's hands are one boxed tool over the worktree, so richness lives inside the box rather than in per-tool wrappers |
-| 2 | Hold a central repository of tools and retrieve only the relevant ones into context at inference time | alternative | decision 0016: Brokkr's library names one file per agent and adapters are data; seats are hired explicitly rather than retrieved dynamically |
-| 3 | Orchestrate tool use with a planner, a router and a verifier instead of one reasoning loop | alternative | decision 0002: the outer machine is a linear phase machine; the phases carry what a planner and verifier do, and there is no router |
-| 4 | Bound the recovery loop: verifier feedback drives re-planning under an explicit budget | alternative | decision 0022 and decision 0006: reforging returns a finding to the implementing seat as declared input, bounded at two reforgings, under per-seat attempts and deadlines |
-| 5 | Cut API cost by routing work to cheaper calls where quality allows | alternative | decision 0021: Brokkr parks rather than substitutes; the hire is pinned and a gate that cannot pass stops the run instead of descending to a cheaper model |
+| 1 | Wrap every external tool in an LLM-facing interface and make natural language, not schemas, the invocation interface | alternative | decision 0043 and decision 0046; `crates/brokkr-runtime/src/engine.rs`: namespace hands use one workspace tool with explicit binds, while harness and open boundaries compose differently; Brokkr does not add an LLM wrapper per external tool |
+| 2 | Hold a central repository of tools and retrieve only the relevant ones into context at inference time | alternative | decision 0016 and decision 0041; `crates/brokkr-runtime/src/agents.rs`: the library resolves declared office/model chains against availability and recipe strategy, rather than retrieving tools by semantic relevance |
+| 3 | Orchestrate tool use with a planner, a router and a verifier instead of one reasoning loop | alternative | decision 0002 and decision 0042; `recipes/triage/bundle.json`: a linear outer phase machine includes strategy selection, artifact-authoring sequences and judging panels; routing follows declared policy rather than a tool planner |
+| 4 | Bound the recovery loop: verifier feedback drives re-planning under an explicit budget | alternative | decision 0041 and decision 0042; `recipes/triage/policy.json`: declared findings return to implement, design or triage under phase-visit bounds, with bounded clarify/analyze loops and per-seat attempt/deadline limits |
+| 5 | Cut API cost by routing work to cheaper calls where quality allows | alternative | decision 0021 and decision 0041; `crates/brokkr-runtime/src/agents.rs`: strategy selects declared hires and availability resolves approved fallback chains; a running failure does not trigger a cheaper replacement and no runtime quality/cost scorer chooses the model |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+The outer machine remains linear, but it now contains the enacted SDD
+sequences and strategy-dependent seats; saying it has no routing would
+miss those controls. The one-tool description applies to namespace
+hands, not every invocation on every boundary. Declared availability
+fallbacks also differ from substituting a cheaper model after a failure.
 
 ## Candidates
 
-No uptake proposed. The entry records the opposite bet: HEART adds
-per-tool LLM wrappers and a runtime router; Brokkr removes the tool
-surface to one boxed tool and pins every hire. The paper's 28
-percent on nested schemas is evidence the brittleness it fixes is
-real, which is an argument for keeping the Brokkr route, not
-adopting this one.
+No uptake proposed. HEART's per-tool LLM interfaces and semantic tool
+retrieval remain different from Brokkr's declared offices, pinned policy
+and boundary-specific tool execution. The paper motivates examining
+schema brittleness; its benchmark results do not establish that Brokkr's
+alternative performs better.
+
+[Issue #227](https://github.com/feedback-loop-ai/brokkr/issues/227)
+proposes boxing the remaining work offices and removing their allow-lists;
+that migration has not landed. [Issue #224](https://github.com/feedback-loop-ai/brokkr/issues/224)
+proposes economic implementation selection while retaining deterministic
+routing and pinned hires, rather than adopting HEART's tool router.

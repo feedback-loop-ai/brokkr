@@ -40,20 +40,29 @@ listings.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Judge independence is a property of evidence paths, not of model labels: model-diverse reviewers over shared evidence co-fail | alternative | decision 0041: Brokkr requires two model families on every panel but does not separate the evidence paths the judges read; every judge reads the same tree and journal |
+| 1 | Judge independence is a property of evidence paths, not of model labels: model-diverse reviewers over shared evidence co-fail | alternative | decision 0045; `crates/brokkr-runtime/tests/roster.rs`: shipped panels require two adapter vendors among first-choice hires; the judges still share the repository and journal, and no evidence-path independence is established |
 | 2 | Count fault-separated epistemic paths, not agent instances, when authorizing | not-planned | |
-| 3 | Separate prospective selection over planned ancestry from commit-time authorization over realized provenance | alternative | decision 0041: triage rules the delivery class before work and the gate rules the realized work after; neither control computes an epistemic cut |
-| 4 | Treat reviewer disagreement as a runtime signal of upstream faultiness | alternative | decision 0021 and decision 0006: a gate that does not pass parks the run rather than diagnosing why the evidence disagreed |
-| 5 | Ship a frozen external benchmark with a standardized endpoint contract for validating the controller | alternative | `fixtures/`: Brokkr keeps its evaluator corpus frozen and versioned rather than regenerated, but it validates the product, not a quorum controller |
+| 3 | Separate prospective selection over planned ancestry from commit-time authorization over realized provenance | alternative | decision 0041 and decision 0042; `recipes/triage/bundle.json`: triage selects a strategy before work and later gates judge the resulting artifacts; neither stage records evidence ancestry or computes an epistemic cut |
+| 4 | Treat reviewer disagreement as a runtime signal of upstream faultiness | alternative | decision 0041 and decision 0047; `recipes/triage/policy.json`: typed findings return through bounded repair paths, park or stop by severity; residual closure is an operator-cited annotation, not an inference about shared upstream faults |
+| 5 | Ship a frozen external benchmark with a standardized endpoint contract for validating the controller | alternative | `fixtures/evaluator/corpus.ndjson` and `crates/brokkr-cli/tests/machine_proof.rs`: the frozen corpus checks evaluator semantics; it is not an external benchmark of reviewer independence or quorum safety |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+Decision 0045 strengthened roster diversity from model families to
+vendors at the first-choice hires. That is an enforced roster property,
+not measured evidence separation, and availability fallbacks need not
+preserve it among the models actually served. Decision 0046 also records
+the boundary each seat used; isolation does not establish that judges
+read independent evidence. Finding 2 remains not-planned.
 
 ## Candidates
 
-Finding 2 is the sharpest question this sweep brings. Every judge on
-a Brokkr panel reads the same tree, the same journal and the same
-spec: one misleading commit message or one corrupted instruction file
-is a single epistemic root covering the whole panel, which is the
-same vector registry entry 0004 recorded for commit messages. The
-operator may want a ruling on evidence-path separation for judges, or
-at least on recording which evidence each judge read. Finding 4: a
-muninn tally of panel disagreement across runs would give the
-operator the paper's runtime signal from evidence already journaled.
+Finding 2 remains the main open question: panel judges share the tree,
+journal and spec, so an upstream source can expose several judges to
+the same misleading material (also the concern in registry entry 0004).
+Consider recording source ancestry and evaluating separated evidence
+paths. A disagreement tally would require deterministic aggregation
+across panel verdicts; current typed residuals and the operator's
+supersede records do not diagnose evidence correlation.

@@ -37,15 +37,33 @@ merely proposed.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Route each task at runtime to the model that best trades speed, cost and quality | alternative | decision 0031 and decision 0041: Brokkr pins the model per seat and hires one office per seat; who works is chosen by the recipe and the operator, not scored at runtime |
-| 2 | Restrict the candidate set by hard constraints, tools, privacy, residency, safety, before scoring suitability | implemented | decision 0021 and decision 0036: trust tiers and egress classes are declared per route and refused at compile; a never-list caps what any grant may reach, decision 0025 |
-| 3 | Distinguish released, implemented and proposed compositions in every routing claim | alternative | `docs/decisions/README.md`: the decision index separates proposed from accepted with a status line, and a declined proposal stays in the record |
-| 4 | Evaluate routing on downstream task outcomes, because label-level classifier metrics are dominated by negative labels | alternative | decision 0010: recipes are compared by run id, that is, by what the runs produced, not by a classifier's label scores |
+| 1 | Route each task at runtime to the model that best trades speed, cost and quality | alternative | decision 0031 and decision 0041; `recipes/triage/bundle.json` and `crates/brokkr-runtime/src/agents.rs`: runtime strategy selection chooses a declared office and availability resolves its pinned chain; no suitability score trades quality, speed and cost |
+| 2 | Restrict the candidate set by hard constraints, tools, privacy, residency, safety, before scoring suitability | alternative | decision 0021, decision 0036 and decision 0046; `crates/brokkr-runtime/src/bundle.rs`: compilation constrains trust, judge eligibility, route egress and boundary capabilities; this is not a complete per-task context/modality/residency filter, and decision 0025 supplies no implemented signed-grant ceiling |
+| 3 | Distinguish released, implemented and proposed compositions in every routing claim | alternative | decision 0046 and decision 0049; `crates/brokkr-runtime/src/engine.rs` and `crates/brokkr-cli/src/doctor.rs`: unbuilt boundaries refuse at start and doctor names them; decision acceptance alone does not certify an implementation or release |
+| 4 | Evaluate routing on downstream task outcomes, because label-level classifier metrics are dominated by negative labels | alternative | `crates/brokkr-cli/src/compare.rs`: run comparison exposes verdict trails, model resolution, boundary, cost and attempts; it does not independently score downstream task success or validate a router against ground truth |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+The current tree already routes a ruled strategy to declared seats and
+uses explicit availability fallbacks. It does not run a learned model
+selector, and route egress policy does not enforce every hard constraint
+in SCX's candidate filter. The boundary enactment demonstrates why an
+accepted decision is not a release claim: namespace, harness and open
+are built; seatbelt and container remain refused.
 
 ## Candidates
 
-If the operator ever wants triage to suggest a hire rather than rule
-a class, this paper is the field's current recipe for the classifier
-half, and the 23-family, 115-type ontology is reusable structure.
-Until then the row stays alternative: Brokkr's pinning is the
-deliberate substitute.
+A learned suitability selector and task ontology remain possible future
+work. They would extend strategy-based selection, not introduce routing
+where none exists. Adoption would need downstream evaluation and an
+explicit ruling about which hard constraints the candidate filter can
+actually enforce; the existing compare command supplies run evidence,
+not that evaluation.
+
+[Issue #224](https://github.com/feedback-loop-ai/brokkr/issues/224)
+already proposes selection by remaining uncertainty, accepted-change cost
+and current capacity. It explicitly leaves the new model policy unaccepted;
+it is not adoption of SCX's learned router. [Issue #237](https://github.com/feedback-loop-ai/brokkr/issues/237)
+tracks the proposed controlled wagers that could supply comparison evidence.

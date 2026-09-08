@@ -32,11 +32,22 @@ review to experts.
 
 | # | Finding | Classification | Citation |
 |---|---|---|---|
-| 1 | Keep a proposal only when an independent executable check reproduces its claimed result | implemented | decision 0043 and decision 0041: the verify and ship gates are boxed scripts and judging seats independent of the producer; no gate trusts the producer's claim |
+| 1 | Keep a proposal only when an independent executable check reproduces its claimed result | alternative | decision 0041 and decision 0046; `recipes/fast/bundle.json` and `recipes/triage/bundle.json`: exec checks and separate judging seats assess delivery; they do not independently reproduce every benchmark answer, and isolation depends on the declared boundary |
 | 2 | Screen for no-op solutions: reject items the evaluated system can already resolve without the capability under test | not-planned | |
-| 3 | Rescreen the pool after generation rather than trusting the pass it was built under | alternative | decision 0038: a delta is re-judged at the head it arrives at, by a preflight run naming that head, instead of inheriting the earlier verdict |
-| 4 | Name the effort setting of every screening call, because default-effort calls accept and reject differently | implemented | decision 0035: every model pin carries an effort pin, and the seat record carries the measured reasoning tokens |
+| 3 | Rescreen the pool after generation rather than trusting the pass it was built under | alternative | decision 0038; `scripts/delivered-by-brokkr.sh`: an unchanged patch retains its delivery evidence, a docs delta requires an additional preflight over the exact head, and a code delta requires a new delivery run; preflight alone cannot replace delivery evidence |
+| 4 | Name the effort setting of every screening call, because default-effort calls accept and reject differently | implemented | decision 0035; `recipes/research-dsh/bundle.json` and `crates/brokkr-store/src/seat-record.v4.schema.json`: model hires carry configured effort; reasoning-token measurements are recorded only when reported, separately from that setting |
 | 5 | Gates make checking auditable; final acceptance stays with the expert | implemented | decision 0044 and `docs/decisions/README.md`: classification and acceptance are the operator's; every entry and decision stays proposed until ruled |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+The dsh effort setting now reaches the harness through a seat settings
+file; the research lane is explicitly xhigh. Missing reasoning-token
+measurements remain missing rather than proving an effort level. The
+original sweep parked at verify and never shipped, so even a successful
+preflight would not by itself satisfy the delivery-evidence gate for
+this PR. Finding 2 remains a candidate, not an implemented screen.
 
 ## Candidates
 

@@ -35,15 +35,33 @@ weakens recovery, and corrupted trajectory summaries weaken it too.
 | # | Finding | Classification | Citation |
 |---|---|---|---|
 | 1 | Budget evaluation explicitly: recover a verdict on the whole from a priced calibration subset | alternative | decision 0006 and `recipes/fast/bundle.json`: Brokkr bounds each seat by attempts and deadlines rather than estimating the score of unrun work |
-| 2 | Judge from process evidence, explored context, attempted edits, solving paths, not only pass/fail outcomes | implemented | decision 0002: the journal is the totally-ordered process record, and decision 0034: the seat record carries per-turn tool and target evidence |
-| 3 | Treat historical summaries as privileged inputs whose corruption degrades the verdict: provenance matters | implemented | decision 0007: every evaluation input is engine-computed or seat-declared; everything else is dropped before the table sees it |
-| 4 | Price the evaluation itself: report per-task and calibration costs as first-class results | alternative | decision 0034: Brokkr records cost per seat after the fact; the budget is fixed up front, not spent against an estimator |
+| 2 | Judge from process evidence, explored context, attempted edits, solving paths, not only pass/fail outcomes | alternative | decision 0034; `crates/brokkr-store/src/seat-record.v4.schema.json` and `crates/brokkr-cli/src/compare.rs`: bounded tool/target metadata, verdicts and accounting support process comparison; the record excludes full trajectories and Brokkr has no trajectory-aware estimator |
+| 3 | Treat historical summaries as privileged inputs whose corruption degrades the verdict: provenance matters | alternative | decision 0007 and decision 0034; `crates/brokkr-store/src/seat_record.rs`: evaluator inputs have declared owners and seat records are schema-checked at append; those controls do not authenticate a summary or establish that a seat claim is true |
+| 4 | Price the evaluation itself: report per-task and calibration costs as first-class results | alternative | decision 0034; `crates/brokkr-cli/src/compare.rs`: comparisons report per-seat accounting, cost and attempt deltas between runs; no calibration-subset cost or estimate of unrun tasks is produced |
+
+## Reconciliation — 2026-09-08
+
+Against main at `7b53e92` (decision 0046 slice (i)).
+
+Comparison by run id already exists, including model-selection and
+boundary differences. The append-time seat-record validator has also
+landed, so invalid accounting records are refused before sealing.
+Neither feature calibrates agent ability or validates the truth of
+model-authored summaries. The privacy-bounded record carries tool and
+file identifiers, not the full exploration, edits or reasoning traces
+used by PTA-IRT.
 
 ## Candidates
 
-Finding 1 becomes practical if muninn starts comparing recipes
-across runs: decision 0010 makes recipes comparable by run id, and
-budgeted recovery is how that comparison stays cheap when runs are
-expensive. The paper's warning that corrupted trajectory summaries
-poison calibration is an argument for keeping such statistics
-engine-computed only, as decision 0007 already requires.
+Finding 1 would extend the existing compare command with a priced
+calibration subset and an estimator; it does not require inventing run
+comparison first. Such an evaluation would need an explicit source for
+trajectory features, a held-out outcome check and treatment of missing
+accounting. Decision 0007 controls who may supply an input; it does not
+make a supplied trajectory summary reliable.
+
+[Issue #237](https://github.com/feedback-loop-ai/brokkr/issues/237)
+proposes controlled continuation wagers and cumulative graph metrics;
+it is not an implemented checkpoint-fork or PTA-IRT estimator. Broader
+cost-per-accepted-change evaluation is proposed in
+[issue #224](https://github.com/feedback-loop-ai/brokkr/issues/224).
