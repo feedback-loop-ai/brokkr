@@ -3792,6 +3792,25 @@ fn a_refused_attempt_names_its_transcript_only_when_there_is_one() {
         transcript_locator(&with(json!({"kind":"codex-thread","locator":"t-1"}))),
         Some("codex-thread/t-1".to_string())
     );
+    // The locator is a harness-supplied field like the token beside it,
+    // and decision 0032's clamp bounds its length alone. A harness that
+    // announces its session as `abc\n\u{1b}[2Kprovider ok` must not be
+    // able to forge a second line — or a terminal escape — into the
+    // durable reason a readout of a fail-to-start attempt renders.
+    let composed = transcript_locator(&with(
+        json!({"kind":"claude-\nsession","locator":"abc\n\u{1b}[2Kprovider ok"}),
+    ))
+    .unwrap();
+    assert_eq!(composed, "claude- session/abc [2Kprovider ok", "{composed}");
+    let reason = format!(
+        "{} [transcript {composed}]",
+        refusal_reason("rate_limit", None, None)
+    );
+    assert!(!reason.contains('\n'), "{reason}");
+    assert!(!reason.chars().any(char::is_control), "{reason}");
+    // A locator that is nothing but control characters collapses to an
+    // absence, which is the same answer as a harness that announced none.
+    assert_eq!(transcript_locator(&with(json!({"locator":"\n\t"}))), None);
 }
 
 /// Decision 0053: a classified refusal does not stop the fold. A harness
@@ -3864,4 +3883,130 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
         panic!("the session's own result is reported: {messages:?}")
     };
     assert_eq!(seat_result["result"], "complete");
+}
+
+/// Decision 0053 ruling 8: the pre-session rows are HELD, and this is
+/// the window that costs. Codex has its thread id in hand at
+/// `thread.started` — the id a retry resumes (decision 0030) — but
+/// nothing reaches the engine until the first turn checkpoints, so an
+/// attempt the deadline watchdog kills between those two points journals
+/// no locator and its retry opens a cold session. The rows are flushed
+/// in order, after `accepted`, the moment work begins.
+#[cfg(unix)]
+#[test]
+fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let shim = executable(
+        dir.path(),
+        "codex-slow-first-turn",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"held-1\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":1}}}}\\n'\n\
+             printf '%s' '{{\"result\":\"complete\",\"notes\":\"n\"}}' > '{result}'\n",
+            result = result.display(),
+        ),
+    );
+    let mut messages = Vec::new();
+    with_codex_bin(&shim, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    assert!(
+        matches!(messages.first(), Some(Body::Accepted { .. })),
+        "nothing reaches the engine while the thread is announced and no \
+         turn has begun: {messages:?}"
+    );
+    let steps: Vec<String> = messages
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } => Some(data["step"].as_str().unwrap().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        steps[..3],
+        ["harness-started", "transcript", "turn-started"],
+        "the held rows are flushed in their own order, ahead of the row \
+         that flushed them: {steps:?}"
+    );
+    let transcript = messages
+        .iter()
+        .find_map(|body| match body {
+            Body::Checkpoint { data, .. } if data["step"] == "transcript" => Some(data),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(transcript["transcript"]["locator"], "held-1");
+}
+
+/// Decision 0053: a refusal is thrown away as a failure to start only
+/// when the seat delivered nothing. The classifier reads its harness's
+/// machine fields, not the seat's contract, so a record it reads as a
+/// refusal must not discard a session that nonetheless exited clean with
+/// its result file written. `began_work` catches every shape #219
+/// measured; this is the wall behind it, and it is what keeps the one
+/// asserted shape — `rate_limit_event`, which a newer CLI may emit as an
+/// advisory rather than a rejection — from ever losing a seat's work.
+#[cfg(unix)]
+#[test]
+fn a_refusal_never_discards_a_session_that_delivered_its_result() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    // No turn row at all, so `began_work` stays false and the delivery
+    // is the only fact keeping this attempt off the fail-to-start side.
+    let shim = executable(
+        dir.path(),
+        "codex-errs-then-delivers",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             printf '{{\"type\":\"error\",\"message\":\"stream error: rate limit\"}}\\n'\n\
+             printf '%s' '{{\"result\":\"complete\",\"notes\":\"n\"}}' > '{result}'\n",
+            result = result.display(),
+        ),
+    );
+    let mut messages = Vec::new();
+    with_codex_bin(&shim, || {
+        run_seat(
+            AdapterKind::Codex,
+            &[],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt",
+                "input": {"workdir": dir.path(), "result_path": result,
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+            }),
+            None,
+            &mut |body| messages.push(body),
+        )
+    });
+    let Body::Result {
+        status: ResultStatus::Succeeded,
+        result: Some(seat_result),
+        ..
+    } = messages.last().unwrap()
+    else {
+        panic!("the delivered result is the fact, not the refusal: {messages:?}")
+    };
+    assert_eq!(seat_result["result"], "complete");
+    assert!(
+        messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "a delivering attempt accepts: {messages:?}"
+    );
 }

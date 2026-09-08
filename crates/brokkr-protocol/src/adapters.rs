@@ -1020,12 +1020,19 @@ fn fold_codex_event(
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
                 echo.locate(transcript.home(), thread_id);
-                // Journaled NOW, as the claude fold journals its own —
+                // Recorded NOW, as the claude fold records its own —
                 // and for a second reason here: the thread id is what a
                 // retry resumes (decision 0030), and an attempt killed
                 // on its deadline never reaches the session-finished
-                // checkpoint. Captured at `thread.started`, the id
-                // survives exactly the failure a retry follows.
+                // checkpoint. Captured at `thread.started`, the id is in
+                // hand from the harness's first message. It reaches the
+                // JOURNAL with the attempt's first work checkpoint,
+                // which `run_seat` flushes it ahead of: a pre-session
+                // row would put a refused attempt on decision 0016's
+                // mid-session side. So a kill AFTER the first turn still
+                // hands its thread to the retry that follows, and a kill
+                // before it has none to hand — decision 0053 ruling 8,
+                // which names that window and its cost.
                 transcript.record(thread_id, session_meta, emit);
             }
         }
@@ -2648,19 +2655,26 @@ fn begins_work(step: &str) -> bool {
 
 /// The refused attempt's pointer at its own prose: `<kind>/<locator>`
 /// off the transcript row decision 0032 already shapes, or nothing when
-/// the harness never announced a session. Both halves are already
-/// clamped where they are recorded, and neither is read for anything —
-/// it is an address a person types into a drilldown.
+/// the harness never announced a session. Neither half is read for
+/// anything — it is an address a person types into a drilldown — but the
+/// locator is a harness-supplied field like every other one this reason
+/// quotes, and decision 0032's own clamp bounds its LENGTH only. It is
+/// put through the same wire bound as the token here, so the composed
+/// reason is one line whatever a harness announced its session as.
 fn transcript_locator(session_meta: &Map<String, Value>) -> Option<String> {
     let transcript = session_meta.get("transcript")?;
     let locator = transcript.get("locator").and_then(Value::as_str)?;
+    let locator = bounded_wire_line(locator, REFUSAL_TOKEN_LIMIT);
     if locator.is_empty() {
         return None;
     }
-    let kind = transcript
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("none");
+    let kind = bounded_wire_line(
+        transcript
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("none"),
+        REFUSAL_TOKEN_LIMIT,
+    );
     Some(format!("{kind}/{locator}"))
 }
 
@@ -2873,8 +2887,20 @@ fn run_seat(
     // locator instead. That pointer is the evidence #219 was diagnosed
     // from, and a refused attempt that named nowhere to look would make
     // the next such diagnosis start from scratch.
+    //
+    // Two facts have to agree before an attempt is thrown away as a
+    // refusal to start: no work checkpoint, and no delivery. A classifier
+    // reads its harness's machine fields, not the seat's own contract, so
+    // if a record it read as a refusal is overtaken by a clean exit with
+    // the result file written, the delivered work is the fact and the
+    // refusal was a notice. No measured CLI both refuses and delivers —
+    // `began_work` catches every shape #219 saw — so this is the second
+    // wall, and it is the one that keeps the single asserted shape
+    // (`rate_limit_event`, which a newer CLI may yet emit as an advisory
+    // rather than a rejection) from ever discarding a seat's work.
+    let delivered = exit_code == 0 && std::fs::metadata(&result_path).is_ok();
     if let Some(reason) = refusal {
-        if !began_work {
+        if !began_work && !delivered {
             let stderr_tail_start = stderr_tail_start(&stderr);
             eprint!("{}", &stderr[stderr_tail_start..]);
             send(Body::Result {

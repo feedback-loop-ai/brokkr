@@ -70,6 +70,19 @@ Alternatives weighed:
   Rejected: dsh's headless profile emits no machine-readable pre-session
   refusal and exec has no model turn at all. Inventing a classification
   from their stderr prose is the same forbidden read.
+- **Move the hold from the driver to the engine.** The engine survives
+  the kill it orders, so it could journal the pre-session rows it was
+  holding when its own watchdog fired and drop them only for a
+  classified refusal — which would close ruling 8's window entirely.
+  Rejected for this delivery, and recorded here because it is the one
+  design that does: it puts a driver's `step` vocabulary inside the
+  engine's journaling path, so what reaches the record would depend on
+  the engine reading rows it otherwise only appends, and the seat-record
+  fence (decision 0034 ruling 6) would judge a held row at a different
+  moment than it was written. The cost ruling 8 names is a cold retry in
+  a bounded window; that is smaller than the seam this would open, and
+  the operator can rule otherwise on the evidence rather than on the
+  guess.
 - **Let the deadline kill fall where the withholding puts it, and
   record the widening.** Rejected: it makes the chain's own bound
   meaningless exactly when a vendor is down — the case fallback exists
@@ -172,11 +185,47 @@ Alternatives weighed:
    start, and its turns are the seat's served model, usage, cost and
    resumable session id (decision 0030). Whether the refusal ends the
    attempt is settled by whether any work began — the checkpoint the
-   fold emitted, not the point the classifier stopped at.
+   fold emitted, not the point the classifier stopped at — and, behind
+   that, by whether the seat delivered: a classified refusal never
+   discards a session that exited clean with its result file written.
+   The classifier reads a harness's machine fields; the result contract
+   is the seat's own, and where they disagree the delivered work wins.
 
    **Enforcement binding:** `crates/brokkr-protocol/src/adapters/tests.rs`
    drives a shim that errs and then works, and pins that the attempt
    accepts, keeps its thread id and totals, and reports its own result.
+   A second shim errs and then DELIVERS, with no turn row at all: a
+   record the classifier read as a refusal never discards a session that
+   exited clean with its result file written. No measured CLI both
+   refuses and delivers — `began_work` catches every shape #219 saw —
+   but `rate_limit_event` is the one shape in ruling 3's table that is
+   asserted rather than measured, and a newer CLI could emit it as an
+   advisory. Delivery outranks it.
+
+8. **A held row is lost to a kill before the first turn, and that is
+   ruling 1's price, named.** A driver has its harness's
+   session locator in hand from the harness's first message and holds it
+   until a work checkpoint flushes it. The two facts cannot both hold at
+   the driver: the row must be SENT early to survive a SIGKILL, and it
+   must NOT EXIST for the refusal to be structurally a failure to start.
+   Ruling 1 takes the second, so an attempt the engine's watchdog kills
+   between the harness's announcement and its first turn journals no
+   transcript locator; `seat_session` finds none, and the operator's
+   retry opens a cold session and re-pays that turn's input. The window
+   is the harness's launch to its first turn — for codex under a boxed
+   step, the MCP servers' startup, which runs to minutes. Outside it
+   nothing moves: a kill after the first turn hands its thread over
+   exactly as it did before `accepted` was withheld, and a refused
+   attempt carries its locator in its reason under ruling 6.
+
+   **Enforcement binding:**
+   `crates/brokkr-protocol/src/adapters/tests.rs` drives a codex shim
+   through the window and pins that nothing reaches the engine before
+   `accepted`, that the held rows are then flushed in their own order,
+   and that the locator is among them; `resume_tests.rs` pins that an
+   attempt which journaled no session is handed nothing. The doc
+   comments on `seat_session` and on the codex `thread.started` arm
+   state the window rather than the guarantee it replaced.
 
 ## Consequences
 
@@ -188,14 +237,23 @@ Alternatives weighed:
   checkpoint is ever sent before `accepted`.
 - The shared transcript row reaches the JOURNAL one beat later than it
   did: the driver still records the locator at the harness's first
-  message, but `run_seat` buffers that checkpoint until work begins,
+  message, but `run_seat` holds that checkpoint until work begins,
   because a checkpoint before then would put a refused attempt on the
   mid-session side of the boundary. During a long first turn a live
   drilldown therefore cannot yet locate the seat's prose; the row is
   flushed, in order and unchanged, the moment the first turn checkpoints.
-- A refused attempt has no transcript checkpoint at all. Its locator is
-  in its failure reason (ruling 6), which is where a readout of a
-  fail-to-start attempt already looks.
+  An attempt KILLED inside that window journals no locator at all, so
+  its retry starts cold — ruling 8 names that window and why it is the
+  price of ruling 1.
+- A refused attempt has no checkpoint at all — not only no transcript
+  row, but no `<driver>-session-finished` row either, and that row is
+  the one carrying exit code, served model, applied effort, usage and
+  the lanetally ledger marker. Every readout keyed on it shows a refused
+  attempt through its failure event alone, exactly as it already does
+  for a driver that never spawned; any usage the harness reported beside
+  its refusal is dropped, which for a per-model limit or an auth
+  rejection is zero. The locator is in the failure reason (ruling 6),
+  which is where a readout of a fail-to-start attempt already looks.
 - A seat whose provider refuses before its first turn on every link
   still parks — the chain is bounded and a gate whose judges are all
   unavailable parks rather than descends (decision 0041 ruling 3). This

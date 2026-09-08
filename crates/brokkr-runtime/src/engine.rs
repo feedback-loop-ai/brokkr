@@ -3536,10 +3536,15 @@ fn select_candidates(
 /// locator any attempt of this seat journaled, with that attempt.
 ///
 /// Journaled checkpoints are the only channel read — `state =
-/// fold(events)`, and a driver's transcript locator reaches the record as
-/// evidence the moment its harness announces one, which is what lets an
-/// attempt killed on its deadline still hand its thread to the retry
-/// that follows.
+/// fold(events)`. A driver has its harness's locator in hand from the
+/// harness's first message, but since decision 0053 the row reaches the
+/// record with the attempt's FIRST WORK checkpoint, which the driver
+/// flushes it ahead of: a checkpoint before then would put a provider's
+/// pre-session refusal on decision 0016's mid-session side and strand the
+/// chain. So an attempt killed on its deadline after its first turn still
+/// hands its thread to the retry that follows, and one killed before that
+/// turn hands nothing — the window ruling 8 names, and the price it puts
+/// a figure on.
 fn seat_session(events: &[EventEnvelope], seat: &str) -> Option<(String, String)> {
     let effects: Vec<&str> = events
         .iter()

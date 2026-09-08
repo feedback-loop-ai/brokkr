@@ -170,9 +170,16 @@ What a driver has to do to participate:
   sends the message, and every attempt starts cold.
 - **Report the transcript.** Use the common `session_meta.transcript`
   shape described below. For a resumable harness its `locator` is the
-  session or thread id. Report it as soon as your harness announces one,
-  not only when the session ends — an attempt killed on its deadline is
-  exactly the attempt whose retry wants the id.
+  session or thread id. Capture it as soon as your harness announces
+  one, not only when the session ends — an attempt killed on its
+  deadline is exactly the attempt whose retry wants the id. The
+  built-ins capture it there and *send* it with the attempt's first work
+  checkpoint, because a checkpoint before that point would put a
+  provider's pre-session refusal on the mid-session side of the
+  fallback boundary (decision 0053 ruling 1). The trade is a real one
+  and ruling 8 names it: a kill in the window between your harness's
+  announcement and its first turn journals no locator, and the retry
+  after it starts cold.
 - **Handle `resume` as a modifier on the `start` that follows it.** It
   arrives BEFORE that `start` and carries no `seat` and no `input`: it
   is the session handle for the attempt the next `start` describes, and
@@ -668,8 +675,10 @@ engine: it drives the real binary.
 The shape of each case:
 
 1. Write a **shim** — a small shell script standing in for the agent CLI
-   — and point the adapter at it with an env override. The suite has
-   five, and each one pins a different property:
+   — and point the adapter at it with an env override. Eight stand for
+   an agent CLI, and each one pins a different property (the rest of the
+   file's shims are adversarial: a lane that lies about its usage, a
+   seat that echoes a secret):
    - `OBEDIENT_SHIM` finds the result path in the prompt and writes a
      typed result there — the happy path and the result-file contract.
    - `CLAUDE_STREAM_SHIM` emits `stream-json` including a deliberate
@@ -680,6 +689,8 @@ The shape of each case:
      command execution with output — proving the adapter reports usage
      totals and does **not** put the command or its output into a
      checkpoint.
+   - `DSH_USAGE_SHIM` prints dsh's headless answer and its usage line —
+     the arm that has no structured stream to fold at all.
    - `SILENT_SHIM` consumes stdin and produces nothing — the
      no-result-file failure path.
    - the refusal shims (`CLAUDE_REFUSAL_SHIM`, `CODEX_REFUSAL_SHIM`)
@@ -688,6 +699,11 @@ The shape of each case:
      event before any `turn.started` for codex — proving the attempt is
      a determinate failure to start: no `accepted`, no checkpoint, one
      `result: failed` carrying the reason (decision 0053).
+   - `REFUSING_STDERR_SHIM` is their negative: a rejection with no
+     machine-readable shape at all, only stderr prose and a non-zero
+     exit. dsh and exec must NOT classify it — sniffing that prose is
+     the read decision 0001 forbids — so they accept and then fail
+     mid-session, and the chain does not descend.
 
 2. Spawn the driver as a subprocess and write three lines to its stdin:
    `hello`, `start` (with a fully-formed `input` including

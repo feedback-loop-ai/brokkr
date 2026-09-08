@@ -133,15 +133,20 @@ unreachable by construction rather than by convention.
    it the attempt stands on, because a bound that applies "unless a new
    feature is in play" has stopped being a bound.
 
-   Two consequences of the withheld `accepted` are worth knowing at the
-   readout. The transcript locator row is buffered until the first turn
+   Three consequences of the withheld `accepted` are worth knowing at
+   the readout. The transcript locator row is held until the first turn
    checkpoints, so a live drilldown cannot locate a seat's prose during
-   a long first turn; and a refused attempt journals no checkpoint at
-   all, carrying its locator in its failure reason instead
-   (`[transcript claude-session/<id>]`). A refusal that a later turn
-   overtakes — the harness erred, retried and worked — is not a failure
-   to start at all: the fold reads the whole stream, and the attempt
-   reports its own result.
+   a long first turn — and an attempt the deadline killed inside that
+   window journals no locator at all, so a retry after it opens a cold
+   session instead of rejoining the thread (decision 0053 ruling 8). A
+   refused attempt journals no checkpoint at all — including the
+   `<driver>-session-finished` row that carries exit code, served model,
+   usage and the ledger marker — and carries its locator in its failure
+   reason instead (`[transcript claude-session/<id>]`). And a refusal
+   that a later turn overtakes — the harness erred, retried and worked —
+   is not a failure to start at all: the fold reads the whole stream,
+   the attempt reports its own result, and a seat that delivered its
+   result file is never thrown away as a refusal.
 
 ## Hands
 
