@@ -208,17 +208,16 @@ forge_coverage_dir="$(mktemp -d "${TMPDIR:-/tmp}/forge-coverage.XXXXXX")"
 (RAM-backed, and commonly a few gigabytes), that instrumented target
 directory can fill it and the run dies with `ENOSPC` partway through a
 link step. This project has hit exactly that. If your `/tmp` is small or
-RAM-backed, point `TMPDIR` at a disk-backed scratch directory before
-running:
+RAM-backed, point `TMPDIR` at a disk-backed scratch directory outside any Git
+worktree before running:
 
 ```
-mkdir -p target/coverage-scratch
-TMPDIR="$PWD/target/coverage-scratch" bash scripts/coverage-exact.sh
+TMPDIR=/var/tmp bash scripts/coverage-exact.sh
 ```
 
-`target/` is git-ignored, so the scratch directory never reaches a
-commit. The script deletes its own temporary directory on exit either
-way.
+The directory must be outside a Git worktree: tests that create ordinary
+temporary directories expect Git discovery to find no parent repository.
+The script deletes its own temporary build directory on exit.
 
 ### Dependency licences
 

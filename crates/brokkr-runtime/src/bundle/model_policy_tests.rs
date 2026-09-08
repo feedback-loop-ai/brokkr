@@ -3758,12 +3758,12 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// claude's two `hands.harness` members planted as fragments — the
 /// shipped files once the operator's measurement lands — every shipped
 /// bundle without a dialect step compiles under `harness` in a realm
-/// declaring the openspec dialect, eleven of the thirteen, each hands
+/// declaring the openspec dialect, fourteen of the sixteen, each hands
 /// site's manifest `boundary` entry reading `harness`; `recipes/triage`
 /// and `recipes/night-shift` refuse naming their dialect step and ruling 4.
 ///
 /// Second half: against the shipped adapters as they stand, claude
-/// declaring no member, exactly four refuse, each naming the ground the
+/// declaring no member, exactly five refuse, each naming the ground the
 /// compiler reaches first — `bundles/self` at `review` and
 /// `recipes/panel-review` at `review:correctness` naming `claude`,
 /// `hands.harness.gate` and the site; the two dialect bundles at
@@ -3787,6 +3787,8 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Fifteen since `recipes/landing` (decision 0051): `fast` entered at
     // a classify gate, one more `./scripts` exec gate of its own, so it
     // compiles under harness like `fast`.
+    // Sixteen with release preparation: its library reviewer retains the
+    // same missing claude harness fragment as bundles/self.
     assert_eq!(dirs.len(), 16, "{dirs:?}");
     let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
 
