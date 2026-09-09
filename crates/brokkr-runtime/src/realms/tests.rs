@@ -653,6 +653,141 @@ fn a_declared_house_must_be_a_readable_file() {
     assert!(refusal.contains("missing.md"), "{refusal}");
 }
 
+// ---------------------- two DISTINCT repositories (0023 ruling 1, phase 2 ground)
+
+/// A world of two repositories. Every multi-realm map exercised before
+/// this pointed its realms at ONE tree; this one names two, each a real
+/// git repository with its own commit — so two different HEADs — and its
+/// own hearth. The map sits at the workspace root and names both by
+/// relative path.
+pub(crate) const TWO_REPOSITORIES: &str = r#"{
+  "schema": "forge.realms/v2",
+  "realms": [
+    {"name": "alpha", "path": "alpha", "default_branch": "main",
+     "journal": "state/alpha.db"},
+    {"name": "beta", "path": "beta", "default_branch": "trunk",
+     "journal": "state/beta.db"}
+  ],
+  "journal": "state/world.db"
+}"#;
+
+/// A repository with one commit of its own; the commit's message is the
+/// file it adds, so two repositories never share a tree or a sha.
+pub(crate) fn repository(root: &Path, name: &str) -> (PathBuf, String) {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        assert!(std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Brokkr Test"]);
+    git(&["config", "user.email", "brokkr@test"]);
+    git(&["config", "commit.gpgSign", "false"]);
+    std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", name]);
+    let head = crate::git_head(&repo).expect("a committed repository has a HEAD");
+    (repo, head)
+}
+
+/// The fixture: a workspace whose map names two realms in two separate
+/// repositories at two different HEADs. Returns the workspace and each
+/// repository's HEAD, in map order.
+pub(crate) fn two_repositories() -> (tempfile::TempDir, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, alpha) = repository(dir.path(), "alpha");
+    let (_, beta) = repository(dir.path(), "beta");
+    assert_ne!(alpha, beta, "two repositories, two commits, two shas");
+    std::fs::write(dir.path().join("realms.json"), TWO_REPOSITORIES).unwrap();
+    (dir, alpha, beta)
+}
+
+/// Proof 1. A world of two repositories resolves BOTH realms' paths
+/// against the map file's own directory, and `realm_for` answers each
+/// repository with its own realm — never the first realm for both, and
+/// never a realm for a tree the map does not name.
+#[test]
+fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
+    let (dir, alpha_head, beta_head) = two_repositories();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    assert_eq!(world.map.realms.len(), 2);
+    let alpha = dir.path().join("alpha");
+    let beta = dir.path().join("beta");
+    assert_eq!(world.path_of(&world.map.realms[0]), alpha);
+    assert_eq!(world.path_of(&world.map.realms[1]), beta);
+    assert_eq!(world.realm_for(&alpha).unwrap().name, "alpha");
+    assert_eq!(world.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(world.realm_for(&beta).unwrap().default_branch, "trunk");
+    assert!(
+        world.realm_for(dir.path()).is_none(),
+        "the workspace itself is no realm"
+    );
+    // Two repositories, two HEADs, read from the trees the world resolved.
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[0])),
+        Some(alpha_head.clone())
+    );
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[1])),
+        Some(beta_head.clone())
+    );
+    assert_ne!(alpha_head, beta_head);
+    // Two hearths, one per realm, and the world's own journal unread by
+    // either — the fleet reads them side by side, never merged.
+    let hearths = world.hearths();
+    assert_eq!(
+        hearths,
+        vec![
+            Hearth {
+                realms: vec!["alpha".into()],
+                journal: dir.path().join("state/alpha.db"),
+            },
+            Hearth {
+                realms: vec!["beta".into()],
+                journal: dir.path().join("state/beta.db"),
+            },
+        ]
+    );
+
+    // The same world, drawn from a map that lives one level down and
+    // names the repositories by `..`: paths are relative to the MAP
+    // FILE's directory, not to the process or the workspace root, so a
+    // moved map still finds both trees and still tells them apart.
+    std::fs::create_dir(dir.path().join("maps")).unwrap();
+    let nested = dir.path().join("maps/world.json");
+    std::fs::write(
+        &nested,
+        TWO_REPOSITORIES
+            .replace("\"path\": \"alpha\"", "\"path\": \"../alpha\"")
+            .replace("\"path\": \"beta\"", "\"path\": \"../beta\""),
+    )
+    .unwrap();
+    let moved = World::discover(dir.path(), Some(&nested)).unwrap().unwrap();
+    assert_eq!(moved.realm_for(&alpha).unwrap().name, "alpha");
+    assert_eq!(moved.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(
+        moved.journal_of(&moved.map.realms[1]),
+        dir.path().join("maps/state/beta.db"),
+        "a realm's journal follows the map file too"
+    );
+
+    // And each repository pins under its OWN realm name — the run that
+    // starts in beta believes in beta, not in whichever realm came first.
+    let pinned = world.pin(Some(&beta)).unwrap();
+    assert_eq!(pinned["realm"], json!("beta"));
+    assert_eq!(world.pin(Some(&alpha)).unwrap()["realm"], json!("alpha"));
+    let replayed = World::from_manifest(&world.pinned(&json!({}), Some(&beta)).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(replayed.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(replayed.realm_for(&alpha).unwrap().name, "alpha");
+}
+
 #[test]
 fn an_unreadable_neighbour_house_does_not_refuse_the_selected_realm() {
     let map = r#"{

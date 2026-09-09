@@ -4116,6 +4116,155 @@ fn realm_facts_state_only_what_the_tree_answers() {
     assert!(crate::bundle::is_engine_owned(crate::bundle::REALM_FACTS));
 }
 
+/// Phase 2 slice (i), proof 4: `realm_facts` in a world of two REAL
+/// repositories, at two DIFFERENT heads. Every realm-facts test above
+/// runs in a one-realm world; this one reuses proof 1's own fixture —
+/// `crate::realms::tests::two_repositories`, one map, two git trees, two
+/// commits, two hearths — rather than building a second one. The two
+/// trees are held apart on every fact the engine keys per realm: their
+/// heads differ, and their worktrees do too (beta is left dirty, alpha
+/// clean), so `head`, `drift_detected` and `dirty_worktrees` each answer
+/// for ONE repository and a probe that read the world, or the wrong
+/// realm, contradicts what is asserted.
+///
+/// The finding this test states rather than hides: a single run's
+/// `realm_facts` can only ever carry ONE realm key. The engine keys them
+/// from `self.repo`, the one tree the run was started in, so "a run
+/// started in one realm does not record the other realm's head" is true
+/// BY CONSTRUCTION — there is no cross-realm read here for the engine to
+/// suppress. That is the contract today, not a defect: decision 0026
+/// binds a run to exactly one realm and multi-realm runs are Phase 3
+/// (0023 ruling 7, unruled). It is not a statement that a join across
+/// realms is out of scope forever, and a later crossing slice should
+/// read this comment as the ground it moves, not as a law.
+#[test]
+fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
+    let (dir, alpha_head, beta_head) = crate::realms::tests::two_repositories();
+    let alpha = dir.path().join("alpha");
+    let beta = dir.path().join("beta");
+    let map = dir.path().join("realms.json");
+    let keys = |facts: &Value| {
+        facts
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>()
+    };
+
+    // Beta is left dirty and alpha is left clean, from here to the end:
+    // the two repositories differ in worktree state as well as in head,
+    // so every `dirty_worktrees` below answers for ONE tree and a probe
+    // that read the world — or the wrong realm — reports the opposite of
+    // what is asserted.
+    std::fs::write(beta.join("uncommitted.txt"), "beta is mid-thought").unwrap();
+    assert!(git_dirty(&beta));
+    assert!(!git_dirty(&alpha));
+
+    // The run that lives in alpha. Alpha moves; beta is never touched, so
+    // the two trees stand at different heads the whole way through.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &alpha,
+    );
+    let moved = git_commit(&alpha, "moved");
+    assert_ne!(moved, alpha_head, "alpha moved off its fixture head");
+    assert_ne!(moved, beta_head);
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result":"clean"}),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"]["reviewed_heads"],
+        json!({ "alpha": moved }),
+        "review recorded alpha's own head, under alpha's own name"
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "alpha": moved }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
+    let facts = inputs["realm_facts"].clone();
+    assert_eq!(keys(&facts), vec!["alpha".to_string()]);
+    assert!(
+        facts.get("beta").is_none(),
+        "beta is absent from alpha's run, not merely unread: {facts}"
+    );
+    assert_eq!(facts["alpha"]["head"], json!(moved));
+    assert_ne!(
+        facts["alpha"]["head"],
+        json!(beta_head),
+        "the copy-paste guard: alpha's facts carry alpha's head"
+    );
+    assert_eq!(facts["alpha"]["drift_detected"], json!(false));
+    assert_eq!(
+        facts["alpha"]["dirty_worktrees"],
+        json!(false),
+        "alpha's own tree is clean while its neighbour is not: a probe \
+         that read the world, or the other realm, would say true here"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(false));
+    drop(engine);
+
+    // The same map, the other repository: beta's run records beta's own
+    // untouched head under beta, and knows nothing of the commit alpha
+    // made while it was not looking.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &beta,
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "beta": beta_head }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let facts = inputs["realm_facts"].clone();
+    assert_eq!(keys(&facts), vec!["beta".to_string()]);
+    assert_eq!(facts["beta"]["head"], json!(beta_head));
+    assert_ne!(
+        facts["beta"]["head"],
+        json!(moved),
+        "beta's facts never carry alpha's head"
+    );
+    assert_eq!(
+        facts["beta"]["dirty_worktrees"],
+        json!(true),
+        "and beta's facts carry beta's OWN worktree state: the two \
+         repositories disagree, and each run answers for its own"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(true));
+    assert_eq!(inputs["drift_detected"], json!(false));
+    drop(engine);
+
+    // And one realm's recorded head cannot answer for the other: a run in
+    // beta handed the heads ALPHA's review recorded finds no head of its
+    // own to compare against, and an unanswerable drift question is
+    // drift, never silence. This is where the two repositories bite —
+    // in a one-tree world the two realms' heads are the same string, so
+    // the same fixture proves nothing.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &beta,
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "alpha": moved }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    assert_eq!(inputs["drift_detected"], json!(true));
+    assert_eq!(inputs["realm_facts"]["beta"]["drift_detected"], json!(true));
+    assert_eq!(inputs["realm_facts"]["beta"]["head"], json!(beta_head));
+}
+
 /// Ruling 5 must not degrade with the verb typed. `brokkr resume` takes
 /// no map — it names a journal — so the world is rehydrated from the
 /// run's own pin, and a resumed run keeps keying its facts by realm

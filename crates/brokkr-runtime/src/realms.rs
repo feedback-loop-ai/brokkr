@@ -539,5 +539,10 @@ fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
     Ok(texts)
 }
 
+// `pub(crate)` so the two-repository fixture below can be REUSED by the
+// engine's own tests rather than rebuilt there: a private `mod` is
+// visible only to its own module and its descendants, so `pub(crate)`
+// items inside it stay unreachable from `crate::engine::tests` until the
+// module itself is widened. Test-only visibility, no production surface.
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
