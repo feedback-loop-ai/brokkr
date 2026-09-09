@@ -90,12 +90,12 @@
                 "aggregate": "review-panel",
                 "panel": {
                   "correctness": {
-                    "agent": "review-correctness",
+                    "agent": "gpt-flash-review-correctness",
                     "class": "gate"
                   },
                   "security": {
                     "agent": "gpt-flash-review-security",
-                    "class": "gate"
+                    "class": "work"
                   }
                 },
                 "name": "positions",
@@ -118,12 +118,12 @@
                 "aggregate": "review-panel",
                 "panel": {
                   "correctness": {
-                    "agent": "review-correctness",
+                    "agent": "gpt-flash-review-correctness",
                     "class": "gate"
                   },
                   "security": {
                     "agent": "gpt-flash-review-security",
-                    "class": "gate"
+                    "class": "work"
                   }
                 },
                 "name": "positions",
@@ -152,16 +152,16 @@
                 "aggregate": "review-panel",
                 "panel": {
                   "correctness": {
-                    "agent": "review-correctness",
+                    "agent": "gpt-flash-review-correctness",
                     "class": "gate"
                   },
                   "security": {
                     "agent": "gpt-flash-review-security",
-                    "class": "gate"
+                    "class": "work"
                   },
                   "spec-compliance": {
-                    "agent": "review-spec-compliance",
-                    "class": "gate"
+                    "agent": "gpt-flash-review-spec-compliance",
+                    "class": "work"
                   }
                 }
               },
@@ -188,16 +188,16 @@
                     "class": "gate"
                   },
                   "correctness": {
-                    "agent": "review-correctness",
+                    "agent": "gpt-flash-review-correctness",
                     "class": "gate"
                   },
                   "security": {
                     "agent": "gpt-flash-review-security",
-                    "class": "gate"
+                    "class": "work"
                   },
                   "spec-compliance": {
-                    "agent": "review-spec-compliance",
-                    "class": "gate"
+                    "agent": "gpt-flash-review-spec-compliance",
+                    "class": "work"
                   }
                 }
               },
@@ -288,11 +288,11 @@
           "aggregate": "unanimous-pass",
           "panel": {
             "simplicity": {
-              "agent": "position-simplicity",
+              "agent": "gpt-flash-position-simplicity",
               "class": "work"
             },
             "robustness": {
-              "agent": "position-robustness",
+              "agent": "gpt-flash-position-robustness",
               "class": "work"
             }
           }
