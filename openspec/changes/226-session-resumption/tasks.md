@@ -908,14 +908,19 @@ itself (`safety / AS1`).
 
 ## 14. Re-pins
 
-- [x] 14.1 Re-record the moved witness digests in
+- [ ] 14.1 After every remaining code, declaration and charter change in
+      groups 8–13, re-run the witness tests and re-record any moved digests in
       `crates/brokkr-runtime/tests/witness_digests.rs` from the tests'
       own reported left/right pairs — the adapter declarations of group 6
       and the charter of group 12 move every identity that consults
-      them — and change no pin the tests did not report — safety / AS1,
-      progress / PM3.
-- [x] 14.2 Compile `bundles/self` and `bundles/verify` and reconcile any
-      manifest digest the compile reports — safety / AS1.
+      them, and a declaration enabled in group 11 can move them again — and
+      change no pin the tests did not report. The successful pre-return run is
+      historical evidence, not proof for the eventual final bytes — safety /
+      AS1, progress / PM3.
+- [ ] 14.2 After 14.1 and all other source changes, compile `bundles/self` and
+      `bundles/verify` and reconcile any manifest digest the compiles report.
+      The successful pre-return compiles do not cover later planner or
+      declaration edits — safety / AS1.
 
 ## 15. Gates, fold and commit
 
@@ -923,12 +928,13 @@ The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
 `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
 
-- [x] 15.1 `cargo fmt --all -- --check` — every requirement of this change.
-- [x] 15.2 `cargo clippy --workspace --all-targets --all-features --locked
+- [ ] 15.1 After groups 8–14 are complete, run `cargo fmt --all -- --check` —
+      every requirement of this change.
+- [ ] 15.2 `cargo clippy --workspace --all-targets --all-features --locked
       -- -D warnings` — every requirement of this change.
-- [x] 15.3 `cargo test --workspace --all-features --locked` — every
+- [ ] 15.3 `cargo test --workspace --all-features --locked` — every
       requirement of this change.
-- [x] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+- [ ] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
       and `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`
       — every requirement of this change.
 - [ ] 15.5 `TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash
@@ -936,40 +942,38 @@ into capability truth (`progress / PM4`). Run them with
       unchanged. Inside a nested sandbox this is pending host proof, not
       a pass, and skipped boundary tests prove nothing — every
       requirement of this change.
-- [x] 15.6 Fold the change **before** the commit, so the moved change and
-      the four new capability files and the updated `boundary-record` land
-      in the same head as the code they describe (decision 0042 ruling 6, design Migration Plan 4
-      then 5): run the dialect's archive operation, then append one
-      provenance line — a list item naming the archived directory in
-      backticks, an em dash, and `folded <YYYY-MM-DD>` — in the exact
-      spelling `dialects/openspec/archive.md` gives, under the
-      `## Provenance` heading at the end of
-      `openspec/specs/site-session-resumption/spec.md`,
-      `openspec/specs/adapter-resume-safety/spec.md`,
-      `openspec/specs/adapter-launch-evidence/spec.md`,
-      `openspec/specs/sdd-progress-markers/spec.md` and
-      `openspec/specs/boundary-record/spec.md`, rewriting no existing
-      line. Retain boundary-record’s
-      `2026-09-06-boundary-named-slice-i` provenance entry and append
-      exactly one entry for this archive; preserve the capability’s other
-      requirements and existing historical examples. The fold is a gated
-      change, not a bookkeeping step:
-      `crates/brokkr-cli/tests/provenance.rs` walks `openspec/specs` and
-      `openspec/changes/archive` in both directions, so re-run 15.3 (or
-      at least that test) after the fold and before the commit, checking
-      all five touched capabilities and the retained provenance entry —
-      progress / PM4, boundary /
+- [x] 15.6 Preserve the **completed one-time capability fold and provenance
+      mutation** recorded by commit `75ae68e`: the four new living capability
+      files and the MODIFIED `boundary-record` already contain this change,
+      each has exactly one
+      `` `2026-09-09-226-session-resumption` — folded 2026-09-09 `` line,
+      and `boundary-record` retains its earlier
+      `2026-09-06-boundary-named-slice-i` entry. This task is complete and is
+      not permission to run the dialect archive operation again, recopy the
+      deltas, refold the MODIFIED requirement or append another provenance
+      line when the reopened active change is finalized — progress / PM4,
+      boundary / The seat record carries the boundary as seat-record/v4.
+- [ ] 15.7 After 8.10, 9.7, groups 10–11 and 14.1–15.5 are complete, validate
+      the active change strictly, then perform the **final re-archive only**
+      required by proposal answer I: move
+      `openspec/changes/226-session-resumption` back to
+      `openspec/changes/archive/2026-09-09-226-session-resumption` without
+      invoking a fold, changing any living capability, or appending
+      provenance. Run `crates/brokkr-cli/tests/provenance.rs` against that
+      archived state and assert bidirectionally that all five living
+      capabilities still name this archive exactly once, that no sixth or
+      duplicate capability/provenance was created, and that `boundary-record`
+      retains its earlier provenance and historical examples — progress / PM4,
+      boundary / The seat record carries the boundary as seat-record/v4.
+- [ ] 15.8 Commit the completed work unsigned, in the repository's message
+      style, with no push and no merge. This is the last tracked-file write:
+      it carries the remaining implementation and declaration changes, their
+      refreshed pins and green gates, the re-archived change with final ticks
+      and progress, and no second capability fold. Check the staged/committed
+      paths and final clean status so the head handed on in 15.9 is the one
+      actually validated — progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [x] 15.7 Commit the completed work unsigned, in the repository's
-      message style, with no push and no merge. This is the last write:
-      it carries the code, the tests, the proposed decision, the archived
-      change, all five touched capability files (four new and the amended
-      `boundary-record`) with their provenance lines, and the final state
-      of this file's ticks and `## Progress` section, so the head handed on
-      in 15.8 is the committed one and nothing of the fold is left in the worktree. Check the staged/committed
-      paths and final clean status — progress / PM4, boundary /
-      The seat record carries the boundary as seat-record/v4.
-- [ ] 15.8 Hand that committed head and the evidence to the controller and
+- [ ] 15.9 Hand that committed head and the evidence to the controller and
       leave pending, because their results do not exist yet: host
       validation, remote CI, integration with the #222 fire's
       shared-file overlap, completed-run publication, the PR, the merge
@@ -1235,7 +1239,8 @@ tasks in their stated order. The task truth is now **90 complete / 12 pending**.
 
 ### Implement — 2026-09-09, run `close-issue-226-only-codex-resum-805ec715`
 
-**90 of 102 delivery tasks are ticked.** Twelve stay unchecked — the two
+**At the close of that implementation visit, 90 of 102 delivery tasks were
+ticked.** Twelve stayed unchecked — the two
 conformance repairs returned by the current tasks visit, the eight provider-proof
 and enablement tasks, plus 15.5 and 15.8 — each with its reason below. The
 predecessor's 92/10 count was correct for `75ae68e`; the design evidence at
@@ -1367,6 +1372,49 @@ Unchecked, and why:
   inside a box. That result does not exist here and only the controller
   can produce it. A skipped boundary test would prove nothing either
   way, and the gate was not lowered or edited.
-- **15.8, the controller's.** Host validation, remote CI on the final
+- **The then-current controller handoff task, now 15.9.** Host validation,
+  remote CI on the final
   head, integration with the #222 fire's shared-file overlap, the PR, the
   merge, publication and the closing of #226. Their results do not exist.
+
+## Return — analyze drift, finalization ordering, 2026-09-09
+
+The returned HIGH finding is adopted. Proposal answer I and design Migration
+Plan 4–5 distinguish two operations that the previous breakdown conflated:
+the one-time five-capability fold/provenance mutation already committed in
+`75ae68e`, and the final re-archive of the reopened active change after its
+remaining delivery obligations resolve. The former remains checked as 15.6
+and must not be repeated. The latter is now the pending 15.7, with explicit
+strict validation before the move and bidirectional provenance validation
+after it; 15.8 is the pending final commit, and controller handoff follows as
+15.9. This preserves the living specifications and their single provenance
+entries while making the active change's eventual archive state and final
+commit executable work.
+
+Because 8.10 and 9.7 require production-code changes and 11.1–11.4 can change
+adapter declarations, the old re-pin, bundle and workspace-gate results cannot
+prove the eventual bytes. Tasks 14.1–15.4 are therefore pending again and
+explicitly run after the remaining code/declaration work. Task 15.5 remains
+the commissioned host exact-coverage proof and still cannot be inferred from
+the predecessor's unsanctioned in-box arithmetic. No earlier artifact needs an
+amendment: this repairs the downstream breakdown to implement proposal answer
+I and design Migration Plan 4–5 as already written.
+
+The current task truth is **83 complete / 20 pending across 103 tasks**. The
+pending work remains dependency-ordered: provider-local conformance, shared
+terminal conformance, live provider proof, evidence-gated enablement, refreshed
+pins and local gates, host exact coverage, final re-archive/provenance
+validation, final commit, then controller handoff. No implementation,
+capability, provenance, provider declaration, frozen artifact or sibling-fire
+file is changed by this tasks-phase repair.
+
+Validation for this repair passed: `openspec validate
+226-session-resumption --strict --no-interactive` accepts the active change,
+and `openspec status --change 226-session-resumption --json` reports all four
+planning artifacts done and planning complete. A structural check finds 103
+unique task identifiers with the stated 83/20 split. The rewritten tasks each
+name their served requirement, and a direct check of the five living
+capabilities finds exactly one provenance line for this archive in each plus
+the retained earlier `boundary-record` provenance. No Rust or provider test was
+run in this tasks phase: their refreshed commands are pending tasks 15.1–15.5,
+and no production, frozen or provider artifact changed here.
