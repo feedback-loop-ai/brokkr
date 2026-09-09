@@ -195,15 +195,21 @@ never a continuation of the closed stream, so a transport drop or a local
 server restart SHALL NOT silently end growth for a working seat.
 
 Admission is the presentation result's own state, established by reference
-eligibility, identifier and home validation and safe unique discovery, so its
+eligibility, identifier and home validation and safe unique discovery. Its
 unavailability reason is one of the reference and lookup tokens
 `no-reference`, `none`, `unsupported-kind`, `unannounced`, `missing-home`,
 `invalid-reference`, `not-found`, `ambiguous-source`, `discovery-limit` and
-`unsafe-path`. A read-level outcome — `unreadable`, `unsupported-format` or a
-readable zero-turn source — belongs to the body: it SHALL NOT appear as this
-presentation's unavailability reason and SHALL NOT change its admission
-state, because the presentation reads no transcript source. Admission is
-therefore kind-agnostic and cannot report the browser's own two gates: the
+`unsafe-path`, plus `unreadable` when directory I/O or the bounded DSH
+opening-header I/O/UTF-8 check prevents discovery from establishing a safe
+unique source. That discovery-stage `unreadable` SHALL be a presentation
+unavailability outcome and SHALL close admission. Once safe unique discovery
+has admitted a source, a later body-level outcome — `unreadable`,
+`unsupported-format` or a readable zero-turn source — belongs to the body: it
+SHALL NOT appear as this presentation's unavailability reason and SHALL NOT
+change its admission state. The presentation reads no transcript body; the
+bounded DSH opening-header read is discovery metadata needed to establish
+ownership, not a content projection. Admission is therefore kind-agnostic and
+cannot report the browser's own two gates: the
 equivalence tuple's `admission state` member carries this shared state alone,
 and its `drill eligibility` member carries the `claude-session` kind and the
 established home equality above, so a change in either repaints. An admitted
@@ -343,6 +349,11 @@ rules in JavaScript is not.
 - **WHEN** an eligible Claude drill's admitted unique safe file is readable but projects no turns, so `/api/session/<id>` returns HTTP 200 with `session_id`, an empty `turns` array and `truncated: false`, and the participant's run then concludes so its journal head never moves again
 - **THEN** the page displays that successful empty body with no turns, no unavailability reason and none of the body-failure prose, and each later equivalent re-check performs no further body request and opens no growth watch, because the success mended the missing body and a concluded participant watches nothing
 - **AND** a further body request follows only a clear or a refusal — a participant, reference, eligibility or admission change, a watch closure, or a refused request — so an admitted readable empty source costs one body request rather than one per re-check interval
+
+#### Scenario: DSH discovery unreadability is a browser presentation refusal
+- **WHEN** a selected DSH participant has an otherwise valid common reference but I/O failure or invalid UTF-8 in a bounded opening-header read prevents discovery from establishing a unique depth-zero source
+- **THEN** browser participant presentation reports `unreadable` as its shared unavailability reason, with admission closed, null path and DSH hint, the checkpoint fallback and no session label, id-only body request or growth watch; its recurring re-check performs only fresh bounded presentation discovery
+- **AND** directory I/O that prevents Claude or Codex discovery from establishing a unique source has the same presentation-level `unreadable` outcome, while a source read that fails only after safe unique discovery admitted it remains the body refusal governed by the once-per-re-check floor
 
 ### Requirement: Discovery identifies one owned local file
 
@@ -1664,10 +1675,12 @@ revalidation of an admitted stream at the shipped one-second `SSE_POLL`
 (`crates/brokkr-cli/src/ui.rs:393`); reading a capped source for every
 selected participant on every re-check is a different cost, and the browser
 takes no Codex/DSH body at all in this change, so a presentation that read
-sources would carry read outcomes it cannot use. `unreadable`,
-`unsupported-format` and a readable zero-turn source therefore stay body
-outcomes and never move the admission state or the equivalence tuple's
-unavailability reason.
+transcript bodies would carry read outcomes it cannot use. An `unreadable`
+result established after safe unique discovery, `unsupported-format` and a
+readable zero-turn source therefore stay body outcomes and never move the
+admission state or the equivalence tuple's unavailability reason. A discovery
+I/O/UTF-8 failure that prevents that unique answer is instead the presentation
+unavailability later made explicit by R24.
 
 That answer leaves the refusal cycle real, so it is bounded where it starts.
 A refusal silences its source until the next re-check: the page still clears
@@ -1765,3 +1778,30 @@ would then claim a failure it did not observe. The tasks office's client
 proof therefore has one number for an admitted readable empty source: one
 body request, not one per re-check. Proposed 0055 must carry the missing-body
 definition and this single-fetch outcome.
+
+### R24 / successor finding F1 — Discovery unreadability closes presentation admission
+
+R20 correctly kept a read failure after safe unique discovery in the body
+route, but incorrectly generalized that answer to every `unreadable` result.
+The shared discovery requirement already returns `unreadable` when directory
+I/O or the bounded DSH opening-header I/O/UTF-8 check prevents a unique
+ownership answer. Presentation must perform that bounded discovery to report
+the selected participant's shared state. DSH has no browser body route in this
+change, so assigning that failure only to a body left it with no conforming
+presentation outcome.
+
+Split the token by the stage that established it. Before a safe unique source
+is admitted, discovery-stage `unreadable` is the presentation's current
+unavailability reason and closes admission. After safe unique discovery,
+source I/O/UTF-8 failure remains a body outcome; for an eligible Claude drill
+the indistinguishable 404 and R20's refusal floor still apply unchanged.
+Removing `unreadable` from discovery is rejected because guessing around a
+failed directory or DSH ownership read would violate the shared uniqueness
+rule. Adding a DSH body route is rejected because the commission expressly
+keeps Codex/DSH browser bodies out of scope. Making presentation project a
+bounded transcript body is also rejected for R20's cost and transport reasons:
+the DSH opening header is only the already-required discovery metadata.
+
+The scenario above pins both the DSH no-body case and the directory-discovery
+case, while preserving R20's admitted-Claude body trace. Proposed 0055 must
+carry this stage distinction and the browser presentation proof must cover it.

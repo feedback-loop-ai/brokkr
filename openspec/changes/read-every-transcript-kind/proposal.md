@@ -93,9 +93,12 @@ implementation and review.
   shared lookup now refuses: browser growth recovery is preserved but
   follows a presentation round trip and that re-check cadence, bounded to
   one automatic watch opening per participant between re-checks. Admission
-  is the presentation's own discovery-shaped state, so a refused transcript
-  body — the route reports read and lookup failures with one envelope —
-  silences its source until the next re-check instead of driving a request
+  is the presentation's own discovery-shaped state. It reports `unreadable`
+  when directory I/O or the bounded DSH opening-header I/O/UTF-8 check prevents
+  discovery from establishing a unique source; after a source is admitted,
+  body unreadability remains a body outcome. A refused transcript body — the
+  route reports read and lookup failures with one envelope — silences its
+  source until the next re-check instead of driving a request
   loop. Every id-only request and growth watch additionally requires an
   eligible drill, so an admitted Codex, DSH or foreign-home source is
   displayed and re-checked without ever being drilled, and a successful
@@ -719,7 +722,7 @@ need no change because these are browser-client rules this capability owns.
 
 | Finding | Resolution and owning scenario |
 |---|---|
-| 1 — Is an unreadable source still "admitted", and what stops the body-refusal cycle | Reading R20 makes the branch predicate the presentation's own admission state, established by eligibility, identifier/home validation and safe unique discovery, and keeps `unreadable`, `unsupported-format` and a readable zero-turn source as body outcomes that never move admission or the equivalence tuple's reason. It defines a refused body request, forbids naming a reason the two identical 404 envelopes cannot distinguish, and gives the cycle its floor: a refusal silences that source's body and watch until the next re-check. "An unreadable admitted source is asked once per re-check" pins one refused request per interval. |
+| 1 — Is an unreadable source still "admitted", and what stops the body-refusal cycle | Reading R20 makes the branch predicate the presentation's own admission state, established by eligibility, identifier/home validation and safe unique discovery, and keeps post-admission `unreadable`, `unsupported-format` and a readable zero-turn source as body outcomes that never move admission or the equivalence tuple's reason. It defines a refused body request, forbids naming a reason the two identical 404 envelopes cannot distinguish, and gives the cycle its floor: a refusal silences that source's body and watch until the next re-check. "An unreadable admitted source is asked once per re-check" pins one refused request per interval. S15/R24 later distinguish discovery-stage `unreadable`, which prevents admission in the first place. |
 | 2 — Does a re-check's own reopening spend the one-watch budget | Reading R21 deletes "Apart from a recurring re-check itself", so every automatic opening spends the single per-interval budget and each re-check restores it; "within the bound above" and the dropped-stream gloss now agree, and the tasks office's expected count is one. "A re-check's own reopening spends that interval's watch budget" pins the re-check-first trace beside the closure-first one. |
 
 The bound paragraph's false premise is repaired with it: presentation
@@ -771,3 +774,39 @@ no unavailable check is counted as passing evidence. This visit's record is
 `.forge/specify/read-every-transcript-kind-admission-return-validation.json`;
 earlier evidence files are preserved. Host proof, remote CI and delivery
 remain the controller's pending work.
+
+### S15 — Successor adoption separates discovery and body unreadability
+
+Adopted all committed work at `9298e8d`, including the checkpoint `73797a6`
+repairs for drill eligibility and successful zero-turn bodies. Those repairs
+remain correct: an admitted Codex/DSH or foreign-home source never drives a
+Claude route, and a successful empty Claude body is not repeatedly fetched.
+The latest F1 finding identifies an earlier fault in R20's broader statement,
+not in either checkpoint repair.
+
+R20 treated every `unreadable` result as a post-admission body outcome, but
+the same capability already requires `unreadable` during shared discovery
+when directory I/O or a bounded DSH opening-header I/O/UTF-8 failure prevents
+the reader from establishing a unique owned source. Browser participant
+presentation performs that bounded discovery for all kinds, including the
+DSH header work needed to determine ownership, while this change deliberately
+adds no Codex or DSH browser body route. Reading R24 therefore distinguishes
+the stages: discovery-stage `unreadable` is a presentation unavailability
+reason that closes admission; an I/O/UTF-8 failure after safe unique discovery
+has admitted a source remains the body-level `unreadable` governed by R20's
+refusal floor. The scenario "DSH discovery unreadability is a browser
+presentation refusal" binds the otherwise missing DSH outcome and also pins
+the equivalent directory-discovery case. This does not turn presentation into
+a transcript-body projection or change its bounded recurring cost.
+
+F2 and F3 are confirmed defects in the already-authored downstream
+`tasks.md`, not faults in the proposal or capability deltas. The tasks office
+must scope its no-mutation convention to the reader/system under test and
+real operator evidence while retaining synthetic test-owned homes/files and
+their append, shrink, disappearance and same-length rewrite fixtures. It must
+also make the Rust 1.88 gate compile the new dev-only Boa harness and
+controller tests with an all-targets or targeted test-compilation command;
+the production-only `cargo check --workspace --locked` is insufficient.
+Neither repair changes a product requirement or council choice. Under S1 and
+the rendered dialect, this office records those downstream obligations but
+does not edit or commit `tasks.md` during specification.
