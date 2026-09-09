@@ -654,13 +654,19 @@ task:
       handle and a per-re-check automatic-opening budget. On key, admission
       or eligibility change, bump the generation, close only the owned old
       watch and clear cached/displayed prose before repaint; ignore every
-      stale body, presentation or watch callback. On watch close/error or
-      body refusal, close the exact handle, clear cached/displayed prose, bump
-      the generation and re-request presentation without native same-source
-      reconnection; if the fresh result remains admitted and drill-eligible,
-      recover through fresh no-store presentation and body fetches and then at
-      most one automatic watch opening for a working participant in that
-      interval. Run one recurring presentation re-check tied to the active
+      stale body, presentation or watch callback. On watch close/error, close
+      the exact handle, clear cached/displayed prose, bump the generation and
+      re-request presentation without native same-source reconnection; if the
+      fresh result remains admitted and drill-eligible and the refusal floor
+      does not silence it, recover through fresh no-store presentation and body
+      fetches and then at most one automatic watch opening for a working
+      participant in that interval. On body refusal, close the exact handle,
+      clear cached/displayed prose, bump the generation, mark that source
+      refused for the current interval and re-request presentation; render a
+      changed admission or eligibility result, but when the fresh presentation
+      remains admitted and eligible retain the unqualified body-failure prose
+      and perform no further body or watch work until the next recurring
+      re-check. Run one recurring presentation re-check tied to the active
       selection, without accumulating timers, at least as often as the
       existing runs poll, including after conclusion, and restore exactly one
       automatic opening at each tick. Treat results as equivalent only when selected
@@ -681,7 +687,11 @@ task:
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
       stale flat id; an eligible Claude participant showing the shared
-      hint and turns; a recorded custom Claude home showing the
+      hint and turns; the participant-presentation route resolving the exact
+      encoded full run id and participant key after decoding each component
+      once, not treating a double-encoded participant key as its decoded-twice
+      peer, and rejecting malformed encodings and extra path components; a
+      recorded custom Claude home showing the
       home explanation beside the shared hint and drilling nothing;
       `-abc` refused by client, page, API and SSE, asserting the exact
       bodies `{"error":"session not found"}` from the API and
