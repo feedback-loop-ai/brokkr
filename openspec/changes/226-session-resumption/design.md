@@ -1,14 +1,21 @@
 ## Context
 
-This design adopts **226-session-resumption**, specified on shipped main
-`5bc8cf305aaef9af269866cbf83f094939691399` and clarified through `2f45cc9`.
-See [proposal.md](proposal.md) for motivation, scope and clarification answers
-A–H. The original council design preceded the surviving tasks; this successor
-specify return reconciles its dependencies after F7, without re-authoring the
-change or reopening A–H/F1–F6. Both original council positions have been read
-in full again for the affected reconciliation:
-`.forge/design/positions/robustness.md` and `.forge/design/positions/simplicity.md`. Their reconciliation is durable under
-Decisions below, rather than left solely in run-local files.
+This design adopts **226-session-resumption** at `f826dbe`, retaining the
+commissioned shipped base `5bc8cf305aaef9af269866cbf83f094939691399`, answers
+A–H, task repairs F1–F6 and F7's committed specification repair at `c56fa73`.
+See [proposal.md](proposal.md) for motivation and scope. The current run,
+`close-issue-226-only-codex-resum-805ec715`, has returned `clear` from
+clarification; its quota-failed predecessors supplied no clarification verdict.
+This is the successor design visit, not a new change or a production enactment.
+
+Both current council positions were read in full:
+`.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`. D10 records their current claims and
+evidence-based dispositions. In particular, simplicity now accepts additive v5,
+structural identity and the full measured provider minimum; the earlier
+council's objections are not attributed to this sitting. No `returned_from`
+finding accompanies this visit; D12 preserves the resolved F7 return and its
+dependent obligations. Controller integration of PR250 and #222 remains separate.
 
 Reusable foundations are `engine.rs::{resume_offer, pinned_bundle_holds}`,
 `Store::started_here`, `DriverProcess::run_attempt_resuming` and negotiated
@@ -30,21 +37,29 @@ Reusable foundations are `engine.rs::{resume_offer, pinned_bundle_holds}`,
   the shipped refusal/watchdog behavior described by proposed 0053. Moving
   this hold would reopen #219 and is unnecessary here.
 
-Read: README, house rules, decisions 0004/0005/0009/0030/0034/0042 and shipped
-0053 behavior; runtime dispatch/ownership, protocol and adapter code; adapter
-declarations; seat-record v4 and store dispatch; SDD charter; specification
-history. The registry ends at 0053. The commission reserves 0054/0055 for other
-fires and **0056** for this change.
+Read: README, house rules, decisions 0004/0005/0009/0030/0034/0042, applicable
+0043/0046 rulings and shipped 0053 behavior; runtime dispatch/ownership,
+protocol and adapter code; adapter declarations; seat-record v4 and store
+dispatch; SDD charter; the five deltas, surviving tasks and specification
+history. The registry still ends at 0053. The commission reserves 0054/0055
+for other fires and **0056** for this change.
 
-The two dated controller captures are identified and hashed in the proposal;
-both hashes were rechecked. DSH's capture explicitly leaves session/extension
-interfaces unexamined, so it does not prove impossibility. Claude's captured
-help additionally says background resume can copy a running session, invalid
-settings can be ignored in print mode, and a recorded system prompt can survive
-later launch text. These facts support restricting execution shape and keeping
-the current task in the current invocation's user input. Help is interface
-evidence only. This box has OpenSpec 1.12.0 but no provider CLI, Cargo or rustc
-on PATH. No live provider behavior is claimed here.
+The controller evidence index now names three captures. The two proposal
+capture hashes were rechecked, along with the newer
+`.forge/controller-dsh-resume-source-interface.json`, captured
+**2026-09-09T07:43:14.783176+00:00**, SHA-256
+`62aba46649b6919117e3f4882ccb63f19aa87445274f6821883997e682c56d95`.
+All 40 contained source hashes match their captured text. D6 uses its concrete
+agent resume and declarative configuration interfaces without claiming an
+established headless caller route. The older four-file headless capture's
+unexamined-extension limit describes that capture, not today's evidence shelf.
+
+Claude's captured help says background resume can copy a running session,
+invalid settings can be ignored in print mode, and a recorded system prompt
+can survive later launch text. These facts support restricting execution shape
+and keeping the current task in the current invocation's user input. Help and
+installed source are interface evidence only. This box has OpenSpec 1.12.0 but
+no provider CLI, Cargo or rustc on PATH. No live provider behavior is claimed.
 
 ## Goals / Non-Goals
 
@@ -77,12 +92,13 @@ remeasurement. Cold reporting is preparation, not completion. LaneTally is
 assessed independently; implement its measured safe admitted shapes without
 inferring wrapper support from Claude.
 
-**Alternative rejected:** simplicity Cut C/R3 would declare DSH unsupported
-from four headless files and treat launch reporting as closure. Those files
-prove that the current runner creates fresh sessions, not that every supported
-session/settings interface cannot continue one. This contradicts answer F and
-omits lost-session recovery. D6 bounds the investigation; failure returns an
-unmet requirement, not a narrower downstream claim of success.
+**Alternative rejected:** declaring DSH unsupported from its headless startup
+alone and treating launch reporting as closure contradicts AS1 and answer F.
+Both current positions reject that reduction. The newer capture establishes
+more session interfaces, but neither a resume API nor a declaratively restored
+agent proves that the admitted headless task runs on that root. D6 bounds the
+remaining consumer trace; a demonstrated inability returns the exact unmet
+requirement instead of a narrower downstream claim of success.
 
 **Bindings:** SR1/AS1; class-aware runtime dispatch and required provider proof.
 No earlier specification fault is established by the council's size objections.
@@ -130,13 +146,23 @@ MCP filenames and capability tokens from comparison: their declaration/scope
 is pinned, while each invocation reconstructs current values. No resolved
 credential, provider-home contents or private argv enters identity evidence.
 
-**Alternatives:** adopt robustness's structural separation; reject simplicity's
-single `member` filter because it misses ancestry, selected bodies and owner
-projection. Retain its dispatch/protocol reuse. Decline robustness's additional
-`effect/started` site table: D3's stamped confirmed checkpoint supplies the
-required durable association, and current starts/manifests already establish
-invocation/configuration. A second table duplicates that association without
-an additional required observation.
+**Alternatives:** both current positions support private structural types and
+equality digests while retaining display tags and existing dispatch. Keep that
+combination. Simplicity cut 6 would omit collision rejection unless an existing
+lookup cannot distinguish the sites; that condition is present:
+`engine.rs::invocation_sites` flattens the path, `select_candidates` inserts it
+into a `BTreeMap`, and `argv_for` selects by that same key. `site_boundary`
+also consults the flattened label in `bundle.hands`. A collision can select
+another site's candidate or hands identity before the resume hash is built.
+Retain the scoped uniqueness check and tasks 3.5–3.6, without a general naming
+restriction or a public addressing API.
+
+Decline robustness's additional `effect/started` site table: D3's stamped
+confirmed checkpoint supplies the required durable association, and the
+existing attempt/start/manifest link supplies invocation provenance. The query
+must validate that link; omitting the duplicate table does not permit trusting
+a provider stamp. No new start association or effect-start contract version
+is needed.
 
 **Bindings:** SR1/SR2/SR5/LE5; composition, ambiguity check, checkpoint stamps,
 canonical-key tests and topology/identity tests.
@@ -173,10 +199,13 @@ is emitted. A kill loses unconfirmed intent; the next authorized cold creation
 chooses a fresh value. If implementation needs durable creation intent, return
 to this design for its representation first, without widening a start payload.
 
-**Alternatives:** no private-transcript scan, latest selection or registry.
-Use simplicity's harvest default for known paths, but reject a ban on SR3/H's
-second mechanism. Confirmation/ownership rules apply equally, avoiding needless
-Claude assignment without forbidding a measured creation interface.
+**Alternatives:** both current positions support harvesting known provider
+roots and conditional fresh assignment under SR3/H. Retain both mechanisms
+with the same confirmation threshold, choosing assignment only where the
+measured route needs it. Adopt simplicity's refusal of speculative durable
+creation intent; robustness's conditional start extension is unnecessary when
+no such intent is persisted. No private-transcript scan, ambient latest
+selection, registry or automatic backfill is introduced.
 
 **Bindings:** SR2–SR5/LE1/LE3; pure lookup, stamps, root latch, assignment,
 kill-window and fresh-process recovery tests.
@@ -237,12 +266,14 @@ is not confirmation. Use the same dispatch/validator at append, export, import
 verification and offline verification; diagnostics name contract/path, never
 values. Include direct v4/v5 tests and validate engine stamps at the fence.
 
-**Alternatives:** adopt robustness's additive contract, now with the specific
-justification simplicity requested. Adopt omission of Claude modes from
-`sandbox`: boundary remains engine authority; restrictions remain pinned
-configuration. Reject Cut A because omission cannot supply owner/version facts
-or honest unmeasured-refusal evidence. No new event type, event schema, database
-schema or effect-start extension is needed.
+**Alternatives:** both current positions now accept the minimal additive v5
+and F7's boundary-record amendment. Retain the fixed D4 fields and five new
+refusal tokens; reject robustness's suggestion to defer their names until the
+provider plans, because the adopted tasks and versioned fence already depend
+on this vocabulary. A newly measured fact that cannot fit returns here first.
+Omit Claude modes from `sandbox`: boundary remains engine authority and
+restrictions remain pinned configuration. No new event type, event schema,
+database schema, per-record version marker or effect-start extension is needed.
 
 **Bindings:** LE2/LE5/SR2/SR3; schema dispatch/fence, embedded/frozen-byte tests,
 built-in conformance and stamp tests; `boundary-record` / **The seat record
@@ -273,12 +304,20 @@ A correlated string that fails provider ID grammar is instead a declined offer
 
 Extend adapter declarations with a typed `resume` assessment: explicit
 `unmeasured`, `unsupported` or `supported` status per named execution shape,
-assessed CLI version, applicable classes/boundaries/hands mode, evidence
+assessed identity, applicable classes/boundaries/hands mode, evidence
 references and measured limitations. Supported entries name interface,
-restriction, exact-root and current-accounting evidence. Missing data or bare
-true cannot enable resume. The loader validates this shape; the existing
-adapter content digest pins it. Carry the selected assessment through
-`Candidate`/`SiteSpawn` into private driver context in `Start.input`, separate
+restriction, exact-root and current-accounting evidence; root evidence includes
+persistence, and wrapper evidence remains independently qualified where used.
+Keep F2/F6's exact distinction from tasks 6.1/6.6: identity is either measured,
+with the assessed/applicable version, or explicitly unknown with a bounded
+non-empty reason. Only measured identity can support enablement; unsupported
+requires a measured reason. Unmeasured admits either identity form. An absent
+assessment or unnamed shape loads as unmeasured and enables nothing; present
+malformed data, bare true, neither identity form or unknown without a reason
+is a loader refusal. Honest unknown identity is not malformed. The existing
+adapter content digest pins this compact closed shape; no evidence database,
+probe DSL or version-range resolver is introduced. Carry the selected assessment
+through `Candidate`/`SiteSpawn` into private driver context in `Start.input`, separate
 from rendered `context`, phase inputs and the resume handle. Missing assessment
 for inline/standalone invocation means unmeasured, not implicit support. The
 existing start-input object carries this context; no wire type is added.
@@ -310,12 +349,15 @@ incompatibility may select a known safe cold spelling; cold-inadmissible setting
 refuse. Retain non-provider configuration-failure treatment rather than creating
 new model-chain fallback for argument validation.
 
-**Alternatives:** reuse the protocol (simplicity), adopt correlation and argument
-provenance (robustness). Reject raw cold-argv-plus-resume and a selector-only
-deny-list: captured Claude help documents copy-producing background behavior
-and ignored invalid print settings. Equal flag lists do not prove enforcement.
-Reject simplicity R2's enabled-until-contradicted Codex because answer G requires
-remeasurement before enablement and delivery.
+**Alternatives:** both positions support reusing the protocol with correlated
+one-use receipt, separate version qualification and closed provider planners.
+Retain argument provenance because the composed hands fragment has authority
+that lookalike passthrough lacks. Reject raw cold-argv-plus-resume and a
+selector-only deny-list: captured Claude help documents copy-producing
+background behavior and ignored invalid print settings. Equal flag lists do
+not prove enforcement. Both positions now accept answer G's current-version
+qualification; the original council's enabled-until-contradicted alternative
+remains rejected, not an outstanding dispute.
 
 **Bindings:** SR4/SR5/AS1–AS3; loading/packaging, private-context rendering,
 protocol abuse, argv/precedence and current-version mismatch tests.
@@ -340,6 +382,21 @@ the current task/result instruction on the current user-input path.
 `--restricted` is not blindly appended: help rejects `bypassPermissions`, and
 its relation to the current class must be measured if used. Preserve an
 explicit no-persistence setting; such a root cannot become a persistent offer.
+
+The newer DSH capture narrows the investigation. In captured
+`@deepseek-ai/dsh-agent/lib/index.js:557`, `agents.resume(options)` delegates
+to the registered factory. `dsh-agent-loop/lib/index.js:1049` admits
+`Config.agents[].resumeSessionId`; its constructor at :1096–1119 calls
+`resumeWith` when persistence becomes available. At :1349–1378 the factory
+loads through `sessionPersistence.prepare` and publishes with source `resume`.
+These are real source interfaces, not invented configuration. However,
+`dsh-headless/lib/index.js` still validates only `task`, calls `agents.create`
+with a random ID, and applies its followup/`firstSeq`/summary to that newly
+created agent. Restoring a second configured agent does not route that task
+to it. The loader's ability to mount plugins and resolve configuration proves
+neither the missing caller connection nor effective restrictions. This is the
+precise remaining seam task 10.3 must establish; this inspection completes
+neither 10.3 nor its live-proof task 10.7.
 
 DSH investigation is a concrete prerequisite, not indefinite search. Read
 controller captures of installed `@deepseek-ai/dsh-session`,
@@ -382,11 +439,18 @@ write alone does not prove permission binding, native-tool removal, MCP
 exclusion and grant renewal.
 Do not test a cross-product of unrelated flags or repeatedly run models.
 
-**Alternatives:** combine simplicity's shared folds/known Claude argv with
-robustness's independent measurements. Reject help-as-enforcement and a blanket
-ban on generated Codex configuration. Accept bounded probes; reject simplicity
-R1's single denial as proof of the entire restriction set. Missing live proof
+**Alternatives:** both current positions support four small provider planners,
+shared folds where behavior matches, and bounded proof for each materially
+different enabled shape. Adopt that instead of a generic provider framework.
+Reject help-as-enforcement, a blanket ban on generated Codex configuration and
+one denial as proof of unrelated restriction axes. A combined probe may satisfy
+several axes only when each has an attributable observation. Missing live proof
 remains explicit, never filled by synthetic telemetry.
+
+Preserve F3's ordering: interface tasks 10.1–10.4 precede the provider-specific
+construction in 8.5–8.9 and accounting in 9.1–9.3; live proof 10.5–10.8 follows
+that construction and gates enablement in group 11. The evidence gate does not
+block preparable common plumbing or honest unmeasured declarations.
 
 **Bindings:** AS1–AS3/SR3/LE1/LE4; planner tests from captured grammar plus
 separate installed-provider restriction/root/accounting evidence.
@@ -529,30 +593,57 @@ numbered rulings and enforcement bindings are:
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
 | 10 | Persist truthful progress before next group; reconcile independently of commit. | D9 instruction/identity tests. Actual completion is judgment guidance, not an automatic guarantee. |
 
-Every council claim has a disposition:
+The current sitting's sources are the two run-local positions named in Context,
+recorded here so the reasoning survives their replacement on a future visit:
 
-| Position | Disposition and reason |
+- Robustness SHA-256: `03e243164c96e45970080fc5bad402f13b61285d6cc550c3bf72a99df619f3e1`.
+- Simplicity SHA-256: `10a9c77e4bf2c258e16d50c969efa80a24a0082d16fea624a7827de94d5ec868`.
+
+This table replaces the original council's Cut A–E/R1–R6 attribution. The
+rejected mechanisms retain their reasons in D1–D9; the current simplicity
+position does not advocate cold-only delivery, v4-only evidence, flat resume
+identity, harvest-only syntax or unqualified newer Codex enablement.
+
+| Current position / claim | Disposition and evidence |
 |---|---|
-| Robustness: typed admission, structural ownership, newest-session query, one-use wire. | Adopt D2/D3/D5; source exposes real ancestry, ownership and correlation gaps. |
-| Robustness: start-event site table and durable creation intent if used. | Decline extra table; D3/D4 checkpoint stamps suffice. No durable intent is introduced, so no start extension. Assignment still requires confirmation. |
-| Robustness: v5, actual confirmation, controlled settings, separately measured planners. | Adopt D4–D7 with fixed bounded vocabulary and current support gate. |
-| Robustness: accounting, held-window honesty, bounded fallback/cancellation, progress recovery and verification axes. | Adopt D7–D9/D11; describe actual synchronous cancellation and separate shim/live evidence. |
-| Simplicity: reuse offer machinery, wire and folds. | Adopt with the identity/acceptance corrections justified by source; no replacement runtime. |
-| Simplicity Cut A/R4: omit new version and Claude sandbox value. | Combine: omit the invalid sandbox value, retain v5 for root/owner/version/refusal facts (D4). Its requested specific justification is supplied. LE2 permits the additive vocabulary, but F7 establishes that the standing boundary-record dispatch also needs an upstream specification amendment; this specify return supplies it. The v5 choice stands with that missing dependency repaired. |
-| Simplicity Cut B: harvest only. | Use harvest for known paths; reject a ban on SR3/H's admitted fresh assignment. No pre-spawn persistence machinery (D3). |
-| Simplicity Cut C/R3: cold DSH closes the issue. | Reject against AS1/F and the capture's explicit limits; bounded investigation and return on unmet minimum (D1/D6). |
-| Simplicity Cut D: collapse capabilities/scenarios. | Reject for this adopted change. Eligibility, provider safety, evidence/accounting and SDD progress have distinct obligations. LE2/LE4/LE5 are more than emit lines. Share table-driven tests instead of deleting observable requirements. |
-| Simplicity Cut E: fallback per supported adapter. | Combine: per-provider proof with one shared bound; never fabricate DSH refusal classification (D7). |
-| Simplicity R1/R2: one denial probe; keep newer Codex enabled pending proof. | Reject insufficient proof and enabled-until-contradicted semantics. Bound observations to supported shapes; current proof remains required (D5/D6). |
-| Simplicity R5/R6: charter obedience and local fingerprint are limited. | Adopt. Tests cannot guarantee model obedience; local origin cannot authenticate the provider account, and detectable owner rejection remains the last fence. |
+| Both: the full Claude boxed, DSH headless and remeasured Codex minimum; all work topologies and fresh gates. | Adopt D1/D6. AS1/SR1 and accepted 0042 define the minimum. A support declaration or quota failure cannot narrow it. |
+| Robustness: typed structural ownership; simplicity §1: private structural values, equality digests and one pure reverse scan. | Combine D2/D3. `Site` and `seat_session` currently lose ancestry/root kind, while the existing journal/manifest/origin guards can be reused. Keep per-site candidate projection so sibling chain movement does not change the owner. |
+| Robustness: effect-start site table and numbered extension; simplicity §1/cut 1: confirmed checkpoints suffice. | Adopt the checkpoint association, reject the duplicate start table. Engine stamps plus the validated attempt/start link prove the originating site and instance without another store, reducer field or migration (D3). |
+| Both: newest incompatible/nonpersistent owner stops the query; no resurrection or aggregate/child borrowing. | Adopt D3/D8. Ownership is checked after choosing the latest confirmed root, with the narrow existing single-Codex compatibility path only. |
+| Simplicity cut 6: omit compile-time flat-tag rejection unless an existing lookup cannot distinguish sites. | Retain D2's scoped rejection: `Selection`, `argv_for` and `bundle.hands` actually use flattened keys. This meets the position's stated exception; tasks 3.5–3.6 remain necessary. No broad naming ban follows. |
+| Robustness: correlated pending state; simplicity §2/cut 4: repair the existing wire without protocol v2. | Combine D5. `serve_io` currently overwrites an uncorrelated string; `Body::Resume` already has both correlation IDs. Poison invalid exchanges and consume once, retaining negotiation and current-start data. No new phase or policy input. |
+| Both: smallest additive v5, F7's single manifest-derived dispatch and historical compatibility. | Adopt D4/D12 at all four fences. F1/F5's conditions apply only to stamped new rows at the store, while every current producer obeys them. Boundary remains engine-stamped; published/embedded v1–v4 and tagged history stay frozen. |
+| Robustness: settle refusal names with provider plans; simplicity §3: retain five selected tokens and no extra permission/argv/history fields. | Retain D4's already-selected bounded vocabulary. Provider-specific semantics must fit truthfully or return to design; no downstream private token is allowed. |
+| Both: provider-generated roots by default, fresh assignment only through a measured creation interface; simplicity cut 2: no durable intent. | Adopt D3. Unconfirmed assignment stays in memory, never in captured-session fields; the accepted pre-confirmation crash window needs no new durable protocol. |
+| Robustness: detailed support assessments and independent restriction proof; simplicity §4/cut 3: compact pinned data and four explicit planners. | Combine D5/D6. Keep only admission-relevant closed assessment data, including F2/F6's loadable unknown form. Retain separate evidence for interface, restrictions, root/persistence and accounting, including wrapper identity where applicable; no probe DSL, automatic enablement or generic planner language. |
+| Both: provider-specific selectors, current restriction reconstruction and cold/gate selector protection. | Adopt D5/D6. Generated hands provenance and captured CLI precedence require exact parsing; a cold fallback cannot carry ambient continue or competing settings. LaneTally cannot inherit Claude qualification or substitute plain Claude. |
+| Both: use DSH's installed declarative/session route only if it reaches the admitted headless caller. | Adopt D6's bounded trace and exact upstream return condition. Captured `agents[].resumeSessionId` establishes configured restoration, while the headless consumer still selects a fresh agent. Neither declaration-based success nor impossibility is claimed from that gap alone. |
+| Robustness: explicit launch state and no speculative resumed row; simplicity §5: extend the existing first-work hold. | Combine D7. The existing buffer provides ordering, but current `codex_started` emits intent before confirmation. Hold one confirmed outcome; root mismatch or uncertainty cannot authorize another execution. Preserve shipped 0053 refusal and kill-window behavior. |
+| Both: one conclusively rejected pre-work replacement under the original deadline/process tree. | Adopt D7. No generic retry engine or asynchronous cancel protocol; `serve_io` invokes synchronously and the runtime watchdog owns process termination. Stderr, an advisory or nonzero exit alone cannot authorize duplicate work. |
+| Both: measured current-event cursor, private transcript boundaries and narrow legacy migration. | Adopt D8. Replayed turns/tools/totals are not new accounting; omit unattributable measurements. No transcript seeding, reader changes, backfill or second provider-session ledger. |
+| Robustness: in-progress/completed recovery; simplicity §6: one SDD charter edit. | Combine D9. PM1–PM3 already require those states in the dialect task artifact. Keep focused evidence before the next group, reconcile surviving edits on either warm or cold recovery, and leave judges read-only. No engine progress service; tests prove distribution and an interruption exercise, not model obedience. |
+| Robustness: full verification axes; simplicity cut 7: table-driven coverage and bounded probes. | Combine D11. Distinguishable assertions cover 20 requirements / 123 scenarios without one test function per scenario or a provider-flag cross-product. Live evidence remains separate from shims. |
+| Simplicity: compress the inherited breakdown to roughly seven groups. | Decline renumbering or deleting the surviving tasks. The current file has 102 tasks after F7 added 2.8, rather than the position's inherited count of 101. F1–F6 repaired concrete dependencies and proof obligations. Coherent work groups and parameterized tests can reduce execution overhead while retaining stable IDs, unchecked evidence tasks and F4/F7's five-capability fold/provenance order. |
+| Both: local origin is not account authentication, LaneTally can remain unmeasured/cold, and unsupported required shapes block delivery. | Adopt D5/D6/D8 and Risks. Detectable owner rejection fails closed; do not inspect credentials to invent a stronger guarantee. LaneTally's truthful evidence is still required. |
+| Both: keep scope within #226; simplicity cut 8 rejects release work, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
+
+No new specification defect is established by these current positions. F7's
+upstream defect has already been repaired at its owner; its consequences remain
+binding below. The retained tasks cover these dispositions without amendment,
+so this design seat leaves their 102 completion markers and dependency repairs
+intact. This does not supply the later tasks/analysis judgment or provider proof.
 
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-A parameterized test may cover several scenarios only when it exercises their
-independent outcomes. Do not write tests that merely echo implementation or
+The current five deltas contain 20 requirements and 123 scenarios; the 102
+surviving task IDs keep their coverage and evidence dependencies. A parameterized
+test may cover several scenarios only when it exercises their independent
+outcomes. The topology, ownership, wire, record, provider and recovery axes in
+both positions are acceptance dimensions, not a demand for a new test function
+per prose scenario. Do not write tests that merely echo implementation or
 modify frozen evaluator fixtures.
 
 | Requirements | Suite and distinguishing evidence |
@@ -603,8 +694,9 @@ The complete MODIFIED block is required by OpenSpec’s fold semantics.
 folds all five deltas, preserves boundary-record’s existing provenance and
 appends exactly one new entry alongside the four new capability entries.
 Revalidate the archive and bidirectional provenance before the delivery commit.
-The retained council dispositions stand; only Cut A/R4’s assertion about the
-need for a specification amendment is corrected by the newly cited evidence.
+The original specify return corrected the earlier council's Cut A/R4 record
+on that evidence. The current council independently accepts the repaired
+amendment; D10 records this sitting's dispositions without reopening F7.
 
 ## Risks / Trade-offs
 
@@ -648,7 +740,7 @@ need for a specification amendment is corrected by the newly cited evidence.
    archive/provenance operation as its final artifact task, folding four new
    capabilities and the modified `boundary-record`, retaining its existing
    provenance and appending this change’s entry. Revalidate the folded change
-   and bidirectional provenance before the commit; this specify return does
+   and bidirectional provenance before the commit; this design visit does
    not archive.
 5. Commit unsigned in repository style. Hand final head/evidence to the controller
    for integration, host exact coverage, remote validation, publication and issue
@@ -705,3 +797,42 @@ fifth delta. Current artifact-validation results and pending Rust/host proof
 are recorded in [proposal.md](proposal.md#successor-specify-validation--f7-2026-09-09),
 separately from the original council’s historical validation above. The
 successor’s independent judged phases and full delivery remain unclaimed.
+
+## Quota-successor design validation — 2026-09-09
+
+Adopted `226-session-resumption` after this run's clear clarification verdict.
+Read the dialect's `design`/`return` instructions and
+`openspec instructions design --change 226-session-resumption --json` through
+the workspace hands. D1–D10 reconcile both current positions, retaining A–H,
+F1–F7, the full provider minimum and proposed 0056's ten planned rulings.
+D6 records the newer DSH source interfaces and the still-unestablished headless
+caller connection. No workflow runner, archive or live provider probe was run.
+
+- `openspec validate 226-session-resumption --strict --no-interactive` passed.
+  Status reports all four planning artifacts done. This is artifact state,
+  not a tasks/analysis, implementation, verification or review verdict.
+- The OpenSpec delta parser reads 19 ADDED requirements and one MODIFIED
+  boundary-record requirement: 20 requirements / 123 scenarios. The five
+  deltas, proposal, tasks and change metadata are byte-identical to this
+  visit's starting HEAD. All requirements are cited by design and tasks;
+  all 102 unique task IDs remain unchecked. D1–D12 and every dialect-required
+  design section remain present. No dependent task amendment is needed for
+  this reconciliation; the later tasks seat still validates its breakdown.
+- With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, the five commissioned Cargo
+  command launches failed with `ENOENT`: Cargo is absent. Format, clippy,
+  workspace tests and both bundle compiles have no passing result here.
+- The unchanged coverage script, with the same limits plus `TMPDIR=/var/tmp`
+  and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, exited 1 because `/var/tmp` is
+  absent and `mktemp` failed. Host exact coverage and boundary proof remain
+  pending. CI, release admission and coverage still read the same
+  `rust-nightly-version.txt`; no skipped boundary test is credited as proof.
+- `git diff --check` passed. Only this phase's `design.md` changed. Published
+  and embedded frozen contracts, production policy, reference, fixtures,
+  accepted decisions, production code, adapters/charters and living specs
+  match the commissioned base. The three capture hashes were rechecked;
+  source evidence and synthetic tests supply no live resume qualification.
+
+The design is drafted. Provider investigation, measured enablement, proposed
+0056 enactment, implementation and the remaining judged/delivery phases retain
+their existing requirements. Controller integration, full host validation,
+remote results, publication and issue closure remain pending their own evidence.
