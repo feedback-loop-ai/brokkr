@@ -1,0 +1,1 @@
+PASS: launcher readiness only; no containment claim

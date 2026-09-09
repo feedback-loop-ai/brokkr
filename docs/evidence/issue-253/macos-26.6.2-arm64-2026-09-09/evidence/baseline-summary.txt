@@ -1,0 +1,1 @@
+PASS: setup and unavailable-boundary refusal only. R1-R4 remain unproven.

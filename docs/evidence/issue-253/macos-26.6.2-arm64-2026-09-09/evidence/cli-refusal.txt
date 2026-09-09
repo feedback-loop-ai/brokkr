@@ -1,0 +1,203 @@
+ Downloading crates ...
+  Downloaded anstyle-query v1.1.5
+  Downloaded ident_case v1.0.1
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded palette_derive v0.7.7
+  Downloaded anstream v1.0.0
+  Downloaded clap v4.6.6
+  Downloaded crc32fast v1.5.1
+  Downloaded rustversion v1.0.23
+  Downloaded simd-adler32 v0.3.10
+  Downloaded palette_math v0.7.7
+  Downloaded base64 v0.22.1
+  Downloaded by_address v1.2.1
+  Downloaded adler2 v2.0.1
+  Downloaded colorchoice v1.0.5
+  Downloaded litrs v1.0.0
+  Downloaded castaway v0.2.4
+  Downloaded miniz_oxide v0.9.1
+  Downloaded signal-hook v0.3.18
+  Downloaded approx v0.5.1
+  Downloaded darling_core v0.24.1
+  Downloaded num_threads v0.1.7
+  Downloaded ratatui v0.30.2
+  Downloaded utf8parse v0.2.2
+  Downloaded instability v0.3.13
+  Downloaded subtle v2.6.1
+  Downloaded untrusted v0.9.0
+  Downloaded anstyle-parse v1.0.0
+  Downloaded signal-hook-registry v1.4.8
+  Downloaded either v1.18.0
+  Downloaded line-clipping v0.3.8
+  Downloaded signal-hook-mio v0.2.5
+  Downloaded unicode-truncate v2.0.1
+  Downloaded ureq v2.12.1
+  Downloaded anyhow v1.0.104
+  Downloaded derive_more v2.1.1
+  Downloaded kasuari v0.4.12
+  Downloaded getrandom v0.2.17
+  Downloaded libm v0.2.16
+  Downloaded ryu v1.0.23
+  Downloaded derive_more-impl v2.1.1
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded rustc_version v0.4.1
+  Downloaded webpki-roots v0.26.11
+  Downloaded document-features v0.2.12
+  Downloaded darling_macro v0.24.1
+  Downloaded clap_lex v1.1.0
+  Downloaded zeroize v1.9.0
+  Downloaded ratatui-crossterm v0.1.2
+  Downloaded anstyle v1.0.14
+  Downloaded lru v0.18.3
+  Downloaded strsim v0.11.1
+  Downloaded mio v1.2.2
+  Downloaded indoc v2.0.7
+  Downloaded crossterm v0.29.0
+  Downloaded hashbrown v0.16.1
+  Downloaded log v0.4.34
+  Downloaded webpki-roots v1.0.9
+  Downloaded portable-atomic v1.15.0
+  Downloaded convert_case v0.10.0
+  Downloaded rustls-webpki v0.103.15
+  Downloaded clap_derive v4.6.4
+  Downloaded darling v0.24.1
+  Downloaded static_assertions v1.1.0
+  Downloaded itertools v0.14.0
+  Downloaded semver v1.0.28
+  Downloaded rustls-pki-types v1.15.1
+  Downloaded ratatui-core v0.1.2
+  Downloaded compact_str v0.9.1
+  Downloaded flate2 v1.1.10
+  Downloaded palette v0.7.7
+  Downloaded zlib-rs v0.6.7
+  Downloaded clap_builder v4.6.6
+  Downloaded ratatui-widgets v0.3.2
+  Downloaded unicode-width v0.2.2
+  Downloaded rustls v0.23.43
+  Downloaded ring v0.17.14
+   Compiling once_cell v1.21.4
+   Compiling syn v3.0.3
+   Compiling errno v0.3.14
+   Compiling rustix v1.1.4
+   Compiling strsim v0.11.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling log v0.4.34
+   Compiling rustversion v1.0.23
+   Compiling ring v0.17.14
+   Compiling ident_case v1.0.1
+   Compiling zeroize v1.9.0
+   Compiling signal-hook v0.3.18
+   Compiling either v1.18.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling rustls-pki-types v1.15.1
+   Compiling itertools v0.14.0
+   Compiling hashbrown v0.16.1
+   Compiling convert_case v0.10.0
+   Compiling getrandom v0.2.17
+   Compiling unicode-width v0.2.2
+   Compiling static_assertions v1.1.0
+   Compiling ryu v1.0.23
+   Compiling untrusted v0.9.0
+   Compiling instability v0.3.13
+   Compiling crc32fast v1.5.1
+   Compiling derive_more-impl v2.1.1
+   Compiling mio v1.2.2
+   Compiling lru v0.18.3
+   Compiling utf8parse v0.2.2
+   Compiling litrs v1.0.0
+   Compiling simd-adler32 v0.3.10
+   Compiling adler2 v2.0.1
+   Compiling unicode-truncate v2.0.1
+   Compiling rustls v0.23.43
+   Compiling indoc v2.0.7
+   Compiling miniz_oxide v0.9.1
+   Compiling castaway v0.2.4
+   Compiling derive_more v2.1.1
+   Compiling document-features v0.2.12
+   Compiling anstyle-parse v1.0.0
+   Compiling signal-hook-mio v0.2.5
+   Compiling webpki-roots v1.0.9
+   Compiling anstyle v1.0.14
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling subtle v2.6.1
+   Compiling webpki-roots v0.26.11
+   Compiling anstream v1.0.0
+   Compiling line-clipping v0.3.8
+   Compiling darling_core v0.24.1
+   Compiling base64 v0.22.1
+   Compiling clap_lex v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling clap_builder v4.6.6
+   Compiling tempfile v3.27.0
+   Compiling zerovec-derive v0.11.6
+   Compiling serde_derive v1.0.229
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling ref-cast-impl v1.0.27
+   Compiling zerotrie v0.2.5
+   Compiling ref-cast v1.0.27
+   Compiling compact_str v0.9.1
+   Compiling zerovec v0.11.8
+   Compiling thiserror v2.0.20
+   Compiling darling_macro v0.24.1
+   Compiling flate2 v1.1.10
+   Compiling darling v0.24.1
+   Compiling crossterm v0.29.0
+   Compiling rustls-webpki v0.103.15
+   Compiling serde v1.0.229
+   Compiling clap_derive v4.6.4
+   Compiling clap v4.6.6
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling kasuari v0.4.12
+   Compiling ratatui-core v0.1.2
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling ahash v0.8.12
+   Compiling fluent-uri v0.4.1
+   Compiling brokkr-core v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-core)
+   Compiling email_address v0.2.9
+   Compiling brokkr-protocol v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-protocol)
+   Compiling hashbrown v0.14.5
+   Compiling jsonschema-value v0.53.0
+   Compiling ureq v2.12.1
+   Compiling referencing v0.53.0
+   Compiling hashlink v0.9.1
+   Compiling rusqlite v0.32.1
+   Compiling jsonschema v0.53.0
+   Compiling brokkr-view v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-view)
+   Compiling ratatui-crossterm v0.1.2
+   Compiling ratatui-widgets v0.3.2
+   Compiling ratatui v0.30.2
+   Compiling brokkr-store v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-store)
+   Compiling brokkr-runtime v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-runtime)
+warning: field `network_prefix` is never read
+   --> crates/brokkr-runtime/src/engine.rs:213:5
+    |
+171 | pub struct Engine {
+    |            ------ field in this struct
+...
+213 |     network_prefix: Option<bool>,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling brokkr-bridge v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-bridge)
+   Compiling brokkr-cli v0.10.0 (/private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt.xB5bSJ/brokkr/crates/brokkr-cli)
+warning: `brokkr-runtime` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.11s
+     Running tests/boundary_verbs.rs (target/debug/deps/boundary_verbs-732dffa0a6d01f19)
+
+running 1 test
+test run_resume_and_rerun_refuse_an_unbuilt_boundary_before_the_journal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.94s
+
