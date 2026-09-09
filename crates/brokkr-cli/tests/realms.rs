@@ -603,6 +603,73 @@ fn the_run_manifest_pins_the_maps_hash_and_embeds_the_map() {
     assert_eq!(code, Some(0), "{stderr}");
 }
 
+/// The other half of the same testimony (decision 0057, run-manifest/v10):
+/// what the run STOOD ON. A realm publishes a file; the run records the
+/// digest the loader observed for it, the export carries it, and
+/// `verify-run` accepts that journal offline. Proved through the shipped
+/// binary, because "answerable from the journal alone" is a claim about
+/// what an operator can read back, not about an internal call.
+#[test]
+fn the_run_manifest_records_the_crossing_the_run_stood_on() {
+    let ws = Workspace::new(None);
+    let bytes = "{\"title\": \"orders\"}\n";
+    std::fs::create_dir_all(ws.path().join("contracts")).unwrap();
+    std::fs::write(ws.path().join("contracts/orders.v1.schema.json"), bytes).unwrap();
+    let mut map = map_over(".");
+    map["schema"] = json!("forge.realms/v5");
+    map["realms"][0]["publishes"] =
+        json!([{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}]);
+    std::fs::write(ws.path().join("realms.json"), map.to_string()).unwrap();
+
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", "exported"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.manifest.json")))
+            .unwrap(),
+    )
+    .unwrap();
+
+    // Keyed by the publishing realm and the crossing's name, carrying the
+    // sha256 over the published file's RAW bytes — observed at load, and
+    // declared nowhere in this map, which has no consumer at all.
+    let crossing = &manifest["crossings"]["brokkr"]["orders.api"];
+    assert_eq!(
+        crossing["sha256"],
+        json!(brokkr_core::canonical::sha256_bytes(bytes.as_bytes()))
+    );
+    assert!(
+        crossing["source"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+            .ends_with("contracts/orders.v1.schema.json"),
+        "{crossing}"
+    );
+
+    // The export verifies offline: chain, envelopes and fold, over a
+    // journal whose run/started carries the crossing inside its manifest.
+    let (code, out, stderr) = ws.run(&["verify-run", &format!("exported/{run_id}.ndjson")]);
+    assert_eq!(code, Some(0), "{stderr}{out}");
+    let journal =
+        std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
+    assert!(journal.contains("\"crossings\""), "it rides in run/started");
+
+    // And the run stays resumable under its exact bundle: the crossing is
+    // workspace data, so it moved no bundle digest.
+    let (code, _, stderr) = ws.run(&[
+        "resume",
+        "--bundle",
+        "bundle",
+        "--run",
+        &run_id,
+        "--db",
+        "state/world.db",
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+}
+
 /// A world that never drew a map notices nothing: same default journal,
 /// same manifest, no realm key anywhere in the journal.
 #[test]
@@ -614,7 +681,7 @@ fn a_workspace_with_no_map_runs_exactly_as_it_always_did() {
     ws.run(&["export", "--run", &run_id, "--out", "exported"]);
     let journal =
         std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
-    for key in ["\"realms\"", "\"realm_facts\""] {
+    for key in ["\"realms\"", "\"realm_facts\"", "\"crossings\""] {
         assert!(!journal.contains(key), "an unmapped run journaled {key}");
     }
 }

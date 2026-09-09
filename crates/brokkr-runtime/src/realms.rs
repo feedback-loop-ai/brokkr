@@ -283,10 +283,16 @@ impl World {
             sha256: sha256.to_string(),
             texts,
             // A resumed world answers off its own manifest and never off
-            // the disk, which may since have changed or gone — and no
-            // manifest pins a crossing's bytes yet. So a replayed world
-            // resolves none, rather than re-reading files the run it is
-            // replaying may no longer be standing beside.
+            // the disk, which may since have changed or gone. The manifest
+            // DOES carry what the original run observed (`crossings`,
+            // run-manifest/v10), and that pin is deliberately not read back
+            // into here: it answers a READER's question about the past —
+            // which contracts did that run stand on — not a live
+            // accessor's question about the present. `World::crossing` on
+            // a replayed world would otherwise report bytes nobody has
+            // looked at since, so it reports none, and re-reading the
+            // files the replayed run stood beside is exactly what this
+            // path must not do.
             crossings: BTreeMap::new(),
         }))
     }
@@ -414,10 +420,44 @@ impl World {
     /// through here.
     ///
     /// Present only for a world loaded off a disk. A world replayed from a
-    /// manifest resolves none, because no manifest pins a crossing's bytes
-    /// yet, and this accessor never reaches for a file to make up for it.
+    /// manifest resolves none — the manifest's `crossings` pin is
+    /// testimony about the run that wrote it, not a live reading — and
+    /// this accessor never reaches for a file to make up for it.
     pub fn crossing(&self, realm: &str, name: &str) -> Option<&ResolvedCrossing> {
         self.crossings.get(&(realm.to_string(), name.to_string()))
+    }
+
+    /// The crossings this world STOOD ON, as they go into a run manifest
+    /// (run-manifest/v10, on decision 0023 ruling 4's terms): per
+    /// publishing realm, per crossing name, where the bytes were read and
+    /// what they hashed to. Exactly the map [`resolve_crossings`] built at
+    /// load, serialized verbatim — nothing is hashed a second time, by
+    /// which point it could say something else.
+    ///
+    /// This is OBSERVATION and never a second copy of the DECLARATION: a
+    /// consuming realm's pin already rides into the manifest inside the
+    /// embedded map itself (`realms.map…consumes[].sha256`, unchanged
+    /// since v4), and a reader who holds both sees what the world claimed
+    /// beside what it stood on.
+    ///
+    /// `None` when this world publishes nothing, so a world that never
+    /// drew a crossing writes the exact shape it always wrote. The key
+    /// pair cannot collide: only a realm's own `publishes` list adds an
+    /// entry, and a name used twice in one such list is already refused
+    /// (decision 0057 ruling 3.3).
+    fn crossings_pin(&self) -> Option<Value> {
+        if self.crossings.is_empty() {
+            return None;
+        }
+        let mut published = serde_json::Map::new();
+        for ((realm, name), resolved) in &self.crossings {
+            let publisher = published.entry(realm.clone()).or_insert_with(|| json!({}));
+            publisher[name.as_str()] = json!({
+                "source": resolved.source,
+                "sha256": resolved.sha256,
+            });
+        }
+        Some(Value::Object(published))
     }
 
     /// The world as it goes into a run manifest: named, hashed, embedded.
@@ -460,12 +500,21 @@ impl World {
         Ok(pin)
     }
 
-    /// A run manifest with this world pinned into it (run-manifest/v4, carried forward by v5).
-    /// The bundle manifest is untouched — the map is workspace data, not
-    /// bundle data, so adopting a map moves no bundle digest.
+    /// A run manifest with this world pinned into it (run-manifest/v4,
+    /// carried forward by v5, and the crossings beside it at v10).
+    /// The bundle manifest is untouched — the map and the crossings are
+    /// workspace data, not bundle data, so adopting either moves no
+    /// bundle digest.
     pub fn pinned(&self, manifest: &Value, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut fields = manifest.as_object().cloned().unwrap_or_default();
         fields.insert("realms".to_string(), self.pin(repo)?);
+        // A SIBLING of `realms`, never nested inside it: the map is what
+        // this world declared and the crossings are what it observed, and
+        // the contract keeps two answers to two questions apart. Omitted
+        // entirely, never written empty, when there is nothing to say.
+        if let Some(crossings) = self.crossings_pin() {
+            fields.insert("crossings".to_string(), crossings);
+        }
         Ok(Value::Object(fields))
     }
 }

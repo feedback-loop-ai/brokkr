@@ -794,7 +794,12 @@ fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
 /// The file `alpha` publishes, written with the bytes given. Returns
 /// where it was written and the sha256 over exactly those bytes — the pin
 /// a consuming realm would carry if it were built against them.
-fn published_by_alpha(dir: &Path, bytes: &str) -> (PathBuf, String) {
+///
+/// `pub(crate)`, like the two-repository fixture above and for the same
+/// reason: the engine's own tests record this world into a run manifest
+/// and must stand on the crossing this module already resolves, rather
+/// than on a second fixture that could drift away from it.
+pub(crate) fn published_by_alpha(dir: &Path, bytes: &str) -> (PathBuf, String) {
     let crossing = dir.join("alpha/contracts/orders.v1.schema.json");
     std::fs::create_dir_all(crossing.parent().unwrap()).unwrap();
     std::fs::write(&crossing, bytes).unwrap();
@@ -807,7 +812,7 @@ fn published_by_alpha(dir: &Path, bytes: &str) -> (PathBuf, String) {
 /// surgery is on [`TWO_REPOSITORIES`] itself, so every crossing test
 /// stands on slice (i)'s world of two DISTINCT repositories rather than a
 /// fixture of its own.
-fn crossing_map(pin: &str) -> String {
+pub(crate) fn crossing_map(pin: &str) -> String {
     TWO_REPOSITORIES
         .replace("forge.realms/v2", "forge.realms/v5")
         .replace(
@@ -994,6 +999,109 @@ fn a_crossing_from_a_realm_that_is_not_checked_out_refuses_rather_than_fetches()
         !dir.path().join("not-checked-out").exists(),
         "nothing was fetched, and nothing was written to make the map true"
     );
+}
+
+// ---------------------- what the run stood on (0057, recorded on 0023 ruling 4's terms)
+
+/// The pin the manifest carries: keyed by the realm that PUBLISHES the
+/// file and the name it publishes it under, carrying the path the bytes
+/// were read from and the digest they hashed to. A sibling of `realms`,
+/// never nested inside it, because the map is what the world DECLARED
+/// and this is what it OBSERVED.
+#[test]
+fn a_pinned_world_carries_the_crossings_it_stood_on_beside_the_map() {
+    let (dir, _, _) = two_repositories();
+    let (path, pin) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
+    std::fs::write(dir.path().join("realms.json"), crossing_map(&pin)).unwrap();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    let beta = dir.path().join("beta");
+    let manifest = world.pinned(&json!({"files": {}}), Some(&beta)).unwrap();
+
+    let crossings = &manifest["crossings"];
+    assert_eq!(
+        crossings["alpha"]["orders.api"],
+        json!({"source": path.display().to_string(), "sha256": pin}),
+    );
+    // Keyed by the publisher, so the consuming realm — which is the realm
+    // this run is standing in — adds no key of its own.
+    assert!(crossings.get("beta").is_none(), "{crossings}");
+    // Beside the map, not inside it: the declaration and the observation
+    // are two answers to two questions and a reader may hold both.
+    assert!(manifest["realms"].get("crossings").is_none());
+    assert_eq!(
+        manifest["realms"]["map"]["realms"][1]["consumes"][0]["sha256"],
+        json!(pin),
+        "the DECLARED pin still rides inside the embedded map, from v4"
+    );
+    // Everything the world pinned before this existed is untouched.
+    assert_eq!(manifest["realms"]["sha256"], json!(world.sha256));
+    assert_eq!(manifest["files"], json!({}));
+}
+
+/// OBSERVED, never a copy of the declaration. A crossing nobody consumes
+/// is DECLARED nowhere at all — no `consumes` entry names a digest — and
+/// the manifest still records what was on the disk. Rewriting the
+/// published file and reloading moves the recorded digest with the bytes,
+/// which is what tells observation and declaration apart.
+#[test]
+fn the_recorded_digest_follows_the_bytes_and_not_any_declaration() {
+    let (dir, _, _) = two_repositories();
+    let (_, first) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
+    // The crossing map with beta's `consumes` taken back out: alpha still
+    // publishes, and now nothing in the world declares a digest.
+    let mut map: Value = serde_json::from_str(&crossing_map(&first)).unwrap();
+    map["realms"][1].as_object_mut().unwrap().remove("consumes");
+    let write = |map: &Value| std::fs::write(dir.path().join("realms.json"), map.to_string());
+    write(&map).unwrap();
+    let published_only = World::discover(dir.path(), None).unwrap().unwrap();
+    let pinned = |world: &World| world.pinned(&json!({}), None).unwrap();
+    assert_eq!(
+        pinned(&published_only)["crossings"]["alpha"]["orders.api"]["sha256"],
+        json!(first),
+        "a crossing with no consumer is still what this run stood on"
+    );
+    assert!(
+        !serde_json::to_string(&map).unwrap().contains(&first),
+        "and nothing in the map declares that digest"
+    );
+
+    // The bytes move; the world still loads, because no pin was broken —
+    // and the manifest records the NEW digest. A second copy of a
+    // declaration could not have moved here, and would not have.
+    let (_, second) = published_by_alpha(dir.path(), "{\"title\": \"orders v2\"}\n");
+    assert_ne!(first, second);
+    let moved = World::discover(dir.path(), None).unwrap().unwrap();
+    assert_eq!(
+        pinned(&moved)["crossings"]["alpha"]["orders.api"]["sha256"],
+        json!(second),
+    );
+}
+
+/// A world that draws no crossing writes the exact shape it always wrote:
+/// the key is omitted, never written empty. The proof is field for field
+/// against the manifest the same world pinned before this property
+/// existed — which is that manifest with nothing added.
+#[test]
+fn a_world_with_no_crossing_pins_the_exact_shape_it_always_did() {
+    let (dir, _, _) = two_repositories();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    let beta = dir.path().join("beta");
+    let manifest = world.pinned(&json!({"files": {}}), Some(&beta)).unwrap();
+    assert!(manifest.get("crossings").is_none(), "{manifest}");
+    assert_eq!(
+        manifest,
+        json!({"files": {}, "realms": world.pin(Some(&beta)).unwrap()}),
+        "a world with no crossing pins the map and nothing else",
+    );
+    // And a world replayed from that manifest resolves none, deliberately:
+    // the pin is testimony about the past, not a live reading.
+    let replayed = World::from_manifest(&manifest).unwrap().unwrap();
+    assert!(replayed.crossing("alpha", "orders.api").is_none());
+    assert!(replayed
+        .pinned(&json!({}), None)
+        .unwrap()
+        .get("crossings")
+        .is_none());
 }
 
 #[test]

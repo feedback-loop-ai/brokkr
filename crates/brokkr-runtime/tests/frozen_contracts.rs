@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 20] = [
+const FROZEN: [(&str, &str); 21] = [
     (
         "contracts/realms.v1.schema.json",
         "4a9d0051823995b090935a2a5b326d12ec7953f62c61161b30ec1dbaf0135fbb",
@@ -110,6 +110,12 @@ const FROZEN: [(&str, &str); 20] = [
     (
         "contracts/realms.v4.schema.json",
         "7f03c61886e91189ae46388eead49a11e52fe70f17fde8d27cf0a33fc08b9ad5",
+    ),
+    // Decision 0057's recording half lands `run-manifest.v10` beside v9,
+    // which was the new file when 0046 landed and is frozen from here.
+    (
+        "contracts/run-manifest.v9.schema.json",
+        "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
 ];
 
@@ -260,6 +266,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         // `forge.realms/v5` beside v4, whose bytes are pinned above and
         // did not move.
         ("contracts/realms.v5.schema.json", "Forge realms map v5"),
+        // Decision 0057's recording half: the crossings a run stood on
+        // arrive as `run-manifest.v10` beside v9, whose bytes are pinned
+        // above and did not move.
+        (
+            "contracts/run-manifest.v10.schema.json",
+            "Forge run manifest v10",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();
@@ -323,6 +336,73 @@ fn the_v4_realm_schema_accepts_only_its_version_and_five_boundaries() {
     ] {
         map["schema"] = json!(version);
         assert!(!validator.is_valid(&map));
+    }
+}
+
+/// Decision 0057's recording half: the published contract for what a run
+/// stood on. v10 is v9's vocabulary plus one optional `crossings`
+/// property — closed inside, absent for every world that draws no
+/// crossing — and a v9 manifest is a v10 manifest, field for field.
+#[test]
+fn the_v10_manifest_schema_carries_the_crossings_and_closes_their_entries() {
+    use serde_json::json;
+    let read = |name: &str| {
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(workspace().join(name)).unwrap())
+            .unwrap()
+    };
+    let schema = read("contracts/run-manifest.v10.schema.json");
+    let v9 = read("contracts/run-manifest.v9.schema.json");
+    // v9 plus one property and nothing else: every other clause — the
+    // required keys, the `hands`/`boundary` dependency, the whole
+    // `select` machinery — is carried over definition for definition.
+    for (name, definition) in v9["properties"].as_object().unwrap() {
+        assert_eq!(
+            &schema["properties"][name], definition,
+            "{name} moved between v9 and v10"
+        );
+    }
+    let added: Vec<&String> = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|key| v9["properties"].get(key).is_none())
+        .collect();
+    assert_eq!(added, ["crossings"]);
+    for key in ["required", "dependencies", "definitions", "type"] {
+        assert_eq!(schema[key], v9[key], "{key} moved between v9 and v10");
+    }
+
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(b"{\"title\": \"orders\"}\n");
+    let mut manifest = json!({
+        "engine": "0.9.1", "event_schema": 1, "database_schema": 1,
+        "driver_protocol": 1, "bundle_name": "self",
+        "files": {"policy.json": "a".repeat(64)},
+    });
+    // A world that drew no crossing is exactly a v9 manifest, and the
+    // v9 file still validates it — the shape did not move under it.
+    assert!(validator.is_valid(&manifest));
+    assert!(jsonschema::draft7::new(&v9).unwrap().is_valid(&manifest));
+    manifest["crossings"] = json!({"alpha": {"orders.api": {
+        "source": "/w/alpha/contracts/orders.v1.schema.json", "sha256": pin,
+    }}});
+    assert!(validator.is_valid(&manifest));
+    // And the entry is closed at every level, as `realms.v5`'s own are:
+    // a media type, a declared-versus-observed marker or a compatibility
+    // relation would have to arrive as `run-manifest.v11`.
+    for entry in [
+        json!({"source": "orders.json"}),
+        json!({"sha256": pin}),
+        json!({"source": "orders.json", "sha256": "not a digest"}),
+        json!({"source": "orders.json", "sha256": pin.to_uppercase()}),
+        json!({"source": "orders.json", "sha256": pin, "declared": pin}),
+        json!("orders.json"),
+    ] {
+        manifest["crossings"]["alpha"]["orders.api"] = entry.clone();
+        assert!(
+            !validator.is_valid(&manifest),
+            "the v10 schema admitted {entry}"
+        );
     }
 }
 
