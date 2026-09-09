@@ -50,7 +50,11 @@ Conventions binding on every task, restated once rather than per task:
   live provider enforcement (`evidence / LE5`).
 - No invented CLI syntax, provider event name, telemetry or config key.
   Provider-specific construction spends the dated controller captures
-  under `.forge/` and nothing else (`safety / AS1`).
+  under `.forge/` and nothing else (`safety / AS1`). Those captures are
+  indexed in `.forge/controller-provider-evidence-index.md`: the host
+  interface capture, the four-file DSH headless capture, and the 40-file
+  DSH session/agent/settings source capture the design's D6 reads. The
+  index is source inspection evidence only and enables nothing.
 - No push, no merge, no new run, no issue closure, no global provider
   settings change. Commits are unsigned and in the repository's message
   style.
@@ -390,7 +394,9 @@ saved for the phase commit.
       **unknown** identity carrying a bounded non-empty reason. A
       `supported` entry must carry a measured identity and name its
       interface, restriction, exact-root and current-accounting
-      evidence, so an unknown identity can never be supported — which is
+      evidence — root evidence stating whether that root persists, and a
+      wrapper shape qualified on its own wrapper rather than on what it
+      wraps (design D5) — so an unknown identity can never be supported — which is
       what leaves 8.1 a pinned version to compare the observed one
       against wherever resume is enabled. An `unsupported` entry must
       carry its bounded measured reason. An `unmeasured` entry carries
@@ -414,7 +420,10 @@ saved for the phase commit.
       (design D5) — safety / AS1.
 - [ ] 6.2 Validate that shape in the loader and let the existing adapter
       content digest pin it, so a declaration edit moves bundle identity
-      as it does today — safety / AS1.
+      as it does today. The shape stays closed and compact — the
+      admission-relevant fields of 6.1 and nothing behind them: no
+      evidence database, no probe DSL, no version-range resolver and no
+      path by which a declaration enables itself (design D5, D10) — safety / AS1.
 - [ ] 6.3 Carry the selected assessment through `Candidate`/`SiteSpawn`
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
@@ -702,12 +711,17 @@ confirmation, current restriction enforcement and current-only accounting
 for the named shape. They gate group 11 and nothing else.
 
 The seat rechecks its own availability before calling anything unmeasured
-and reaches outside the box for no provider source or home. Bounded probes
-use temporary test data, change no global provider setting, read no
-unrelated session and run no unnecessary model experiment. An interface
-that help or source establishes still produces its construction,
-validation and shim work while its proof is pending; interface evidence
-never enables a shape by itself (`safety / AS1`).
+and reaches outside the box for no provider source or home, and spends the
+captures named in `.forge/controller-provider-evidence-index.md`. Bounded
+probes use temporary test data, change no global provider setting, read no
+unrelated session and run no unnecessary model experiment. One probe may
+cover several axes at once only where each axis has its own attributable
+observation; a single denial or a single confirmation is never spread
+across unrelated axes, and each proof task names the observation behind
+every axis it claims (design D6). An interface that help or source
+establishes still produces its construction, validation and shim work
+while its proof is pending; interface evidence never enables a shape by
+itself (`safety / AS1`).
 
 - [ ] 10.1 Codex interface on installed **0.153.4** (or the actual
       installed replacement): `codex exec resume --help` and the
@@ -729,10 +743,29 @@ never enables a shape by itself (`safety / AS1`).
       surface and the Cordis loader and extension exports that headless
       consumes, with package versions, exports, relevant implementation
       and hashes, spending the controller captures where they reach.
-      Trace root load versus creation; a supported per-invocation
-      configuration route that points headless at that root; replacement
+      Start from the third capture,
+      `.forge/controller-dsh-resume-source-interface.json` (2026-09-09,
+      40 hashed source files), which design D6 has already read: it
+      establishes real restoration interfaces — `agents.resume` delegating
+      to the registered factory in `dsh-agent`, `Config.agents[].resumeSessionId`
+      and its `resumeWith` call in `dsh-agent-loop`, and the factory
+      loading through `sessionPersistence.prepare` and publishing with
+      source `resume` — and it leaves one seam. **That seam is this
+      task's subject**: captured `dsh-headless` still validates only
+      `task`, calls `agents.create` with a random ID, and applies its
+      followup, `firstSeq` and summary to that newly created agent, so
+      restoring a second configured agent does not route the admitted
+      headless task to the owned root. Establish whether a supported
+      per-invocation declarative route makes the headless caller itself
+      run this task on that root: an exported Session API, a mountable
+      plugin or a resolvable configuration key alone does not make it
+      callable through the admitted headless route. Trace root load
+      versus creation; the caller connection just named; replacement
       of restored model, settings and tool state by the current plan; and
-      the followup's event interval. The allowed integration is Rust
+      the followup's event interval. Neither the interfaces the capture
+      shows nor the loader's ability to mount plugins establishes the
+      missing caller connection or any effective restriction, and this
+      task is not complete while the seam is open. The allowed integration is Rust
       construction of supported declarative settings or patch data
       consumed by the installed CLI — no embedded JavaScript runner, no
       monkey-patched `agents.create`, no overridden UUID generation, no
@@ -1111,10 +1144,61 @@ actual fold, implementation and provider/host validation remain delivery work.
 The current specify validation is recorded in proposal.md, separately from
 these tasks’ completion and from the historical phase evidence above.
 
+## Tasks visit — design reconciliation, 2026-09-09
+
+This run's design seat reconciled both current council positions and the newer
+DSH source capture (`5d72a2c`) after clarification returned `clear`. That design
+states no task amendment is needed and leaves the 102 identifiers intact; this
+seat validated the breakdown against it rather than taking that statement on
+trust. No requirement lost or gained a citation, no task was added, removed or
+renumbered, and F1–F7 are not reopened. Four prose repairs carry the reconciled
+design into the tasks that execute it:
+
+- **Group 10's preamble and the conventions**: the controller's captures are
+  now named through `.forge/controller-provider-evidence-index.md`, which
+  indexes three, not the two the earlier text implied. D6's combined-probe rule
+  is stated where the proof tasks read it: one probe may cover several axes only
+  where each axis has its own attributable observation, and each proof task
+  names the observation behind every axis it claims.
+- **10.3**: design D6 has now read
+  `.forge/controller-dsh-resume-source-interface.json` and narrowed this task
+  from an open trace to one seam. The task names what that capture already
+  establishes — `agents.resume`, `Config.agents[].resumeSessionId`/`resumeWith`,
+  and the persistence-loading factory — and what it does not: captured
+  `dsh-headless` still validates only `task`, mints a random agent ID and routes
+  its followup there, so a restored second agent does not run the admitted task.
+  The task's subject is that caller connection; an exported API, a mountable
+  plugin or a resolvable key is not a route. Otherwise unchanged, including
+  8.8's prerequisite, the forbidden mechanisms and the AS1 upstream return.
+- **6.1 and 6.2**: root evidence states whether the root persists and a wrapper
+  is qualified on its own wrapper, as reconciled D5 words it; the declaration
+  shape stays closed and compact, with no evidence database, probe DSL,
+  version-range resolver or self-enabling path behind it (D5, D10). 6.1's two
+  identity forms and 6.6's absent-versus-malformed distinction are untouched.
+
+Checked against the current artifacts on this visit: the five deltas hold **20**
+requirements, every one cited by at least one task and every task naming what it
+serves; the file holds **102** tasks with unique identifiers in 15 groups, all
+unchecked; the design's references to tasks 2.3, 2.8, 3.5–3.6, 6.1/6.6, 8.1,
+8.5–8.9, 9.1–9.3, 10.1–10.4, 10.3, 10.7 and 15.6–15.7 all resolve, and the
+ordering they require — investigation before construction, proof after it and
+gating only group 11, fold before commit — is the ordering this file states.
+
+`openspec validate --strict` did **not** run from this seat: the sandbox refused
+both to execute the binary and to stat it outside the worktree, so this visit
+has no strict-validator or status result of its own, as the earlier tasks visits
+also recorded. The specify and design seats
+recorded their own passing runs against these bytes; this visit changes task
+prose only and adds no heading, checkbox or identifier. No Rust check was run
+here — this phase writes no code, and a green suite is group 15's evidence, not
+this artifact's. No provider CLI was probed and no provider evidence was created.
+Frozen contracts, policy, reference, fixtures, production code, living specs and
+the sibling fire's files have no diff from the commissioned base.
+
 ## Progress
 
 Implementation has not begun. All 102 delivery tasks remain unchecked after
-the successor F7 planning repair. Prerequisites, stated as they bind rather
+the successor F7 planning repair and this visit's design reconciliation. Prerequisites, stated as they bind rather
 than by group number:
 
 - **Preparable from the repository alone**: groups 1–7, tasks 8.1–8.4,
