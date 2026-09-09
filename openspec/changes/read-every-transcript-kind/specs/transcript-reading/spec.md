@@ -13,7 +13,9 @@ serializable `Turn` shape: `role` and `ts` strings and an ordered `blocks`
 array whose elements contain `kind` and `text` strings. File discovery and
 reading SHALL remain outside the pure view derivation. CLI and TUI SHALL
 consume this same derivation; the existing Claude browser drill SHALL reuse
-its Claude projection. Prose SHALL belong to this explicit local transcript
+its Claude projection, and browser participant presentation SHALL consume
+the shared reference eligibility and `full_session` result as specified below.
+Prose SHALL belong to this explicit local transcript
 read, never to the journal-derived run/participant models.
 
 A displayed turn SHALL be one content-bearing source record after the
@@ -101,6 +103,67 @@ reference.
 - **WHEN** the selected reference resolves to a file containing several prior attempts of the same thread
 - **THEN** the bounded whole-file projection is shown without filtering by checkpoint numbers or changing any resumption behavior
 
+### Requirement: Browser participant drills obey shared eligibility
+
+For a selected participant, the browser SHALL consume reference eligibility
+and `full_session` from the same Rust derivation used by CLI/TUI, including
+common-reference precedence, legacy provenance, home and identifier
+validation. It SHALL render the common transcript fact and any reference or
+lookup unavailability from that result. A null `full_session` SHALL produce
+no convenience line; a non-null value SHALL be displayed verbatim as inert
+text. The browser SHALL NOT construct the old
+`full session: <id> · held by <holder>, no resume verb yet` sentence or infer
+eligibility from `part.session_id` alone. Client id validation remains a
+guard on an already eligible drill, never evidence that a participant owns
+a Claude session.
+
+The existing `/api/session/<id>` and `/sse/session/<id>` routes SHALL remain
+journal-independent, Claude-only lookups under the server's local
+`HOME/.claude/projects`. They SHALL use shared validation, discovery and
+Claude projection as applicable, with the existing successful wire shapes.
+They SHALL neither inspect a participant's provenance nor guess a recorded
+home from an id. A direct request is an explicit local Claude-id lookup,
+not a request for the transcript of any participant sharing that string.
+
+The browser SHALL offer the `· session <id>` label and use these id-only
+routes only for an effective valid `claude-session` reference whose
+canonical home is established to be the same as that local projects home.
+For an effective valid Claude reference, if this equality cannot be
+established, it SHALL show
+`browser transcript unavailable for this recorded home` and the shared hint
+when non-null, keep the checkpoint fallback, and make no id-only request.
+A Codex/DSH reference SHALL retain its shared full-session information and
+checkpoint fallback without a Claude drill; browser transcript bodies for
+those kinds are outside this change. An ineligible or invalid reference
+SHALL show its shared unavailability and checkpoint fallback without a
+session label or drill. Changing participant/reference eligibility SHALL
+clear a stale transcript and close its growth watch before another result
+is displayed.
+
+The browser's selected-participant presentation result SHALL remain local
+and separate from existing inspect/seats/watch JSON and the three-field
+Claude session response. It SHALL not add transcript prose to journal-derived
+run/participant models or journal/export telemetry. Transport of this
+presentation result is a design choice; duplicating the eligibility or hint
+rules in JavaScript is not.
+
+#### Scenario: A legacy Codex participant never starts a Claude browser drill
+- **WHEN** a pre-0032 participant has explicit Codex provenance, legacy `session_id: "abcd-1234"` and no common reference, even with a unique readable local Claude file of that id
+- **THEN** the browser, CLI and TUI agree on `no-reference` and null `full_session`; the page shows `transcript unavailable: no-reference` and its checkpoint fallback, with no session label, holder sentence, transcript request or growth watch
+- **AND** a separately requested `/api/session/abcd-1234` still returns HTTP 200 with that local Claude file's `session_id`, `turns` and `truncated` because the route is journal-independent; if that Claude file is absent it returns HTTP 404, and neither outcome changes the participant's ineligibility
+
+#### Scenario: A common reference defeats the browser's stale flat id
+- **WHEN** a participant has a stale valid Claude-looking `session_id` beside common kind `none` or an unannounced, invalid or unsupported common reference
+- **THEN** the page renders the shared unavailability with null `full_session`, closes any old watch and performs no legacy drill; a valid Codex/DSH common reference instead shows its own shared hint when non-null and never drills the stale id
+
+#### Scenario: An eligible Claude browser participant uses the shared hint
+- **WHEN** a common or eligible legacy Claude reference identifies the unique readable file `abcd-1234.jsonl` under the same canonical home as the browser's local projects root
+- **THEN** the page shows `· session abcd-1234`, the shared `full session: claude --resume abcd-1234` value and the shared Claude turns; a working participant can use the existing growth route without deriving a second command
+
+#### Scenario: A recorded custom Claude home cannot drill an ambient twin
+- **WHEN** a valid Claude participant records a readable file under `/retained/claude-projects` and the browser's different local projects home contains an unrelated file with the same id
+- **THEN** CLI/TUI read the recorded file, while the browser shows the same shared Claude hint and `browser transcript unavailable for this recorded home` with its checkpoint fallback; it offers no session drill and reads neither ambient twin nor a guessed browser route
+
 ### Requirement: Discovery identifies one owned local file
 
 Claude discovery SHALL search immediate project directories of the recorded
@@ -135,7 +198,37 @@ limits SHALL return `discovery-limit`, not the first candidate found. Exactly
 one qualifying file SHALL be required; several qualifying files SHALL return
 `ambiguous-source` regardless of enumeration order. No match SHALL return
 `not-found`. A file/header not yet complete can become available on a later
-read. These bounds apply equally to CLI lookup and TUI refresh.
+read. These bounds apply equally to CLI lookup, TUI refresh and the
+existing Claude browser routes. For Claude this deliberately replaces the
+shipped first matching file, unbounded project enumeration and symlink
+following with unique, bounded, safe discovery. These are breaking lookup
+changes proposed for 0055, not implied compatibility with the old reader.
+
+For the id-only Claude API, every shared reference/discovery/read failure
+SHALL return HTTP 404 with the existing JSON error envelope, with no turns.
+An invalid id SHALL use `{"error":"session not found"}`; a valid id with a
+lookup/read failure SHALL use `{"error":"transcript not found"}`. A readable
+empty, counted-omission or truncated projection SHALL still return HTTP 200
+with only `session_id`, `turns` and `truncated`.
+
+Claude SSE admission SHALL apply the same identifier and discovery rules.
+Any refusal, including `ambiguous-source`, `discovery-limit` and `unsafe-path`,
+SHALL return HTTP 404 with `{"error":"transcript not found"}` before an
+event-stream header or event is written. For an admitted source the existing
+size-event/heartbeat shape stays unchanged. Each subsequent poll SHALL
+revalidate safe unique discovery; if that fails, the stream SHALL close
+without reporting further sizes from the previous candidate. HTTP status
+cannot change after stream admission; closing does not emit a second 404
+response. SSE remains a growth notification, not a new transcript body API.
+
+#### Scenario: Claude browser lookup refusals have fixed HTTP responses
+- **WHEN** a valid Claude id has either two qualifying project files, a search that needs more than 10,000 entries to establish uniqueness, or only a matching symlink project/file below the canonical home
+- **THEN** the shared lookup returns `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively; `/api/session/<id>` and a new `/sse/session/<id>` request each return HTTP 404 with `{"error":"transcript not found"}`, no turns and no event-stream header
+- **AND** the participant page and TUI keep the reader's shared Claude hint beside the specific unavailable explanation; no surface selects the former first candidate or follows the symlink
+
+#### Scenario: An admitted Claude growth stream loses its unique source
+- **WHEN** a growth stream has begun for one safe Claude file and another qualifying file appears, discovery exceeds its bound, or the selected file/project is replaced by a symlink before a later poll
+- **THEN** that poll closes the stream without reporting another size from the old candidate; a new stream request receives HTTP 404 and a new API read supplies no transcript prose
 
 #### Scenario: Concurrent Codex threads do not share a result
 - **WHEN** a dated sessions tree contains the requested thread, a newer unrelated rollout and a file whose name contains the requested id only as a fragment
@@ -218,8 +311,11 @@ unrequested alternative, delete a retained file or change its bytes.
 ### Requirement: Full-session information belongs to the shared local read result
 
 `transcript-reading` SHALL own the informational `full_session` value; CLI
-text/JSON and the TUI SHALL consume it without independently deciding whether
-a hint exists or which command to name. The value SHALL follow this table.
+text/JSON, the TUI and browser participant presentation SHALL consume it
+without independently deciding whether a hint exists or which command to
+name. The id-only Claude response retains its existing three-field envelope;
+the browser receives its hint through the separate local presentation result.
+The value SHALL follow this table.
 A valid reference here is an effective supported reference with a nonempty
 validated locator and absolute validated home, including a synthesized legacy
 Claude reference. A confirmed path is the safe unique path established by
@@ -262,7 +358,7 @@ The common transcript fact SHALL remain visible independently of the hint.
 
 #### Scenario: Invalid references cannot form a command
 - **WHEN** an id contains a semicolon, command substitution or leading hyphen, or its required home is missing or malformed
-- **THEN** `full_session` is null on both CLI and TUI, and the matching reference failure is returned without invoking a provider
+- **THEN** `full_session` is null in CLI, TUI and browser participant presentation, and the matching reference failure is returned without invoking a provider
 
 ### Requirement: Claude content preserves the existing projection
 
@@ -272,14 +368,51 @@ tool name and optional `input.file_path`, in source order. The role SHALL
 come from the message or fall back to the record type, and an absent stamp
 SHALL be empty. Other record/block kinds SHALL remain absent from Claude's
 projected prose as today; this feature SHALL NOT expand it to arguments,
-tool-result bodies or thinking. Known deliberately omitted kinds count in
-neither diagnostic, but an unrecognized type or content variant still counts
-in `unrecognized_records`; omitting prose does not mean hiding format drift.
-The shared limit and safe-location rules apply to Claude as to the new kinds.
+tool-result bodies or thinking. Claude diagnostic classification SHALL use
+the following closed list. "Quiet" means neither `skipped_lines` nor
+`unrecognized_records` increases; it does not mean a turn is emitted.
+
+| Record or content case | Projection and diagnostic rule |
+|---|---|
+| Top-level object with `type: "user"` or `"assistant"` | Project its supported message content as below; count at most once if an unrecognized content representation or block occurs. Extra record/message fields, including usage, role and timestamp metadata, are not content variants and are quiet. |
+| Top-level object with type exactly `summary`, `system`, `progress`, `file-history-snapshot` or `queue-operation` | Deliberately omit the entire record, including nested payloads; quiet. This is the complete non-message omission list. |
+| User/assistant record with absent or null `message`, or an object message with absent/null `content` or an empty content array | No blocks and no turn; quiet. A recognized envelope need not carry visible content. |
+| String-valued `message.content` | Keep the existing single text block, including an empty or whitespace-only string; quiet. The nonblank rule applies only to array text blocks. |
+| Array block `type: "text"` | Emit only a nonblank string `text`. Absent/null or blank `text` supplies no block and is quiet; a present non-null non-string `text` counts the source record as unrecognized. |
+| Array block `type: "tool_use"` | Emit the name/file-path marker only. A missing/non-string name falls back to `?`; absent/non-string `input.file_path` adds no target. All other input/argument fields are deliberately ignored and quiet, including missing input; they are not recursively classified. |
+| Array block type exactly `thinking`, `redacted_thinking`, `tool_result`, `image` or `document` | Deliberately omit the entire block, including its payload and nested content; quiet. This is the complete omitted-block list. |
+| Any other top-level type; absent/non-string top-level type; non-object JSON record; non-null non-object `message`; non-null `content` other than string/array; any other, absent or non-string block type, including non-object array elements | Omit unsupported content and count the source record once in `unrecognized_records`, retaining any supported sibling blocks. |
+
+A valid recognized record with no visible blocks SHALL be quiet unless it
+contains one of the table's explicit unrecognized cases. No wildcard
+"metadata", lifecycle label or unknown type SHALL extend the omission list.
+Malformed JSON alone increases `skipped_lines`. Missing/ill-typed optional
+role and timestamp fields retain the shipped fallbacks without diagnostic
+increments. These classifications are proposed reader policy, not a measured
+census of installed Claude record types. Design SHALL check installed-source
+evidence when available and return here with evidence before changing this
+list. The shared limit and safe-location rules apply to Claude as to the new
+kinds.
 
 #### Scenario: Existing Claude text and tool markers survive extraction
 - **WHEN** a Claude file contains a string message, text blocks, a blank block, a Read tool with a file path, a Bash tool with arguments, and a thinking block
-- **THEN** the same text and `Read · <file-path>` and `Bash` markers appear in order, with no Bash arguments or thinking prose added
+- **THEN** the same text and `Read · <file-path>` and `Bash` markers appear in order, with no Bash arguments or thinking prose added and no unrecognized-record increment for those omissions
+
+#### Scenario: The shipped Claude projection fixture has fixed diagnostic counts
+- **WHEN** the reader consumes the transcript literal in `crates/brokkr-cli/src/ui/tests.rs:628-648` at commissioned base `5bc8cf3`: one complete `not json` line, `{"type":"summary"}`, `{"type":"user"}` with no message, the plain assistant string, and the user array containing text, whitespace text, text with no value, Read/file-path and Bash markers, and thinking
+- **THEN** exactly the same two turns and three user blocks survive, `skipped_lines` is 1, `unrecognized_records` is 0, `truncated` is false and `notices` is exactly `["malformed transcript lines skipped: 1"]`; the summary, absent message, blank/missing text, omitted tool arguments and thinking add no unknown-record notice
+
+#### Scenario: Claude's closed omission lists stay quiet
+- **WHEN** a valid file contains each of the five omitted top-level record types, recognized user/assistant envelopes with no message or no content, and messages containing only the five omitted block kinds or blank/missing-text blocks
+- **THEN** the projection has no turns and both diagnostic counts are zero; it says `no readable turns` without an unrecognized-record notice
+
+#### Scenario: A new Claude kind remains a counted omission
+- **WHEN** a complete valid record has `type: "future-record"` and another user record contains supported text plus two `future-block` blocks
+- **THEN** only the supported text projects, `skipped_lines` is 0 and `unrecognized_records` is 2, with `unrecognized transcript records: 2`; familiar-looking payload fields cannot exempt either record from the closed-list rule
+
+#### Scenario: Known Claude envelopes do not hide an unsupported content shape
+- **WHEN** three complete assistant records respectively have an object-valued `content`, an array with a text block whose `text` is numeric, and an array with an untyped block
+- **THEN** each record counts once as unrecognized, producing zero turns, `skipped_lines: 0` and `unrecognized_records: 3`; the no-visible-block rule does not exempt unsupported representations
 
 #### Scenario: The browser drill keeps its wire shape
 - **WHEN** the existing local Claude session endpoint reads a supported session within the shared limits
@@ -413,10 +546,12 @@ variant SHALL instead be counted in `unrecognized_records`, at most once per
 source record even when several blocks are unrecognized. A partially
 recognized message SHALL retain its supported blocks and count that record
 once for the unsupported portion. Valid JSON scalars and records with no
-recognizable envelope count as unrecognized, not malformed. Recognized
-headers, context/lifecycle/accounting records, encrypted reasoning,
-known explicitly omitted Claude blocks and proven duplicate representations SHALL
-count in neither diagnostic. The exact notice
+recognizable envelope count as unrecognized, not malformed. For Claude, the
+closed classification table in "Claude content preserves the existing
+projection" SHALL determine every exemption; merely calling an unknown type
+metadata SHALL not exempt it. For Codex/DSH, recognized headers,
+context/lifecycle/accounting records, encrypted reasoning and proven
+duplicate representations SHALL count in neither diagnostic. The exact notice
 `unrecognized transcript records: <n>` SHALL appear when that count is
 positive; neither notice SHALL quote an unknown or malformed payload.
 
@@ -461,7 +596,7 @@ result, not that compatibility response.
 - **THEN** the local result is `unreadable` and no replacement-character version of its prose is presented as the transcript
 
 #### Scenario: An empty session is different from a missing file
-- **WHEN** a valid retained file contains only a session header and context records
+- **WHEN** a valid retained file contains only headers and context records recognized for its kind
 - **THEN** it returns zero turns without an unavailability reason, and a missing file instead returns `not-found`
 
 ### Requirement: Every kind obeys the same source and display caps
@@ -596,3 +731,74 @@ zero establishes eligibility. The driver-folded-invalid-depth scenario names
 the deliberate discrepancy and exact explanation. The adapter and #226's
 resumption/launch semantics remain outside this issue; neither the journal
 nor the operator's retained file is rewritten to hide the refusal.
+
+### R9 / second-pass clarification 1 — Claude omissions are a closed policy
+
+Adopt the finding: "known deliberately omitted" was undefined. The new table
+fixes the quiet top-level and block vocabularies and separates recognized
+empty content from unsupported representations. The shipped literal in
+`ui/tests.rs:628-648` and projection in `ui.rs:245-305` establish the
+`summary`, missing-message/text, tool-marker and thinking compatibility
+cases; `adapters.rs:688` separately recognizes Claude `system` lifecycle
+records. The additional named omission kinds are explicit proposed policy,
+not claimed live observations. An installed record census remains unmeasured.
+
+Counting every dropped field is rejected because ordinary tool arguments
+and intentional thinking omissions would permanently advertise format
+drift. Exempting every unrendered kind is also rejected because a future
+format could then look empty. The exact fixture result is `(1, 0)` for
+`(skipped_lines, unrecognized_records)`, and the new-kind scenarios prove that
+Claude still participates in the unknown-record protection. No frozen
+fixture is edited; implementation extends the existing crate suites.
+
+### R10 / second-pass clarification 2 — The page consumes the same eligibility
+
+Adopt the finding against `ui.html:978-1010`: a flat id is not ownership.
+`brokkr-view/src/lib.rs:1959-1971` retains non-Claude legacy ids, whereas
+`tui.rs:420-431` already checks their provenance. Leaving the page's
+eligibility and holder sentence independent is rejected under decision
+0013's single Rust derivation rule. Common references take precedence,
+the shared Rust result supplies hints, and the browser performs no Claude
+drill for an ineligible legacy participant.
+
+The id-only API intentionally remains journal-independent, as
+`ui.rs:71-75` and the drill test state; inferring participant ownership there
+would be wrong when several participants share an id. Its direct 200 for an
+independent matching Claude file is not permission for the Codex participant
+page to fetch it. Repointing those routes to a recorded custom home is also
+rejected: an id alone cannot identify that home. Browser presentation remains
+an explicit local result, so no inspect/seats JSON change or transcript body
+on a journal-derived model is needed. New Codex/DSH browser body routes remain
+outside scope.
+
+### R11 / second-pass clarification 3 — Claude compatibility costs are explicit
+
+Adopt all three discovery narrowings and label them `BREAKING` in the
+proposal and proposed 0055. The baseline `ui.rs:205-219` returns the first
+file, enumerates without a budget and follows symlinks through `is_file`.
+Keeping those behaviors only for Claude is rejected: enumeration order
+cannot prove a unique source, an unbounded scan can stall every refresh, and
+symlink following defeats the same safe-opening rule required for other
+kinds. A canonicalized recorded home itself can be a symlink; the refusal
+concerns actual symlink entries below it. An ordinary project directory
+whose name encodes a symlinked working-directory path is still eligible;
+the spelling of a directory name alone does not make that directory a
+filesystem symlink.
+
+The API/SSE refusal scenario fixes 404 before stream admission for all three
+new classes; an already admitted stream closes when safe unique discovery
+fails. The CLI/TUI keep the precise reason and the existing shared Claude
+hint. The 32 MiB source bound is also declared as a compatibility limit
+because previously readable content can lie beyond it.
+
+Migration guidance for the read-surfaces guide and 0055: the operator can
+inspect retained originals outside the bounded reader, resolve duplicate
+placement, arrange entries within the recorded home so a unique owned file
+can be established within the discovery budget, or use an actual
+project/file instead of a symlink below that home. The home remains the
+recorded fact; this reader offers no home override and rewrites no
+historical reference.
+The operator, not the reader, controls any filesystem reorganization; no
+automatic deletion, movement, journal rewriting or limit bypass is part of
+the change. Accepting 0055 is the operator's ruling on these costs, not this
+specification's claim that acceptance has occurred.

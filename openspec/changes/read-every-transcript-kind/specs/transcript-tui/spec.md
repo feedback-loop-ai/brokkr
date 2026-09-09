@@ -88,6 +88,14 @@ long path clipped in the participant header remains readable. The CLI JSON
 - **WHEN** the operator opens the whole-transcript overlay of a Codex seat that ran with boxed hands
 - **THEN** the hint is readable data only, no `codex` process starts, no sandbox setting changes and the recorded boundary remains the journal's original fact
 
+#### Scenario: Claude discovery refusals retain the shared hint
+- **WHEN** a valid Claude reference has duplicate qualifying files, an exhausted discovery bound or only a symlink candidate below its canonical home
+- **THEN** the TUI shows `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively beside its common transcript fact and shared Claude full-session line, clears previous turns and offers no reading door into a former candidate
+
+#### Scenario: Legacy Codex eligibility agrees across participant surfaces
+- **WHEN** a pre-0032 Codex participant has only a legacy session id and no common reference
+- **THEN** the TUI shows `no-reference` with no full-session line or active reading door, agreeing with the command and browser participant presentation even if a direct id-only browser lookup could find an unrelated Claude file
+
 ### Requirement: Notices survive every reading surface
 
 The shared `transcript truncated (size cap)` notice SHALL appear in the pane,
@@ -124,6 +132,10 @@ bounded readout so the operator can inspect the retained original separately.
 #### Scenario: A selected readable turn retains the unknown-record notice
 - **WHEN** a file contains readable turns and unrecognized records and the operator opens a selected turn
 - **THEN** the selected overlay, whole overlay and pane carry the same unrecognized-record count notice as CLI selection, without including unknown payloads
+
+#### Scenario: Known Claude omissions do not invent an unknown-record notice
+- **WHEN** the selected Claude source is the shipped projection fixture identified in `transcript-reading` and the operator opens its second turn or the whole transcript
+- **THEN** the pane and both doors retain the shared two-turn projection or selected turn as appropriate and show only `malformed transcript lines skipped: 1`; `unrecognized_records` remains zero despite its omitted summary, absent message, blank/missing text, tool arguments and thinking
 
 #### Scenario: The selected door cannot hide the source cap
 - **WHEN** a retained turn is selected from a truncated transcript and opened
@@ -202,3 +214,14 @@ truncation suffixes are removed. A zero-turn file with unsupported records
 has an explanation the operator can open, not an apparently empty session.
 The explicit 0055 amendment in proposal S2 is required for the additional
 Codex convenience; this rendering authorizes no provider execution.
+
+### T3 / second-pass clarifications 1–3 — Compatibility refusals and omissions stay shared
+
+A known Claude omission is not an unrecognized record: the pane and both
+doors use the reading capability's exact fixture counts, including after
+turn selection. Conversely a new Claude kind keeps the existing shared
+unknown-record notice. The TUI accepts the newly declared breaking lookup
+restrictions instead of preserving the old first candidate or stale prose.
+Its precise reason and Claude hint agree with browser participant
+presentation, whose direct id-only compatibility routes remain separately
+scoped. All these values come from the reader; the TUI adds no classification.

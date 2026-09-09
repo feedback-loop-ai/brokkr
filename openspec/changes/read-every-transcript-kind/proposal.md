@@ -35,13 +35,30 @@ implementation and review.
   with bounded source reads and discovery and an explicit truncation
   notice shared by text, JSON and both TUI doors. Preserve journal privacy,
   transcript retention, terminal sanitization and accepted contracts. Count
-  unrecognized records separately from malformed lines, so unsupported content
-  cannot silently look like an empty session. Retire Claude's truncation suffix;
-  every kind uses exactly `transcript truncated (size cap)`.
+  unrecognized records separately from malformed lines, using the closed Claude
+  omission list in the reading delta so intentional omissions stay quiet and
+  new record/block kinds remain visible as counted omissions. Retire Claude's
+  truncation suffix; every kind uses exactly `transcript truncated (size cap)`.
 - **BREAKING**: require a leading hexadecimal character in Claude/Codex ids
   everywhere they are read or used in a convenience command, including the
   existing Claude browser drill and its client guard. Leading-hyphen ids that
   the old guard admitted become invalid.
+- **BREAKING**: Claude lookup now refuses duplicate candidates
+  (`ambiguous-source`), discovery beyond 10,000 entries (`discovery-limit`),
+  and symlink project entries or transcript files below the canonical home
+  (`unsafe-path` when no safe unique source exists), replacing first-match,
+  unbounded enumeration and symlink following. These refusals apply to the
+  TUI and both existing Claude HTTP routes; the routes return 404 for the new
+  lookup refusals. The new 32 MiB source cap can truncate Claude content that
+  the former displayed-text-only limit served in full. Proposed 0055 must
+  name these compatibility costs, with their limits and migration guidance.
+- Correct browser participant eligibility and convenience text through the
+  shared Rust derivation. An explicit non-Claude legacy provider cannot
+  trigger a Claude drill; every displayed `full_session` is the shared value.
+  The id-only HTTP routes remain journal-independent Claude lookups. A
+  participant whose recorded Claude home differs from the routes' local
+  projects home keeps its shared hint but gets no drill into the wrong home.
+  Codex/DSH browser transcript bodies remain outside scope.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
@@ -71,9 +88,13 @@ as separate capabilities.
 
 Production work belongs in `crates/brokkr-view` and the CLI's local reader,
 argument handling, rendering and TUI shell. Existing Claude browser drills
-must consume the shared Claude derivation and keep their response shape and
-supported Claude content. Their identifier guard and truncation text change
-as declared above; adding Codex/DSH browser routes is outside this commission.
+must consume the shared Claude derivation and keep their successful
+`session_id`/`turns`/`truncated` response shape and supported Claude content.
+The browser's selected-participant eligibility, shared hints, identifier
+guard, lookup refusals and truncation text change as declared above. Browser
+presentation metadata remains separate from existing inspect/seats/watch JSON
+and contains no transcript prose in journal-derived models. Adding Codex/DSH
+browser transcript routes is outside this commission.
 Tests belong in the existing view, CLI, TUI and reader suites, with synthetic
 files in test-owned
 homes. The read-surfaces guide and proposed decision/index accompany the
@@ -111,9 +132,9 @@ The replacement binding to carry into 0055 is:
 > lines by validated kind: `claude-session` names `claude --resume <id>`;
 > `codex-thread` names `codex exec resume <thread>`, the recorded home and
 > either the confirmed rollout path or explicit rollout unavailability;
-> `dsh-session` names only a confirmed session file and no command. TUI and
-> transcript CLI consume that same result. No other kind borrows either
-> command, and displaying a hint executes nothing.
+> `dsh-session` names only a confirmed session file and no command. TUI,
+> transcript CLI and browser participant presentation consume that same result.
+> No other kind borrows either command, and displaying a hint executes nothing.
 
 The common transcript cell, ownership, retention, journal privacy and decision
 0030's same-seat/sandbox bindings remain unchanged. Accepted 0032 is not
@@ -180,6 +201,15 @@ are recorded in `.forge/specify/read-every-transcript-kind-validation.json`.
 These pending delivery checks are not prerequisites fabricated for drafting,
 and drafting is not a claim of implemented or fully validated behavior.
 
+On the second returned specify visit, strict OpenSpec validation passed;
+proposal/specs remain the only completed artifacts. All five commissioned
+Cargo commands were attempted with both concurrency limits and exited 127
+because `cargo` is absent. Exact coverage exited 1 at `mktemp` because
+`/var/tmp` is absent, with the required temporary root and boundary-evidence
+flag supplied. This visit's separate evidence is
+`.forge/specify/read-every-transcript-kind-second-return-validation.json`;
+the earlier visit's record is preserved. Host proof remains pending.
+
 ### S5 — Extra bounds are proposed policy, not provider measurements
 
 The existing 4,000,000-byte block budget is preserved. The new 32 MiB source
@@ -221,3 +251,24 @@ observable answers:
 These answers do not claim new installed-provider measurements or bypass the
 independent clarification and analysis judgments. Design must return upstream
 with evidence if a measured format cannot satisfy these behaviors.
+
+### S7 — Second return from clarify: three findings resolved explicitly
+
+Adopted `read-every-transcript-kind` at `604825d` and validated it before
+amendment. The three findings in
+`.forge/clarify/read-every-transcript-kind-ambiguities-second-pass.md` concern
+this specification's own missing rules; no earlier triage artifact or
+accepted decision needs repair. The proposal is revised first, then reading,
+command and TUI deltas. Existing first-pass answers remain in force.
+
+| Finding | Resolution and owning scenario |
+|---|---|
+| 1 — Claude's known omissions | Reading R9 enumerates uncounted record/block kinds and missing/blank fields; "The shipped Claude projection fixture has fixed diagnostic counts" fixes `skipped_lines: 1` and `unrecognized_records: 0`. Command and TUI scenarios preserve those counts on selection and both doors. |
+| 2 — Browser eligibility and hint ownership | Reading R10 requires the shared Rust reference/hint result, suppresses non-Claude legacy drills and removes the holder sentence. "A legacy Codex participant never starts a Claude browser drill" states the page behavior and the independent direct endpoint's 200/404 behavior. Recorded custom homes cannot silently use the ambient home. |
+| 3 — Claude lookup compatibility | Reading R11 adopts all three narrowings as explicitly `BREAKING`, fixes API/SSE admission at 404 for each new refusal, and states remediation without changing retained evidence. "Claude browser lookup refusals have fixed HTTP responses" covers all three classes; CLI/TUI scenarios preserve the specific refusal and shared Claude hint. |
+
+The closed Claude omission list is a proposed classification policy, not a
+claim of a measured live record census. Installed-provider content evidence
+remains pending as S3 states. Council design must carry these classification,
+browser and compatibility choices into proposed 0055; none silently rewrites
+accepted 0032 or borrows #226's work.

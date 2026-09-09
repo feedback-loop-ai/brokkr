@@ -135,6 +135,18 @@ explicit version change in its schema identifier.
 - **WHEN** an owned file contains a recognized header, five unrecognized complete records and no readable turns or malformed lines
 - **THEN** JSON has `turns: []`, `unavailable: null`, `truncated: false`, `skipped_lines: 0`, `unrecognized_records: 5` and `notices: ["unrecognized transcript records: 5"]`; the text read says `no readable turns` with that same notice and exits zero
 
+#### Scenario: Claude omission counts survive CLI turn selection
+- **WHEN** the owned Claude source is the shipped projection fixture identified in `transcript-reading`, and the operator requests its whole transcript or `--turn 2`
+- **THEN** JSON preserves `skipped_lines: 1`, `unrecognized_records: 0` and `notices: ["malformed transcript lines skipped: 1"]` in either read; the whole read returns the same two turns and the selected read returns only the unchanged second turn, with no notice for intentionally omitted content
+
+#### Scenario: Claude lookup restrictions keep their exact CLI reasons
+- **WHEN** a selected valid Claude reference with id `abcd-1234` has duplicate qualifying files, exceeds the discovery-entry bound, or has only a symlink candidate below its canonical home
+- **THEN** JSON exits one with `unavailable` equal to `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively, `path: null`, `turns: []`, zero diagnostic counts and `full_session: "full session: claude --resume abcd-1234"`; these are lookup failures, not empty or malformed transcripts
+
+#### Scenario: A legacy Codex id remains unavailable in the command
+- **WHEN** the selected participant has explicit Codex provenance, no common reference and only legacy `session_id: "abcd-1234"`, even with a matching local Claude file
+- **THEN** JSON exits one with `unavailable: "no-reference"`, `transcript: null`, `legacy: false`, `path: null` and `full_session: null`, matching the TUI and browser participant eligibility; it returns no turns and reads no Claude file
+
 #### Scenario: A missing Codex rollout has a fixed full-session value
 - **WHEN** a participant's valid reference is `{"kind":"codex-thread","locator":"019c-222a","home":"/retained/codex"}` and lookup finds no matching file
 - **THEN** JSON has `path: null`, `unavailable: "not-found"` and `full_session: "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""`, exactly, with empty turns and zero diagnostic counts; the command exits one
@@ -241,3 +253,14 @@ Canonical records can replace streaming fallbacks when a file grows. Keeping
 an old index attached to new content would misidentify the requested turn.
 Each invocation selects only after the shared current projection is complete;
 no durable message identity or frozen index across file changes is promised.
+
+### C4 / second-pass clarifications 1–3 — Shared classifications remain observable
+
+The command inherits the reading capability's closed Claude omission list,
+browser-independent participant eligibility and precise discovery reasons.
+The new selection scenario fixes the shipped Claude fixture at `(1, 0)`
+diagnostic counts without widening the successful browser envelope. Lookup
+refusals retain the reader's non-null Claude hint and zero counts before a
+source is read. A direct id-only browser request is a different selector;
+its local Claude result cannot make a legacy Codex participant eligible.
+No second JSON schema or independent hint/omission rule is introduced.
