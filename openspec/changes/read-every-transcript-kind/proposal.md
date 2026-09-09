@@ -21,10 +21,14 @@ implementation and review.
 - Resolve the selected participant's recorded kind, locator and home to
   its own retained file. Distinguish missing, invalid, ambiguous and
   unreadable references; never substitute another seat, a delegated DSH
-  session or the newest file in a provider home.
+  session or the newest file in a provider home. Codex uses the shipped
+  whole-token filename identity without a required content header; its
+  provider-specific id guard accepts the engine's existing language.
 - Add `brokkr transcript --run <selector> --seat <label-or-key>` with
   optional one-based `--turn <n>` and `--json`, using the read surfaces'
   existing journal and realm selection and the TUI's same derivation.
+  JSON preserves a present common reference's recorded fields even when the
+  reader rejects it, separately from validation, resolved paths and hints.
 - Make the TUI transcript pane, open-turn door and open-whole door work
   for all three readable kinds, including live file appearance/growth.
   Show the correct full-session location and measured command spelling:
@@ -39,10 +43,13 @@ implementation and review.
   omission list in the reading delta so intentional omissions stay quiet and
   new record/block kinds remain visible as counted omissions. Retire Claude's
   truncation suffix; every kind uses exactly `transcript truncated (size cap)`.
-- **BREAKING**: require a leading hexadecimal character in Claude/Codex ids
+- **BREAKING**: require a leading hexadecimal character in Claude ids
   everywhere they are read or used in a convenience command, including the
   existing Claude browser drill and its client guard. Leading-hyphen ids that
-  the old guard admitted become invalid.
+  the old Claude guard admitted become invalid. Codex keeps the engine's
+  existing 1–128 ASCII alphanumeric-or-dash language with an alphanumeric
+  first character; the reader does not impose Claude's hex/64-character
+  restriction or change the protocol's 80-character recorded-locator clamp.
 - **BREAKING**: Claude lookup now refuses duplicate candidates
   (`ambiguous-source`), discovery beyond 10,000 entries (`discovery-limit`),
   and symlink project entries or transcript files below the canonical home
@@ -63,8 +70,9 @@ implementation and review.
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
   proposing the replacement of decision 0032 ruling 4's command-construction
-  binding stated in S2; only the operator can accept it. No semantic production
-  change is made in this specification phase.
+  binding stated in S2 and the successor's identity/JSON resolutions in S8;
+  only the operator can accept it. No semantic production change is made in
+  this specification phase.
 
 ## Capabilities
 
@@ -210,15 +218,29 @@ flag supplied. This visit's separate evidence is
 `.forge/specify/read-every-transcript-kind-second-return-validation.json`;
 the earlier visit's record is preserved. Host proof remains pending.
 
+On the successor adoption, strict OpenSpec validation and delta parsing
+passed with all 20 requirements, and only proposal/specs report done.
+All five commissioned Cargo commands were attempted with
+`CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2` and exited 127 (`cargo` absent).
+Unchanged exact coverage was attempted with those limits,
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at
+`mktemp` because `/var/tmp` is absent. Separate evidence is
+`.forge/specify/read-every-transcript-kind-successor-validation.json`.
+`git diff --check` passed; frozen files and accepted decisions are unchanged
+from the commissioned base. Provider measurements, Rust delivery checks and
+external host boundary proof remain pending; no skipped or unavailable check
+is counted as passing evidence.
+
 ### S5 — Extra bounds are proposed policy, not provider measurements
 
 The existing 4,000,000-byte block budget is preserved. The new 32 MiB source
 budget bounds memory and input work even for ignored records; it leaves room
 for JSON framing and metadata beyond the displayed-text budget. Six Codex
 directory levels follow the existing adapter search bound. The 10,000-entry
-discovery and 65,536-byte header bounds make a lookup finite; they are
-proposed limits, not measured maxima of provider homes or headers. A refusal
-at a limit stays explicit, and the retained original remains untouched.
+discovery and 65,536-byte DSH first-record header bounds make a lookup finite;
+they are proposed limits, not measured maxima of provider homes or headers.
+A refusal at a limit stays explicit, and the retained original remains
+untouched.
 Council design must test these choices against installed format evidence and
 return to this specification if a normal supported record cannot fit.
 
@@ -245,7 +267,7 @@ observable answers:
 | 4 — 0032 ruling 4 | Explicitly propose its replacement binding in 0055, as S2 states; reading: "The proposed convenience binding remains kind-specific". |
 | 5 — Unresolved full-session line | Reading owns deterministic strings/nulls for all kinds, consumed by both renderers; command: "A missing Codex rollout has a fixed full-session value". |
 | 6 — Claude truncation suffix | Retire it on every surface; TUI: "Claude and Codex use the identical notice". |
-| 7 — Leading-hyphen identifiers | Tighten the shared Rust guard and the browser's copy together; reading: "The browser drill rejects a leading-hyphen id". |
+| 7 — Leading-hyphen identifiers | Tighten the shared Claude Rust guard and the browser's copy together; reading: "The browser drill rejects a leading-hyphen id". |
 | 8 — Invalid DSH depth | Deliberately require valid ownership evidence even where the old adapter coerced it to zero; reading: "A driver-folded invalid DSH depth is explicitly refused". |
 
 These answers do not claim new installed-provider measurements or bypass the
@@ -272,3 +294,37 @@ claim of a measured live record census. Installed-provider content evidence
 remains pending as S3 states. Council design must carry these classification,
 browser and compatibility choices into proposed 0055; none silently rewrites
 accepted 0032 or borrows #226's work.
+
+### S8 — Successor adoption resolves the third clarify pass
+
+Adopted the committed change at `f9abdc4` for successor run
+`close-issue-222-a-transcript-rea-391bcdc7`; strict validation passed before
+amendment. The three findings in
+`.forge/clarify/read-every-transcript-kind-ambiguities-third-pass.md` are
+specification defects, not defects in the commissioned scope or triage.
+All eleven earlier answers in S6/S7 and R1–R11, C1–C4 and T1–T3 remain in
+force. This amendment removes two unsupported Codex restrictions and closes
+the JSON rule; it keeps the full #222 story and every later commissioned
+phase. Proposal precedes the amended reading, command and TUI deltas.
+
+| Finding | Resolution and owning scenario |
+|---|---|
+| 1 — Undefined Codex header gate | Reading R12 selects by the shipped filename-token rule and removes content-header gating entirely, including both absence and conflict vetoes. "A Codex rollout needs no session header" and "Codex payload ids do not select or veto a file" fix the outcomes; this is compatibility with shipped identity discovery, not an invented provider header. |
+| 2 — Codex ids narrowed to Claude's language | Reading R13 keeps one language per kind: Codex matches the shipped 1–128 ASCII alphanumeric-or-dash guard, Claude keeps R7's tightened hex/64 rule. "Codex ids retain the engine's accepted language" covers non-hex and 65–80-character locators; CLI/TUI/browser participant scenarios retain the same path/hint result without a Claude drill. |
+| 3 — Rejected common reference in JSON | Command C5 requires the recorded three string values, unchanged, even for every reference refusal, with `legacy: false`; null means no common reference and no valid legacy synthesis. "JSON retains every rejected common reference" pins all five refusal classes. |
+
+The shipped adapter source and its tests settle Brokkr's compatibility
+choices; they do not measure the current provider's complete id or record
+vocabulary. This box still has no provider CLI or retained provider home.
+S3's specific content-association and installed-help evidence and S5's bound
+sizing remain obligations for council design, with controller handoff where
+unmeasured. No model run is needed to settle the three rules above.
+
+Council design must carry R12, R13 and C5 into proposed 0055 with enforcement
+bindings to the shared reader and the CLI/TUI/browser regression scenarios.
+It must distinguish the 128-character reader/engine guard from the unchanged
+80-character built-in recording clamp, state that payload ids neither prove
+nor veto filename identity, and keep rejected-reference JSON separate from
+lookup permission. This is required content for that phase's decision draft,
+not acceptance of 0055 or permission to alter #226's adapters. No design or
+tasks artifact exists on this visit to amend or claim complete.

@@ -80,6 +80,14 @@ long path clipped in the participant header remains readable. The CLI JSON
 - **WHEN** a valid Codex reference has no local matching file
 - **THEN** its common reference remains visible, the reader's non-null full-session line says the rollout is unavailable and names its Codex command and recorded home, and no guessed date path or Claude command is printed
 
+#### Scenario: Codex hints do not inherit the Claude id guard
+- **WHEN** a selected common Codex reference uses `0199mine` or a valid 65–80-character alphanumeric-or-dash thread id and its unique safe filename-matching rollout is readable without a session header
+- **THEN** the TUI shows the shared confirmed-path Codex hint and its projected turns, allowing both doors for retained turns and the whole explanation for zero turns; CLI JSON and browser participant presentation retain that same hint, and the browser offers no Claude drill
+
+#### Scenario: Rejected references stay visible without reading doors
+- **WHEN** a selected common reference has an unsupported kind or missing home beside a stale legacy Claude id
+- **THEN** the pane keeps its sanitized recorded reference and specific refusal, with no full-session hint, old turns or active reading door; JSON's preserved reference does not make the reference eligible for a TUI or browser read
+
 #### Scenario: A shell fragment cannot form a convenience command
 - **WHEN** a recorded id contains a semicolon, command substitution, leading hyphen or other invalid id syntax
 - **THEN** neither TUI nor CLI constructs a resume command from it, and the read reports `invalid-reference`
@@ -150,9 +158,10 @@ bounded readout so the operator can inspect the retained original separately.
 While the selected participant is working, the TUI SHALL recheck local
 transcript availability at its existing refresh opportunities even when the
 journal sequence has not advanced. A not-yet-created file or incomplete
-header SHALL be retried; a grown file SHALL be re-derived under the shared
-caps, including event-only Codex content and unassembled readable DSH
-chunks. A refresh SHALL replace the previous bounded projection, not append
+DSH first-record header SHALL be retried; Codex SHALL not wait for any
+header after its filename establishes eligibility. A grown file SHALL be
+re-derived under the shared caps, including event-only Codex content and
+unassembled readable DSH chunks. A refresh SHALL replace the previous bounded projection, not append
 its turns. Canonical replacements SHALL remove only associated fallbacks,
 using the reading capability's snapshot ordering. If replacement removes,
 changes or reorders any previously displayed turn, the turn selection SHALL
@@ -172,8 +181,8 @@ concluded participant's reference. Every refresh SHALL preserve bounded
 reads and read-only journal/provider access.
 
 #### Scenario: An announced thread whose rollout arrives late is readable
-- **WHEN** a working Codex seat has journaled its reference before its rollout exists, and the valid file appears without another journal event
-- **THEN** a subsequent existing TUI refresh finds and displays it without a navigation round trip
+- **WHEN** a working Codex seat has journaled its reference before its rollout exists, and a unique safe filename-matching file appears with recognized readable content but no session header, without another journal event
+- **THEN** a subsequent existing TUI refresh finds and displays it without a navigation round trip or waiting for a header record
 
 #### Scenario: DSH appends prose between checkpoints
 - **WHEN** the selected DSH session gains a complete assembled message while the journal head stays the same
@@ -225,3 +234,15 @@ restrictions instead of preserving the old first candidate or stale prose.
 Its precise reason and Claude hint agree with browser participant
 presentation, whose direct id-only compatibility routes remain separately
 scoped. All these values come from the reader; the TUI adds no classification.
+
+### T4 / third-pass clarifications 1–3 — No extra TUI eligibility gate
+
+R12/R13 own Codex filename identity and its id language. The TUI neither
+waits for an undefined header nor applies Claude's guard to a Codex hint;
+late file appearance remains readable on an existing refresh opportunity.
+C5 preserves rejected references as JSON facts, which does not reopen any
+reading door or authorize legacy fallback. The new scenarios make these
+consequences visible while preserving T1–T3's navigation, diagnostic,
+compatibility and stale-content rules. Proposed 0055 must bind these shared
+results to TUI and browser participant regression tests, without a provider
+execution or change to #226's launch behavior.

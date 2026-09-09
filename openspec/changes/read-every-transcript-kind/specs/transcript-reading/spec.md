@@ -79,6 +79,16 @@ lookup or reference synthesis (`transcript: null`, `legacy: false`). This
 failure is not converted to `no-reference` merely because there was no common
 reference.
 
+Selecting a present common reference SHALL precede validating it. Its
+recorded `kind`, `locator` and `home` strings SHALL remain the selected
+reference even when validation refuses lookup; the command's `transcript`
+member SHALL preserve them as specified by `transcript-command`. Reference
+presence is not validity or a confirmed path. A common reference refused as
+`none`, `unsupported-kind`, `unannounced`, `missing-home` or
+`invalid-reference` SHALL keep `legacy: false`, null `path` and
+`full_session`, no turns and no legacy lookup; it SHALL not be replaced,
+normalized or nulled to conceal the refusal.
+
 #### Scenario: A custom home survives an environment change
 - **WHEN** a Codex seat recorded home `/retained/codex` and the local process has a different `CODEX_HOME`
 - **THEN** lookup uses `/retained/codex/sessions` only, and reports unavailable if that location cannot be read instead of searching the new environment's home
@@ -90,6 +100,10 @@ reference.
 #### Scenario: Explicit absence defeats a stale compatibility id
 - **WHEN** a participant carries kind `none`, or an invalid or unsupported common reference, beside an old `session_id`
 - **THEN** no legacy lookup occurs and the corresponding unavailability is returned
+
+#### Scenario: A rejected common reference remains the selected fact
+- **WHEN** a participant records `{"kind":"codex-thread","locator":"0199mine","home":""}` beside a stale valid legacy Claude id
+- **THEN** the reader returns `missing-home` without lookup, retains exactly that common reference with `legacy: false`, null path and null full-session hint, and no legacy fallback supplies prose
 
 #### Scenario: Old Claude journals remain readable
 - **WHEN** a participant has no common reference, a valid legacy session id, and Claude, LaneTally or absent provider provenance
@@ -169,11 +183,28 @@ rules in JavaScript is not.
 Claude discovery SHALL search immediate project directories of the recorded
 projects home for the exact `<session-id>.jsonl` filename. Codex discovery
 SHALL search only below `<recorded-home>/sessions`, through at most six
-nested directory levels, for a `rollout-*.jsonl` file naming the complete
-thread id. A recognized Codex session header SHALL identify that same thread;
-a conflicting or absent identifiable session header SHALL not establish a
-match. Thread-id substrings and modification time SHALL never establish
+nested directory levels, for a `rollout-*.jsonl` filename containing the
+entire recorded thread id as a case-sensitive whole token. Whole token
+means that each adjacent filename character, when present, is not ASCII
+alphanumeric; filename ends also delimit the token. Hyphens are delimiters,
+as in shipped discovery. A substring adjacent to an ASCII alphanumeric
+character SHALL not qualify, and modification time SHALL never establish
 identity.
+
+For Codex, that filename token within the recorded scope SHALL be the sole
+identity predicate, subject to the shared uniqueness, bounds and safe-file
+rules. Codex discovery SHALL NOT read transcript content or require a
+session/header record, type, field or record position. An absent, incomplete, unknown or
+conflicting content header SHALL neither disqualify a filename match nor
+qualify a filename that does not match. In particular, a
+`payload.thread_id` in an `event_msg` whose `payload.type` is
+`thread_settings_applied` SHALL not select or veto a file, wherever it occurs.
+Such records remain subject to the content projection and diagnostic rules
+after file selection. An empty file with a unique eligible name SHALL be a
+readable zero-turn source; read errors still return `unreadable`. This
+preserves the shipped Codex filename-identity rule and removes the earlier
+proposal's unmeasured content-header gate; it does not claim that arbitrary
+file contents independently authenticate a session.
 
 DSH discovery SHALL search only the retained root at
 `<recorded-home>/<locator>`, using its project/session directory layout and
@@ -193,15 +224,19 @@ root session remains eligible; invalid/delegated candidates do not displace it.
 Other roots, compressed files and delegated sessions SHALL not be substitutes for the seat's plain JSONL file.
 
 Discovery SHALL inspect at most 10,000 directory entries per lookup and
-read at most 65,536 bytes of any candidate header. Exhausting discovery
-limits SHALL return `discovery-limit`, not the first candidate found. Exactly
+read at most 65,536 bytes of each DSH candidate's first-record header.
+Claude and Codex discovery SHALL read no transcript content; their selected
+source reads use the separate 32 MiB budget below, with no 65,536-byte
+opening-record gate. Exhausting discovery limits SHALL return
+`discovery-limit`, not the first candidate found. Exactly
 one qualifying file SHALL be required; several qualifying files SHALL return
 `ambiguous-source` regardless of enumeration order. No match SHALL return
-`not-found`. A file/header not yet complete can become available on a later
-read. These bounds apply equally to CLI lookup, TUI refresh and the
-existing Claude browser routes. For Claude this deliberately replaces the
-shipped first matching file, unbounded project enumeration and symlink
-following with unique, bounded, safe discovery. These are breaking lookup
+`not-found`. A file not yet created or a DSH first-record header not yet
+complete can become available on a later read. These bounds apply equally
+to CLI lookup, TUI refresh and the existing Claude browser routes. For
+Claude this deliberately replaces the shipped first matching file, unbounded
+project enumeration and symlink following with unique, bounded, safe
+discovery. These are breaking lookup
 changes proposed for 0055, not implied compatibility with the old reader.
 
 For the id-only Claude API, every shared reference/discovery/read failure
@@ -231,12 +266,20 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **THEN** that poll closes the stream without reporting another size from the old candidate; a new stream request receives HTTP 404 and a new API read supplies no transcript prose
 
 #### Scenario: Concurrent Codex threads do not share a result
-- **WHEN** a dated sessions tree contains the requested thread, a newer unrelated rollout and a file whose name contains the requested id only as a fragment
-- **THEN** only the file whose complete id and session header identify the requested thread is eligible, independent of timestamps and directory order
+- **WHEN** the selected thread is `0199mine` and a dated sessions tree contains `rollout-0199mine.jsonl`, a newer `rollout-0199other.jsonl`, and `rollout-0199mineX.jsonl`
+- **THEN** only `rollout-0199mine.jsonl` is eligible, independent of payload ids, timestamps and directory order; the trailing ASCII `X` makes the third filename a fragment match
 
-#### Scenario: A misleading filename cannot select another thread
-- **WHEN** a rollout filename matches the selected id but its session header identifies a different thread or provides no identifiable session
-- **THEN** the file does not establish a readable match and none of its prose is displayed
+#### Scenario: A Codex rollout needs no session header
+- **WHEN** the unique safe `rollout-0199other.jsonl` in the recorded sessions tree contains only the shipped `turn_context` fixture from `crates/brokkr-protocol/src/adapters/tests.rs:1183-1186` at base `5bc8cf3`, with no header or thread-identifying record
+- **THEN** selecting `0199other` resolves that path, returns a readable zero-turn result with zero diagnostic counts and its confirmed-path Codex hint, rather than `not-found`; subsequent recognized readable messages project without waiting for a header
+
+#### Scenario: Codex payload ids do not select or veto a file
+- **WHEN** the selected thread is `0199mine`, its uniquely named safe rollout contains a `thread_settings_applied` event naming another thread, and an unrelated rollout instead has that event naming `0199mine`
+- **THEN** the filename-matching file remains the only eligible source and its recognized content is projected; the unrelated filename remains ineligible, regardless of the event's position, absence or payload id
+
+#### Scenario: Codex content uses the source cap rather than a header cap
+- **WHEN** a unique safe filename-matching Codex rollout begins with a complete recognized readable record larger than 65,536 bytes but fits both the 32 MiB source and 4,000,000-byte display budgets
+- **THEN** the reader projects that record without a discovery-limit failure, extra header scan or invented truncation; a partial opening append is handled by the shared partial-record rule and does not make filename identity unavailable
 
 #### Scenario: A DSH child cannot replace its parent
 - **WHEN** the recorded DSH root contains one depth-zero session and a newer depth-one delegated session
@@ -255,20 +298,39 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **THEN** the reader reports `ambiguous-source`, displays no transcript prose and does not choose by recency or filesystem enumeration order
 
 #### Scenario: Discovery is bounded even in an unrelated large home
-- **WHEN** establishing a unique candidate would exceed 10,000 examined entries or requires an over-limit header
+- **WHEN** establishing a unique candidate would exceed 10,000 examined entries or requires a DSH first-record header exceeding 65,536 bytes
 - **THEN** discovery reports `discovery-limit` and performs no unbounded scan or header allocation
 
 ### Requirement: Local lookup rejects paths that escape ownership
 
-Claude session and Codex thread identifiers SHALL be 1 through 64 ASCII
-hexadecimal-or-hyphen characters, beginning with a hexadecimal character.
-This rule SHALL replace the existing shared session-id guard for all local
-consumers: CLI reading, TUI lookup and convenience lines, the Claude
-`/api/session/<id>` and `/sse/session/<id>` routes, and the browser's client
-validation. The browser guard SHALL accept the same language
-`[0-9a-fA-F][0-9a-fA-F-]{0,63}`; it SHALL not offer a drill or command for an
-invalid id. Leading-hyphen ids previously admitted by the old guard are now
-invalid on every surface. No separate permissive legacy-id rule remains.
+Identifier validation SHALL be provider-specific, with one accepted language
+per kind across all its local consumers. Claude session identifiers SHALL
+be 1 through 64 ASCII hexadecimal-or-hyphen characters, beginning with a
+hexadecimal character: `[0-9a-fA-F][0-9a-fA-F-]{0,63}`. This Claude rule
+SHALL replace the existing shared session-id guard for CLI reading, TUI
+lookup and convenience lines, the Claude `/api/session/<id>` and
+`/sse/session/<id>` routes, and the browser's Claude client guard.
+Leading-hyphen Claude ids previously admitted by the old guard are now
+invalid on every surface. No separate permissive legacy Claude rule remains.
+
+Codex thread identifiers SHALL be 1 through 128 ASCII alphanumeric-or-dash
+characters, beginning with an ASCII alphanumeric character:
+`[A-Za-z0-9][A-Za-z0-9-]{0,127}`. This is the shipped engine's Codex resume
+and thread-echo guard language, including non-hex letters and lengths above
+64. CLI reading, TUI lookup, and every Codex full-session hint, including
+browser participant presentation, SHALL use that language. The browser's
+Claude drill guard SHALL not be applied to a Codex reference; a valid Codex
+reference still SHALL NOT offer a Claude drill. Empty common locators retain
+`unannounced` precedence; otherwise an id outside its kind's language SHALL
+return `invalid-reference` before lookup or command construction.
+
+Validation SHALL use the entire recorded string without trimming, changing
+case, truncating, extending or inferring a suffix. Decision 0032's built-in
+80-character recorded-locator clamp SHALL remain unchanged: it describes
+what the driver records, not a new 64- or 80-character reader guard. A
+recorded prefix SHALL never be repaired by searching for a longer id or
+borrowing a flat legacy id. This rule changes no engine/adapter guard,
+resumption argv or session ownership behavior owned by #226.
 DSH locators SHALL be relative forward-slashed paths with no empty, dot,
 parent, drive-prefix or absolute component. A common home SHALL be an
 absolute path; empty homes SHALL report `missing-home`, and malformed homes
@@ -299,6 +361,18 @@ unrequested alternative, delete a retained file or change its bytes.
 #### Scenario: The browser retains valid-id compatibility
 - **WHEN** a Claude id is `a-bC09` and its unique owned local file is readable within the shared limits
 - **THEN** the client and server both accept it, the session endpoint retains its `session_id`, `turns` and `truncated` response shape and shared Claude content, and the existing growth stream remains available
+
+#### Scenario: Codex ids retain the engine's accepted language
+- **WHEN** common Codex references contain `0199mine` or an ASCII alphanumeric-or-dash id of 65 or 80 characters with an alphanumeric first character, valid absolute homes, and unique safe filename-matching rollouts
+- **THEN** CLI and TUI read those files and retain the complete recorded id in the shared Codex hint; browser participant presentation shows that hint without a Claude drill or `invalid-reference`, while the same strings under kind `claude-session` are rejected by its own guard
+
+#### Scenario: Codex validation keeps the engine's length boundaries
+- **WHEN** otherwise valid common Codex references have alphanumeric-or-dash ids of 1, 64, 81 or 128 characters with an alphanumeric first character, or ids of 129 characters, `-abc`, `ab_cd`, or non-ASCII letters
+- **THEN** the first four pass reference validation and proceed to bounded lookup with their full ids; the latter four return `invalid-reference` before lookup with null hints, without applying the built-in recording clamp as a new reader limit
+
+#### Scenario: A recorded prefix is never expanded into an unrecorded thread
+- **WHEN** a common Codex locator is 80 ASCII `a` characters and the only retained rollout names an 81-character id made of those 80 characters followed by another `a`
+- **THEN** the recorded id is valid but that filename fails the whole-token match, so the read returns `not-found` with null path and the unresolved Codex hint for exactly the recorded 80 characters; no suffix is recovered and the journal is unchanged
 
 #### Scenario: A symlink and a FIFO are not transcript files
 - **WHEN** a matching path is a symlink escaping the seat root, a symlink within the root, or a FIFO, including replacement after discovery
@@ -712,14 +786,17 @@ browser drill. Keeping Claude's old suffix would contradict that promise;
 its separate full-session line retains the resume convenience. No truncation
 notice advertises a provider command.
 
-### R7 / clarification 7 — The identifier guard moves everywhere together
+### R7 / clarification 7 — The Claude identifier guard moves everywhere together
 
-The existing `ui::valid_session_id` guards both paths and pasteable commands;
-`ui.html` duplicates its language. Leading hyphens can look like command
-options, so reject them in all consumers, including legacy ids, instead of
-maintaining conflicting guards. This is an explicit compatibility tightening
-in the proposal and proposed 0055. The browser 404/no-drill scenario pins the
-change; valid ids keep their existing wire shape and Claude projection.
+The existing `ui::valid_session_id` guards Claude paths and pasteable
+commands; `ui.html` duplicates its language. Leading hyphens can look like
+command options, so reject them in all Claude consumers, including legacy
+ids, instead of maintaining conflicting guards. This is an explicit
+compatibility tightening in the proposal and proposed 0055. The browser
+404/no-drill scenario pins the change; valid ids keep their existing wire
+shape and Claude projection. R13 preserves this answer while correcting the
+unsupported extension of Claude's language to Codex; Codex already rejects
+leading hyphens under its own shipped guard.
 
 ### R8 / clarification 8 — Invalid depth cannot prove DSH ownership
 
@@ -802,3 +879,57 @@ The operator, not the reader, controls any filesystem reorganization; no
 automatic deletion, movement, journal rewriting or limit bypass is part of
 the change. Accepting 0055 is the operator's ruling on these costs, not this
 specification's claim that acceptance has occurred.
+
+### R12 / third-pass clarification 1 — Codex identity keeps its shipped filename rule
+
+Adopt the finding against the undefined mandatory header. At base `5bc8cf3`,
+`adapters.rs:957-999` selects through `names_codex_thread` and
+`find_codex_thread` without reading content. The token is bounded by ends or
+non-ASCII-alphanumerics, not by a guessed UUID parser. The measured-envelope
+fixture at `adapters/tests.rs:1157-1168` defines `event_msg` /
+`thread_settings_applied` / `payload.thread_id` but proves no required header
+position. The echo test at `1180-1216` deliberately finds both `0199other`
+without an identifying event and `0199mine` whose settings helper records a
+different real thread id. Those are evidence of the shipped identity rule,
+not proof of the full current provider format.
+
+Requiring any header or making that optional event a conflict veto is
+rejected: either adds an unsupported ownership gate to the very files this
+feature must make readable. Remove both the absent-header refusal and the
+conflict refusal, rather than deferring their outcome or guessing a new
+record type. Filename and recorded scope decide identity; source records
+still decide projected content, diagnostics and read failure. The scenarios
+pin absence, conflicting payload ids and a large opening record. The DSH
+first-record/depth-zero gate and its 65,536-byte bound remain as R8 ruled.
+Unique safe files and the common source/display limits still apply to Codex.
+This proposal promises local reference resolution, not authentication of
+arbitrarily renamed provider bytes, and adds no new provider query.
+
+Proposed 0055 must record this reasoned withdrawal of the earlier Codex
+header restriction and bind enforcement to filename-selection and bounded
+reader regression tests. No content-schema measurement is claimed; S3's
+content-association evidence remains due during design.
+
+### R13 / third-pass clarification 2 — Codex does not borrow Claude's id language
+
+Adopt the finding: at base `5bc8cf3`, `plain_thread_id` in
+`adapters.rs:1795-1800` accepts 1–128 ASCII alphanumerics/dashes with no leading
+dash. `CodexThreadEcho::locate` and `codex_launch` both use it. Applying
+Claude's hex/64 rule for the first time to those same recorded Codex ids is
+rejected: it makes an engine-eligible session unreadable without additional
+ownership or shell-safety evidence. Reader and hints now accept exactly the
+engine's Codex language while R7's Claude tightening stays intact.
+
+The 80-character limit in `transcript.rs:15,73` governs built-in recording;
+it neither expands nor narrows the reader's lexical guard, and it is not
+changed here. A clipped id cannot be reconstructed from this journal fact.
+The prefix scenario fixes the result when an alphanumeric continuation makes
+the original filename ineligible. The id-boundary scenarios are synthetic
+compatibility cases, not claimed live provider identifiers or resume tests.
+Current provider id generation remains unmeasured in this box; matching the
+existing Brokkr guard does not require a paid model experiment.
+
+Proposed 0055 must carry the per-kind languages, unchanged recording limit
+and refusal/prefix outcomes, with shared-reader and cross-surface tests as
+its enforcement binding. It proposes no change to decision 0030's launch or
+sandbox law and needs no sibling-worktree changes.

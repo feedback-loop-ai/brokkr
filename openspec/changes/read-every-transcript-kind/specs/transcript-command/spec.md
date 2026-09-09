@@ -103,7 +103,7 @@ and the following members, present even when null or empty:
 |---|---|
 | `run_id` | Resolved full run identifier. |
 | `seat` | Resolved participant key, never only its possibly repeated label. |
-| `transcript` | Effective `{kind, locator, home}` reference, or null when no reference can be derived. |
+| `transcript` | Selected common `{kind, locator, home}` with its three recorded string values unchanged, even when rejected as `none`, `unsupported-kind`, `unannounced`, `missing-home` or `invalid-reference`; when no common reference exists, the valid synthesized legacy Claude reference, or null if none can be synthesized. |
 | `legacy` | Boolean indicating a synthesized legacy Claude reference. |
 | `path` | Confirmed local source path, or null when no owned file was resolved. |
 | `turn` | Requested one-based index, or null for the whole transcript. |
@@ -118,7 +118,13 @@ and the following members, present even when null or empty:
 This document SHALL be an explicit local read result, not a journal record,
 export format, or addition of prose to `RunView`. It SHALL NOT change the
 existing inspect/seats JSON shape or view version solely to introduce this
-new command. JSON strings SHALL retain content using JSON escaping, without
+new command. A present common reference SHALL be selected before validation
+and echoed in the result with `legacy: false`. Refusal or path
+canonicalization SHALL NOT normalize, reclamp, replace or null its recorded
+fields. JSON escaping preserves these string values as data and does not
+authorize a lookup or command. Only absence of a common reference together with failure to derive
+a valid eligible legacy Claude reference SHALL make `transcript` null.
+JSON strings SHALL retain content using JSON escaping, without
 ANSI decoration, terminal control execution or prose scraped from rendered
 text. Structural changes to this new public document SHALL require an
 explicit version change in its schema identifier.
@@ -126,6 +132,22 @@ explicit version change in its schema identifier.
 #### Scenario: Scripts receive the selected identity and shared turns
 - **WHEN** `brokkr transcript --run <prefix> --seat <label> --json` resolves a readable reference
 - **THEN** one JSON document contains the full run id, exact participant key, common reference, confirmed path, shared turn objects and explicit truncation state under `brokkr.transcript/v1`
+
+#### Scenario: JSON retains every rejected common reference
+- **WHEN** a selected participant has one of the following common references, including when a stale valid legacy Claude id is also present
+- **THEN** JSON exits one with `transcript` equal to the input's three string values, `legacy: false`, the listed `unavailable` reason, null `path` and `full_session`, `turns: []`, `truncated: false`, zero diagnostic counts and no notices; it performs no file or legacy lookup
+
+| Recorded common reference | `unavailable` |
+|---|---|
+| `{"kind":"none","locator":"","home":""}` | `none` |
+| `{"kind":"future-session","locator":"opaque-222","home":"/retained/future"}` | `unsupported-kind` |
+| `{"kind":"codex-thread","locator":"","home":"/retained/codex"}` | `unannounced` |
+| `{"kind":"codex-thread","locator":"0199mine","home":""}` | `missing-home` |
+| `{"kind":"codex-thread","locator":"-abc","home":"/retained/codex"}` | `invalid-reference` |
+
+#### Scenario: Codex JSON does not impose a header or Claude id guard
+- **WHEN** a common reference names `0199mine` under `/retained/codex` and the sole safe matching file is `/retained/codex/sessions/rollout-0199mine.jsonl` containing only recognized `turn_context` metadata and no session header
+- **THEN** JSON exits zero with that unchanged reference, `legacy: false`, the confirmed path, `unavailable: null`, zero turns and diagnostic counts, no truncation and the shared confirmed-path Codex full-session string; no Claude lookup occurs
 
 #### Scenario: JSON distinguishes an empty transcript from unavailability
 - **WHEN** one read resolves an empty valid file and another resolves a missing file
@@ -264,3 +286,22 @@ refusals retain the reader's non-null Claude hint and zero counts before a
 source is read. A direct id-only browser request is a different selector;
 its local Claude result cannot make a legacy Codex participant eligible.
 No second JSON schema or independent hint/omission rule is introduced.
+
+### C5 / third-pass clarification 3 — Reference presence survives rejection
+
+Adopt the finding: "effective" left validation failures free to erase a
+present common reference. Preserve exactly its recorded three string values
+for every failure and keep `legacy: false`. Nulling it is rejected because
+it makes an unsupported or broken reference indistinguishable from no
+reference, while C1 already commits this document to versioned behavior.
+Reference echo is local diagnostic data, not proof of validity: lookup and
+full-session construction still stop under the reading capability's guard
+and reason precedence. The five-row scenario pins each reference refusal
+without changing the older null/synthesized-legacy scenarios.
+
+The dependent Codex scenario also consumes R12/R13: a filename-matching
+non-hex id without a header resolves through the same reader as the TUI.
+There is no command-specific discovery or identifier language. Proposed 0055
+must record this JSON presence/null rule with serialization/refusal tests as
+its enforcement binding; existing inspect/seats JSON, journal schemas and
+frozen contracts gain no fields.
