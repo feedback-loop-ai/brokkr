@@ -70,7 +70,8 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [x] 1.1 Write `docs/decisions/0056-same-instance-session-resumption.md`
+- [ ] 1.1 Amend the existing proposed
+      `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
       the alternatives design D1–D9 rejected, and ten numbered rulings
@@ -84,11 +85,16 @@ saved for the phase commit.
       manifest dispatch from 0.10.0 under the amended boundary-record
       requirement, unchanged boundary stamping and the first-work hold (7),
       one proven pre-work replacement inside the existing bounds (8), current-only accounting and narrow legacy
-      compatibility (9), and progress persisted before the next group
-      (10). Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
+      compatibility (9), and progress persisted before the next group with
+      every tracked edit finished active, the normal archive operation last,
+      and exact-head controller evidence external to the task state (10).
+      Preserve the existing ruling text that remains true; amend ruling 10 and
+      its enforcement binding rather than replacing the decision or implying
+      operator acceptance. Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
       0046 and shipped 0053 where each ruling stands on them, and quote
       no accepted decision into a different meaning. Check the ruling against
-      design D10/D12 and the modified requirement — safety / AS1, boundary /
+      design D10/D12 and the modified requirement — safety / AS1, progress /
+      PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 - [x] 1.2 Append the registry row to `docs/decisions/README.md` in number
       order with status `proposed`, and run
@@ -946,9 +952,12 @@ into capability truth (`progress / PM4`). Run them with
       `` `2026-09-09-226-session-resumption` — folded 2026-09-09 `` line,
       and `boundary-record` retains its earlier
       `2026-09-06-boundary-named-slice-i` entry. This task is complete and is
-      not permission to run the dialect archive operation again, recopy the
-      deltas, refold the MODIFIED requirement or append another provenance
-      line when the reopened active change is finalized — progress / PM4,
+      not permission to recopy deltas, append another provenance line, use a
+      manual move or invoke `--skip-specs` when the reopened active change is
+      finalized. It does permit and require 15.7's normal dialect archive
+      operation, which applies only the repaired PM4 `MODIFIED` requirement,
+      treats the identical deltas as no-ops and retains those provenance lines
+      exactly once — progress / PM4,
       boundary / The seat record carries the boundary as seat-record/v4.
 - [ ] 15.6 After 8.10, 9.7, groups 10–11 and 14.1–15.4 are complete, validate
       the **active** change strictly. Reconcile every earlier task tick and the
@@ -958,20 +967,22 @@ into capability truth (`progress / PM4`). Run them with
       unchecked tracked task and no ordinary artifact edit remains — progress /
       PM1, progress / PM4.
 - [ ] 15.7 Perform the **final re-archive only** required by proposal answer I
-      as the final artifact operation. While the change is still active and
-      after 15.6 passes, make the last tracked artifact edit: tick 15.7 and set
-      `## Progress` to the completed repository-local task truth. Then, without
-      another tracked-file edit, move
-      `openspec/changes/226-session-resumption` to
-      `openspec/changes/archive/2026-09-09-226-session-resumption`; do not invoke
-      a fold, change a living capability, or append provenance. Validate the
-      archived change strictly, run `crates/brokkr-cli/tests/provenance.rs`, and
-      assert bidirectionally that all five living capabilities name this archive
-      exactly once, that no sixth or duplicate capability/provenance exists, and
-      that `boundary-record` retains its earlier provenance and historical
-      examples. Stage the move and inspect the complete staged diff. If either
-      read-only archived check fails, reopen the same change before repairing
-      any tracked artifact; never edit the archived task file in place —
+      as one recoverable final artifact transaction. While the change is still
+      active and after 15.6 passes, make the last manual tracked edit: tick 15.7
+      and set `## Progress` to the completed repository-local task truth. Then,
+      with no intervening artifact edit, run
+      `openspec archive 226-session-resumption --yes` as the normal dialect
+      archive operation; do not substitute a manual move or `--skip-specs`.
+      Require it to apply only the repaired PM4 `MODIFIED` requirement, treat
+      every identical delta as a no-op, retain each existing change provenance
+      pointer exactly once and retain `boundary-record`'s earlier provenance
+      and historical examples. Validate the archived change strictly, run
+      `crates/brokkr-cli/tests/provenance.rs`, assert those conditions
+      bidirectionally and inspect the complete staged diff, all read-only with
+      respect to the archived artifact. If the archive is partial or any
+      archived check fails, restore the same active change, return 15.7 to
+      pending and repair before another artifact operation; never edit the
+      archived task file in place —
       progress / PM1, progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 
@@ -1483,3 +1494,37 @@ one provenance line for this archive plus the earlier `boundary-record`
 provenance. No Rust or provider test is required for this task-artifact-only
 repair; their refreshed commands remain delivery tasks 15.1–15.4, and host
 coverage remains mandatory controller evidence.
+
+## Current tasks return — F10 dependency reconciliation, 2026-09-10
+
+This tasks visit adopts the completed clarification and design repairs at
+`e047f57` and `6af3486`. They supply new owning-artifact evidence after the
+first F10 task repair: the returned archive must run the normal dialect
+operation so it can apply the repaired PM4 requirement. No settled F1–F9
+answer is reopened, and the former 15.8–15.9 exact-head obligations remain
+mandatory non-checkbox controller evidence.
+
+Task 1.1 is reopened because proposed 0056 ruling 10 still lacks the specified
+exact-head separation and must retain `Status: proposed` without implying
+operator acceptance. Checked task 15.5 now preserves the earlier fold while
+explicitly permitting the required idempotent archive. Task 15.7 replaces the
+stale manual move with `openspec archive 226-session-resumption --yes`, requires
+only repaired PM4 to change while identical deltas no-op and provenance remains
+singular, and makes failed or partial archived verification restore this same
+active change before repair. It stays the final tracked artifact operation;
+the delivery commit and exact-head controller proof remain read-only follow-ons.
+
+The identifiers remain stable at **101 tasks in 15 groups**. Reopening 1.1
+makes the truthful state **82 complete / 19 pending**: proposed-decision repair,
+provider-local and terminal conformance, live provider proof, evidence-gated
+enablement, refreshed pins and local gates, active reconciliation and the final
+archive transaction. Host coverage, integration, remote CI, publication, merge
+and issue closure remain mandatory controller evidence outside that count.
+
+Validation on this visit passed: `openspec validate 226-session-resumption
+--strict --no-interactive` accepts the active change, `openspec status --change
+226-session-resumption --json` reports planning complete, and structural checks
+find 101 unique identifiers with the stated 82/19 split. All 20 requirements and
+125 scenarios retain task coverage, and every changed task names the requirement
+it serves. No Rust or provider check is claimed for this task-artifact repair;
+those checks remain dependency-ordered delivery work.
