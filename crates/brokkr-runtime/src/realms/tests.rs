@@ -1104,6 +1104,165 @@ fn a_world_with_no_crossing_pins_the_exact_shape_it_always_did() {
         .is_none());
 }
 
+// ---------------------- the same fact, refused and reported (0046's Addendum)
+
+/// Doctor's half of decision 0054. The world a crossing has moved under
+/// still LOADS through `World::inspect` — every realm, every path, every
+/// house and dialect still answerable — and the mismatch comes back as
+/// data, keyed to the realm and the crossing that failed. `World::load`
+/// over the same bytes still refuses, in the same breath, with the same
+/// words: one reading of the disk, one wording, two behaviours.
+#[test]
+fn a_moved_crossing_is_data_to_inspect_and_a_refusal_to_load() {
+    let (dir, _, _) = two_repositories();
+    let (path, pin) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
+    std::fs::write(dir.path().join("realms.json"), crossing_map(&pin)).unwrap();
+    std::fs::write(&path, "{\"title\": \"Orders\"}\n").unwrap();
+    let observed = brokkr_core::canonical::sha256_bytes(&std::fs::read(&path).unwrap());
+
+    // The verbs that start or continue a run still end here, unchanged.
+    let refused = refusal(World::discover(dir.path(), None));
+    assert!(
+        refused.contains("realm 'beta' consumes crossing 'orders.api'"),
+        "{refused}"
+    );
+
+    // Doctor's world exists anyway, and is a whole world: both realms,
+    // both trees, both hearths — not one line saying the map is broken.
+    let world = World::inspect(dir.path(), None).unwrap().unwrap();
+    assert_eq!(world.map.realms.len(), 2);
+    assert_eq!(world.path_of(&world.map.realms[1]), dir.path().join("beta"));
+    assert_eq!(world.hearths().len(), 2);
+
+    // One report per realm that draws a crossing: alpha publishes and is
+    // sound, beta consumes and is not — and beta's failure carries the
+    // refusal verbatim, never a second wording of it.
+    let reports = world.crossings_report();
+    assert_eq!(reports.len(), 2);
+    assert_eq!(reports[0].realm, "alpha");
+    assert_eq!((reports[0].published, reports[0].consumed), (1, 0));
+    assert!(reports[0].failures.is_empty(), "alpha published its file");
+    assert_eq!(reports[1].realm, "beta");
+    assert_eq!((reports[1].published, reports[1].consumed), (0, 1));
+    let failure = &reports[1].failures[0];
+    assert_eq!(
+        (failure.realm(), failure.crossing()),
+        ("beta", "orders.api")
+    );
+    assert_eq!(failure.error().to_string(), refused);
+    for fact in [&pin, &observed, &path.display().to_string()] {
+        assert!(refused.contains(fact.as_str()), "{refused}");
+    }
+
+    // And the published file that IS there was still resolved, so a
+    // sound realm's crossing reads back under a world holding a broken
+    // one — an inspected world is short of what it could not read, not
+    // short of everything.
+    assert_eq!(
+        world.crossing("alpha", "orders.api").unwrap().sha256,
+        observed
+    );
+}
+
+/// The publisher's fault stays the publisher's, on both surfaces: an
+/// unreadable published file is reported against the realm that publishes
+/// it, and it is the refusal `World::load` gives even though a consumer's
+/// pin cannot match a file that is not there either. A consumer whose
+/// publisher failed gets no line of its own — there is nothing to compare.
+#[test]
+fn a_published_file_that_is_gone_is_reported_against_its_publisher() {
+    let (dir, _, _) = two_repositories();
+    let (path, pin) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
+    std::fs::write(dir.path().join("realms.json"), crossing_map(&pin)).unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    let world = World::inspect(dir.path(), None).unwrap().unwrap();
+    let reports = world.crossings_report();
+    let failure = &reports[0].failures[0];
+    assert_eq!(
+        (failure.realm(), failure.crossing()),
+        ("alpha", "orders.api")
+    );
+    assert!(reports[1].failures.is_empty(), "beta pinned nothing wrong");
+    assert_eq!(
+        failure.error().to_string(),
+        refusal(World::discover(dir.path(), None)),
+        "one fact, one wording, whichever surface asks"
+    );
+}
+
+/// A world that draws no crossing reports none: doctor adds no line to a
+/// world that never heard the word, exactly as such a world writes no
+/// manifest key. And `inspect` answers such a world identically to
+/// `discover`, which is what makes it safe to be doctor's only loader.
+#[test]
+fn a_world_with_no_crossing_reports_none_and_inspects_as_it_discovers() {
+    let (dir, _, _) = two_repositories();
+    let inspected = World::inspect(dir.path(), None).unwrap().unwrap();
+    let discovered = World::discover(dir.path(), None).unwrap().unwrap();
+    assert!(inspected.crossings_report().is_empty());
+    assert_eq!(inspected.sha256, discovered.sha256);
+    assert_eq!(
+        inspected.pinned(&json!({}), None).unwrap(),
+        discovered.pinned(&json!({}), None).unwrap()
+    );
+}
+
+/// The fence a resumed run stands behind. A world rehydrated from a run
+/// manifest has met no disk — `from_manifest` resolves no crossing, and
+/// reports none — so `verify_crossings` is what asks the disk, against the
+/// workspace the operator is standing in. It passes while the bytes are
+/// the bytes the run was built on, and refuses with the same four facts
+/// the moment they are not.
+#[test]
+fn a_replayed_world_is_fenced_against_the_disk_it_stands_on_now() {
+    let (dir, _, _) = two_repositories();
+    let (path, pin) = published_by_alpha(dir.path(), "{\"title\": \"orders\"}\n");
+    std::fs::write(dir.path().join("realms.json"), crossing_map(&pin)).unwrap();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    let manifest = world
+        .pinned(&json!({}), Some(&dir.path().join("beta")))
+        .unwrap();
+
+    // What resume rehydrates: the run's own map, and no crossing at all.
+    let replayed = World::from_manifest(&manifest).unwrap().unwrap();
+    assert!(replayed.crossing("alpha", "orders.api").is_none());
+    assert!(replayed.crossings_report().is_empty());
+
+    // The bytes are still the bytes, so the fence lets the run through.
+    // The pinned source is `<dir>/realms.json`, absolute here, so the
+    // workspace given is the one a `--repo`-less verb would stand in.
+    replayed
+        .verify_crossings(dir.path())
+        .expect("the contract has not moved");
+
+    // One byte in the publishing realm, and the same refusal — named, and
+    // carrying which realm, which crossing, the pin and what is there now.
+    std::fs::write(&path, "{\"title\": \"Orders\"}\n").unwrap();
+    let observed = brokkr_core::canonical::sha256_bytes(&std::fs::read(&path).unwrap());
+    let message = refusal(replayed.verify_crossings(dir.path()));
+    assert!(
+        message.contains("realm 'beta' consumes crossing 'orders.api'"),
+        "{message}"
+    );
+    assert!(message.contains("from realm 'alpha'"), "{message}");
+    assert!(message.contains(&pin), "the pinned digest: {message}");
+    assert!(
+        message.contains(&observed),
+        "the observed digest: {message}"
+    );
+
+    // And the same two repositories with no crossing drawn between them:
+    // the fence reads nothing and lets the run through, so a resume in a
+    // world that never heard the word reaches its drive as it always did.
+    std::fs::write(dir.path().join("realms.json"), TWO_REPOSITORIES).unwrap();
+    let plain = World::load(&dir.path().join("realms.json")).unwrap();
+    let replayed = World::from_manifest(&plain.pinned(&json!({}), None).unwrap())
+        .unwrap()
+        .unwrap();
+    replayed.verify_crossings(dir.path()).unwrap();
+}
+
 #[test]
 fn an_unreadable_neighbour_house_does_not_refuse_the_selected_realm() {
     let map = r#"{

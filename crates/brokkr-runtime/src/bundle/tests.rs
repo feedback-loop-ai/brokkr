@@ -818,6 +818,99 @@ fn driver_confine_is_refused_by_name_in_a_bundle_and_beside_an_agent() {
     }
 }
 
+/// Decision 0054 ruling 1: a bundle never names a crossing. `publishes`
+/// and `consumes` are the realm's two words, and a site that writes
+/// either is told where they live — naming the seat, `realms.json` as
+/// their home and the ruling — rather than that its key is unknown, on
+/// exactly the terms `boundary` gets below and at exactly the same sites.
+#[test]
+fn a_bundle_never_names_a_crossing() {
+    let fixture = Fixture::new();
+    let policy = Fixture::policy();
+    let home = "a crossing is declared by the realm (realms.json, forge.realms/v5) and never \
+                by a bundle, because the file one realm publishes and the digest another \
+                pins it at is the realm's fact and not a recipe's (decision 0054 ruling 1)";
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+
+    // A seat publishing: the word a realm uses for the file it owns.
+    let mut config = Fixture::config();
+    config["seats"]["work"]["publishes"] =
+        json!([{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}]);
+    assert_eq!(
+        error(fixture.compile(&config, &policy)),
+        format!("bundle: seat 'work' declares publishes; {home}")
+    );
+
+    // A seat consuming: the word a realm uses for the pin it carries.
+    let mut config = Fixture::config();
+    config["seats"]["work"]["consumes"] =
+        json!([{"name": "orders.api", "realm": "alpha", "sha256": "0".repeat(64)}]);
+    assert_eq!(
+        error(fixture.compile(&config, &policy)),
+        format!("bundle: seat 'work' declares consumes; {home}")
+    );
+
+    // A sequence step, named as its own site — the same walk `boundary`
+    // is refused on, so no site can claim a realm's fact by nesting.
+    let mut step = inline.clone();
+    step["name"] = json!("first");
+    step["results"] = json!(["done"]);
+    step["consumes"] = json!([]);
+    let mut second = inline.clone();
+    second["name"] = json!("second");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({"results": ["complete"], "sequence": [step, second]});
+    let refusal = error(fixture.compile(&config, &policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:first' declares consumes; "),
+        "{refusal}"
+    );
+    assert!(refusal.contains(home), "{refusal}");
+
+    // A panel member.
+    let mut member = inline.clone();
+    member["publishes"] = json!([]);
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {"one": member, "two": inline.clone()},
+    });
+    let mut panel_policy = Fixture::policy();
+    panel_policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    let refusal = error(fixture.compile(&config, &panel_policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:one' declares publishes; "),
+        "{refusal}"
+    );
+
+    // A selected case body.
+    let mut case = inline.clone();
+    case["consumes"] = json!([]);
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "select": {"on": "strategy", "cases": {
+            "chore": case,
+            "feature": inline.clone(),
+            "design": inline.clone(),
+            "engine": inline,
+        }},
+    });
+    let refusal = error(fixture.compile(&config, &policy));
+    assert!(
+        refusal.starts_with("bundle: seat 'work:chore' declares consumes; "),
+        "{refusal}"
+    );
+
+    // And a bundle that names neither compiles exactly as it always did.
+    fixture.compile(&Fixture::config(), &policy).unwrap();
+}
+
 /// Decision 0046 ruling 1: a bundle never names the boundary. A `boundary`
 /// key at any site — a seat, a panel member, a sequence step, a selected
 /// case body — is refused naming the site, the realm map as the field's

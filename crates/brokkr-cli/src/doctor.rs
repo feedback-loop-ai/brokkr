@@ -384,11 +384,18 @@ pub fn doctor(
     realms: Option<&Path>,
 ) -> Report {
     let workspace = std::env::current_dir().unwrap_or_default();
-    // The world is discovered once, before the bundle compiles: a bundle
+    // The world is read once, before the bundle compiles: a bundle
     // doctor is asked about compiles in the discovered realm, under its
     // boundary (decision 0046 ruling 2), and the realm's own lines follow
     // the machine's.
-    let world = brokkr_runtime::realms::World::discover(&workspace, realms);
+    //
+    // `inspect`, not `discover`: a doctor line reports and never refuses
+    // (decision 0046's Addendum), so a crossing that has moved is one
+    // realm's line here rather than the `Err` that would replace every
+    // house, dialect and boundary line in this report with a single
+    // "realms map" one and tell an operator their world is broken when
+    // one contract moved (decision 0054).
+    let world = brokkr_runtime::realms::World::inspect(&workspace, realms);
     let boundary = match &world {
         Ok(Some(world)) => world.boundary_for(&workspace),
         _ => Boundary::Namespace,
@@ -425,6 +432,7 @@ fn report_realm_world(
     match world {
         Ok(Some(world)) => {
             report_realm_house_for_world(report, &world);
+            report_realm_crossings(report, &world);
             report_realm_dialects(report, &world, workdir, probe, inside);
         }
         Ok(None) => {
@@ -466,6 +474,38 @@ fn report_realm_house_for_world(report: &mut Report, world: &brokkr_runtime::rea
     } else {
         for error in failures {
             report.missing("house rules", error.to_string());
+        }
+    }
+}
+
+/// Decision 0054's crossings, per realm, on decision 0046's Addendum's
+/// terms: doctor REPORTS what `run` refuses, and refuses nothing itself.
+///
+/// One line per realm that draws a crossing at all — a world that never
+/// drew one gets none, exactly as it writes no manifest key and prints
+/// none at compile. A published file that is gone, or a pin that no
+/// longer matches, is its OWN line, keyed to the failing realm and the
+/// failing crossing rather than collapsing the world; the detail is the
+/// refusal `run` would have given, read out of the error itself so the
+/// two surfaces cannot word one fact twice.
+fn report_realm_crossings(report: &mut Report, world: &brokkr_runtime::realms::World) {
+    for crossings in world.crossings_report() {
+        let what = format!("crossings {}", crossings.realm);
+        if crossings.failures.is_empty() {
+            report.ok(
+                &what,
+                format!(
+                    "{} published file(s) present, {} pin(s) matching",
+                    crossings.published, crossings.consumed
+                ),
+            );
+            continue;
+        }
+        for failure in &crossings.failures {
+            report.missing(
+                &format!("{what} '{}'", failure.crossing()),
+                failure.error().to_string(),
+            );
         }
     }
 }

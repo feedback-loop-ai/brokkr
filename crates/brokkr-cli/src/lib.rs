@@ -350,11 +350,69 @@ enum RecipesCmd {
     },
 }
 
+/// Every crossing the WORLD draws, per realm: what each realm publishes,
+/// with the path it was read from and the digest of the bytes that were
+/// there, and what each realm consumes, with the realm that publishes it
+/// and the pin the map carries.
+///
+/// Printed beside the compiled bundle and never written INTO it. A
+/// crossing is the realm's, exactly as the boundary is (decision 0046
+/// ruling 1 prints one under each hands site and keeps it out of no
+/// manifest it does not own; decision 0054 ruling 1), and what a run
+/// STOOD ON is recorded at run start on the run manifest
+/// (run-manifest/v10). Adding a `crossings` key to `bundle.manifest`
+/// would move every affected bundle's `manifest_digest` for a fact no
+/// bundle owns.
+///
+/// Omitted entirely when no realm draws one, so a world without
+/// crossings prints exactly what it printed before this existed.
+fn crossings_view(world: &World) -> Option<Value> {
+    let mut realms = serde_json::Map::new();
+    for realm in &world.map.realms {
+        if realm.published().is_empty() && realm.consumed().is_empty() {
+            continue;
+        }
+        let published = realm
+            .published()
+            .iter()
+            .map(|crossing| {
+                let mut row = json!({"name": crossing.name, "path": crossing.path});
+                // Always resolved here: `compile` reads its world through
+                // `World::discover`, which refuses a published file it
+                // could not read before this view is built.
+                if let Some(resolved) = world.crossing(&realm.name, &crossing.name) {
+                    row["source"] = json!(resolved.source);
+                    row["sha256"] = json!(resolved.sha256);
+                }
+                row
+            })
+            .collect::<Vec<_>>();
+        let consumed = realm
+            .consumed()
+            .iter()
+            .map(|crossing| {
+                json!({
+                    "name": crossing.name,
+                    "realm": crossing.realm,
+                    "sha256": crossing.sha256,
+                })
+            })
+            .collect::<Vec<_>>();
+        realms.insert(
+            realm.name.clone(),
+            json!({"publishes": published, "consumes": consumed}),
+        );
+    }
+    (!realms.is_empty()).then_some(Value::Object(realms))
+}
+
 /// What a compiled bundle looks like to an operator. `brokkr compile` and
 /// `brokkr recipes show` print this and nothing else, from here, so the
 /// two surfaces can never drift. `composed_from` is omitted entirely
-/// when nothing was composed, so a plain bundle's output is unchanged.
-fn compiled_view(bundle: &Bundle) -> Value {
+/// when nothing was composed, so a plain bundle's output is unchanged —
+/// and so is `crossings`, which belongs to the world a verb discovered
+/// and not to the bundle, which is why `recipes show` passes none.
+fn compiled_view(bundle: &Bundle, world: Option<&World>) -> Value {
     let mut view = json!({
         "bundle": bundle.name,
         "digest": bundle.manifest_digest(),
@@ -376,6 +434,9 @@ fn compiled_view(bundle: &Bundle) -> Value {
                 })
                 .collect(),
         );
+    }
+    if let Some(crossings) = world.and_then(crossings_view) {
+        view["crossings"] = crossings;
     }
     view
 }
@@ -1621,7 +1682,10 @@ fn run_with(
         Cmd::Compile(CompileArgs { bundle }) => {
             let world = World::discover(workspace, None)?;
             let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
-            println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Run(RunArgs {
@@ -1713,6 +1777,24 @@ fn run_with(
             )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
+            // Decision 0054, on decision 0046's Addendum's terms: a
+            // resumed run is fenced where `run` and `rerun` are fenced,
+            // before `drive()` and so before any seat spawns. Here, and
+            // not inside `Engine::resume`, for two reasons that are one
+            // reason: the check needs a workspace to resolve a crossing's
+            // path against and the engine is given none, and this arm is
+            // already where a whole-invocation refusal stands — one line
+            // above, `refuse_unboxable` reads the host's PATH the same
+            // way, right after the compile and right before the drive.
+            //
+            // The world a resumed run holds comes from its own manifest
+            // and has met no disk (`World::from_manifest` resolves no
+            // crossing, deliberately), so without this a run would carry
+            // on over bytes its journal never saw. A Looper-bound run
+            // carries no world at all and has nothing to fence.
+            if let Some(world) = &engine.world {
+                world.verify_crossings(workspace)?;
+            }
             engine.secrets_file = secrets_file;
             let end = engine.drive()?;
             Ok(finish(&end.state))
@@ -2261,7 +2343,10 @@ fn run_with(
                 }
                 RecipesCmd::Show { name, dir } => {
                     let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
-                    println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&compiled_view(&bundle, None))?
+                    );
                 }
             }
             Ok(ExitCode::SUCCESS)
