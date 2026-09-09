@@ -3,8 +3,9 @@
 //! dispatched before clap because dsh hands it bubblewrap's own argv,
 //! including the bare `--`; these tests drive the real binary and a fake
 //! `bwrap`, so the argv hand-off is proven end to end without a model
-//! loop. The bubblewrap to exec and the config mask to mount are trusted
-//! argv paths, not lookups: the boundary is what the driver measured.
+//! loop. The bubblewrap to exec, the private git store to bind and the
+//! staged files to mount are trusted argv paths, not lookups: the
+//! boundary is what the driver measured.
 //!
 //! The scope checks read the host, so these fixtures are real linked
 //! worktree layouts on disk rather than the invented paths an argv test
@@ -43,14 +44,17 @@ fn fake_bwrap(dir: &Path) -> PathBuf {
 
 /// The administrative layout `git worktree add` writes, by hand: the
 /// per-worktree directory under `<common>/worktrees/<name>` with its
-/// `gitdir` back-pointer, the worktree's own `.git` file, and the empty
-/// config mask the driver stages outside the workspace.
+/// `gitdir` back-pointer, the worktree's own `.git` file, and the two
+/// directories the driver stages outside the workspace — the private
+/// common directory the seat writes, and the read-only files the runner
+/// mounts.
 struct Layout {
     dir: tempfile::TempDir,
     workspace: PathBuf,
     git_dir: PathBuf,
     common_dir: PathBuf,
-    mask: PathBuf,
+    store: PathBuf,
+    trusted: PathBuf,
 }
 
 impl Layout {
@@ -72,18 +76,28 @@ impl Layout {
         )
         .unwrap();
         std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
-        let mask = dir.path().join("config-mask");
-        std::fs::write(&mask, "").unwrap();
+        let store = dir.path().join("store");
+        let trusted = dir.path().join("trusted");
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::create_dir_all(&trusted).unwrap();
+        std::fs::write(trusted.join("config-mask"), "").unwrap();
+        std::fs::write(trusted.join("commondir"), format!("{}\n", store.display())).unwrap();
+        std::fs::write(
+            trusted.join("alternates"),
+            format!("{}\n", common_dir.join("objects").display()),
+        )
+        .unwrap();
         Layout {
             workspace,
             git_dir,
             common_dir,
-            mask,
+            store,
+            trusted,
             dir,
         }
     }
 
-    /// The runner's five trusted flags, as the sandbox row spells them.
+    /// The runner's six trusted flags, as the sandbox row spells them.
     fn flags(&self, bwrap: &Path) -> Vec<String> {
         [
             "--workspace",
@@ -94,8 +108,10 @@ impl Layout {
             self.common_dir.to_str().unwrap(),
             "--bwrap",
             bwrap.to_str().unwrap(),
-            "--mask",
-            self.mask.to_str().unwrap(),
+            "--store",
+            self.store.to_str().unwrap(),
+            "--trusted",
+            self.trusted.to_str().unwrap(),
         ]
         .into_iter()
         .map(str::to_string)
@@ -165,19 +181,41 @@ fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
     let seen = std::fs::read_to_string(&dump).unwrap();
     let git = layout.git_dir.display().to_string();
     let common = layout.common_dir.display().to_string();
-    let mask = layout.mask.display().to_string();
+    let store = layout.store.display().to_string();
+    let mask = layout.trusted.join("config-mask").display().to_string();
+    let pointer = layout.trusted.join("commondir").display().to_string();
+    let alternates = layout.trusted.join("alternates").display().to_string();
+    // Exactly two read-write mounts: the worktree's own administrative
+    // directory, and the private common directory the seat writes.
     assert!(seen.contains(&format!("--bind\n{git}\n{git}\n")), "{seen}");
     assert!(
-        seen.contains(&format!("--bind-try\n{common}/objects\n{common}/objects\n")),
+        seen.contains(&format!("--bind\n{store}\n{store}\n")),
+        "{seen}"
+    );
+    // Nothing under the shared git directory is writable.
+    for name in ["objects", "refs", "logs", "packed-refs"] {
+        assert!(
+            !seen.contains(&format!("--bind\n{common}/{name}\n")),
+            "{seen}"
+        );
+        assert!(
+            !seen.contains(&format!("--bind-try\n{common}/{name}\n")),
+            "{seen}"
+        );
+    }
+    // The hook path the seat's git uses is an empty tmpfs, and the shared
+    // config and HEAD are read-only inside the private store.
+    assert!(
+        seen.contains(&format!("--tmpfs\n{store}/hooks\n")),
         "{seen}"
     );
     assert!(
-        seen.contains(&format!("--tmpfs\n{common}/hooks\n")),
+        seen.contains(&format!("--ro-bind\n{common}/config\n{store}/config\n")),
         "{seen}"
     );
     assert!(
         seen.contains(&format!(
-            "--ro-bind-try\n{common}/config\n{common}/config\n"
+            "--ro-bind\n{alternates}\n{store}/objects/info/alternates\n"
         )),
         "{seen}"
     );
@@ -194,8 +232,10 @@ fn the_runner_execs_bwrap_with_the_scoped_git_binds_and_the_command() {
         "{seen}"
     );
     assert!(!seen.contains("/dev/null"), "{seen}");
+    // The redirect itself: the box's git reads a `commondir` naming the
+    // private store, and cannot write over it.
     assert!(
-        seen.contains(&format!("--ro-bind\n{git}/commondir\n{git}/commondir\n")),
+        seen.contains(&format!("--ro-bind\n{pointer}\n{git}/commondir\n")),
         "{seen}"
     );
     assert!(seen.ends_with("--\nbash\n-lc\ngit add -A\n"), "{seen}");
@@ -295,7 +335,8 @@ fn the_runner_refuses_every_layout_that_is_not_a_linked_worktree() {
     let layout = Layout::linked();
     let dump = layout.dir.path().join("argv");
     let bwrap = fake_bwrap(layout.dir.path());
-    let mask = layout.mask.to_str().unwrap();
+    let store = layout.store.to_str().unwrap();
+    let trusted = layout.trusted.to_str().unwrap();
 
     let refuse = |workspace: &Path, git_dir: &Path, common_dir: &Path| {
         let workspace = workspace.to_str().unwrap();
@@ -310,8 +351,10 @@ fn the_runner_refuses_every_layout_that_is_not_a_linked_worktree() {
                 common_dir.to_str().unwrap(),
                 "--bwrap",
                 bwrap.to_str().unwrap(),
-                "--mask",
-                mask,
+                "--store",
+                store,
+                "--trusted",
+                trusted,
                 "--ro-bind",
                 "/",
                 "/",

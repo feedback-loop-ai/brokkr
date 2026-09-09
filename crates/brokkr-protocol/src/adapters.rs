@@ -2071,9 +2071,12 @@ fn invoke_dsh_with(
         crate::hands::git_facts(Path::new(workdir))
     };
     let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
-    // The mask file is named in every command's runner argv, so it is
-    // held here for the seat's whole life and dropped with this call.
-    let (sandbox_row, _config_mask) = dsh_sandbox_row_for(workdir, &facts, &mode)?.unzip();
+    // The private git store is named in every command's runner argv, so
+    // it is held here for the seat's whole life and handed to the
+    // promotion below, which is the only way anything the seat committed
+    // reaches the shared repository.
+    let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
+    let sandbox_row = staged.as_ref().map(|(row, _, _)| row.clone());
     let overlay = dsh_seat_overlay_with(
         model.as_deref(),
         effort.as_deref(),
@@ -2147,11 +2150,24 @@ fn invoke_dsh_with(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
+    let mut stderr = redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default());
+    // The seat wrote its objects and moved its branch inside the private
+    // common directory the driver staged; the shared repository was
+    // read-only to it throughout. This is where the ONE ref the worktree
+    // owns crosses over, outside every box (decision 0054 ruling 5). A
+    // promotion that cannot happen is a driver failure with the store's
+    // path in it, never a silent loss of the seat's commits.
+    if let Some((_, scope, staged)) = staged {
+        if let Some(promotion) = dsh_sandbox::promote_seat_commits(staged, &scope)? {
+            stderr.push_str(&promotion.summary());
+            stderr.push('\n');
+        }
+    }
     Ok(Invocation {
         exit_code,
         session_meta,
         stdout: String::new(),
-        stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
+        stderr,
         state: None,
         refusal: None,
     })
@@ -2564,19 +2580,22 @@ fn dsh_git_runner_scope(
     })
 }
 
-/// The scoped-runner row for one seat and the config mask it names, or
-/// `None` when the seat's git metadata already sits inside the writable
-/// workspace. A seat whose linked worktree cannot reach its git directory
-/// refuses here, before it spends an implementation.
+/// The scoped-runner row for one seat, the scope it was written for and
+/// the host state it names, or `None` when the seat's git metadata
+/// already sits inside the writable workspace. A seat whose linked
+/// worktree cannot reach its git directory refuses here, before it spends
+/// an implementation.
 ///
-/// The mask is a staged empty file, and the caller must hold it for the
-/// seat's whole life: dropping it unlinks the source every command in the
-/// seat mounts over `config` and `config.worktree`.
+/// The caller must hold the staged store for the seat's whole life:
+/// dropping it unlinks the private common directory every command in the
+/// seat is writing into, and the empty file they mount over `config` and
+/// `config.worktree`. It is handed to `promote_seat_commits` afterwards,
+/// which is how the seat's branch reaches the shared repository.
 fn dsh_sandbox_row_for(
     workdir: &str,
     facts: &GitFacts,
     mode: &str,
-) -> Result<Option<(String, tempfile::NamedTempFile)>, String> {
+) -> Result<Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>, String> {
     let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
         return Ok(None);
     };
@@ -2588,9 +2607,9 @@ fn dsh_sandbox_row_for(
     }
     let bwrap = dsh_bwrap()?;
     let program = dsh_runner_program();
-    let mask = dsh_sandbox::stage_mask_file()?;
-    let row = dsh_sandbox::sandbox_row(&program, &bwrap, mask.path(), &scope)?;
-    Ok(Some((row, mask)))
+    let staged = dsh_sandbox::stage_seat_store(&scope)?;
+    let row = dsh_sandbox::sandbox_row(&program, &bwrap, &staged, &scope)?;
+    Ok(Some((row, scope, staged)))
 }
 
 /// The bwrap binary the scoped runner needs, or the refusal that names

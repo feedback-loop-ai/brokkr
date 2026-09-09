@@ -2664,18 +2664,20 @@ fn the_scoped_runner_refuses_a_missing_or_unusable_bubblewrap() {
 #[test]
 fn the_seat_overlay_carries_the_scoped_sandbox_row() {
     let root = tempfile::tempdir().unwrap();
+    // The worktree the row is written for has to exist far enough for the
+    // driver to read the branch it owns; the store's copies of a shared
+    // directory that is not there are simply empty.
+    std::fs::create_dir_all(root.path().join("wt")).unwrap();
     let scope = dsh_sandbox::GitScope {
-        workspace: PathBuf::from("/work/wt"),
-        git_dir: PathBuf::from("/main/.git/worktrees/wt"),
-        common_dir: PathBuf::from("/main/.git"),
+        workspace: root.path().join("wt"),
+        git_dir: root.path().join("main/.git/worktrees/wt"),
+        common_dir: root.path().join("main/.git"),
     };
-    let row = dsh_sandbox::sandbox_row(
-        "/opt/brokkr",
-        Path::new("/opt/bwrap"),
-        Path::new("/tmp/mask"),
-        &scope,
-    )
-    .unwrap();
+    std::fs::create_dir_all(&scope.git_dir).unwrap();
+    std::fs::write(scope.git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    let staged = dsh_sandbox::stage_seat_store(&scope).unwrap();
+    let row =
+        dsh_sandbox::sandbox_row("/opt/brokkr", Path::new("/opt/bwrap"), &staged, &scope).unwrap();
     let overlay = dsh_seat_overlay_with(None, None, root.path(), Some(&row)).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert!(
@@ -2687,8 +2689,16 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
     assert!(written.contains("      - '--workspace'\n"), "{written}");
     assert!(written.contains("      - '--bwrap'\n"), "{written}");
     assert!(written.contains("      - '/opt/bwrap'\n"), "{written}");
-    assert!(written.contains("      - '--mask'\n"), "{written}");
-    assert!(written.contains("      - '/tmp/mask'\n"), "{written}");
+    assert!(written.contains("      - '--store'\n"), "{written}");
+    assert!(
+        written.contains(&format!("      - '{}'\n", staged.store_path().display())),
+        "{written}"
+    );
+    assert!(written.contains("      - '--trusted'\n"), "{written}");
+    assert!(
+        written.contains(&format!("      - '{}'\n", staged.trusted_path().display())),
+        "{written}"
+    );
 
     // Without the row the overlay names no sandbox at all.
     let plain = dsh_seat_overlay_with(None, None, root.path(), None).unwrap();
@@ -2741,17 +2751,31 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
 
     let facts = crate::hands::git_facts(&worktree);
     match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
-        Ok(Some((row, mask))) => {
+        Ok(Some((row, _, staged))) => {
             assert!(row.contains("- id: sandbox\n"), "{row}");
-            // The staged mask is a real empty file and the row names it,
-            // so every command in the seat masks the per-worktree config
-            // with something git can read and nothing can fill.
-            assert!(row.contains("      - '--mask'\n"), "{row}");
+            // The staged store is a real private common directory and the
+            // row names it, so every command in the seat writes its refs
+            // and objects there rather than into the shared repository.
+            assert!(row.contains("      - '--store'\n"), "{row}");
             assert!(
-                row.contains(&format!("      - '{}'\n", mask.path().display())),
+                row.contains(&format!("      - '{}'\n", staged.store_path().display())),
                 "{row}"
             );
-            assert_eq!(std::fs::metadata(mask.path()).unwrap().len(), 0);
+            assert_eq!(staged.reference(), "refs/heads/slice");
+            assert!(staged
+                .store_path()
+                .join("objects/info/alternates")
+                .is_file());
+            // The mask beside it is a real empty file, so every command
+            // masks the per-worktree config with something git can read
+            // and nothing can fill.
+            assert!(row.contains("      - '--trusted'\n"), "{row}");
+            assert_eq!(
+                std::fs::metadata(staged.trusted_path().join("config-mask"))
+                    .unwrap()
+                    .len(),
+                0
+            );
             assert!(row.contains("      - '--git-dir'\n"), "{row}");
             assert!(row.contains("      - '--common-dir'\n"), "{row}");
             assert!(
@@ -2871,6 +2895,145 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         seen.contains("GIT_COMMITTER_EMAIL=host@example.invalid"),
         "{seen}"
     );
+}
+
+/// The whole driver hand-off on a real linked worktree, without a model
+/// loop and without a namespace: the driver stages the private common
+/// directory, names it in the `--patch` row, and — after the child exits
+/// — promotes the one branch the worktree owns out of it. The fake `dsh`
+/// reads the store's path out of the row the driver wrote, exactly as the
+/// runner would, and commits through it.
+#[cfg(unix)]
+#[test]
+fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "user.name", "Host Operator"]);
+    git(&main, &["config", "user.email", "host@example.invalid"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+    let worktree = dir.path().join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "slice",
+        ],
+    );
+    git(&main, &["branch", "sibling"]);
+    let base = git(&main, &["rev-parse", "HEAD"]);
+    let git_dir = crate::hands::git_facts(&worktree).git_dir.unwrap();
+
+    // The fake dsh does what the runner's mount does: it points the
+    // worktree's `commondir` at the private store the row names, commits,
+    // and puts the pointer back. It also moves a sibling's branch, which
+    // then lives only in the store.
+    let fake = executable(
+        dir.path(),
+        "dsh",
+        &format!(
+            "#!/bin/sh\nset -e\nprev=\"\"\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"--patch\" ]; then patch=\"$a\"; fi\n  prev=\"$a\"\ndone\n\
+             store=$(grep -A 1 -e '--store' \"$patch\" | tail -n 1 | sed -e \"s/^ *- '//\" -e \"s/'$//\")\n\
+             real=$(cat '{gitdir}/commondir')\nprintf '%s\\n' \"$store\" > '{gitdir}/commondir'\n\
+             echo boxed > b.txt\ngit add b.txt\ngit commit -q -m 'seat commit'\n\
+             git update-ref refs/heads/sibling HEAD\n\
+             printf '%s\\n' \"$real\" > '{gitdir}/commondir'\nexit 0\n",
+            gitdir = git_dir.display()
+        ),
+    );
+    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+    std::env::set_var("DSH_PERMISSION_MODE", "workspace-write");
+
+    let run = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": worktree}),
+        None,
+        &[],
+        &mut |_| {},
+    );
+
+    // A seat that committed nothing — a verify or review seat reusing the
+    // same worktree — leaves the branch where it was and says nothing.
+    let idle = executable(dir.path(), "idle-dsh", "#!/bin/sh\nexit 0\n");
+    std::env::set_var("BROKKR_DSH_BIN", &idle);
+    let quiet = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": worktree}),
+        None,
+        &[],
+        &mut |_| {},
+    );
+
+    match prior_bin {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+    std::env::remove_var("DSH_PERMISSION_MODE");
+
+    match run {
+        Ok(run) => {
+            // The seat's branch came out of the private store; the
+            // sibling's branch stayed in it and went away with it.
+            let promoted = git(&worktree, &["rev-parse", "HEAD"]);
+            assert_ne!(promoted, base);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/slice"]), promoted);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/sibling"]), base);
+            assert_eq!(git(&worktree, &["log", "-1", "--format=%s"]), "seat commit");
+            assert!(
+                run.stderr
+                    .contains("promoted the seat's commits to refs/heads/slice"),
+                "the seat's stderr names the ref that moved: {}",
+                run.stderr
+            );
+            let quiet = quiet.unwrap();
+            assert!(!quiet.stderr.contains("promoted"), "{}", quiet.stderr);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/slice"]), promoted);
+        }
+        Err(problem) => {
+            // No usable bubblewrap here: the driver refuses at seat start
+            // rather than running a seat that cannot deliver.
+            assert!(
+                problem.contains("bubblewrap") || problem.contains("bwrap"),
+                "{problem}"
+            );
+        }
+    }
 }
 
 #[test]

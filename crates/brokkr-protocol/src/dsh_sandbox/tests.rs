@@ -33,14 +33,16 @@ const BWRAP: &str = "/usr/bin/bwrap";
 
 /// A linked worktree's administrative layout on disk, exactly as `git
 /// worktree add` writes it: `<common>/worktrees/<name>` with a `gitdir`
-/// back-pointer, and the worktree's own `.git` file naming it back. The
-/// scope checks read the host, so a unit test has to build a host to be
-/// worth anything. `git` itself builds the layout in the behavioral
-/// proof; here it is written by hand so the argv tests stay cheap.
+/// back-pointer, and the worktree's own `.git` file naming it back —
+/// beside the two directories the driver stages for one seat. The scope
+/// checks read the host, so a unit test has to build a host to be worth
+/// anything. `git` itself builds the layout in the behavioral proof; here
+/// it is written by hand so the argv tests stay cheap.
 struct Layout {
     dir: tempfile::TempDir,
     scope: GitScope,
-    mask: PathBuf,
+    store: PathBuf,
+    trusted: PathBuf,
 }
 
 impl Layout {
@@ -62,16 +64,32 @@ impl Layout {
         )
         .unwrap();
         std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
-        // Outside the workspace, as the driver stages it.
-        let mask = dir.path().join("config-mask");
-        std::fs::write(&mask, "").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+        // Outside the workspace and outside each other, as the driver
+        // stages them.
+        let store = dir.path().join("store");
+        let trusted = dir.path().join("trusted");
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::create_dir_all(&trusted).unwrap();
+        std::fs::write(trusted.join(MASK_FILE), "").unwrap();
+        std::fs::write(
+            trusted.join(COMMONDIR_FILE),
+            format!("{}\n", store.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            trusted.join(ALTERNATES_FILE),
+            format!("{}\n", common_dir.join("objects").display()),
+        )
+        .unwrap();
         Layout {
             scope: GitScope {
                 workspace,
                 git_dir,
                 common_dir,
             },
-            mask,
+            store,
+            trusted,
             dir,
         }
     }
@@ -91,19 +109,22 @@ fn runner_args(layout: &Layout, profile: &[String], command: &[&str]) -> Vec<Str
     runner_args_for(
         Path::new(BWRAP),
         &layout.scope,
-        &layout.mask,
+        &layout.store,
+        &layout.trusted,
         profile,
         command,
     )
 }
 
-/// The runner argv with a chosen bubblewrap and mask, so the behavioral
-/// test can exec the binary `require_bwrap` actually resolved rather than
-/// the spelling the unit tests assert.
+/// The runner argv with chosen host paths, so the behavioral test can
+/// exec the binary `require_bwrap` actually resolved and mount the store
+/// the driver actually staged, rather than the spellings the unit tests
+/// assert.
 fn runner_args_for(
     bwrap: &Path,
     scope: &GitScope,
-    mask: &Path,
+    store: &Path,
+    trusted: &Path,
     profile: &[String],
     command: &[&str],
 ) -> Vec<String> {
@@ -116,8 +137,10 @@ fn runner_args_for(
         scope.common_dir.to_string_lossy().into_owned(),
         "--bwrap".to_string(),
         bwrap.to_string_lossy().into_owned(),
-        "--mask".to_string(),
-        mask.to_string_lossy().into_owned(),
+        "--store".to_string(),
+        store.to_string_lossy().into_owned(),
+        "--trusted".to_string(),
+        trusted.to_string_lossy().into_owned(),
     ];
     args.extend(profile.iter().cloned());
     args.push("--".to_string());
@@ -133,27 +156,58 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     let text = argv.join(" ");
     let git = layout.scope.git_dir.display().to_string();
     let common = layout.scope.common_dir.display().to_string();
-    let mask = layout.mask.display().to_string();
+    let store = layout.store.display().to_string();
+    let mask = layout.trusted.join(MASK_FILE).display().to_string();
 
-    // The per-worktree directory and the shared write set a commit needs.
+    // The per-worktree directory — index, HEAD, its own reflog — and the
+    // private common directory the seat's git is pointed at. Those are the
+    // only two read-write mounts the runner adds.
     assert!(text.contains(&format!("--bind {git} {git}")), "{text}");
-    for name in ["objects", "refs", "logs"] {
-        assert!(
-            text.contains(&format!("--bind-try {common}/{name} {common}/{name}")),
-            "{name}: {text}"
-        );
-    }
-    assert!(
-        text.contains(&format!("--bind-try {common}/packed-refs")),
-        "{text}"
+    assert!(text.contains(&format!("--bind {store} {store}")), "{text}");
+    assert_eq!(
+        argv.iter().filter(|token| *token == "--bind").count(),
+        3,
+        "the profile's workspace grant plus exactly two scoped ones: {text}"
     );
 
-    // Hooks are an empty tmpfs, per-worktree and shared, and the shared
-    // config is read-only.
-    assert!(text.contains(&format!("--tmpfs {git}/hooks")), "{text}");
-    assert!(text.contains(&format!("--tmpfs {common}/hooks")), "{text}");
+    // Nothing under the SHARED git directory is writable — not `objects`,
+    // not `refs`, not `packed-refs`, not `logs`, and no sibling. The seat
+    // reads them through the profile's own read-only root and through the
+    // store's alternates.
+    for name in ["objects", "refs", "logs", "packed-refs"] {
+        assert!(
+            !text.contains(&format!("--bind {common}/{name}")),
+            "{name} must not be writable: {text}"
+        );
+        assert!(
+            !text.contains(&format!("--bind-try {common}/{name}")),
+            "{name} must not be writable: {text}"
+        );
+    }
+    assert!(!text.contains("worktrees/sibling"), "{text}");
     assert!(
-        text.contains(&format!("--ro-bind-try {common}/config {common}/config")),
+        !text.contains(&format!("--bind {common} {common}")),
+        "the whole common dir must not be mounted writable: {text}"
+    );
+
+    // The `commondir` file is where the redirect lives: the box's git
+    // reads the staged pointer, which names the private store, and cannot
+    // write over it.
+    assert!(
+        text.contains(&format!(
+            "--ro-bind {} {git}/commondir",
+            layout.trusted.join(COMMONDIR_FILE).display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("--ro-bind {git}/gitdir {git}/gitdir")),
+        "{text}"
+    );
+    // `HEAD` says which branch this worktree owns, and that is the ref the
+    // driver promotes: read-only, so no seat can retarget the next one.
+    assert!(
+        text.contains(&format!("--ro-bind {git}/HEAD {git}/HEAD")),
         "{text}"
     );
 
@@ -175,24 +229,28 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
         "{text}"
     );
 
-    // The worktree's pointers back to the shared repository are read-only,
-    // and hard: a `-try` would no-op on a missing source and leave the box
-    // free to create the pointer it may not rewrite.
+    // Inside the store: the repository's own config and HEAD are mounted
+    // read-only over the driver's copies, and the alternates line the
+    // whole object store is read through cannot be repointed.
     assert!(
-        text.contains(&format!("--ro-bind {git}/commondir {git}/commondir")),
+        text.contains(&format!("--ro-bind {common}/config {store}/config")),
         "{text}"
     );
     assert!(
-        text.contains(&format!("--ro-bind {git}/gitdir {git}/gitdir")),
+        text.contains(&format!("--ro-bind {common}/HEAD {store}/HEAD")),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "--ro-bind {} {store}/objects/info/alternates",
+            layout.trusted.join(ALTERNATES_FILE).display()
+        )),
         "{text}"
     );
 
-    // The whole shared `.git` is never writable, and no sibling is named.
-    assert!(
-        !text.contains(&format!("--bind {common} {common}")),
-        "the whole common dir must not be mounted writable: {text}"
-    );
-    assert!(!text.contains("worktrees/sibling"), "{text}");
+    // Hooks are an empty tmpfs on both hook paths git could use.
+    assert!(text.contains(&format!("--tmpfs {git}/hooks")), "{text}");
+    assert!(text.contains(&format!("--tmpfs {store}/hooks")), "{text}");
 
     // The profile and the command travel verbatim, separated by the bare `--`.
     assert!(text.contains("--ro-bind / / --dev /dev"));
@@ -202,7 +260,7 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
 #[test]
 fn a_read_only_profile_and_a_primary_checkout_get_no_scoped_binds() {
     let layout = Layout::linked();
-    let common = layout.scope.common_dir.display().to_string();
+    let store = layout.store.display().to_string();
 
     // `read-only`: no workspace bind at all, so the runner adds nothing.
     let read_only: Vec<String> = [
@@ -250,8 +308,7 @@ fn a_read_only_profile_and_a_primary_checkout_get_no_scoped_binds() {
     ]);
     let argv = runner_argv(&runner_args(&layout, &try_profile, &["true"])).unwrap();
     assert!(
-        argv.join(" ")
-            .contains(&format!("--bind-try {common}/objects")),
+        argv.join(" ").contains(&format!("--bind {store} {store}")),
         "a --bind-try workspace is writable too"
     );
 
@@ -270,8 +327,7 @@ fn a_read_only_profile_and_a_primary_checkout_get_no_scoped_binds() {
     ]);
     let argv = runner_argv(&runner_args(&layout, &mixed, &["true"])).unwrap();
     assert!(
-        argv.join(" ")
-            .contains(&format!("--bind-try {common}/objects")),
+        argv.join(" ").contains(&format!("--bind {store} {store}")),
         "an unrelated bind does not end the scan"
     );
 
@@ -287,14 +343,15 @@ fn a_read_only_profile_and_a_primary_checkout_get_no_scoped_binds() {
     let argv = runner_argv(&runner_args_for(
         Path::new(BWRAP),
         &primary,
-        &layout.mask,
+        &layout.store,
+        &layout.trusted,
         &profile,
         &["true"],
     ))
     .unwrap();
     let text = argv.join(" ");
     assert!(!text.contains("--tmpfs /repo/.git/hooks"), "{text}");
-    assert!(!text.contains("--bind-try /repo/.git/objects"), "{text}");
+    assert!(!text.contains(&format!("--bind {store} {store}")), "{text}");
     assert!(text.contains("--bind /repo /repo"), "{text}");
 }
 
@@ -330,16 +387,152 @@ fn a_bind_whose_source_is_not_its_destination_is_not_the_workspace_grant() {
     ]);
     let argv = runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap();
     assert!(
-        !argv.join(" ").contains(
-            &layout
-                .scope
-                .common_dir
-                .join("objects")
-                .display()
-                .to_string()
-        ),
+        !argv.join(" ").contains(&layout.store.display().to_string()),
         "a mismatched source/destination pair is not the workspace grant"
     );
+}
+
+/// Every bubblewrap option the runner steps over is one it knows the
+/// arity of. A table that guessed would read an ARGUMENT as a flag, and
+/// the answer to "can the box write the files this runner mounts
+/// read-only?" would then be measured against the wrong tokens. Every
+/// entry is exercised here, and an option outside the table refuses the
+/// command rather than being skipped.
+#[test]
+fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
+    let none: &[&str] = &[];
+    /// One row of the table under test: the option, how many arguments
+    /// follow it, and which of them name a host path the box can write.
+    type Row = (&'static str, usize, Option<(usize, usize)>);
+    let cases: &[Row] = &[
+        ("--help", 0, None),
+        ("--version", 0, None),
+        ("--level-prefix", 0, None),
+        ("--unshare-all", 0, None),
+        ("--share-net", 0, None),
+        ("--unshare-user", 0, None),
+        ("--unshare-user-try", 0, None),
+        ("--unshare-ipc", 0, None),
+        ("--unshare-pid", 0, None),
+        ("--unshare-net", 0, None),
+        ("--unshare-uts", 0, None),
+        ("--unshare-cgroup", 0, None),
+        ("--unshare-cgroup-try", 0, None),
+        ("--clearenv", 0, None),
+        ("--new-session", 0, None),
+        ("--die-with-parent", 0, None),
+        ("--as-pid-1", 0, None),
+        ("--disable-userns", 0, None),
+        ("--assert-userns-disabled", 0, None),
+        ("--args", 1, None),
+        ("--argv0", 1, None),
+        ("--userns", 1, None),
+        ("--userns2", 1, None),
+        ("--pidns", 1, None),
+        ("--uid", 1, None),
+        ("--gid", 1, None),
+        ("--hostname", 1, None),
+        ("--chdir", 1, None),
+        ("--unsetenv", 1, None),
+        ("--lock-file", 1, None),
+        ("--sync-fd", 1, None),
+        ("--remount-ro", 1, None),
+        ("--exec-label", 1, None),
+        ("--file-label", 1, None),
+        ("--proc", 1, None),
+        ("--dev", 1, None),
+        ("--tmpfs", 1, None),
+        ("--mqueue", 1, None),
+        ("--dir", 1, None),
+        ("--seccomp", 1, None),
+        ("--add-seccomp-fd", 1, None),
+        ("--block-fd", 1, None),
+        ("--userns-block-fd", 1, None),
+        ("--info-fd", 1, None),
+        ("--json-status-fd", 1, None),
+        ("--cap-add", 1, None),
+        ("--cap-drop", 1, None),
+        ("--perms", 1, None),
+        ("--size", 1, None),
+        ("--overlay-src", 1, None),
+        ("--tmp-overlay", 1, None),
+        ("--ro-overlay", 1, None),
+        ("--setenv", 2, None),
+        ("--ro-bind", 2, None),
+        ("--ro-bind-try", 2, None),
+        ("--bind-fd", 2, None),
+        ("--ro-bind-fd", 2, None),
+        ("--file", 2, None),
+        ("--bind-data", 2, None),
+        ("--ro-bind-data", 2, None),
+        ("--symlink", 2, None),
+        ("--chmod", 2, None),
+        ("--bind", 2, Some((0, 1))),
+        ("--bind-try", 2, Some((0, 1))),
+        ("--dev-bind", 2, Some((0, 1))),
+        ("--dev-bind-try", 2, Some((0, 1))),
+        ("--overlay", 3, Some((0, 2))),
+    ];
+    for (flag, arity, write) in cases {
+        let shape = profile_flag(flag).unwrap_or_else(|| panic!("{flag} is not in the table"));
+        assert_eq!(shape.arity, *arity, "{flag}");
+        assert_eq!(shape.write, *write, "{flag}");
+        // The whole option, followed by a bind of `/w`: the scan must land
+        // on that bind, which it only does when it stepped over exactly
+        // `arity` arguments.
+        let mut profile: Vec<String> = vec![flag.to_string()];
+        profile.extend((0..*arity).map(|slot| format!("/argument-{slot}")));
+        profile.extend(["--bind".to_string(), "/w".to_string(), "/w".to_string()]);
+        let binds = writable_binds(&profile).unwrap();
+        assert_eq!(
+            binds.last(),
+            Some(&(Path::new("/w"), Path::new("/w"))),
+            "{flag}"
+        );
+        assert_eq!(binds.len(), 1 + usize::from(write.is_some()), "{flag}");
+    }
+    assert!(profile_flag("--no-such-bubblewrap-option").is_none());
+    assert!(profile_flag("/not-a-flag").is_none());
+
+    // A read-write option the old scan did not know is now read as one,
+    // and an option outside the table refuses rather than being skipped.
+    let dev_bind = ["--dev-bind", "/src", "/dst"].map(str::to_string);
+    assert_eq!(
+        writable_binds(&dev_bind).unwrap(),
+        vec![(Path::new("/src"), Path::new("/dst"))]
+    );
+    let overlay = ["--overlay", "/upper", "/work", "/dst"].map(str::to_string);
+    assert_eq!(
+        writable_binds(&overlay).unwrap(),
+        vec![(Path::new("/upper"), Path::new("/dst"))]
+    );
+    let unknown = ["--future-option", "/src"].map(str::to_string);
+    let refused = writable_binds(&unknown).unwrap_err();
+    assert!(refused.contains("--future-option"), "{refused}");
+    assert!(refused.contains("does not know"), "{refused}");
+    // Truncated arguments are a malformed profile, not a shorter one.
+    let truncated = ["--bind", "/src"].map(str::to_string);
+    let refused = writable_binds(&truncated).unwrap_err();
+    assert!(
+        refused.contains("ends inside --bind's arguments"),
+        "{refused}"
+    );
+    assert!(writable_binds(
+        none.iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>()
+            .as_slice()
+    )
+    .unwrap()
+    .is_empty());
+
+    // And the runner refuses the whole command on an unknown option,
+    // before it composes a single bind.
+    let layout = Layout::linked();
+    let mut profile = dsh_workspace_write_profile(&layout.scope.workspace);
+    profile.push("--future-option".to_string());
+    let refused = runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap_err();
+    assert!(refused.contains("--future-option"), "{refused}");
 }
 
 /// Decision 0054's threat model: Git resolves both directories by
@@ -385,8 +578,8 @@ fn only_a_genuine_linked_worktree_is_served() {
 /// fake administrative directory INSIDE its own workspace, names an
 /// unrelated repository in `commondir`, and git then reports that
 /// repository as the common directory. Nothing about that layout is a
-/// linked worktree, and the scoped runner may never bind the victim's
-/// object store and refs read-write on its word.
+/// linked worktree, and the scoped runner may never bind a directory
+/// under the victim on its word.
 #[test]
 fn a_workspace_local_git_directory_never_redirects_the_write_set() {
     let dir = tempfile::tempdir().unwrap();
@@ -414,12 +607,12 @@ fn a_workspace_local_git_directory_never_redirects_the_write_set() {
     // The runner is the last gate, and it refuses the same scope rather
     // than emitting a single bind for it.
     let profile = dsh_workspace_write_profile(&workspace);
-    let mask = dir.path().join("mask");
-    std::fs::write(&mask, "").unwrap();
+    let layout = Layout::linked();
     let refused = runner_argv(&runner_args_for(
         Path::new(BWRAP),
         &scope,
-        &mask,
+        &layout.store,
+        &layout.trusted,
         &profile,
         &["true"],
     ))
@@ -497,11 +690,12 @@ fn a_symlinked_workspace_git_cannot_borrow_another_worktrees_back_pointer() {
     assert!(refused.contains("linked `git worktree`"), "{refused}");
 
     // The runner is the last gate and refuses the same scope rather than
-    // binding the victim's object store and refs read-write.
+    // binding the victim's metadata.
     let refused = runner_argv(&runner_args_for(
         Path::new(BWRAP),
         &scope,
-        &victim.mask,
+        &victim.store,
+        &victim.trusted,
         &dsh_workspace_write_profile(&seat),
         &["true"],
     ))
@@ -554,6 +748,7 @@ fn a_subdirectory_of_a_linked_worktree_is_refused_by_its_own_name() {
 
 #[test]
 fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
+    let layout = Layout::linked();
     let scope = GitScope {
         workspace: PathBuf::from("/repo/src"),
         git_dir: PathBuf::from("/repo/.git"),
@@ -563,7 +758,8 @@ fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
     let refused = runner_argv(&runner_args_for(
         Path::new(BWRAP),
         &scope,
-        Path::new("/nonexistent/mask"),
+        &layout.store,
+        &layout.trusted,
         &profile,
         &["true"],
     ))
@@ -574,96 +770,93 @@ fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
     );
 }
 
-/// The mask is only a mask while its SOURCE is an empty regular file the
-/// box cannot write. Every way that can fail is refused rather than
-/// mounted, because each one turns the mask into something else: an
-/// unreadable path git calls fatal, a config the box can fill, or a
-/// config with content nobody wrote.
+/// The three staged files are only what they stand for while each is a
+/// real file the box cannot write. Every way that can fail is refused
+/// rather than mounted, because each one turns a mount into something
+/// else: an unreadable path git calls fatal, a config the box can fill,
+/// or a pointer with content nobody wrote.
 #[test]
-fn a_mask_that_is_not_an_unreachable_empty_regular_file_is_refused() {
+fn a_staged_file_that_is_not_what_the_runner_mounts_is_refused() {
     let layout = Layout::linked();
     let profile = dsh_workspace_write_profile(&layout.scope.workspace);
-    let refuse = |mask: &Path| {
-        runner_argv(&runner_args_for(
-            Path::new(BWRAP),
-            &layout.scope,
-            mask,
-            &profile,
-            &["true"],
-        ))
-        .unwrap_err()
-    };
+    let refuse = || runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap_err();
 
-    let missing = layout.dir.path().join("not-there");
-    assert!(refuse(&missing).contains("cannot be read"), "missing mask");
+    // The mask must exist. So must each pointer.
+    for name in [MASK_FILE, COMMONDIR_FILE, ALTERNATES_FILE] {
+        let path = layout.trusted.join(name);
+        let kept = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let refused = refuse();
+        assert!(refused.contains("cannot be read"), "{name}: {refused}");
+        assert!(refused.contains(name), "{name}: {refused}");
+        std::fs::write(&path, kept).unwrap();
+    }
+    assert!(layout.argv(&["true"]).is_ok());
 
-    // A directory, or the `/dev/null` this fix replaced: bubblewrap binds
-    // a source with MS_NODEV, so the box cannot open a device node there
-    // and git calls an unreadable config file fatal.
-    let directory = layout.dir.path().join("a-directory");
-    std::fs::create_dir_all(&directory).unwrap();
-    let refused = refuse(&directory);
+    // A directory, or the `/dev/null` an earlier fix used: bubblewrap
+    // binds a source with MS_NODEV, so the box cannot open a device node
+    // there and git calls an unreadable config file fatal.
+    let mask = layout.trusted.join(MASK_FILE);
+    std::fs::remove_file(&mask).unwrap();
+    std::fs::create_dir(&mask).unwrap();
+    let refused = refuse();
     assert!(refused.contains("is not a regular file"), "{refused}");
     assert!(refused.contains("MS_NODEV"), "{refused}");
-    if Path::new("/dev/null").exists() {
-        let refused = refuse(Path::new("/dev/null"));
-        assert!(refused.contains("is not a regular file"), "{refused}");
-    }
+    std::fs::remove_dir(&mask).unwrap();
 
-    let filled = layout.dir.path().join("filled");
-    std::fs::write(&filled, "[core]\n").unwrap();
-    let refused = refuse(&filled);
+    // The mask stands for a config nobody wrote, so content is a refusal.
+    std::fs::write(&mask, "[core]\n").unwrap();
+    let refused = refuse();
     assert!(refused.contains("is not empty"), "{refused}");
+    std::fs::write(&mask, "").unwrap();
 
-    // Inside the seat's own writable workspace, a boxed command could fill
-    // the very file the mask stands for. The workspace is refused because
-    // the PROFILE binds it read-write, not because it is spelled
-    // `--workspace`: the refusal names the bind it read.
-    let inside = layout.scope.workspace.join("mask");
-    std::fs::write(&inside, "").unwrap();
-    let refused = refuse(&inside);
-    assert!(refused.contains("this seat's box can write"), "{refused}");
-    assert!(
-        refused.contains(&layout.scope.workspace.display().to_string()),
-        "{refused}"
-    );
+    // The two pointers are the other way round: git reads each as a path,
+    // and an empty one is a path it cannot follow.
+    for name in [COMMONDIR_FILE, ALTERNATES_FILE] {
+        let path = layout.trusted.join(name);
+        let kept = std::fs::read(&path).unwrap();
+        std::fs::write(&path, "").unwrap();
+        let refused = refuse();
+        assert!(refused.contains("is empty"), "{name}: {refused}");
+        std::fs::write(&path, kept).unwrap();
+    }
+    assert!(layout.argv(&["true"]).is_ok());
 }
 
-/// A mask staged outside the workspace is only unreachable while the
-/// profile keeps it so. dsh 0.1.2-rc.1 replaces `/tmp` with a fresh
-/// tmpfs, which is why the host's temporary directory is where the
-/// driver stages the file — but `writableRoots` is documented as the
-/// workspace PLUS the platform temp areas, so a later provider that
-/// binds one of them read-write would hand the box a path to the mask's
-/// source. The runner reads the profile it was actually given rather
-/// than trusting that shape: any read-write bind covering the mask
-/// refuses the command, and the scoped write set the runner adds itself
-/// refuses it too.
+/// The staged files are only unreachable while the profile keeps them so.
+/// dsh 0.1.2-rc.1 replaces `/tmp` with a fresh tmpfs, which is why the
+/// host's temporary directory is where the driver stages them — but
+/// `writableRoots` is documented as the workspace PLUS the platform temp
+/// areas, so a later provider that binds one of them read-write would
+/// hand the box a path to a mount's source. The runner reads the profile
+/// it was actually given rather than trusting that shape: any read-write
+/// bind covering the staged directory refuses the command, and the
+/// scoped write set the runner adds itself refuses it too.
 #[test]
-fn a_mask_the_profile_would_let_the_box_write_is_refused() {
+fn staged_files_the_profile_would_let_the_box_write_are_refused() {
     let layout = Layout::linked();
-    let staged = layout.dir.path().join("staged-mask");
-    std::fs::write(&staged, "").unwrap();
-    let refuse_with = |profile: &[String], mask: &Path| {
+    let plain = dsh_workspace_write_profile(&layout.scope.workspace);
+    let refuse_with = |profile: &[String], trusted: &Path| {
         runner_argv(&runner_args_for(
             Path::new(BWRAP),
             &layout.scope,
-            mask,
+            &layout.store,
+            trusted,
             profile,
             &["true"],
         ))
     };
 
-    // The profile dsh composes today leaves it alone.
-    let plain = dsh_workspace_write_profile(&layout.scope.workspace);
-    assert!(refuse_with(&plain, &staged).is_ok());
+    // The profile dsh composes today leaves them alone.
+    assert!(refuse_with(&plain, &layout.trusted).is_ok());
 
-    // A profile that also binds the directory the mask was staged in —
-    // the temp-area case — makes the mask a file the box can fill, at
-    // either spelling of the bind and wherever it is mounted.
+    // A profile that also binds the directory they were staged in — the
+    // temp-area case — makes them files the box can rewrite, at every
+    // spelling of a read-write bind and wherever it is mounted.
     for (flag, destination) in [
         ("--bind", layout.dir.path().display().to_string()),
         ("--bind-try", layout.dir.path().display().to_string()),
+        ("--dev-bind", layout.dir.path().display().to_string()),
         ("--bind", "/elsewhere".to_string()),
     ] {
         let mut profile = plain.clone();
@@ -672,7 +865,7 @@ fn a_mask_the_profile_would_let_the_box_write_is_refused() {
             layout.dir.path().display().to_string(),
             destination.clone(),
         ]);
-        let refused = refuse_with(&profile, &staged).unwrap_err();
+        let refused = refuse_with(&profile, &layout.trusted).unwrap_err();
         assert!(refused.contains("this seat's box can write"), "{refused}");
         assert!(
             refused.contains(&layout.dir.path().display().to_string()),
@@ -687,17 +880,20 @@ fn a_mask_the_profile_would_let_the_box_write_is_refused() {
         layout.dir.path().display().to_string(),
         layout.dir.path().display().to_string(),
     ]);
-    assert!(refuse_with(&read_only, &staged).is_ok());
+    assert!(refuse_with(&read_only, &layout.trusted).is_ok());
 
     // The runner's OWN write set counts as well: the per-worktree git
-    // directory and the shared one are read-write for the commit, so a
-    // mask staged under either is a mask the box can fill.
-    for root in [&layout.scope.git_dir, &layout.scope.common_dir] {
-        let inside = root.join("staged-mask");
-        std::fs::write(&inside, "").unwrap();
+    // directory and the private store are read-write for the commit, so
+    // files staged under either are files the box can rewrite.
+    for root in [&layout.scope.git_dir, &layout.store] {
+        let inside = root.join("trusted");
+        std::fs::create_dir_all(&inside).unwrap();
+        for name in [MASK_FILE, COMMONDIR_FILE, ALTERNATES_FILE] {
+            std::fs::write(inside.join(name), "x").unwrap();
+        }
         let refused = refuse_with(&plain, &inside).unwrap_err();
         assert!(refused.contains("this seat's box can write"), "{refused}");
-        std::fs::remove_file(&inside).unwrap();
+        assert!(refused.contains(&root.display().to_string()), "{refused}");
     }
 }
 
@@ -711,6 +907,7 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
             .map(|part| part.to_string())
             .collect::<Vec<_>>()
     };
+    let head = ["--workspace", "/w", "--git-dir", "/g", "--common-dir", "/c"];
 
     assert!(runner_argv(&s(&["--workspace"]))
         .unwrap_err()
@@ -736,62 +933,52 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
     assert!(runner_argv(&s(&["--workspace", "/w", "--git-dir", "/g"]))
         .unwrap_err()
         .contains("--common-dir is required"));
+    assert!(runner_argv(&s(&head))
+        .unwrap_err()
+        .contains("--bwrap is required"));
+    assert!(
+        runner_argv(&s(&[&head[..], &["--bwrap", "/bin/bwrap"][..]].concat()))
+            .unwrap_err()
+            .contains("--store is required")
+    );
     assert!(runner_argv(&s(&[
-        "--workspace",
-        "/w",
-        "--git-dir",
-        "/g",
-        "--common-dir",
-        "/c"
-    ]))
+        &head[..],
+        &["--bwrap", "/bin/bwrap", "--store", "/tmp/store"][..]
+    ]
+    .concat()))
     .unwrap_err()
-    .contains("--bwrap is required"));
+    .contains("--trusted is required"));
     assert!(runner_argv(&s(&[
-        "--workspace",
-        "/w",
-        "--git-dir",
-        "/g",
-        "--common-dir",
-        "/c",
-        "--bwrap",
-        "/bin/bwrap"
-    ]))
-    .unwrap_err()
-    .contains("--mask is required"));
-    assert!(runner_argv(&s(&[
-        "--workspace",
-        "/w",
-        "--git-dir",
-        "/g",
-        "--common-dir",
-        "/c",
-        "--bwrap",
-        "/bin/bwrap",
-        "--bwrap",
-        "/other/bwrap"
-    ]))
+        &head[..],
+        &["--bwrap", "/bin/bwrap", "--bwrap", "/other/bwrap"][..]
+    ]
+    .concat()))
     .unwrap_err()
     .contains("--bwrap given twice"));
-    // The runner execs an absolute bubblewrap and mounts an absolute
-    // mask; a relative one would be resolved by a working directory the
-    // seat can move.
-    for (flag, value) in [("--bwrap", "bwrap"), ("--mask", "mask")] {
-        let refused = runner_argv(&s(&[
-            "--workspace",
-            "/w",
-            "--git-dir",
-            "/g",
-            "--common-dir",
-            "/c",
-            "--bwrap",
-            if flag == "--bwrap" {
-                value
+
+    // The runner execs an absolute bubblewrap and mounts absolute staged
+    // directories; a relative one would be resolved by a working
+    // directory the seat can move.
+    for flag in ["--bwrap", "--store", "--trusted"] {
+        let pick = |name: &str, absolute: &'static str| {
+            if name == flag {
+                "relative"
             } else {
-                "/bin/bwrap"
-            },
-            "--mask",
-            if flag == "--mask" { value } else { "/tmp/mask" },
-        ]))
+                absolute
+            }
+        };
+        let refused = runner_argv(&s(&[
+            &head[..],
+            &[
+                "--bwrap",
+                pick("--bwrap", "/bin/bwrap"),
+                "--store",
+                pick("--store", "/tmp/store"),
+                "--trusted",
+                pick("--trusted", "/tmp/trusted"),
+            ][..],
+        ]
+        .concat()))
         .unwrap_err();
         assert!(
             refused.contains("is not an absolute path"),
@@ -814,16 +1001,25 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
 
 #[test]
 fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
+    // A workspace whose real path carries an apostrophe, so the quoting
+    // under test is exercised against a path a host really can hold.
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().join("it's a path");
+    let common_dir = dir.path().join("main/.git");
+    let git_dir = common_dir.join("worktrees/wt");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
     let scope = GitScope {
-        workspace: PathBuf::from("/work/it's a path"),
-        git_dir: PathBuf::from("/main/.git/worktrees/wt"),
-        common_dir: PathBuf::from("/main/.git"),
+        workspace: workspace.clone(),
+        git_dir,
+        common_dir,
     };
-    let mask = Path::new("/tmp/brokkr-dsh-config-mask-abc");
+    let staged = stage_seat_store(&scope).unwrap();
     let row = sandbox_row(
         "/opt/brokkr's bin/brokkr",
         Path::new("/opt/bwrap"),
-        mask,
+        &staged,
         &scope,
     )
     .unwrap();
@@ -835,15 +1031,28 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
     );
     assert!(row.contains(&format!("      - '{RUNNER_VERB}'\n")), "{row}");
     assert!(row.contains("      - '--workspace'\n"), "{row}");
-    assert!(row.contains("      - '/work/it''s a path'\n"), "{row}");
+    assert!(
+        row.contains(&format!(
+            "      - '{}'\n",
+            workspace.display().to_string().replace('\'', "''")
+        )),
+        "{row}"
+    );
+    assert!(row.contains("it''s a path"), "{row}");
     assert!(row.contains("      - '--git-dir'\n"), "{row}");
     assert!(row.contains("      - '--common-dir'\n"), "{row}");
-    // The resolved bubblewrap and the staged mask are trusted paths too.
+    // The resolved bubblewrap and the two staged directories are trusted
+    // paths too.
     assert!(row.contains("      - '--bwrap'\n"), "{row}");
     assert!(row.contains("      - '/opt/bwrap'\n"), "{row}");
-    assert!(row.contains("      - '--mask'\n"), "{row}");
+    assert!(row.contains("      - '--store'\n"), "{row}");
     assert!(
-        row.contains("      - '/tmp/brokkr-dsh-config-mask-abc'\n"),
+        row.contains(&format!("      - '{}'\n", staged.store_path().display())),
+        "{row}"
+    );
+    assert!(row.contains("      - '--trusted'\n"), "{row}");
+    assert!(
+        row.contains(&format!("      - '{}'\n", staged.trusted_path().display())),
         "{row}"
     );
     assert!(
@@ -857,35 +1066,33 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
         ..scope.clone()
     };
     assert!(
-        sandbox_row("brokkr", Path::new("/opt/bwrap"), mask, &broken)
+        sandbox_row("brokkr", Path::new("/opt/bwrap"), &staged, &broken)
             .unwrap_err()
             .contains("spans more than one line")
     );
     // The program itself is a scalar too, and gets the same refusal.
-    assert!(
-        sandbox_row("/opt/brokkr\nline", Path::new("/opt/bwrap"), mask, &scope)
-            .unwrap_err()
-            .contains("spans more than one line")
-    );
-    assert!(
-        sandbox_row("/opt/brokkr\rline", Path::new("/opt/bwrap"), mask, &scope)
-            .unwrap_err()
-            .contains("spans more than one line")
-    );
-    // So are the bubblewrap and the mask.
-    assert!(
-        sandbox_row("brokkr", Path::new("/opt/bwrap\nline"), mask, &scope)
-            .unwrap_err()
-            .contains("spans more than one line")
-    );
     assert!(sandbox_row(
-        "brokkr",
+        "/opt/brokkr\nline",
         Path::new("/opt/bwrap"),
-        Path::new("/tmp/mask\nline"),
+        &staged,
         &scope
     )
     .unwrap_err()
     .contains("spans more than one line"));
+    assert!(sandbox_row(
+        "/opt/brokkr\rline",
+        Path::new("/opt/bwrap"),
+        &staged,
+        &scope
+    )
+    .unwrap_err()
+    .contains("spans more than one line"));
+    // So is the bubblewrap.
+    assert!(
+        sandbox_row("brokkr", Path::new("/opt/bwrap\nline"), &staged, &scope)
+            .unwrap_err()
+            .contains("spans more than one line")
+    );
 }
 
 #[test]
@@ -899,34 +1106,557 @@ fn a_bwrap_that_is_not_there_is_not_usable() {
     );
 }
 
-/// The staged mask is an empty regular file the runner accepts, and the
-/// one way staging can fail is a refusal rather than a panic.
+/// The staged store is a real git common directory the seat can write
+/// and the driver can read back, and the ways staging can fail are
+/// refusals rather than panics.
 #[test]
-fn the_staged_mask_is_an_empty_regular_file() {
-    let mask = stage_mask_file().unwrap();
-    let meta = std::fs::metadata(mask.path()).unwrap();
-    assert!(meta.is_file());
-    assert_eq!(meta.len(), 0);
-    // It is what the runner's own check accepts, under a scope and a
-    // profile that reach none of it.
-    let scope = GitScope {
-        workspace: PathBuf::from("/no/such/workspace"),
-        git_dir: PathBuf::from("/no/such/main/.git/worktrees/wt"),
-        common_dir: PathBuf::from("/no/such/main/.git"),
-    };
-    assert!(mask_refusal(mask.path(), &scope, &[]).is_none());
+fn the_staged_store_is_a_private_common_directory() {
+    let layout = Layout::linked();
+    // A shared directory with something in every name the staging copies.
+    let common = &layout.scope.common_dir;
+    std::fs::create_dir_all(common.join("refs/heads")).unwrap();
+    std::fs::create_dir_all(common.join("info")).unwrap();
+    std::fs::write(common.join("refs/heads/slice"), "a".repeat(40)).unwrap();
+    std::fs::write(common.join("packed-refs"), "# pack-refs with: peeled\n").unwrap();
+    std::fs::write(common.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(common.join("config"), "[core]\n").unwrap();
+    std::fs::write(common.join("info/exclude"), "target\n").unwrap();
 
-    let refused = stage_mask_file_in(|| {
+    let staged = stage_seat_store(&layout.scope).unwrap();
+    assert_eq!(staged.reference(), "refs/heads/slice");
+    let store = staged.store_path();
+    assert_eq!(
+        std::fs::read_to_string(store.join("refs/heads/slice")).unwrap(),
+        "a".repeat(40)
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("packed-refs")).unwrap(),
+        "# pack-refs with: peeled\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("info/exclude")).unwrap(),
+        "target\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("HEAD")).unwrap(),
+        "ref: refs/heads/main\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("config")).unwrap(),
+        "[core]\n"
+    );
+    // A name the shared directory does not carry is not a failure.
+    assert!(!store.join("shallow").exists());
+    // The store reads the host's objects and writes none of them.
+    let alternates = format!("{}\n", common.join("objects").display());
+    assert_eq!(
+        std::fs::read_to_string(store.join("objects/info/alternates")).unwrap(),
+        alternates
+    );
+    assert!(store.join("logs").is_dir());
+
+    // The trusted directory: the empty mask, the commondir pointing at
+    // the store, and the same alternates line the runner mounts.
+    let trusted = staged.trusted_path();
+    assert_eq!(
+        std::fs::read_to_string(trusted.join(MASK_FILE)).unwrap(),
+        ""
+    );
+    assert_eq!(
+        std::fs::read_to_string(trusted.join(COMMONDIR_FILE)).unwrap(),
+        format!("{}\n", store.display())
+    );
+    assert_eq!(
+        std::fs::read_to_string(trusted.join(ALTERNATES_FILE)).unwrap(),
+        alternates
+    );
+    // And it is what the runner's own check accepts.
+    let profile = dsh_workspace_write_profile(&layout.scope.workspace);
+    assert!(runner_argv(&runner_args_for(
+        Path::new(BWRAP),
+        &layout.scope,
+        store,
+        trusted,
+        &profile,
+        &["true"],
+    ))
+    .is_ok());
+}
+
+/// The two ways staging cannot start: a host that will not give the
+/// driver a directory, and a worktree with no branch to promote to.
+#[test]
+fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
+    let layout = Layout::linked();
+    let full = || {
         Err(std::io::Error::new(
             std::io::ErrorKind::StorageFull,
             "no room",
         ))
+    };
+    let refused = stage_seat_store_in(&layout.scope, full).unwrap_err();
+    assert!(refused.contains("could not stage"), "{refused}");
+    // The SECOND directory is staged too, and fails the same way.
+    let mut made = 0;
+    let refused = stage_seat_store_in(&layout.scope, || {
+        made += 1;
+        if made == 1 {
+            tempfile::tempdir()
+        } else {
+            full()
+        }
     })
     .unwrap_err();
+    assert!(refused.contains("could not stage"), "{refused}");
+    // And so does writing into them.
+    let mut made = 0;
+    let refused = stage_seat_store_in(&layout.scope, || {
+        made += 1;
+        let dir = tempfile::tempdir()?;
+        if made == 2 {
+            std::fs::remove_dir_all(dir.path())?;
+        }
+        Ok(dir)
+    })
+    .unwrap_err();
+    assert!(refused.contains("could not stage"), "{refused}");
+
+    // A shared directory with no `worktrees` tree at all is not a
+    // conflict, and not a panic either.
+    let bare = Layout::linked();
+    let alone = GitScope {
+        common_dir: bare.dir.path().join("elsewhere/.git"),
+        ..bare.scope.clone()
+    };
+    std::fs::create_dir_all(&alone.common_dir).unwrap();
+    assert!(stage_seat_store(&alone).is_ok());
+
+    // A branch two checkouts claim is owned by neither. Git will not
+    // create that state, but a seat CAN write `<git_dir>/HEAD` — which is
+    // why the runner mounts it read-only and why the driver checks the
+    // other checkouts' `HEAD`s, which lie outside every seat's write set.
+    std::fs::write(
+        layout.scope.common_dir.join("HEAD"),
+        "ref: refs/heads/slice\n",
+    )
+    .unwrap();
+    let refused = stage_seat_store(&layout.scope).unwrap_err();
+    assert!(refused.contains("and so does"), "{refused}");
+    assert!(refused.contains("owned by neither"), "{refused}");
+    // A sibling worktree claiming it is the same refusal.
+    std::fs::write(
+        layout.scope.common_dir.join("HEAD"),
+        "ref: refs/heads/main\n",
+    )
+    .unwrap();
+    let sibling = layout.scope.common_dir.join("worktrees/sibling");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    let refused = stage_seat_store(&layout.scope).unwrap_err();
     assert!(
-        refused.contains("could not stage the git config mask"),
+        refused.contains(&sibling.display().to_string()),
         "{refused}"
     );
+    std::fs::write(sibling.join("HEAD"), "ref: refs/heads/sibling\n").unwrap();
+    assert!(stage_seat_store(&layout.scope).is_ok());
+
+    // A detached HEAD owns no ref, so there is nothing a commit could be
+    // promoted to, and the seat is told so before it starts.
+    std::fs::write(layout.scope.git_dir.join("HEAD"), "a".repeat(40)).unwrap();
+    let refused = stage_seat_store(&layout.scope).unwrap_err();
+    assert!(refused.contains("no branch checked out"), "{refused}");
+    assert!(refused.contains("git switch"), "{refused}");
+    // So does a HEAD naming something that is not a branch, and a missing
+    // one.
+    std::fs::write(layout.scope.git_dir.join("HEAD"), "ref: refs/tags/v1\n").unwrap();
+    assert!(stage_seat_store(&layout.scope)
+        .unwrap_err()
+        .contains("no branch checked out"));
+    std::fs::remove_file(layout.scope.git_dir.join("HEAD")).unwrap();
+    assert!(stage_seat_store(&layout.scope)
+        .unwrap_err()
+        .contains("no branch checked out"));
+}
+
+/// The copy that builds the private ref store: trees, files, absent
+/// names, and a destination the host will not take.
+#[test]
+fn the_private_store_copy_carries_trees_files_and_absences() {
+    let dir = tempfile::tempdir().unwrap();
+    let from = dir.path().join("from");
+    std::fs::create_dir_all(from.join("heads/topic")).unwrap();
+    std::fs::write(from.join("heads/topic/one"), "one").unwrap();
+    std::fs::write(from.join("plain"), "plain").unwrap();
+
+    let to = dir.path().join("to");
+    copy_tree(&from, &to).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(to.join("heads/topic/one")).unwrap(),
+        "one"
+    );
+    assert_eq!(std::fs::read_to_string(to.join("plain")).unwrap(), "plain");
+
+    // A name the source does not carry is nothing to copy, not a failure.
+    copy_tree(&from.join("absent"), &to.join("absent")).unwrap();
+    assert!(!to.join("absent").exists());
+
+    // A destination the host will not take is the error that travels.
+    let failed = copy_tree(&from.join("plain"), &dir.path().join("no/such/dir/plain")).unwrap_err();
+    assert_eq!(failed.kind(), std::io::ErrorKind::NotFound);
+}
+
+/// A real repository, a real linked worktree, and a real private store:
+/// the promotion moves the ONE branch the worktree owns, leaves every
+/// other ref where the host had it, and says so.
+#[test]
+fn a_promotion_moves_the_owned_branch_and_nothing_else() {
+    let Some(dir) = fixture_root() else {
+        return;
+    };
+    let repo = Repo::linked(dir.path());
+    let staged = stage_seat_store(&repo.scope).unwrap();
+
+    // Nothing committed: nothing to promote, and the host is untouched.
+    assert_eq!(
+        promote_seat_commits(staged, &repo.scope).unwrap(),
+        None,
+        "an untouched store promotes nothing"
+    );
+
+    // The seat commits inside the private store, and moves a sibling's
+    // branch and a tag while it is there.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    let seat = |args: &[&str]| repo.git_with_common(&staged, args);
+    std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+    seat(&["add", "b.txt"]);
+    seat(&["commit", "-q", "-m", "boxed"]);
+    let committed = seat(&["rev-parse", "HEAD"]);
+    seat(&["update-ref", "refs/heads/sibling", &committed]);
+    seat(&["tag", "-f", "v1", &committed]);
+    seat(&["update-ref", "refs/heads/brand-new", &committed]);
+
+    // Before the promotion, the host has none of it.
+    assert_eq!(repo.host_ref("refs/heads/slice"), repo.base);
+    assert_eq!(repo.host_ref("refs/heads/sibling"), repo.base);
+
+    let promotion = promote_seat_commits(staged, &repo.scope).unwrap().unwrap();
+    assert_eq!(promotion.reference, "refs/heads/slice");
+    assert_eq!(promotion.from.as_deref(), Some(repo.base.as_str()));
+    assert_eq!(promotion.to, committed);
+    assert!(promotion.summary().contains("refs/heads/slice"), "summary");
+    assert!(promotion.summary().contains(&committed), "summary");
+
+    // The owned branch moved; every other ref the seat touched did not,
+    // and the temporary namespace the objects travelled through is gone.
+    assert_eq!(repo.host_ref("refs/heads/slice"), committed);
+    assert_eq!(repo.host_ref("refs/heads/sibling"), repo.base);
+    assert_eq!(repo.host_ref("refs/tags/v1"), repo.base);
+    assert_eq!(
+        repo.git(
+            &repo.main,
+            &["rev-parse", "--verify", "--quiet", "refs/heads/brand-new"]
+        ),
+        ""
+    );
+    assert_eq!(
+        repo.git(
+            &repo.main,
+            &["rev-parse", "--verify", "--quiet", PROMOTION_REF]
+        ),
+        ""
+    );
+    // The worktree reads its own commit back, and the repository is whole.
+    assert_eq!(
+        repo.git(&repo.worktree, &["log", "-1", "--format=%s"]),
+        "boxed"
+    );
+    repo.git(&repo.main, &["fsck", "--no-progress", "--no-dangling"]);
+    assert!(!store.exists(), "a promoted store is discarded");
+}
+
+/// Every way a promotion can fail keeps the seat's commits and says
+/// where they are, rather than discarding the store it could not move.
+#[test]
+fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
+    let Some(dir) = fixture_root() else {
+        return;
+    };
+    let repo = Repo::linked(dir.path());
+
+    // A `git` that cannot be run at all — read as a failure and never as
+    // "this store has no such ref", which would discard the seat's work.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let commit = |staged: &SeatGitStore| {
+        std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+        repo.git_with_common(staged, &["add", "b.txt"]);
+        repo.git_with_common(staged, &["commit", "-q", "-m", "boxed"])
+    };
+    commit(&staged);
+    let store = staged.store_path().to_path_buf();
+    let refused = promote_seat_commits_with("brokkr-no-such-git", staged, &repo.scope).unwrap_err();
+    assert!(refused.contains("could not run"), "{refused}");
+    assert!(refused.contains(&store.display().to_string()), "{refused}");
+    assert!(store.exists(), "the store is kept, not discarded");
+    std::fs::remove_dir_all(&store).unwrap();
+
+    // A `git` that refuses one step. Each of the three is the one that
+    // travels, and each keeps the store.
+    for needle in ["fetch", "update-ref -m", "update-ref -d"] {
+        let staged = stage_seat_store(&repo.scope).unwrap();
+        commit(&staged);
+        let store = staged.store_path().to_path_buf();
+        let shim = fake_git(dir.path(), needle);
+        let refused =
+            promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope).unwrap_err();
+        assert!(refused.contains("fake git refusing"), "{needle}: {refused}");
+        assert!(refused.contains(&store.display().to_string()), "{refused}");
+        assert!(store.exists(), "{needle}: the store is kept");
+        std::fs::remove_dir_all(&store).unwrap();
+        repo.git(
+            &repo.main,
+            &["update-ref", "-d", PROMOTION_REF, "--no-deref"],
+        );
+        repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
+    }
+
+    // A store whose branch the seat deleted promotes nothing rather than
+    // failing: there is no commit to move to. The ref is deleted through
+    // git, so a copy that arrived PACKED goes with the loose one.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    Repo::run(
+        staged.store_path(),
+        &[
+            "--git-dir",
+            &staged.store_path().to_string_lossy(),
+            "update-ref",
+            "-d",
+            "refs/heads/slice",
+        ],
+    );
+    assert_eq!(
+        repo.git(
+            staged.store_path(),
+            &[
+                "--git-dir",
+                &staged.store_path().to_string_lossy(),
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "refs/heads/slice",
+            ],
+        ),
+        "",
+        "the store really has no such ref"
+    );
+    assert_eq!(promote_seat_commits(staged, &repo.scope).unwrap(), None);
+}
+
+/// A `git` that refuses exactly one step and delegates the rest, so the
+/// arm that carries each failure is the one under test.
+fn fake_git(dir: &Path, needle: &str) -> PathBuf {
+    let path = dir.join(format!("fake-git-{}", needle.replace([' ', '-'], "")));
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  *'{needle}'*) echo \"fake git refusing: $*\" >&2; exit 1;;\nesac\nexec git \"$@\"\n"
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    path
+}
+
+/// A real repository with a linked worktree and a sibling, built by git
+/// itself so the layout under test is the one git writes.
+struct Repo {
+    main: PathBuf,
+    worktree: PathBuf,
+    sibling: PathBuf,
+    scope: GitScope,
+    base: String,
+}
+
+impl Repo {
+    fn linked(root: &Path) -> Self {
+        // A nested path with a space, so the argv carries what a host path
+        // really can carry.
+        let main = root.join("main repo");
+        std::fs::create_dir_all(&main).unwrap();
+        let git = |cwd: &Path, args: &[&str]| Repo::run(cwd, args);
+        git(&main, &["init", "-q", "-b", "main"]);
+        git(&main, &["config", "user.name", "Host Operator"]);
+        git(&main, &["config", "user.email", "host@example.invalid"]);
+        git(&main, &["config", "commit.gpgsign", "true"]);
+        git(&main, &["config", "gpg.program", "/nonexistent/gpg"]);
+        // A repository that has run sparse-checkout carries this extension,
+        // so a per-worktree `config.worktree` is honoured by the host's git.
+        git(&main, &["config", "extensions.worktreeConfig", "true"]);
+        std::fs::write(main.join("a.txt"), "a\n").unwrap();
+        git(&main, &["add", "-A"]);
+        git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+
+        let worktree = root.join("wt with space");
+        let sibling = root.join("sibling");
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                worktree.to_str().unwrap(),
+                "-b",
+                "slice",
+            ],
+        );
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                sibling.to_str().unwrap(),
+                "-b",
+                "sibling",
+            ],
+        );
+        git(&main, &["tag", "v1"]);
+        // Pack every ref, so the sibling's branch is a PACKED ref rather
+        // than a loose file, and add one loose ref beside it: both
+        // spellings have to survive the seat.
+        git(&main, &["pack-refs", "--all"]);
+        let base = git(&main, &["rev-parse", "HEAD"]);
+        git(&main, &["update-ref", "refs/heads/loose-sibling", &base]);
+
+        let facts = crate::hands::git_facts(&worktree);
+        let scope = GitScope {
+            workspace: worktree.clone(),
+            git_dir: facts.git_dir.clone().unwrap(),
+            common_dir: facts.common_dir.clone().unwrap(),
+        };
+        Repo {
+            main,
+            worktree,
+            sibling,
+            scope,
+            base,
+        }
+    }
+
+    fn run(cwd: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn git(&self, cwd: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// One git command in the worktree with the PRIVATE store as its
+    /// common directory. The runner makes that redirect by mounting a
+    /// `commondir` naming the store over the worktree's own; here the
+    /// same file is written and put back, so the promotion is proved on a
+    /// host that cannot open a namespace as well as on one that can.
+    fn git_with_common(&self, staged: &SeatGitStore, args: &[&str]) -> String {
+        let commondir = self.scope.git_dir.join("commondir");
+        let real = std::fs::read(&commondir).unwrap();
+        std::fs::write(&commondir, format!("{}\n", staged.store_path().display())).unwrap();
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&self.worktree)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .env("GIT_AUTHOR_NAME", "Host Operator")
+            .env("GIT_AUTHOR_EMAIL", "host@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Host Operator")
+            .env("GIT_COMMITTER_EMAIL", "host@example.invalid")
+            .output()
+            .unwrap();
+        std::fs::write(&commondir, real).unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} in the private store: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn host_ref(&self, reference: &str) -> String {
+        self.git(&self.main, &["rev-parse", "--verify", "--quiet", reference])
+    }
+
+    /// Every byte of the shared store a seat must not be able to move.
+    fn shared_state(&self) -> Vec<(String, String)> {
+        let common = self.main.join(".git");
+        let mut state = vec![
+            (
+                "packed-refs".to_string(),
+                std::fs::read_to_string(common.join("packed-refs")).unwrap_or_default(),
+            ),
+            (
+                "sibling-head".to_string(),
+                std::fs::read_to_string(common.join("worktrees/sibling/HEAD")).unwrap_or_default(),
+            ),
+            (
+                "config".to_string(),
+                std::fs::read_to_string(common.join("config")).unwrap_or_default(),
+            ),
+        ];
+        for reference in [
+            "refs/heads/sibling",
+            "refs/heads/loose-sibling",
+            "refs/heads/main",
+            "refs/tags/v1",
+        ] {
+            state.push((reference.to_string(), self.host_ref(reference)));
+        }
+        let mut objects: Vec<String> = walk(&common.join("objects"));
+        objects.sort();
+        state.push(("objects".to_string(), objects.join("\n")));
+        state
+    }
+}
+
+/// Every file under one directory, relative and sorted by the caller.
+fn walk(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk(&path));
+        } else {
+            found.push(path.display().to_string());
+        }
+    }
+    found
 }
 
 /// A fixture root dsh's own profile cannot shadow. The workspace-write
@@ -951,12 +1681,13 @@ fn fixture_root() -> Option<tempfile::TempDir> {
 
 /// The boundary, for real: Linux with bubblewrap, which is where dsh's
 /// own sandbox runs and the only place this runner is claimed. The
-/// provider's profile confines the worktree; the runner widens it by
-/// exactly the scoped git metadata, so a linked worktree commits, the
-/// parent and sibling stay unreachable, and hooks, config and the
-/// worktree's `commondir`/`gitdir` pointers cannot be written. The
-/// assertions read the HOST back: a marker printed inside the box would
-/// only prove what the box believes, not what landed on the host.
+/// provider's profile confines the worktree; the runner adds the
+/// per-worktree directory and a PRIVATE common directory, so a linked
+/// worktree commits while the shared repository stays read-only —
+/// objects, refs, packed refs, reflogs, hooks, config, every sibling
+/// worktree. The assertions read the HOST back: a marker printed inside
+/// the box would only prove what the box believes, not what landed on
+/// the host.
 ///
 /// A host that declares [`BOUNDARY_EVIDENCE_ENV`] fails instead of
 /// skipping, so this proof cannot report `ok` without running.
@@ -991,244 +1722,243 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         return;
     };
 
-    // The mask the driver stages, exactly as the driver stages it: in the
-    // system temp directory, which dsh's own profile replaces with a fresh
-    // tmpfs inside the box. Bubblewrap resolves a bind SOURCE against the
-    // host root, so the box mounts the host's file and can reach it by no
-    // other path.
-    let config_mask = stage_mask_file().unwrap();
+    let repo = Repo::linked(dir.path());
+    let main = repo.main.clone();
+    let common = main.join(".git");
+    let worktree = repo.worktree.clone();
+    let sibling = repo.sibling.clone();
+    std::fs::write(main.join("parent-sentinel"), "parent\n").unwrap();
+    std::fs::write(sibling.join("sibling-sentinel"), "sibling\n").unwrap();
+    // A hook the HOST would run. If the seat's commit succeeds, the host's
+    // hooks were never on the seat's hook path.
+    std::fs::write(
+        common.join("hooks/pre-commit"),
+        "#!/bin/sh\necho HOST_HOOK_RAN\nexit 1\n",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            common.join("hooks/pre-commit"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
 
-    // A nested path with a space, so the argv carries what a host path
-    // really can carry.
-    let main = dir.path().join("main repo");
-    std::fs::create_dir_all(&main).unwrap();
-    let git = |cwd: &Path, args: &[&str]| {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
+    // The layout git itself wrote is the one layout the checks serve.
+    assert!(scope_refusal(&repo.scope).is_none());
+    let git_dir = repo.scope.git_dir.clone();
+    let commondir_file = git_dir.join("commondir");
+    let gitdir_file = git_dir.join("gitdir");
+    let head_file = git_dir.join("HEAD");
+    let commondir_before = std::fs::read_to_string(&commondir_file).unwrap();
+    let gitdir_before = std::fs::read_to_string(&gitdir_file).unwrap();
+    let head_before = std::fs::read_to_string(&head_file).unwrap();
+    // Every object the repository held before any seat ran. A promotion
+    // ADDS objects; nothing a seat does may take one away.
+    let objects_at_start: Vec<String> = repo
+        .shared_state()
+        .into_iter()
+        .filter(|(name, _)| name == "objects")
+        .flat_map(|(_, files)| files.lines().map(str::to_string).collect::<Vec<_>>())
+        .collect();
+
+    // Two boxed sessions in the same worktree, the way implement, verify
+    // and review reuse one: the second is the "later malicious session"
+    // that finds a repository a promotion has already touched.
+    let mut committed = String::new();
+    for session in ["first", "second"] {
+        // What the shared repository holds going INTO this session. The
+        // second session opens on a repository a promotion has already
+        // written to, which is the "later malicious seat" case.
+        let shared_before = repo.shared_state();
+        // The first session's store is rooted in `/tmp` on purpose: dsh's
+        // own profile replaces `/tmp` with a fresh tmpfs, and the runner's
+        // bind comes AFTER it in the argv, so this is what proves the
+        // seat's writes reach the HOST's store rather than a tmpfs that
+        // dies with the box. The second uses the host's temporary
+        // directory wherever that is, which on a machine with `TMPDIR`
+        // set is not `/tmp` at all.
+        let staged = if session == "first" {
+            stage_seat_store_in(&repo.scope, || {
+                tempfile::Builder::new()
+                    .prefix("brokkr-dsh-git-")
+                    .tempdir_in("/tmp")
+            })
+            .unwrap()
+        } else {
+            stage_seat_store(&repo.scope).unwrap()
+        };
+        assert!(
+            session != "first" || staged.store_path().starts_with("/tmp"),
+            "the first session's store must sit under the tmpfs the profile creates"
+        );
+        let store = staged.store_path().to_path_buf();
+        let trusted = staged.trusted_path().to_path_buf();
+        let script = boxed_script(&repo, &store, &trusted, session);
+        let argv = runner_argv(&runner_args_for(
+            &bwrap,
+            &repo.scope,
+            &store,
+            &trusted,
+            &dsh_workspace_write_profile(&worktree),
+            &["bash", "-lc", &script],
+        ))
+        .unwrap();
+        let run = Command::new(&argv[0])
+            .args(&argv[1..])
+            .current_dir(&worktree)
             .env("GIT_CONFIG_COUNT", "1")
             .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
             .env("GIT_CONFIG_VALUE_0", "false")
             .output()
             .unwrap();
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(run.status.success(), "{session}: {stdout}\n{stderr}");
+        // The mask is readable inside the box: an unreadable one makes git
+        // answer `fatal: unknown error occurred while reading the
+        // configuration files` for every command, which is what a device
+        // node did before this fix.
+        assert!(!stderr.contains("unable to access"), "{session}: {stderr}");
+        assert!(!stdout.contains("HOST_HOOK_RAN"), "{session}: {stdout}");
+
+        // The commit is real and unsigned, and it is in the PRIVATE store:
+        // the host's branch has not moved yet.
+        assert!(stdout.contains("boxed N"), "{session}: {stdout}");
         assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
+            stdout.contains("author=Host Operator <host@example.invalid>"),
+            "{session}: {stdout}"
         );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    };
-    git(&main, &["init", "-q", "-b", "main"]);
-    git(&main, &["config", "user.name", "Host Operator"]);
-    git(&main, &["config", "user.email", "host@example.invalid"]);
-    git(&main, &["config", "commit.gpgsign", "true"]);
-    git(&main, &["config", "gpg.program", "/nonexistent/gpg"]);
-    // A repository that has run sparse-checkout carries this extension, so
-    // a per-worktree `config.worktree` is honoured by the host's git. This
-    // is the class of repository the `/dev/null` mask broke outright: git
-    // answered every command with `fatal: unknown error occurred while
-    // reading the configuration files`.
-    git(&main, &["config", "extensions.worktreeConfig", "true"]);
-    std::fs::write(main.join("a.txt"), "a\n").unwrap();
-    git(&main, &["add", "-A"]);
-    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+        assert_eq!(
+            repo.host_ref("refs/heads/slice"),
+            if session == "first" {
+                repo.base.clone()
+            } else {
+                committed.clone()
+            },
+            "{session}: the shared branch moves only in the promotion"
+        );
 
-    let worktree = dir.path().join("wt with space");
-    let sibling = dir.path().join("sibling");
-    git(
-        &main,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            worktree.to_str().unwrap(),
-            "-b",
-            "slice",
-        ],
-    );
-    git(
-        &main,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            sibling.to_str().unwrap(),
-            "-b",
-            "sibling",
-        ],
-    );
-    std::fs::write(main.join("parent-sentinel"), "parent\n").unwrap();
-    std::fs::write(sibling.join("sibling-sentinel"), "sibling\n").unwrap();
+        // Everything the boundary promises, measured inside the box.
+        for expected in [
+            "PARENT_READONLY",
+            "SIBLING_READONLY",
+            "SIBLING_GIT_READONLY",
+            "SIBLING_CONFIG_READONLY",
+            "SIBLING_REF_UNTOUCHED_ON_HOST",
+            "HOST_REF_READONLY",
+            "HOST_PACKED_READONLY",
+            "HOST_LOCK_REFUSED",
+            "HOST_REFS_DIR_READONLY",
+            "OBJECTS_READONLY",
+            "OBJECTS_INTACT",
+            "ALTERNATES_READONLY",
+            "STORE_ALTERNATES_READONLY",
+            "LOGS_READONLY",
+            "CONFIG_READONLY",
+            "WORKTREE_CONFIG_READONLY",
+            "HOOK_REFUSED",
+            "hooks=0",
+            "COMMONDIR_INTACT",
+            "COMMONDIR_READONLY",
+            "COMMONDIR_STAYS",
+            "GITDIR_READONLY",
+            "GITDIR_STAYS",
+            "HEAD_READONLY",
+            "HEAD_STAYS",
+            "HEAD_HELD",
+            "HEAD_KEPT",
+            "TRUSTED_UNREACHABLE",
+        ] {
+            assert!(stdout.contains(expected), "{session}: {expected}\n{stdout}");
+        }
+        assert!(!stdout.contains("WORKTREE_CONFIG_WRITABLE"), "{stdout}");
+        // The box's git really did follow the private store, so every
+        // shared write above went there rather than nowhere.
+        assert!(
+            stdout.contains(&format!("common={}", store.display())),
+            "{session}: {stdout}"
+        );
+        // The seat's own branch moved INSIDE the store, and so did the
+        // sibling's — which is exactly why nothing but the owned ref is
+        // promoted out of it.
+        assert!(
+            stdout.contains("STORE_SIBLING_MOVED"),
+            "{session}: {stdout}"
+        );
 
-    let facts = crate::hands::git_facts(&worktree);
-    let git_dir = facts.git_dir.clone().unwrap();
-    let common_dir = facts.common_dir.clone().unwrap();
-    let scope = GitScope {
-        workspace: worktree.clone(),
-        git_dir: git_dir.clone(),
-        common_dir: common_dir.clone(),
-    };
-    // The layout git itself wrote is the one layout the checks serve.
-    assert!(scope_refusal(&scope).is_none());
-    // Read the pointers the box must not move BEFORE the box runs, so a
-    // rewrite is caught by comparing host bytes, not by trusting a
-    // marker.
-    let commondir_file = git_dir.join("commondir");
-    let gitdir_file = git_dir.join("gitdir");
-    let commondir_before = std::fs::read_to_string(&commondir_file).unwrap();
-    let gitdir_before = std::fs::read_to_string(&gitdir_file).unwrap();
+        // The shared repository is byte-for-byte what the host left.
+        assert_eq!(repo.shared_state(), shared_before, "{session}");
+        for masked in ["config.worktree", "config"] {
+            let seen = std::fs::read_to_string(git_dir.join(masked)).unwrap_or_default();
+            assert!(seen.is_empty(), "{session} {masked}: {seen}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(trusted.join(MASK_FILE)).unwrap(),
+            ""
+        );
+        assert_eq!(
+            std::fs::read_to_string(&commondir_file).unwrap(),
+            commondir_before
+        );
+        assert_eq!(
+            std::fs::read_to_string(&gitdir_file).unwrap(),
+            gitdir_before
+        );
+        // The branch this worktree owns is still the one the HOST wrote,
+        // so the next seat's promotion cannot have been retargeted.
+        assert_eq!(std::fs::read_to_string(&head_file).unwrap(), head_before);
+        assert_eq!(
+            std::fs::read_to_string(main.join("parent-sentinel")).unwrap(),
+            "parent\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(sibling.join("sibling-sentinel")).unwrap(),
+            "sibling\n"
+        );
+        // The host still resolves the real common directory: nothing the
+        // box wrote redirected it.
+        assert_eq!(
+            repo.git(
+                &worktree,
+                &["rev-parse", "--path-format=absolute", "--git-common-dir"]
+            ),
+            common.display().to_string()
+        );
 
-    let profile = dsh_workspace_write_profile(&worktree);
-    let script = format!(
-        "set -e\n\
-         echo b > b.txt\n\
-         git add b.txt\n\
-         git commit -q -m boxed\n\
-         git log -1 --format='%s %G?'\n\
-         if echo x > '{parent}' 2>/dev/null; then echo PARENT_WRITABLE; else echo PARENT_READONLY; fi\n\
-         if echo x > '{sibling_sentinel}' 2>/dev/null; then echo SIBLING_WRITABLE; else echo SIBLING_READONLY; fi\n\
-         if echo x > '{sibling_index}' 2>/dev/null; then echo SIBLING_GIT_WRITABLE; else echo SIBLING_GIT_READONLY; fi\n\
-         echo \"hooks=$(ls '{common}/hooks' | wc -l)\"\n\
-         echo x > '{hook}' 2>/dev/null || true\n\
-         if git config --local core.hooksPath /evil 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READONLY; fi\n\
-         if git config --worktree core.hooksPath /evil 2>/dev/null; then echo WORKTREE_CONFIG_WRITABLE; else echo WORKTREE_CONFIG_READONLY; fi\n\
-         echo evil > '{worktree_config}' 2>/dev/null || true\n\
-         echo evil > '{worktree_plain_config}' 2>/dev/null || true\n\
-         if echo evil > '{sibling_config}' 2>/dev/null; then echo SIBLING_CONFIG_WRITABLE; else echo SIBLING_CONFIG_READONLY; fi\n\
-         echo evil > '{mask_source}' 2>/dev/null || true\n\
-         echo evil > '{scratch}'\n\
-         if mv '{scratch}' '{commondir}' 2>/dev/null; then echo COMMONDIR_REPLACED; else echo COMMONDIR_INTACT; fi\n\
-         rm -f '{scratch}'\n\
-         if echo x > '{commondir}' 2>/dev/null; then echo COMMONDIR_WRITABLE; else echo COMMONDIR_READONLY; fi\n\
-         if rm -f '{commondir}' 2>/dev/null; then echo COMMONDIR_UNLINKED; else echo COMMONDIR_STAYS; fi\n\
-         if echo x > '{gitdir}' 2>/dev/null; then echo GITDIR_WRITABLE; else echo GITDIR_READONLY; fi\n\
-         if rm -f '{gitdir}' 2>/dev/null; then echo GITDIR_UNLINKED; else echo GITDIR_STAYS; fi\n",
-        parent = main.join("parent-sentinel").display(),
-        sibling_sentinel = sibling.join("sibling-sentinel").display(),
-        sibling_index = main.join(".git/worktrees/sibling/HEAD").display(),
-        hook = main.join(".git/hooks/post-checkout").display(),
-        common = main.join(".git").display(),
-        mask_source = config_mask.path().display(),
-        scratch = git_dir.join("probe-scratch").display(),
-        commondir = commondir_file.display(),
-        gitdir = gitdir_file.display(),
-        worktree_config = git_dir.join("config.worktree").display(),
-        worktree_plain_config = git_dir.join("config").display(),
-        sibling_config = main.join(".git/worktrees/sibling/config.worktree").display(),
-    );
-    let args = runner_args_for(
-        &bwrap,
-        &scope,
-        config_mask.path(),
-        &profile,
-        &["bash", "-lc", &script],
-    );
-    let argv = runner_argv(&args).unwrap();
-    let run = Command::new(&argv[0])
-        .args(&argv[1..])
-        .current_dir(&worktree)
-        .env("GIT_CONFIG_COUNT", "1")
-        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-        .env("GIT_CONFIG_VALUE_0", "false")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(run.status.success(), "{stdout}\n{stderr}");
-    // The mask is readable inside the box: an unreadable one makes git
-    // answer `fatal: unknown error occurred while reading the
-    // configuration files` for every command, which is what a device node
-    // did before this fix.
-    assert!(!stderr.contains("unable to access"), "{stderr}");
-
-    // The commit is real, reached the host's shared store, and is unsigned.
-    assert!(stdout.contains("boxed N"), "{stdout}");
-    assert_eq!(git(&worktree, &["log", "-1", "--format=%s"]), "boxed");
-    assert_eq!(
-        git(&worktree, &["log", "-1", "--format=%an <%ae>"]),
-        "Host Operator <host@example.invalid>"
-    );
-
-    // The scoped boundary held everywhere it promised. The hooks dir is
-    // an empty tmpfs, so a write lands there and never on the host.
-    assert!(stdout.contains("PARENT_READONLY"), "{stdout}");
-    assert!(stdout.contains("SIBLING_READONLY"), "{stdout}");
-    assert!(stdout.contains("SIBLING_GIT_READONLY"), "{stdout}");
-    assert!(stdout.contains("hooks=0"), "{stdout}");
-    assert!(stdout.contains("CONFIG_READONLY"), "{stdout}");
-    // The per-worktree config the host honours is masked, not merely
-    // ro-bound-try: the box can neither write it nor create it, and a
-    // sibling's is outside the write set entirely.
-    assert!(stdout.contains("WORKTREE_CONFIG_READONLY"), "{stdout}");
-    assert!(stdout.contains("SIBLING_CONFIG_READONLY"), "{stdout}");
-    assert!(!stdout.contains("WORKTREE_CONFIG_WRITABLE"), "{stdout}");
-    assert!(stdout.contains("COMMONDIR_INTACT"), "{stdout}");
-    assert!(stdout.contains("COMMONDIR_READONLY"), "{stdout}");
-    assert!(stdout.contains("COMMONDIR_STAYS"), "{stdout}");
-    assert!(stdout.contains("GITDIR_READONLY"), "{stdout}");
-    assert!(stdout.contains("GITDIR_STAYS"), "{stdout}");
-    assert_eq!(
-        std::fs::read_to_string(main.join("parent-sentinel")).unwrap(),
-        "parent\n"
-    );
-    assert_eq!(
-        std::fs::read_to_string(sibling.join("sibling-sentinel")).unwrap(),
-        "sibling\n"
-    );
-    assert!(!main.join(".git/hooks/post-checkout").exists());
-    assert!(!std::fs::read_to_string(main.join(".git/config"))
-        .unwrap()
-        .contains("evil"));
-    // Both masked mount points are at worst empty files on the host; the
-    // box wrote nothing into either, and the staged source is still empty.
-    for masked in ["config.worktree", "config"] {
-        let seen = std::fs::read_to_string(git_dir.join(masked)).unwrap_or_default();
-        assert!(seen.is_empty(), "{masked}: {seen}");
+        // And now the driver promotes the one ref the worktree owns.
+        let promotion = promote_seat_commits(staged, &repo.scope).unwrap().unwrap();
+        assert_eq!(promotion.reference, "refs/heads/slice");
+        committed = promotion.to.clone();
+        assert_eq!(repo.host_ref("refs/heads/slice"), committed);
+        assert_eq!(repo.git(&worktree, &["log", "-1", "--format=%s"]), "boxed");
+        // The sibling's branch, the tag and the packed refs are still the
+        // host's, after a promotion as well as after the box.
+        let mut expected = shared_before.clone();
+        expected.retain(|(name, _)| name != "objects");
+        let mut seen = repo.shared_state();
+        seen.retain(|(name, _)| name != "objects");
+        assert_eq!(seen, expected, "{session}: after the promotion");
+        // A promotion adds objects and never removes one: the store the
+        // repository had before any seat ran is still whole.
+        let now = repo
+            .shared_state()
+            .into_iter()
+            .find(|(name, _)| name == "objects")
+            .map(|(_, files)| files)
+            .unwrap_or_default();
+        for object in &objects_at_start {
+            assert!(now.contains(object), "{session}: {object} was destroyed");
+        }
+        repo.git(&main, &["fsck", "--no-progress", "--no-dangling"]);
     }
-    // The box tried to fill the mask through its SOURCE path, and the
-    // host's file is still the empty one the driver staged: under dsh's
-    // own profile that path lands in the box's fresh `/tmp` tmpfs and
-    // reaches nothing. That is a property of the profile rather than of
-    // the runner, which is why the runner also refuses a mask any bind in
-    // the profile it is handed would make writable.
-    assert_eq!(std::fs::metadata(config_mask.path()).unwrap().len(), 0);
-    assert!(
-        !std::fs::read_to_string(main.join(".git/worktrees/sibling/config.worktree"))
-            .unwrap_or_default()
-            .contains("evil")
-    );
-    // The worktree's pointers are byte-for-byte what the host wrote, and
-    // the host's git still resolves the real common directory: nothing
-    // the box wrote redirected it at a config in the workspace.
-    assert_eq!(
-        std::fs::read_to_string(&commondir_file).unwrap(),
-        commondir_before
-    );
-    assert_eq!(
-        std::fs::read_to_string(&gitdir_file).unwrap(),
-        gitdir_before
-    );
-    assert_eq!(
-        git(
-            &worktree,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"]
-        ),
-        common_dir.to_string_lossy()
-    );
-    // The sibling's own branch is still where the host left it. The shared
-    // ref store IS in the write set — a commit cannot happen otherwise —
-    // so this is the documented residual, not a mount the runner adds:
-    // what the boundary promises for a sibling is its worktree directory
-    // and its per-worktree metadata, both proved read-only above.
-    assert_eq!(
-        git(&sibling, &["rev-parse", "--abbrev-ref", "HEAD"]),
-        "sibling"
-    );
 
     // The redirect a hostile seat would try, against the real host: a
     // `.git` file and a fake administrative directory written inside the
     // workspace, naming this repository as the common directory. Git
     // resolves it, and the runner refuses it.
+    let staged = stage_seat_store(&repo.scope).unwrap();
     let hostile = dir.path().join("hostile");
     std::fs::create_dir_all(hostile.join("fake")).unwrap();
     std::fs::write(
@@ -1239,7 +1969,7 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     std::fs::write(hostile.join("fake/HEAD"), "ref: refs/heads/main\n").unwrap();
     std::fs::write(
         hostile.join("fake/commondir"),
-        format!("{}\n", main.join(".git").display()),
+        format!("{}\n", common.display()),
     )
     .unwrap();
     std::fs::write(
@@ -1257,17 +1987,20 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     // load-bearing, not a check against something git would never say.
     assert_eq!(
         std::fs::canonicalize(&hostile_scope.common_dir).unwrap(),
-        std::fs::canonicalize(main.join(".git")).unwrap()
+        std::fs::canonicalize(&common).unwrap()
     );
-    let refused = runner_argv(&runner_args_for(
-        &bwrap,
-        &hostile_scope,
-        config_mask.path(),
-        &dsh_workspace_write_profile(&hostile),
-        &["true"],
-    ))
-    .unwrap_err();
-    assert!(refused.contains("administrative directories"), "{refused}");
+    let refuse = |scope: &GitScope, workspace: &Path| {
+        runner_argv(&runner_args_for(
+            &bwrap,
+            scope,
+            staged.store_path(),
+            staged.trusted_path(),
+            &dsh_workspace_write_profile(workspace),
+            &["true"],
+        ))
+        .unwrap_err()
+    };
+    assert!(refuse(&hostile_scope, &hostile).contains("administrative directories"));
 
     // The ALIAS variant, against the same real git: a seat whose own
     // `.git` is a symlink to this worktree's `.git` file. Git resolves a
@@ -1284,37 +2017,19 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         git_dir: alias_facts.git_dir.clone().unwrap(),
         common_dir: alias_facts.common_dir.clone().unwrap(),
     };
-    // Git really does hand back the victim's metadata through the alias:
-    // the refusal is load-bearing, not a check against something git
-    // would never say.
+    // Git really does hand back the victim's metadata through the alias.
     assert_eq!(
         std::fs::canonicalize(&alias_scope.git_dir).unwrap(),
         std::fs::canonicalize(&git_dir).unwrap()
     );
     assert_eq!(
         std::fs::canonicalize(&alias_scope.common_dir).unwrap(),
-        std::fs::canonicalize(&common_dir).unwrap()
+        std::fs::canonicalize(&common).unwrap()
     );
-    let alias_profile = dsh_workspace_write_profile(&alias);
-    let refused = runner_argv(&runner_args_for(
-        &bwrap,
-        &alias_scope,
-        config_mask.path(),
-        &alias_profile,
-        &["true"],
-    ))
-    .unwrap_err();
-    assert!(refused.contains("symbolic link"), "{refused}");
+    assert!(refuse(&alias_scope, &alias).contains("symbolic link"));
     std::fs::remove_file(alias.join(".git")).unwrap();
     std::fs::copy(worktree.join(".git"), alias.join(".git")).unwrap();
-    let refused = runner_argv(&runner_args_for(
-        &bwrap,
-        &alias_scope,
-        config_mask.path(),
-        &alias_profile,
-        &["true"],
-    ))
-    .unwrap_err();
+    let refused = refuse(&alias_scope, &alias);
     assert!(refused.contains("another worktree's metadata"), "{refused}");
     assert!(
         refused.contains(&worktree.display().to_string()),
@@ -1325,9 +2040,9 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     // scoped bind is added and the workspace bind covers its `.git`.
     let standalone = dir.path().join("standalone");
     std::fs::create_dir_all(&standalone).unwrap();
-    git(&standalone, &["init", "-q", "-b", "main"]);
-    git(&standalone, &["config", "user.name", "Host Operator"]);
-    git(
+    Repo::run(&standalone, &["init", "-q", "-b", "main"]);
+    Repo::run(&standalone, &["config", "user.name", "Host Operator"]);
+    Repo::run(
         &standalone,
         &["config", "user.email", "host@example.invalid"],
     );
@@ -1337,14 +2052,14 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         git_dir: facts.git_dir.clone().unwrap(),
         common_dir: facts.common_dir.clone().unwrap(),
     };
-    let profile = dsh_workspace_write_profile(&standalone);
     let script =
         "echo s > s.txt && git add s.txt && git commit -q -m standalone && git log -1 --format=%s";
     let argv = runner_argv(&runner_args_for(
         &bwrap,
         &scope,
-        config_mask.path(),
-        &profile,
+        staged.store_path(),
+        staged.trusted_path(),
+        &dsh_workspace_write_profile(&standalone),
         &["bash", "-lc", script],
     ))
     .unwrap();
@@ -1363,4 +2078,92 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(String::from_utf8_lossy(&run.stdout).contains("standalone"));
+    // A standalone repository's own commit really did land on its branch:
+    // the runner added nothing, and the provider's workspace bind was
+    // enough.
+    assert_eq!(
+        Repo::run(&standalone, &["log", "-1", "--format=%s"]),
+        "standalone"
+    );
+}
+
+/// What the boxed seat does: commit its own work, then try every way a
+/// hostile seat could reach the shared repository. Each answer is a word
+/// the host reads back, and every claim is re-checked against the host's
+/// own bytes afterwards.
+#[cfg(target_os = "linux")]
+fn boxed_script(repo: &Repo, store: &Path, trusted: &Path, session: &str) -> String {
+    let common = repo.main.join(".git");
+    let git_dir = repo.scope.git_dir.clone();
+    format!(
+        "set -e\n\
+         echo {session} > b.txt\n\
+         git add b.txt\n\
+         git commit -q -m boxed\n\
+         git log -1 --format='%s %G?'\n\
+         echo \"author=$(git log -1 --format='%an <%ae>')\"\n\
+         echo \"common=$(git rev-parse --path-format=absolute --git-common-dir)\"\n\
+         # the seat's own branch and a sibling's both move — inside the store\n\
+         git update-ref refs/heads/sibling \"$(git rev-parse HEAD)\"\n\
+         git branch -f loose-sibling HEAD\n\
+         git tag -f v1 HEAD\n\
+         git update-ref refs/remotes/origin/main HEAD\n\
+         git pack-refs --all\n\
+         if [ \"$(git rev-parse refs/heads/sibling)\" = \"$(git rev-parse HEAD)\" ]; then echo STORE_SIBLING_MOVED; fi\n\
+         if [ \"$(cat '{common}/packed-refs' | grep -c ' refs/heads/sibling$')\" = 1 ]; then echo SIBLING_REF_UNTOUCHED_ON_HOST; fi\n\
+         # the parent checkout, the sibling worktree and its metadata\n\
+         if echo x > '{parent}' 2>/dev/null; then echo PARENT_WRITABLE; else echo PARENT_READONLY; fi\n\
+         if echo x > '{sibling_sentinel}' 2>/dev/null; then echo SIBLING_WRITABLE; else echo SIBLING_READONLY; fi\n\
+         if echo x > '{common}/worktrees/sibling/HEAD' 2>/dev/null; then echo SIBLING_GIT_WRITABLE; else echo SIBLING_GIT_READONLY; fi\n\
+         if echo x > '{common}/worktrees/sibling/config.worktree' 2>/dev/null; then echo SIBLING_CONFIG_WRITABLE; else echo SIBLING_CONFIG_READONLY; fi\n\
+         # the shared ref store, at every spelling git uses\n\
+         if echo x > '{common}/refs/heads/loose-sibling' 2>/dev/null; then echo HOST_REF_WRITABLE; else echo HOST_REF_READONLY; fi\n\
+         if echo x > '{common}/packed-refs' 2>/dev/null; then echo HOST_PACKED_WRITABLE; else echo HOST_PACKED_READONLY; fi\n\
+         if echo x > '{common}/refs/heads/sibling.lock' 2>/dev/null; then echo HOST_LOCK_TAKEN; else echo HOST_LOCK_REFUSED; fi\n\
+         if mkdir '{common}/refs/heads/evil' 2>/dev/null; then echo HOST_REFS_DIR_WRITABLE; else echo HOST_REFS_DIR_READONLY; fi\n\
+         if echo x > '{common}/logs/HEAD' 2>/dev/null; then echo LOGS_WRITABLE; else echo LOGS_READONLY; fi\n\
+         # the shared object store, and the alternates that point at it\n\
+         if echo x > '{common}/objects/info/packs' 2>/dev/null; then echo OBJECTS_WRITABLE; else echo OBJECTS_READONLY; fi\n\
+         rm -rf '{common}/objects/pack' 2>/dev/null || true\n\
+         if [ -d '{common}/objects' ]; then echo OBJECTS_INTACT; fi\n\
+         if echo /evil > '{common}/objects/info/alternates' 2>/dev/null; then echo ALTERNATES_WRITABLE; else echo ALTERNATES_READONLY; fi\n\
+         if echo /evil > '{store}/objects/info/alternates' 2>/dev/null; then echo STORE_ALTERNATES_WRITABLE; else echo STORE_ALTERNATES_READONLY; fi\n\
+         # hooks and config, on both paths git would read them from\n\
+         if echo x > '{common}/hooks/post-commit' 2>/dev/null; then echo HOOK_PLANTED; else echo HOOK_REFUSED; fi\n\
+         echo \"hooks=$(ls '{store}/hooks' | wc -l)\"\n\
+         if git config --local core.hooksPath /evil 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READONLY; fi\n\
+         if git config --worktree core.hooksPath /evil 2>/dev/null; then echo WORKTREE_CONFIG_WRITABLE; else echo WORKTREE_CONFIG_READONLY; fi\n\
+         echo evil > '{git_dir}/config.worktree' 2>/dev/null || true\n\
+         echo evil > '{git_dir}/config' 2>/dev/null || true\n\
+         # the pointers the box must not move, and the staged files behind them\n\
+         echo evil > '{git_dir}/probe-scratch'\n\
+         if mv '{git_dir}/probe-scratch' '{commondir}' 2>/dev/null; then echo COMMONDIR_REPLACED; else echo COMMONDIR_INTACT; fi\n\
+         rm -f '{git_dir}/probe-scratch'\n\
+         if echo x > '{commondir}' 2>/dev/null; then echo COMMONDIR_WRITABLE; else echo COMMONDIR_READONLY; fi\n\
+         if rm -f '{commondir}' 2>/dev/null; then echo COMMONDIR_UNLINKED; else echo COMMONDIR_STAYS; fi\n\
+         if echo x > '{gitdir}' 2>/dev/null; then echo GITDIR_WRITABLE; else echo GITDIR_READONLY; fi\n\
+         if rm -f '{gitdir}' 2>/dev/null; then echo GITDIR_UNLINKED; else echo GITDIR_STAYS; fi\n\
+         # HEAD names the branch this worktree owns, and that is the ref the\n\
+         # driver promotes: retargeting it would aim the NEXT seat's honest\n\
+         # commits at a branch this one chose.\n\
+         if printf 'ref: refs/heads/sibling\\n' > '{head}' 2>/dev/null; then echo HEAD_WRITABLE; else echo HEAD_READONLY; fi\n\
+         if git symbolic-ref HEAD refs/heads/sibling 2>/dev/null; then echo HEAD_RETARGETED; else echo HEAD_STAYS; fi\n\
+         if git checkout -q sibling 2>/dev/null; then echo HEAD_SWITCHED; else echo HEAD_HELD; fi\n\
+         if rm -f '{head}' 2>/dev/null; then echo HEAD_UNLINKED; else echo HEAD_KEPT; fi\n\
+         echo evil > '{trusted}/{mask}' 2>/dev/null || true\n\
+         echo evil > '{trusted}/{pointer}' 2>/dev/null || true\n\
+         if [ ! -s '{trusted}/{mask}' ]; then echo TRUSTED_UNREACHABLE; fi\n",
+        session = session,
+        parent = repo.main.join("parent-sentinel").display(),
+        sibling_sentinel = repo.sibling.join("sibling-sentinel").display(),
+        common = common.display(),
+        store = store.display(),
+        trusted = trusted.display(),
+        mask = MASK_FILE,
+        pointer = COMMONDIR_FILE,
+        git_dir = git_dir.display(),
+        commondir = git_dir.join("commondir").display(),
+        gitdir = git_dir.join("gitdir").display(),
+        head = git_dir.join("HEAD").display(),
+    )
 }

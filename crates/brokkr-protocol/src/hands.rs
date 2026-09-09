@@ -512,16 +512,27 @@ pub fn box_argv(
     // the shared one for a linked worktree, so binding the common
     // directory covers both.
     //
-    // KNOWN OPEN, and wider than the harness runner beside it: binding
-    // the whole common directory read-write leaves every worktree's
-    // `config.worktree`, `commondir` and `gitdir` writable, so in a
-    // repository carrying `extensions.worktreeConfig` a boxed command can
-    // write `<common>/worktrees/<name>/config.worktree` and the host's
-    // next `git` there honours a `core.hooksPath` the box chose. The
-    // scoped dsh runner closes that for the harness sandbox
-    // (`dsh_sandbox`, decision 0054); narrowing THIS write set is a
-    // change under decision 0043 and takes its own number — see 0054's
-    // consequences, which record it rather than fixing it silently.
+    // KNOWN OPEN, and much wider than the harness runner beside it.
+    // Binding the whole common directory read-write leaves four things
+    // open that the dsh runner closes:
+    //
+    //   * every worktree's `config.worktree`, `commondir` and `gitdir`,
+    //     so in a repository carrying `extensions.worktreeConfig` a boxed
+    //     command can write `<common>/worktrees/<name>/config.worktree`
+    //     and the host's next `git` there honours a `core.hooksPath` the
+    //     box chose;
+    //   * the shared REF store — `refs`, `packed-refs`, `logs` — so a
+    //     boxed command can move a branch a sibling worktree has checked
+    //     out, at every spelling git uses;
+    //   * the shared OBJECT store, which a boxed command can destroy or
+    //     corrupt, and `objects/info/alternates`, which it can repoint;
+    //   * every sibling worktree's administrative directory.
+    //
+    // The dsh runner answers all four by giving the seat a PRIVATE common
+    // directory and promoting one ref afterwards (`dsh_sandbox`, decision
+    // 0054). Narrowing THIS write set the same way is a change under
+    // decision 0043 and takes its own number — see 0054's consequences,
+    // which record it rather than fixing it silently.
     if let Some(common) = &git.common_dir {
         if !common.starts_with(workdir) {
             argv.extend([s("--bind"), host_path(common), namespace_path(common)]);

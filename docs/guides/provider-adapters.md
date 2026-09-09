@@ -244,20 +244,66 @@ defect the essay records). `brokkr driver dsh` resolves the worktree's
 `--git-dir` and `--git-common-dir` through Git before the seat starts
 and, when the seat's mode is `workspace-write` and the common dir lies
 outside the workspace, points dsh's supported sandbox `runnerCommand` at
-`brokkr dsh-sandbox-runner` with those paths as trusted argv. The runner
-adds exactly the scoped write set a commit needs — the per-worktree
-directory, `objects`, `refs`, `logs` and `packed-refs` — masks `hooks`
-as an empty tmpfs, masks the per-worktree `config` and `config.worktree`
-with a staged empty read-only file, and binds the shared `config` and
-the worktree's `commondir` and `gitdir` read-only, so a boxed command can
-neither write a program the host later runs nor redirect git at a
-`config` it wrote. The mask source is a real empty file the driver
+`brokkr dsh-sandbox-runner` with those paths as trusted argv.
+
+**The shared repository is never writable.** The runner adds exactly two
+read-write mounts: the worktree's own administrative directory
+(`index`, `HEAD`, its reflog) and a PRIVATE common directory the driver
+staged. The seat's git follows that private directory because the one
+file git reads to find the shared one — `<git_dir>/commondir` — is masked
+with a read-only bind naming it. The private directory is a real common
+directory: a copy of the shared `refs` and `packed-refs`, so every
+branch, tag and remote-tracking ref reads back exactly as the host has
+it, an empty `logs`, and an `objects` whose `info/alternates` names the
+host's real object store — so the seat reads every object and writes
+none. `<common>/objects`, `<common>/refs`, `<common>/packed-refs`,
+`<common>/logs`, `<common>/hooks`, `<common>/config`,
+`objects/info/alternates` and every sibling worktree's administrative
+directory are read-only under the profile's own `--ro-bind / /`.
+
+**The driver promotes exactly one ref.** After `dsh` exits, outside every
+box, it takes the branch the worktree had checked out when the seat
+started — git refuses to check one branch out in two worktrees, so that
+ref is this seat's and no sibling's, and the driver verifies it by
+reading the main checkout's `HEAD` and every sibling's — fetches the
+seat's commits into
+`refs/brokkr/dsh-promotion` through git's own local transport, moves the
+branch with a compare-and-swap against the value the host still holds,
+and deletes the temporary ref. A sibling's branch, a tag, a
+remote-tracking ref or a new branch the seat wrote stays in the private
+store and is discarded with it. A promotion that cannot happen is a
+driver failure that names the store's path and keeps it, never a silent
+loss of the seat's commits. A worktree with a detached HEAD owns no ref
+and is refused before the seat starts.
+
+`<git_dir>/HEAD` is mounted READ-ONLY, because it is what says which
+branch this worktree owns and therefore which ref the promotion moves:
+left writable, a seat could aim the next seat's honest commits at a
+branch it chose. A commit does not write `HEAD` — it moves the branch
+`HEAD` names — so committing, amending and resetting the own branch all
+work; `git checkout <other>`, `git switch` and `git rebase` do not, and
+fail on the lock.
+
+Three consequences worth knowing at the bench. A seat's commits reach the
+shared repository when the seat ENDS, not when it commits, so a host `git
+status` in that worktree mid-seat shows the seat's tree as staged. A seat
+cannot switch branches. And `git worktree list` inside the seat reads the
+private store, which has no `worktrees` directory, so it reports only
+that store.
+
+Both hook paths git could use are empty tmpfs mounts, and the
+per-worktree `config` and `config.worktree` are masked with a staged
+empty read-only file. The mask source is a real empty file the driver
 stages, never `/dev/null`: bubblewrap binds a source with `MS_NODEV`, and
 a device node the box cannot open makes git call every command fatal. A
 mask is only a mask while the box cannot WRITE its source, and the runner
-measures that from the profile it was handed rather than assuming it: a
-mask lying under any `--bind`/`--bind-try` source in that profile, or
-under the runner's own write set, refuses the command.
+measures that from the profile it was handed rather than assuming it: if
+the staged directory lies under any read-write bind in that profile
+(`--bind`, `--bind-try`, `--dev-bind`, `--dev-bind-try`, `--overlay`), or
+under the runner's own write set, the command refuses. Stepping over the
+rest of the profile needs each option's arity, so the runner carries a
+complete bubblewrap 0.11 table and refuses an option outside it rather
+than guessing.
 
 **One layout is served, and it is proved.** Git resolves both directories
 by following the workspace's own `.git` file — a file the model can write
@@ -285,19 +331,28 @@ move, and both spellings of that alias are refused under a real `git
 rev-parse` in the behavioral proof.
 
 The whole shared `.git`, the parent checkout, every sibling worktree
-DIRECTORY and every sibling's per-worktree metadata (`HEAD`, `index`,
-`config.worktree`) stay unwritable. The shared ref store does not: a
-commit must write `refs`, `logs` and `packed-refs`, so a seat can move a
-branch a sibling worktree has checked out. That residual is inherent to
-sharing a ref store through a kernel bind and is recorded in decision
-0054's threat model. The checks gate what the runner MOUNTS for a seat: a
-seat still owns its own worktree, `.git` file included, so a host `git`
-run in a worktree a model has written follows whatever that file names —
-true of every work boundary, named in 0054's consequences.
+DIRECTORY, every sibling's per-worktree metadata (`HEAD`, `index`,
+`config.worktree`) and every sibling's BRANCH stay unwritable — the
+branch at every spelling git uses: a loose `refs/heads/<name>`, a line in
+`packed-refs`, the `.lock` a ref update takes first, and a `git pack-refs
+--all` that would rewrite the file. Each of those is tried inside the box
+in the behavioral proof, and the host's bytes are read back unchanged
+after the box AND after the promotion. The checks gate what the runner
+MOUNTS for a seat: a seat still owns its own worktree, `.git` file
+included, so a host `git` run in a worktree a model has written follows
+whatever that file names — true of every work boundary, named in 0054's
+consequences.
 
-The driver also passes the absolute `bwrap` it probed and the staged mask
-as trusted argv paths, and the runner execs that binary rather than
-searching `PATH` again. It is bubblewrap-only: a non-Linux host, no
+Brokkr's own `namespace` boundary is wider here and knowingly so: decision
+0043 ruling 6 binds a linked worktree's whole shared `.git` read-write,
+which leaves the shared ref store, the shared object store and the
+per-worktree pointers writable. That is recorded as a known-open path at
+`box_argv` and in 0054's consequences; narrowing it is a change under
+0043 with its own number.
+
+The driver also passes the absolute `bwrap` it probed and the two staged
+directories as trusted argv paths, and the runner execs that binary
+rather than searching `PATH` again. It is bubblewrap-only: a non-Linux host, no
 `bwrap`, or a `bwrap` that cannot build the empty-root namespace refuses
 the seat at start, naming the remedies, rather than burning an
 implementation that cannot commit. A primary checkout whose workspace is

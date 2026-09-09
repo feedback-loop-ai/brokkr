@@ -931,6 +931,13 @@ fn pinned_layer(dir: &Path) -> (PathBuf, Bundle) {
 #[test]
 fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        // A nested box cannot open the namespace this proof needs. A host
+        // that declared it must produce boundary evidence fails here
+        // instead of printing `ok` (decision 0054 ruling 7).
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "this environment is already a box",
+        );
         return;
     }
     let (dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
@@ -1750,6 +1757,13 @@ fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
 #[test]
 fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        // A nested box cannot open the namespace this proof needs. A host
+        // that declared it must produce boundary evidence fails here
+        // instead of printing `ok` (decision 0054 ruling 7).
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "this environment is already a box",
+        );
         return;
     }
     let (dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
@@ -1852,6 +1866,13 @@ fn emitted_boundary_entries_validate_and_plain_started_payloads_keep_their_shape
 #[test]
 fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_the_leaf() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        // A nested box cannot open the namespace this proof needs. A host
+        // that declared it must produce boundary evidence fails here
+        // instead of printing `ok` (decision 0054 ruling 7).
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "this environment is already a box",
+        );
         return;
     }
     let (dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));

@@ -477,6 +477,12 @@ fn can_create_namespace() -> bool {
 fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     use std::os::unix::fs::PermissionsExt;
     if !can_create_namespace() {
+        // A host that declared it must produce boundary evidence fails
+        // here instead of printing `ok` (decision 0054 ruling 7).
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
