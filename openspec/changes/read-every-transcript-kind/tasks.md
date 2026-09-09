@@ -29,7 +29,7 @@ task:
   live operator session is copied into the tree.
 - No test, reader or hint starts a provider process, writes a journal
   event, creates a directory or changes a retained byte.
-- Related cases are grouped into table-driven tests rather than 168
+- Related cases are grouped into table-driven tests rather than 175
   bespoke functions (D11); a mark repeated at several call sites is one
   helper, because the coverage gate is literal.
 - Cargo commands run with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
@@ -111,8 +111,12 @@ task:
       lines, unrecognized records, with the exact strings
       `transcript truncated (size cap)`,
       `malformed transcript lines skipped: <n>` and
-      `unrecognized transcript records: <n>`; the shipped Claude suffix
-      ` — claude --resume carries the rest` is deleted from the tree —
+      `unrecognized transcript records: <n>`; delete both shipped Claude
+      suffixes, the TUI's
+      ` — claude --resume carries the rest` and the browser's
+      ` — resume the session for the rest`, and add renderer/source
+      assertions that neither literal remains while every surface emits only
+      the exact shared notice —
       transcript-reading / Every kind obeys the same source and display
       caps; transcript-tui / Notices survive every reading surface.
 - [ ] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
@@ -364,9 +368,10 @@ task:
       reversed and `[0, 9007199254740990]`; the display cap stopping
       between members; a dedicated `tool/call` sharing an embedded
       block's call id and turn/step showing that call once while its
-      message keeps its text and reasoning blocks in order; the same
-      pair with a differing call id, a differing turn/step and no
-      dedicated record at all, each keeping both copies; two dedicated
+      message keeps its text and reasoning blocks in order; the same pair
+      with a differing call id and with a differing turn/step, each keeping
+      both the dedicated and embedded copies; no dedicated record at all
+      keeping the sole embedded block exactly once; two dedicated
       events colliding on one call id keeping every record; a dedicated
       `tool/result` matching an embedded result block whether it precedes
       or follows its message; and an assembled message whose only block
@@ -562,8 +567,8 @@ task:
       and no stale prose; delete `session_line` and the suffixed
       `TRUNCATED_NOTICE` (`crates/brokkr-cli/src/tui.rs:653-676`) —
       transcript-tui / Every readable kind reaches the pane and both
-      doors; Full-session information is truthful for its kind; Notices
-      survive every reading surface.
+      doors; transcript-tui / Full-session information is truthful for its
+      kind; transcript-tui / Notices survive every reading surface.
 - [ ] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
       and DSH turns browsed and opened with the existing keys; a turn
       taller than the pane opened whole and scrolled; the highlighted
@@ -577,8 +582,8 @@ task:
       unknown-record notice in pane and both doors; the shipped Claude
       fixture's counts after selection; and an oversized first turn —
       transcript-tui / Every readable kind reaches the pane and both
-      doors; Full-session information is truthful for its kind; Notices
-      survive every reading surface.
+      doors; transcript-tui / Full-session information is truthful for its
+      kind; transcript-tui / Notices survive every reading surface.
 - [ ] 9.6 Refresh tests in the same file: a late Codex rollout appearing
       without a journal event or navigation round trip; a DSH assembled
       message appended between checkpoints; chunks replaced by their
@@ -607,20 +612,27 @@ task:
       `{"error":"transcript not found"}` for a valid id whose lookup or
       read fails, while every `/sse/session/<id>` admission refusal,
       an invalid id included, answers `{"error":"transcript not found"}`
-      as shipped `crates/brokkr-cli/src/ui.rs:429` already does; an
-      admitted stream keeps its size-event and heartbeat shape,
-      revalidates unique safe discovery on each poll and
+      as shipped `crates/brokkr-cli/src/ui.rs:429` already does; every API
+      body, successful or refused, sends
+      `Cache-Control: no-store`, and success keeps the three-field envelope;
+      an admitted stream keeps its size-event and
+      heartbeat shape, revalidates unique safe discovery on each poll and
       closes on loss without reporting another size — transcript-reading /
       Discovery identifies one owned local file; Browser participant
       drills obey shared eligibility.
 - [ ] 10.2 Add one GET participant-presentation route in
       `crates/brokkr-cli/src/ui.rs`, keyed by full run id and an encoded
-      participant key, resolving that participant in its read-only
-      journal, accepting no path or home override and keeping the
-      existing loopback, Host and method guard; serialize only the
-      selected reference, legacy and admission facts, unavailable reason
-      and explanation, shared hint and Claude drill eligibility, and
-      discard any body data read to reach a semantic refusal —
+      participant key, decoding each path component exactly once and
+      rejecting malformed or extra components, resolving that exact
+      participant in its read-only journal, accepting no path or home
+      override and keeping the existing loopback, Host and method guard;
+      construct the CLI-private response from shared reference selection,
+      validation, bounded safe discovery and hint helpers only, without
+      reading body bytes or running a content projector; serialize only the
+      selected reference, legacy and admission facts, lookup-unavailability
+      reason and explanation, shared hint and Claude drill eligibility, carry
+      no turns, blocks, transcript prose or read-level reason, and send
+      `Cache-Control: no-store` —
       transcript-reading / Browser participant drills obey shared
       eligibility.
 - [ ] 10.3 Rewrite the page's participant block in
@@ -628,17 +640,43 @@ task:
       `part.session_id`, delete the
       `full session: <id> · held by <holder>, no resume verb yet`
       sentence, render the shared hint verbatim through `textContent` or
-      no line when null, offer `· session <id>` and the drill only for an
-      admitted Claude reference whose canonical home equals the server's
-      projects home, show
+      no line when null, and require both kind-agnostic source admission and
+      the independent Claude-kind/canonical-local-home drill eligibility for
+      every `· session <id>` label, id-only body request and growth watch;
+      show
       `browser transcript unavailable for this recorded home` with the
       checkpoint fallback otherwise, keep Codex and DSH on their hint and
-      fallback without a Claude request, move the client id guard to the
-      leading-hexadecimal rule, and clear the cached body and growth
-      watch and generation-guard outstanding requests whenever the
-      participant or reference changes — transcript-reading / Browser
-      participant drills obey shared eligibility; Local lookup rejects
-      paths that escape ownership.
+      fallback with zero Claude requests or watches even when admitted, and
+      move the client id guard to the leading-hexadecimal rule. Key private
+      state by full run id, participant key and complete effective reference;
+      keep a monotonic generation, body state
+      (missing/pending/succeeded/refused), the exact owned `EventSource`
+      handle and a per-re-check automatic-opening budget. On key, admission
+      or eligibility change, bump the generation, close only the owned old
+      watch and clear cached/displayed prose before repaint; ignore every
+      stale body, presentation or watch callback. On watch close/error or
+      body refusal, close the exact handle, clear cached/displayed prose, bump
+      the generation and re-request presentation without native same-source
+      reconnection; if the fresh result remains admitted and drill-eligible,
+      recover through fresh no-store presentation and body fetches and then at
+      most one automatic watch opening for a working participant in that
+      interval. Run one recurring presentation re-check tied to the active
+      selection, without accumulating timers, at least as often as the
+      existing runs poll, including after conclusion, and restore exactly one
+      automatic opening at each tick. Treat results as equivalent only when selected
+      reference, admission, lookup reason, shared hint and drill eligibility
+      match; an equivalent result repaints nothing and repairs only a missing
+      body, then a missing working-seat watch. Define a body as missing only
+      when none has succeeded since turns were last discarded and none is
+      outstanding; mark every HTTP 200 body successful even when `turns` is
+      empty, paint that success without body-failure prose, and let only a
+      clear or refusal reset that success. After a
+      refused/failed/unparseable body clear prose and silence body/watch work
+      until the next re-check; count every automatic opening, including the
+      tick's, against that interval's single budget, while a second immediate
+      closure may repaint from a fresh body but opens no watch until the next
+      tick — transcript-reading / Browser participant drills obey shared
+      eligibility; Local lookup rejects paths that escape ownership.
 - [ ] 10.4 Tests in `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
@@ -651,10 +689,27 @@ task:
       `a-bC09` keeping the existing envelope and stream; the three
       lookup refusals answering
       404 with `{"error":"transcript not found"}` on both routes, no
-      turns and no stream header; an admitted stream losing
-      its unique source mid-watch; and the retired holder sentence absent
-      from the page — transcript-reading / Browser participant drills obey
-      shared eligibility.
+      turns and no stream header; an admitted stream losing its unique source
+      mid-watch; `Cache-Control: no-store` on presentation and every API
+      body response with no-store presentation/body refetches; and the retired
+      holder sentence and both retired truncation suffixes absent from the
+      page.
+      Add executable client transition traces driven by controlled
+      presentation/body promises, fake EventSource open/error callbacks and
+      recurring timer ticks rather than source-string containment alone:
+      admitted Codex, DSH and foreign-home Claude selections make zero id-only
+      requests and watches across re-checks; a concluded successful zero-turn
+      Claude body makes one total request; a persistently unreadable admitted
+      Claude source makes one refused request per interval; re-check-first and
+      closure-first traces each open exactly one automatic watch per interval;
+      a second immediate closure repaints from a fresh body without opening a
+      second watch; admission loss with unchanged participant/reference/
+      journal clears cached and displayed prose, closes the exact old watch
+      and rejects its late response; later admission recovers through fresh
+      presentation/body work; and identity or eligibility change resets only
+      the new key's generation and budget —
+      transcript-reading / Browser participant drills obey shared eligibility;
+      Every kind obeys the same source and display caps.
 
 ## 11. Inertness and one result across the surfaces (D11)
 
@@ -682,7 +737,7 @@ task:
       over the same source and keeps its three-field envelope. The
       browser participant presentation is compared only on the shared
       metadata it transports — selected reference, `legacy` and admission
-      facts, unavailable reason, explanation, hint and Claude drill
+      facts, lookup-unavailability reason, explanation, hint and Claude drill
       eligibility — and is asserted to carry no turns, blocks or
       transcript prose for any of the three kinds, so this proof cannot
       be satisfied by widening that transport (10.2, D9) —
