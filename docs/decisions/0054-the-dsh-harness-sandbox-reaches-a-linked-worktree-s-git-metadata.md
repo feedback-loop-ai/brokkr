@@ -598,6 +598,20 @@ reason to lower a gate.
    to stand that does not depend on an operator having exported a
    `TMPDIR`.
 
+   The proof OVER that selection obeys the same rule as the selection.
+   Which places a host hands out is a host fact: a nested box built by
+   `hands` has a fresh root carrying `/runtime`, `/etc`, `/home`, `/root`,
+   `/run` and `/usr`, so inside one there is no `/var/tmp` to take and no
+   `TMPDIR` outside the tmpfs either. The arms of
+   `the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place`
+   that read a host back therefore route their absence through
+   `skip_boundary_proof` rather than demanding it — which arms them
+   exactly where the evidence is owed, because the Linux legs declare
+   `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` and a skip there is red. The arms
+   that are pure over their inputs — the tmpfs is refused, an absent
+   directory and a `None` are stepped over, a list of only those answers
+   `None` — carry no skip and run everywhere.
+
    **Enforcement binding:** `fixture_root` / `fixture_root_in` and
    `the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place`;
    `hands::BOUNDARY_EVIDENCE_ENV`,

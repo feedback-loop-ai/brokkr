@@ -2385,9 +2385,23 @@ fn fixture_root_in(
 /// a proof `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` rightly fails the run over.
 /// So the last candidate is a separate system temporary root, and this
 /// measures that it is a real one on this host rather than a spelling.
+///
+/// The selection itself is pure and is asserted on every Linux host. What
+/// the HOST offers is not: a nested box built by [`crate::hands`] has a
+/// fresh root carrying `/runtime`, `/etc`, `/home`, `/root`, `/run` and
+/// `/usr` and no `/var` at all, so inside one there is no
+/// [`SYSTEM_TEMPORARY_ROOT`] to take and demanding one would fail a test
+/// over the box's shape rather than over this code. Those two arms
+/// therefore route their absence through [`skip_boundary_proof`] like
+/// every other host fact this file reads — which is what arms them where
+/// it matters, because the exact-coverage job and the Linux test leg both
+/// declare [`crate::hands::BOUNDARY_EVIDENCE_ENV`] and a skip there is a
+/// failure (decision 0054 ruling 9).
 #[cfg(target_os = "linux")]
 #[test]
 fn the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place() {
+    use crate::hands::{boundary_evidence_required, skip_boundary_proof};
+    let required = boundary_evidence_required();
     // Everything inside the tmpfs is refused, even when it is all there is.
     assert!(
         fixture_root_in([
@@ -2397,20 +2411,48 @@ fn the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place() {
         .is_none(),
         "a fixture inside the profile's own tmpfs proves nothing about the host"
     );
-    // And the fallback behind them is a directory this host really hands
-    // out, so the coverage run gets a root instead of a skip.
-    let root = fixture_root_in([
+    // Whatever this host offers, the proof's own root is never in the tmpfs.
+    let Some(chosen) = fixture_root() else {
+        skip_boundary_proof(
+            required,
+            "no fixture root outside the profile's `/tmp` tmpfs",
+        );
+        return;
+    };
+    assert!(!chosen.path().starts_with("/tmp"), "{:?}", chosen.path());
+    // A candidate inside the tmpfs, one that is not there at all, and a
+    // directory that does not exist on this host — the shape a nested box
+    // gives `/var/tmp` — are all stepped over rather than ending the
+    // search: a real directory behind them still wins.
+    let absent = chosen.path().join("no-such-temporary-root");
+    let behind = fixture_root_in([
+        Some(PathBuf::from("/tmp/forge-coverage.abc/target/debug/deps")),
+        None,
+        Some(absent.clone()),
+        Some(chosen.path().to_path_buf()),
+    ])
+    .expect("the search stopped at a candidate it was supposed to step over");
+    assert!(
+        behind.path().starts_with(chosen.path()),
+        "{:?}",
+        behind.path()
+    );
+    // And when every candidate is one of those, the answer is `None` — the
+    // skip this test's own last arm takes inside a box, never a panic.
+    assert!(fixture_root_in([None, Some(PathBuf::from("/tmp")), Some(absent)]).is_none());
+    // And the last resort is a directory this host really hands out, so
+    // the coverage run — whose first two candidates are both the binary's
+    // own `/tmp` target directory — gets a root instead of a skip.
+    match fixture_root_in([
         Some(PathBuf::from("/tmp/forge-coverage.abc/target/debug/deps")),
         Some(PathBuf::from(SYSTEM_TEMPORARY_ROOT)),
-    ])
-    .expect("this host has no system temporary root outside /tmp");
-    assert!(root.path().starts_with(SYSTEM_TEMPORARY_ROOT));
-    // A candidate that is not there at all is stepped over rather than
-    // ending the search.
-    assert!(fixture_root_in([None, Some(PathBuf::from(SYSTEM_TEMPORARY_ROOT))]).is_some());
-    // Whatever this host offers, the proof's own root is never in the tmpfs.
-    let chosen = fixture_root().expect("no fixture root on this host");
-    assert!(!chosen.path().starts_with("/tmp"), "{:?}", chosen.path());
+    ]) {
+        Some(root) => assert!(root.path().starts_with(SYSTEM_TEMPORARY_ROOT)),
+        None => skip_boundary_proof(
+            required,
+            &format!("this host hands out no writable {SYSTEM_TEMPORARY_ROOT}"),
+        ),
+    }
 }
 
 /// The boundary, for real: Linux with bubblewrap, which is where dsh's
