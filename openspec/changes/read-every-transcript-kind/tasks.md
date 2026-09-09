@@ -297,9 +297,12 @@ task:
       the subset it proves and leaves every uncited chunk at its own
       source position, so `[10]` over readable chunks 10 and 11 retains
       chunk 11 and then the assembly. An absent field and an empty `[]`
-      suppress nothing at all, and a missing, cross-step, ambiguous or
-      non-chunk target inside an otherwise valid list proves only itself
-      away while that list's other proved targets still disappear.
+      suppress nothing at all, and an unproved entry inside an otherwise
+      valid list — a sequence absent from the bounded snapshot, one
+      recorded in another turn or step, one that two earlier events
+      share, or one naming a non-chunk event — has no suppression effect
+      at all: whatever existing event it names stays visible at its own
+      source position, while that list's proved targets still disappear.
       Duplicate, overlapping and out-of-order entries are set membership
       that neither duplicates nor reorders content; user and tool-result
       citations and `surfaceOp` rewrite no history; and an invalid field
@@ -352,21 +355,24 @@ task:
       the assembly alone with zero counts and no notices, `[]` and an
       absent field over chunks 10 and 11 retaining both then the
       assembly, and the partial `[10]` over those two retaining chunk 11
-      then the assembly — plus cross-step, ambiguous, missing and
-      non-chunk targets suppressing only themselves within a list whose
-      other proved targets still disappear, and self, future, reversed
-      and `[0, 9007199254740990]`; the display cap stopping between
-      members; a dedicated `tool/call` sharing an embedded block's call
-      id and turn/step showing that call once while its message keeps its
-      text and reasoning blocks in order; the same pair with a differing
-      call id, a differing turn/step and no dedicated record at all, each
-      keeping both copies; two dedicated events colliding on one call id
-      keeping every record; a dedicated `tool/result` matching an
-      embedded result block whether it precedes or follows its message;
-      and an assembled message whose only block is so suppressed emitting
-      no empty turn; an unknown event with `ignorable` true, false, null,
-      `"true"`, `1`
-      and absent; a recognized envelope with two unsupported blocks; and
+      then the assembly — plus one list mixing a proved same-step chunk
+      with a cross-step chunk, a sequence two earlier events share, an
+      absent sequence and a non-chunk event, pinning the retained
+      sequence in which only the proved chunk disappears while the
+      cross-step chunk and every other existing named event keeps its
+      own source position ahead of the assembly, and self, future,
+      reversed and `[0, 9007199254740990]`; the display cap stopping
+      between members; a dedicated `tool/call` sharing an embedded
+      block's call id and turn/step showing that call once while its
+      message keeps its text and reasoning blocks in order; the same
+      pair with a differing call id, a differing turn/step and no
+      dedicated record at all, each keeping both copies; two dedicated
+      events colliding on one call id keeping every record; a dedicated
+      `tool/result` matching an embedded result block whether it precedes
+      or follows its message; and an assembled message whose only block
+      is so suppressed emitting no empty turn; an unknown event with
+      `ignorable` true, false, null, `"true"`, `1` and absent; a
+      recognized envelope with two unsupported blocks; and
       the capped snapshot returning `unsupported-format` with
       `skipped_lines: 2`, `unrecognized_records: 2` and all three notices
       in order — transcript-reading / DSH sessions expose assembled or
