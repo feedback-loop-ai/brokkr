@@ -28,8 +28,10 @@ Every task names the requirement it serves as `<capability> /
 <Requirement>`. The closing gates of group 15 serve every requirement of
 the change and say so, because a gate is not a requirement of its own.
 Capability short names below are `site` (`site-session-resumption`),
-`safety` (`adapter-resume-safety`), `evidence` (`adapter-launch-evidence`)
-and `progress` (`sdd-progress-markers`).
+`safety` (`adapter-resume-safety`), `evidence` (`adapter-launch-evidence`),
+`progress` (`sdd-progress-markers`), and `boundary` (`boundary-record`,
+requirement **The seat record carries the boundary as seat-record/v4**).
+The fifth capability is the F7 MODIFIED delta; the original four remain ADDED.
 
 Conventions binding on every task, restated once rather than per task:
 
@@ -72,13 +74,16 @@ saved for the phase commit.
       admitted identity origins (3), the negotiated one-use offer (4),
       measured provider shapes with current-version qualification and DSH
       session integration held separate from hands (5), re-imposed
-      current restrictions (6), one confirmed launch in the v5 vocabulary
-      with the first-work hold (7), one proven pre-work replacement inside
-      the existing bounds (8), current-only accounting and narrow legacy
+      current restrictions (6), one confirmed launch in the v5 vocabulary,
+      manifest dispatch from 0.10.0 under the amended boundary-record
+      requirement, unchanged boundary stamping and the first-work hold (7),
+      one proven pre-work replacement inside the existing bounds (8), current-only accounting and narrow legacy
       compatibility (9), and progress persisted before the next group
       (10). Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
       0046 and shipped 0053 where each ruling stands on them, and quote
-      no accepted decision into a different meaning — safety / AS1.
+      no accepted decision into a different meaning. Check the ruling against
+      design D10/D12 and the modified requirement — safety / AS1, boundary /
+      The seat record carries the boundary as seat-record/v4.
 - [ ] 1.2 Append the registry row to `docs/decisions/README.md` in number
       order with status `proposed`, and run
       `cargo test -p brokkr-cli --test decisions_index` so the derived
@@ -110,11 +115,15 @@ saved for the phase commit.
 - [ ] 2.2 Copy the same bytes to `crates/brokkr-store/src/seat-record.v5.schema.json`
       and add `SCHEMA_V5`/`CONTRACT_V5` beside their four siblings in
       `crates/brokkr-store/src/seat_record.rs` — evidence / LE2.
-- [ ] 2.3 Add `SeatRecordVersion::V5` and dispatch it at the current
-      **0.10.0** engine line in `SeatRecordVersion::of_engine`, following
-      the newest-within-line precedent that already maps 0.9 to v4 and
-      0.8 to v3; older and unparseable engines keep v1. No package
-      version is bumped — evidence / LE2.
+- [ ] 2.3 Add `SeatRecordVersion::V5` and dispatch it from **0.10.0**
+      in `SeatRecordVersion::of_engine` under the F7 boundary-record
+      amendment: 0.9.0 up to but excluding 0.10.0 selects v4, 0.8.0 up to
+      but excluding 0.9.0 selects v3, and older/unparseable engines keep
+      v1. Preserve the existing parsing convention and direct validation
+      of frozen versions, including v2 which no engine string selects.
+      No package version is bumped. Verify the dispatch matrix in 2.6
+      through all four fences — evidence / LE2, boundary /
+      The seat record carries the boundary as seat-record/v4.
 - [ ] 2.4 Extend the built-in conformance in `seat_record.rs`, scoping
       the one constraint that history cannot satisfy. 2.3 sends the whole
       **0.10.0** line to v5, and `version_of` derives that version from
@@ -179,11 +188,41 @@ saved for the phase commit.
       flag-like `id` are refused;
       a Claude permission mode offered as `sandbox` is refused; export,
       import verification and offline verification agree with append on
-      every one of these — evidence / LE2, evidence / LE5.
+      every one of these. Extend the existing version-dispatch tests as well:
+      manifest engines 0.7.9, 0.8.0, 0.8.99, 0.9.0, 0.9.1, 0.9.99,
+      0.10.0, 0.10.1, 1.0.0 and an unparseable string select respectively
+      v1, v3, v3, v4, v4, v4, v5, v5, v5 and v1 at all four fences.
+      Keep the tagged 0.9.0/0.9.1 no-boundary historical example valid
+      under v4; test that a v5-only field under a 0.9-line manifest is
+      refused under v4 rather than selecting v5 from its presence.
+      Keep the synthetic third-party counterexamples labelled as
+      contract tests, not provider telemetry — evidence / LE2, evidence / LE5,
+      boundary / The seat record carries the boundary as seat-record/v4.
 - [ ] 2.7 Pin the v1–v4 seat-record bytes in
       `crates/brokkr-runtime/tests/frozen_contracts.rs` if any are not
       pinned yet, and assert `contracts/seat-record.v5.schema.json` exists
-      beside them, exactly as decision 0046's v4 landed beside v3 — evidence / LE2.
+      beside them with title `Forge seat record v5`, exactly as decision
+      0046’s v4 landed beside v3. Register v5 beside v4 in
+      `contracts/README.md`; retain the v4 row and the published and
+      embedded v1–v4 bytes. Run the frozen-contract and embedded-copy
+      tests and compare the frozen files to the commissioned base —
+      evidence / LE2, boundary /
+      The seat record carries the boundary as seat-record/v4.
+- [ ] 2.8 Extend the existing integration coverage in
+      `crates/brokkr-runtime/src/engine/boundary_tests.rs` and store
+      record tests for the amended requirement’s boundary scenarios
+      under v5: boxed exec finishing/success records carry namespace;
+      hands-less exec/model sites carry `not applicable`; the engine’s
+      current word replaces a driver’s word on model-bearing records and
+      drops it without a model; panel aggregates carry none while member
+      markers and a sequence’s ending result/marker carry their site’s
+      word. Cover a model-bearing launch checkpoint under 0.10.0 as well
+      as the existing finishing paths. A record offered directly to the
+      v4 or v5 store fence with `boundary: chroot` must append nothing
+      and keep the bounded schema-path/attempt-failure behavior. Run
+      these existing suites; name which cases need host boundary proof
+      rather than crediting a nested-box skip — boundary /
+      The seat record carries the boundary as seat-record/v4.
 
 ## 3. Structural site identity (design D2)
 
@@ -812,8 +851,13 @@ never enables a shape by itself (`safety / AS1`).
       handle — site / SR4.
 - [ ] 13.3 `docs/guides/journal-and-verification.md`: seat-record v5, its
       new optional fields, its five added refusal tokens, the 0.10.0
-      dispatch line and the guarantee that v1–v4 journals stay valid and
-      unrewritten — evidence / LE2, evidence / LE5.
+      dispatch boundary across append, export, import verification and
+      offline verification, and the guarantee that valid historical
+      v1–v4 rows, including unstamped 0.10.0 and tagged 0.9.0/0.9.1
+      no-boundary rows, stay valid and unrewritten. Check this account
+      against D4 and the modified boundary-record requirement — evidence / LE2,
+      evidence / LE5, boundary /
+      The seat record carries the boundary as seat-record/v4.
 - [ ] 13.4 State the two honest limits in the guides as well as in 0056:
       the local origin check does not authenticate a provider account,
       and a charter instruction is not an engine guarantee — site / SR5,
@@ -830,7 +874,7 @@ never enables a shape by itself (`safety / AS1`).
 - [ ] 14.2 Compile `bundles/self` and `bundles/verify` and reconcile any
       manifest digest the compile reports — safety / AS1.
 
-## 15. Gates, commit and the fold
+## 15. Gates, fold and commit
 
 The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
@@ -850,8 +894,8 @@ into capability truth (`progress / PM4`). Run them with
       a pass, and skipped boundary tests prove nothing — every
       requirement of this change.
 - [ ] 15.6 Fold the change **before** the commit, so the moved change and
-      the four promoted capability files land in the same head as the
-      code they describe (decision 0042 ruling 6, design Migration Plan 4
+      the four new capability files and the updated `boundary-record` land
+      in the same head as the code they describe (decision 0042 ruling 6, design Migration Plan 4
       then 5): run the dialect's archive operation, then append one
       provenance line — a list item naming the archived directory in
       backticks, an em dash, and `folded <YYYY-MM-DD>` — in the exact
@@ -859,30 +903,40 @@ into capability truth (`progress / PM4`). Run them with
       `## Provenance` heading at the end of
       `openspec/specs/site-session-resumption/spec.md`,
       `openspec/specs/adapter-resume-safety/spec.md`,
-      `openspec/specs/adapter-launch-evidence/spec.md` and
-      `openspec/specs/sdd-progress-markers/spec.md`, rewriting no
-      existing line. The fold is a gated change, not a bookkeeping step:
+      `openspec/specs/adapter-launch-evidence/spec.md`,
+      `openspec/specs/sdd-progress-markers/spec.md` and
+      `openspec/specs/boundary-record/spec.md`, rewriting no existing
+      line. Retain boundary-record’s
+      `2026-09-06-boundary-named-slice-i` provenance entry and append
+      exactly one entry for this archive; preserve the capability’s other
+      requirements and existing historical examples. The fold is a gated
+      change, not a bookkeeping step:
       `crates/brokkr-cli/tests/provenance.rs` walks `openspec/specs` and
       `openspec/changes/archive` in both directions, so re-run 15.3 (or
-      at least that test) after the fold and before the commit — progress / PM4.
+      at least that test) after the fold and before the commit, checking
+      all five touched capabilities and the retained provenance entry —
+      progress / PM4, boundary /
+      The seat record carries the boundary as seat-record/v4.
 - [ ] 15.7 Commit the completed work unsigned, in the repository's
       message style, with no push and no merge. This is the last write:
       it carries the code, the tests, the proposed decision, the archived
-      change, the four promoted capability files with their provenance
-      lines, and the final state of this file's ticks and `## Progress`
-      section, so the head handed on in 15.8 is the committed one and
-      nothing of the fold is left in the worktree — progress / PM4.
+      change, all five touched capability files (four new and the amended
+      `boundary-record`) with their provenance lines, and the final state
+      of this file's ticks and `## Progress` section, so the head handed on
+      in 15.8 is the committed one and nothing of the fold is left in the worktree. Check the staged/committed
+      paths and final clean status — progress / PM4, boundary /
+      The seat record carries the boundary as seat-record/v4.
 - [ ] 15.8 Hand that committed head and the evidence to the controller and
       leave pending, because their results do not exist yet: host
       validation, remote CI, integration with the #222 fire's
       shared-file overlap, completed-run publication, the PR, the merge
       and the closing of #226 — progress / PM4.
 
-## Tasks-phase validation — 2026-09-09
+## Prior tasks-phase validation — 2026-09-09
 
-This section records what this seat did and did not establish. It authors
-the breakdown only; no production file, decision, contract or charter was
-touched.
+Historical evidence from the tasks seats through `169e5b9`, before the
+successor F7 amendment below. That work authored the breakdown only; no
+production file, decision, contract or charter was touched.
 
 - Coverage was self-checked by reading the four deltas: all **19**
   requirements — SR1–SR5, AS1–AS5, LE1–LE5, PM1–PM4 — are named by at
@@ -1021,11 +1075,47 @@ edited, and no task was added or renumbered — the breakdown still holds
   evidence exists` scenario satisfiable and LaneTally independently
   assessed, and reopens no part of the enabled delivery minimum.
 
+## Return — F7 specification repair, successor visit, 2026-09-09
+
+The successor commission returns F7 to specify because the proposal omitted
+Modified Capabilities while D4 and 2.3 selected v5 contrary to the living
+boundary-record rule. The proposal and complete MODIFIED delta now own the
+amendment; design D12 records the reason and corrects D10. This breakdown
+carries that repaired dependency forward without reopening F1–F6. All prior
+101 tasks and their identifiers remain; added task 2.8 makes **102** unchecked
+delivery tasks in the same 15 groups. The five deltas contain **20**
+requirements and **123** scenarios: the original 19/112 are unchanged and the
+modified boundary requirement has seven retained scenarios (dispatch amended)
+plus four additional cases.
+
+Coverage of `boundary / The seat record carries the boundary as seat-record/v4`:
+
+| Scenario | Tasks / verification |
+|---|---|
+| A boxed exec gate's record carries the word | 2.8 runtime boundary integration; 15.3/15.5 workspace/host proof. |
+| A site without hands carries the sentinel | 2.8 runtime boundary integration. |
+| The engine's word wins | 2.8 current-word overwrite and no-model removal. |
+| A panel's aggregate carries none, a sequence's ending result its step's word | 2.8 composite markers/results. |
+| A wrong word is refused at append | 2.5/2.8 direct v4/v5 refusal and attempt-failure path. |
+| v4 dispatch is the 0.9 line | 2.3/2.6 matrix and tagged 0.9.0/0.9.1 compatibility. |
+| The contract file is published beside the frozen ones | 2.2/2.7 retained v4 embedding, frozen pins and README row. |
+| Every fence agrees at the version boundaries | 2.3/2.5/2.6 shared dispatch and v5-only refusal under v4. |
+| Valid unstamped 0.10.0 history remains readable | 2.4–2.6 F1/F5 regressions with and without the site stamp. |
+| v5 retains boundary authority and refusal behavior | 2.8 model-bearing launch stamping and direct invalid-word refusal. |
+| v5 is published without changing any frozen version | 2.1/2.2/2.7 publication, embedding, frozen pins and README registration. |
+
+Task 1.1 carries the amendment into proposed 0056 without accepting it; 13.3
+keeps the guide consistent. Tasks 15.6–15.7 preserve F4’s fold/validate/commit
+order and include the fifth capability and its append-only provenance. The
+actual fold, implementation and provider/host validation remain delivery work.
+The current specify validation is recorded in proposal.md, separately from
+these tasks’ completion and from the historical phase evidence above.
+
 ## Progress
 
-Nothing is in progress: this file is the tasks phase's artifact and no
-implementation has begun. Prerequisites, stated as they bind rather than
-by group number:
+Implementation has not begun. All 102 delivery tasks remain unchecked after
+the successor F7 planning repair. Prerequisites, stated as they bind rather
+than by group number:
 
 - **Preparable from the repository alone**: groups 1–7, tasks 8.1–8.4,
   and groups 12, 13 and 14, plus the investigation tasks 10.1–10.4 to

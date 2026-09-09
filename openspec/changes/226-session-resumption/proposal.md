@@ -32,6 +32,12 @@ completed work needs a truthful task marker before the phase's final commit.
   offers, preserving first-work acceptance and pre-session refusal semantics.
   Permit at most one proven pre-work cold replacement within the invocation's
   existing deadline, cancellation, attempt and chain bounds.
+- Add seat-record v5 beside frozen v1–v4 for the confirmed root, instance,
+  harness identity and bounded launch facts selected by design D4. Amend the
+  existing `boundary-record` append/version-dispatch requirement: v5 from
+  0.10.0, v4 for the 0.9 line, v3 for the 0.8 line, and v1 for earlier or
+  unparseable engines, identically at append, export, import verification and
+  offline verification. Preserve boundary stamping and valid historical rows.
 - Put dialect-independent progress timing and recovery in the shared SDD smith
   charter, applying to both OpenSpec and spec-kit. Persist completed, locally
   verified task progress before the next group, independently of commits.
@@ -59,8 +65,14 @@ completed work needs a truthful task marker before the phase's final commit.
 
 ### Modified Capabilities
 
-None. Existing realm boundary, manifest, gate and boundary-record requirements
-remain authoritative; these deltas add resume and recovery behavior.
+- `boundary-record`: amend the complete requirement “The seat record carries
+  the boundary as seat-record/v4” so its append fence and manifest dispatch
+  select additive v5 from 0.10.0. Preserve its boundary-stamping rule, unchanged
+  scenarios and historical 0.9.0/0.9.1 compatibility example.
+
+Existing realm boundary, manifest and gate requirements remain authoritative.
+The boundary-record delta changes version selection without changing which
+boundary the engine stamps or rewriting frozen contract bytes.
 
 ## Evidence and scope
 
@@ -68,7 +80,12 @@ Source: [issue #226](https://github.com/feedback-loop-ai/brokkr/issues/226),
 the operator's 2026-09-09 commission and triage's
 `.forge/tasks/226-session-resumption.md`. This change adopts that framing's
 identifier and starts from shipped main
-`5bc8cf305aaef9af269866cbf83f094939691399`.
+`5bc8cf305aaef9af269866cbf83f094939691399`. The successor commission and
+`.forge/tasks/226-session-resumption-successor.md` adopt the surviving planning
+artifacts at `169e5b94e50f0f46c04a2589f90350222ab43ff5` and return only F7 for
+specification repair. Answers A–H and task repairs F1–F6 remain settled.
+The separately shipped PR250 is controller-owned integration; this return
+neither merges it nor assumes its changes are present.
 
 The issue's three-`None` description predates this base. Inspection of
 `engine.rs` and `engine/resume_tests.rs` confirms that single seats already
@@ -146,9 +163,13 @@ still ends at 0053, and 0054/0055 remain reserved for other fires.
 
 Seat-record v4 admits two launch values, five refusal tokens and three Codex
 sandbox classes, not arbitrary provider permission names or explanations.
-Design must use these fields truthfully or specify an additive contract version,
-embedding, version selection and compatibility tests. Existing contracts,
-production policy, schemas, reference and fixtures stay frozen.
+Design D4 selects additive v5 with matching embedding, version selection and
+compatibility tests. LE2 authorizes the additive vocabulary; the modified
+`boundary-record` requirement authorizes its append/version dispatch. Existing
+published and embedded v1–v4 contracts, production policy, schemas, reference
+and fixtures stay frozen. New v5 preserves valid unstamped 0.10.0 records,
+including historical resumed rows without root evidence and third-party
+refusal-bearing rows; current stamped rows obey the new producer invariants.
 
 Issue #222 owns transcript reading and CLI/TUI derivation. This issue owns
 session plumbing, launch evidence and progress markers; transcript caps and
@@ -244,6 +265,25 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   as proof of existence. Proposed 0056 must state this ownership/existence rule;
   any new record representation must obey LE2's additive-version requirement.
 
+### F7 — Amend the standing append and dispatch requirement
+
+The third analysis finding is adopted on its new evidence: the living
+`boundary-record` requirement selects v4 for every engine at or after 0.9.0,
+while design D4 selects v5 from 0.10.0. The former “None” under Modified
+Capabilities and D10’s claim that no upstream amendment was needed were
+incorrect. LE2 permits an additive contract but cannot amend another
+capability’s standing dispatch rule.
+
+This specify return repairs the earliest owning artifacts: the scope declaration
+above and a complete MODIFIED boundary-record requirement, with explicit
+version/fence, frozen-byte and historical-compatibility scenarios. Design D4,
+D10 and D11, task coverage, and archive/provenance obligations follow that
+amendment. Changing only downstream dispatch or deleting the tagged 0.9.0/0.9.1
+example is rejected: the former leaves contradictory requirements and the
+latter erases a historical fact that was never the conflict. The four adopted
+ADDED deltas, answers A–H and repairs F1–F6 retain their meaning. This is a
+specification amendment, not operator acceptance of proposed 0056.
+
 ## Delivery obligations
 
 This phase authors proposal and deltas in dialect order. Design, tasks,
@@ -251,7 +291,11 @@ clarification, analysis, full implementation and specification review remain
 mandatory. Clarification answers belong in scenarios; analysis choices belong
 in design's `## Decisions`. Council positions require explicit reconciliation,
 and earlier artifact faults return upstream. The smith performs the normal
-archive/provenance operation as the final artifact task.
+archive/provenance operation as the final artifact task, folding all five
+capability deltas: four new capabilities and the modified `boundary-record`.
+Keep boundary-record’s existing provenance and append this change’s entry;
+validate the folded artifacts and bidirectional provenance before committing
+the complete delivery.
 
 The smith's breakdown must carry these commission-specific obligations, with
 separate unchecked tasks for unavailable measurements and validation. Extend
@@ -322,9 +366,10 @@ code is partial work, not a lawful close for #226. A measured impossibility is
 reported as a failed specification requirement for the normal return path,
 with its reason; it cannot silently reduce the minimum or relax 0030's safety.
 
-## Specification validation — 2026-09-09
+## Prior specification validation — 2026-09-09
 
-This returned specify pass adopts the existing change and records these results:
+Historical results from the specify return committed as `2f45cc9`, before the
+surviving design/tasks and this F7 amendment:
 
 - `openspec validate 226-session-resumption --strict --no-interactive` passed.
   The four deltas contain **19 requirements and 112 scenarios**, each with
@@ -352,3 +397,49 @@ This returned specify pass adopts the existing change and records these results:
   base; CI, release admission and coverage still consume
   `rust-nightly-version.txt`. This return changes the proposal and three
   affected deltas; the progress delta and existing change metadata are retained.
+
+
+## Successor specify validation — F7, 2026-09-09
+
+Adopted `226-session-resumption` and repaired F7 in dependency order: proposal,
+complete MODIFIED boundary-record delta, then the affected design and tasks.
+Read the dialect’s instructions through the workspace hands, including the
+OpenSpec-rendered artifact instructions; no workflow runner or archive was run.
+Both retained council positions were read in full and the affected D10 claim
+was reconciled under design’s Decisions (D12). Answers A–H and task repairs
+F1–F6 remain settled; no provider minimum was reduced.
+
+- `openspec validate 226-session-resumption --strict --no-interactive` passed.
+  `openspec show 226-session-resumption --json --deltas-only` parses 19 ADDED
+  requirements and one MODIFIED boundary-record requirement. All five declared
+  capabilities have their deltas: **20 requirements / 123 scenarios**.
+- `openspec status --change 226-session-resumption --json` reports all four
+  planning artifacts done and planning complete. This reports artifact state;
+  this author does not claim the successor’s independent clarification,
+  analysis, implementation, verification or review verdicts.
+- A structural preservation/coverage check passed: the original four deltas
+  are byte-identical to the inherited HEAD; the modified requirement retains
+  all seven original scenarios, with only dispatch amended, and its tagged
+  0.9.0/0.9.1 compatibility sentence is unchanged. Four new scenarios cover
+  all-fence dispatch, historical 0.10.0 rows, v5 boundary authority and frozen
+  versions. An in-memory replacement preserves the two other standing
+  requirements and existing provenance; the living spec was not edited.
+- All 20 requirements have task citations. All 101 inherited task identifiers
+  remain, with only 2.8 added for boundary integration regressions; **102 tasks
+  remain unchecked**. The new requirement’s 11 scenarios are mapped explicitly
+  in tasks.md. Archive/commit tasks now cover all five capabilities and retain
+  boundary-record’s earlier provenance entry.
+- All five required Cargo commands above were attempted with
+  `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and exited **127** because Cargo is
+  absent in this box. Format, clippy, workspace tests and both bundle compiles
+  have no passing result from this seat. No implementation test is claimed.
+- The unchanged exact-coverage script, under the same limits plus
+  `TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, exited **1** because
+  `/var/tmp` is absent and `mktemp` could not create its directory. Host exact
+  coverage and boundary proof remain pending; the gate was not weakened.
+- `git diff --check` passed. Frozen contracts (published and embedded),
+  production policy, reference, fixtures and accepted decisions have no diff
+  from the commissioned base. CI, release admission and coverage still consume
+  `rust-nightly-version.txt`. No production, living-spec, sibling or provider
+  installation file was changed. Decision 0056 remains reserved/proposed work
+  for task 1.1 before production semantics; no decision was accepted here.

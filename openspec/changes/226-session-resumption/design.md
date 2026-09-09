@@ -3,10 +3,11 @@
 This design adopts **226-session-resumption**, specified on shipped main
 `5bc8cf305aaef9af269866cbf83f094939691399` and clarified through `2f45cc9`.
 See [proposal.md](proposal.md) for motivation, scope and clarification answers
-A–H. This phase owns only design; the smith owns tasks and implementation.
-No `returned_from` finding accompanies this visit. Both council positions have
-been read in full: `.forge/design/positions/robustness.md` and
-`.forge/design/positions/simplicity.md`. Their reconciliation is durable under
+A–H. The original council design preceded the surviving tasks; this successor
+specify return reconciles its dependencies after F7, without re-authoring the
+change or reopening A–H/F1–F6. Both original council positions have been read
+in full again for the affected reconciliation:
+`.forge/design/positions/robustness.md` and `.forge/design/positions/simplicity.md`. Their reconciliation is durable under
 Decisions below, rather than left solely in run-local files.
 
 Reusable foundations are `engine.rs::{resume_offer, pinned_bundle_holds}`,
@@ -224,10 +225,14 @@ reasons/commands belong in reviewed support evidence, not accounting. New
 built-in conformance requires root evidence for resumed and refusal only with
 cold; do not add constraints that invalidate historical v4 rows.
 
-Dispatch v5 at the current **0.10.0 engine line** in
-`SeatRecordVersion::of_engine`, following the newest-within-line precedent.
-0.9 remains v4, 0.8 remains v3, older/unparseable engines remain v1. No package
-version bump. Old 0.10.0 rows without new fields remain valid under v5; absence
+The proposal now declares `boundary-record` modified, and its complete
+MODIFIED requirement, **The seat record carries the boundary as seat-record/v4**,
+authorizes this dispatch in addition to LE2’s additive vocabulary. Dispatch v5
+from **0.10.0** in `SeatRecordVersion::of_engine`, following the
+newest-within-line precedent: 0.9.0 up to but excluding 0.10.0 selects v4,
+0.8.0 up to but excluding 0.9.0 selects v3, and older/unparseable engines select
+v1. Keep existing parsing and direct v1–v4 validation. No package version bump.
+Old 0.10.0 rows without new fields remain valid under v5; absence
 is not confirmation. Use the same dispatch/validator at append, export, import
 verification and offline verification; diagnostics name contract/path, never
 values. Include direct v4/v5 tests and validate engine stamps at the fence.
@@ -240,7 +245,13 @@ or honest unmeasured-refusal evidence. No new event type, event schema, database
 schema or effect-start extension is needed.
 
 **Bindings:** LE2/LE5/SR2/SR3; schema dispatch/fence, embedded/frozen-byte tests,
-built-in conformance and stamp tests.
+built-in conformance and stamp tests; `boundary-record` / **The seat record
+carries the boundary as seat-record/v4** for shared dispatch, preserved boundary
+stamping and historical compatibility. F1/F5’s task repairs remain binding:
+the store’s new resumed-requires-root and refusal-only-with-cold conditions
+apply only to `site_ref`-stamped rows, while the unconditional form is required
+of this change’s producers. Existing valid unstamped 0.10.0 rows, including
+third-party refusal-bearing shapes, stay valid at all four fences.
 
 ### D5 — Receive once; admit only a measured current invocation
 
@@ -513,7 +524,7 @@ numbered rulings and enforcement bindings are:
 | 4 | Negotiated, correlated, one-use offer in existing wire vocabulary. | D5 protocol/conformance tests. |
 | 5 | Required measured provider shapes; current-version qualification; DSH session integration separate from hands. | D5/D6 loader, runtime identity check, dated provider evidence. |
 | 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. | D5/D6 composition and enforcement proof. |
-| 7 | One confirmed launch, v5 vocabulary, first-work hold and privacy fence. | D4/D7 store/conformance/acceptance tests. |
+| 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
 | 10 | Persist truthful progress before next group; reconcile independently of commit. | D9 instruction/identity tests. Actual completion is judgment guidance, not an automatic guarantee. |
@@ -527,7 +538,7 @@ Every council claim has a disposition:
 | Robustness: v5, actual confirmation, controlled settings, separately measured planners. | Adopt D4–D7 with fixed bounded vocabulary and current support gate. |
 | Robustness: accounting, held-window honesty, bounded fallback/cancellation, progress recovery and verification axes. | Adopt D7–D9/D11; describe actual synchronous cancellation and separate shim/live evidence. |
 | Simplicity: reuse offer machinery, wire and folds. | Adopt with the identity/acceptance corrections justified by source; no replacement runtime. |
-| Simplicity Cut A/R4: omit new version and Claude sandbox value. | Combine: omit the invalid sandbox value, retain v5 for root/owner/version/refusal facts (D4). Its requested specific justification is supplied. LE2 already permits a justified additive version, so no upstream amendment is needed. |
+| Simplicity Cut A/R4: omit new version and Claude sandbox value. | Combine: omit the invalid sandbox value, retain v5 for root/owner/version/refusal facts (D4). Its requested specific justification is supplied. LE2 permits the additive vocabulary, but F7 establishes that the standing boundary-record dispatch also needs an upstream specification amendment; this specify return supplies it. The v5 choice stands with that missing dependency repaired. |
 | Simplicity Cut B: harvest only. | Use harvest for known paths; reject a ban on SR3/H's admitted fresh assignment. No pre-spawn persistence machinery (D3). |
 | Simplicity Cut C/R3: cold DSH closes the issue. | Reject against AS1/F and the capture's explicit limits; bounded investigation and return on unmet minimum (D1/D6). |
 | Simplicity Cut D: collapse capabilities/scenarios. | Reject for this adopted change. Eligibility, provider safety, evidence/accounting and SDD progress have distinct obligations. LE2/LE4/LE5 are more than emit lines. Share table-driven tests instead of deleting observable requirements. |
@@ -552,6 +563,7 @@ modify frozen evaluator fixtures.
 | AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, settings conflicts, no ambient cold/gate continuation, nonpersistence, changed CLI/wrapper. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
+| boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
 | LE4 | Only current turns/tools/targets/usage, replay, unknown baseline, rotated/truncated source, completion deduplication and LaneTally capture. Retain transcript caps. |
 | PM1/PM2/PM3/PM4 | Both dialects' SDD instruction/rendering/identity suites and returns; completed uncommitted group plus interrupted partial group; missing-edit/failed-check reconciliation; pending workspace/external proof; judges do not mutate. |
 
@@ -563,6 +575,36 @@ Run the unchanged exact-coverage gate on the host with `TMPDIR=/var/tmp` and
 to consume `rust-nightly-version.txt`. A nested-box skip or missing tool is
 pending proof, never a clean gate. No new runs, push, merge, publication or
 issue closure is authorized to this seat.
+
+### D12 — F7 repairs the missing boundary-record amendment
+
+Adopt the third analysis finding. The earliest defect was the proposal’s claim
+that no existing capability changed, together with the missing delta for the
+standing v4 append/dispatch requirement. D10’s prior “no upstream amendment”
+claim was too broad: permission to add v5 under LE2 never replaced the living
+rule that all engines at or after 0.9.0 select v4. The same 0.10.0 manifest
+could not satisfy both that rule and D4.
+
+The proposal and complete MODIFIED boundary-record requirement now reconcile
+that conflict before D4, the tasks or production code spend v5. This is the
+needed upstream specification repair, performed by the specify owner; no
+unresolved triage fault or further upstream requirement is established by F7.
+Retain the requirement’s exact title for OpenSpec replacement, all original
+boundary scenarios, frozen v1–v4 bytes and the tagged 0.9.0/0.9.1 no-boundary
+example. F1/F5’s historical/current-producer distinction remains unchanged, as
+do A–H and F2–F4/F6. No provider measurement or enablement follows from F7.
+
+**Alternatives rejected:** changing only implementation tasks leaves the
+standing dispatch inconsistent; removing the historical tagged example attacks
+the wrong sentence; an ADDED requirement elsewhere leaves the v4 rule standing.
+The complete MODIFIED block is required by OpenSpec’s fold semantics.
+
+**Bindings:** D4/D10/D11 and tasks 1.1, 2.3–2.8, 13.3 and 15.6–15.7. The smith
+folds all five deltas, preserves boundary-record’s existing provenance and
+appends exactly one new entry alongside the four new capability entries.
+Revalidate the archive and bidirectional provenance before the delivery commit.
+The retained council dispositions stand; only Cut A/R4’s assertion about the
+need for a specification amendment is corrected by the newly cited evidence.
 
 ## Risks / Trade-offs
 
@@ -603,7 +645,11 @@ issue closure is authorized to this seat.
 4. Obtain controller evidence and deliver Claude, DSH and preserved Codex support,
    resolving upstream impossibility before claiming completion. Finish tests,
    house validation and specification review. The smith performs the declared
-   archive/provenance operation as its final artifact task; design does not archive.
+   archive/provenance operation as its final artifact task, folding four new
+   capabilities and the modified `boundary-record`, retaining its existing
+   provenance and appending this change’s entry. Revalidate the folded change
+   and bidirectional provenance before the commit; this specify return does
+   not archive.
 5. Commit unsigned in repository style. Hand final head/evidence to the controller
    for integration, host exact coverage, remote validation, publication and issue
    closure. External steps stay pending until results exist.
@@ -622,10 +668,11 @@ conditions, not optional questions or claims of support. Evidence requiring
 different ancestry, record representation, execution architecture or a smaller
 provider minimum returns to the earliest owning artifact.
 
-## Design-phase validation
+## Prior design-phase validation
 
-This section records artifact validation, not implementation, analysis, provider
-enforcement or full-delivery success.
+Historical evidence from the original design pass (`a1624a6`), before tasks
+and the successor F7 repair. These results are artifact validation, not
+implementation, analysis, provider enforcement or full-delivery success.
 
 On 2026-09-09:
 
@@ -649,3 +696,12 @@ On 2026-09-09:
   the coverage script still consume `rust-nightly-version.txt`. Frozen paths
   have no diff from the commissioned base. Proposed 0056 remains reserved for
   the smith's decision document before production semantic edits.
+
+
+## Successor specify reconciliation — F7
+
+D4/D10/D11, new D12 and the migration/fold obligations are reconciled with the
+fifth delta. Current artifact-validation results and pending Rust/host proof
+are recorded in [proposal.md](proposal.md#successor-specify-validation--f7-2026-09-09),
+separately from the original council’s historical validation above. The
+successor’s independent judged phases and full delivery remain unclaimed.
