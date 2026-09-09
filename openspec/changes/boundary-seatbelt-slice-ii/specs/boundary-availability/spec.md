@@ -174,12 +174,9 @@ an actionable refusal, while container still names slice (iii).
 The engine SHALL treat `seatbelt` as built only when both workspace and
 boxed exec paths actually implement the whole hands policy described by
 `seatbelt-execution`, including the shipped masked overlays and the git and
-process guarantees. Unresolved differences in overlays, masks, hooks view
-or lifetime SHALL keep Seatbelt unbuilt under 0046's addendum. Operator
-rulings are required before enabling a semantic difference or asserting
-that a different hooks view is peer-equivalent. A policy-preserving
-mechanism and its evidence can discharge a feasibility question without
-weakening the guarantee. Code and experiments may be prepared for Mac
+process guarantees. The 2026-09-09 0046 addendum settles R1–R4 observables; missing native
+evidence for any required guarantee SHALL keep Seatbelt unbuilt. Accepted
+semantics do not discharge implementation or evidence obligations. Code and experiments may be prepared for Mac
 measurement with the activation fence retained while questions are open.
 Reporting Seatbelt built requires the settled semantics and actual paths;
 pending full-suite Mac evidence SHALL not be reported as slice completion.
@@ -204,16 +201,16 @@ hands SHALL not be refused merely for its realm's boundary word.
 
 #### Scenario: Seatbelt becomes built through actual execution paths
 - **WHEN** the implementation exposes Seatbelt as built
-- **THEN** the overlay, mask, hooks-view/peer and lifetime prerequisites are resolved, both entry points implement their complete ruled policy through real sandbox-exec with failure handling, and the required Mac suite must still pass before overall slice acceptance
+- **THEN** the overlay, mask, hooks-view/peer and lifetime prerequisites are resolved, both entry points implement their complete ruled policy through real sandbox-exec with failure handling, and the required Mac suite has passed before activation or overall slice acceptance
 
 #### Scenario: Shipped overlay users cannot be refused into a built claim
 - **GIVEN** a macOS host with a trusted usable system launcher and the unchanged self/verify verifier and review-agent declarations containing masked cargo overlays
 - **WHEN** a candidate can execute a bind-free smoke test but cannot realize those declared overlays or masks
 - **THEN** self and verify remain refused at start before any journal row, doctor reports Seatbelt unbuilt for slice (ii) with the unmet policy, and that candidate fails this slice's deliverable; a per-bind refusal does not make the boundary built
 
-#### Scenario: An upstream ruling must precede a different deliverable
-- **WHEN** relocated snapshots, denied-read masks, residual detached processes or harness-grade Seatbelt are proposed without an operator ruling
-- **THEN** Seatbelt activation remains fenced and the discrepancy is returned upstream with its owning requirement; no successful Seatbelt gate, peer marker or completion claim is produced
+#### Scenario: Accepted semantics still require native evidence
+- **WHEN** relocated snapshots, denied-read masks or private hooks are implemented without the required native proof, or detached survivors or harness-grade Seatbelt are proposed
+- **THEN** Seatbelt activation remains fenced and the missing proof is recorded as an open residual; survivors or reduced grade require a new upstream ruling; no successful Seatbelt gate, peer marker or completion claim is produced
 
 #### Scenario: container with either engine present still refuses
 - **WHEN** a bundle with hands site `work` compiles under `container` and the path holds Docker, Podman or both

@@ -6,7 +6,8 @@ security claims from pending measurements and proposed semantic rulings.
 
 The positive execution scenarios define the commissioned target after
 `boundary-availability`'s activation conditions hold. On this returned visit
-R1–R4 remain upstream questions; no partial implementation or refusal-only
+R1–R4 have accepted observables under the 2026-09-09 addendum to 0046,
+but native proof remains required; no partial implementation or refusal-only
 path satisfies the target. The current unbuilt refusal remains in force.
 
 ## ADDED Requirements
@@ -90,8 +91,9 @@ from controlled system/toolchain paths and declared binds, never inherited
 from arbitrary engine PATH entries or the working directory. Interpreter
 startup SHALL not import undeclared environment or host startup files.
 
-Additional environment keys or different observable locator semantics
-require a focused proposed decision and corresponding scenarios. Clearing
+The explicit overlay locator contract authorized by 0046 SHALL specify any
+additional environment keys and corresponding scenarios before implementation.
+Other semantic differences require a focused proposed decision. Clearing
 the environment alone SHALL never be offered as proof of filesystem denial.
 
 #### Scenario: A planted parent environment does not reach commands
@@ -139,20 +141,14 @@ without host creation; an overlay source that cannot be prepared SHALL
 refuse, without changing mode. Invalid mask targets or contradictory
 bindings SHALL be diagnosed before user code when they cannot be enforced.
 
-A masked file's host content SHALL be unavailable and its host bytes SHALL
-remain unchanged, including through symlinks, hard links, overlapping binds
-and replacement of the mask entry. Preparation SHALL not follow a link and
-copy an undeclared secret into readable scratch. An absent masked file
-SHALL not be created on the host. The observable for a present mask is
-explicit: opening it for a normal
-read at the declared path SHALL succeed and yield zero bytes, as the
-existing `/dev/null` mask does. Direct denied reads SHALL NOT count as
-readable-empty. Aliases SHALL expose no original content; an unsafe alias
-layout SHALL refuse preparation. Same-path bind access remains required.
-A mechanism unable to provide this view SHALL refuse the affected policy,
-remain ineligible for Seatbelt activation under this deliverable, and
-return the denied-read alternative upstream (R2). The proposed-ruling
-procedure cannot count as an unspecified future test oracle.
+A masked file's host content SHALL be unavailable and its host bytes and
+entries SHALL remain unchanged through symlinks, hard links, overlapping
+binds and replacement attempts. Preparation SHALL not copy an undeclared
+secret into readable scratch. An absent mask SHALL not create a host file.
+Under the accepted 0046 addendum a present mask MAY return permission denied
+instead of a successful empty read. Aliases SHALL expose no original
+content; unsafe layouts SHALL refuse before payload execution. Ordinary
+unmasked neighbors SHALL remain usable. Denial SHALL be described as denial.
 
 #### Scenario: Read-only and writable binds differ only as declared
 - **WHEN** each hands path reads and modifies test-owned `ro` and `rw` binds outside the worktree
@@ -161,16 +157,16 @@ procedure cannot count as an unspecified future test oracle.
 #### Scenario: Credentials remain hidden under every bind mode
 - **GIVEN** synthetic credential files masked in `ro`, `rw` and `overlay` binds, plus ordinary readable neighbors
 - **WHEN** commands read the neighbors, read each credential by direct and alias paths, and try replacement, deletion and rewriting of the masked entries
-- **THEN** neighbors remain usable, direct reads of present masked entries succeed with zero bytes, aliases reveal no credential content, and all host credential bytes and directory entries remain unchanged; denial at the declared path fails the readable-empty assertion
+- **THEN** neighbors remain usable, direct reads of present masked entries are denied or succeed with zero bytes, aliases reveal no credential content, and all host credential bytes and directory entries remain unchanged
 
-#### Scenario: Present masks have a readable-empty view
-- **GIVEN** a declared bind containing a present masked credential with nonempty synthetic bytes and an ordinary neighbor
-- **WHEN** each real hands path opens and reads the credential by the declared path
-- **THEN** open/read succeeds with zero bytes and the neighbor is readable; a denied open, absent-file error or original credential byte fails the scenario
+#### Scenario: Present masks protect contents under the accepted observable
+- **GIVEN** a present masked credential with nonempty synthetic bytes and an ordinary neighbor
+- **WHEN** each real hands path opens the credential and its aliases
+- **THEN** direct reads return permission denied or zero bytes, no alias reveals the secret, host bytes remain unchanged and the neighbor is readable
 
-#### Scenario: Denied-mask access is a proposed difference rather than an answer
-- **WHEN** a candidate can hide credential content only by returning a permission error at the declared masked path
-- **THEN** it refuses that policy before user code under the current contract, records R2's exact denied-read alternative for the operator, and cannot count the refusal as mask support or Seatbelt activation
+#### Scenario: A permitted mask observable still needs native proof
+- **WHEN** a candidate claims denied-read masks based only on the accepted ruling or a mock
+- **THEN** R2 stays an open evidence residual and activation remains fenced until native direct/alias/mutation adversaries pass
 
 #### Scenario: Missing masks do not create host files
 - **WHEN** a declaration masks a file absent from the source, including after an earlier call created a same-named private overlay file
@@ -182,8 +178,10 @@ procedure cannot count as an unspecified future test oracle.
 
 ### Requirement: Overlay writes persist for the seat and never modify the host lower layer
 
-A declared overlay SHALL expose the declared path's readable lower content
-with the seat's changes layered above it. Creates, edits, deletions,
+A declared overlay SHALL expose a seat-private snapshot through an explicit
+replacement-path locator. The locator contract SHALL cover arbitrary declared
+binds, not only Cargo. Later host-source changes SHALL be invisible; direct
+source-path writes SHALL remain refused. Creates, edits, deletions,
 renames and executable/cache updates SHALL be visible to later calls in
 that seat and SHALL leave the host lower tree unchanged. Other seats and
 later attempts SHALL start with independent overlay state. A new attempt
@@ -197,24 +195,23 @@ visibility, path compatibility, link handling and lifetime, and measure
 those semantics. It SHALL not share writable file storage with the lower
 layer or make the unmasked original source another way to reach masked
 content. Writable state SHALL not outlive the seat as a host executable.
-Differences from the declared overlay contract require an explicit ruling.
-R1 retains the existing contract until then: neither a relocated snapshot
-nor blanket overlay refusal is this slice's successful deliverable. The
-shipped masked cargo overlays and the node recipe's npm overlay SHALL stay
-acceptance inputs unless their declarations are explicitly recommissioned.
-A smoke test without an overlay does not exercise this requirement.
+The accepted 0046 addendum permits relocated snapshots with explicit
+locators, not blanket overlay refusal. Design SHALL define locator delivery,
+link/mask behavior and identity consequences before implementation. The
+shipped masked Cargo overlays and node recipe's npm overlay remain acceptance
+inputs. A bind-free smoke test does not exercise this requirement.
 
 #### Scenario: Overlay mutation matrix survives the next call
 - **WHEN** a first call creates, edits, deletes, renames and updates a test executable in an overlay, and a second call observes those paths
-- **THEN** it sees those exact changes at the declared bind path, while a host-side tree comparison confirms no lower-layer bytes, names or link targets changed
+- **THEN** it sees those exact changes at the explicitly supplied overlay locator, while a host-side tree comparison confirms no lower-layer bytes, names or link targets changed
 
 #### Scenario: Seat exit and failure do not publish overlay changes
 - **WHEN** a seat exits normally, times out, is cancelled or fails preparation after allocating private state
 - **THEN** no overlay update reaches the host, cleanup cannot follow an attacker-controlled link into the host, and a new seat or resumed attempt sees an independent initial view
 
-#### Scenario: Locator-only copies do not pass as arbitrary overlays
-- **WHEN** a candidate passes a cargo test using a relocated `CARGO_HOME` but direct access to a declared arbitrary overlay path fails or reaches the original host tree
-- **THEN** that candidate does not satisfy this requirement or Seatbelt activation; R1 asks the operator whether relocated snapshot/locator semantics for every arbitrary bind are authorized, or whether same-path semantics must be preserved, with refusal-only scope or amended shipped declarations requiring their own explicit commission
+#### Scenario: Arbitrary overlay locators carry the accepted semantics
+- **WHEN** a candidate handles Cargo, npm and an arbitrary declared overlay, and the host source changes after snapshot preparation
+- **THEN** each locator resolves to the isolated snapshot, later calls see seat writes but not later host changes, direct source writes fail, and other seats and attempts have independent state
 
 ### Requirement: Git metadata protection prevents host hook and configuration persistence
 
@@ -259,14 +256,10 @@ and linked worktrees under the resolved seat identity. The host SHALL see
 the resulting object/ref update in the intended worktree. Host hooks and
 signing programs SHALL not execute during these commits, even when host
 configuration enables them, and host hooks/configuration SHALL remain
-unchanged. The 0043 ruling 6 baseline is a successful empty listing at the
-original
-hooks directory, alongside read-only protected configuration. Denying the
-original listing and using a different empty private `core.hooksPath` is
-an observable change, even when unsigned commits work. R4 requires an
-operator ruling on that difference and Seatbelt's peer status before
-activation. The new private hooksPath is only an ordinary Git behavior
-candidate; independent enforcement against raw writes remains mandatory.
+unchanged. The accepted 0046 addendum permits denied access to the host
+hooks directory and an empty private `core.hooksPath`. Design SHALL document
+that observable accurately. Independent enforcement against raw writes
+remains mandatory and needs native evidence before full peer activation.
 A benign unsigned commit alone SHALL not establish protection against
 hostile commands.
 
@@ -275,10 +268,10 @@ hostile commands.
 - **WHEN** each hands path stages and commits a worktree change
 - **THEN** the host sees the expected author/committer, message and content on that worktree's ref, the commit has no signature, no hook/signing sentinel ran, and protected metadata is unchanged
 
-#### Scenario: Empty private hooksPath does not prove an empty original view
+#### Scenario: Private hooks satisfy the accepted view only with independent protection
 - **GIVEN** a primary or linked worktree with existing sentinel hooks and host-enabled signing
 - **WHEN** a candidate's ordinary unsigned commit succeeds using a private empty core.hooksPath but listing the original hooks directory returns a permission error
-- **THEN** the result records both observations and the full raw-write adversary outcome; it fails the unchanged empty-view target and is submitted for R4's explicit view/peer ruling, not reported as namespace-equivalent
+- **THEN** the result records both observations and the full raw-write adversary outcome; the view follows the accepted 0046 addendum but R4 closes only after the full native protection matrix passes, without claiming an empty original listing
 
 #### Scenario: No repository does not grant a git directory
 - **WHEN** a workspace command runs in a non-repository directory
@@ -398,22 +391,20 @@ that a successful sandbox execution occurred. Hands-less and historical
 records retain their existing sentinel/absence behavior. A run with a
 `harness` or `open` gate remains unboxed under the existing derivation.
 
-These are full-peer target scenarios, not a decision on R4. Before the
-activation conditions hold, production start SHALL retain the unbuilt
-fence, so no Seatbelt invocation is spawned or stamped as a successful
-peer. If the operator rules harness-grade instead, `boundary-record`,
-`boundary-readouts`, gate policy and these scenarios SHALL be amended
-upstream before activation, including any required additive schema version.
-This change SHALL NOT reuse the current boxed marker or plain Seatbelt
-summary to imply a guarantee the operator declined.
+The accepted 0046 addendum permits denied host-hook access plus an empty
+private hooks directory, conditional on independent hook/config/routing
+write protection and native primary/linked-worktree adversaries. These are
+full-peer target scenarios; accepting the observable is not proving it.
+Production start SHALL retain the unbuilt fence until all native obligations
+pass. No harness-grade fallback is authorized.
 
 #### Scenario: A real Seatbelt gate round-trips through the record
 - **WHEN** a native Seatbelt exec gate succeeds and its journal is exported and verified
 - **THEN** the manifest, effect entry, finishing checkpoint and successful model-bearing result name `seatbelt`; all model readouts agree, the run is not rendered unboxed on that gate's account, and driver-supplied false boundary stamps cannot replace the engine's word
 
-#### Scenario: An unresolved hooks ruling cannot produce a peer gate
-- **WHEN** the hooks mechanism's view or peer status is unresolved, even with a successful private-hooksPath commit experiment
-- **THEN** production Seatbelt start refuses before a journal row or seat spawn; no successful Seatbelt record, hands-boxed prompt or delivery vouch is produced from that experiment, and R4 is returned upstream
+#### Scenario: Unproven hooks protection cannot produce a peer gate
+- **WHEN** the hooks mechanism lacks native protection evidence, even with a successful private-hooksPath commit experiment
+- **THEN** production Seatbelt start refuses before a journal row or seat spawn; no successful Seatbelt record, hands-boxed prompt or delivery vouch is produced from that experiment, and R4 stays an open evidence residual
 
 #### Scenario: A harness-grade ruling requires coherent upstream deltas
 - **WHEN** the operator rules Seatbelt harness-grade rather than accepting the full-peer target
@@ -436,8 +427,8 @@ semantic choices SHALL have a focused decision document with status
 `proposed`. An observed difference from an accepted guarantee SHALL name
 the precise operator question; absent a ruling the guarantee stands and
 unsupported operations refuse. That refusal SHALL NOT discharge any
-unimplemented required feature. R1–R4 SHALL be closed with the exact
-operator ruling or policy-preserving mechanism evidence before the
+unimplemented required feature. R1–R4 SHALL be closed with native evidence satisfying the accepted
+operator ruling before the
 activation fence is lifted. A finding owned by an earlier artifact SHALL
 be returned upstream and dependent artifacts kept coherent; a successful
 OpenSpec syntax check SHALL not be presented as resolution of those facts.
@@ -479,9 +470,9 @@ pending until their real results exist. Preparing code, tests and guides
 on Linux does not make the overall slice complete. Evidence predating a
 relevant change SHALL not be attributed to the final candidate.
 
-#### Scenario: A hooks-view difference needs a ruling
-- **WHEN** a candidate blocks hook reads instead of exposing the empty view required by 0043, or a proposed mechanism cannot protect a linked-worktree hook/config alias
-- **THEN** design records the measured difference, its security consequence and the precise proposed ruling; it does not silently label a weakened boundary a full peer or reclassify it as harness to pass a gate
+#### Scenario: Hook protection needs evidence beyond its accepted view
+- **WHEN** a candidate uses denied host-hook access and an empty private hooks directory, or cannot protect a linked-worktree hook/config alias
+- **THEN** design cites the accepted 0046 observable, requires native independent write protection, and records any alias gap as an open blocking residual without reclassifying the boundary
 
 #### Scenario: Linux exercises both policy arms without claiming native enforcement
 - **WHEN** the candidate's host-independent tests run on Linux with supplied Linux/macOS/Windows host facts, trusted and untrusted paths, probe success/failure/timeout, and child completion/failure/timeout outcomes
@@ -505,12 +496,10 @@ relevant change SHALL not be attributed to the final candidate.
 
 ## Decisions
 
-- **R1/R2 — observable baseline, with upstream questions.** Same-path
-  overlays and successful empty reads are the explicit test oracle. The
-  returned concern is accepted: an unspecified future ruling is not an
-  oracle. Proposed snapshots or denied-read masks must be ruled before
-  replacing these scenarios. Refusing them is safe but does not complete
-  arbitrary binds or allow activation; the shipped declarations stay put.
+- **R1/R2 — accepted observables, evidence still required.** The 2026-09-09
+  0046 addendum permits explicit snapshot locators and denied-read masks.
+  Arbitrary overlays and shipped declarations remain required. Native proof
+  must establish protection and the actual observable on both entry paths.
 - **R3 — a mechanism must precede a lifetime claim.** The namespace argv's
   PID isolation supports today's direct-child kill. Apple's documented
   `setsid` and group-directed `kill` behavior, linked in the proposal,
@@ -518,14 +507,10 @@ relevant change SHALL not be attributed to the final candidate.
   does not establish that every possible Mac supervisor is impossible;
   the missing item is a named mechanism and real detach/death measurements.
   None is claimed here, and the no-survivor requirement is retained.
-- **R4 — peer-only target, not inferred peer acceptance.** The private
-  hooksPath proposal can make ordinary Git work; raw-write protection and
-  the observable empty-view question are separate. This specification
-  refuses to invent a harness-grade branch before its ruling because the
-  accepted gate and record laws otherwise make that branch a false peer.
-  Retaining the start fence makes those downstream successful scenarios
-  unreachable until the policy and grade are settled. The exact alternative
-  and required dependent deltas are recorded in the proposal.
+- **R4 — conditional full peer.** The accepted private-hooks view needs
+  independent raw-write protection and native primary/linked-worktree proof.
+  No harness-grade branch is authorized. The start fence remains until the
+  evidence passes; a successful ordinary commit cannot close R4 alone.
 - **R6 — shared decisions and explicit host adapters.** Council design must
   place policy construction, environment/path composition, readiness
   verdicts, process supervision decisions and error/cleanup routing in

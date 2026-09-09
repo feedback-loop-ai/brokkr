@@ -385,10 +385,9 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 
 ## Decisions
 
-- **R4 — no unruled gate-grade branch.** Compile remains machine-independent
-  under accepted 0046. The runtime fence, not a compiler trust promotion,
-  prevents an incomplete or unruled Seatbelt mechanism from holding a gate.
-  A harness-grade ruling would change this requirement and the owning
-  boundary-record/readouts requirements together; inventing its gate law
-  here before that upstream ruling would exceed this specify visit's
-  authority. The target remains a full peer with no weaker fallback.
+- **R4 — conditional full peer, no weaker fallback.** Compilation remains
+  machine-independent. The accepted 0046 addendum settles the permitted
+  hooks observable; native independent protection evidence is still required.
+  The runtime fence prevents an incomplete or unproven Seatbelt mechanism
+  from holding a gate. A reduced grade would require a new operator ruling
+  and coherent gate/record/readout changes; none is authorized here.

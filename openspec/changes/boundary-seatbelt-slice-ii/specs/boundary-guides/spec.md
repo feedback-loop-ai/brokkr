@@ -136,18 +136,19 @@ output/deadline limits and any explicit unsupported layout refusal. The
 network explanation SHALL distinguish shared macOS loopback from a private
 Linux network namespace; a host loopback allowance is not isolation.
 Native measurement status and any proposed ruling SHALL be adjacent to the
-claim they qualify. While R1–R4 remain unresolved, examples SHALL be labeled
+claim they qualify. While R1–R4 native evidence remains incomplete, examples SHALL be labeled
 as target behavior and Seatbelt SHALL be described as unbuilt. Refusing the
 shipped overlays SHALL be reported as an unmet deliverable, not supported
-Seatbelt with an optional limitation. Direct readable-empty masks, original
-empty hooks listings and complete descendant teardown SHALL not be replaced
-with denial or process-group-only claims. An upstream grade change SHALL
+Seatbelt with an optional limitation. Guides SHALL describe the accepted snapshot locators, permission-denied
+masks and denied host-hooks plus empty private hooks accurately. Complete
+descendant teardown SHALL not be replaced by process-group-only claims. An upstream grade change SHALL
 be reflected in gate/record/readout specs before guides describe it as usable.
 An implementation-only Linux handoff SHALL provide the
 exact native CI invocation and expected cases for the controller, not an
 invented success count or an instruction to weaken the gate.
 
-No accepted decision SHALL be rewritten as newly accepted by this change.
+The 2026-09-09 accepted 0046 addendum SHALL be cited without implying that
+its acceptance supplies native evidence.
 A focused semantic decision remains `proposed` until the operator rules;
 archive evidence, historical live channel versions and old journal examples
 retain their meaning. New contract requirements, if any, SHALL be documented
@@ -168,12 +169,12 @@ untested guarantee by matching a word.
 - **THEN** those checks are explicitly pending with their controller-owned invocations and required outcomes, no overall slice completion is asserted, and later real evidence is attributed to its actual candidate, host and tool versions
 
 #### Scenario: A semantic difference is not hidden in wording
-- **WHEN** design proposes denied-mask reads, relocated overlays or a different hooks view
-- **THEN** documentation names the exact difference and focused proposed decision, preserves refusal where the accepted guarantee cannot hold, and does not claim the proposed behavior was already accepted
+- **WHEN** design implements the accepted denied-mask reads, relocated overlays or private-hooks view
+- **THEN** documentation cites the accepted 0046 addendum, describes its observables and evidence status, and preserves refusal until the guarantees are demonstrated
 
 #### Scenario: An unresolved policy is not a working macOS example
 - **WHEN** Seatbelt has only a bind-free execution experiment or unresolved overlay, mask, lifetime or hooks-view/peer prerequisites
-- **THEN** the guide says slice (ii) remains unbuilt, labels positive examples as targets, identifies the affected shipped declarations and R1–R4 questions, and never presents the unchanged shipped library as runnable under that experiment
+- **THEN** the guide says slice (ii) remains unbuilt, labels positive examples as targets, identifies the affected shipped declarations and R1–R4 evidence residuals, and never presents the unchanged shipped library as runnable under that experiment
 
 #### Scenario: Init advice and launcher diagnosis agree
 - **WHEN** the macOS setup instructions explain init and doctor

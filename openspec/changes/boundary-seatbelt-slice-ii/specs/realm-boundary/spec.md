@@ -46,5 +46,5 @@ ruling 1; the resume rule of decision 0042 ruling 1's enactment).
 - **THEN** resume compiles the pinned Seatbelt world and applies Seatbelt availability, while rerun compiles the discovered harness world and receives that distinct identity; a resume on Linux refuses instead of substituting harness
 
 #### Scenario: A pinned realm does not override an unresolved activation prerequisite
-- **WHEN** a run/resume/rerun compiles under the Seatbelt realm word while R1–R4's policy or peer prerequisite remains unresolved
+- **WHEN** a run/resume/rerun compiles under the Seatbelt realm word while any native R1–R4 proof remains missing or failing
 - **THEN** its manifest still pins Seatbelt and its runtime entry refuses under the unbuilt fence; neither a current harness realm nor a compile-only identity changes that verdict

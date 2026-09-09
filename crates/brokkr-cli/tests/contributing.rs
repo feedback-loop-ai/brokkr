@@ -325,7 +325,8 @@ fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
         }
     }
 
-    // The erratum: one heading, one line, the decision otherwise untouched.
+    // The erratum remains one line within its section; later operator addenda
+    // are separate sections, not part of the historical correction.
     let decision =
         std::fs::read_to_string(root.join("docs/decisions/0046-the-boundary-is-named.md")).unwrap();
     assert!(decision.starts_with("# 0046 — The boundary is named"));
@@ -334,6 +335,9 @@ fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
         .split("\n## Erratum\n")
         .nth(1)
         .expect("the decision carries its erratum heading")
+        .split("\n## ")
+        .next()
+        .unwrap()
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect();

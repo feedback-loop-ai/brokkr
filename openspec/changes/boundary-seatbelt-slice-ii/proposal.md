@@ -9,9 +9,11 @@ only with independent write protection and native adversarial evidence.
 The operator explicitly requires demonstrated guarantees, with missing proof
 recorded as residuals. See [the evidence inventory](evidence-residuals.md).
 No native enforcement result is supplied by this acceptance. Seatbelt remains
-unbuilt. Reconcile the existing deltas to the accepted observables, then prove
-native descendant lifetime before proceeding with the full implementation.
-The upstream questions and returned-visit validation below are historical;
+unbuilt. The deltas are reconciled to the accepted observables in this preparation.
+Run the bounded descendant-lifetime experiment before proceeding with the full
+implementation; its process-group candidate cannot establish R3 by assumption.
+See `design.md` and `tasks.md` for the feasibility-first work and evidence
+contract. The upstream questions and returned-visit validation below are historical;
 they do not override the accepted addendum or represent new test results.
 
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
