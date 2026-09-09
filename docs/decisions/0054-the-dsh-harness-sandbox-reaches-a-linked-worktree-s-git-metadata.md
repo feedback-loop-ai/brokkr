@@ -101,6 +101,16 @@ Alternatives weighed:
   the workaround the commission exists to remove, and it lets a run burn
   an implementation before discovering it cannot deliver.
 
+The private store is what the sibling protections cost, and it brought
+defects of its own that the review measured and this revision closes: a
+compare-and-swap with no baseline (so a concurrent host commit was
+overwritten — the controller reproduced it), a `HEAD` a `reftable`
+repository does not fill, a bare parent read as a second checkout, a
+worktree config inside the store that the trusted driver's own git would
+have honoured, and a failure path between the seat and the promotion that
+dropped the store holding the seat's only copy of its commits. Each is
+answered in the ruling it belongs to rather than by widening a mount.
+
 ## Rulings
 
 1. **The driver resolves the two git directories before the seat
@@ -205,6 +215,7 @@ Alternatives weighed:
    | `--ro-bind <git_dir>/gitdir` | the worktree's pointer back to its own `.git` file |
    | `--ro-bind <git_dir>/HEAD` | the branch this worktree OWNS, which is the ref ruling 5 promotes |
    | `--ro-bind <common>/config` over `<store>/config`, `<common>/HEAD` over `<store>/HEAD`, `<trusted>/alternates` over `<store>/objects/info/alternates` | the three things git READS from a common directory that the seat must not choose |
+   | `--ro-bind <trusted>/config-mask` over `<store>/config.worktree` | the store's own worktree config: `<store>/config` is a COPY of the shared one, so it carries `extensions.worktreeConfig` where the repository has it, and the trusted driver runs `git --git-dir=<store>` over that config after the seat exits |
    | `--tmpfs <git_dir>/hooks`, `--tmpfs <store>/hooks` | both hook paths git could use, empty and ephemeral |
 
    `HEAD` is read-only for the same reason `gitdir` is, one level up: it
@@ -237,7 +248,7 @@ Alternatives weighed:
    the box free to create one, and unlink or rename over a mount point is
    `EBUSY`.
 
-   The two per-worktree config paths are MASKED rather than bound
+   The three config paths are MASKED rather than bound
    `--ro-bind-try`, because that flag no-ops when the host file is absent
    — the normal state of a linked worktree — while the writable directory
    around it would let the box create one the host then honours under
@@ -272,43 +283,84 @@ Alternatives weighed:
    the host ever wrote. A worktree with a detached HEAD owns no ref and is
    refused before the seat starts, naming `git switch` as the remedy.
 
+   A BARE parent repository is not a second checkout. Its `HEAD` is the
+   branch a clone would follow, `git worktree add` serves it, and reading
+   `HEAD` cannot tell that layout from a conflict — so git is asked
+   (`rev-parse --is-bare-repository`, which is `core.bare` and nothing on
+   disk). A git that cannot answer leaves the shared directory counted as
+   a checkout, which is the fail-closed direction.
+
    After `dsh` exits, the trusted driver — outside every box — reads the
    private store's value for that ref, fetches it into
    `refs/brokkr/dsh-promotion` through git's own local transport (a ref
    namespace no worktree can have checked out, so `git fetch` has no
    checked-out branch to refuse), moves the branch with
-   `update-ref <ref> <new> <old>` against the value the host STILL holds,
-   and deletes the temporary ref. Everything else the seat wrote — a
-   sibling's branch, a tag, a remote-tracking ref, a new branch, an
-   object nothing reaches — stays in the private store and is discarded
-   with it.
+   `update-ref <ref> <new> <baseline>`, and deletes the temporary ref.
+   Everything else the seat wrote — a sibling's branch, a tag, a
+   remote-tracking ref, a new branch, an object nothing reaches — stays in
+   the private store and is discarded with it.
+
+   **The compare-and-swap is against the BASELINE, recorded before the
+   seat started.** The branch is this seat's for the seat's whole life,
+   not for the instant the promotion looks at it, so the driver reads the
+   host's value for it at staging and carries that value in the store. A
+   swap against a value read AFTER the seat exited would compare the host
+   with itself and close a window a few milliseconds wide, while the
+   window that matters is the seat's whole run: a controller reproduction
+   measured exactly that, a concurrent host commit overwritten
+   (`concurrent_host_commit_overwritten: true`). A branch the host moved
+   meanwhile now REFUSES, and the store is kept so the seat's commits can
+   be rebased or cherry-picked onto what the host has.
 
    A promotion that cannot happen is a driver failure that NAMES the
-   private store's path and keeps it, never a silent loss of the seat's
-   commits. The compare-and-swap means a branch something else moved
-   while the seat ran refuses rather than being overwritten.
+   private store's path and the branch to read it at, and keeps it, never
+   a silent loss of the seat's commits. So is every failure that reaches
+   the driver BETWEEN the seat's last command and the promotion — a
+   `wait` that errors, which the poll loop treats as terminal — because
+   the store holds the only copy of the seat's commits until the promotion
+   moves them, and dropping it unlinks them.
+
+   The store reproduces git's `files` ref backend, and only that one: it
+   is a copy of `refs` and `packed-refs`. A `reftable` repository keeps
+   its refs in `<common>/reftable` and writes `ref: refs/heads/.invalid`
+   into every `HEAD` file (measured on git 2.51), so the copy would be a
+   store with no branch at all, on an unborn branch whose first commit is
+   a ROOT commit — and the driver would then be asked to promote an
+   unrelated history. It refuses at seat start instead, naming
+   `git refs migrate --ref-format=files` and the standalone checkout.
 
    **Enforcement binding:** `checked_out_branch`, `head_branch`,
-   `other_checkout_on`, `stage_seat_store`,
-   `promote_seat_commits` and `SeatGitStore::kept` in
-   `brokkr-protocol::dsh_sandbox`; the call in `invoke_dsh_with` after
-   the child exits; tests over a real repository for the promotion, for
+   `other_checkout_on`, `bare_repository`, `reproducible_ref_backend`,
+   `stage_seat_store`, `promote_seat_commits` and `keep_store` in
+   `brokkr-protocol::dsh_sandbox`; the promotion call in `invoke_dsh_with`
+   after the child exits and `dsh_failure_before_promotion` on the poll
+   loop's error arm; tests over a real repository for the promotion, for
    an untouched store, for a store whose branch the seat deleted, for a
-   `git` that cannot run and for each of the three steps failing; and the
-   behavioral proof, which moves a sibling's branch and a tag inside the
-   box and reads the host's bytes back unchanged before AND after the
-   promotion.
+   `git` that cannot run and for each of the three steps failing, for a
+   host that moved the branch while the seat ran, for a bare parent, and
+   for a ref backend the store cannot reproduce; and the behavioral proof,
+   which moves a sibling's branch and a tag inside the box and reads the
+   host's bytes back unchanged before AND after the promotion.
 
 6. **The profile is parsed by a complete option table, and an option the
-   runner does not know refuses the command.** Whether the staged
-   read-only files are reachable from the box is answered by reading
-   every read-write bind in the profile the runner was actually handed —
-   `--bind`, `--bind-try`, `--dev-bind`, `--dev-bind-try` and
-   `--overlay`'s upper layer — plus the read-write set the runner adds
-   itself. Stepping over the rest requires knowing each option's arity,
-   because a wrong guess reads an ARGUMENT as a flag; so the table covers
-   bubblewrap 0.11 exhaustively and an option outside it is a refusal
-   rather than a skip. dsh 0.1.2-rc.1 emits seven of them.
+   runner cannot read refuses the command.** Whether the staged read-only
+   files are reachable from the box is answered by reading every host path
+   the profile lets the box write — `--bind`, `--bind-try`, `--dev-bind`
+   and `--dev-bind-try`, and BOTH of `--overlay`'s host paths, its upper
+   layer and the working directory the kernel writes beside it, which is
+   mounted nowhere and would be invisible to a scan that read only mounted
+   sources — plus the read-write set the runner adds itself. Stepping over
+   the rest requires knowing each option's arity, because a wrong guess
+   reads an ARGUMENT as a flag; so the table covers bubblewrap 0.11
+   exhaustively and an option outside it is a refusal rather than a skip.
+   dsh 0.1.2-rc.1 emits seven of them.
+
+   `--bind-fd FD DEST` is read-write and is deliberately NOT in the
+   table. Its arity is known, but its source is a file descriptor the
+   runner cannot turn back into a host path, so it cannot measure whether
+   the staged files are reachable through it. An option the runner cannot
+   MEASURE is refused for the same reason as one whose arity it does not
+   know: the alternative is a guard that fails open.
 
    **Enforcement binding:** `profile_flag`, `writable_binds`,
    `trusted_refusal` and `staged_file_refusal`; a unit test that walks
@@ -350,11 +402,17 @@ Alternatives weighed:
    skipping it, and CI's Linux legs set it, so the evidence is either
    produced or the job is red. It is never a reason to weaken a proof.
 
+   A proof that needs no namespace must not carry a skip at all. The
+   promotion proofs need `git` and a directory, so they take an ordinary
+   temporary one; only the proof that opens a box needs the fixture root
+   outside the profile's `/tmp` tmpfs, and that one routes its skip
+   through the guard.
+
    **Enforcement binding:** `hands::BOUNDARY_EVIDENCE_ENV`,
    `boundary_evidence_required` and `skip_boundary_proof`; every
    namespace-dependent skip routed through it — including the three
-   `engine/boundary_tests.rs` proofs and `doctor/tests.rs`'s that this
-   revision routed; the `engine` and `coverage` Linux jobs in
+   `engine/boundary_tests.rs` proofs and `doctor/tests.rs`'s that an
+   earlier revision routed; the `engine` and `coverage` Linux jobs in
    `.github/workflows/ci.yml` setting it; unit tests over both arms of
    the guard.
 
@@ -389,6 +447,7 @@ workspace and nothing outside it. What it may try, and what stops it:
 | Rewrite `commondir` or `gitdir` from inside the box, so the HOST's next `git` reads a config the box wrote | Both bound read-only and hard: write is `EROFS`, unlink and rename over the mount point are `EBUSY` |
 | Point `<git_dir>/HEAD` at a sibling's branch, so the NEXT seat's honest commits are promoted onto it | `HEAD` is bound read-only too, by write, by `git symbolic-ref`, by `git checkout` and by unlink; and the driver refuses a branch another checkout already claims |
 | Create `config.worktree` so `extensions.worktreeConfig` makes the host honour a `core.hooksPath` the box chose | Masked with an empty read-only regular file, whether or not the host file exists |
+| Create `<store>/config.worktree` instead, so the TRUSTED driver's own `git --git-dir=<store>` reads a configuration the box chose during the promotion | Masked with the same empty file: `<store>/config` is a copy of the shared one, so where the repository carries `extensions.worktreeConfig` the store's worktree config is live too |
 | Fill the mask, the `commondir` pointer or the `alternates` pointer through their SOURCE paths | The runner refuses when the staging directory lies under the source of ANY read-write bind in the profile it was handed, or under its own write set, so the answer is measured per command rather than resting on dsh's `/tmp` being a fresh tmpfs — which it is on 0.1.2-rc.1, proved by the box writing to the source path while the host's file reads back empty |
 | Plant a hook the host later runs | The host's `<common>/hooks` is read-only, and the hook path the seat's own git uses is an empty tmpfs |
 | Run the host's existing hooks | The seat's hook path is `<store>/hooks`, a fresh tmpfs; the behavioral proof plants a failing `pre-commit` on the host and the seat's commit still succeeds |
@@ -418,12 +477,28 @@ workspace and nothing outside it. What it may try, and what stops it:
   provably this worktree's", and it is paid deliberately: the alternative
   measured here is a previous seat aiming a later seat's commits at a
   branch it chose.
+- **A branch the host moved during a seat is not delivered by the run.**
+  The promotion refuses, names the two commits and keeps the private
+  store; putting the seat's work on top of what the host did is a human
+  decision, and the run says where the commits are rather than making it.
+  A worktree handed to one seat at a time — which is how the phase machine
+  uses them — never meets this.
+- **A `reftable` repository is not served.** Its refs live in a backend
+  the private store does not reproduce, so a linked-worktree dsh seat in
+  one refuses at start with the migration command named. Copying
+  `reftable/` as well is the obvious extension and is deliberately not
+  taken here: the store would then be a second reftable stack whose
+  compaction and `tables.list` this decision has not measured, and the
+  fail-closed refusal costs nothing today, because git's default backend
+  is still `files`.
 - **Only a linked worktree at its own root, on a branch, is served.** A
   primary checkout reached through a subdirectory, a `--separate-git-dir`
   checkout, a `.git` file redirected at the parent or at another
   worktree, an administrative directory outside `<common>/worktrees`, a
   seat rooted in a SUBDIRECTORY of its linked worktree, and a detached
-  HEAD all refuse at start, each naming its own cause and remedy.
+  HEAD all refuse at start, each naming its own cause and remedy. A
+  worktree of a BARE parent is served, because git serves it: the
+  refusals are for layouts git itself would not have written.
 - **Staging copies the shared ref tree.** For a repository with hundreds
   of thousands of loose refs that is a real cost; for one whose refs are
   packed it is a single file. The copy is what makes every ref read back

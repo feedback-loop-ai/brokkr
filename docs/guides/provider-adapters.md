@@ -268,13 +268,29 @@ ref is this seat's and no sibling's, and the driver verifies it by
 reading the main checkout's `HEAD` and every sibling's — fetches the
 seat's commits into
 `refs/brokkr/dsh-promotion` through git's own local transport, moves the
-branch with a compare-and-swap against the value the host still holds,
-and deletes the temporary ref. A sibling's branch, a tag, a
-remote-tracking ref or a new branch the seat wrote stays in the private
-store and is discarded with it. A promotion that cannot happen is a
-driver failure that names the store's path and keeps it, never a silent
-loss of the seat's commits. A worktree with a detached HEAD owns no ref
-and is refused before the seat starts.
+branch with a compare-and-swap, and deletes the temporary ref. A
+sibling's branch, a tag, a remote-tracking ref or a new branch the seat
+wrote stays in the private store and is discarded with it. A worktree
+with a detached HEAD owns no ref and is refused before the seat starts,
+and so is a repository whose refs live in a backend the private store
+cannot reproduce (`extensions.refstorage = reftable`), because copying
+`refs` and `packed-refs` would give the seat a store with no branch at
+all.
+
+The compare-and-swap is against the BASELINE the driver recorded for that
+branch before the seat started, not against a value read after the seat
+finished: the branch is the seat's for the seat's whole life, so a host
+that moved it meanwhile — an operator, a fetch, a push — makes the
+promotion refuse rather than overwrite that work. Every failure that
+reaches the driver while the private store holds the only copy of the
+seat's commits keeps the store and names its path and the branch to read
+it at: the promotion's own failures, and anything that goes wrong between
+the seat's last command and the promotion.
+
+A BARE parent repository is served: its `HEAD` is the branch a clone
+would follow rather than a checkout, `git worktree add` serves it, and
+the driver asks git whether the repository is bare instead of reading
+`HEAD` and calling the layout a conflict.
 
 `<git_dir>/HEAD` is mounted READ-ONLY, because it is what says which
 branch this worktree owns and therefore which ref the promotion moves:
@@ -291,19 +307,26 @@ cannot switch branches. And `git worktree list` inside the seat reads the
 private store, which has no `worktrees` directory, so it reports only
 that store.
 
-Both hook paths git could use are empty tmpfs mounts, and the
-per-worktree `config` and `config.worktree` are masked with a staged
-empty read-only file. The mask source is a real empty file the driver
-stages, never `/dev/null`: bubblewrap binds a source with `MS_NODEV`, and
-a device node the box cannot open makes git call every command fatal. A
-mask is only a mask while the box cannot WRITE its source, and the runner
-measures that from the profile it was handed rather than assuming it: if
-the staged directory lies under any read-write bind in that profile
-(`--bind`, `--bind-try`, `--dev-bind`, `--dev-bind-try`, `--overlay`), or
-under the runner's own write set, the command refuses. Stepping over the
-rest of the profile needs each option's arity, so the runner carries a
-complete bubblewrap 0.11 table and refuses an option outside it rather
-than guessing.
+Both hook paths git could use are empty tmpfs mounts, and three config
+paths are masked with a staged empty read-only file: the per-worktree
+`config` and `config.worktree`, and the private store's own
+`config.worktree` — that last one because `<store>/config` is a copy of
+the shared config and therefore carries `extensions.worktreeConfig` for a
+repository that has run `git sparse-checkout`, and because the trusted
+driver runs `git --git-dir=<store>` over exactly that config after the
+seat exits. The mask source is a real empty file the driver stages, never
+`/dev/null`: bubblewrap binds a source with `MS_NODEV`, and a device node
+the box cannot open makes git call every command fatal. A mask is only a
+mask while the box cannot WRITE its source, and the runner measures that
+from the profile it was handed rather than assuming it: if the staged
+directory lies under any read-write bind in that profile (`--bind`,
+`--bind-try`, `--dev-bind`, `--dev-bind-try`, or either host path of an
+`--overlay` — its upper layer and its working directory), or under the
+runner's own write set, the command refuses. Stepping over the rest of
+the profile needs each option's arity, so the runner carries a complete
+bubblewrap 0.11 table and refuses an option outside it rather than
+guessing — including `--bind-fd`, whose arity it knows and whose source
+is a file descriptor it cannot turn back into a host path to measure.
 
 **One layout is served, and it is proved.** Git resolves both directories
 by following the workspace's own `.git` file — a file the model can write

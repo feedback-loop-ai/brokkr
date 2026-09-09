@@ -2706,6 +2706,40 @@ fn the_seat_overlay_carries_the_scoped_sandbox_row() {
     assert!(!written.contains("- id: sandbox\n"), "{written}");
 }
 
+/// A driver failure that reaches the seat BEFORE its promotion — the
+/// `wait` that errors, which the poll loop treats as terminal — keeps the
+/// private store rather than unlinking the only copy of what the seat
+/// committed, and names it. A seat with no scoped store has nothing to
+/// lose, so its failure travels unchanged.
+#[test]
+fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
+    assert_eq!(
+        dsh_failure_before_promotion("agent CLI did not conclude".to_string(), None),
+        "agent CLI did not conclude"
+    );
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("wt")).unwrap();
+    let scope = dsh_sandbox::GitScope {
+        workspace: root.path().join("wt"),
+        git_dir: root.path().join("main/.git/worktrees/wt"),
+        common_dir: root.path().join("main/.git"),
+    };
+    std::fs::create_dir_all(&scope.git_dir).unwrap();
+    std::fs::write(scope.git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    let staged = dsh_sandbox::stage_seat_store(&scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    let refused = dsh_failure_before_promotion(
+        "agent CLI did not conclude: no child processes".to_string(),
+        Some(("- id: sandbox\n".to_string(), scope, staged)),
+    );
+    assert!(refused.contains("no child processes"), "{refused}");
+    assert!(refused.contains(&store.display().to_string()), "{refused}");
+    assert!(refused.contains("refs/heads/slice"), "{refused}");
+    assert!(store.exists(), "the store is kept, not discarded");
+    std::fs::remove_dir_all(&store).unwrap();
+}
+
 /// The whole driver decision on a real linked worktree: the row is built
 /// where bubblewrap can stand in, and the refusal names the reason where
 /// it cannot.

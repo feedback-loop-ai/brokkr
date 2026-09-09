@@ -2133,10 +2133,17 @@ fn invoke_dsh_with(
     });
     let mut turns = 0u64;
     let mut tail = DshTail::default();
-    let exit_code = poll_until_exit(
+    let exit_code = match poll_until_exit(
         || wait(&mut child),
         || drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit),
-    )?;
+    ) {
+        Ok(code) => code,
+        // Everything the seat committed is in the private store and
+        // nowhere else until the promotion below moves it. Returning here
+        // would drop the store — and the seat's work with it — behind a
+        // spawn-level error naming neither (decision 0054 ruling 5).
+        Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
+    };
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     // No pin lands in session_meta: "model" there is only ever what the
@@ -2171,6 +2178,21 @@ fn invoke_dsh_with(
         state: None,
         refusal: None,
     })
+}
+
+/// A driver failure that reaches a seat BEFORE its promotion keeps the
+/// private store and names it, exactly as a promotion that cannot happen
+/// does: the store holds the only copy of the seat's commits until the
+/// promotion moves them. A seat with no scoped store has nothing to lose,
+/// so its failure travels unchanged.
+fn dsh_failure_before_promotion(
+    problem: String,
+    staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
+) -> String {
+    match staged {
+        Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
+        None => problem,
+    }
 }
 
 /// The one dsh stderr stream the journal may not quote.

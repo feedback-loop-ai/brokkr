@@ -34,10 +34,11 @@
 //! check one branch out in two worktrees, so that ref is this seat's
 //! and no sibling's; the promotion fetches the seat's objects into the
 //! shared store through git's own local transport and moves the branch
-//! with a compare-and-swap against the value the host still holds. A
-//! seat that moved a sibling's branch, a tag, a remote-tracking ref or
-//! anything else moved it only inside a private store that is then
-//! discarded.
+//! with a compare-and-swap against the value the driver recorded for it
+//! BEFORE the seat started, so a branch the host moved meanwhile refuses
+//! rather than being overwritten. A seat that moved a sibling's branch, a
+//! tag, a remote-tracking ref or anything else moved it only inside a
+//! private store that is then discarded.
 //!
 //! Only ONE layout is served: a genuine linked worktree, whose
 //! administrative directory Git itself would have placed at
@@ -61,7 +62,8 @@
 //! never searches `PATH` for one, so the boundary is the binary the
 //! driver measured. It reads the profile it was handed to decide whether
 //! those staged files are reachable, and refuses every bubblewrap option
-//! it does not know rather than guessing how many arguments follow it.
+//! it cannot read rather than guessing how many arguments follow it or
+//! which host path the box could write through it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -232,10 +234,11 @@ fn split_profile(rest: &[String]) -> Result<(&[String], &[String]), String> {
 
 /// One bubblewrap option: how many arguments follow it, and — when the
 /// option grants the box WRITE access to a host path — which of those
-/// arguments is the host source and which is the destination.
+/// arguments name a host path it can write, each with the argument that
+/// says where that path is MOUNTED when the option mounts it anywhere.
 struct ProfileFlag {
     arity: usize,
-    write: Option<(usize, usize)>,
+    writes: &'static [(usize, Option<usize>)],
 }
 
 /// Bubblewrap 0.11's options, by name. The table is exhaustive on
@@ -249,8 +252,18 @@ struct ProfileFlag {
 /// `--dir`, `--dev`, `--proc`, `--mqueue`, `--tmp-overlay` and
 /// `--ro-overlay` make writable mount points with no host source behind
 /// them, and every `--ro-` form is read-only by name.
+///
+/// `--overlay RWSRC WORKDIR DEST` names TWO host paths the box can fill:
+/// the upper layer it writes through `DEST`, and the working directory
+/// the kernel writes beside it, which is mounted nowhere.
+///
+/// `--bind-fd FD DEST` is deliberately absent. Its arity is known, but
+/// its source is a file descriptor the runner cannot turn back into a
+/// host path, so it cannot answer whether the staged files are reachable
+/// through it. An option this runner cannot MEASURE is refused for the
+/// same reason as one whose arity it does not know.
 fn profile_flag(flag: &str) -> Option<ProfileFlag> {
-    let plain = |arity| Some(ProfileFlag { arity, write: None });
+    let plain = |arity| Some(ProfileFlag { arity, writes: &[] });
     match flag {
         "--help"
         | "--version"
@@ -277,38 +290,46 @@ fn profile_flag(flag: &str) -> Option<ProfileFlag> {
         | "--mqueue" | "--dir" | "--seccomp" | "--add-seccomp-fd" | "--block-fd"
         | "--userns-block-fd" | "--info-fd" | "--json-status-fd" | "--cap-add" | "--cap-drop"
         | "--perms" | "--size" | "--overlay-src" | "--tmp-overlay" | "--ro-overlay" => plain(1),
-        "--setenv" | "--ro-bind" | "--ro-bind-try" | "--bind-fd" | "--ro-bind-fd" | "--file"
-        | "--bind-data" | "--ro-bind-data" | "--symlink" | "--chmod" => plain(2),
+        "--setenv" | "--ro-bind" | "--ro-bind-try" | "--ro-bind-fd" | "--file" | "--bind-data"
+        | "--ro-bind-data" | "--symlink" | "--chmod" => plain(2),
         "--bind" | "--bind-try" | "--dev-bind" | "--dev-bind-try" => Some(ProfileFlag {
             arity: 2,
-            write: Some((0, 1)),
+            writes: &[(0, Some(1))],
         }),
         "--overlay" => Some(ProfileFlag {
             arity: 3,
-            write: Some((0, 2)),
+            writes: &[(0, Some(2)), (1, None)],
         }),
         _ => None,
     }
 }
 
-/// Every read-write bind in the profile the runner was handed, as
-/// (source, destination). Two questions are answered from this one
-/// reading of the argv it was actually given, rather than from what a
-/// dsh version's `bwrapProfileArgs` is expected to emit: which grant
-/// makes this a `workspace-write` seat, and which host paths the box can
-/// WRITE — every source here, because a read-write bind lets the box
-/// write the host file under it through the destination it is mounted
-/// at.
-fn writable_binds(profile: &[String]) -> Result<Vec<(&Path, &Path)>, String> {
+/// One read-write grant in the profile: the host path the box can write,
+/// and where that path is mounted inside the box, for the options that
+/// mount it somewhere.
+#[derive(Debug, PartialEq, Eq)]
+struct WritableBind<'a> {
+    source: &'a Path,
+    destination: Option<&'a Path>,
+}
+
+/// Every read-write grant in the profile the runner was handed. Two
+/// questions are answered from this one reading of the argv it was
+/// actually given, rather than from what a dsh version's
+/// `bwrapProfileArgs` is expected to emit: which grant makes this a
+/// `workspace-write` seat — which needs the destination, because the
+/// grant is `--bind <workspace> <workspace>` — and which host paths the
+/// box can WRITE, which is every source here, mounted or not.
+fn writable_binds(profile: &[String]) -> Result<Vec<WritableBind<'_>>, String> {
     let mut binds = Vec::new();
     let mut index = 0;
     while index < profile.len() {
         let flag = &profile[index];
         let Some(shape) = profile_flag(flag) else {
             return Err(format!(
-                "the dsh sandbox profile carries {flag}, which this runner does not know; it \
-                 refuses rather than guess how many arguments follow it and whether they name \
-                 a host path the box could write"
+                "the dsh sandbox profile carries {flag}, which this runner does not read; it \
+                 refuses rather than guess how many arguments follow it, or which host path \
+                 the box could write through it"
             ));
         };
         if index + shape.arity >= profile.len() {
@@ -316,11 +337,11 @@ fn writable_binds(profile: &[String]) -> Result<Vec<(&Path, &Path)>, String> {
                 "the dsh sandbox profile ends inside {flag}'s arguments"
             ));
         }
-        if let Some((source, destination)) = shape.write {
-            binds.push((
-                Path::new(&profile[index + 1 + source]),
-                Path::new(&profile[index + 1 + destination]),
-            ));
+        for &(source, destination) in shape.writes {
+            binds.push(WritableBind {
+                source: Path::new(&profile[index + 1 + source]),
+                destination: destination.map(|at| Path::new(&profile[index + 1 + at])),
+            });
         }
         index += 1 + shape.arity;
     }
@@ -331,10 +352,10 @@ fn writable_binds(profile: &[String]) -> Result<Vec<(&Path, &Path)>, String> {
 /// own path, which is what `workspace-write` means to the provider. A
 /// `read-only` profile carries no such bind, and the runner then adds
 /// nothing.
-fn workspace_writable(binds: &[(&Path, &Path)], workspace: &Path) -> bool {
+fn workspace_writable(binds: &[WritableBind<'_>], workspace: &Path) -> bool {
     binds
         .iter()
-        .any(|(source, destination)| source == destination && same_path(source, workspace))
+        .any(|bind| bind.destination == Some(bind.source) && same_path(bind.source, workspace))
 }
 
 /// Path identity for the bind check: resolved where both resolve, so a
@@ -523,11 +544,11 @@ fn recorded_worktree(scope: &GitScope) -> Option<PathBuf> {
 fn trusted_refusal(
     paths: &RunnerPaths,
     scope: &GitScope,
-    binds: &[(&Path, &Path)],
+    binds: &[WritableBind<'_>],
 ) -> Option<String> {
     if let Some(root) = binds
         .iter()
-        .map(|(source, _)| *source)
+        .map(|bind| bind.source)
         .chain([scope.git_dir.as_path(), paths.store.as_path()])
         .find(|root| within(&paths.trusted, root))
     {
@@ -586,7 +607,7 @@ fn staged_file_refusal(path: &Path, empty: bool) -> Option<String> {
 fn scoped_git_binds(
     scope: &GitScope,
     paths: &RunnerPaths,
-    binds: &[(&Path, &Path)],
+    binds: &[WritableBind<'_>],
 ) -> Result<Vec<String>, String> {
     // A primary checkout keeps its whole git directory under the
     // workspace the provider already made writable: nothing to add.
@@ -646,6 +667,15 @@ fn scoped_git_binds(
     // --local` cannot plant a `core.hooksPath`), the shared HEAD, and the
     // alternates line that makes the real object store readable.
     over(&mut argv, &common.join("config"), &store.join("config"));
+    // The store's `config.worktree` is live for the same reason the
+    // per-worktree one is, and it matters one step further: `<store>/config`
+    // is a copy of the shared config, so it carries
+    // `extensions.worktreeConfig` for a repository that has run `git
+    // sparse-checkout` — and the TRUSTED driver runs `git --git-dir=<store>`
+    // over that config after the seat exits. Masked with the same empty
+    // file, so the box cannot leave a configuration behind for the
+    // promotion to read.
+    over(&mut argv, &paths.mask(), &store.join("config.worktree"));
     over(&mut argv, &common.join("HEAD"), &store.join("HEAD"));
     over(
         &mut argv,
@@ -699,6 +729,10 @@ pub struct SeatGitStore {
     store: tempfile::TempDir,
     trusted: tempfile::TempDir,
     reference: String,
+    /// Where the host's branch stood when this seat STARTED. The
+    /// promotion moves the branch from exactly this value, so a host that
+    /// moved on meanwhile is refused rather than overwritten.
+    baseline: Option<String>,
 }
 
 impl SeatGitStore {
@@ -719,6 +753,11 @@ impl SeatGitStore {
         &self.reference
     }
 
+    /// Where the host's branch stood when this seat started.
+    pub fn baseline(&self) -> Option<&str> {
+        self.baseline.as_deref()
+    }
+
     /// Keep the private store rather than deleting it, and answer where
     /// it landed. A promotion that failed has the seat's commits in
     /// there and nowhere else, so the operator is told the path instead
@@ -726,6 +765,24 @@ impl SeatGitStore {
     fn kept(self) -> PathBuf {
         self.store.keep()
     }
+}
+
+/// The refusal that KEEPS a seat's private store rather than discarding
+/// it, and names where the seat's commits are and how to read them.
+///
+/// Every driver failure that happens while the store holds the only copy
+/// of what the seat committed travels through here: the promotion's own
+/// failures, and anything that goes wrong between the seat's last command
+/// and the promotion. Dropping a `SeatGitStore` unlinks it, so a failure
+/// path that returns without calling this loses the work silently.
+pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> String {
+    let reference = store.reference.clone();
+    let path = store.kept();
+    format!(
+        "dsh driver: {problem}. The seat's commits are not lost: its private git store is kept \
+         at {path}, and `git --git-dir={path} log {reference}` still reads them",
+        path = path.display()
+    )
 }
 
 /// What a promotion moved, for the line the driver leaves in the seat's
@@ -748,27 +805,42 @@ impl Promotion {
         format!(
             "brokkr dsh: promoted the seat's commits to {} ({} -> {})",
             self.reference,
-            self.from.as_deref().unwrap_or("no commit"),
+            oid_or_absent(&self.from),
             self.to
         )
     }
 }
 
+/// One end of a branch move, for a line an operator reads: the commit, or
+/// the words for a branch that had none.
+fn oid_or_absent(value: &Option<String>) -> &str {
+    value.as_deref().unwrap_or("no commit")
+}
+
 /// Stage the private common directory and the read-only files one seat
 /// needs, or say why this worktree cannot be served.
 pub fn stage_seat_store(scope: &GitScope) -> Result<SeatGitStore, String> {
-    stage_seat_store_in(scope, || {
+    stage_seat_store_with("git", scope, || {
         tempfile::Builder::new().prefix("brokkr-dsh-git-").tempdir()
     })
 }
 
-/// The staging over an injected directory maker, so the ways it can fail
-/// on a full or read-only disk are reachable from a test.
-fn stage_seat_store_in(
+/// The staging over an injected `git` and an injected directory maker, so
+/// the ways it can fail on a full or read-only disk are reachable from a
+/// test.
+fn stage_seat_store_with(
+    program: &str,
     scope: &GitScope,
     mut make: impl FnMut() -> std::io::Result<tempfile::TempDir>,
 ) -> Result<SeatGitStore, String> {
-    let reference = checked_out_branch(scope)?;
+    reproducible_ref_backend(program, scope)?;
+    let reference = checked_out_branch(program, scope)?;
+    // Where the branch stands NOW, on the host, before the seat has run a
+    // single command. The promotion compares the host against THIS value:
+    // a value read after the seat exits would only ever compare the host
+    // with itself, and a branch something else moved meanwhile would be
+    // overwritten by a compare-and-swap that could not see it.
+    let baseline = ref_value(program, &scope.common_dir.to_string_lossy(), &reference)?;
     let store = make().map_err(staging_failed)?;
     let trusted = make().map_err(staging_failed)?;
     stage_files(scope, store.path(), trusted.path()).map_err(staging_failed)?;
@@ -776,7 +848,50 @@ fn stage_seat_store_in(
         store,
         trusted,
         reference,
+        baseline,
     })
+}
+
+/// Why this repository's refs cannot be reproduced in a private common
+/// directory, or `Ok`. [`stage_files`] builds the store by COPYING the
+/// shared `refs` tree and `packed-refs`, which is the whole storage of
+/// git's `files` backend.
+///
+/// A `reftable` repository keeps its refs in `<common>/reftable` instead,
+/// and writes the placeholder `ref: refs/heads/.invalid` into every `HEAD`
+/// file (measured on git 2.51). Copying it would give the seat a store
+/// with no branch at all, on a `HEAD` naming a branch that does not
+/// exist — an unborn branch, whose first commit is a ROOT commit — and
+/// the driver would then be asked to promote an unrelated history onto
+/// the host's branch. A backend the staging cannot reproduce refuses
+/// before the seat starts.
+///
+/// The backend is read from the repository's own config rather than from
+/// `git rev-parse --show-ref-format`, which older gits do not have; a
+/// repository with no `extensions.refstorage` at all is a `files` one.
+fn reproducible_ref_backend(program: &str, scope: &GitScope) -> Result<(), String> {
+    let common = scope.common_dir.to_string_lossy().into_owned();
+    let backend = run_git(
+        program,
+        &[
+            "--git-dir",
+            &common,
+            "config",
+            "--get",
+            "extensions.refstorage",
+        ],
+    )?;
+    if !backend.ok || backend.stdout == "files" {
+        return Ok(());
+    }
+    Err(format!(
+        "the repository at {common} stores its refs with git's `{}` backend, and the scoped dsh \
+         runner builds the seat's private common directory by copying the `files` backend's ref \
+         tree; it will not hand a seat a store whose branches are missing. Run the seat from a \
+         standalone checkout, or convert the repository with `git refs migrate \
+         --ref-format=files`",
+        backend.stdout
+    ))
 }
 
 fn staging_failed(error: std::io::Error) -> String {
@@ -790,7 +905,7 @@ fn staging_failed(error: std::io::Error) -> String {
 /// sibling's branch and have the NEXT seat's commits promoted there.
 /// A worktree with a detached HEAD owns no ref, and is refused before an
 /// implementation is spent rather than after it.
-fn checked_out_branch(scope: &GitScope) -> Result<String, String> {
+fn checked_out_branch(program: &str, scope: &GitScope) -> Result<String, String> {
     let Some(reference) = head_branch(&scope.git_dir) else {
         return Err(format!(
             "the worktree at {} has no branch checked out, so there is no ref the seat owns \
@@ -805,7 +920,7 @@ fn checked_out_branch(scope: &GitScope) -> Result<String, String> {
     // this ref can be called this seat's, so it is VERIFIED rather than
     // assumed. The main checkout's `HEAD` and every sibling's lie outside
     // the seat's write set, so what they say is the host's answer.
-    if let Some(other) = other_checkout_on(scope, &reference) {
+    if let Some(other) = other_checkout_on(program, scope, &reference) {
         return Err(format!(
             "the worktree at {} has {reference} checked out, and so does {}; the scoped \
              runner promotes the branch a worktree OWNS, and a branch two checkouts claim is \
@@ -830,14 +945,42 @@ fn head_branch(git_dir: &Path) -> Option<String> {
 /// The main checkout or the sibling worktree that also has this branch
 /// checked out, if any. Both are read from the shared directory, which no
 /// seat can write.
-fn other_checkout_on(scope: &GitScope, reference: &str) -> Option<PathBuf> {
-    let mut others = vec![scope.common_dir.clone()];
+///
+/// A BARE repository's own `HEAD` is not a checkout — it is the branch a
+/// clone would follow — and `git worktree add` serves a bare parent, so
+/// `<common>/HEAD` naming this branch is the normal state of that layout
+/// rather than a second claim on it. Reading `HEAD` cannot tell the two
+/// apart, so git is asked; a git that cannot answer leaves the shared
+/// directory counted as a checkout, which is the fail-closed direction.
+fn other_checkout_on(program: &str, scope: &GitScope, reference: &str) -> Option<PathBuf> {
+    let mut siblings = Vec::new();
     if let Ok(entries) = std::fs::read_dir(scope.common_dir.join("worktrees")) {
-        others.extend(entries.flatten().map(|entry| entry.path()));
+        siblings.extend(entries.flatten().map(|entry| entry.path()));
     }
-    others.into_iter().find(|other| {
+    let sibling = siblings.into_iter().find(|other| {
         !same_path(other, &scope.git_dir) && head_branch(other).as_deref() == Some(reference)
-    })
+    });
+    if sibling.is_some() {
+        return sibling;
+    }
+    if head_branch(&scope.common_dir).as_deref() != Some(reference)
+        || bare_repository(program, &scope.common_dir)
+    {
+        return None;
+    }
+    Some(scope.common_dir.clone())
+}
+
+/// True when git calls this shared directory a bare repository, which is
+/// what `core.bare` says and nothing on disk shows. A git that cannot
+/// answer at all leaves the directory counted as a checkout.
+fn bare_repository(program: &str, common_dir: &Path) -> bool {
+    let common = common_dir.to_string_lossy().into_owned();
+    git(
+        program,
+        &["--git-dir", &common, "rev-parse", "--is-bare-repository"],
+    )
+    .is_ok_and(|answer| answer == "true")
 }
 
 /// Write the private common directory and the three read-only files.
@@ -894,9 +1037,11 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 ///
 /// The objects travel through git's own local transport into a ref
 /// namespace no worktree can have checked out, and the branch then moves
-/// with a compare-and-swap against the value the host still holds, so a
-/// branch something else moved while the seat ran refuses rather than
-/// being overwritten. `None` means there was nothing to promote — the
+/// with a compare-and-swap against the BASELINE the driver recorded
+/// before the seat started, so a branch something else moved while the
+/// seat ran refuses rather than being overwritten — and its store is
+/// kept, with the seat's commits still in it. `None` means there was
+/// nothing to promote — the
 /// seat committed nothing, or left its branch where the host had it.
 /// Everything else the seat wrote — a sibling's branch, a tag, a
 /// remote-tracking ref, an object nothing reaches — stays in the private
@@ -917,12 +1062,7 @@ fn promote_seat_commits_with(
 ) -> Result<Option<Promotion>, String> {
     match promote(program, &store, scope) {
         Ok(promotion) => Ok(promotion),
-        Err(problem) => Err(format!(
-            "dsh driver: {problem}. The seat's commits are not lost: its private git store is \
-             kept at {}, and `git --git-dir=<store> log {}` still reads them",
-            store.kept().display(),
-            PROMOTION_REF
-        )),
+        Err(problem) => Err(keep_store(store, problem)),
     }
 }
 
@@ -938,6 +1078,23 @@ fn promote(
         return Ok(None);
     };
     let from = ref_value(program, &common, &reference)?;
+    // The compare-and-swap below is only as good as what it compares
+    // AGAINST. Reading the host here and swapping against what was just
+    // read would close a window a few milliseconds wide; the window that
+    // matters is the seat's whole life. So the host is compared with the
+    // baseline the driver recorded before the seat started, and a branch
+    // that moved meanwhile refuses — with the store kept, so the seat's
+    // commits are still there to rebase or cherry-pick.
+    if from != store.baseline {
+        return Err(format!(
+            "{reference} moved on the host while the seat ran: it stood at {} when the seat \
+             started and stands at {} now. The driver promotes the seat's commits onto the \
+             value the branch had then, and will not overwrite work something else did \
+             meanwhile",
+            oid_or_absent(&store.baseline),
+            oid_or_absent(&from)
+        ));
+    }
     if from.as_deref() == Some(to.as_str()) {
         return Ok(None);
     }
