@@ -131,7 +131,7 @@ jobs:
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: cargo test --workspace --all-features --locked --no-fail-fast
         env:
-          # Decision 0054 ruling 7: a boundary proof that cannot open a
+          # Decision 0054 ruling 9: a boundary proof that cannot open a
           # namespace skips, and a skipped Rust test prints `ok`. On the
           # Linux leg — the one that installed bubblewrap above and whose
           # job is to produce this evidence — a skip is a failure. The
@@ -178,7 +178,7 @@ jobs:
         env:
           # The exact gate counts regions a skipped proof never enters, so
           # this job must run the boundary proofs for real too
-          # (decision 0054 ruling 7).
+          # (decision 0054 ruling 9).
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
       - uses: actions/upload-artifact@v4
         if: always()
