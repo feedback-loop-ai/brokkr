@@ -166,15 +166,53 @@ Stale browser prose SHALL also be invalidated when an admitted drill's
 admission is lost without any participant, reference or journal change.
 When a growth watch closes or errors, or an id-only body request is refused,
 the browser SHALL close that watch without reconnecting it to the same
-source, discard its cached and displayed turns for that id, request the
-shared presentation result again and render the current shared
-unavailability, hint and checkpoint fallback. It SHALL NOT keep showing the
-previous source's turns, reopen a watch on a refused source, or treat a
-closed stream as continued admission. A body or presentation response whose
-request has been superseded by another participant, reference or admission
-state SHALL NOT be displayed or cached. Recovery SHALL be an ordinary fresh
-presentation and body request once shared lookup admits a source again,
-never a restored cached body.
+source, discard its cached and displayed turns for that id and request the
+shared presentation result again. If that fresh result admits no unique safe
+source, the page SHALL render the current shared unavailability, hint and
+checkpoint fallback. It SHALL NOT keep showing the previous source's turns,
+reopen a watch on a refused source, or treat a closed stream as continued
+admission. A body or presentation response whose request has been superseded
+by another participant, reference or admission state SHALL NOT be displayed
+or cached. Recovery SHALL be an ordinary fresh presentation and body request
+once shared lookup admits a source again, never a restored cached body.
+
+If that fresh result still admits a unique safe source for the same
+participant and reference, the page SHALL display the current turns from an
+ordinary body request and, while that participant is still working, SHALL
+open one new growth watch on the admitted source; a concluded participant
+SHALL open none, as today. That opening is an admission granted by the fresh
+shared result, never a continuation of the closed stream, so a transport
+drop or a local server restart SHALL NOT silently end growth for a working
+seat.
+
+Automatic recovery SHALL be bounded. Apart from a recurring re-check
+itself, the page SHALL open at most one growth watch for the same selected
+participant between consecutive recurring re-checks. A closure whose watch
+budget is already spent SHALL still clear, re-request and display as above,
+but SHALL leave the watch closed until the next re-check, so a source that
+closes as soon as it is opened cannot drive an unbounded reconnect loop.
+Presentation and body requests need no separate cap because each one
+follows a closure, and closures cannot outpace the openings this rule
+bounds. Watches opened after an operator selection or a participant,
+reference or eligibility change are not automatic recovery and are not
+bounded by this rule.
+
+While a participant is selected, the browser SHALL re-request its shared
+presentation on a recurring re-check that requires no journal-head change,
+no re-selection and no other operator action, and SHALL continue that
+re-check for a concluded run whose journal head never moves again. Its
+interval is a design choice but SHALL recur at least as often as the page's
+existing runs poll. Two presentation results are equivalent when their
+selected reference, admission state, unavailability reason, shared hint and
+drill eligibility all match. A re-check equivalent to the presentation
+currently displayed SHALL change nothing it displays: no repaint of
+displayed turns and no body request. It SHALL still open one growth watch,
+within the bound above, when the participant is working, its source is
+admitted and no watch is open, so a deferred reopening resumes at the next
+re-check. A re-check that turns an unavailable presentation into an admitted
+one SHALL perform an ordinary fresh body request and open one growth watch
+for a working participant; a re-check that loses admission SHALL apply the
+clearing rule above.
 
 The browser's selected-participant presentation result SHALL remain local
 and separate from existing inspect/seats/watch JSON and the three-field
@@ -199,7 +237,17 @@ rules in JavaScript is not.
 #### Scenario: A closed growth stream cannot leave stale browser prose
 - **WHEN** an admitted Claude browser drill is displaying turns and watching growth, and a second qualifying file appears, discovery exceeds its bound, or the selected file becomes a symlink, so the next poll closes the stream while the participant, its recorded reference and the journal head are unchanged
 - **THEN** the page closes that watch without reconnecting to the same source, discards its cached and displayed turns, requests the shared presentation again and shows the current `ambiguous-source`, `discovery-limit` or `unsafe-path` explanation beside the shared Claude hint and checkpoint fallback; a superseded in-flight response restores neither those turns nor the closed watch
-- **AND** when shared lookup later admits a unique safe source again, an ordinary fresh presentation and body request displays the current turns and may reopen the watch, without reusing the discarded cache
+- **AND** when shared lookup later admits a unique safe source again, the next recurring re-check performs an ordinary fresh presentation and body request that displays the current turns and opens one new growth watch while the participant is working, without reusing the discarded cache, a journal-head change or a re-selection
+
+#### Scenario: A dropped stream on a still-admitted source resumes growth
+- **WHEN** a working Claude participant's admitted growth watch closes because its transport dropped or the local server restarted, while the participant, its recorded reference and the journal head are unchanged and shared lookup still admits the same unique safe file
+- **THEN** the page closes that watch without reconnecting to it, discards its cached turns, requests the shared presentation once, displays the current turns from a fresh body request and opens exactly one new growth watch on the admitted source, rather than relying on the browser's own reconnection of the closed stream
+- **AND** if that new watch also closes at once, the page again clears, re-requests and displays that closure's fresh turns but opens no further watch until its next recurring re-check, so repeated immediate closure yields at most one watch opening per re-check
+
+#### Scenario: A persisting browser refusal is re-checked without the operator
+- **WHEN** a selected participant's transcript is displayed as `ambiguous-source` because the duplicate file remains in place, and its run has concluded so the journal head never moves again
+- **THEN** the page re-requests the shared presentation on its recurring re-check and, while each result is equivalent to the displayed one, repaints nothing and issues no body request or growth watch
+- **AND** once the duplicate is removed, the next such re-check displays that admitted source's current turns without a re-selection, opening a growth watch only if the participant is still working
 
 #### Scenario: A recorded custom Claude home cannot drill an ambient twin
 - **WHEN** a valid Claude participant records a readable file under `/retained/claude-projects` and the browser's different local projects home contains an unrelated file with the same id
@@ -1426,3 +1474,82 @@ transport, route, wire field or Codex/DSH browser body, changes no accepted
 decision and does not reopen R10's eligibility or R11's refusal answers.
 Proposed 0055 must carry this browser stale-content rule and bind it to a
 client admission-loss test with unchanged participant, reference and journal.
+
+### R18 / seventh-pass clarification 1 — A still-admitted source is rewatched
+
+R17's trigger is every closure, but its outcome was written only for the
+refusal branch; the common branch — the fresh presentation still admits the
+same source — was left to the deltas' one permissive verb. That verb decided
+whether a working seat keeps following prose, and the same rule removes the
+mechanism that supplies it today. At base `5bc8cf3` the page installs no
+`onerror` on `sessionSource` (`crates/brokkr-cli/src/ui.html:770-782`; the
+only `onerror` is the run stream's at `ui.html:1118`), so a dropped
+connection is reconnected by `EventSource` itself, and the shipped stream
+ends an admitted watch only on a failed client write or the test-only
+`sse_limit` (`crates/brokkr-cli/src/ui.rs:429-461`). A client therefore
+observes one indistinguishable close for a transport drop, a server exit and
+— under R11 — a lookup refusal, because SSE carries no status mid-stream;
+re-asking the presentation is the only way to tell them apart, which is why
+the broad trigger stays.
+
+Adopt reopening on the fresh admission. Leaving it optional is rejected:
+two conforming pages would then differ for a live seat after a transient
+drop, one still showing prose land between checkpoints and the other frozen
+until the journal head moves, which is the reason the growth route exists
+(`ui.rs:7-10`). Restoring the browser's automatic reconnection is rejected
+for R17's reason — the source may since have been refused — so the
+replacement is an admission-checked reopen. Growth recovery is preserved but
+changes mechanism and cadence: it follows a presentation round trip and
+R19's re-check instead of the browser's retry timer, and the proposal
+declares that difference beside R11's costs.
+
+The bound exists so the replacement cannot spin where `EventSource` imposed
+its own retry delay. Bounding the openings is enough: one automatic opening
+per selected participant between recurring re-checks turns a stream that
+closes on every attempt into a bounded retry at the re-check cadence, and
+the clear-and-re-request cycle then terminates on its own, because a
+closure can only follow an opening. Capping the presentation request
+instead was rejected: it would contradict the clearing rule, which must
+re-ask on every closure to learn whether the source is still admitted, and
+that request carries no transcript body. Operator selections stay unbounded
+because they are not automatic recovery, and the shipped rule that a
+concluded participant opens no watch is unchanged. Proposed 0055 must
+carry the reopen rule, its bound and the declared recovery-mechanism
+change, bound to the client admission-loss tests.
+
+### R19 / seventh-pass clarification 2 — Recovery needs a stated occasion
+
+R17 named exactly one presentation request, the immediate one made when the
+watch closed, while its scenario asserted eventual recovery. If that
+immediate request also refuses — the ordinary case, since a duplicate file
+or a symlink does not disappear within the same second — nothing said when
+the page looks again. The shipped page offers no occasion under the
+scenario's own unchanged participant, reference and journal premise:
+`loadDetail` runs from `select()` and from the run stream's `onmessage`
+(`ui.html:818-821`, `ui.html:1117`), that stream emits data only when the
+journal head moves (`ui.rs:464-490`), and the five-second interval repaints
+only the runs list (`ui.html:1127`, `ui.html:345-357`). For a concluded run
+whose head never moves again, the refusal would stand until the operator
+re-selected the participant.
+
+Adopt a recurring presentation re-check, at least as frequent as that
+existing runs poll, and make the recovery clause depend on it. Requiring an
+operator action instead is rejected: the TUI recovers on its own enumerated
+refresh occasions under T5/T7, and a console that needs a re-selection to
+notice the ambiguity is resolved contradicts this change's own live-refresh
+answer. Binding recovery to the run stream is rejected because that stream
+is silent exactly when the premise holds.
+
+The re-check carries no transcript body: it is the local presentation result
+this requirement already owns, and its bounded discovery is no heavier than
+the per-poll revalidation this change requires of an admitted growth stream
+at the shipped one-second `SSE_POLL` (`ui.rs:393`). The equivalence rule
+keeps an unchanged re-check invisible, so displayed turns, their scroll
+position and an open watch survive it and only a changed admission state,
+reference, reason, hint or drill eligibility repaints; the one exception is
+R18's deferred reopening, which is taken at the next re-check because a
+missing watch, not a changed result, is what it repairs. Both directions then
+have observable outcomes: a persisting refusal repaints nothing, and a
+restored unique safe source displays its turns without a re-selection.
+Proposed 0055 must carry this occasion and the equivalence rule with their
+client bindings.

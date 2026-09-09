@@ -83,8 +83,17 @@ implementation and review.
   Losing an admitted drill's lookup admission, without any participant,
   reference or journal change, clears the page's cached body and growth
   watch and shows the current shared refusal instead of stale prose; a
-  superseded in-flight response cannot restore it. Codex/DSH browser
-  transcript bodies remain outside scope.
+  superseded in-flight response cannot restore it. A still-admitted source
+  is instead redisplayed and rewatched from that fresh result, and the page
+  re-checks its selected participant's presentation on a recurring occasion
+  that needs no journal change, re-selection or other operator action, so
+  growth survives a transport drop and a refusal clears itself once the
+  ambiguity is resolved. This replaces the shipped page's reliance on
+  `EventSource` automatic reconnection, which would resume a watch the
+  shared lookup now refuses: browser growth recovery is preserved but
+  follows a presentation round trip and that re-check cadence, bounded to
+  one automatic watch opening per participant between re-checks. Codex/DSH
+  browser transcript bodies remain outside scope.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
@@ -120,7 +129,8 @@ argument handling, rendering and TUI shell. Existing Claude browser drills
 must consume the shared Claude derivation and keep their successful
 `session_id`/`turns`/`truncated` response shape and supported Claude content.
 The browser's selected-participant eligibility, shared hints, identifier
-guard, lookup refusals and truncation text change as declared above. Browser
+guard, lookup refusals, growth-watch recovery and truncation text change as
+declared above. Browser
 presentation metadata remains separate from existing inspect/seats/watch JSON
 and contains no transcript prose in journal-derived models. Adding Codex/DSH
 browser transcript routes is outside this commission.
@@ -625,5 +635,65 @@ home. Unchanged exact coverage was attempted with those limits,
 boundary proof ran, and no unavailable check is counted as passing evidence.
 This visit's record is
 `.forge/specify/read-every-transcript-kind-04d01419-validation.json`;
+earlier evidence files are preserved. Host proof, remote CI and delivery
+remain the controller's pending work.
+
+### S13 — Return from clarify: the browser's recovery branch and occasion
+
+Adopted the committed change at `649a9df` and validated it before amending
+it. `returned_from` names two open questions inside specify's own S12
+amendment, both in the owning capability `transcript-reading`: triage, the
+accepted decisions, the sibling issues and every prior answer are not at
+fault. Both are settleable from shipped source in this repository, so
+neither waits on S3's missing provider evidence. The proposal is amended
+first, then the reading delta; the command and TUI deltas need no change
+because these are browser-client rules this capability already owns.
+
+| Finding | Resolution and owning scenario |
+|---|---|
+| 1 — The still-admitted branch of a closed watch | Reading R18 makes the page display the fresh result's turns and open one new growth watch while the participant is working, keeps the ban on reconnecting the closed stream, and bounds automatic recovery to one watch opening per participant between recurring re-checks, leaving the clearing rule's re-request uncapped because it carries no body and cannot outpace those openings. "A dropped stream on a still-admitted source resumes growth" pins the recovery and the bound. |
+| 2 — The occasion for the next look | Reading R19 requires a recurring presentation re-check that needs no journal-head change, re-selection or other operator action and recurs at least as often as the page's existing runs poll, with an equivalence rule that makes an unchanged re-check invisible. "A persisting browser refusal is re-checked without the operator" pins the concluded-run case, and the closed-stream scenario's recovery clause now names that occasion instead of permitting a reopen. |
+
+No normative sentence in the three deltas now leaves an outcome permissive;
+the remaining `may` and `could` occurrences are descriptive prose in the
+decision records and one hypothetical clause about an unrelated id-only
+lookup. Browser growth recovery is preserved rather than lost, so the
+declared compatibility note is a changed mechanism and cadence, not a
+removed capability; the What Changes browser bullet records it beside
+R11's costs. The evidence is shipped source at base
+`5bc8cf3`, read in this worktree: `crates/brokkr-cli/src/ui.html:770-782`
+(the session watch, with no `onerror` on `sessionSource`),
+`ui.html:1117-1118` (the run stream's repaint and its watch close),
+`ui.html:1127` with `ui.html:345-357` (the five-second interval repaints
+only the runs list), `ui.html:818-821` (`loadDetail`'s two occasions),
+`crates/brokkr-cli/src/ui.rs:429-461` and `ui.rs:464-490` (the transcript
+and head poll loops) and `ui.rs:393` (the one-second `SSE_POLL`). This is
+source inspection, not a live browser, provider or transcript measurement,
+and it changes no accepted decision, frozen byte or production file.
+
+The returned council must reconcile D9's single closure clause with R17,
+R18 and R19 and carry all three into proposed 0055; the tasks office owes a
+client task and proof for the reopen, its bound and the recurring re-check
+beside A5's clearing work, with its A6 and A7 repairs unchanged. Under S1
+and the rendered dialect this visit commits proposal and specs only and
+claims no clarification verdict, design admission or delivery.
+
+Validation of this return: strict OpenSpec validation passes
+(`Change 'read-every-transcript-kind' is valid`, exit 0) with 20 ADDED
+requirements and 171 scenarios, none without scenarios. All 169 earlier
+scenario names survive and the two additions are the ones named above; the
+command and TUI deltas are byte-identical to `649a9df`. `git diff --check`
+passes, and `contracts/`, `policy/`, `reference/`, `fixtures/`,
+`docs/decisions/`, `crates/`, `scripts/`, `bundles/` and `openspec/specs/`
+are byte-identical to the commissioned base `5bc8cf3`. All five
+commissioned Cargo commands were attempted with `CARGO_BUILD_JOBS=2` and
+`RUST_TEST_THREADS=2` and exited 127 because Cargo is absent from this box,
+whose PATH holds only `openspec`, `node`, `python3` and `git` and whose
+`HOME` holds no provider home. The unchanged exact-coverage gate was
+attempted with those limits, `TMPDIR=/var/tmp` and
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at `mktemp` because
+`/var/tmp` does not exist here. No Rust, coverage or boundary proof ran and
+no unavailable check is counted as passing evidence. This visit's record is
+`.forge/specify/read-every-transcript-kind-recovery-return-validation.json`;
 earlier evidence files are preserved. Host proof, remote CI and delivery
 remain the controller's pending work.
