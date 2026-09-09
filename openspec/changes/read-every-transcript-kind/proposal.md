@@ -92,8 +92,11 @@ implementation and review.
   `EventSource` automatic reconnection, which would resume a watch the
   shared lookup now refuses: browser growth recovery is preserved but
   follows a presentation round trip and that re-check cadence, bounded to
-  one automatic watch opening per participant between re-checks. Codex/DSH
-  browser transcript bodies remain outside scope.
+  one automatic watch opening per participant between re-checks. Admission
+  is the presentation's own discovery-shaped state, so a refused transcript
+  body — the route reports read and lookup failures with one envelope —
+  silences its source until the next re-check instead of driving a request
+  loop. Codex/DSH browser transcript bodies remain outside scope.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
@@ -695,5 +698,71 @@ attempted with those limits, `TMPDIR=/var/tmp` and
 `/var/tmp` does not exist here. No Rust, coverage or boundary proof ran and
 no unavailable check is counted as passing evidence. This visit's record is
 `.forge/specify/read-every-transcript-kind-recovery-return-validation.json`;
+earlier evidence files are preserved. Host proof, remote CI and delivery
+remain the controller's pending work.
+
+### S14 — Return from clarify: admission, refusal and the one-opening budget
+
+Adopted the committed change at `1e770f2` and validated it before amending
+it. `returned_from` names two open questions, both inside specify's own S13
+amendment and both in the owning capability `transcript-reading`: triage, the
+accepted decisions, the sibling issues and every earlier answer stand. Both
+are settleable from text already in this change and from shipped source in
+this repository, so neither waits on S3's missing provider evidence. The
+proposal is amended first, then the reading delta; the command and TUI deltas
+need no change because these are browser-client rules this capability owns.
+
+| Finding | Resolution and owning scenario |
+|---|---|
+| 1 — Is an unreadable source still "admitted", and what stops the body-refusal cycle | Reading R20 makes the branch predicate the presentation's own admission state, established by eligibility, identifier/home validation and safe unique discovery, and keeps `unreadable`, `unsupported-format` and a readable zero-turn source as body outcomes that never move admission or the equivalence tuple's reason. It defines a refused body request, forbids naming a reason the two identical 404 envelopes cannot distinguish, and gives the cycle its floor: a refusal silences that source's body and watch until the next re-check. "An unreadable admitted source is asked once per re-check" pins one refused request per interval. |
+| 2 — Does a re-check's own reopening spend the one-watch budget | Reading R21 deletes "Apart from a recurring re-check itself", so every automatic opening spends the single per-interval budget and each re-check restores it; "within the bound above" and the dropped-stream gloss now agree, and the tasks office's expected count is one. "A re-check's own reopening spends that interval's watch budget" pins the re-check-first trace beside the closure-first one. |
+
+The bound paragraph's false premise is repaired with it: presentation
+requests still need no separate cap, but the stated reason is now that each
+follows a closure or a refusal, that at most one watch opens per interval and
+so at most two can close in it, and that the first refusal silences further
+body requests until the next re-check. Growth repaints on an open admitted
+watch are excluded from the bound as the shipped growth mechanism, paced by
+that stream's own poll. The equivalence rule keeps an unchanged re-check
+invisible except for its two deferred repairs, a missing body and a missing
+watch, and orders them so a watch is opened only after a successful body.
+
+The evidence is text already in this change (the id-only route's shared 404
+envelope for lookup and read failures, the `unreadable` and
+`unsupported-format` states, R19's discovery-shaped costing) and shipped
+source at base `5bc8cf3`, read in this worktree:
+`crates/brokkr-cli/src/ui.html:783-796` (the body fetch and the existing
+`no local transcript for this session` fallback with its checkpoint table),
+`ui.html:757` and `ui.html:775-782` (the transcript cache dropped on each
+growth event, which is why a growth repaint is a body request),
+`crates/brokkr-cli/src/ui.rs:429-461` and `ui.rs:393` (the transcript stream
+and its one-second `SSE_POLL`, which pace those repaints). This is source
+inspection, not a live browser, provider or transcript measurement, and it
+changes no accepted decision, frozen byte or production file.
+
+The returned council must reconcile D9 with R17–R21 and carry all five into
+proposed 0055; the tasks office owes client tasks and proofs for the refusal
+floor, the single opening budget and the two deferred repairs, beside A5's
+clearing work, with its A6 and A7 repairs unchanged. Under S1 and the
+rendered dialect this visit commits proposal and specs only and claims no
+clarification verdict, design admission or delivery.
+
+Validation of this return: strict OpenSpec validation passes
+(`Change 'read-every-transcript-kind' is valid`, exit 0) with 20 ADDED
+requirements and 173 scenarios, none without scenarios. All 171 earlier
+scenario names survive and the two additions are the ones named above; the
+command and TUI deltas are byte-identical to `1e770f2`. `git diff --check`
+passes, and `contracts/`, `policy/`, `reference/`, `fixtures/`,
+`docs/decisions/`, `crates/`, `scripts/`, `bundles/` and `openspec/specs/`
+are byte-identical to the commissioned base `5bc8cf3`. All five commissioned
+Cargo commands were attempted with `CARGO_BUILD_JOBS=2` and
+`RUST_TEST_THREADS=2` and exited 127 because Cargo is absent from this box,
+whose PATH holds only `openspec`, `node`, `python3` and `git` and whose
+`HOME` holds no provider home. The unchanged exact-coverage gate was
+attempted with those limits, `TMPDIR=/var/tmp` and
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at `mktemp` because
+`/var/tmp` does not exist here. No Rust, coverage or boundary proof ran and
+no unavailable check is counted as passing evidence. This visit's record is
+`.forge/specify/read-every-transcript-kind-admission-return-validation.json`;
 earlier evidence files are preserved. Host proof, remote CI and delivery
 remain the controller's pending work.

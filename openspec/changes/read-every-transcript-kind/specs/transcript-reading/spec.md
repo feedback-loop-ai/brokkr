@@ -177,25 +177,62 @@ or cached. Recovery SHALL be an ordinary fresh presentation and body request
 once shared lookup admits a source again, never a restored cached body.
 
 If that fresh result still admits a unique safe source for the same
-participant and reference, the page SHALL display the current turns from an
-ordinary body request and, while that participant is still working, SHALL
-open one new growth watch on the admitted source; a concluded participant
-SHALL open none, as today. That opening is an admission granted by the fresh
-shared result, never a continuation of the closed stream, so a transport
-drop or a local server restart SHALL NOT silently end growth for a working
-seat.
+participant and reference, and the refusal floor below does not silence that
+source, the page SHALL display the current turns from an ordinary body
+request and, while that participant is still working, SHALL open one new
+growth watch on the admitted source; a concluded participant SHALL open none,
+as today. That opening is an admission granted by the fresh shared result,
+never a continuation of the closed stream, so a transport drop or a local
+server restart SHALL NOT silently end growth for a working seat.
 
-Automatic recovery SHALL be bounded. Apart from a recurring re-check
-itself, the page SHALL open at most one growth watch for the same selected
-participant between consecutive recurring re-checks. A closure whose watch
-budget is already spent SHALL still clear, re-request and display as above,
-but SHALL leave the watch closed until the next re-check, so a source that
-closes as soon as it is opened cannot drive an unbounded reconnect loop.
-Presentation and body requests need no separate cap because each one
-follows a closure, and closures cannot outpace the openings this rule
-bounds. Watches opened after an operator selection or a participant,
-reference or eligibility change are not automatic recovery and are not
-bounded by this rule.
+Admission is the presentation result's own state, established by reference
+eligibility, identifier and home validation and safe unique discovery, so its
+unavailability reason is one of the reference and lookup tokens
+`no-reference`, `none`, `unsupported-kind`, `unannounced`, `missing-home`,
+`invalid-reference`, `not-found`, `ambiguous-source`, `discovery-limit` and
+`unsafe-path`. A read-level outcome — `unreadable`, `unsupported-format` or a
+readable zero-turn source — belongs to the body: it SHALL NOT appear as this
+presentation's unavailability reason and SHALL NOT change its admission
+state, because the presentation reads no transcript source. An id-only body
+request is refused when it does not deliver a successful transcript body:
+either specified 404 envelope, any other non-success status, a transport
+failure with no status, or a body the page cannot parse. Because those two
+404 envelopes are deliberately indistinguishable, the page SHALL NOT name a
+reason for a refusal; it SHALL show the existing body-failure prose with the
+checkpoint fallback beside the shared hint, and display no turns. Where the
+fresh presentation it then requests reports its own unavailability, that
+reason SHALL be displayed instead, because it is the more current account of
+the same source.
+
+A refusal SHALL silence that source until the next re-check. After a refused
+body request the page SHALL clear and re-request as above, but SHALL NOT
+request that participant and reference's body again, or open a growth watch
+on it, before its next recurring re-check, even when the fresh presentation
+still admits it. That re-check performs one deferred body request, and only a
+successful one may be followed by a watch opening for a working participant.
+A discoverable source whose reads keep failing therefore costs one refused
+request per re-check, never a refusal-clear-re-request loop. An operator
+selection or a participant, reference or eligibility change lifts this
+silence, as it lifts the watch bound below.
+
+Automatic recovery SHALL be bounded. The page SHALL open at most one growth
+watch for the same selected participant between consecutive recurring
+re-checks, counting every automatic opening including one a re-check itself
+takes; each re-check begins a new interval and restores that budget. A
+closure whose watch budget is already spent SHALL still clear, re-request and
+display as above, without a body request wherever the refusal floor silences
+that source, but SHALL leave the watch closed until the next re-check, so a
+source that closes as soon as it is opened cannot drive an unbounded
+reconnect loop, whichever event spent that interval's opening. Presentation
+requests need no separate cap because each one follows a closure or a refused
+body request, and this rule bounds both: at most one watch opens between
+consecutive re-checks, so at most two can close in that span, and the first
+refusal silences further body requests until the next re-check. A body
+request answering a growth event on an open admitted watch is the page's
+ordinary growth repaint, not recovery, and stays bounded by that stream's own
+poll cadence. Watches and body requests issued after an operator selection or
+a participant, reference or eligibility change are not automatic recovery and
+are not bounded by this rule.
 
 While a participant is selected, the browser SHALL re-request its shared
 presentation on a recurring re-check that requires no journal-head change,
@@ -205,14 +242,18 @@ interval is a design choice but SHALL recur at least as often as the page's
 existing runs poll. Two presentation results are equivalent when their
 selected reference, admission state, unavailability reason, shared hint and
 drill eligibility all match. A re-check equivalent to the presentation
-currently displayed SHALL change nothing it displays: no repaint of
-displayed turns and no body request. It SHALL still open one growth watch,
-within the bound above, when the participant is working, its source is
-admitted and no watch is open, so a deferred reopening resumes at the next
-re-check. A re-check that turns an unavailable presentation into an admitted
-one SHALL perform an ordinary fresh body request and open one growth watch
-for a working participant; a re-check that loses admission SHALL apply the
-clearing rule above.
+currently displayed SHALL repaint no displayed turns and change nothing else
+it displays. Its only actions are the two deferred repairs, which mend a
+missing body or watch rather than a changed result: it SHALL perform one body
+request when the source is admitted and no turns are displayed for it, and it
+SHALL open one growth watch, within the bound above, when the participant is
+working, its source is admitted and no watch is open, so a deferred reopening
+resumes at the next re-check. A re-check that finds both missing SHALL make
+that body request first and open the watch only if it succeeded. A re-check
+that turns an unavailable presentation into an admitted one SHALL perform an
+ordinary fresh body request and, if it succeeds, open one growth watch for a
+working participant within that same bound; a re-check that loses admission
+SHALL apply the clearing rule above.
 
 The browser's selected-participant presentation result SHALL remain local
 and separate from existing inspect/seats/watch JSON and the three-field
@@ -243,6 +284,16 @@ rules in JavaScript is not.
 - **WHEN** a working Claude participant's admitted growth watch closes because its transport dropped or the local server restarted, while the participant, its recorded reference and the journal head are unchanged and shared lookup still admits the same unique safe file
 - **THEN** the page closes that watch without reconnecting to it, discards its cached turns, requests the shared presentation once, displays the current turns from a fresh body request and opens exactly one new growth watch on the admitted source, rather than relying on the browser's own reconnection of the closed stream
 - **AND** if that new watch also closes at once, the page again clears, re-requests and displays that closure's fresh turns but opens no further watch until its next recurring re-check, so repeated immediate closure yields at most one watch opening per re-check
+
+#### Scenario: An unreadable admitted source is asked once per re-check
+- **WHEN** a selected working Claude participant's unique safe file stays discoverable while every read of it fails — its consumed bytes are invalid UTF-8, or the read raises an I/O error — so the shared presentation keeps admitting that source and `/api/session/<id>` returns HTTP 404 with `{"error":"transcript not found"}`
+- **THEN** the page discards its cached and displayed turns, re-requests the presentation once, shows the existing body-failure prose and checkpoint fallback beside the shared Claude hint, names no reason it cannot distinguish from a lookup failure, and makes no second body request and opens no growth watch for that participant and reference before its next recurring re-check
+- **AND** each later re-check makes exactly one further body request, so a permanently unreadable source costs one refused request per interval rather than an unbounded refusal, clear and re-request cycle; a read that fails only after an admitting presentation behaves the same way, because the refusal and not the presentation is what silences the source
+
+#### Scenario: A re-check's own reopening spends that interval's watch budget
+- **WHEN** a working participant's deferred growth watch is opened by a recurring re-check on a still-admitted source, and that watch closes immediately while its participant, recorded reference and journal head are unchanged
+- **THEN** the page closes it without reconnecting to the same source, discards its turns, re-requests the presentation and displays the current turns from one body request, but opens no second watch before its next recurring re-check
+- **AND** an interval whose first opening followed a closure instead behaves identically, so every interval carries at most one automatic opening whichever event took it
 
 #### Scenario: A persisting browser refusal is re-checked without the operator
 - **WHEN** a selected participant's transcript is displayed as `ambiguous-source` because the duplicate file remains in place, and its run has concluded so the journal head never moves again
@@ -1553,3 +1604,67 @@ have observable outcomes: a persisting refusal repaints nothing, and a
 restored unique safe source displays its turns without a re-selection.
 Proposed 0055 must carry this occasion and the equivalence rule with their
 client bindings.
+
+### R20 / eighth-pass clarification 1 — Admission is discovery; a refusal has a floor
+
+R17's clearing trigger includes a refused id-only body request, and R18's
+branch answers every trigger with another body request, so the two rules
+admit a cycle — request, refusal, clear, presentation, request — that R18's
+bound does not reach: its premise is that every request follows a closure,
+which is false for the refusal trigger. The cycle is reachable without a
+race, because the id-only route returns HTTP 404 for read failures as well as
+lookup failures and `unreadable` is established after a unique safe source
+exists. The branch predicate also never said which member it reads.
+
+Fix the predicate first: admission is the presentation result's own state,
+which reference eligibility, identifier/home validation and safe unique
+discovery establish. Making it the whole read instead is rejected. R19 priced
+the recurring re-check as bounded discovery, no heavier than the per-poll
+revalidation of an admitted stream at the shipped one-second `SSE_POLL`
+(`crates/brokkr-cli/src/ui.rs:393`); reading a capped source for every
+selected participant on every re-check is a different cost, and the browser
+takes no Codex/DSH body at all in this change, so a presentation that read
+sources would carry read outcomes it cannot use. `unreadable`,
+`unsupported-format` and a readable zero-turn source therefore stay body
+outcomes and never move the admission state or the equivalence tuple's
+unavailability reason.
+
+That answer leaves the refusal cycle real, so it is bounded where it starts.
+A refusal silences its source until the next re-check: the page still clears
+and re-requests, because that is how it learns whether the reference is still
+eligible, but it asks no second body and opens no watch on that source in the
+same interval. Capping the presentation request instead is still rejected for
+R18's reason. Reusing the watch bound alone is not enough, because the
+refusal path opens no watch to spend it. Inventing a reason for the refusal is
+rejected: this change deliberately gives lookup and read failures the same
+`{"error":"transcript not found"}` envelope, so the page keeps the shipped
+body-failure prose (`crates/brokkr-cli/src/ui.html:791-795`) with the
+checkpoint fallback and claims nothing it cannot observe; the fresh
+presentation's own reason, when it has one, is the more current account and
+displaces that prose. Growth repaints on
+an open admitted watch stay outside the bound: they are the shipped growth
+mechanism, already paced by that stream's own poll. Proposed 0055 must carry
+the admission predicate, the refusal definition and this floor, bound to a
+client proof that a permanently unreadable admitted source issues one body
+request per re-check.
+
+### R21 / eighth-pass clarification 2 — Every automatic opening spends the budget
+
+R18's bound was written twice and incompatibly: "Apart from a recurring
+re-check itself" exempted the re-check's own opening from the count, while
+R19's deferred reopening was required to happen "within the bound above". The
+difference is observable — for a source that closes as soon as it is opened,
+the exemption yields two automatic openings per interval and the inclusion
+one — and the tasks office's client proof needs that number.
+
+Delete the exemption. Every automatic opening, whether a re-check takes it or
+a closure drives it, spends the single per-interval budget, and each re-check
+begins a new interval that restores it. This is what "within the bound above"
+and the dropped-stream scenario's gloss already assert, so the repair keeps
+both readings' shared intent and discards the sentence that contradicted
+them. Exempting the re-check instead is rejected: it would double the steady
+retry rate of a flapping source for no stated benefit, and it would leave the
+re-check-first trace ungoverned, which is exactly the case R19 introduced.
+The bound now has one number — one automatic opening per participant per
+re-check interval — and its scenario pins the re-check-first trace beside the
+closure-first one. Proposed 0055 must carry the single counting rule.
