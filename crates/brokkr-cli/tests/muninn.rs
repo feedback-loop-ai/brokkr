@@ -237,6 +237,12 @@ impl Workspace {
 
     /// The same, into a named hearth — how a many-hearth world is staged.
     fn run_once_in(&self, feature: &str, db: &str) -> String {
+        self.run_once_in_repo(feature, db, "repo")
+    }
+
+    /// The same again, in a named REPOSITORY: what a world of two real
+    /// trees needs, where every staging above shares one.
+    fn run_once_in_repo(&self, feature: &str, db: &str, repo: &str) -> String {
         let output = self.brokkr(&[
             "run",
             "--bundle",
@@ -246,7 +252,7 @@ impl Workspace {
             "--db",
             db,
             "--repo",
-            "repo",
+            repo,
         ]);
         let stderr = String::from_utf8_lossy(&output.stderr);
         stderr
@@ -505,6 +511,205 @@ fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
 
     // Ruling 5: reading two journals wrote to neither.
     assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
+}
+
+// ---------------------- two DISTINCT repositories (phase 2 slice (i))
+
+/// A repository with one commit of its own: the file it adds, that
+/// file's content and the commit message are all `name`, so two
+/// repositories built in the same second are still two trees and two
+/// shas rather than one commit made twice.
+fn git_repo(root: &Path, name: &str) -> String {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Brokkr Test"]);
+    git(&["config", "user.email", "brokkr@test"]);
+    git(&["config", "commit.gpgSign", "false"]);
+    std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", name]);
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// [`staged`], parametrized by repository and hearth: one run, stopped
+/// on its high residual, with the sequence of the ruling that finding
+/// was read from.
+fn staged_in(ws: &Workspace, feature: &str, db: &str, repo: &str) -> (String, u64) {
+    let run_id = ws.run_once_in_repo(feature, db, repo);
+    let store = brokkr_store::Store::open_read_only(&ws.path().join(db)).unwrap();
+    let events = store.load(&run_id).unwrap();
+    let state = brokkr_core::fold(&events).unwrap();
+    assert_eq!(
+        brokkr_view::status_str(&state.status),
+        "stopped",
+        "the staged run reaches a hard stop on its residual"
+    );
+    let findings = brokkr_view::residual_findings(&run_id, &events);
+    assert_eq!(findings.len(), 1, "one high residual, from one ruling");
+    (run_id, findings[0].seq)
+}
+
+/// The heads a run recorded, read back out of the journal it wrote them
+/// to — the fleet readouts carry no head of their own, so this is where
+/// "which tree was this?" is answerable.
+fn recorded_heads(ws: &Workspace, db: &str, run_id: &str) -> Value {
+    let store = brokkr_store::Store::open_read_only(&ws.path().join(db)).unwrap();
+    store
+        .load(run_id)
+        .unwrap()
+        .iter()
+        .find_map(|event| {
+            event
+                .payload
+                .get("inputs")
+                .and_then(|inputs| inputs.get("reviewed_heads"))
+                .cloned()
+        })
+        .unwrap_or_else(|| panic!("run {run_id} recorded no heads in {db}"))
+}
+
+/// Phase 2 slice (i), proof 5, the muninn half: the overseer reads two
+/// REAL repositories, each under its own realm, and splits every fact
+/// between them — never merged (decision 0026 rulings 3 and 5).
+///
+/// `the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm`
+/// above already proves the per-realm citation — but both its realms are
+/// `path: "repo"`, one tree, so nothing in it could tell a world of two
+/// repositories from one repository read twice under two names. What is
+/// new here is that `alpha` and `beta` are two distinct git trees at two
+/// distinct heads, and the proof of it is that each realm's run recorded
+/// its OWN tree's head under its OWN realm's name. Reading one tree for
+/// both, or folding the hearths together, would put one sha in both
+/// journals.
+#[test]
+fn the_overseer_reads_two_real_repositories_each_under_its_own_realm() {
+    let ws = Workspace::new();
+    let alpha_head = git_repo(ws.path(), "alpha");
+    let beta_head = git_repo(ws.path(), "beta");
+    assert_ne!(
+        alpha_head, beta_head,
+        "two repositories, two commits, two shas"
+    );
+    // The map is written BEFORE the runs here, unlike the one-tree test
+    // above: a run only keys its heads by realm when a map named the
+    // tree it stands in, and that keying is the evidence this proof
+    // turns on.
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": "alpha", "default_branch": "main"},
+                {"name": "beta", "path": "beta", "default_branch": "trunk",
+                 "journal": ".forge/beta.db"},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    let (alpha_run, seq) = staged_in(&ws, "alpha's own work", ".forge/forge.db", "alpha");
+    let (beta_run, beta_seq) = staged_in(&ws, "beta's own work", ".forge/beta.db", "beta");
+
+    ws.proposes(json!({
+        "fleet_summary": "two repositories, a stopped run in each",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "alpha",
+            "run_id": alpha_run,
+            "seq": seq,
+            "finding": "max_residual_severity: high",
+            "reasoning": "alpha's own residual, in alpha's own tree",
+        }],
+    }));
+
+    let alpha_bytes = std::fs::read(ws.db()).unwrap();
+    let beta_bytes = std::fs::read(ws.path().join(".forge/beta.db")).unwrap();
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+
+    // The dossier names both realms and keys every run to the one it was
+    // read from — side by side, in map order, never a merged list.
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["fleet"]["realms"], json!(["alpha", "beta"]));
+    assert_eq!(context["fleet"]["runs"], 2);
+    let runs: Vec<(&str, &str)> = context["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["realm"].as_str().unwrap(),
+                row["run_id"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        vec![("alpha", alpha_run.as_str()), ("beta", beta_run.as_str())]
+    );
+    // Each repository's finding is cited under its own realm, and under
+    // its own run — the pairing a merge would scramble.
+    let findings: Vec<(&str, &str, u64)> = context["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| {
+            (
+                finding["realm"].as_str().unwrap(),
+                finding["run_id"].as_str().unwrap(),
+                finding["seq"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        findings,
+        vec![
+            ("alpha", alpha_run.as_str(), seq),
+            ("beta", beta_run.as_str(), beta_seq),
+        ]
+    );
+
+    // The record and the printed line name the realm the fact came from.
+    let entry = &ws.records()[0];
+    assert_eq!(entry["work_queue"][0]["realm"], json!("alpha"));
+    assert_eq!(
+        entry["citations"],
+        json!([{"realm": "alpha", "run_id": alpha_run, "seq": seq}])
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&format!("queue alpha/{alpha_run}")),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    // And the two realms are two trees: each run recorded its OWN
+    // repository's head, keyed by its own realm name.
+    let alpha_heads = recorded_heads(&ws, ".forge/forge.db", &alpha_run);
+    let beta_heads = recorded_heads(&ws, ".forge/beta.db", &beta_run);
+    assert_eq!(alpha_heads, json!({ "alpha": alpha_head }));
+    assert_eq!(beta_heads, json!({ "beta": beta_head }));
+    assert_ne!(alpha_heads, beta_heads);
+
+    // Ruling 5: reading two hearths wrote to neither.
+    assert_eq!(alpha_bytes, std::fs::read(ws.db()).unwrap());
+    assert_eq!(
+        beta_bytes,
+        std::fs::read(ws.path().join(".forge/beta.db")).unwrap()
+    );
 }
 
 /// A realm the map names before its first run has no journal yet, and

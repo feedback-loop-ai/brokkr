@@ -723,10 +723,19 @@ fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
     assert_eq!(world.realm_for(&alpha).unwrap().name, "alpha");
     assert_eq!(world.realm_for(&beta).unwrap().name, "beta");
     assert_eq!(world.realm_for(&beta).unwrap().default_branch, "trunk");
-    assert!(world.realm_for(dir.path()).is_none(), "the workspace itself is no realm");
+    assert!(
+        world.realm_for(dir.path()).is_none(),
+        "the workspace itself is no realm"
+    );
     // Two repositories, two HEADs, read from the trees the world resolved.
-    assert_eq!(crate::git_head(&world.path_of(&world.map.realms[0])), Some(alpha_head.clone()));
-    assert_eq!(crate::git_head(&world.path_of(&world.map.realms[1])), Some(beta_head.clone()));
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[0])),
+        Some(alpha_head.clone())
+    );
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[1])),
+        Some(beta_head.clone())
+    );
     assert_ne!(alpha_head, beta_head);
     // Two hearths, one per realm, and the world's own journal unread by
     // either — the fleet reads them side by side, never merged.

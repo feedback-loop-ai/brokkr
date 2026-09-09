@@ -390,6 +390,156 @@ fn each_realm_is_probed_under_its_own_boundary() {
     assert!(report.healthy, "{rendered}");
 }
 
+/// Phase 2 slice (i), proof 3, dialect half: one realm's BROKEN
+/// declaration is named as that realm's failure and leaves its
+/// neighbour's line untouched.
+///
+/// `each_realm_is_probed_under_its_own_boundary` above proves two healthy
+/// realms are each answered on their own surface, and
+/// `a_declared_broken_dialect_is_refused_only_for_its_realm`
+/// (`crates/brokkr-runtime/src/realms/tests.rs`) proves the refusal WORDS
+/// name the realm — but on a ONE-realm map, where there is no neighbour
+/// to spoil. Neither proves the isolation this asserts: that a second,
+/// healthy realm in the SAME world still gets its own `ok` lines, and
+/// that the broken realm's name and error appear on no line but its own.
+///
+/// The broken declaration is the realm's OWN file (`docs/broken.json`),
+/// not the shared library — a corrupted `dialects/openspec.json` would
+/// break both realms and prove nothing about isolation.
+#[test]
+fn a_broken_dialect_in_one_realm_is_named_without_failing_its_neighbour() {
+    let dir = tempfile::tempdir().unwrap();
+    dialect_realm(dir.path(), "app");
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(dir.path().join("docs/broken.json"), "{").unwrap();
+    let mut docs = realm_json("docs", false, None);
+    docs["dialect"] = json!("broken.json");
+    let world = world_of(dir.path(), vec![realm_json("app", true, None), docs]);
+
+    let report = dialects(&world, openspec_present, box_openspec);
+    let rendered = report.render();
+    assert!(
+        !report.healthy,
+        "a broken declaration still makes doctor unhealthy: {rendered}"
+    );
+    // The failing REALM is named, not the world.
+    assert!(
+        rendered.contains("MISSING  dialect docs: realm 'docs' dialect is unusable:"),
+        "{rendered}"
+    );
+    // And the healthy realm answers exactly as it does alone.
+    assert!(
+        rendered.contains(
+            "ok       dialect app: openspec · tool 'openspec' OpenSpec 1.12.0 · \
+             pinned 1.12.0 · probed inside the box"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect app requires openspec/config.yaml: present at"),
+        "{rendered}"
+    );
+    // One line per realm's verdict, in map order, and the broken realm's
+    // name and words are confined to its own line: a report that blamed
+    // `app` for `docs`'s file, or dropped `app` because `docs` failed,
+    // would fail here.
+    let app_lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| line.contains("dialect app"))
+        .collect();
+    assert_eq!(app_lines.len(), 2, "{rendered}");
+    for line in &app_lines {
+        assert!(
+            !line.contains("docs"),
+            "the neighbour's failure leaked: {line}"
+        );
+        assert!(!line.contains("unusable"), "{line}");
+    }
+    assert_eq!(
+        rendered
+            .lines()
+            .filter(|line| line.starts_with("MISSING"))
+            .count(),
+        1,
+        "one realm broke, one line: {rendered}"
+    );
+}
+
+/// Phase 2 slice (i), proof 3, house half — and a LIMITATION recorded
+/// rather than papered over.
+///
+/// The house readout does name a broken realm by name, and it does not
+/// blame the healthy one. But it is NOT per-realm the way the dialect
+/// readout is: `report_realm_house_for_world` counts every realm's house
+/// into ONE aggregate `ok` line, and emits that line only when no realm
+/// failed. So in a two-realm world where one house is unreadable, the
+/// healthy realm's house gets no line at all — its `ok` is not corrupted,
+/// it is simply gone. A reader of `brokkr doctor` cannot tell from the
+/// house lines whether the other realm's house was read and fine, or
+/// never declared.
+///
+/// This test asserts what the machine actually does, so the day the
+/// readout becomes one line per realm this test fails and is rewritten
+/// deliberately. It is the residual this proof reports.
+#[test]
+fn a_broken_house_names_its_realm_but_the_readout_is_one_world_wide_count() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("app")).unwrap();
+    std::fs::write(dir.path().join("app/HOUSE.md"), "One realm rule.\n").unwrap();
+    let mut app = realm_json("app", false, None);
+    app["house"] = json!("HOUSE.md");
+
+    // Both houses readable: a single count, for two realms, naming
+    // neither. Already not per-realm — this is the shape the failure
+    // below degrades from.
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(dir.path().join("docs/HOUSE.md"), "Another rule.\n").unwrap();
+    let mut docs = realm_json("docs", false, None);
+    docs["house"] = json!("HOUSE.md");
+    let world = world_of(dir.path(), vec![app.clone(), docs]);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house_for_world(&mut report, &world);
+    assert_eq!(
+        report.render(),
+        "ok       house rules: 2 realm declaration(s) readable"
+    );
+    assert!(report.healthy);
+
+    // One house unreadable: the failing realm is named — by name, with
+    // its own path, as a REALM's failure and not the world's...
+    let mut docs = realm_json("docs", false, None);
+    docs["house"] = json!("missing.md");
+    let world = world_of(dir.path(), vec![app, docs]);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house_for_world(&mut report, &world);
+    let rendered = report.render();
+    assert!(!report.healthy);
+    assert!(
+        rendered.contains("MISSING  house rules: realm 'docs' names house at"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("missing.md"), "{rendered}");
+    assert!(
+        !rendered.contains("'app'"),
+        "the healthy realm is not blamed for its neighbour: {rendered}"
+    );
+
+    // ...but the healthy realm's own answer is GONE, not merely
+    // unnamed: one line, and it is the failure's. This is the residual.
+    assert_eq!(rendered.lines().count(), 1, "{rendered}");
+    assert!(
+        !rendered.contains("declaration(s) readable"),
+        "the aggregate count is suppressed by any failure, so a healthy \
+         realm beside a broken one states nothing: {rendered}"
+    );
+}
+
 fn executed(
     exit_code: i32,
     stdout: &str,

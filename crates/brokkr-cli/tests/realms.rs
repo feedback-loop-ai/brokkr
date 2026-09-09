@@ -133,14 +133,20 @@ fn git(repo: &Path, args: &[&str]) {
         .success());
 }
 
-fn git_repo(repo: &Path) -> String {
+/// A repository with one commit of its own. The file it adds, that
+/// file's content and the commit message are all `name`, so two
+/// repositories built in the same second are still two trees and two
+/// shas — a shared tree and a shared message would give them ONE sha and
+/// silently turn a two-repository proof back into a one-tree one.
+fn git_repo(repo: &Path, name: &str) -> String {
+    std::fs::create_dir_all(repo).unwrap();
     git(repo, &["init", "-q"]);
     git(repo, &["config", "user.name", "Brokkr Test"]);
     git(repo, &["config", "user.email", "brokkr@test"]);
     git(repo, &["config", "commit.gpgSign", "false"]);
-    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
     git(repo, &["add", "."]);
-    git(repo, &["commit", "-q", "-m", "first"]);
+    git(repo, &["commit", "-q", "-m", name]);
     let out = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo)
@@ -154,8 +160,7 @@ fn git_repo(repo: &Path) -> String {
 #[test]
 fn the_realms_verb_lists_the_world_and_writes_nothing() {
     let ws = Workspace::new(Some(map_over("realm")));
-    std::fs::create_dir(ws.path().join("realm")).unwrap();
-    let head = git_repo(&ws.path().join("realm"));
+    let head = git_repo(&ws.path().join("realm"), "first");
 
     let (code, out, stderr) = ws.run(&["realms"]);
     assert_eq!(code, Some(0), "{stderr}");
@@ -196,6 +201,198 @@ fn the_realms_verb_lists_the_world_and_writes_nothing() {
     // And the lore stays out of the machine's mouth (0019 law 4).
     assert!(!out.to_lowercase().contains("yggdrasil"), "{out}");
     assert!(!json.to_lowercase().contains("yggdrasil"), "{json}");
+}
+
+// ---------------------- two DISTINCT repositories (phase 2 slice (i))
+
+/// A map naming two realms in two SEPARATE repositories: each its own
+/// path, its own default branch, its own hearth. The shape proof 1
+/// proved inside `brokkr-runtime`; built again here because that
+/// fixture is `#[cfg(test)]`-private to its crate and cannot be called
+/// from an integration test that drives the shipped binary. This is a
+/// different surface, not a duplicate of it.
+fn two_repository_map() -> Value {
+    json!({
+        "schema": "forge.realms/v2",
+        "realms": [
+            {"name": "alpha", "path": "alpha", "default_branch": "main",
+             "journal": "state/alpha.db"},
+            {"name": "beta", "path": "beta", "default_branch": "trunk",
+             "journal": "state/beta.db"},
+        ],
+        "journal": "state/world.db",
+    })
+}
+
+/// The two repositories that map names, each with its own commit.
+fn two_repositories(ws: &Workspace) -> (String, String) {
+    let alpha = git_repo(&ws.path().join("alpha"), "alpha");
+    let beta = git_repo(&ws.path().join("beta"), "beta");
+    assert_ne!(alpha, beta, "two repositories, two commits, two shas");
+    (alpha, beta)
+}
+
+/// The heads a run recorded in a named hearth, read back out of that
+/// journal — the only place the CLI's fleet surfaces keep them.
+fn recorded_heads(db: &Path, run_id: &str) -> Value {
+    let store = brokkr_store::Store::open_read_only(db).unwrap();
+    let events = store.load(run_id).unwrap();
+    events
+        .iter()
+        .find_map(|event| {
+            event
+                .payload
+                .get("inputs")
+                .and_then(|inputs| inputs.get("reviewed_heads"))
+                .cloned()
+        })
+        .unwrap_or_else(|| panic!("run {run_id} recorded no heads in {}", db.display()))
+}
+
+/// Phase 2 slice (i), proof 2: `brokkr realms` over two REAL
+/// repositories prints each realm's OWN head — two different shas, not
+/// one repeated — with its own path, its own branch and, in this
+/// many-hearth world, its own journal (decision 0026 ruling 1).
+///
+/// Every multi-realm map this suite exercised before pointed both realms
+/// at `.`: one tree, so one head, so a readout that printed realm 0's
+/// head twice would have passed. Two repositories is what makes that
+/// copy-paste bug visible, and asserting it is the whole point.
+#[test]
+fn the_realms_verb_lists_two_repositories_each_by_its_own_head() {
+    let ws = Workspace::new(Some(two_repository_map()));
+    let (alpha_head, beta_head) = two_repositories(&ws);
+
+    let (code, out, stderr) = ws.run(&["realms"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    // Paths print platform-native; columns are aligned by padding, so
+    // the cells are read as cells rather than by counting spaces.
+    let out = out.replace('\\', "/");
+    let realms: Vec<Vec<&str>> = out
+        .lines()
+        .filter(|line| line.starts_with("realm    "))
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    assert_eq!(realms.len(), 2, "{out}");
+    assert_eq!(
+        realms[0],
+        vec![
+            "realm",
+            "alpha",
+            "alpha",
+            "main",
+            alpha_head.as_str(),
+            "./state/alpha.db"
+        ],
+        "{out}"
+    );
+    assert_eq!(
+        realms[1],
+        vec![
+            "realm",
+            "beta",
+            "beta",
+            "trunk",
+            beta_head.as_str(),
+            "./state/beta.db"
+        ],
+        "{out}"
+    );
+    // Said plainly, because it is the regression: neither realm's line
+    // carries the other's sha, and the two shas are not the same string.
+    assert!(!realms[0].contains(&beta_head.as_str()), "{out}");
+    assert!(!realms[1].contains(&alpha_head.as_str()), "{out}");
+    assert_eq!(
+        out.matches(&alpha_head).count(),
+        1,
+        "one head, printed once: {out}"
+    );
+
+    // `--json` is the same derivation, and names each hearth distinctly.
+    let (code, listed, stderr) = ws.run(&["realms", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    let journal = |index: usize| {
+        view["realms"][index]["journal"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+    };
+    assert_eq!(journal(0), "./state/alpha.db");
+    assert_eq!(journal(1), "./state/beta.db");
+    assert_eq!(
+        view["journal"].as_str().unwrap().replace('\\', "/"),
+        "./state/world.db",
+        "the world's own journal is neither realm's"
+    );
+    assert_eq!(
+        view["realms"],
+        json!([
+            {"name": "alpha", "path": "alpha", "default_branch": "main",
+             "head": alpha_head, "journal": view["realms"][0]["journal"]},
+            {"name": "beta", "path": "beta", "default_branch": "trunk",
+             "head": beta_head, "journal": view["realms"][1]["journal"]},
+        ])
+    );
+
+    // A readout of two repositories still writes nothing to either.
+    for hearth in ["state/world.db", "state/alpha.db", "state/beta.db"] {
+        assert!(!ws.path().join(hearth).exists(), "{hearth} was created");
+    }
+}
+
+/// Phase 2 slice (i), proof 5, the `runs` half: the fleet of a world of
+/// two REAL repositories, grouped by realm and read side by side
+/// (decision 0026 rulings 3 and 5).
+///
+/// `a_many_hearth_world_lists_its_fleet_grouped_by_realm` above already
+/// proves the GROUPING — but its realms are both `.`, one tree, two
+/// journals, so nothing in it could tell a world of two repositories
+/// from a world of one read twice. What is new here is that the realms
+/// are two distinct git trees at two distinct heads, and the proof of it
+/// is that each hearth's run recorded its OWN repository's head under
+/// its OWN realm's name. Merging the two hearths, or reading one repo
+/// for both, would put the same sha in both journals.
+#[test]
+fn a_many_hearth_world_of_two_repositories_lists_its_fleet_grouped_by_realm() {
+    let ws = Workspace::new(Some(two_repository_map()));
+    let (alpha_head, beta_head) = two_repositories(&ws);
+    let (code, alpha_run, stderr) = ws.brokkr_run(&["--repo", "alpha", "--db", "state/alpha.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, beta_run, stderr) = ws.brokkr_run(&["--repo", "beta", "--db", "state/beta.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+
+    // One section per realm, in map order, each holding only its own run.
+    let (code, grouped, stderr) = ws.run(&["runs"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let lines: Vec<&str> = grouped.lines().collect();
+    assert!(lines[0].starts_with("alpha · 1 run · "), "{grouped}");
+    assert!(lines[1].starts_with(&alpha_run), "{grouped}");
+    assert_eq!(lines[2], "", "a blank line parts the hearths: {grouped}");
+    assert!(lines[3].starts_with("beta · 1 run · "), "{grouped}");
+    assert!(lines[4].starts_with(&beta_run), "{grouped}");
+    assert_eq!(lines.len(), 5, "{grouped}");
+
+    // `--json` is the SAME grouping: never a merged list.
+    let (code, listed, stderr) = ws.run(&["runs", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(view["count"], json!(2));
+    assert_eq!(view["realms"][0]["realm"], json!("alpha"));
+    assert_eq!(view["realms"][0]["runs"].as_array().unwrap().len(), 1);
+    assert_eq!(view["realms"][0]["runs"][0]["run_id"], json!(alpha_run));
+    assert_eq!(view["realms"][1]["realm"], json!("beta"));
+    assert_eq!(view["realms"][1]["runs"].as_array().unwrap().len(), 1);
+    assert_eq!(view["realms"][1]["runs"][0]["run_id"], json!(beta_run));
+
+    // And what makes this two repositories rather than one tree read
+    // twice: each hearth's run recorded its own tree's head, keyed by
+    // its own realm — two shas, never one, never the neighbour's.
+    let alpha_heads = recorded_heads(&ws.path().join("state/alpha.db"), &alpha_run);
+    let beta_heads = recorded_heads(&ws.path().join("state/beta.db"), &beta_run);
+    assert_eq!(alpha_heads, json!({ "alpha": alpha_head }));
+    assert_eq!(beta_heads, json!({ "beta": beta_head }));
+    assert_ne!(alpha_heads, beta_heads);
 }
 
 /// The whole point, end to end: the map names the journal, the run
