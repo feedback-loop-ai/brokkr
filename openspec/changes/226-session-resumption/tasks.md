@@ -128,10 +128,24 @@ saved for the phase commit.
       fact that only this change's engine writes — the 4.3 site stamp: a
       row carrying `site_ref` with `launch: resumed` requires
       `root_session`; an unstamped row keeps its v4 meaning and stays
-      valid. The refusal-reason-only-with-`cold` rule is unconditional,
-      because no shipped arm emits a reason beside `resumed` (the codex
-      resume path sets none), so it invalidates no history. No other
-      added constraint may fail a historical v4 or 0.10.0 row.
+      valid. Scope the refusal-reason-only-with-`cold` rule on the same
+      stamp, for the same reason. v4 admits `launch` and
+      `resume_refusal` independently
+      (`contracts/seat-record.v4.schema.json`), `step` is a free
+      bounded string, and the one validator behind
+      `crates/brokkr-store/src/lib.rs`'s fence judges third-party driver
+      checkpoints as well as built-in ones — so
+      `{"step":"resume-declined","resume_refusal":"incompatible-argv"}`
+      and a row carrying `launch: resumed` beside a reason are both
+      valid v4 rows that an unconditional rule would newly refuse under
+      v5, at append, export, import verification and offline
+      verification. Reading the shipped adapter arms establishes what
+      *those arms* write, never what every producer of a 0.10.0 row
+      wrote, so it cannot license an unconditional constraint. A row
+      carrying `site_ref` may therefore carry a refusal reason only
+      beside `launch: cold`; an unstamped row keeps its v4 meaning. No
+      added constraint may fail a historical v4 row or an unstamped
+      0.10.0 row.
       Diagnostics name contract and JSON pointer and never echo the
       rejected value — evidence / LE2, evidence / LE5.
 - [ ] 2.5 Use the one dispatch and validator at append, export, import
@@ -139,11 +153,16 @@ saved for the phase commit.
       `crates/brokkr-store/src/lib.rs`'s existing fence, so a private
       field, invalid enum or oversized identifier is refused before
       append and the attempt's failure is journaled through the existing
-      path. The unconditional invariant — that every `resumed` launch
-      *this change emits* carries confirmed root evidence — is enforced
-      where the records are produced, in group 7's lifecycle and proven
-      by the conformance suites of 5.8 and 9.7, not by refusing rows the
-      shipped engine already wrote — evidence / LE2, evidence / LE5.
+      path. Both unconditional invariants — that every `resumed` launch
+      *this change emits* carries confirmed root evidence, and that a
+      refusal reason *this change emits* appears only beside a cold
+      launch — are enforced where the records are produced, in group 7's
+      lifecycle and proven by the conformance suites of 5.8 and 9.7, not
+      by refusing rows another producer already wrote. Design D4 says
+      the same in one line: new **built-in conformance** requires root
+      evidence for `resumed` and a refusal only with `cold`, and no
+      added constraint invalidates historical rows — evidence / LE2,
+      evidence / LE5.
 - [ ] 2.6 Tests in `crates/brokkr-store/src/tests.rs`: a v4 row and a v5
       row each validate against their own contract; an old 0.10.0 row
       with none of the new fields still validates under v5; the
@@ -151,8 +170,13 @@ saved for the phase commit.
       `launch: resumed`, no `root_session` and no site stamp, in the
       exact shape shipped `codex_started` writes — still validates under
       v5 and is neither rewritten nor backfilled; the same row carrying a
-      `site_ref` stamp **is** refused; a refusal reason beside `resumed`
-      is refused; an 81-character `id` and a flag-like `id` are refused;
+      `site_ref` stamp **is** refused; the two unstamped
+      refusal-bearing compatibility rows a third-party driver may have
+      written under v4 — a checkpoint carrying `resume_refusal` with no
+      `launch` at all, and one carrying `launch: resumed` beside a
+      refusal reason — still validate under v5, and each **is** refused
+      once it carries a `site_ref` stamp; an 81-character `id` and a
+      flag-like `id` are refused;
       a Claude permission mode offered as `sandbox` is refused; export,
       import verification and offline verification agree with append on
       every one of these — evidence / LE2, evidence / LE5.
@@ -316,21 +340,39 @@ saved for the phase commit.
 
 - [ ] 6.1 Add the typed `resume` assessment to the adapter declaration in
       `crates/brokkr-runtime/src/agents.rs`: per named execution shape, a
-      status of `unmeasured | unsupported | supported`, the assessed CLI
-      or wrapper version and the installed version it applies to, the
-      applicable classes, boundaries and hands mode, the evidence
-      references, and the measured limitations. A supported entry must
-      name its interface, restriction, exact-root and current-accounting
-      evidence. Absence and malformation are two different outcomes and
+      status of `unmeasured | unsupported | supported`, an assessed
+      identity, the applicable classes, boundaries and hands mode, the
+      evidence references, and the measured limitations. The assessed
+      identity takes one of two explicit forms, because AS1 requires an
+      honest unmeasured declaration to be writable *before* anything is
+      measured (`Neither local nor supplied interface evidence exists`):
+      a **measured** identity naming the assessed CLI or wrapper version
+      and the installed version it applies to, or the explicit
+      **unknown** identity carrying a bounded non-empty reason. A
+      `supported` entry must carry a measured identity and name its
+      interface, restriction, exact-root and current-accounting
+      evidence, so an unknown identity can never be supported — which is
+      what leaves 8.1 a pinned version to compare the observed one
+      against wherever resume is enabled. An `unsupported` entry must
+      carry its bounded measured reason. An `unmeasured` entry carries
+      either form: unknown with its reason where nothing is measured
+      yet, or a measured identity that does not qualify the installed
+      version. Absence and malformation are two different outcomes and
       6.6 tests them as two: an **absent** `resume` key, or a shape the
       assessment does not name, resolves to `unmeasured`, loads, and
       enables nothing — the site compiles and invokes cold. Data that is
       **present and malformed** — a bare `true`, a status outside the
-      three tokens, a supported entry missing one of its four evidence
-      references, an assessment with no assessed version — is not
-      normalized to `unmeasured`; the loader refuses it (6.2), so an
-      authoring error cannot pass as an honest "not yet measured".
-      Neither outcome ever enables resume (design D5) — safety / AS1.
+      three tokens, a supported entry missing a measured identity or one
+      of its four evidence references, an unsupported entry with no
+      measured reason, an assessment carrying neither identity form, an
+      unknown identity with no reason — is not normalized to
+      `unmeasured`; the loader refuses it (6.2), so an authoring error
+      cannot pass as an honest "not yet measured". An explicitly unknown
+      identity inside an otherwise well-formed `unmeasured` assessment
+      is **not** malformed: it is that honest declaration, and treating
+      it as an authoring error would make the preparatory declarations
+      of 6.4 unwritable. Neither outcome ever enables resume
+      (design D5) — safety / AS1.
 - [ ] 6.2 Validate that shape in the loader and let the existing adapter
       content digest pin it, so a declaration edit moves bundle identity
       as it does today — safety / AS1.
@@ -341,14 +383,23 @@ saved for the phase commit.
 - [ ] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
-      change: Codex's historically supported work shapes recorded against
-      0.148.0 and **disabled** pending 10.5's remeasurement on installed
-      0.153.4; Claude's boxed-workspace shape recorded with the 2.1.266
-      interface capture and **disabled** pending 10.6; DSH's headless
-      work shape **unmeasured** pending 10.3's route and 10.7's proof,
-      with the hands deferral left where it is and named as a separate
-      matter; LaneTally **unmeasured** pending 10.8 and never marked by
-      analogy to Claude.
+      change, each one loadable now under one of 6.1's two identity
+      forms and none of them waiting on group 10: Codex's historically
+      supported work shapes **unmeasured** against the *measured*
+      0.148.0 identity decision 0030 records, with the reason naming
+      installed 0.153.4 and 10.5's pending remeasurement; Claude's
+      boxed-workspace shape **unmeasured** against the *measured* 2.1.266
+      interface identity in
+      `.forge/controller-host-provider-interface.json`, with the reason
+      naming the enforcement proof 10.6 still owes; DSH's headless work
+      shape **unmeasured** with the *unknown* identity and a bounded
+      reason naming 10.3's unestablished route and 10.7's proof, with
+      the hands deferral left where it is and named as a separate
+      matter; LaneTally **unmeasured** with the *unknown* identity and a
+      bounded reason naming the wrapper identity 10.4 owes and 10.8's
+      proof, never marked by analogy to Claude. 10.1–10.4 refine these
+      identities and group 11 flips the statuses; neither is a
+      prerequisite of writing them.
       `adapters/exec.json` gains no assessment — safety / AS1.
 - [ ] 6.5 Update the scaffolded adapter text in
       `crates/brokkr-cli/src/init.rs` and its expectations in
@@ -358,12 +409,19 @@ saved for the phase commit.
 - [ ] 6.6 Tests in `crates/brokkr-runtime/src/agents/tests.rs`, holding
       6.1's two outcomes apart: each of the three statuses parses; an
       adapter with **no** `resume` key loads, resolves to `unmeasured`,
-      and its site compiles and invokes cold; a **present** bare `true`,
-      an unknown status token, a supported entry missing one of its four
-      evidence references and an assessment whose assessed version is
-      absent are each a loader refusal naming the offending field, not a
-      silent downgrade to `unmeasured`; the digest moves when an
-      assessment moves — safety / AS1.
+      and its site compiles and invokes cold; an `unmeasured` assessment
+      carrying the explicit unknown identity and its bounded reason —
+      the shape 6.4 writes for DSH and LaneTally — loads, enables
+      nothing and invokes cold; an `unmeasured` assessment carrying a
+      measured identity that does not qualify the installed version —
+      6.4's Codex and Claude shapes — likewise loads and enables
+      nothing; a **present** bare `true`, an unknown status token, a
+      supported entry missing a measured identity, a supported entry
+      missing one of its four evidence references, an unsupported entry
+      with no measured reason, an assessment carrying neither identity
+      form and an unknown identity with no reason are each a loader
+      refusal naming the offending field, not a silent downgrade to
+      `unmeasured`; the digest moves when an assessment moves — safety / AS1.
 
 ## 7. The launch lifecycle (design D7, evidence half)
 
@@ -831,11 +889,14 @@ touched.
   least one task, and every task names the requirement it serves. The
   breakdown holds **101** tasks in 15 groups.
 - `openspec validate 226-session-resumption --strict --no-interactive`
-  did **not** run, on the first visit or on the return: this seat's shell
-  refuses the `openspec` binary, so the strict validator and the status
-  readout have no result from here. Analyze reports running it
-  successfully against the artifacts as they stood before this return's
-  repairs, which touch task prose and numbering only.
+  did **not** run, on any of the three visits. The binary is on this
+  seat's PATH (`/home/vyanakiev/.volta/bin/openspec`) — correcting the
+  earlier reading that it was absent — but the sandbox refuses to
+  execute it, so the strict validator and the status readout still have
+  no result from here. Analyze ran it successfully on both of its
+  visits, most recently against the artifacts as they stood before this
+  second return's repairs, which touch task prose only: no task was
+  added, removed or renumbered.
   The specify and design passes recorded their own passing runs; this
   file's shape follows `dialects/openspec/tasks.md` and the archived
   `2026-09-06-boundary-named-slice-i/tasks.md` precedent.
@@ -872,15 +933,22 @@ the tasks to what those artifacts already say.
   records are produced, group 7's lifecycle with the 5.8 and 9.7
   conformance suites. 2.6 gains the historical 0.10.0
   resumed-without-root regression the finding asked for, alongside the
-  stamped row that must still be refused. Verified while repairing: no
-  shipped arm emits a refusal reason beside `resumed`, so that half of
-  2.4 stays unconditional and invalidates nothing.
+  stamped row that must still be refused. **That repair carried one
+  false claim**, corrected in the second return below: it argued from
+  the shipped adapter arms that the refusal-reason half of 2.4 could
+  stay unconditional. The shipped arms are not the only producers the
+  shared validator judges, so that half is now scoped on the same site
+  stamp.
 - **F2 (MEDIUM), 6.1 and 6.6.** The two tasks demanded different
   observable outcomes for the same input. Reconciled on the distinction
   the finding names, which is also design D5's: an *absent* `resume` key
   resolves to `unmeasured`, loads and compiles cold; *present malformed*
   data is a loader refusal naming the field, never a silent downgrade.
-  Neither outcome enables resume.
+  Neither outcome enables resume. That distinction stands. **The list of
+  what counts as malformed was wrong** in one entry, corrected in the
+  second return below: it made an assessment with no assessed version a
+  refusal, which would have refused the honest unmeasured declarations
+  6.4 must write today.
 - **F3 (MEDIUM), the header, group 10, 6.4, 8.8, 9.1, group 11 and the
   progress record.** Group 10 is split at its real seam: 10.1–10.4 are
   interface investigation, preparable here from installed help, source
@@ -901,6 +969,58 @@ the tasks to what those artifacts already say.
 The repair added four tasks (97 to 101) and moved no requirement citation:
 all 19 requirements remain named.
 
+## Return — analyze drift, second visit, 2026-09-09
+
+Two findings, both owned by this file, both defects in the *previous
+return's own repairs* rather than in anything the proposal, the four
+deltas or the design says. Repaired here; again no other artifact was
+edited, and no task was added or renumbered — the breakdown still holds
+101 tasks in 15 groups and still names all 19 requirements.
+
+- **F5 (HIGH), 2.4, 2.5, 2.6 and the F1 record.** The F1 repair scoped
+  the resumed-requires-root rule on the site stamp and then argued that
+  the second rule — a refusal reason only beside `cold` — could stay
+  unconditional, because no shipped adapter arm emits a reason beside
+  `resumed`. That is an inspection of the built-in arms, and the fence
+  it constrains is not theirs alone: `crates/brokkr-store/src/lib.rs`
+  runs one validator over every appended, exported and verified record,
+  third-party driver checkpoints included, and v4 admits `launch` and
+  `resume_refusal` independently
+  (`contracts/seat-record.v4.schema.json:265-278`) over a free `step`
+  string. So `{"step":"resume-declined","resume_refusal":"incompatible-argv"}`
+  and `{"step":"harness-started","launch":"resumed","resume_refusal":"incompatible-argv"}`
+  are valid v4 rows — synthetic contract counterexamples, not observed
+  provider telemetry — and with 2.3 dispatching the whole 0.10.0 line to
+  v5, an unconditional rule would newly refuse them at export, import
+  verification and offline verification. Repaired the way the finding
+  allows and the way D4 already words it: the fence rule is scoped on
+  the 4.3 site stamp, the unconditional form binds this change's
+  producers through group 7's lifecycle and the 5.8/9.7 conformance
+  suites, 2.6 gains both unstamped refusal-bearing compatibility
+  regressions and their stamped refusals, and the F1 record above no
+  longer states the claim that failed.
+- **F6 (MEDIUM), 6.1, 6.4, 6.6 and the progress record.** The F2 repair
+  listed "an assessment with no assessed version" among the present-and-
+  malformed data the loader refuses, while 6.4 requires four explicitly
+  `unmeasured` assessments to be written *now* — and no wrapper
+  measurement exists for LaneTally, whose identity 10.4 still owes, nor
+  a route for DSH, which 10.3 still owes. The preparatory declaration
+  would therefore have had to fail its own loader, invent an assessed
+  version, or be omitted against 6.4 and the progress record's claim
+  that group 6 is preparable. The absent-versus-malformed distinction is
+  untouched; what was wrong was treating an honestly unknown identity as
+  an authoring error. 6.1 now gives the assessed identity two explicit
+  forms — a measured identity, or an unknown identity with a bounded
+  reason — requires the measured form of every `supported` entry (so
+  8.1 keeps a version to compare against), requires a bounded measured
+  reason of every `unsupported` entry, and refuses an assessment
+  carrying neither form or an unknown identity with no reason. 6.4 now
+  says which form each of the four declarations takes and why it is
+  writable today; 6.6 tests both loadable unmeasured shapes beside the
+  refusals. This keeps AS1's `Neither local nor supplied interface
+  evidence exists` scenario satisfiable and LaneTally independently
+  assessed, and reopens no part of the enabled delivery minimum.
+
 ## Progress
 
 Nothing is in progress: this file is the tasks phase's artifact and no
@@ -918,8 +1038,13 @@ by group number:
   follow their subjects.
 - **Blocked on dated controller host evidence**: 10.5–10.8, and group 11
   entirely, which flips no declaration without them. Group 6 is *not*
-  blocked: 6.4 records the honest disabled or unmeasured status
-  meanwhile, which is what makes the declarations landable now.
+  blocked, and not on the investigation either: 6.1's two identity forms
+  are what make 6.4's four declarations writable today — Codex and
+  Claude against measured identities that do not qualify the installed
+  version, DSH and LaneTally against the explicit unknown identity with
+  a bounded reason. 10.1–10.4 refine those identities and group 11 flips
+  the statuses; a group 6 declaration written now is honest without
+  either.
 - **Blocked on the host**: 15.5's coverage gate. Inside a nested sandbox
   it is pending host proof, and skipped boundary tests prove nothing.
 - **The controller's, not this fire's**: everything named in 15.8, whose
