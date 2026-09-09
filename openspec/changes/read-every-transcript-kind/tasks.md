@@ -681,9 +681,34 @@ task:
       until the next re-check; count every automatic opening, including the
       tick's, against that interval's single budget, while a second immediate
       closure may repaint from a fresh body but opens no watch until the next
-      tick — transcript-reading / Browser participant drills obey shared
+      tick. Isolate these facts and transitions in one
+      start/end-marker-delimited block in the served page which exposes only
+      the private `createTranscriptController(effects)` factory and reaches
+      no ambient browser global; keep the production fetch, `EventSource`,
+      timer and DOM adapters thin and outside that extracted block. Every
+      explicit operator selection, including selection of the already active
+      identical subject, unconditionally starts a fresh generation and
+      re-check interval: close the exact prior watch, clear body/prose and
+      pending work, clear the refusal floor, restore one opening budget and
+      fetch fresh no-store presentation before any new callback can paint —
+      transcript-reading / Browser participant drills obey shared
       eligibility; Local lookup rejects paths that escape ownership.
-- [ ] 10.4 Tests in `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
+- [ ] 10.4 Add `boa_engine = "=0.21.1"` to `brokkr-cli`'s
+      dev-dependencies with default features disabled and update
+      `Cargo.lock` without upgrading unrelated registry dependencies. Add a
+      Rust harness in `crates/brokkr-cli/src/ui/tests.rs` that extracts the
+      marker-delimited controller block from the exact `PAGE` bytes,
+      evaluates that block with Boa, injects deterministic presentation/body
+      promises, identity-bearing watches, timers and paint/clear effects,
+      drains queued Promise jobs after every delivered event, and asserts both
+      the effect trace and the controller's small state snapshot. Keep no
+      copied JavaScript fixture, Rust transition twin, DOM/network simulation
+      or test engine in production dependencies; verify the harness executes
+      the extracted served bytes and the release dependency tree excludes Boa
+      — transcript-reading / Browser participant drills obey shared
+      eligibility.
+- [ ] 10.5 HTTP and thin-adapter tests in
+      `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
       stale flat id; an eligible Claude participant showing the shared
@@ -703,10 +728,16 @@ task:
       mid-watch; `Cache-Control: no-store` on presentation and every API
       body response with no-store presentation/body refetches; and the retired
       holder sentence and both retired truncation suffixes absent from the
-      page.
-      Add executable client transition traces driven by controlled
-      presentation/body promises, fake EventSource open/error callbacks and
-      recurring timer ticks rather than source-string containment alone:
+      page. Assert the production adapter constructs the controller exactly
+      once, percent-encodes path components, requests no-store presentation
+      and body reads, owns exact `EventSource` and timer handles, and paints
+      untrusted values only through `textContent` — transcript-reading /
+      Browser participant drills obey shared eligibility; Every kind obeys
+      the same source and display caps.
+- [ ] 10.6 Execute controller transition traces through the 10.4 harness,
+      driven by controlled presentation/body promises, fake `EventSource`
+      open/error callbacks and recurring timer ticks rather than
+      source-string containment alone:
       admitted Codex, DSH and foreign-home Claude selections make zero id-only
       requests and watches across re-checks; a concluded successful zero-turn
       Claude body makes one total request; a persistently unreadable admitted
@@ -717,7 +748,13 @@ task:
       journal clears cached and displayed prose, closes the exact old watch
       and rejects its late response; later admission recovers through fresh
       presentation/body work; and identity or eligibility change resets only
-      the new key's generation and budget —
+      the new key's generation and budget. Add an adversarial
+      identical-subject reselection trace that first exhausts the current
+      refusal floor and watch budget, then reselects that same full subject and
+      proves a fresh generation, presentation, body and eligible watch opening
+      while late body, presentation and watch callbacks from the prior
+      generation remain inert. Verify every trace against ordered effects,
+      request/watch counts and state snapshots after drained Promise jobs —
       transcript-reading / Browser participant drills obey shared eligibility;
       Every kind obeys the same source and display caps.
 
@@ -802,12 +839,23 @@ task:
       refuses the boundary tests, record the host proof as pending for
       the controller and never report a skipped boundary test as evidence —
       every requirement of this change.
-- [ ] 13.6 Confirm the frozen set is untouched — `contracts/`,
+- [ ] 13.6 Validate the changed dependency graph with Rust 1.88
+      `cargo check --workspace --locked`, `cargo deny check licenses` and
+      `cargo audit`; confirm `boa_engine` is exactly 0.21.1 with default
+      features disabled, appears only in `brokkr-cli`'s development graph,
+      and is absent from the release binary's production graph. Require the
+      controller's final CI evidence for workspace tests on Linux, macOS and
+      Windows plus the MSRV, license and audit jobs; until those remote results
+      exist record them as pending rather than green, and if any platform or
+      admission gate rejects Boa return upstream to design instead of
+      weakening the exact-served-code proof — every requirement of this
+      change.
+- [ ] 13.7 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
       change.
-- [ ] 13.7 Fold the change into the living truth with the dialect's
+- [ ] 13.8 Fold the change into the living truth with the dialect's
       archive operation, `openspec archive read-every-transcript-kind
       --yes`, so the three deltas seed `openspec/specs/`; append under
       each touched capability's `## Provenance` heading the one pointer
@@ -817,7 +865,7 @@ task:
       without rewriting an existing line, and re-run
       `openspec validate --archived --strict --no-interactive` — every
       requirement of this change.
-- [ ] 13.8 Commit the work unsigned in the repository's message style,
+- [ ] 13.9 Commit the work unsigned in the repository's message style,
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.
