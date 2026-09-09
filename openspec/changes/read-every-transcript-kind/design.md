@@ -1,543 +1,843 @@
 ## Context
 
-Adopted change: **read-every-transcript-kind**, issue #222, at `4e815aa`,
-descending from commissioned shipped main
-`5bc8cf305aaef9af269866cbf83f094939691399`. See [proposal.md](proposal.md)
-for motivation and the three capability deltas for the acceptance contract.
+Adopt **read-every-transcript-kind** at `117628b`, issue #222, on shipped
+main `5bc8cf305aaef9af269866cbf83f094939691399`. See
+[proposal.md](proposal.md) for motivation and the three capability deltas for
+requirements. This sitting belongs to run
+`close-issue-222-a-transcript-rea-df38565b`. Its supplied clarification result
+is `clear`; no new `returned_from` finding accompanies this sitting.
 
-**Disposition: upstream.** This is a council design record, not a completed
-design admission. Decisions D1–D9 below fix the architecture that remains
-valid. U1–U2 identify requirements that must be amended before the provider
-decoders and proposed decision 0055 can be completed coherently. They are
-evidence-backed specification findings, not implementation discretion or
-deferrable open questions. No tasks or production implementation is authored
-on this visit.
+The historical design at `6ece1ea` returned U1/U2 to specification. Those
+findings are now **answered**, not outstanding: reading R14/R15, command
+C6/C7 and TUI T5/T6 govern required unknown DSH events, packed rows and
+citations. R16/C8/T7 additionally settle opening-header version admission.
+S10 preserves citation-set membership despite the provider replay decoder's
+stricter ordering. This revision incorporates those answers throughout.
+All earlier reference, compatibility, fallback, diagnostic and browser
+answers remain in force. No requirement or scenario is removed.
 
-The fourth clarification pass at `4e815aa` is clear. Its fourteen previous
-answers remain intact: proposal S1–S8, reading R1–R13, command C1–C5 and TUI
-T1–T4. In particular, Codex filename identity needs no header; the Codex
-identifier language is its engine's own language; and a rejected common
-reference is still echoed. None of those three settled findings is reopened.
-There is no `returned_from` finding supplied for this design visit.
+The existing code has the needed surface seams but the wrong transcript
+boundary. `ui.rs:167-316` owns Claude `Block`, `Turn`, discovery and parsing;
+`tui.rs:420-451` admits only Claude; `lib.rs:734-886` refreshes by file
+length. `brokkr-view::Transcript` already carries the three recorded strings.
+The browser still trusts a flat session id. Move interpretation into the
+pure view crate and make these callers consume one local result.
 
-The shipped seams explain the change:
-
-| Existing seam | Consequence for this design |
-|---|---|
-| `crates/brokkr-cli/src/ui.rs:167-316` owns `Block`, `Turn`, Claude lookup, parsing and the display cap. | Extract the content model/projector, preserve Claude's supported blocks, and replace the unbounded file read. |
-| `crates/brokkr-cli/src/tui.rs:420-451` admits only Claude sessions; its transcript state and watch use a Claude id and length. | Replace eligibility and snapshot state, while retaining the keys and reading overlays. |
-| `crates/brokkr-view/src/lib.rs:1959-1971` can retain a legacy flat id without the TUI's provenance guard; `ui.html:978-1010` trusts it. | Participant presentation must use the common local selection result, including recorded-home authority. |
-| `crates/brokkr-protocol/src/adapters.rs:956-999,1351-1395,1795-1800` supplies discovery/identifier precedent; `transcript.rs:15,73` clamps recording at 80 characters. | Match the settled compatibility predicates without editing adapters or reconstructing clipped identifiers. |
-
-Decisions 0004/0005, 0009, 0013/0014, 0030, 0032, 0034 and 0042 constrain
-the design: deterministic refusal, Rust production, shared pure derivation,
-read-only surfaces, same-seat ownership, retained originals, paths-only
-journal facts, and separate specification/design/tasks judgments. The
-decision registry still ends at 0053 on this worktree. Controller
-reservations 0054, 0055 and 0056 remain as commissioned; their absence here
-does not imply that sibling work landed.
+Decisions 0004/0005, 0009, 0013/0014, 0030, 0032, 0034 and 0042 bind this
+work: explicit refusals, Rust production, shared derivation, read-only
+surfaces, retained ownership, prose-free journals and separate phase
+judgments. The registry ends at 0053 in this worktree. The controller's
+0054/0055/0056 reservations stand; no sibling integration is assumed.
 
 ### Evidence and its limits
 
-Read both complete council positions:
-`.forge/design/positions/robustness.md` and
-`.forge/design/positions/simplicity.md`. They remain run-local evidence.
-The simplicity position identifies its baseline as `f9abdc4`; the chief
-reconciles its claims against the adopted `4e815aa` requirements.
+Both current positions were read completely:
+`.forge/design/positions/robustness.md` (413 lines) and
+`.forge/design/positions/simplicity.md` (259 lines), each against `117628b`.
+They are run-local evidence, not artifacts to commit. D1 reconciles their
+current claims; the earlier sitting's rejected scope cuts remain recorded
+in proposal S9 and git history.
 
-The robustness seat reports installed Codex 0.153.4, DSH 0.1.2-rc.1, Claude
-Code 2.1.266, and Codex resume help. Those are that seat's reported
-measurements, not chief measurements. The chief's workspace exposes
-OpenSpec/node/python3 but no codex/dsh/claude/cargo/rustup. All repository
-reads and writes use the workspace tool. No provider home, global
-configuration, sibling worktree or live model session was accessed.
+The chief can run OpenSpec, Python and Node through the workspace tool, but
+this box exposes no Cargo, rustup, Codex, DSH or Claude executable. A bounded
+public-source fetch from inside the box also failed DNS resolution. Provider
+help reported by robustness (Codex 0.153.4, DSH 0.1.2-rc.1, Claude 2.1.266)
+is council-reported evidence, not a fresh chief measurement. Accepted 0030
+independently records the Codex resume spelling. No hint is live resumption,
+credential, session-ownership or sandbox-reimposition proof for #226.
 
-To check the reported format claims, the chief read the following public
-primary sources on 2026-09-09. These are tagged source observations, not
-live rollout measurements or proof of an installed binary's exact build.
-Unversioned master and failed fetches are not support claims.
+The chief rechecked `.forge/controller-dsh-transcript-storage-interface.json`:
+all 42 captured source texts match their SHA-256 values. It records installed
+public packages at 2026-09-09T08:10:13.444450+00:00, not operator transcripts.
+The session and persistence packages identify 0.1.2-rc.1. Principal bindings:
 
-| Source | Observed fact and design consequence |
+| Captured source, relative to its package | SHA-256 / fact used |
 |---|---|
-| [Codex rust-v0.153.4 rollout persistence policy](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/rollout/src/policy.rs), `should_persist_event_msg` | Paginated history persists `ItemCompleted`; legacy user/agent/reasoning events have a different persistence policy. Completed items fit the existing Brokkr preference rule (D9). |
-| [Codex rust-v0.153.4 item types](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/items.rs), `TurnItem` | Completed items contain typed user/agent messages, readable summary text and tool information. They are not merely lifecycle notifications. |
-| [Codex rust-v0.153.4 protocol](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/protocol.rs), `ItemCompletedEvent`, `AgentMessageEvent`, `AgentReasoningEvent` | Completed items carry thread/turn/item identity. The two legacy text event structs have no message/item id. An identity rule cannot be invented for those mirrors. |
-| [Codex rust-v0.153.4 response models](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/models.rs), `ResponseItem`, `ReasoningItemReasoningSummary` | Response messages carry ordered content; reasoning summaries carry text; function/custom calls retain argument/input strings and call ids. Raw/encrypted reasoning is not a summary. |
-| [DSH dsh-v0.1.2-rc.1 session types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/core/session/src/types.ts), `SessionEvent`, `SurfaceIntent` | Required unknown events and explicit source citations have semantics that the present requirements do not fully express (U1/U2). Timestamps are epoch milliseconds. |
-| [DSH dsh-v0.1.2-rc.1 JSONL format](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/session/session-persistence-jsonl/src/format.ts), `eventLines`, `encodeProvenanceForStorage` | The writer can pack chunks and range-encodes source citations even when packing is disabled. In-memory event types alone do not describe the persisted bytes. |
-| [DSH dsh-v0.1.2-rc.1 chunk rows](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/core/session/src/chunk-rows.ts), `ChunkRow`, `decodeStorageRecord` | Packed text/reasoning/tool-argument rows represent multiple events with preserved member boundaries. A row decoder must precede the event projector (U2). |
+| session `lib/types/types.d.ts` | `8e33c2a629ed12b2456ca9c827e131a3a15f452d640696fa0df55a6a5f4a2f6e`; event envelopes, data nesting, depth and citation ownership. |
+| session `lib/types/known-event-types.js` | `e7aee13d1dd119fa2c2ef6818eada27e547b2f20bccdbd4f1dadde0012a8c4f7`; closed recognized event vocabulary. |
+| session `lib/types/chunk-rows.js` | `5724c4f798ed07e77406ab13a75685622a3e08868f257cbd142949099f0ea4c2`; packed members, sequence and time reconstruction. |
+| session `lib/types/seq-ranges.js` | `68a127c76affa98edeeb50e302eb43f154f4d24f7d04cb95ba8b323e88f3d09e`; inclusive ranges; its replay ordering restriction is deliberately not adopted. |
+| persistence-jsonl `lib/index.js` | `dfd6cde28928996f2f44220d013359563c8d9bf6c9c904972e77256767eec385`; opening version check and stored JSONL representation. |
 
-This evidence does not establish every mirrored Codex producer sequence,
-every DSH content variant, or the limits as measured provider maxima.
-Proposal S3's remaining precise evidence obligation is carried below; S5's
-bounds remain proposed policy. No model experiment is needed.
+Public primary sources were additionally inspected through the browsing tool
+on 2026-09-09. The links below pin source tags; they do not attest to an
+installed binary's exact build or to a live retained file:
+
+- Codex `rust-v0.153.4`: [persistence policy](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/rollout/src/policy.rs),
+  [response models](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/models.rs),
+  [completed item types](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/items.rs),
+  [dynamic tool wire types](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/dynamic_tools.rs)
+  and [event protocol](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/protocol.rs).
+  They establish the payload mappings in D5, including persisted completed
+  items and summary-only reasoning.
+- Codex [event mapping](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/core/src/event_mapping.rs),
+  [legacy conversion](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/protocol/src/legacy_events.rs),
+  [producer sequencing](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/core/src/stream_events_utils.rs)
+  and [session persistence](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/core/src/session/mod.rs)
+  constrain association, including where identity is absent; D5 states the
+  measured relationships and the limits of positional inference.
+- DSH `dsh-v0.1.2-rc.1`: [message types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/llm/llm/src/message.ts)
+  and [blocks and streaming chunks](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/llm/llm/src/types.ts)
+  complete the data nesting behind the controller's session types (D6).
+
+S5's bounds are proposed reader policy, not a measured distribution of
+provider homes, header lengths or performance. None of these observations
+requires a paid model experiment, transcript copying or global settings.
 
 ## Goals / Non-Goals
 
-**Goals:** one bounded, deterministic projection behind the transcript verb
-and existing terminal doors; explicit reference, discovery, read and
-projection states; preservation of the existing Claude content and browser
-response; independently testable ownership and privacy boundaries; a design
-whose provider claims identify their evidence.
+**Goals:** give every commissioned local reader the same typed answer;
+separate authority, safely opened bytes and interpretation; retain interrupted
+content; make every failure and refresh transition testable; preserve the
+existing Claude content and successful HTTP envelope.
 
-**Non-Goals:** engine or adapter resumption/launch changes owned by #226,
-provider execution, journal accounting changes, joining attempts or seats,
-persistent transcript caches, new Codex/DSH browser body routes, binary/media
-fetching, provider session reconstruction for execution, or edits to frozen
-contracts, policy, reference or fixtures. Showing a provider hint supplies no
-launch or sandbox evidence.
+**Non-Goals:** a provider plugin API, a new crate, replaying provider execution,
+joining seats or attempts, a persistent body cache, a file watcher, Codex/DSH
+browser body routes, media fetching, accounting changes, or #226's launch
+and resumption work. Frozen contracts, policy, reference and fixtures stay
+unchanged. No new provider dependency is needed.
 
 ## Decisions
 
-### D1 — Reconcile both positions without reducing the commissioned story
+### D1 — Reconcile the current council by claim
 
-The council is resolved by claim, not by averaging the two designs.
-
-| Council claim | Disposition and reason |
+| Position / claim | Resolution and evidence |
 |---|---|
-| Robustness: staged selection, safe opening, bounded snapshot, pure projection, shared presentation. | **Adopt.** These stages enforce the adopted ownership, cap and diagnostic requirements and expose testable failure boundaries. |
-| Simplicity: reuse the existing Turn shape and keep the implementation small. | **Combine.** Preserve the three-field Turn/block wire shape, use two cohesive modules and closed enum dispatch; introduce no provider plugin framework. Rich result metadata is still required. |
-| Simplicity: put every parser and I/O operation in one CLI module. | **Reject the placement.** The adopted reading requirement explicitly locates pure derivation in brokkr-view. The crate already depends on serde/serde_json; moving serializable structs adds no dependency cycle or new registry crate. I/O remains in CLI. |
-| Simplicity cut 1: canonical-only records and deferred interrupted tails. | **Reject.** It removes R1/R2 and T1's settled behavior and contradicts the continuation's instruction to preserve answers. Missing association evidence goes upstream; it does not authorize dropping retained event/chunk content. |
-| Simplicity cut 2: preserve first-match, unbounded, symlink-following Claude lookup. | **Reject.** R11 explicitly accepts the compatibility costs. Enumeration order cannot prove uniqueness, and a second discovery policy would defeat the shared ownership boundary. |
-| Simplicity cut 3: remove unknown-record counts and the Claude omission table. | **Reject.** Malformed JSON and valid unknown content are different facts. R3/R9 are settled; silently dropping a future type would erase the diagnostic the requirements promise. U1 concerns DSH's required-event distinction, not removal of diagnostics. |
-| Simplicity cut 4: coerce invalid DSH depth as the adapter does. | **Reject.** R8 deliberately refuses invalid ownership evidence. No adapter change is needed or authorized in #222. |
-| Simplicity cut 5: drop the header byte bound or hide discovery exhaustion as unreadable. | **Reject.** Reading one line is not a byte bound; one line can be enormous. The declared limits and reason tokens remain observable policy under S5. |
-| Simplicity cut 6: retain only one TUI requirement. | **Reject the reduction; retain the keys.** Snapshot replacement can change earlier turn indices even on file growth. Selection invalidation and notices in both doors need the existing explicit obligations. |
-| Simplicity: a provenance filter in lib.rs replaces the browser requirement with no JavaScript changes. | **Reject as sufficient.** It fixes one symptom but does not suppress a stale flat id beside a rejected common reference, prove canonical home equality, or supply shared hints. Altering journal-derived compatibility fields is unnecessary for a separate local presentation result. |
-| Both: exact recorded homes, no stitching/newest-file guess, per-kind ids, common cap and hint table, C5 echo. | **Adopt unchanged.** These have direct ownership and compatibility evidence. |
-| Robustness: DSH required-unknown refusal. | **Adopt as upstream finding U1.** Installing a new refusal only in a parser would contradict the owning requirements. |
-| Robustness: modern Codex completed items require a new canonical policy. | **Combine format support; reject the proposed upstream change.** The existing event fallback rule already gives them content visibility and a deterministic preference relative to proven response counterparts; D9 explains why a provider-native canonical label need not change Brokkr's rule. |
-| Robustness: source citations suppress only proven DSH chunks. | **Combine with storage evidence in U2.** Citations are stronger than a step number; the persisted range/packed encoding must also be accounted for. |
-| Robustness: emit no lossy path spelling; use platform-aware verified handles. | **Adopt the invariant.** A leaf-only no-follow flag is insufficient if an ancestor can change. D3 requires handles for the entire walk and explicit failure when a platform cannot enforce it. |
+| Robustness: staged authority, safe open, bounded snapshot, pure projection and typed result. | **Adopt.** Reference rejection, DSH's two format-refusal states and empty success cannot be represented by the old `Option<(Vec<Turn>, bool)>`. |
+| Simplicity: one new production file in the view crate; orchestration stays in `ui.rs`. | **Adopt; revise historical D2.** `ui.rs` already serves both local transcript consumers. A second CLI transcript module supplies no additional boundary. Run/world resolution stays in `lib.rs`, rendering in `render.rs`. |
+| Both: closed enum dispatch; reuse `Transcript`, `Turn` and `Block`. | **Combine.** Reuse the existing reference, move the content shape, and add a closed outcome. Private source positions do not become a second public event model. |
+| Robustness: provider-specific validated states and private source identity. | **Adopt within ordinary structs/enums.** Pure constructors guard invariants; no service hierarchy, exception framework or plugin trait is needed. |
+| Simplicity: reject replay graphs, body caches, watchers and generalized browser transport. | **Adopt.** None serves an additional settled scenario; each adds independent state or exposure. |
+| Both: retain all repaired fallbacks, diagnostics, Claude restrictions and refresh behavior. | **Adopt.** The current simplicity position explicitly withdraws the earlier scope cuts. S9's refusals remain valid; this sitting does not attribute those obsolete cuts to the current position. |
+| Robustness: checked directory/file handles across discovery and read. | **Adopt.** Shipped `is_file` plus path reopening can follow replaced ancestors. D3 chooses a bounded platform helper rather than merely promising later research. |
+| Simplicity: keep that helper local, with narrowly featured OS dependencies if needed. | **Adopt.** D3 confines it to `ui.rs`; proposed 0055 states the narrow dependency exception. No reusable sandbox library or provider SDK follows. |
+| Both: response preference plus content-bearing Codex completed events. | **Adopt historical D9.** Persistence policy stores completed items; calling them all lifecycle metadata would recreate unreadability. The existing R1 preference applies only to proved counterparts. |
+| Both: unknown Codex association preserves content, not guessed suppression. | **Adopt with an explicit evidence limit.** D5 pins the measured id relationships and declines unproved legacy suppression. This does not claim universal duplicate-free legacy support. |
+| Robustness: DSH ownership, then version admission, then event/storage classification. | **Adopt R14-R16 completely.** The current requirements already answer U1/U2; returning those same findings would be stale. |
+| Simplicity: five grouped decision rulings instead of copying 168 scenarios. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
+| Both: author and file 0055 in this council commit. | **Adopt authorship; decline out-of-scope filing in this commit.** The rendered dialect names only `design.md`, and the office must commit exactly its artifacts. D10 supplies the full chief-authored decision and registry row for mechanical filing before any semantic production edit. This preserves the commission's proposed-decision prerequisite without adding an undeclared artifact to this phase. |
 
-The simplicity position's delivery-cost concern is real. The remedy is to
-finish the evidence/requirement corrections together and retain a small
-implementation boundary, not to delete accepted answers. No fresh council
-or unrelated fire is started.
+The last distinction concerns artifact placement, not an unanswered behavior
+or a claimed acceptance. Tasks must make filing a prerequisite, not leave it
+until documentation cleanup. No semantic production change is authorized to
+precede the filed proposal. Decisions 0054/0056 remain the controller's.
 
-### D2 — One pure content model and one local orchestration module
+### D2 — One pure model, one existing I/O home
 
-Create `crates/brokkr-view/src/transcript.rs` for serializable content
-types, reference selection/lexical validation, record classification,
-canonical association, display budgeting, notices and hint derivation.
-Re-export the necessary types from the view crate. These functions accept
-supplied values and snapshot facts; they have no environment, filesystem,
-journal-write, provider, terminal or DOM access.
+Add only `crates/brokkr-view/src/transcript.rs` to the production source-file
+set. Reuse `brokkr_view::Transcript { kind, locator, home }`. Move the
+serializable `Turn { role, ts, blocks }` and `Block { kind, text }` shape
+there, with equality for cross-surface tests. Keep the five block kinds
+closed internally while serializing the required strings.
 
-Create `crates/brokkr-cli/src/transcript.rs` for read-only journal/seat
-resolution, effective local legacy home, filesystem discovery/opening,
-bounded byte snapshots and command rendering. The TUI and HTTP shell call
-this layer. Filesystem facts return to the pure model; the two crates do not
-independently decide eligibility or full_session.
+Use `TranscriptKind`, `Unavailable` and a local `TranscriptRead` with
+constructors for readable and refused results. Its selected reference and
+legacy flag are distinct from lookup admission. It owns confirmed path,
+turns, source/display truncation facts, counts, ordered notices, refusal and
+explanation, and `full_session`. CLI serialization adds run id, exact seat
+key and requested index without serializing private state. The thirteen
+reason tokens are exactly the command delta's vocabulary.
 
-Use ordinary structs plus closed enums, not a trait/plugin registry. Keep
-`Turn { role, ts, blocks }` and `Block { kind, text }` serialized exactly
-as required, with equality available for refresh comparisons. Keep private
-source identities beside candidates, never in that public Turn or RunView.
-A local result contains selected reference, legacy flag, resolution,
-confirmed path, projection/diagnostics, notices and full_session. The CLI's
-document adds full run id, exact participant key and requested turn.
+Pure functions select/validate a supplied reference, admit supplied snapshot
+facts, classify rows, associate content, cap turns and construct hints and
+notices. They access neither environment nor filesystem. `lib.rs` supplies
+read-only journal/world/participant facts; `ui.rs` supplies legacy-home,
+discovery and byte-snapshot facts. `render.rs`, `tui.rs` and `ui.html` paint
+those facts. Browser presentation serializes a narrow projection of the same
+result. `RunView` gains neither bodies nor local presentation fields.
 
-Do not flatten every failure into `Option` or infer failure from an empty
-vector. A readable empty file, capped empty prefix and unavailable reference
-are three distinct states. Selection precedes validation: a common reference
-is copied exactly for C5 even when it cannot authorize any read.
+Private candidates need only physical row/member position, optional
+association keys, block positions and the projected turn. Suppression may
+remove an echoed block while retaining the rest of a composite event. An
+empty block list removes that turn. Do not retain a second complete JSON
+object graph for the whole file. Store a private source stamp and bounded
+source/member identities beside the current TUI result, not in its JSON.
 
-The registry's 0055 reservation remains required. This upstream visit
-defers its **completed document and registration** until U1–U2 are answered
-in their requirements. Writing a nominally complete ruling that contradicts
-them would disguise the fault. The returned council must author
-`docs/decisions/0055-read-every-transcript-kind.md` with
-`Status: proposed` and its index row before implementation, carrying D2–D8
-and the repaired provider policies. It must explicitly propose to supersede
-only 0032 ruling 4's command-construction binding, as proposal S2 requires.
-Accepted decisions are not edited; 0054/0056 are not consumed.
+Alternatives rejected: a trait registry obscures the closed kind law; moving
+I/O into `brokkr-view` breaks decision 0013; separate surface parsers repeat
+the defect; a public replay/event ontology exceeds the `Turn` contract.
 
-### D3 — Selection and discovery produce a verified handle
+### D3 — Reference selection and discovery yield a safely opened source
 
-Apply reading R7/R8/R11/R12/R13 exactly. In particular, validate the complete
-recorded strings, distinguish the 128-character Codex language from the
-unchanged 80-character recording clamp, and never search to repair a clipped
-id. Resolve eligible legacy Claude provenance only when no common reference
-exists. Supply the ambient legacy home as an explicit local input.
+Select the latest common reference before validating it, preserving its
+three strings even on refusal. A present common reference defeats every
+legacy fallback. Only the specified absent/Claude/LaneTally legacy
+provenance can synthesize a valid Claude reference from supplied local HOME.
+An eligible nonempty invalid legacy id is `invalid-reference` with no
+synthesis. Exact participant key wins over label; an otherwise nonunique
+exact label reports all matching keys. A parent never borrows a child.
 
-Canonicalize the recorded home once; the home itself may be a symlink under
-R11. Open that canonical directory as the traversal root. Walk components
-relative to held directory handles, refusing symlinks/reparse traversal
-below the root, and admit only a regular leaf. Codex's sessions root is
-directory depth zero; files in directories at depths zero through six are
-eligible. DSH examines only its validated retained root and fixed two-level
-project/session layout. Preserve the declared filename predicates.
+Implement the reading delta's complete per-kind languages: Claude's leading
+hexadecimal and 1-64 characters; Codex's leading ASCII alphanumeric and
+1-128 characters; DSH's relative forward-slashed components and absolute
+recorded home. Never trim, case-fold, reclamp or expand a locator. The
+protocol's separate 80-character recording clamp stays unchanged.
 
-The 10,000-entry counter spans the whole lookup, including unrelated
-examined entries. A provisional match cannot short-circuit uniqueness.
-Record candidate count and refusal evidence independently; do not flatten
-directory iteration errors. Use the command requirement's reason
-precedence: inability to establish uniqueness through I/O is unreadable,
-limit exhaustion is discovery-limit, multiple qualifying files are
-ambiguous-source, and unsafe candidates cannot supply content. Derive refusals from accumulated typed facts under that requirement, not
-from whichever candidate the iterator yielded first. Tests must exercise
-competing facts as well as each individual refusal.
+Canonicalize the recorded home once (the home itself may be a symlink),
+then open that directory as the traversal root. All descendants are opened
+one component at a time relative to held directory handles, without following
+symlinks/reparse points. Enumerate through those handles, not a reconstructed
+absolute pathname. Keep the candidate's verified handle for the body read;
+never validate one file and reopen its name later.
 
-Discovery and opening form one operation. Keep the selected open handle
-and stable identity; compare discovery/open metadata and refuse replacement.
-Check/open **ancestors as well as the leaf**. Unix handle-relative no-follow
-directory opens and a nonblocking regular-file check must prevent FIFO
-blocking and path swaps. Use an equivalent Windows reparse/handle check;
-a path-only metadata check is not proof of that guarantee. Platform APIs
-must be isolated in a small tested opening helper. If existing dependencies
-cannot express this on a promised platform, return that concrete dependency
-or platform decision before weakening the requirement.
+Choose a small `cfg(unix)` / `cfg(windows)` helper nested in `ui.rs`:
 
-Validate the DSH first record from the same safely opened candidate under
-its 65,536-byte bound; selected-body reading later starts at byte zero of
-that handle. Claude/Codex discovery reads no content. Reading never
-reopens a previously checked pathname.
+- Unix: use target-specific `rustix` 1.1.4 with `fs` (already in Cargo.lock),
+  descriptor-relative directory iteration, `openat` with `NOFOLLOW`,
+  `DIRECTORY` for ancestors and `NONBLOCK` for the leaf, then `fstat` regular
+  file admission. Hold owned descriptors and compare device/inode identity.
+- Windows: use the locked `windows-sys` 0.61.2 bindings with only the needed
+  filesystem/foundation/WDK features. Open the canonical root, then use
+  handle-relative `NtCreateFile` with a single component, `FILE_OPEN` and
+  reparse-point opening, rejecting reparse attributes; enumerate directories
+  and obtain stable file identity through handles. A leaf must be a regular
+  disk file before reading. Use owned handles and read/share flags that do
+  not block the provider's normal appends. Microsoft documents the
+  [existing-file and reparse options](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile).
 
-Confirmed paths must be losslessly representable as JSON strings. A
-non-UTF-8 discovered path cannot be reported using replacement characters:
-treat inability to represent the result as unreadable before path
-confirmation, retaining only the validated reference's unresolved hint.
-This is an output-encoding failure, not an invented identifier repair.
-Do not create directories or substitute ambient provider homes.
+These target dependencies extend direct edges to existing locked packages;
+implementation must not upgrade registry versions. They are restricted to
+this local reader. A pathname-only Windows fallback is not admitted. The
+platform tests must prove error mapping, handle lifetime and ancestor/leaf
+replacement; unmeasured compilation or Windows execution is not claimed
+here. An implementation unable to express this selected approach returns a
+concrete design finding instead of silently weakening ownership.
 
-### D4 — Snapshot first, associate second, cap displayed turns last
+The scoped walks are closed matches, not recursive provider discovery:
 
-Read at most 33,554,432 source bytes and one probe byte from the verified
-handle. Pass bytes plus whether EOF was reached to the pure projector.
-The extra byte detects truncation only. At EOF a valid final record without
-newline is complete; a final invalid non-newline JSON append is provisional.
-Within an over-cap prefix, only terminated records are complete. Invalid
-UTF-8 in consumed content is unreadable; a UTF-8/JSON fragment cut by the cap
-is excluded as truncation. Complete malformed lines count separately.
-
-Classify all complete retained physical records before final display
-capping. Store lightweight candidate/source spans and association metadata,
-not a second full JSON tree for every ignored record. Canonical preference
-must see the whole bounded prefix and remove only proven fallback
-representations. Then retain complete displayed turns until the first whose
-final block text would exceed 4,000,000 UTF-8 bytes. Do not skip that turn to
-include smaller successors. Counts are source diagnostics and survive
-display capping and turn selection.
-
-Use physical source position for order, with a provider-defined member
-position only when a physical encoding contains multiple logical events
-(U2). Do not sort by timestamps, ordinals, file mtime, turn number or map
-iteration. Keep enough private source identity to distinguish pure append
-from replacement; equality of rendered words alone cannot prove identity.
-
-Claude extraction preserves its closed omission table, empty string
-behavior, tool marker spelling and successful three-field HTTP response.
-For Codex, summary extraction uses the measured text members, never a
-guessed `summary_text` payload property or raw/encrypted reasoning.
-Recorded tool argument strings remain strings; actual JSON values receive
-deterministic JSON formatting, never command inference. Non-text media
-becomes an inert omission block, with no fetch. Complete provider dispatch
-tables remain gated by U1–U2 and S3's remaining association evidence.
-
-### D5 — One result supplies reference states, hints and CLI output
-
-Keep the reading delta's exact full_session table and JSON-string-literal
-path/home quoting in one pure helper. Reference rejection yields null
-path/hint, no turns, false truncation and zero diagnostics; the recorded
-reference itself remains intact. Discovery failure cannot invent a path.
-A validated Claude/Codex reference can retain the table's unresolved hint.
-Read failure after safe path confirmation keeps that path and its hint
-while returning no turns.
-
-The new clap command uses inspect's read-only journal/world resolver.
-Require run and seat; exact participant key wins, otherwise only a unique
-exact label matches. Return all matching keys for an ambiguous label.
-A panel parent has no implicit child transcript. Usage/run/seat errors
-precede the transcript document and leave stdout empty.
-
-Derive the full bounded projection before applying an optional positive
-u64 turn index. Keep the original one-based position and all whole-source
-metadata. Only a successful projection can produce turn-not-retained.
-JSON serialization is direct from typed local data under
-`brokkr.transcript/v1`; text and TUI reuse rendering helpers and the same
-notice ordering. Terminal Safe applies to every untrusted display string;
-JSON retains escaped original values. No explicit transcript body enters
-inspect/seats/watch/export/dossier models.
-
-The existing twelve unavailable tokens stay authoritative until the
-owning command requirement resolves U1. A new semantic-refusal token must
-not appear only in Rust or in this design's examples.
-
-### D6 — Refresh replaces a snapshot and invalidates its subject atomically
-
-Replace the TUI's Claude-only ask/result with a request identified by realm
-journal, full run, participant key, and complete kind/home/locator.
-Retain its resolved source identity with the snapshot. Only the selected
-participant is read, at existing refresh opportunities; do not add a fleet
-transcript cache or an independent background scanner.
-
-Re-resolve active participants even without a journal-head or length change.
-This catches first appearance, incomplete headers, same-size replacement,
-disappearance and duplicate candidates. Perform a final read at conclusion,
-then stop automatic polling; explicit refresh still resolves again.
-
-Replace unavailable/readable state atomically. Preserve the cursor only
-when identity is unchanged and the prior turns **and their source
-identities** form an unchanged prefix. On replacement, removal, reordering,
-shrink or identity change, clear the selected turn and close its overlay
-before presenting new indices. Notices changing alone do not retarget
-content. Empty successful projections still open their whole-session
-explanation. Keep existing navigation and scrolling; number rendered turns
-from one and include shared notices in both doors.
-
-A file-length-only cache is rejected because growth can replace fallback
-turns and equal-length files can contain different evidence.
-
-### D7 — Browser participant presentation is a separate local request
-
-Add a loopback GET presentation endpoint keyed by full run and encoded
-participant key, separate from `/api/view/<id>`. Use URL component encoding
-and validate decoded selectors server-side; no raw key interpolation.
-Return only the common reference, eligibility, unavailable
-token/explanation, shared hint and Claude drill id/home-eligibility facts.
-Discard any content projection at this transport boundary; do not widen
-RunView, inspect/watch JSON or the Claude body envelope.
-
-The browser renders that result with textContent. The client hex guard is
-only a second check on an already admitted Claude drill. Offer the id-only
-route only when the effective Claude home is canonically the local projects
-home. On a different or unprovable home, render the specified home
-explanation and checkpoint fallback. Codex/DSH keep their shared hint and
-fallback without Claude body requests.
-
-Retain `/api/session/<id>` and `/sse/session/<id>` as independent local
-Claude selectors with the specified 404 envelopes and successful shapes.
-Each SSE poll redoes safe unique discovery. Lost admission closes the
-stream, clears the client's cached body and triggers fresh presentation/API
-resolution; it cannot keep stale prose or silently restart an old path.
-Changing participant/reference cancels its prior watch and outstanding
-request generation before applying any new response.
-
-This is a small separate transport for existing required presentation
-semantics, not a new general transcript browser API.
-
-### D8 — Verify the shared boundaries, then judge the full story
-
-Use the existing crate test suites with synthetic, test-owned homes.
-Do not copy operator transcripts or edit frozen fixtures. Test the
-requirement's observable outcome through the shared implementation, not
-a parser-shaped mock repeated in each renderer.
-
-| Layer | Required proof |
+| Kind | Eligible scope and identity |
 |---|---|
-| Pure model/projector | Reference precedence and C5 serialization; complete per-kind id boundaries; Claude's exact fixture counts; source order and absent stamps; every supported family; proven and unproven associations; partial JSON, invalid UTF-8, both caps below/at/above; exact notices and hints. |
-| Local filesystem | Custom-home authority, legacy provenance, unique vs duplicate sources, complete discovery bounds, DSH invalid/delegated headers, symlink/reparse ancestors and leaves, replacement races, FIFO/nonregular refusal, iteration/read failures and lossless path reporting. |
-| CLI | Existing world/run precedence, ambiguous labels vs exact keys, parent/leaf ownership, positive-u64 parsing, selected turn equality, readable/empty/truncated/unavailable exit codes and stdout/stderr shapes. |
-| TUI | All kinds in pane/both doors; zero-turn explanations; pure append vs canonical replacement; same-size source replacement; unavailable transitions; final/manual refresh; source identity and turn selection never drift. |
-| HTTP/browser | Shared eligibility and hints; custom-home mismatch; legacy Codex and rejected common references never drill; unchanged successful Claude envelope; exact 404s and SSE closure/cache invalidation. |
-| Privacy | Sentinel prose/tool data visible only in explicit local reads; journal count/hash and retained bytes unchanged; provider-spawn paths never invoked; no persistent body cache. |
+| Claude | Exact `<id>.jsonl` in immediate project directories. |
+| Codex | `rollout-*.jsonl` under `<home>/sessions`, containing the entire case-sensitive id with non-ASCII-alphanumeric/end token boundaries; files at directory depths 0-6. No content/header identity gate. |
+| DSH | `<home>/<locator>/<project>/<session>/session.jsonl`; the first complete physical row is a `session` object with absent depth or unsigned-integer zero. No skipping to a later header, recursive/newest-file search or delegated substitute. |
 
-U1–U2 must add their owning scenarios before this matrix becomes a final
-task breakdown. Implementation must run format, clippy, workspace tests,
-both bundles and the unchanged exact-coverage gate with
-CARGO_BUILD_JOBS=2 and RUST_TEST_THREADS=2. Host exact coverage requires
-TMPDIR=/var/tmp and BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 with the shared
-rust-nightly-version.txt pin. Nested-sandbox skips are not host proof.
+Count every examined entry against 10,000, including irrelevant entries and
+entries in every visited directory. A candidate is provisional until the
+bounded scope is exhausted. At most 65,536 first-row bytes may be read from
+each safely opened DSH candidate; EOF can complete a valid non-newline header.
+No Claude/Codex content is read during discovery. Detect a longer DSH header
+without allocating it. Retain at most the first qualifying handle and a
+candidate count: other handles can close once inspected; two is already
+ambiguous, but discovery must still account for failures/limits.
 
-### D9 — Codex completed items fit the adopted preference rule
+Collect discovery facts, then resolve the declared outcomes; do not let
+iterator order choose the explanation. Limit exhaustion defeats a
+provisional match, I/O preventing a unique answer is `unreadable`, multiple
+safe qualifying files are `ambiguous-source`, and unsafe entries cannot
+supply content. When no safe unique source exists, retain `unsafe-path`
+evidence as specified. Invalid-depth-only DSH lookup uses its fixed
+`not-found` explanation. Version never changes the root candidate count.
+Test competing facts and both directory orders, not just isolated failures.
 
-Adopt robustness's measured format support without its proposed new
-canonical ranking. A completed TurnItem is substantive provider content,
-but that description does not override Brokkr's explicitly chosen
-response-item preference. The existing requirement already says how to
-read a content-bearing event alone and how to replace a proven counterpart.
-Calling every completed item lifecycle metadata would violate that rule;
-recognizing it as event content satisfies it.
+Before confirming the path, require a lossless Unicode spelling and verify
+that the opened source still corresponds to the traversed candidate. Recheck
+held ancestry/candidate identity at the read boundary; never follow a swapped
+name. If a DSH opening ownership header changes during acquisition, do not
+use the earlier header to establish a unique current source. Fail closed on
+that acquisition rather than loop without a bound. A non-Unicode path is an
+explicit output-identity `unreadable` failure before confirmation, not a
+`to_string_lossy` path. No directory creation, copying or automatic repair.
 
-Decode recognized content within `event_msg` / `item_completed`, including
-its typed user/agent messages, summary reasoning and tool information.
-The nested TurnItem type spellings come from the tagged source, not from
-the separate `codex exec --json` stdout format. Preserve the enclosing
-record's source position and timestamp. When no complete recognized
-response counterpart is proven in the bounded prefix, emit that content.
-When one is proven, prefer the response at its own source position under
-R1. File history mode is format context, never a new discovery identity
-header or permission to omit all events.
+### D4 — A bounded byte snapshot precedes every interpretation
 
-Add tests for a completed-item-only ruling, legacy and completed-item
-representations beside proven responses, incomplete/capped counterparts,
-unassociated repeated text, and live canonical replacement. These are
-concrete instances of the existing scenarios, not a changed canonical
-policy or a reduced story. Command/TUI inherit the same ordering.
+Read at most 33,554,432 bytes plus one probe byte from the retained handle.
+The probe is only an overflow fact. Pass the bounded bytes and EOF/probe
+facts to the pure reader. A valid final JSON value at true EOF is complete
+without newline; an invalid final non-newline append is provisional. Above
+the source cap, only newline-terminated rows in the prefix participate.
+Never parse a cap-cut row or use its members for association.
 
-S3's remaining producer-backed association evidence is still due before
-claiming duplicate-free support. The measured legacy agent-message and
-reasoning event payloads lack ids; their type definitions alone do not
-prove an unambiguous item position. The returned council must document a
-tagged producer ordering proof or controller-supplied bounded redacted
-paired example with that proof. Missing evidence does not prove an
-association impossible, and inventing ids in test records proves nothing.
-Keep unassociated content under R1. This is the existing named evidence
-obligation, not a third new upstream specification finding. No adapter
-or #226 resumption change is involved.
+Validate consumed UTF-8 before semantic admission. A code point cut solely
+by the source cap is a boundary fragment, not malformed data; invalid bytes
+elsewhere are `unreadable`. Do not use replacement characters or expose a
+partially scanned result. Source failure keeps only a confirmed path/hint
+and independently established source truncation, with zero counts.
 
-### U1 — Return DSH unknown-event policy to transcript-reading/command
+For DSH, validate opening-header ownership against the acquired snapshot,
+then apply R16's numeric-zero version admission. Missing/mistyped/foreign
+versions return `unsupported-format` with zero counts and source-only
+truncation. Neither subsequent JSON classification nor the display budget
+runs. Depth deliberately uses the stricter unsigned-integer representation;
+version accepts every numeric zero spelling, including negative zero.
+Unused header metadata is not replayed or interpreted.
 
-**Owning fault:** reading “Partial records and read failures remain
-distinguishable” and R3, plus command C1/its closed reason vocabulary,
-require unknown valid records to remain a successful counted omission
-without distinguishing DSH events whose omission is not declared safe.
+For an admitted snapshot, classify all complete physical rows, even after
+would-be display exhaustion or a DSH event/storage refusal. Malformed JSON
+increments `skipped_lines`; unsupported valid rows increment
+`unrecognized_records` at most once each. DSH event/storage refusal clears
+all prose and preserves these complete-prefix counts and source-only
+truncation. Header refusal and event refusal therefore share a token but
+have distinct, intentionally constructed states.
 
-**Evidence:** the tagged DSH SessionEvent contract above assigns omission
-safety to `ignorable: true`; a required unknown event can affect later
-interpretation. This is new provider evidence, not a re-raising of R3 merely
-because the earlier box lacked a CLI. Although Brokkr is not reconstructing
-execution history, it does interpret and suppress content based on event
-relationships. A generic count cannot establish that an unknown event left
-those relationships valid.
+Resolve all proved associations within the complete bounded prefix before
+spending the 4,000,000-byte sum of final block texts. Retain whole turns
+through equality; stop before the first overflow, never skip forward to a
+smaller turn. A capped canonical event does not resurrect its fallback.
+Apply `--turn` only after this result. Counters never depend on selection.
 
-**Recommended upstream answer:** preserve counted omissions for Claude,
-Codex and safely ignorable DSH unknown events. For a DSH event with an
-unknown type and no valid ignorable marker, refuse the content projection
-as `unsupported-format`, distinct from I/O/UTF-8 unreadable. Keep the
-confirmed path/hint and selected reference, expose no turns, and make
-whole/selected CLI reads exit one. Pin whether/how whole-prefix counts,
-notices and source truncation are retained, including collisions with
-partial/malformed input, before publishing the token.
+Process one physical row at a time, release its temporary JSON tree, and
+retain only bounded candidate/association facts. For DSH, validate an entire
+packed row before yielding members. Use checked safe-number arithmetic;
+preserve negative-zero information where the sequence rules distinguish it.
+Do not expand citation ranges or allocate by a sequence gap. Source order
+is `(physical row, member)`, with block order preserved inside each turn.
+Timestamps and hash-map order cannot reorder the transcript.
 
-The alternative is an explicitly specified raw, lossy DSH interpretation
-that makes no reconstruction claim. It is not chosen here: it would need
-its own truthful output/association semantics in the owning requirement
-and proposed 0055. Importing every provider replay check is also not the
-answer; the rule must target this reader's interpreted content.
+Alternatives rejected: whole-file `read_to_string`, selection before caps,
+byte-to-text repair, fragment concatenation, and early display cutoff before
+diagnostics or association. Each violates an explicit scenario.
 
-**Required owner scenarios:** required unknown after visible content
-returns no prose; the same unknown marked ignorable produces the counted
-notice and retains recognized content; selection does not evade the
-refusal; refreshing from readable to refused clears both TUI doors.
-Amend proposal, reading and command, then dependent TUI scenarios and
-0055. Preserve R3's distinction between malformed and valid unknown data.
+### D5 — Codex mapping and association have separate evidence
 
-### U2 — Return DSH physical records and citation scope to transcript-reading
+Decode the retained `{timestamp, type, payload}` envelope; do not use the
+adapter's separate `codex exec --json` stdout vocabulary. Keep the enclosing
+recorded timestamp, or an empty string. The source tag is a support baseline,
+not a required file header or a guessed installed-version field.
 
-**Owning fault:** “One transcript derivation” treats a displayed turn as
-one content-bearing source record, while “DSH sessions expose assembled or
-provisional content once” describes individual chunk events and step-based
-replacement. It leaves the supported persisted packed representation and
-its citation encoding unspecified, and can erase uncited chunks merely
-because a readable assembly shares the step.
+The response-model mapping is direct: `message.content` uses ordered
+`input_text`/`output_text` text and inert image/audio omissions; `reasoning`
+uses `summary[].text` only for `summary_text` members. Function/custom calls
+retain `name`, `call_id` and raw `arguments`/`input`; their outputs retain
+`call_id` and `output`, including structured text/media output arrays. Actual
+JSON payloads are displayed as deterministic JSON, strings as recorded.
+`local_shell_call.action`, `web_search_call.action` and
+`tool_search_call.arguments` stay recorded structured tool data;
+`tool_search_output.tools` stays recorded JSON output. Never reconstruct a
+shell command. Raw/encrypted reasoning is omitted. Recognized response
+context types `additional_tools`, `compaction`/`compaction_summary`,
+`context_compaction` and `compaction_trigger` are quiet. These pointers follow
+the tagged response models linked above.
 
-**Evidence:** the tagged JSONL writer above packs event batches and
-range-encodes provenance. The chunk codec has text-chunks, reasoning-chunks
-and tool-call-chunks rows, each preserving individual fragment boundaries.
-The session type distinguishes an explicit empty citation from an absent
-citation; sharing a step does not supply that missing evidence.
+Completed-event mapping follows the tagged item types, whose discriminants
+are case-sensitive PascalCase, not the response types' snake_case:
 
-**Recommended upstream answer:** distinguish complete physical JSONL rows
-from decoded logical events. Decode supported packed rows lazily within
-the source prefix, retain member order and recorded time reconstruction,
-then project each readable event as its own turn. Tool-argument fragments
-remain fragments, never completed calls. Canonical assembly suppresses
-only source events whose relationship is proved; a step pair scopes
-citations rather than manufacturing them. Decode persisted citation
-ranges without allocating an attacker-sized expanded range: match against
-bounded observed event identities.
+| `event_msg.payload` family | Projection |
+|---|---|
+| `item_completed`, item `UserMessage` / `AgentMessage` | Ordered `item.content` text/media; agent `Text.text` and user input text retain their roles. |
+| `item_completed`, item `Reasoning` | `item.summary_text[]` as reasoning; never `raw_content`. |
+| `item_completed`, item `FunctionCallOutput` | Recorded name/id and output as a tool result. |
+| `item_completed`, item `CommandExecution` | `id`, `command`; output uses recorded `stdout`/`stderr`, otherwise `aggregated_output`, otherwise `formatted_output`. |
+| `item_completed`, item `DynamicToolCall` | `id`, `tool`, `arguments`; ordered `content_items` and `error`. |
+| `item_completed`, item `McpToolCall` | `id`, `server`, `tool`, `arguments`; `result.content` and `error.message`. |
+| `item_completed`, item `Plan` | Recorded `text` as assistant text. |
+| Legacy `user_message` / `agent_message` / `agent_reasoning` | `message` / `message` / `text`; media fields yield inert omissions. |
+| `exec_command_begin` / `exec_command_end` | `call_id`, `command`; end supplies `stdout`/`stderr`, `aggregated_output`, `formatted_output` in the same preference as completed commands. |
+| `mcp_tool_call_begin` / `mcp_tool_call_end` | `call_id`, `invocation.server`/`tool`/`arguments`; end's `result.Ok.content` or `result.Err`. |
+| `dynamic_tool_call_request` / `dynamic_tool_call_response` | Request `callId`, response `call_id`; recorded `tool`, `arguments`; response's `content_items` and `error`. |
 
-**Required owner scenarios:** packed and equivalent unpacked interrupted
-text/reasoning yield identical turns; an incomplete/over-cap physical row
-is never partly decoded; a malformed packed row has a pinned refusal/count
-outcome; ranged citations suppress exactly their members; explicit empty,
-absent and partial citations leave uncited readable chunks visible even
-in the same step. Clarify whether unsupported content counts per physical
-row or logical event (recommend physical row, preserving the current
-at-most-once-per-source-record diagnostic). Pin cap/turn numbering after
-decoding and test replacement selection invalidation through command/TUI.
+For command output, use stdout/stderr when either contains text (including
+whitespace); otherwise use a nonempty aggregate, then formatted output.
+Omit the alternate representations, and keep a recorded empty result when
+all are empty. Dynamic output types are `inputText` (`text`), `inputImage` and `inputAudio`;
+MCP content uses its tagged text/media types. Project supported text and
+inert media omissions, not encoded media bodies. Dynamic request fields
+use camelCase while the response event uses snake_case; do not guess aliases. A begin
+contributes its call and an end its result; metadata on the end does not
+invent another call or require a begin to exist. Completed composite items
+can contribute both blocks within their single logical-event turn. These
+protocol-defined event fallbacks are independently readable when retained.
 
-Do not silently concatenate a packed row, count it as ordinary unknown
-content, or switch to the provider's model-visible compacted surface.
-Those alternatives would respectively change fragment boundaries, hide
-retained words, or replace the commissioned audit order. Amend the owning
-reading definitions/scenarios and all dependent numbering/count rules;
-0055 must record the agreed distinction.
+Decode only the declared field variants; an unknown completed item is a
+counted omission, not generic lifecycle metadata. The tagged persistence
+policy proves both response and completed-item storage and its legacy mode
+split; it does not prove that every transient event is written by this
+version. Supporting a retained execution event from its protocol definition
+is not a claim of observing it in a live rollout.
+
+Enumerate quiet top-level metadata as `session_meta`, `turn_context`,
+`compacted`, `token_usage_record`, `world_state`, `security_risk_score`.
+For event envelopes, the quiet list is `token_count`, `thread_goal_updated`,
+`thread_rolled_back`, `turn_aborted`, `task_started`, `turn_started`,
+`task_complete`, `turn_complete`, `thread_settings_applied`,
+`session_configured`, `context_compacted`, `item_started`,
+`agent_reasoning_raw_content`, `agent_reasoning_section_break` and
+`reasoning_raw_content_delta`. A lifecycle name's nested last-message or
+settings fields do not become prose. Unknown names are counted; no prefix
+match extends this list. Recognized encrypted-only reasoning stays quiet.
+
+Association is a distinct pass with these measured boundaries:
+
+| Family | Positive evidence / consequence |
+|---|---|
+| Assistant response message and completed `AgentMessage` | `event_mapping::parse_agent_message` preserves a supplied response id; match the nonempty id and compatible content family. If absent, the provider generates another id, so no identity is inferred. |
+| Response reasoning and completed `Reasoning` | `parse_turn_item` carries the response id into the completed item. Match a nonempty id, never an empty default. |
+| Calls/results and their execution events | `legacy_events` carries completed command/tool ids into call ids. Match recorded identity plus direction and compatible family; a call and its output are two facts, not duplicates of each other. |
+| Legacy agent/reasoning messages | Conversion emits one event per content/summary member without the item's id. The session persists `event.msg`, not the outer event correlation id. These sources do not establish a general lossless association key. |
+| User prompt response and user event | The producer records the response then constructs a user item separately; client id alone is not proved equal to the response id. Do not equate them. |
+
+The non-tool producer emits completion before recording its response;
+the user path records response before completion. That is measured ordering,
+not permission to match arbitrary adjacent records. Await points and separate
+persistence operations do not establish an atomic, uniquely identified
+pair in every retained history. No positional matcher is admitted without
+an additional producer-backed proof of its exact applicable sequence.
+
+For a proved counterpart, prefer the response at its own source position;
+remove only the blocks it actually covers. A composite completed tool event
+whose output has no recognized response counterpart retains that output.
+Require unique compatible identities; collisions keep content. Canonical
+records never deduplicate each other. For absent/unproved identities, keep
+both records, as R1 already requires, including repeated equal words.
+
+This closes the design choice without fabricating S3's missing universal
+legacy association proof. **Universal duplicate-free legacy support is not
+claimed.** Additional controller-provided redacted pairs or producer evidence
+may justify a narrower positional matcher; if the desired acceptance instead
+requires deleting actual unassociable mirrors, that is an upstream R1 choice,
+not an implementation heuristic. The reader still supports those records and
+both surfaces now; lack of an association never hides an event-only ruling.
+Tests must distinguish measured id pairs from deliberately unassociated
+legacy data rather than add imaginary ids to provider structs.
+
+### D6 — DSH decodes storage before projecting audit content
+
+Apply the hash-verified captured version-zero envelope and the tagged message
+and block definitions. Ordinary `user/message` stores a message directly in
+`data`; `assistant/message` stores it in `data.message`. `tool/call` has
+`data.name`, `callId`, `arguments`, `turn`, `step`. `tool/result` stores a
+message in `data.message`, whose tool-result block carries `toolCallId` and
+nested content. That provider message has user role for model input, but
+Brokkr's standalone result turn has the specified `tool` role. Do not guess
+an `output` property on the DSH event.
+
+Project ordered `text.text`, `reasoning.text`, complete `tool-call` and
+`tool-result` blocks, with inert `image` omissions. Supported nested result
+text remains tool-result content, including recorded errors; private replay,
+usage and tool metadata do not become prose. The recursive block traversal
+must stay within the bounded parsed row; unknown nested blocks count the row
+once while keeping supported siblings.
+
+For `assistant/chunk`, only `text-delta` and `reasoning-delta` yield readable
+fragments, with whitespace preserved and empty strings omitted. The exact
+quiet chunk list is `tool-call-delta`, `block-start`, `block-end`, `usage`,
+`finish`; argument deltas and block-end copies do not invent completed calls.
+Unknown chunk types are counted nested-content omissions.
+
+Decode `text-chunks`, `reasoning-chunks`, `tool-call-chunks` using R15's
+exact-key tables, member arrays, safe numbers and checked reconstruction.
+Validate all members before admitting any. Ordinary and packed logical
+events enter the same projector. DSH timestamps use signed epoch-millisecond
+decimal strings; invalid ordinary time is empty, packed invalid time refuses.
+A physical packed row can yield multiple turn positions, but one diagnostic
+row at most. Its incomplete tail yields no members.
+
+Build a bounded sequence index over all observed logical events so duplicate
+sequence identities remain ambiguous even when one is quiet. Match inclusive
+citation ranges against those observed identities; never expand intervals.
+Validate the entire `sourceEventSeqs` field on each surface event as R15
+requires. Only readable assistant assemblies suppress uniquely identified,
+earlier, cited chunks in the same recorded turn/step. Missing, empty,
+partial, cross-step and ambiguous citations preserve uncited content. User
+or result citations and `surfaceOp` never erase earlier audit history.
+Dedicated call/result events suppress matching embedded blocks only with
+proved call identity and turn/step, leaving unrelated message blocks intact.
+
+The recognized quiet event vocabulary is the captured catalog minus the five
+content kinds above, explicitly:
+
+`agent-preset/selected`, `agent/inbox/spliced`, `approval/asked`,
+`approval/decided`, `approval/policy`, `command/done`, `command/run`,
+`compaction/end`, `compaction/prune`, `compaction/start`, `compaction/summary`,
+`feedback/record`, `goal/change`, `hook/invoked`, `hook/result`, `llm/retry`,
+`llm/retry-started`, `model/selection`, `permission/preset`, `plan/mode`,
+`request/context`, `request/header`, `sandbox/mode`, `schedule/change`,
+`session-log-deepseek/delivery-accepted`, `session/end-seed`, `session/title`,
+`session/title-llm-request`, `step/end`, `step/start`, `subagent/descriptor`,
+`subagent/model-selection-policy`, `team/member`, `team/message/delivered`,
+`team/message/queued`, `team/task`, `todo/write`, `tool-workflow/agent-end`,
+`tool-workflow/agent-start`, `tool-workflow/run-end`, `tool-workflow/run-start`,
+`tool/code-dispatch`, `tool/code-dispatch-start`, `turn/end`, `turn/start`,
+`web/deepseek-search-llm-request`.
+
+These are recognized operational/context records outside the selected
+conversation projection, not a wildcard that all future events are safe.
+The admitted opening header is quiet; later `session` rows are unknown
+events. An unknown event requires top-level boolean `ignorable: true` to be
+an omitted success. Otherwise R14 refuses the entire projection. Invalid
+packed rows/citations refuse regardless of that marker. Continue counting
+the usable prefix after refusal; return no turns. This is U1/U2's implemented
+design answer, not an imported DSH replay engine.
+
+### D7 — One result determines output, hints and failures
+
+Preserve Claude's exact R9 classification and shipped fixture `(1, 0)` counts,
+string-content empty/whitespace behavior, and `Read · <file-path>`/tool-name
+markers. Do not expand Claude thinking, argument or result prose. Both its
+HTTP body and the new local readers call that same pure projector.
+
+Use typed constructors to enforce the failure-stage matrix:
+
+| Stage / result | Path / hint | Counts / truncation / turns |
+|---|---|---|
+| Rejected or absent reference | Null / null; common strings still echoed | Zero / false / none. |
+| Discovery refusal | Null / valid Claude or unresolved Codex hint; DSH null | Zero / false / none. |
+| Source I/O or UTF-8 failure after confirmation | Confirmed path / shared hint | Zero / established source overflow only / none. |
+| DSH rejected opening version | Confirmed path / DSH hint | Zero / source overflow only / none. |
+| DSH admitted-header event/storage refusal | Confirmed path / DSH hint | Whole usable-prefix counts / source overflow only / none. |
+| Readable projection | Confirmed path / shared hint | Whole-prefix counts / either cap / retained turns, possibly zero. |
+| `turn-not-retained` after readable projection | Preserve whole-read metadata | Preserve counts/caps/notices / none. |
+
+The shared hint helper implements the reading delta's exact table and its
+JSON-string-literal path/home quoting. Claude retains `claude --resume <id>`;
+Codex names confirmed rollout or `rollout unavailable`,
+`codex exec resume <id>` and recorded home; DSH names only a confirmed file. These are inert
+strings. No ambient-home override, shell quoting or launch action is added.
+
+Generate notices once, in this order when applicable:
+`transcript truncated (size cap)`, `malformed transcript lines skipped: <n>`,
+`unrecognized transcript records: <n>`. The old Claude suffix disappears.
+A successful zero-turn read explains empty versus capped; a refusal never
+becomes a readable empty result just because its counts are positive.
+
+Add clap arguments in `cli_args.rs` and dispatch in `lib.rs`. Use inspect's
+world/run resolver with explicitly read-only store access, refusing a missing
+journal. Parse positive u64 turn indices before creating a document. JSON
+serializes the command delta's exact fields directly; text renders through
+`render.rs`. Usage/run/seat errors leave stdout empty. Post-selection
+unavailability exits one with safe stderr; only JSON mode also emits the
+unavailable document. Whole readable empty/truncated reads exit zero.
+
+Apply terminal `Safe` at every display edge, including references, paths,
+roles, timestamps, hints and explanations. JSON retains escaped originals;
+do not sanitize the model and destroy the machine document. No body is
+attached to inspect/seats/watch/export/dossier or result telemetry.
+
+### D8 — Refresh replaces the entire selected snapshot
+
+Replace the Claude-only ask with a selected subject: realm/journal identity,
+full run, participant key and complete effective reference. Only this
+participant's transcript is read. At every existing refresh opportunity
+while working, re-resolve safely and rederive even with unchanged journal
+head or file length. Make the final read when it concludes, then stop
+automatic polling; manual refresh still resolves it again.
+
+An in-memory source stamp includes stable opened-file identity and bounded
+source/member identities. To preserve selection, require the same authority
+and source and an unchanged prefix of both projected turns and their source
+members. Comparing rendered words alone, mtime alone or length alone is
+insufficient. Retain bounded bytes/spans for this comparison if needed;
+there is no persistent cache or fleet-wide body cache.
+
+Publish each refreshed result atomically. On removal, replacement, reorder,
+shrink, changed authority, ambiguity, ownership loss or format refusal,
+clear the cursor and close the transcript overlay before showing new
+indices. Notice-only changes can retain the cursor. A pure append with
+uncited chunks unchanged retains navigation. Same-size version replacement
+must refuse with zero counts and close both doors; later admission starts
+fresh without restoring the old cursor. A second foreign-version root
+instead removes the confirmed path through ambiguity.
+
+Keep all existing keys and scrolling. Pane previews can clip; neither door
+may drop a retained block. Number turns from one. Both doors carry shared
+notices, and the whole door carries the full hint. A readable zero-turn
+result opens its explanation; an unavailable result has no active door.
+
+### D9 — Browser presentation is local metadata, with Claude compatibility
+
+Add one GET participant-presentation endpoint in existing `ui.rs`, keyed by
+full run id and an encoded participant-key component. `ui.html` uses
+`encodeURIComponent`; the server decodes once, validates selectors and
+resolves the exact participant in its read-only journal. It accepts no
+provider path or home override. Keep the existing loopback/Host/method guard.
+
+Serialize only selected reference, legacy/admission facts, unavailable
+reason/explanation, shared hint, and eligible Claude drill id/home-equality
+facts. If constructing that result required a content read for a semantic
+refusal, discard all body data at this transport boundary. Do not widen
+`RunView` or the three-field Claude body response. Render with `textContent`.
+
+A drill is offered only for an already admitted Claude reference whose
+canonical home equals the server's local projects home. On unproved/different
+home, use the specified home explanation and checkpoint fallback. Codex/DSH
+keep their shared hints and fallback without a Claude body request. A stale
+flat id cannot override any common reference or explicit non-Claude legacy
+provenance. The client Claude guard moves with the Rust leading-hex rule.
+
+Keep the journal-independent `/api/session/<id>` and `/sse/session/<id>`
+selectors. Use shared safe discovery and projection, unchanged successful
+body/size-event shapes, and the exact specified 404 envelopes. Every SSE
+poll rechecks unique safe discovery; lost admission closes the stream before
+further old sizes are sent. The page clears cached body/watch and fetches
+fresh presentation on closure; it cannot blindly reconnect stale prose.
+Cancel or generation-guard outstanding requests on participant/reference
+changes. No general browser transcript transport is introduced.
+
+### D10 — Chief-authored proposed decision 0055 and filing prerequisite
+
+This phase's rendered output is `design.md` only. The following is the
+complete proposed decision text, with its index row, ready to file as
+`docs/decisions/0055-read-every-transcript-kind.md` before production edits.
+The tasks office must make that mechanical filing and registry check its
+first prerequisite; it must not change these rulings while copying them.
+This supplies authorship within the declared artifact and explicitly leaves
+filing pending. No accepted decision is amended and no acceptance is claimed.
+The dependency bindings below are proposed with the rest of 0055.
+
+<!-- proposed-decision-0055:start -->
+
+#### 0055 — Read every retained transcript kind
+
+Status: proposed
+Date: 2026-09-09
+
+**Context.** Decision 0032 records and retains the operator's transcript but
+the local pane reads Claude alone. Issue #222 extends that local read to
+Codex and DSH and adds a scriptable command. The OpenSpec change
+`read-every-transcript-kind` supplies the detailed requirements and scenarios.
+This proposal supplements ownership/retention/privacy and proposes to replace
+only 0032 ruling 4's Claude-only command-construction enforcement binding.
+Session resumption and sandbox re-imposition remain governed by 0030 and the
+separate #226 work; hints execute nothing.
+
+**Rulings.**
+
+1. **The recorded reference is authority, independently of validity.** The
+   latest common reference wins even when empty or refused; local JSON echoes
+   its three strings unchanged and marks it nonlegacy. Only an absent common
+   reference with eligible Claude/LaneTally/absent legacy provenance and a
+   valid id can synthesize a Claude reference. Codex uses its existing
+   1-128 ASCII alphanumeric/dash language with alphanumeric first character;
+   Claude uses leading hexadecimal and 1-64 hexadecimal/dash characters;
+   DSH uses a validated relative component path and absolute recorded home.
+   The built-in 80-character recording clamp is unchanged; a reader never
+   repairs a clipped locator, stitches attempts or borrows another seat.
+   **Enforcement binding:** pure reference constructors, per-kind boundary
+   tables, latest-reference/legacy and rejected-reference serialization tests.
+
+2. **An owned local source is unique, safely opened and bounded.** Claude
+   searches immediate project directories for the exact filename; Codex uses
+   the whole filename-token predicate in its sessions tree through depth six,
+   without a payload/header identity gate. DSH searches only its recorded
+   root's project/session layout, admitting first-record `session` ownership
+   with absent or unsigned-zero depth. Invalid depth is not coerced. A lookup
+   examines at most 10,000 entries and at most 65,536 first-header bytes per
+   DSH candidate. Below the canonical home, directory and leaf opens refuse
+   symlinks/reparse points and nonregular sources, retain checked handles and
+   report paths losslessly. Source input is at most 32 MiB plus one overflow
+   probe byte. Pure view derivation has no I/O. A narrow local-reader
+   dependency exception permits target-specific `rustix` fs and `windows-sys`
+   filesystem bindings already in the lockfile; no provider SDK, new runtime
+   or broad filesystem framework follows.
+   **Enforcement binding:** handle-based resolver, entry/header/source-bound
+   tests, competing-failure/uniqueness tests, Unix/Windows ancestor/leaf race
+   and nonregular-source tests; frozen-file and dependency/license gates.
+
+3. **Projection is a bounded audit interpretation, with explicit admission.**
+   Preserve Claude's closed content/omission table. Decode Codex responses
+   and recognized content-bearing events, including completed items; prefer
+   a response only for proved content identity, preserving unassociated
+   records without text or timestamp heuristics. This does not claim that
+   id-less legacy mirrors can always be suppressed. Decode DSH numeric
+   on-disk version zero only, after unique ownership and usable bounded
+   UTF-8 acquisition. Missing, mistyped or foreign versions refuse as
+   `unsupported-format`, with confirmed path/hint, no turns, zero counts and
+   source-only truncation. Version cannot select among owned roots, a later
+   header cannot repair the opening one, and unused replay-header metadata
+   is not an audit admission gate. Omitted depth remains legacy zero;
+   omitted version does not.
+
+   Under admitted DSH version zero, packed rows decode into ordered logical
+   events only after whole-row validation. Physical rows govern source bytes
+   and diagnostics; logical events govern turns, timestamps and display
+   bytes. Signed safe epoch-millisecond time is rendered as decimal; ordinary
+   invalid time is absent, invalid packed storage refuses. Assembly suppresses
+   only cited, unique, earlier same-turn/step chunks. Inclusive citation ranges
+   match observed identities without expansion. Valid overlapping/duplicate/
+   unordered citations are sets, deliberately differing from DSH's replay
+   ordering validator; invalid encodings/self/future citations refuse.
+   `surfaceOp` never rewrites audit history. Unknown DSH envelopes are counted
+   omissions only with top-level boolean `ignorable: true`; required unknowns
+   and invalid packed/citation rows refuse all prose while preserving complete
+   usable-prefix counts and source-only truncation. I/O/UTF-8 failure precedes
+   both format refusals and keeps zero counts.
+
+   In every admitted projection, classify the complete bounded source and
+   resolve associations before the 4,000,000-byte block-text budget. Retain
+   complete turns until first overflow. Source/member order outranks time;
+   partial appends and cap fragments supply no fabricated events. Missing
+   partners and uncited fragments remain visible. **Enforcement binding:**
+   pure projector tests for provider mappings, proved/unproved counterparts,
+   DSH header/depth/version matrices, packed/plain equivalence, citation sets,
+   all refusal stages, diagnostic units and both exact cap boundaries.
+
+4. **Every local surface consumes one result.** `brokkr transcript` selects
+   one run/participant and optionally a positive u64 one-based displayed turn
+   after projection. Its `brokkr.transcript/v1` fields, closed reasons, stdout/
+   stderr/exit rules, reference echo and metadata retention follow the command
+   delta; future published structural changes require another schema version.
+   It does not widen inspect/seats/watch or journal models. Shared notices
+   have truncation/malformed/unrecognized ordering and exact spelling, with
+   no Claude suffix. TUI snapshot replacement invalidates changed subjects,
+   prior indices and overlays; active, final and manual reads recheck sources.
+   Empty success and refusal remain different door states.
+
+   The proposed replacement for 0032 ruling 4's command binding is: the shared
+   local derivation constructs informational full-session lines by validated
+   kind. Claude names `claude --resume <id>`; Codex names the confirmed rollout
+   or explicit rollout unavailability, `codex exec resume <id>` and recorded
+   home; DSH names only a confirmed session file. Rejected references have no
+   hint. Path/home fragments use the reading delta's JSON-string-literal
+   quoting. TUI, CLI and browser participant presentation consume the exact
+   shared value; no other kind borrows a command and no display executes it.
+   Browser presentation stays separate from body/journal models, with shared
+   eligibility and home matching. Existing id-only Claude HTTP routes retain
+   successful envelopes and the specified 404/SSE-loss behavior.
+   **Enforcement binding:** CLI selector/text/JSON tests, shared-hint/notice
+   conformance, headless TUI navigation and atomic-refresh tests, and existing
+   HTTP/browser endpoint/eligibility/watch regression suites.
+
+5. **Reading retains private evidence and remains inert.** Only explicit
+   local transcript reads expose requested prose; journal, checkpoints,
+   exports, dossiers and result telemetry retain their existing path/id-only
+   boundaries. No persistent body cache, provider process, repair, media fetch,
+   deletion or transcript mutation occurs. Terminal output uses `Safe`, JSON
+   preserves escaped strings and browser output uses text nodes.
+   **Enforcement binding:** test-owned homes and synthetic content, retained
+   byte/existence and journal count/hash comparisons, sentinel privacy tests,
+   provider-launch fail sentinels and the unchanged exact coverage gate.
+
+**Consequences.** This is an additive local document and reader, with no
+stored-data migration or frozen contract/schema/corpus edit. It deliberately
+breaks Claude's leading-hyphen id acceptance, first-match/unbounded/symlink
+lookup and displayed-text-only input limit. The operator may inspect the
+original independently, resolve duplicate placement, fit the recorded scope
+within discovery bounds or use actual owned entries instead of below-home
+symlinks. The reader offers no home override and reorganizes nothing.
+DSH's invalid-depth refusal is deliberately stricter than the shipped
+adapter; its version/citation policy is an audit policy, not execution replay.
+Unproved Codex associations can remain visible twice, preserving evidence.
+Only the operator accepts this proposal. Filing it does not certify live
+resumption, implementation tests or controller host/remote gates.
+
+<!-- proposed-decision-0055:end -->
+
+Filing changes the decision heading above to level one and Context, Rulings
+and Consequences to the registry's ordinary section headings, without changing
+its text. The registry row to insert in number order is:
+
+```text
+| [0055](0055-read-every-transcript-kind.md) | Read every retained transcript kind | One bounded local projection of Claude, Codex and DSH transcripts, with recorded-reference authority, safe discovery, explicit format refusals and shared CLI/TUI/browser presentation; retained prose stays out of the journal. | proposed |
+```
+
+The decision/index exactness suite proves that materialization. This design
+commit does not falsely report that the numbered file or registry row already
+exists. Analysis must check that the task prerequisite covers both before
+implementation proceeds.
+
+### D11 — Verification proves boundaries through the shared implementation
+
+Use existing crate suites and synthetic test-owned homes. Do not copy a live
+operator session or edit the frozen evaluator corpus. Add table cases for
+every scenario, grouping related cases rather than creating 168 bespoke test
+functions. No parser-shaped mock in each renderer can replace cross-surface
+comparison of the same serialized `Turn` and metadata.
+
+| Requirement group | Design binding / proving suite |
+|---|---|
+| One derivation; recorded reference; full-session information | D2/D3/D7; view reference/result tables and all-kind CLI/TUI equality. |
+| Browser eligibility; owned discovery; path ownership | D3/D9; CLI local reader and HTTP tests, custom-home/legacy/refusal cases, platform safe-open matrix. |
+| Claude, Codex and DSH content | D5-D7; existing view tests extended with source-grounded synthetic families and their unknown variants. |
+| Partial records; source/display caps | D4/D6; below/at/above bounds, newline/UTF-8 cuts, DSH header-vs-event refusal collisions and physical/member counts. |
+| Local inert prose | D7/D9; journal hash/count and retained-file before/after assertions; readout/export/dossier sentinels and no-provider-launch assertions. |
+| Command run/seat selection; turn selection; JSON; text/errors | D3/D7; argument, world resolver, ambiguous-label, parent/leaf, all reason states and whole/selected stdout/stderr tests. |
+| TUI pane/doors; hints; notices; live refresh | D8; headless keys, scrolling and buffers, late appearance, pure append, assembly replacement, same-size rewrite, refusal/recovery, final/manual reads. |
+
+Provider tests must include event-only Codex, completed-item-only Codex,
+response/counterpart id pairs, id-less legacy records, repeated words and
+capped/incomplete counterparts, exact wire casing and aggregate-only command
+output. DSH tests include all header version/depth
+combinations in both candidate orders, packed/unpacked content equality,
+negative time gaps, safe-number edges, huge citation ranges, partial/absent/
+empty/overlapping citations, required/ignorable events and unknown nested
+blocks. Browser tests preserve successful envelopes and verify exact refusal
+responses and stale-request/watch cancellation. Platform race tests replace
+ancestors and leaves, not just filenames before a preliminary metadata check.
+
+Implementation owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
+`cargo fmt --all -- --check`, clippy for all workspace targets/features with
+`--locked -- -D warnings`, workspace tests with `--all-features --locked`,
+and locked compilation of both `bundles/self` and `bundles/verify`.
+Run the unchanged `scripts/coverage-exact.sh`; host proof requires
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, consuming the same
+`rust-nightly-version.txt` pin as CI/release admission. A skipped nested
+boundary test is not evidence for that gate. File these checks as pending
+until their actual results exist; controller integration owns final host
+proof, PR/remote CI, publication, merging and issue closure.
 
 ## Risks / Trade-offs
 
-- **[Provider format drift]** → Pin measured supported encodings and
-  association evidence; resolve U1–U2 before decoder admission. Do not
-  replace a supported retained format with an empty success.
-- **[Canonical suppression loses distinct prose]** → Require recorded
-  identity or proved producer position, resolve association before display
-  capping, and preserve unassociated content. Keep source identity private.
-- **[Path swaps or same-size replacement]** → Traverse with verified
-  handles and re-resolve snapshots; path metadata alone is insufficient.
-- **[Bounded input still has allocation/refresh cost]** → Avoid whole-file
-  JSON retention and expansion of citation ranges; read only the selected
-  participant. The chosen limits bound work, not a measured latency promise.
-- **[Claude compatibility tightening]** → Carry the declared identifier,
-  uniqueness, discovery, symlink and source-cap costs into proposed 0055 and
-  migration guidance. Do not conceal them as a refactor.
-- **[More local metadata leaks prose]** → Keep the read result separate
-  from journal-derived view models; the browser presentation endpoint
-  serializes only metadata and every terminal string passes Safe.
-- **[A hint is mistaken for verified resumption]** → Keep it inert,
-  preserve recorded-home wording, and leave launch/sandbox proofs with
-  controller evidence for #226.
+- **[Provider drift or id-less mirrors]** → Closed measured mappings,
+  counted omissions and DSH refusal prevent false quiet success. Preserve
+  unassociated Codex content; require new proof before suppression or a
+  duplicate-free claim. Installed/live support remains separately measured.
+- **[Filesystem portability and replacement]** → One narrowly scoped OS
+  helper with held handles and deterministic race tests. Do not replace the
+  guarantee with pathname checks when a platform implementation is difficult.
+- **[Bounded rescans can still be expensive]** → Read only the selected
+  participant, retain lightweight candidates and match observed citation
+  identities. The limits bound work; no latency measurement is claimed.
+- **[Prose escapes through a convenient model]** → Keep the local result out
+  of journal-derived models; test serialization boundaries and inert displays.
+- **[Claude compatibility costs]** → Preserve the explicit breaking list in
+  proposed 0055 and the read-surfaces guide, with operator-owned remediation.
+- **[A hint is mistaken for launch evidence]** → Show recorded-home and
+  unavailable facts verbatim; no clickable execution or new command is added.
+- **[Decision filing is forgotten]** → D10 is a named pre-implementation task
+  prerequisite, checked by analysis and the existing decision/index suite.
 
 ## Migration Plan
 
-1. Return U1–U2 to their owning requirements in dependency order:
-   proposal, reading, command/TUI consequences. Preserve all earlier answers
-   and add the new evidence-backed scenarios. Clarification remains the
-   independent judgment; the chief does not manufacture a clear result.
-2. Reconcile the returned design with those scenarios, finish the provider
-   mapping and race-safe opening plan, then author/register only reserved
-   proposed 0055. Its enforcement bindings must name the projector,
-   filesystem, surface and privacy tests. No acceptance is claimed.
-3. The tasks office decomposes the admitted design; analysis judges it.
-   Implementation then extracts the Claude projector, adds the two
-   provider decoders/resolver and command, connects TUI/browser, extends
-   the proving suites and read-surfaces guide, and completes local checks.
-4. No stored data migration is required. Readers consume retained files;
-   they do not move, rewrite, backfill or delete them. Explain how an
-   operator can inspect an original, resolve duplicate placement, fit
-   discovery bounds, or replace an actual below-home symlink with an owned
-   regular entry. There is no reader home override or automatic
-   reorganization.
-5. Before publication, controller integration owns shared-file overlap,
-   full host coverage and review of the final head. After publication any
-   structural change to brokkr.transcript/v1 needs its explicit version
-   change. Rolling back the binary restores the previous reader, without
-   changing retained bytes or journal references; the old Codex/DSH
-   unreadability and older Claude lookup behavior would return.
-
-No push, merge, issue closure, completed-run publication or new run belongs
-to this seat.
+1. The tasks office first includes filing the chief-authored proposed 0055
+   and its index row before production edits, then decomposes this admitted
+   design in dependency order. Independent analysis judges that breakdown;
+   this sitting does not supply its verdict or author `tasks.md`.
+2. Implementation extracts the pure Claude projection, adds the typed reader
+   and Codex/DSH decoding, completes safe filesystem acquisition, adds the
+   command, then connects TUI/browser presentation and the proving suites.
+   The read-surfaces guide explains selectors, snapshot indices, error states,
+   kind-specific hints and Claude compatibility changes.
+3. No retained file or journal migration runs. Operators control any external
+   placement repair; this reader changes neither paths nor bytes. A rollback
+   restores the earlier reader without altering retained evidence; Codex/DSH
+   unreadability and the earlier Claude lookup behavior would return.
+4. Complete local checks, controller host proof and specification review
+   before delivery. Controller resolves shared-file overlap with #226;
+   this work does not modify or import that sibling's worktree. Remote CI,
+   publication, PR/merge and issue closure remain handoff actions.
 
 ## Open Questions
 
-None is safely deferred as ordinary design discretion. U1–U2 and the
-named S3 association evidence are admission blockers recorded under
-Decisions. The implementation details that remain must be proved by the
-tasks/analysis and validation phases; they are not permission to weaken
-the current requirements.
+No unresolved behavioral choice is deferred to implementation. S3's remaining
+legacy positional-association proof is not presumed: D5 selects the existing
+preserve-unassociated behavior and states exactly what evidence would permit
+additional suppression. A live provider census and latency measurement remain
+unmeasured validation evidence, not authority to narrow requirements or run
+models. A contradictory future measurement must return to its owning
+requirement; neither unknown provider facts nor difficult platform code may
+be disguised as downstream success.
 
-## Validation of this visit
+## Validation of this sitting
 
-Read the dialect manifest and design/return instructions, then rendered
+Read the dialect manifest, design and return instructions and rendered
 `openspec instructions design --change read-every-transcript-kind --json`.
-It names design.md; no workflow runner was invoked. This upstream visit
-commits only that declared artifact. Proposed 0055 is intentionally not
-claimed complete, and tasks/implementation remain unauthored.
+It declares `design.md`; no workflow runner was invoked. Proposal and all
+three deltas were read, including all 20 requirements and 168 scenarios.
+Only the declared design artifact is changed and committed; the proposed
+0055 filing text is contained in it, with the remaining placement explicit.
 
-The five commissioned Cargo checks were attempted with both concurrency
-limits and each was unavailable (exit 127: cargo absent). The unchanged
-exact-coverage script, with TMPDIR=/var/tmp and
-BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1, exited one at mktemp because /var/tmp is
-absent in this box. No coverage or boundary proof ran. Command records are
-in `.forge/design/read-every-transcript-kind-chief-validation.json`;
-host proof remains pending.
+Strict OpenSpec validation passed (exit 0). Artifact status recognizes the
+proposal, specs and design; `tasks.md` is still absent, so planning and the
+change are not complete. All 20 requirements and 168 scenarios are byte-for-
+byte unchanged from the adopted head. Whitespace and frozen/production-scope
+audits passed; the latter compares against the commissioned shipped base.
 
-Strict OpenSpec validation passed after authoring. Artifact status reports
-proposal/specs/design present and tasks ready by file existence, while
-planning and apply completion remain false. This structural status cannot
-resolve U1–U2 or override this upstream result. The frozen directories and
-all decision files remain unchanged against the commissioned base. Final
-git scope/whitespace checks and structural output are recorded with the
-visit evidence; no unavailable delivery check is counted as passing.
+The command evidence is recorded in
+`.forge/design/read-every-transcript-kind-df38565b-chief-validation.json`.
+Formatting, clippy, workspace tests and both bundle compilations were
+attempted with the commissioned concurrency limits, but Cargo is absent
+(exit 127). The unchanged exact-coverage script was attempted with those
+limits, `TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it stopped
+at `mktemp` because `/var/tmp` is absent (exit 1), before any coverage or
+boundary test ran. These delivery checks remain pending. Drafting claims
+neither implementation nor full-story completion. The phase result carries
+`inputs.change: read-every-transcript-kind` for the next declared office.
