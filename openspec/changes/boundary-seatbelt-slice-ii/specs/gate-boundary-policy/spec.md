@@ -56,9 +56,9 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **WHEN** a gate-class agent site with hands compiles under `seatbelt`, and again under `container`
 - **THEN** compilation succeeds exactly as under `namespace` and the manifest pins the word, whatever the compiling machine holds
 
-#### Scenario: Compile admission is not a peer ruling
-- **WHEN** a Seatbelt gate compiles while overlay, mask, hooks-view/peer or lifetime prerequisites are unresolved, including a candidate passing only an unsigned-commit smoke test
-- **THEN** compilation pins the realm word as before, but start retains the unbuilt slice (ii) refusal before any journal row or seat; compile admission does not authorize a weaker runtime gate
+#### Scenario: Compile admission is not native proof
+- **WHEN** a Seatbelt gate compiles while any SEATBELT-R1 through R4 evidence residual is open, including a candidate passing only an unsigned-commit smoke test
+- **THEN** compilation pins the realm word, but start retains the unbuilt refusal before any journal row or seat; compile admission and accepted semantics do not authorize an unproved peer runtime
 
 #### Scenario: A harness work seat without a work fragment is refused
 - **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`, in a bundle that seats no gate and binds no secret, so nothing but the hands law stands before the gate law's work-class early return (design DD22)
@@ -306,11 +306,11 @@ every boundary, because its harness needs the operator's keys. An
 inline model site with hands under `harness` or `open` SHALL be
 refused at compile naming the repair, because its argv is the author's
 and carries the box's own tokens.
-`container` never reaches composition: the engine refuses it at its
-entry before any journal row (boundary-availability). Seatbelt reaches
-composition only after boundary-availability's policy/peer activation and
-host/tool checks; no partial or unruled implementation reaches a production
-seat. All model, exec and synthetic dialect sites use that same boundary
+`container` never reaches composition: boundary-availability refuses it before
+any journal row. Seatbelt reaches composition only after both paths implement
+the accepted policy and all native activation residuals close; no partial or
+unproven implementation reaches a production seat. All model, exec and
+synthetic dialect sites use that same boundary
 transport, including panel members, sequence steps and selected cases. A
 dialect step under `harness` or `open` is refused at compile and never
 reaches composition either (decision 0046 rulings 1 and 4; decision
@@ -385,10 +385,9 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 
 ## Decisions
 
-- **R4 — no unruled gate-grade branch.** Compile remains machine-independent
-  under accepted 0046. The runtime fence, not a compiler trust promotion,
-  prevents an incomplete or unruled Seatbelt mechanism from holding a gate.
-  A harness-grade ruling would change this requirement and the owning
-  boundary-record/readouts requirements together; inventing its gate law
-  here before that upstream ruling would exceed this specify visit's
-  authority. The target remains a full peer with no weaker fallback.
+- **R4 — conditional full peer, no weaker fallback.** Compilation remains
+  machine-independent. The accepted 0046 addendum settles the permitted
+  hooks observable; native independent protection evidence is still required.
+  The runtime fence prevents an incomplete or unproven Seatbelt mechanism
+  from holding a gate. A reduced grade would require a new operator ruling
+  and coherent gate/record/readout changes; none is authorized here.

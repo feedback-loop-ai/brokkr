@@ -14,8 +14,8 @@ rerun stands under the realm's word and its manifest carries the realms
 pin (design DD6). Compilation consults no machine and no engine
 capability: a realm declaring `seatbelt` or `container` compiles and
 pins the word, and any refusal that stops a run comes at start and is
-boundary-availability's: Seatbelt needs its policy/peer activation and
-implemented macOS boundary, retaining the unbuilt slice (ii) refusal until
+boundary-availability's: Seatbelt needs both implemented hands paths and closed
+native activation residuals, retaining the unbuilt slice (ii) refusal until
 then, while container remains unbuilt until slice (iii) (decision 0046
 ruling 1; the resume rule of decision 0042 ruling 1's enactment).
 
@@ -38,13 +38,13 @@ ruling 1; the resume rule of decision 0042 ruling 1's enactment).
 
 #### Scenario: A seatbelt realm compiles and pins the word
 - **WHEN** a `forge.realms/v4` map declares the operated repository's realm with `"boundary": "seatbelt"` and `brokkr compile` runs over a boxed bundle on a machine without `sandbox-exec`
-- **THEN** the bundle compiles and its manifest's `boundary` map says `seatbelt` for every hands site; compilation consults no host capability; starting that bundle retains the slice (ii) unbuilt refusal while activation prerequisites are unresolved; after activation it refuses a wrong host or missing/unusable trusted system launcher with that host/tool cause
+- **THEN** the bundle compiles and its manifest's `boundary` map says `seatbelt` for every hands site; compilation consults no host capability; start retains the unbuilt refusal while any required native residual is open, and after activation a wrong host or missing/unusable trusted launcher refuses with that cause
 
 #### Scenario: Seatbelt resume and rerun preserve their different realm sources
 - **GIVEN** a run pinned under `seatbelt` and a current workspace realm changed to `harness`
 - **WHEN** the controller resumes the run on a capable Mac after Seatbelt activation and separately reruns the feature
 - **THEN** resume compiles the pinned Seatbelt world and applies Seatbelt availability, while rerun compiles the discovered harness world and receives that distinct identity; a resume on Linux refuses instead of substituting harness
 
-#### Scenario: A pinned realm does not override an unresolved activation prerequisite
-- **WHEN** a run/resume/rerun compiles under the Seatbelt realm word while R1–R4's policy or peer prerequisite remains unresolved
+#### Scenario: A pinned realm does not override an open evidence gate
+- **WHEN** a run, resume or rerun compiles under the Seatbelt realm word while any SEATBELT-R1 through R4 evidence is missing or failing
 - **THEN** its manifest still pins Seatbelt and its runtime entry refuses under the unbuilt fence; neither a current harness realm nor a compile-only identity changes that verdict

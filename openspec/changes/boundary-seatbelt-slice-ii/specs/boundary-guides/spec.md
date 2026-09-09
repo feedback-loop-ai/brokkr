@@ -128,53 +128,61 @@ boundary from commands using workspace hands, retaining decision 0043's
 Codex native read-only shell limitation instead of claiming the harness
 cannot read any host credential.
 
-The guides SHALL show the realm declaration and both hands entry points,
-explain private HOME/tmp versus seat-scoped overlay state, the controlled
-toolchain/SDK access, `ro`/`rw`/`overlay` and mask behavior, git protection
-including linked worktrees, unsigned commits, network-off/on semantics,
-output/deadline limits and any explicit unsupported layout refusal. The
-network explanation SHALL distinguish shared macOS loopback from a private
-Linux network namespace; a host loopback allowance is not isolation.
-Native measurement status and any proposed ruling SHALL be adjacent to the
-claim they qualify. While R1–R4 remain unresolved, examples SHALL be labeled
-as target behavior and Seatbelt SHALL be described as unbuilt. Refusing the
-shipped overlays SHALL be reported as an unmet deliverable, not supported
-Seatbelt with an optional limitation. Direct readable-empty masks, original
-empty hooks listings and complete descendant teardown SHALL not be replaced
-with denial or process-group-only claims. An upstream grade change SHALL
-be reflected in gate/record/readout specs before guides describe it as usable.
-An implementation-only Linux handoff SHALL provide the
-exact native CI invocation and expected cases for the controller, not an
-invented success count or an instruction to weaken the gate.
+The guides SHALL show the realm declaration and both hands entry points and
+explain private per-call HOME/tmp versus seat-scoped overlay state. For every
+overlay they SHALL document the `BROKKR_HANDS_OVERLAYS` JSON array's
+`index`, `declared_path` and replacement `locator`, stable seat lifetime,
+new seat/attempt isolation, later-source invisibility, and exclusion from
+portable identity. Cargo and npm variables SHALL be described as consumers
+of the same generic mapping. The original path is not the writable view.
 
-No accepted decision SHALL be rewritten as newly accepted by this change.
-A focused semantic decision remains `proposed` until the operator rules;
-archive evidence, historical live channel versions and old journal examples
-retain their meaning. New contract requirements, if any, SHALL be documented
-as additive versions rather than edits of frozen bytes. Documentation tests
-SHALL check the maintained platform and boundary facts, not prescribe an
-untested guarantee by matching a word.
+They SHALL describe Seatbelt masks as `EACCES`/`EPERM` denied reads with no
+content, not readable-empty; ordinary neighbors remain usable and namespace
+keeps its current behavior. Git documentation SHALL say that original host
+hooks are denied while ordinary Git uses an empty private hooks directory,
+and that only independent raw hook/config/routing write protection proven
+in primary and linked worktrees permits full-peer status. It SHALL also cover
+controlled toolchain/SDK paths, `ro`/`rw`, network off/on, output/deadline
+limits, unsupported-layout refusals and both entry paths.
+
+The process section SHALL name the transient per-invocation `launchd` job,
+job/process-coalition ownership, `bootout` and engine-liveness guard as the
+unproven R3 candidate. It SHALL state that process-group kill, PID polling,
+`kqueue`, source reasoning, mocks and Linux runs are not the guarantee, and
+that full implementation cannot proceed until real macOS setsid/double-fork
+timeout, cancellation and supervisor-death adversaries pass. The network
+explanation SHALL distinguish shared macOS loopback from a private Linux
+network namespace; a host loopback allowance is not isolation.
+
+While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
+labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
+Refusing shipped overlays is an unmet deliverable, not an optional limitation.
+An implementation-only Linux handoff SHALL give the exact native invocation
+and expected cases without inventing a success count. The accepted addendum
+SHALL be cited without implying evidence. A new semantic decision remains
+`proposed` until the operator rules; frozen contracts change only additively,
+and historical examples and channel versions retain their meaning.
 
 #### Scenario: A Mac operator can tell what the boundary provides
 - **WHEN** the operator reads the hands description and macOS guide examples
-- **THEN** they see the actual policy and limitations, how to declare Seatbelt and diagnose a refusal, and no claim that Seatbelt supplies Linux namespaces or a nonexistent `/runtime/bundle` mount
+- **THEN** they see the actual policy, locator/mask/hooks/lifetime observables, activation status and diagnosis, with no claim of Linux namespaces or a nonexistent `/runtime/bundle` mount
 
 #### Scenario: Native Codex tools are not conflated with workspace hands
 - **WHEN** the guide describes the Codex workspace adapter under Seatbelt
-- **THEN** it states that Brokkr confines workspace-tool commands, that the provider harness remains outside, and that the native read-only shell limitation recorded by 0043 still applies
+- **THEN** it states that Brokkr confines workspace-tool commands, the provider harness remains outside, and the native read-only shell limitation recorded by 0043 still applies
 
 #### Scenario: Preparation and measurement have different evidence
-- **WHEN** the guide or handoff is written before Mac CI and host exact coverage execute
-- **THEN** those checks are explicitly pending with their controller-owned invocations and required outcomes, no overall slice completion is asserted, and later real evidence is attributed to its actual candidate, host and tool versions
+- **WHEN** the guide or handoff is written before native macOS and host exact-coverage runs exist for the candidate
+- **THEN** those checks are pending with controller-owned invocations and required outcomes, no activation or completion is asserted, and later evidence is attributed to its actual candidate and host
 
-#### Scenario: A semantic difference is not hidden in wording
-- **WHEN** design proposes denied-mask reads, relocated overlays or a different hooks view
-- **THEN** documentation names the exact difference and focused proposed decision, preserves refusal where the accepted guarantee cannot hold, and does not claim the proposed behavior was already accepted
+#### Scenario: Accepted observables and proof status stay adjacent
+- **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view
+- **THEN** it cites the accepted addendum, states the exact observable and native evidence status, and preserves the unbuilt refusal until every guarantee is demonstrated
 
-#### Scenario: An unresolved policy is not a working macOS example
-- **WHEN** Seatbelt has only a bind-free execution experiment or unresolved overlay, mask, lifetime or hooks-view/peer prerequisites
-- **THEN** the guide says slice (ii) remains unbuilt, labels positive examples as targets, identifies the affected shipped declarations and R1–R4 questions, and never presents the unchanged shipped library as runnable under that experiment
+#### Scenario: Missing native proof is not a working macOS example
+- **WHEN** Seatbelt has only a launcher, bind-free experiment, generated profile, Linux reasoning or an unproved launchd candidate
+- **THEN** the guide says slice (ii) remains unbuilt, lists open residuals and the next native action, and never presents shipped bundles or full-peer gates as runnable
 
 #### Scenario: Init advice and launcher diagnosis agree
 - **WHEN** the macOS setup instructions explain init and doctor
-- **THEN** they name the fixed system launcher, literal `/usr/bin` search-path requirement, readiness probe and actual activation status, with no change to namespace lookup; harness remains an explicitly unboxed alternative and init never writes the realm choice
+- **THEN** they name the fixed launcher, literal `/usr/bin` PATH entry, readiness probe, open evidence residuals and actual activation status; harness remains explicitly unboxed and init never writes the realm choice
