@@ -722,6 +722,11 @@ substitute DSH's model-visible surface for the requested transcript.
 - **THEN** its row counts once as unrecognized and the read returns `unsupported-format` with no turns, not a guessed association
 - **AND** a valid range `[0, 9007199254740990]` on an assembly at sequence 9007199254740991 instead tests only the earlier events actually present, using no allocation or iteration proportional to that interval's width
 
+#### Scenario: Citation entry order does not become transcript order
+- **WHEN** a complete DSH snapshot has unique readable same-step chunks at sequences 10, 11, 12 and 14 and a later readable assembly at sequence 20 with `sourceEventSeqs: [[12, 14], [10, 12], 11]`, with both budgets satisfied and no other diagnostic condition
+- **THEN** the reader succeeds with only the assembly at its own position and timestamp, zero diagnostic counts and no notices, exactly as for citations `[10, 11, 12, 14]`; overlapping or out-of-order entries neither refuse this audit read nor duplicate content, and missing sequence 13 creates no event or lookup
+- **AND** CLI whole output, `--turn 1` and the TUI show that same assembly; a live replacement of the four chunk turns clears the old selection and closes its overlay under the existing refresh rule, without validating or changing the provider's replay history
+
 #### Scenario: Interrupted assembly and compaction keep the audit order
 - **WHEN** a complete readable interrupted assembly cites some same-step chunks and a later message carries a surface replacement citing earlier messages
 - **THEN** only the interrupted assembly's proved chunk sources disappear; uncited chunks, earlier messages and tool events retain audit order, and the later replacement message appears at its recorded position rather than rewriting history
@@ -1177,3 +1182,29 @@ logical-event turn/display unit, exact timestamps, citation admission and
 bounded matching, and audit-order rule. Bind them to synthetic packed/plain
 projection equivalence, refusal/count tests and CLI/TUI selection/refresh
 conformance. Accepted decisions and provider originals remain unchanged.
+
+Successor source check (proposal S10): controller-captured
+`@deepseek-ai/dsh-session` 0.1.2-rc.1 supplies the previously unavailable
+`lib/types/seq-ranges.js`, SHA-256
+`68a127c76affa98edeeb50e302eb43f154f4d24f7d04cb95ba8b323e88f3d09e`.
+Its decoder expands inclusive ranges and rejects non-increasing expanded
+lists when any range is present. This verifies the storage syntax; it does
+not replace the reader's settled admission rule with the provider's replay
+validator. The captured `lib/types/chunk-rows.js`, SHA-256
+`5724c4f798ed07e77406ab13a75685622a3e08868f257cbd142949099f0ea4c2`,
+confirms the packed shapes and preserved individual fragments specified
+above. The capture hashes were checked without accessing installed host
+files or executing provider code.
+
+Keep duplicate, overlapping and out-of-order valid citations as sets:
+Brokkr tests membership only against observed, uniquely identified earlier
+same-step chunks. Reordering a citation list cannot change that proof or
+the physical audit order. Importing the provider's range-order refusal or
+expanding every range is rejected because neither is needed for that
+bounded membership test. Required unknown events, malformed encodings and
+self/future citations still refuse under R14/R15. The new citation-entry
+scenario concretizes this existing policy and its existing CLI/TUI
+consequences; it changes no output field or previous answer. Proposed 0055
+must state this deliberate distinction from the captured replay decoder
+and bind it to citation-set and cross-surface regression tests. No claim
+of a live DSH read or resumption follows from this source inspection.

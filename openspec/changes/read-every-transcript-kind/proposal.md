@@ -399,3 +399,57 @@ physical-row/count/turn, timestamp, citation and audit-order rules with
 bindings to projector, CLI/TUI and privacy tests. It must preserve S2/S8 and
 all prior bindings. No proposed decision is accepted here, no task breakdown
 exists to amend, and drafting does not claim design admission or delivery.
+
+### S10 — Successor adoption preserves the repaired specification
+
+Run `close-issue-222-a-transcript-rea-df38565b` adopts the committed change at
+`3013388`, including the third-pass repair, fourth-pass clear record and
+U1/U2 answers. Strict OpenSpec validation passed before amendment; the tree
+was clean and descends from the commissioned base. This run's supplied
+context contains no `returned_from` finding. Earlier quota failures are
+provider failures, not clarification verdicts; neither they nor this
+structural validation substitute for this run's independent judgments.
+
+All prior answers remain in force. The existing council record and both
+positions were read in full; S9's claim-by-claim reconciliation stands.
+Design remains a historical upstream return awaiting reconciliation with
+R14/R15, its remaining provider evidence and proposed 0055. Artifact presence
+is not design admission. The registry still ends at 0053; 0054 and 0056
+remain the controller's sibling reservations. This specify visit amends
+only proposal and requirements; it does not author later phases' artifacts.
+
+The controller's `.forge/controller-dsh-transcript-storage-interface.json`
+capture, measured on 2026-09-09 at 08:10:13 UTC, is now available through the
+workspace. Every captured source text matches its recorded SHA-256. Its
+`@deepseek-ai/dsh-session` package metadata identifies version 0.1.2-rc.1.
+The packed-row decoder confirms R15's stored shape, member boundaries and
+time reconstruction. The captured `seq-ranges.js` closes S9's missing
+range-codec source access: it confirms inclusive pairs but enforces strict
+increasing order when a range is present. R15 deliberately uses set
+membership instead and already disclaims execution replay. Preserve that
+settled policy, document its reason against this source, and add the concrete
+scenario “Citation entry order does not become transcript order”. Command
+and TUI retain their existing shared-result, numbering and refresh rules.
+
+This is inspection of controller-captured installed source, not a fresh
+installed-provider probe or live transcript measurement. Codex association
+proof and the remaining design mappings in S3/D9, S5's proposed bounds,
+proposed decision 0055 and all delivery gates remain due. No sibling tree,
+provider home, global setting, frozen file or accepted decision is changed.
+
+Validation for this adoption: strict OpenSpec validation and delta parsing
+pass with 20 requirements and 153 scenarios; all 152 earlier scenario names
+and all three capability boundaries are preserved. The command/TUI deltas
+and historical design remain byte-identical. Status reports artifacts by
+presence with tasks ready and planning/apply completion false. Whitespace,
+frozen-byte, accepted-decision and unchanged-coverage-script checks pass.
+All five commissioned Cargo commands were attempted with
+`CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2` and exited 127 because Cargo
+is absent. Exact coverage was attempted unchanged with those limits,
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at
+`mktemp` because `/var/tmp` is absent. No Rust or host-boundary proof ran.
+This visit's evidence is
+`.forge/specify/read-every-transcript-kind-df38565b-validation.json` and
+`.forge/specify/read-every-transcript-kind-df38565b-scenario-audit.json`;
+prior evidence is preserved. Those delivery checks remain pending, not
+passing, and this adoption claims no independent clarification verdict.
