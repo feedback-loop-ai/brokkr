@@ -4120,7 +4120,12 @@ fn realm_facts_state_only_what_the_tree_answers() {
 /// repositories, at two DIFFERENT heads. Every realm-facts test above
 /// runs in a one-realm world; this one reuses proof 1's own fixture —
 /// `crate::realms::tests::two_repositories`, one map, two git trees, two
-/// commits, two hearths — rather than building a second one.
+/// commits, two hearths — rather than building a second one. The two
+/// trees are held apart on every fact the engine keys per realm: their
+/// heads differ, and their worktrees do too (beta is left dirty, alpha
+/// clean), so `head`, `drift_detected` and `dirty_worktrees` each answer
+/// for ONE repository and a probe that read the world, or the wrong
+/// realm, contradicts what is asserted.
 ///
 /// The finding this test states rather than hides: a single run's
 /// `realm_facts` can only ever carry ONE realm key. The engine keys them
@@ -4146,6 +4151,15 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
             .cloned()
             .collect::<Vec<String>>()
     };
+
+    // Beta is left dirty and alpha is left clean, from here to the end:
+    // the two repositories differ in worktree state as well as in head,
+    // so every `dirty_worktrees` below answers for ONE tree and a probe
+    // that read the world — or the wrong realm — reports the opposite of
+    // what is asserted.
+    std::fs::write(beta.join("uncommitted.txt"), "beta is mid-thought").unwrap();
+    assert!(git_dirty(&beta));
+    assert!(!git_dirty(&alpha));
 
     // The run that lives in alpha. Alpha moves; beta is never touched, so
     // the two trees stand at different heads the whole way through.
@@ -4188,7 +4202,13 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
         "the copy-paste guard: alpha's facts carry alpha's head"
     );
     assert_eq!(facts["alpha"]["drift_detected"], json!(false));
-    assert_eq!(facts["alpha"]["dirty_worktrees"], json!(false));
+    assert_eq!(
+        facts["alpha"]["dirty_worktrees"],
+        json!(false),
+        "alpha's own tree is clean while its neighbour is not: a probe \
+         that read the world, or the other realm, would say true here"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(false));
     drop(engine);
 
     // The same map, the other repository: beta's run records beta's own
@@ -4213,6 +4233,13 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
         json!(moved),
         "beta's facts never carry alpha's head"
     );
+    assert_eq!(
+        facts["beta"]["dirty_worktrees"],
+        json!(true),
+        "and beta's facts carry beta's OWN worktree state: the two \
+         repositories disagree, and each run answers for its own"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(true));
     assert_eq!(inputs["drift_detected"], json!(false));
     drop(engine);
 
