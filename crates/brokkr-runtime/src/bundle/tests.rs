@@ -818,7 +818,7 @@ fn driver_confine_is_refused_by_name_in_a_bundle_and_beside_an_agent() {
     }
 }
 
-/// Decision 0054 ruling 1: a bundle never names a crossing. `publishes`
+/// Decision 0057 ruling 1: a bundle never names a crossing. `publishes`
 /// and `consumes` are the realm's two words, and a site that writes
 /// either is told where they live — naming the seat, `realms.json` as
 /// their home and the ruling — rather than that its key is unknown, on
@@ -829,7 +829,7 @@ fn a_bundle_never_names_a_crossing() {
     let policy = Fixture::policy();
     let home = "a crossing is declared by the realm (realms.json, forge.realms/v5) and never \
                 by a bundle, because the file one realm publishes and the digest another \
-                pins it at is the realm's fact and not a recipe's (decision 0054 ruling 1)";
+                pins it at is the realm's fact and not a recipe's (decision 0057 ruling 1)";
     let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
 
     // A seat publishing: the word a realm uses for the file it owns.

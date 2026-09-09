@@ -1106,7 +1106,7 @@ fn a_world_with_no_crossing_pins_the_exact_shape_it_always_did() {
 
 // ---------------------- the same fact, refused and reported (0046's Addendum)
 
-/// Doctor's half of decision 0054. The world a crossing has moved under
+/// Doctor's half of decision 0057. The world a crossing has moved under
 /// still LOADS through `World::inspect` — every realm, every path, every
 /// house and dialect still answerable — and the mismatch comes back as
 /// data, keyed to the realm and the crossing that failed. `World::load`

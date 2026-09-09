@@ -1536,7 +1536,7 @@ fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
     }
 }
 
-/// Decision 0054 ruling 1: a crossing is the REALM's — a file one realm
+/// Decision 0057 ruling 1: a crossing is the REALM's — a file one realm
 /// publishes and another realm pins by its bytes — declared in
 /// `realms.json` under `forge.realms/v5`, and a bundle never names one.
 ///
@@ -1558,12 +1558,12 @@ fn refuse_crossing_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
 /// one.
 const CROSSING_KEYS: [&str; 2] = ["publishes", "consumes"];
 
-/// Where a crossing lives (decision 0054 ruling 1), said once for the
+/// Where a crossing lives (decision 0057 ruling 1), said once for the
 /// site that tries to write it into a bundle.
 const CROSSING_IS_THE_REALMS: &str = "a crossing is declared by the realm \
     (realms.json, forge.realms/v5) and never by a bundle, because the file one realm \
     publishes and the digest another pins it at is the realm's fact and not a \
-    recipe's (decision 0054 ruling 1)";
+    recipe's (decision 0057 ruling 1)";
 
 /// The box the compiler builds for every dialect `validate`/`check` step
 /// (decision 0042 ruling 4). Public so `brokkr doctor` probes the

@@ -670,14 +670,14 @@ fn the_run_manifest_records_the_crossing_the_run_stood_on() {
     assert_eq!(code, Some(0), "{stderr}");
 }
 
-// ---------------------- a moved crossing refuses the run (decision 0054)
+// ---------------------- a moved crossing refuses the run (decision 0057)
 
 /// The bytes this workspace's realm publishes while the pin is true.
 const PUBLISHED: &str = "{\"title\": \"orders\"}\n";
 
 /// A map that draws a crossing across two realms: this tree publishes
 /// `orders.api`, a second realm pins its bytes. Two realms, because
-/// decision 0054 ruling 3.6 refuses a realm that consumes its own
+/// decision 0057 ruling 3.6 refuses a realm that consumes its own
 /// published crossing. Returns the published file and the pin the map
 /// carries for it.
 fn crossing_map(ws: &Workspace) -> (PathBuf, String) {
@@ -723,7 +723,7 @@ fn names_what_moved(stderr: &str, pinned: &str, observed: &str) {
     assert!(stderr.contains("orders.v1.schema.json"), "{stderr}");
 }
 
-/// Decision 0054, made a run-start law on decision 0046's Addendum's
+/// Decision 0057, made a run-start law on decision 0046's Addendum's
 /// terms: a consumed crossing whose publisher's bytes have moved refuses
 /// `run`, `rerun` and `resume` before any seat spawns, and the refusal
 /// names what moved. The three verbs word it identically because all
@@ -795,7 +795,7 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
 }
 
 /// `brokkr compile` shows each realm's crossings and never writes one
-/// into the bundle (decision 0046 ruling 1's shape, decision 0054 ruling
+/// into the bundle (decision 0046 ruling 1's shape, decision 0057 ruling
 /// 1's home): the printed view carries the publisher's file and observed
 /// digest and the consumer's pin, `bundle.manifest` carries neither, and
 /// the bundle's digest is the digest the same bundle compiles to in a

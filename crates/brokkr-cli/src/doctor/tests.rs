@@ -261,7 +261,7 @@ fn realm_report(dir: &Path) -> Report {
     report
 }
 
-/// Decision 0054 through doctor, on decision 0046's Addendum's terms: a
+/// Decision 0057 through doctor, on decision 0046's Addendum's terms: a
 /// crossing that has moved is one realm's LINE, not the end of the
 /// readout. The world still exists — its houses, its dialects, its
 /// boundaries all still answer — and what a run would have refused is
@@ -903,7 +903,7 @@ fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     use std::os::unix::fs::PermissionsExt;
     if !can_create_namespace() {
         // A host that declared it must produce boundary evidence fails
-        // here instead of printing `ok` (decision 0054 ruling 9).
+        // here instead of printing `ok` (decision 0057 ruling 9).
         brokkr_protocol::hands::skip_boundary_proof(
             brokkr_protocol::hands::boundary_evidence_required(),
             "no namespace can be built here",

@@ -394,7 +394,7 @@ pub fn doctor(
     // realm's line here rather than the `Err` that would replace every
     // house, dialect and boundary line in this report with a single
     // "realms map" one and tell an operator their world is broken when
-    // one contract moved (decision 0054).
+    // one contract moved (decision 0057).
     let world = brokkr_runtime::realms::World::inspect(&workspace, realms);
     let boundary = match &world {
         Ok(Some(world)) => world.boundary_for(&workspace),
@@ -478,7 +478,7 @@ fn report_realm_house_for_world(report: &mut Report, world: &brokkr_runtime::rea
     }
 }
 
-/// Decision 0054's crossings, per realm, on decision 0046's Addendum's
+/// Decision 0057's crossings, per realm, on decision 0046's Addendum's
 /// terms: doctor REPORTS what `run` refuses, and refuses nothing itself.
 ///
 /// One line per realm that draws a crossing at all — a world that never
