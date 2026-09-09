@@ -566,14 +566,22 @@ workspace and nothing outside it. What it may try, and what stops it:
   when it commits.** Between the two, the worktree's index and `HEAD`
   are the seat's while its branch is still the host's, so a host `git
   status` run in that worktree during a seat shows the seat's tree as
-  staged. It resolves at the promotion. Nothing in the phase machine
+  staged. For committed content, it resolves at the promotion. Nothing in the phase machine
   reads the branch mid-seat; the next seat's staging reads the promoted
   state.
+- **Staged but uncommitted objects and private stashes are not delivered.**
+  Promotion transfers only the checked-out branch. An index entry for
+  content added but never committed can refer to an object discarded with
+  the private store. Commit staged content within the same seat. Recovery
+  preserves the working files, resets the index with `git reset --mixed
+  HEAD`, and stages the files again; partial staging selections may need
+  to be recreated.
 - **A seat cannot switch branches or rebase.** `HEAD` is read-only, so
   `git checkout <other>`, `git switch` and `git rebase` fail on the lock
   rather than moving the ref this decision promotes. Committing, amending
   and resetting the OWN branch all work, because those move the branch
-  `HEAD` names and not `HEAD`. A seat that wants a different branch
+  `HEAD` names and not `HEAD`. Promotion permits non-fast-forward updates
+  to that own branch, subject to the unchanged host-baseline check. A seat that wants a different branch
   delivered asks for a worktree on it. This is the price of "one ref,
   provably this worktree's", and it is paid deliberately: the alternative
   measured here is a previous seat aiming a later seat's commits at a

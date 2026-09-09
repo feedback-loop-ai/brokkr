@@ -320,7 +320,7 @@ branch this worktree owns and therefore which ref the promotion moves:
 left writable, a seat could aim the next seat's honest commits at a
 branch it chose. A commit does not write `HEAD` — it moves the branch
 `HEAD` names — so committing, amending and resetting the own branch all
-work; `git checkout <other>`, `git switch` and `git rebase` do not, and
+work, including non-fast-forward updates to that branch; `git checkout <other>`, `git switch` and `git rebase` do not, and
 fail on the lock.
 
 Three consequences worth knowing at the bench. A seat's commits reach the
@@ -328,7 +328,13 @@ shared repository when the seat ENDS, not when it commits, so a host `git
 status` in that worktree mid-seat shows the seat's tree as staged. A seat
 cannot switch branches. And `git worktree list` inside the seat reads the
 private store, which has no `worktrees` directory, so it reports only
-that store.
+that store. Content added to the index but not committed before the seat
+ends is not preserved in the shared object store: the index can then refer
+to discarded private objects. Commit staged content within the same seat.
+To recover such an index, preserve the working files, reset the index to
+`HEAD` with `git reset --mixed HEAD`, and stage those files again; partial
+staging selections may need to be recreated. Private stashes are discarded
+too, because promotion transfers only the checked-out branch.
 
 Both hook paths git could use are empty tmpfs mounts, and three config
 paths are masked with a staged empty read-only file: the per-worktree
