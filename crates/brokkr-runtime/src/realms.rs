@@ -197,9 +197,23 @@ impl CrossingFailure {
     }
 }
 
+/// A consumed pin that was never compared to anything, because the realm
+/// that publishes it could not have its file read. It is not a failure of
+/// this realm — the publisher's own unreadable file is already a
+/// [`CrossingFailure`] on the publisher's report, and it is the refusal
+/// [`World::load`] gives — but it is not a pin that matched either, and a
+/// readout that counted it among the matching ones would say a contract
+/// was verified against bytes nobody read.
+#[derive(Debug)]
+pub struct UncheckedPin {
+    /// The realm that publishes the crossing, whose line carries why.
+    pub publisher: String,
+    pub crossing: String,
+}
+
 /// One realm's crossings, as `brokkr doctor` reports them: how many files
-/// it publishes, how many pins it carries, and whichever of those is not
-/// currently true.
+/// it publishes, how many pins it carries, whichever of those is not
+/// currently true, and which of its pins could not be checked at all.
 ///
 /// Built only for a realm that draws a crossing at all, so a world that
 /// never drew one gets no line — exactly as it writes no manifest key and
@@ -210,6 +224,9 @@ pub struct CrossingReport {
     pub published: usize,
     pub consumed: usize,
     pub failures: Vec<CrossingFailure>,
+    /// The consumed pins nothing could be compared to, so that
+    /// `consumed` is never read as "this many pins matched".
+    pub unchecked: Vec<UncheckedPin>,
 }
 
 #[derive(Debug, Clone)]
@@ -766,7 +783,9 @@ fn load_realm_texts(map_source: &Path, map: &RealmMap) -> RealmTexts {
 /// the pins compared. That ordering is what a reader is told: a crossing
 /// whose file is gone is the PUBLISHER's fault and is named as the
 /// publisher's, never reported as the consumer having pinned the wrong
-/// digest of a file that is not there at all.
+/// digest of a file that is not there at all. Its consumers' pins are then
+/// neither matching nor moved, and come back as [`UncheckedPin`]s so that
+/// a readout can say so rather than count them as verified.
 ///
 /// Nothing here refuses. Every crossing is read and every pin compared,
 /// and what is not true comes back as a [`CrossingReport`] per realm, so
@@ -791,6 +810,7 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
             published: realm.published().len(),
             consumed: realm.consumed().len(),
             failures: Vec::new(),
+            unchecked: Vec::new(),
         };
         let root = realm_root(base, realm);
         for crossing in realm.published() {
@@ -819,21 +839,27 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
     }
     for realm in &map.realms {
         for crossing in realm.consumed() {
+            let report = reports
+                .iter_mut()
+                .find(|report| report.realm == realm.name)
+                .expect("a realm that consumes a crossing draws one");
             // `brokkr-core` admits a `consumes` entry only when this world
             // holds the realm it names AND that realm publishes that
             // crossing (0057 ruling 3.1 and 3.2), so the entry is one of
             // the publications resolved above — unless that publication's
             // own file could not be read, which is already the
             // PUBLISHER's line, and a pin has nothing to be compared to.
+            // Nothing is charged to this realm for that, but the pin is
+            // recorded as unchecked, so no reader is told it matched.
             let Some(published) = crossings.get(&(crossing.realm.clone(), crossing.name.clone()))
             else {
+                report.unchecked.push(UncheckedPin {
+                    publisher: crossing.realm.clone(),
+                    crossing: crossing.name.clone(),
+                });
                 continue;
             };
             if published.sha256 != crossing.sha256 {
-                let report = reports
-                    .iter_mut()
-                    .find(|report| report.realm == realm.name)
-                    .expect("a realm that consumes a crossing draws one");
                 report.failures.push(CrossingFailure {
                     realm: realm.name.clone(),
                     crossing: crossing.name.clone(),

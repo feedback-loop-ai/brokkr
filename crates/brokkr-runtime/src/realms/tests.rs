@@ -1167,8 +1167,10 @@ fn a_moved_crossing_is_data_to_inspect_and_a_refusal_to_load() {
 /// The publisher's fault stays the publisher's, on both surfaces: an
 /// unreadable published file is reported against the realm that publishes
 /// it, and it is the refusal `World::load` gives even though a consumer's
-/// pin cannot match a file that is not there either. A consumer whose
-/// publisher failed gets no line of its own — there is nothing to compare.
+/// pin cannot match a file that is not there either. The consumer is
+/// charged nothing — there is nothing to compare — but its pin is carried
+/// back as UNCHECKED, so no reader is told the pin was verified against
+/// bytes that were never read.
 #[test]
 fn a_published_file_that_is_gone_is_reported_against_its_publisher() {
     let (dir, _, _) = two_repositories();
@@ -1183,7 +1185,19 @@ fn a_published_file_that_is_gone_is_reported_against_its_publisher() {
         (failure.realm(), failure.crossing()),
         ("alpha", "orders.api")
     );
+    assert!(reports[0].unchecked.is_empty(), "alpha consumes nothing");
     assert!(reports[1].failures.is_empty(), "beta pinned nothing wrong");
+    assert_eq!(reports[1].consumed, 1);
+    let unchecked = &reports[1].unchecked;
+    assert_eq!(unchecked.len(), 1, "beta's one pin met no bytes");
+    assert_eq!(
+        (
+            unchecked[0].publisher.as_str(),
+            unchecked[0].crossing.as_str()
+        ),
+        ("alpha", "orders.api"),
+        "the pin names the realm that owes the bytes"
+    );
     assert_eq!(
         failure.error().to_string(),
         refusal(World::discover(dir.path(), None)),

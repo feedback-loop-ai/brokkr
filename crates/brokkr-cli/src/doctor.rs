@@ -488,10 +488,17 @@ fn report_realm_house_for_world(report: &mut Report, world: &brokkr_runtime::rea
 /// failing crossing rather than collapsing the world; the detail is the
 /// refusal `run` would have given, read out of the error itself so the
 /// two surfaces cannot word one fact twice.
+///
+/// A pin whose publisher could not publish is neither: it is its own
+/// `warn`, naming the realm that owes the bytes. The realm consuming it is
+/// not at fault and is not marked unhealthy for it — the publisher's line
+/// already is — but it does not get the sound realm's line either, because
+/// "n pin(s) matching" would claim a contract was verified against bytes
+/// nobody could read.
 fn report_realm_crossings(report: &mut Report, world: &brokkr_runtime::realms::World) {
     for crossings in world.crossings_report() {
         let what = format!("crossings {}", crossings.realm);
-        if crossings.failures.is_empty() {
+        if crossings.failures.is_empty() && crossings.unchecked.is_empty() {
             report.ok(
                 &what,
                 format!(
@@ -505,6 +512,15 @@ fn report_realm_crossings(report: &mut Report, world: &brokkr_runtime::realms::W
             report.missing(
                 &format!("{what} '{}'", failure.crossing()),
                 failure.error().to_string(),
+            );
+        }
+        for pin in &crossings.unchecked {
+            report.warn(
+                &format!("{what} '{}'", pin.crossing),
+                format!(
+                    "pin not checked: realm '{}' publishes it and its file could not be read",
+                    pin.publisher
+                ),
             );
         }
     }

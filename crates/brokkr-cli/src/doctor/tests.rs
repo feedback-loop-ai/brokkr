@@ -326,6 +326,46 @@ fn doctor_reports_a_moved_crossing_as_a_line_and_not_a_broken_world() {
     assert!(report.healthy);
 }
 
+/// The other half of the same honesty: when the PUBLISHER's file cannot
+/// be read, its consumer's pin was compared to nothing, and doctor says
+/// so. It must not print the sound realm's line for beta — "1 pin(s)
+/// matching" beside "alpha's file is missing" would claim one contract
+/// both verified and unread — and it must not charge beta with a failure
+/// either, because the missing file is alpha's to answer for.
+#[test]
+fn doctor_never_calls_a_pin_matching_when_its_publisher_could_not_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    crossing_world(dir.path(), false);
+    std::fs::remove_file(dir.path().join("alpha/contracts/orders.v1.schema.json")).unwrap();
+    let report = realm_report(dir.path());
+    let rendered = report.render();
+
+    assert!(
+        rendered.contains("MISSING  crossings alpha 'orders.api': realm 'alpha' publishes"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "warn     crossings beta 'orders.api': pin not checked: realm 'alpha' \
+             publishes it and its file could not be read"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("crossings beta: "),
+        "beta's unchecked pin was counted as verified: {rendered}"
+    );
+    assert!(!report.healthy, "the publisher's missing file is unhealthy");
+
+    // And the whole world is still reported, as ever: this is a line, not
+    // a collapse.
+    assert!(
+        rendered.contains("ok       house rules: 2 realm declaration(s) readable"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("realms map"), "{rendered}");
+}
+
 /// A world that never drew a crossing gets no crossing line at all —
 /// byte for byte the readout it gave before this existed.
 #[test]

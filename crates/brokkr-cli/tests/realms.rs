@@ -901,6 +901,29 @@ fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_els
     ] {
         assert!(moved.contains(line), "{line} is gone: {moved}");
     }
+
+    // And when the published file is gone rather than moved, the pin that
+    // met no bytes is never counted among the matching ones: the missing
+    // file is the publisher's line, the consumer's pin is a warn naming
+    // who owes the bytes, and doctor claims no contract verified.
+    std::fs::remove_file(&published).unwrap();
+    let (code, gone, _) = ws.run(&["doctor"]);
+    assert_eq!(code, Some(1), "{gone}");
+    assert!(
+        gone.contains("MISSING  crossings brokkr 'orders.api': "),
+        "{gone}"
+    );
+    assert!(
+        gone.contains(
+            "warn     crossings client 'orders.api': pin not checked: realm 'brokkr' \
+             publishes it and its file could not be read"
+        ),
+        "{gone}"
+    );
+    assert!(
+        !gone.contains("crossings client: "),
+        "an unchecked pin was reported as matching: {gone}"
+    );
 }
 
 /// A world that never drew a crossing behaves at every one of the five
