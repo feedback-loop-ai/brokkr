@@ -87,6 +87,14 @@ specification repair. Answers A–H and task repairs F1–F6 remain settled.
 The separately shipped PR250 is controller-owned integration; this return
 neither merges it nor assumes its changes are present.
 
+The quota-successor commission adopts the completed F7 repair at `c56fa73`.
+Its current triage framing, `.forge/tasks/226-resume-triage.md`, belongs to run
+`close-issue-226-only-codex-resum-805ec715`. The prior clarification attempts
+ended in provider quota failures, not clarification verdicts. This specify
+visit validates the existing proposal and five deltas; it preserves settled
+answers A–H, repairs F1–F7 and the full delivery minimum. Outstanding judged
+phases and implementation remain required under the same change identifier.
+
 The issue's three-`None` description predates this base. Inspection of
 `engine.rs` and `engine/resume_tests.rs` confirms that single seats already
 receive eligible offers without checking the gate class; sequence model steps
@@ -443,3 +451,40 @@ F1–F6 remain settled; no provider minimum was reduced.
   `rust-nightly-version.txt`. No production, living-spec, sibling or provider
   installation file was changed. Decision 0056 remains reserved/proposed work
   for task 1.1 before production semantics; no decision was accepted here.
+
+## Quota-successor specify validation — 2026-09-09
+
+Adopted the committed proposal, five deltas, design and tasks. Read the current
+triage framing, controller evidence index and dialect-rendered proposal/spec
+instructions through the workspace hands. No new semantic choice or unresolved
+specification defect was identified in this adoption check; the F7 amendment
+and its dependent design/task coverage remain intact. Quota failures neither
+settle clarification nor reduce AS1’s measured-provider delivery minimum.
+
+- OpenSpec strict validation passed; its delta parser reads 19 ADDED
+  requirements and one MODIFIED boundary-record requirement across five
+  capabilities: **20 requirements / 123 scenarios**. Status reports all four
+  planning artifacts done; this is artifact state, not a judged-loop verdict.
+- Structural preservation checks passed: all four original deltas are
+  byte-identical to `169e5b9`; all seven original boundary scenarios survive
+  with only dispatch amended and the tagged 0.9.0/0.9.1 sentence unchanged.
+  All eleven boundary scenarios have explicit task mappings. An in-memory
+  replacement preserves the living capability’s other requirements and
+  provenance. All 101 inherited task IDs plus 2.8 remain: **102 unchecked**.
+- With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, attempts to spawn the five
+  required Cargo commands failed with `ENOENT` because Cargo is absent.
+  Format, clippy, workspace tests and both bundle compiles have no passing
+  result from this visit. The unchanged exact-coverage script, also using
+  `TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, exited **1** because
+  `/var/tmp` is absent. Controller host coverage and boundary proof stay pending.
+- CI, release admission and coverage still consume `rust-nightly-version.txt`.
+  Frozen published/embedded contracts, policy, reference, fixtures, accepted
+  decisions, production and living specs have no diff from the commissioned
+  base. This visit records adoption/validation only in this proposal; the
+  deltas, design, tasks and metadata retain their committed bytes.
+
+No workflow runner, archive or provider probe was invoked. Independent
+clarification, design reconciliation, tasks/analysis, proposed decision 0056,
+implementation, verification and review remain delivery work. Source captures
+are still interface evidence only; no live resume, enforcement or accounting
+proof is claimed.
