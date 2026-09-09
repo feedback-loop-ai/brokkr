@@ -50,8 +50,9 @@ Omitting `--turn` SHALL return the complete bounded projection. `--turn`
 SHALL accept a positive unsigned 64-bit integer and refer to the one-based
 position in the same projected sequence the TUI displays. For a readable
 source, the projection, malformed-line and unrecognized-record counts and
-both size caps SHALL be evaluated before selection. DSH storage decoding and semantic refusal SHALL
-also precede selection: `unsupported-format` SHALL return no turns for every
+both size caps SHALL be evaluated before selection. DSH header-version
+admission, storage decoding and semantic refusal SHALL also precede selection:
+`unsupported-format` SHALL return no turns for every
 valid requested index, never `turn-not-retained` or an earlier readable turn.
 A retained selection SHALL return one unchanged `Turn`, retain its original
 position in text output and preserve all of the source's notices, including
@@ -126,8 +127,8 @@ and the following members, present even when null or empty:
 | `turn` | Requested one-based index, or null for the whole transcript. |
 | `turns` | Ordered shared `Turn` values, filtered to one when requested. |
 | `truncated` | Boolean for source/display truncation before turn selection; on `unsupported-format` or a failed source snapshot, only source truncation already established by the cap probe is retained. |
-| `skipped_lines` | Nonnegative integer count of complete malformed JSON physical lines in the usable bounded snapshot, before display capping and turn selection; zero if no usable snapshot was acquired. A structurally invalid valid-JSON packed row is not a malformed JSON line. |
-| `unrecognized_records` | Nonnegative integer count of complete valid JSON physical rows with unsupported types/envelopes/content or invalid DSH packed/citation encodings, once per row even if it has many members; includes semantic-refusal rows under `transcript-reading`, and is zero if no usable snapshot was acquired. |
+| `skipped_lines` | Nonnegative integer count of complete malformed JSON physical lines in the usable bounded snapshot admitted for decoding, before display capping and turn selection; zero if no usable snapshot was acquired or DSH header-version admission failed. A structurally invalid valid-JSON packed row is not a malformed JSON line. |
+| `unrecognized_records` | Nonnegative integer count of complete valid JSON physical rows with unsupported types/envelopes/content or invalid DSH packed/citation encodings, once per row even if it has many members; includes event/storage-refusal rows under `transcript-reading`, and is zero if no usable snapshot was acquired or DSH header-version admission failed. The rejected opening header is not a counted row. |
 | `notices` | Ordered shared strings: exact truncation notice, malformed-line count, unrecognized-record count; include only those whose condition holds. |
 | `unavailable` | Null on a readable result, otherwise the reason token defined below. |
 | `full_session` | Exact informational string or null required by the `transcript-reading` kind/resolution table; independent of TUI rendering. |
@@ -211,6 +212,15 @@ explicit version change in its schema identifier.
 - **THEN** whole JSON exits one with the recorded reference unchanged, `legacy: false`, the confirmed path and shared DSH path hint, `turn: null`, `turns: []`, `unavailable: "unsupported-format"`, `truncated: true`, those same counts and exactly `["transcript truncated (size cap)", "malformed transcript lines skipped: 2", "unrecognized transcript records: 2"]`; a valid turn request changes only `turn` to the requested index
 - **AND** text mode exits one with empty stdout and a sanitized stderr explanation naming `unsupported-format`, `DSH transcript format is not supported` and those same notices, without earlier or rejected prose
 
+#### Scenario: Rejected DSH header versions have a fixed command document
+- **WHEN** the selected common reference is `{"kind":"dsh-session","locator":"sessions/brokkr/seat-222","home":"/retained/dsh"}` and its unique safe file `/retained/dsh/sessions/brokkr/seat-222/project/root/session.jsonl` has an owned header with foreign, missing or mistyped version and a usable source below the source cap, including malformed or readable-looking later rows
+- **THEN** JSON exits one with the resolved run/key, that unchanged `transcript`, `legacy: false`, the confirmed `path`, `full_session: "full session: \"/retained/dsh/sessions/brokkr/seat-222/project/root/session.jsonl\""`, `turn: null`, `turns: []`, `unavailable: "unsupported-format"`, `truncated: false`, zero diagnostic counts and `notices: []`
+- **AND** `--turn 1` or `--turn 999` changes only `turn` to the requested index; measured source overflow instead sets `truncated: true` and adds only `transcript truncated (size cap)`, with counts still zero; text mode exits one with empty stdout and sanitized stderr naming the same refusal and `DSH transcript format is not supported`, without header or event payloads
+
+#### Scenario: DSH format support cannot select between root candidates
+- **WHEN** the same selected DSH reference has safe version-zero and version-one root candidates, with discovery otherwise successful
+- **THEN** whole and selected JSON reads exit one with `ambiguous-source`, the unchanged reference and `legacy: false`, null path/hint, no turns, zero counts, `truncated: false` and no notices; text mode has empty stdout and an ambiguity explanation, and neither mode returns the supported root or reports only the foreign root's format refusal
+
 #### Scenario: Packed encoding does not multiply diagnostic rows
 - **WHEN** a valid DSH packed row with three readable members is followed by one valid-JSON but structurally invalid packed row
 - **THEN** JSON returns `unsupported-format`, no turns, `skipped_lines: 0` and `unrecognized_records: 1`, with the confirmed path/hint retained; neither three valid members nor partially decoded members of the invalid row multiply the count
@@ -244,9 +254,11 @@ Known path, cap, both diagnostic counts and shared notices SHALL remain
 available in an error document according to the reading capability's failure
 state rules; a failed read SHALL still return no turns. On DSH
 `unsupported-format`, the document SHALL retain the selected reference,
-legacy flag, confirmed path and full-session hint; both counts SHALL cover
-all complete physical rows in the usable prefix, and `truncated` SHALL mean
-source-cap truncation only. The explanation SHALL be
+legacy flag, confirmed path and full-session hint. On header-version
+refusal both counts SHALL be zero, since no event classification begins;
+on event/storage refusal after header admission both counts SHALL cover all
+complete physical rows in the usable prefix. In either case, `truncated`
+SHALL mean source-cap truncation only. The explanation SHALL be
 `DSH transcript format is not supported`, beside the reason token and shared
 notices, without quoting an unknown event or invalid storage payload.
 
@@ -257,9 +269,12 @@ then discovery/read failure. Unsafe candidate paths SHALL return
 `unsafe-path` when no safe unique source is established, and a discovery
 limit SHALL take precedence over a provisional unique candidate. The reader
 SHALL report `unreadable` if an I/O failure prevents establishing a unique
-answer. Source I/O/UTF-8 failure SHALL precede DSH semantic refusal; with a
-usable bounded snapshot, `unsupported-format` SHALL precede display capping
-and turn selection. `turn-not-retained` SHALL apply only after a readable
+answer. DSH candidate uniqueness SHALL be evaluated independently of header
+version, and source I/O/UTF-8 failure SHALL precede DSH header-version or
+event/storage refusal. With a usable bounded snapshot, rejected header
+admission SHALL precede event classification; either `unsupported-format`
+case SHALL precede display capping and turn selection. `turn-not-retained`
+SHALL apply only after a readable
 projection. Eligible legacy provenance with a nonempty invalid id SHALL follow the reading
 capability's `invalid-reference` rule instead of being treated as absent.
 Usage, run selection and participant selection failures occur before a
@@ -367,3 +382,16 @@ a later invocation, so C3 remains authoritative. The new paired-encoding,
 partial-citation and invalid-row scenarios bind numbering/counts to the
 shared result instead of a second CLI decoder. Proposed 0055 must name these
 observable units and the CLI/TUI equivalence tests that enforce them.
+
+### C8 / returned clarification — Header admission precedes diagnostic classification
+
+Adopt R16's two distinct causes of `unsupported-format` in the existing
+versioned document. Rejected DSH header admission retains the confirmed
+path/hint but has zero counts because event interpretation has not begun;
+event/storage refusal inside admitted version zero keeps C6's whole-prefix
+counts. Both retain only measured source truncation and precede every valid
+turn request. The command neither chooses a familiar version to resolve
+ambiguous ownership nor changes a rejected common reference to null.
+The two new scenarios bind JSON/text, whole/selected reads and source-cap
+state to the reader's answer. Proposed 0055 must state and test these cases
+without adding fields or changing the closed unavailable vocabulary.

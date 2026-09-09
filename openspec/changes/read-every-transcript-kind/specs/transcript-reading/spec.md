@@ -231,6 +231,22 @@ showing its prose or fabricating a full-session path. A separate qualifying
 root session remains eligible; invalid/delegated candidates do not displace it.
 Other roots, compressed files and delegated sessions SHALL not be substitutes for the seat's plain JSONL file.
 
+DSH ownership discovery and content-format admission SHALL be separate.
+For ownership, the entire header shape SHALL be a first-record JSON object
+whose `type` is exactly `session` and whose depth satisfies the preceding
+rule. A missing, empty, incomplete or malformed first record, a non-object,
+or another type SHALL not qualify; discovery SHALL never skip it to find a
+later header. Completeness SHALL follow the shared final-line rule: a valid
+JSON header at EOF needs no trailing newline. The `version` field SHALL
+neither qualify nor veto ownership. Every safe depth-zero candidate SHALL
+participate in uniqueness regardless of its version; a supported version
+SHALL not outrank a foreign, missing or mistyped one. Before a unique owned
+source is confirmed, failures retain null path and DSH full-session hint,
+no turns, zero counts, `truncated: false` and no notices. In particular,
+invalid-depth/delegated headers keep the preceding outcomes even when their
+version is foreign. Header read I/O or invalid UTF-8 that prevents a unique
+answer SHALL return `unreadable`, not a guessed ownership result.
+
 Discovery SHALL inspect at most 10,000 directory entries per lookup and
 read at most 65,536 bytes of each DSH candidate's first-record header.
 Claude and Codex discovery SHALL read no transcript content; their selected
@@ -246,6 +262,50 @@ Claude this deliberately replaces the shipped first matching file, unbounded
 project enumeration and symlink following with unique, bounded, safe
 discovery. These are breaking lookup
 changes proposed for 0055, not implied compatibility with the old reader.
+
+After safe unique DSH ownership and a usable bounded UTF-8 source snapshot
+are established, content admission SHALL require an opening header whose
+top-level `version` is a JSON number equal to zero. Numeric zero spellings
+such as `0`, `0.0`, `0e0` and `-0` SHALL denote version zero; strings, booleans
+and null SHALL not be coerced. Missing `version`, any nonnumeric value and
+any numeric value other than zero SHALL return `unsupported-format` with
+`DSH transcript format is not supported`. There is no legacy default version
+or automatic migration. An omitted depth still means zero under the settled
+ownership rule; a missing version does not. Other header fields, including
+`id`, `createdAt`, `cwd`, `parentSession`, `seedLength`, `origin`,
+`agentPreset` and old execution-policy fields, SHALL not qualify or veto
+this audit read, even when absent or mistyped. Extra fields SHALL be ignored,
+never interpreted as an event, identity, path, timestamp or execution policy.
+This is the complete reader header-admission shape; it is deliberately not
+DSH's execution-replay header validator.
+
+A rejected header version SHALL preserve the selected common reference with
+`legacy: false`, the safely confirmed path and its shared DSH `full_session`,
+return no turns and zero `skipped_lines` and `unrecognized_records`. No
+subsequent row SHALL be JSON-classified, decoded as a version-zero event or
+packed row, associated, or charged to the display budget. The rejected
+header itself SHALL not contribute either row count. `truncated` SHALL
+retain only source truncation established by the bounded read's extra-byte
+probe, and `notices` SHALL contain only `transcript truncated (size cap)`
+when that flag is true; otherwise notices SHALL be empty. Counts are zero
+because format admission failed, not a claim that the remaining bytes are
+valid, understood or empty. The entire source snapshot remains subject to
+I/O/UTF-8 validation and the source cap before this refusal; source failure
+SHALL outrank header refusal with the existing `unreadable` state. Discovery
+failures SHALL likewise precede header admission. Header refusal SHALL
+precede event/storage diagnostics, display capping and all valid turn
+requests; neither early readable-looking text nor `ignorable: true` can
+bypass it. The current snapshot's opening header SHALL be checked on every
+read, including refresh; an old admission or a later `session` record cannot
+supply a missing or supported version for it.
+
+An admitted version-zero opening header SHALL be a quiet record. Subsequent
+`session`-typed rows SHALL be unknown event envelopes under the DSH ignorable
+rule, not additional format headers or version switches. R14/R15's event,
+packed-row and citation admission rules and whole-prefix diagnostic counts
+SHALL apply only after version-zero header admission. Elsewhere in these
+deltas, a recognized DSH header or readable DSH source means one admitted
+under these rules; owned location alone does not establish a readable format.
 
 For the id-only Claude API, every shared reference/discovery/read failure
 SHALL return HTTP 404 with the existing JSON error envelope, with no turns.
@@ -300,6 +360,35 @@ response. SSE remains a growth notification, not a new transcript body API.
 #### Scenario: A driver-folded invalid DSH depth is explicitly refused
 - **WHEN** a participant records a DSH root whose only session header has `delegationDepth: "zero"`, even if controller evidence shows the shipped driver already folded that file
 - **THEN** the reader returns `not-found` with `no valid depth-zero DSH session header`, no turns, no confirmed path and no full-session hint; it does not coerce the value or alter the adapter
+
+#### Scenario: DSH admits only the declared version-zero header shapes
+- **WHEN** a unique safe DSH source begins with `{"type":"session","version":0,"delegationDepth":0}`, or the equivalent numeric version `0.0`, `0e0` or `-0`, with depth zero or omitted depth, followed by supported events within both caps
+- **THEN** each source is admitted and projects those events with its confirmed path/hint and zero diagnostic counts; absent or mistyped unused header metadata adds no gate or notice, and a file containing only such a header at EOF without a newline is a readable zero-turn source
+
+#### Scenario: An absent or malformed opening DSH header cannot borrow a later one
+- **WHEN** the only safe candidate is empty, has a malformed or incomplete first JSON row, starts with a non-object JSON value, or starts with an object whose type is not `session`, even if a valid version-zero session header appears later, with discovery otherwise complete within its bounds and no I/O/UTF-8 failure
+- **THEN** discovery returns `not-found` with null path/hint, no turns, zero counts, no truncation and no notices; it does not treat a later row as the opening header or label an incomplete opening append as unsupported format
+
+#### Scenario: Missing and mistyped DSH versions are not legacy zero
+- **WHEN** a unique safe candidate starts with a `session` object whose depth is zero or omitted, but whose version is absent, null, false, `"0"`, an array or an object, and its bounded source is usable without source truncation
+- **THEN** ownership resolves its path, but content admission returns `unsupported-format`, `DSH transcript format is not supported`, the unchanged reference and confirmed path/hint, no turns, zero counts, `truncated: false` and no notices; no version is synthesized and an ignorable marker cannot make the header readable
+
+#### Scenario: A foreign-version DSH root alone keeps its confirmed location
+- **WHEN** the unique safe candidate's opening `session` object has depth zero and version 1, -1 or 0.5, with a usable bounded source below the source cap, including if unused current-version header metadata is missing or malformed
+- **THEN** the reader returns `unsupported-format` with its unchanged reference, `legacy: false`, confirmed path and DSH path hint, no turns, zero diagnostic counts, `truncated: false` and no notices; it neither returns `not-found` nor decodes the apparently familiar later events
+
+#### Scenario: Current and foreign DSH roots are still ambiguous
+- **WHEN** the retained scope contains two safe root candidates, one with version zero and one with version 1, absent version or mistyped version, with discovery otherwise complete
+- **THEN** either enumeration order yields `ambiguous-source`, null path/hint, no turns, zero counts, `truncated: false` and no notices; supporting one format cannot select that root, and two foreign-version root candidates produce the same ambiguity
+
+#### Scenario: Header versions cannot override DSH depth ownership
+- **WHEN** one version-zero root is accompanied only by foreign-version candidates with positive or invalid delegation depths
+- **THEN** the root remains the unique candidate and its supported content is readable, with no diagnostic contribution from the rejected candidates
+- **AND** if only a foreign-version candidate with invalid depth remains, the result is `not-found` with `no valid depth-zero DSH session header`, null path/hint, no turns, zero counts and no truncation/notices; foreign version cannot outrank the ownership refusal
+
+#### Scenario: DSH discovery failures precede version admission
+- **WHEN** a foreign-version root candidate is observed but completing discovery then exceeds the entry/header bound, or an I/O or UTF-8 failure prevents establishing uniqueness
+- **THEN** the result is respectively `discovery-limit` or `unreadable`, with null path/hint, no turns, zero counts and no truncation/notices; a provisional unsupported candidate cannot replace that discovery failure
 
 #### Scenario: Multiple candidates are not merged or ranked
 - **WHEN** the recorded search scope contains two qualifying Claude files, two matching Codex rollouts or two depth-zero DSH sessions
@@ -737,6 +826,11 @@ substitute DSH's model-visible surface for the requested transcript.
 
 ### Requirement: Partial records and read failures remain distinguishable
 
+The following row-classification rules SHALL apply to Claude/Codex bounded
+snapshots and to DSH snapshots after version-zero header admission. A rejected
+DSH header version SHALL instead retain the zero-count state fixed by discovery
+and content admission above; it SHALL not start this event-classification pass.
+
 Complete malformed JSON lines SHALL be skipped without repairing them,
 counted as `skipped_lines`, and reported by CLI/TUI with the exact notice
 `malformed transcript lines skipped: <n>` when the count is positive.
@@ -751,9 +845,10 @@ recognizable envelope count as unrecognized, not malformed; the DSH marker
 rule below decides whether such a row also refuses the read. For Claude, the
 closed classification table in "Claude content preserves the existing
 projection" SHALL determine every exemption; merely calling an unknown type
-metadata SHALL not exempt it. For Codex/DSH, recognized headers,
-context/lifecycle/accounting records, encrypted reasoning and proven
-duplicate representations SHALL count in neither diagnostic. The exact notice
+metadata SHALL not exempt it. For Codex/DSH, recognized headers (only the
+admitted opening header for DSH), context/lifecycle/accounting records,
+encrypted reasoning and proven duplicate representations SHALL count in
+neither diagnostic. The exact notice
 `unrecognized transcript records: <n>` SHALL appear when that count is
 positive; neither notice SHALL quote an unknown or malformed payload.
 
@@ -764,9 +859,10 @@ Invalid UTF-8 in consumed source bytes or a file I/O failure SHALL return
 `unreadable`, not replacement prose; the explicit source-cap boundary exception
 below still applies. Both counts SHALL describe all complete physical rows
 examined within a successfully acquired and UTF-8-valid bounded source
-snapshot, before display capping and `--turn` selection; neither counts an
-incomplete append or source-cap fragment. Counts start at zero when no
-usable snapshot was acquired.
+snapshot admitted for decoding, before display capping and `--turn`
+selection; neither counts an incomplete append or source-cap fragment.
+Counts start at zero when no usable snapshot was acquired or DSH header
+version admission failed.
 
 For DSH, after recognizing the header and supported packed storage rows,
 a valid JSON row whose event type/envelope is unrecognized SHALL be omitted
@@ -782,8 +878,8 @@ a type prefix or an arbitrary claim that a record is metadata. Invalid
 packed-row or citation encodings SHALL also cause `unsupported-format` as
 specified above, regardless of an ignorable marker.
 
-On `unsupported-format`, the reader SHALL keep the selected reference,
-legacy flag, confirmed path and its full-session hint, return no turns, and
+On event/storage `unsupported-format` after header admission, the reader
+SHALL keep the selected reference, legacy flag, confirmed path and its full-session hint, return no turns, and
 use the explanation `DSH transcript format is not supported`. It SHALL
 classify all complete physical rows of the usable bounded snapshot for both
 counts, including rows before and after the offending row; each offending
@@ -796,13 +892,15 @@ the read. Malformed JSON lines remain skipped/countable, and incomplete
 appends remain provisional; neither proves an unknown required event exists.
 No record outside the source prefix SHALL affect refusal or association.
 
-Source I/O or consumed invalid UTF-8 SHALL take precedence over DSH semantic
-refusal. If either prevents a usable bounded snapshot, the result SHALL be
+Source I/O or consumed invalid UTF-8 SHALL take precedence over DSH header
+or event/storage refusal. If either prevents a usable bounded snapshot,
+the result SHALL be
 `unreadable` with no turns, zero diagnostic counts and only source truncation
 already established by the cap probe (and its notice); no partial semantic
 scan or provider payload SHALL be exposed. A safely confirmed path/hint
-SHALL remain available. If a usable snapshot exists, `unsupported-format`
-SHALL precede display capping and any `--turn` request, including an otherwise
+SHALL remain available. If a usable snapshot exists, header-version refusal
+SHALL precede event classification; either `unsupported-format` case SHALL
+precede display capping and any `--turn` request, including an otherwise
 in-range or out-of-range index. These checks SHALL execute no provider replay,
 repair, resumption or journal mutation.
 
@@ -865,6 +963,23 @@ result, not that compatibility response.
 #### Scenario: Source failure outranks semantic refusal
 - **WHEN** a DSH source contains an unknown required event but an I/O failure or invalid UTF-8 prevents a usable bounded snapshot
 - **THEN** it returns `unreadable`, no turns and zero counts, keeps any safely confirmed path/hint and only already-established source-cap truncation/notice; it neither quotes partial content nor classifies the unknown event from an incomplete scan
+
+#### Scenario: Rejected DSH header admission prevents event diagnostics
+- **WHEN** a usable source below 32 MiB starts with an owned version-1 header followed by malformed JSON, invalid packed/citation rows, unknown events and readable-looking text whose display size would exceed 4,000,000 bytes
+- **THEN** header admission returns `unsupported-format` with no turns, zero counts, `truncated: false` and no notices, keeping the reference/path/hint; subsequent rows supply neither diagnostics nor a display-cap flag because no event decoding began
+
+#### Scenario: Rejected DSH versions retain only measured source truncation
+- **WHEN** otherwise usable sources with rejected header versions end below or exactly at 33,554,432 bytes, or an extra-byte probe establishes additional source beyond that prefix
+- **THEN** every read returns `unsupported-format`, no turns and zero counts with its confirmed path/hint; below or exactly at the cap `truncated` is false with no notices, while the extra-byte case has `truncated: true` and exactly `["transcript truncated (size cap)"]`
+
+#### Scenario: Source failure outranks a rejected DSH header version
+- **WHEN** an owned DSH source has a foreign or mistyped version but an I/O failure or consumed invalid UTF-8 prevents a usable bounded source snapshot
+- **THEN** the result is `unreadable`, no turns, zero counts and only already-established source truncation and its notice, with any safely confirmed path/hint retained; it does not classify the remaining rows or report the header-version refusal instead
+
+#### Scenario: A later DSH header cannot change format admission
+- **WHEN** a usable owned source starts with version 1 and later contains a version-zero `session` row and readable-looking events
+- **THEN** opening-header admission still returns `unsupported-format` with zero counts and no turns; the later header cannot restart decoding
+- **AND** if the opening header is instead version zero, a later `session` row is one unknown event: without top-level `ignorable: true` it causes R14's event refusal and one unrecognized row, while with that marker it is a counted omission and other recognized content remains readable, with no version switch
 
 ### Requirement: Every kind obeys the same source and display caps
 
@@ -1208,3 +1323,54 @@ consequences; it changes no output field or previous answer. Proposed 0055
 must state this deliberate distinction from the captured replay decoder
 and bind it to citation-set and cross-surface regression tests. No claim
 of a live DSH read or resumption follows from this source inspection.
+
+### R16 / returned clarification — DSH ownership and version admission are distinct
+
+Adopt the returned finding with proposal S11's hash-verified controller
+capture. The installed session package declares format version zero; the
+persistence backend checks a foreign numeric version before validating the
+current replay-header shape or decoding events. A familiar event layout is
+not evidence that another version means the same thing. Require numeric
+zero and reject missing, mistyped and foreign versions without invoking the
+version-zero decoder. Numeric zero spellings share the captured guard's
+value semantics; this does not weaken R8's separate unsigned-depth rule.
+
+Ownership still precedes format admission. Unlike the provider backend,
+which is handed a chosen session artifact, Brokkr must first identify the
+selected seat's unique root without reading a delegated session as its own.
+Preserve the shipped first-record `type`/depth ownership predicate with
+R8's explicit invalid-depth correction. Do not use a supported version to
+break an ownership tie or silently report an owned foreign file as missing.
+A foreign header whose depth is invalid cannot prove ownership; a unique
+valid-depth header with a foreign version proves only a location, which
+remains available for the operator to inspect independently.
+
+Keep unused header metadata outside admission instead of importing the full
+replay validator (`id`, `createdAt`, seed/origin/preset and retired policy
+fields). This is a deliberate audit-reader policy: these fields establish
+neither the recorded root's ownership nor the supported event encoding, and
+no execution history or configuration is being restored. It preserves the
+settled legacy omitted-depth answer without inventing an absent-version
+legacy format. The minimal version-zero and malformed-header scenarios
+make the supported shape and its limits explicit; later session rows are
+not new opening headers.
+
+Preserve source I/O/UTF-8 precedence and measure source truncation with the
+same bounded byte snapshot. After version rejection, do not decode events
+merely to populate R14's counters: unknown version semantics cannot justify
+version-zero physical/logical event classification. Zero counts denote an
+unstarted classification pass, not a valid or empty body. Reject both a
+made-up unrecognized-header count and counting every subsequent JSON row
+under an unadmitted grammar. Current-version event/storage refusals still
+keep R14/R15's whole-prefix counts; their prior scenarios and citation-set
+policy remain unchanged. No new output field, error token or version of the
+unpublished command document is needed.
+
+Proposed 0055 must carry this supported-version policy, minimal audit-header
+shape, explicit divergences from replay validation and adapter folding,
+ownership-before-admission order and both distinct `unsupported-format`
+states. Bind it to synthetic header/version/depth/uniqueness matrix tests,
+source-cap and failure-precedence tests, CLI whole/selected text/JSON states
+and TUI refusal/recovery tests. No live provider experiment is required to
+choose this policy, and the captured source supplies no new Codex association
+proof or evidence of #226's resumption behavior.

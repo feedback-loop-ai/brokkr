@@ -28,7 +28,10 @@ transcript fact and its specific unavailability explanation, with no stale
 prose or active reading door. In particular, DSH `unsupported-format` SHALL
 show the shared `DSH transcript format is not supported` explanation, retained
 path/hint and source diagnostics, while clearing every old turn and closing
-any open transcript overlay. A positive diagnostic count or source-cap flag
+any open transcript overlay. Header-version refusal SHALL use R16's zero
+row counts and only observed source-cap notice; version-zero event/storage
+refusal SHALL keep R14's complete-prefix counts. A positive diagnostic count
+or source-cap flag
 SHALL not make a refused projection readable. A readable zero-turn result
 SHALL still permit opening the whole transcript's empty/capped explanation
 and any malformed-line or unrecognized-record notices.
@@ -181,8 +184,12 @@ turn/step; absent, empty or partial citations SHALL leave uncited fragments
 visible. Refresh SHALL replace a formerly readable snapshot with an
 `unsupported-format` result atomically before presenting any new indices,
 including when the unknown required event was appended without a journal
-change. Active refresh and final/manual reads SHALL continue to recheck that
-reference under the same bounds after refusal. If replacement removes,
+change or the opening header's version changed without a file-length change.
+Every refresh SHALL re-evaluate DSH ownership and opening-header admission;
+adding a second root of another version SHALL produce the shared ambiguity
+state, never a preference for the supported format. Active refresh and
+final/manual reads SHALL continue to recheck that reference under the same
+bounds after refusal. If replacement removes,
 changes or reorders any previously displayed turn, the turn selection SHALL
 be cleared before the new projection is displayed, even when the file only
 grew. Any open transcript overlay SHALL close before displaying a projection
@@ -242,6 +249,15 @@ reads and read-only journal/provider access.
 #### Scenario: Refused storage cannot reopen a capped empty explanation
 - **WHEN** a DSH snapshot has a source-cap flag and a complete invalid packed row or required unknown event within the prefix
 - **THEN** the pane shows the shared `unsupported-format` refusal, source-cap notice and physical-row counts with its confirmed path/hint, but no turn or whole-session door is active; it does not offer the readable-zero-turn behavior reserved for a successful capped projection
+
+#### Scenario: DSH header-version refusal clears and later recovers the pane
+- **WHEN** a working DSH participant has readable turns and an open overlay, and an external file update changes its owned opening header from version 0 to version 1 without changing file length or the journal head
+- **THEN** the next refresh clears all turns and selection, closes both doors and shows `unsupported-format`, `DSH transcript format is not supported`, the confirmed path/hint, zero counts and only an observed source-cap notice; it does not reuse the earlier version admission or treat the result as a readable empty projection
+- **AND** if a subsequent bounded refresh sees the unique file restored externally to an admissible version-zero snapshot, the pane derives its current turns afresh and the existing doors become usable without reviving the old selection or overlay; no provider invocation or journal write occurs
+
+#### Scenario: A foreign-version DSH root cannot leave a stale supported pane
+- **WHEN** a working DSH participant's unique version-zero file was readable but an additional safe depth-zero version-one candidate appears before a refresh, with discovery otherwise successful
+- **THEN** the pane changes to `ambiguous-source`, keeps the common reference with null path/hint, zero counts and no truncation/notices, clears all old turns and selection and closes both doors; it cannot retain the previous file by preferring its supported version
 
 ## Decisions
 
@@ -308,3 +324,15 @@ still invokes T1's selection/overlay invalidation. Empty or absent citations
 can be a pure append and cannot retarget a cursor by deleting earlier turns.
 Proposed 0055 must bind packed/ordinary equivalence, ranged partial assembly,
 refusal diagnostics and existing cap behavior to the shared TUI/CLI tests.
+
+### T7 / returned clarification — A remembered version cannot admit a new snapshot
+
+Adopt R16/C8 without a TUI-specific format gate. Recheck opening-header
+admission on every bounded refresh, even when the reference, source length
+and journal head did not change. Header refusal retains the known location
+with zero counts; ambiguous ownership removes that location. Both states
+clear all stale prose and reading doors. A later admitted snapshot recovers
+through ordinary fresh projection, not by restoring a cached selection.
+Proposed 0055 must bind the same-size version transition, source-only notice,
+recovery and current/foreign-candidate cases to the existing refresh and
+overlay-state suite. These reads execute no provider or repair operation.

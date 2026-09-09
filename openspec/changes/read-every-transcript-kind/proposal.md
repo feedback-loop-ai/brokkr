@@ -23,8 +23,14 @@ implementation and review.
   citations, including stored citation ranges, within the same turn/step.
 - Resolve the selected participant's recorded kind, locator and home to
   its own retained file. Distinguish missing, invalid, ambiguous and
-  unreadable references. Refuse DSH projection as `unsupported-format` for
-  unknown required events or invalid packed-row/citation encodings, with no
+  unreadable references. Admit DSH content only under an opening session
+  header with numeric version zero; absent, nonnumeric or foreign versions
+  return `unsupported-format` after safe unique ownership is established,
+  retaining its path/hint and observed source truncation with zero diagnostic
+  counts because event decoding never began. Count root candidates before
+  version admission, so current/foreign candidates together remain ambiguous.
+  Within admitted version-zero sources, unknown required events or invalid
+  packed-row/citation encodings also refuse as `unsupported-format`, with no
   prose and with the confirmed path and bounded-source diagnostics retained;
   explicitly ignorable unknown events remain counted omissions. Never
   substitute another seat, a delegated DSH session or the newest file in a provider home. Codex uses the shipped
@@ -77,7 +83,8 @@ implementation and review.
   design must author it and register it before implementation, explicitly
   proposing the replacement of decision 0032 ruling 4's command-construction
   binding stated in S2, the successor's identity/JSON resolutions in S8, and
-  the returned DSH format and refusal resolutions in S9;
+  the returned DSH format and refusal resolutions in S9, and the DSH
+  header-version admission and failure-state resolution in S11;
   only the operator can accept it. No semantic production change is made in
   this specification phase.
 
@@ -453,3 +460,94 @@ This visit's evidence is
 `.forge/specify/read-every-transcript-kind-df38565b-scenario-audit.json`;
 prior evidence is preserved. Those delivery checks remain pending, not
 passing, and this adoption claims no independent clarification verdict.
+
+### S11 — Return from clarify: DSH header version is an admission rule
+
+Adopted `read-every-transcript-kind` at `9170730` in the same commissioned
+run. The one finding in `returned_from` is this specification's missing
+DSH header-version policy. Triage, accepted decisions and the fourteen
+prior clarification answers are not at fault. R14/R15 and S10's citation-set
+policy remain in force; this amendment pins the format prerequisite they
+had left implicit. Proposal precedes reading, command and TUI amendments.
+
+The controller capture identified in S10 was rechecked: all 42 captured
+texts match their recorded SHA-256. Both the session and persistence-JSONL
+packages identify version 0.1.2-rc.1. In the captured session `lib/index.js`,
+line 57 declares `SESSION_FORMAT_VERSION = 0`. In persistence-JSONL
+`lib/index.js` (SHA-256
+`dfd6cde28928996f2f44220d013359563c8d9bf6c9c904972e77256767eec385`),
+lines 214–236 reject a foreign numeric version before the current header
+shape check or event decoding; lines 38–79 show the physical header and its
+replay validator. These are controller-captured installed-source facts,
+not a fresh provider invocation, a live transcript measurement or evidence
+that a future version has the same event meaning.
+
+Adopt the version-zero decoding boundary. Reject version-agnostic decoding:
+R14's refusal already recognizes that unknown semantics can invalidate
+otherwise plausible content and associations. Do not convert an owned but
+unsupported file to `not-found`, infer a missing version as zero, or choose
+a current-version root over another owned root. Conversely, do not import
+the provider's entire replay validator: the recorded root and the settled
+first-record/depth predicate establish ownership, and this reader neither
+replays a session nor consumes its execution metadata. R16 documents these
+intentional distinctions, including the preserved omitted-depth allowance.
+
+| Finding facet | Owning answer and scenario |
+|---|---|
+| Supported versions and header shapes | Reading R16 requires a first object of type `session`, settled root depth and numeric version zero for content admission; other header metadata does not affect an audit read. “DSH admits only the declared version-zero header shapes” and “Missing and mistyped DSH versions are not legacy zero” pin the boundary. |
+| Absent or malformed header versus rejected version | Ownership discovery precedes version admission and never skips the first row. “An absent or malformed opening DSH header cannot borrow a later one” keeps `not-found` and null path/hint; a unique owned header with a rejected version instead keeps its path under `unsupported-format`. |
+| Foreign version alone or beside current | “A foreign-version DSH root alone keeps its confirmed location” refuses content; “Current and foreign DSH roots are still ambiguous” forbids format-based ranking. Invalid/delegated candidates remain outside the root count under R8. |
+| Precedence, counts, cap and hints | The usable bounded byte snapshot precedes header admission; rejected versions cause no event classification, zero counts and only observed source-cap truncation. Reading's collision scenarios, command C8 and TUI T7 make the whole/selected/error/refresh states identical. |
+
+Required content for **proposed 0055**, to be authored and registered by the
+returned council before implementation:
+
+> DSH local content decoding admits numeric on-disk version zero only. Safe
+> unique root ownership is established before format admission, independently
+> of version; invalid/delegated roots cannot substitute and unsupported roots
+> still participate in ambiguity. An absent, mistyped or foreign version on
+> that unique root refuses as `unsupported-format` after bounded source
+> I/O/UTF-8 validation, with the unchanged reference, confirmed path/hint,
+> no turns, zero row counts and only observed source-cap truncation. No event
+> decoder, association or display-cap decision runs under a rejected header.
+> Other header metadata is outside this audit reader's admission policy;
+> legacy omitted depth remains root depth, but omitted version is not zero.
+> Current-version event/storage refusals retain R14/R15's whole-prefix counts.
+
+Its enforcement bindings must name shared header-admission and ownership
+matrix tests (including current/foreign roots in both enumeration orders),
+source-failure/cap/count tests, CLI whole/selected text/JSON conformance and
+TUI refusal/recovery tests, all using synthetic test-owned files. Preserve
+S2/S8/S9/S10 and their existing bindings. No accepted decision, adapter or
+frozen byte changes to implement this proposal's policy.
+
+The existing `design.md` remains the historical upstream council record.
+Its D3 ownership/safe-source architecture still applies; D4's unconditional
+row classification now has R16's version-admission prerequisite. Its old
+U1/U2 and admission record must be reconciled with S9–S11 on the returned
+council visit, including the required proposed 0055. Under the dialect's
+specified artifact scope, this seat commits only proposal/specs, not a
+replacement council verdict or tasks. All later commissioned phases and
+S3's remaining measured-association evidence remain due; this repair does
+not claim independent clarification, design admission or delivery.
+
+Validation of this header-version return: strict OpenSpec validation and
+delta parsing pass with 20 requirements and 168 scenarios. All 153 prior
+scenario names and bodies are unchanged; the 15 additions cover the returned
+finding and its command/TUI consequences. The source-hash and scenario audits
+are in `.forge/specify/read-every-transcript-kind-header-version-scenario-audit.json`.
+Status reports proposal/specs/design by presence and tasks ready, with both
+planning and apply completion false; the historical design is not thereby
+admitted. Whitespace, frozen/accepted-decision/production bytes, historical
+design and unchanged coverage gate checks pass.
+
+All five commissioned Cargo commands were attempted with
+`CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; each exited 127 because Cargo
+is absent. Unchanged exact coverage was attempted with those limits,
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at
+`mktemp` because `/var/tmp` is absent. No Rust or boundary proof ran.
+Command evidence is in
+`.forge/specify/read-every-transcript-kind-header-version-validation.json`.
+Host proof and delivery checks remain pending with the controller; this
+specification validation is not implementation evidence or a clarification
+verdict. Earlier evidence files are preserved.
