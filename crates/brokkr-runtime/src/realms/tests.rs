@@ -791,7 +791,7 @@ fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
     assert_eq!(replayed.realm_for(&alpha).unwrap().name, "alpha");
 }
 
-/// Decision 0054, over the world Phase 2 slice (i) proved: two DISTINCT
+/// Decision 0057, over the world Phase 2 slice (i) proved: two DISTINCT
 /// repositories, one of which publishes a file the other pins. The map
 /// loads, each realm answers with its own crossings, and the pin is the
 /// digest of the publisher's raw bytes — taken here by the test, because

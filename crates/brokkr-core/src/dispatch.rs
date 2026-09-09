@@ -280,7 +280,7 @@ impl DispatchEnvelopeV2 {
         }
         // One spelling of a digest's shape for every reader that judges
         // one, so a dispatch pin and a realm's crossing pin (decision
-        // 0054 ruling 2) cannot drift apart on what "malformed" means.
+        // 0057 ruling 2) cannot drift apart on what "malformed" means.
         if !canonical::is_sha256_hex(&self.canonical_digest)
             || !canonical::is_sha256_hex(&self.looper.immutable_inputs_sha256)
             || !canonical::is_sha256_hex(&self.repository.base_sha)

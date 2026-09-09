@@ -32,7 +32,7 @@
 //! realm that names none stands under `namespace`, which is what every
 //! bundle meant before the word existed.
 //!
-//! v5 (decision 0054) adds the crossing, on exactly those terms again:
+//! v5 (decision 0057) adds the crossing, on exactly those terms again:
 //! a realm may say what it `publishes` — a named, repository-relative
 //! FILE it owns — and what it `consumes` — a crossing another realm
 //! publishes, pinned by a sha256 over that file's raw bytes. Both are
@@ -66,7 +66,7 @@ pub const SCHEMA_V3: &str = "forge.realms/v3";
 /// 1): v3 plus one optional per-realm `boundary`, and nothing else.
 pub const SCHEMA_V4: &str = "forge.realms/v4";
 
-/// The crossing (decision 0054): v4 plus two optional per-realm lists,
+/// The crossing (decision 0057): v4 plus two optional per-realm lists,
 /// `publishes` and `consumes`, and nothing else.
 pub const SCHEMA_V5: &str = "forge.realms/v5";
 
@@ -223,7 +223,7 @@ pub enum RealmsError {
     Invalid { path: String, problem: String },
 }
 
-/// A crossing this realm publishes (decision 0054 ruling 1): a name, and
+/// A crossing this realm publishes (decision 0057 ruling 1): a name, and
 /// the repository-relative FILE the realm owns and offers. The bytes are
 /// the contract — it is not a package and not a registry entry, and
 /// nothing here fetches anything.
@@ -238,7 +238,7 @@ pub struct PublishedCrossing {
     pub path: String,
 }
 
-/// A crossing this realm consumes (decision 0054 ruling 2): the name, the
+/// A crossing this realm consumes (decision 0057 ruling 2): the name, the
 /// realm that publishes it, and the digest this realm is built against.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -266,7 +266,7 @@ pub struct ConsumedCrossing {
 /// is a map saying something no version of the contract admits — v1
 /// through v4 have no such property at all, and `realms.v5` types both
 /// lists `array`. Held apart here, so the version gate sees a written
-/// `null` as written (decision 0054 ruling 3.5) and the map cannot be
+/// `null` as written (decision 0057 ruling 3.5) and the map cannot be
 /// accepted where its own contract file would refuse it (ruling 3.7).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub enum CrossingList<T> {
@@ -346,13 +346,13 @@ pub struct Realm {
     #[serde(default)]
     pub boundary: Option<Boundary>,
     /// The crossings this realm publishes — `forge.realms/v5` vocabulary
-    /// (decision 0054 ruling 1), absent in every older map and refused in
+    /// (decision 0057 ruling 1), absent in every older map and refused in
     /// one. Absent means this realm publishes nothing, which is what
     /// every realm did before the word existed.
     #[serde(default)]
     pub publishes: CrossingList<PublishedCrossing>,
     /// The crossings this realm consumes, each pinned by digest —
-    /// `forge.realms/v5` vocabulary (decision 0054 ruling 2), absent in
+    /// `forge.realms/v5` vocabulary (decision 0057 ruling 2), absent in
     /// every older map and refused in one.
     #[serde(default)]
     pub consumes: CrossingList<ConsumedCrossing>,
@@ -556,7 +556,7 @@ impl RealmMap {
                 }
             }
             // The two v5 lists, held to their version exactly as every
-            // word before them is held to its own (decision 0054 ruling
+            // word before them is held to its own (decision 0057 ruling
             // 3). Presence is what is judged: a realm that draws no
             // crossing is a realm as it was before the word existed —
             // and a realm that WROTE the word as `null` wrote it, which

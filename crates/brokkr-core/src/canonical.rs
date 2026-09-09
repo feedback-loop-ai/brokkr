@@ -30,7 +30,7 @@ pub fn sha256_bytes(bytes: &[u8]) -> String {
 /// Is this text the shape a sha256 is written in — exactly 64 lowercase
 /// hex characters? One spelling of "malformed digest" for every reader,
 /// so a dispatch envelope's pins and a realm's crossing pins (decision
-/// 0054 ruling 2) cannot drift apart on what a digest may look like.
+/// 0057 ruling 2) cannot drift apart on what a digest may look like.
 pub fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64
         && value

@@ -504,7 +504,7 @@ reads it is `brokkr_view::residual_findings`, which marks the named findings
 as superseded and leaves them in the journal and in every readout — a
 superseded finding is closed, never deleted.
 
-Decision 0054 (the crossing) adds one more file and changes none of the
+Decision 0057 (the crossing) adds one more file and changes none of the
 bytes above — `realms.v1` through `realms.v4` included, whose bytes are now
 all pinned by digest:
 

@@ -107,7 +107,7 @@ is the mistake to avoid.
 - Realm maps now reach `forge.realms/v5`: v3 added house and dialect
   declarations, v4 adds the realm's boundary, and v5 adds the crossings a
   realm publishes and the ones it consumes, each pinned by a sha256 over
-  the published file's raw bytes (decision 0054). House content and its
+  the published file's raw bytes (decision 0057). House content and its
   digest are pinned in the run's realms record.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its

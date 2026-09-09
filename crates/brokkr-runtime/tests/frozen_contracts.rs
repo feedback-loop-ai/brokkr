@@ -104,7 +104,7 @@ const FROZEN: [(&str, &str); 20] = [
         "contracts/seat-record.v2.schema.json",
         "a35c237e1e351a03fb974e9a13a7fc33b9d1a570413626d70367e97a3f501bce",
     ),
-    // Decision 0054 lands `forge.realms/v5` beside v4, which was the new
+    // Decision 0057 lands `forge.realms/v5` beside v4, which was the new
     // file when 0046 landed and is frozen from here: its bytes are pinned
     // so the crossings slice can prove it edited none of them.
     (
@@ -256,7 +256,7 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/operator-supersede.v1.schema.json",
             "Forge operator supersede args v1",
         ),
-        // Decision 0054: the crossing's vocabulary arrives as
+        // Decision 0057: the crossing's vocabulary arrives as
         // `forge.realms/v5` beside v4, whose bytes are pinned above and
         // did not move.
         ("contracts/realms.v5.schema.json", "Forge realms map v5"),
@@ -326,7 +326,7 @@ fn the_v4_realm_schema_accepts_only_its_version_and_five_boundaries() {
     }
 }
 
-/// Decision 0054: the published contract for the crossing. v5 is v4's
+/// Decision 0057: the published contract for the crossing. v5 is v4's
 /// vocabulary plus the two optional lists — a realm may publish named
 /// repository-relative files and pin another realm's by digest — and it
 /// closes both new entries the way every level before them is closed.

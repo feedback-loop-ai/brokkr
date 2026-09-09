@@ -428,7 +428,7 @@ fn v2_holds_every_v1_rule() {
     assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
 }
 
-// ------------------------------------------- crossings (decision 0054)
+// ------------------------------------------- crossings (decision 0057)
 
 /// A crossing's pin is over the published file's RAW bytes, never over a
 /// canonical form — so the fixture's pin is taken the way a publisher's

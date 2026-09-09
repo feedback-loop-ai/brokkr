@@ -159,7 +159,7 @@ The burning rainbow bridge between the worlds of gods and men.
 Edda existed. Sometimes the myth was already there, waiting. The name is
 spent here, on the producer bridge, and is not lent to anything else: the
 inter-realm contract decision 0023 once called a Bifröst crossing is named
-plainly, a crossing, under 0019 ruling 10 (decision 0054).
+plainly, a crossing, under 0019 ruling 10 (decision 0057).
 
 *Plain form: the `brokkr-bridge` crate.*
 

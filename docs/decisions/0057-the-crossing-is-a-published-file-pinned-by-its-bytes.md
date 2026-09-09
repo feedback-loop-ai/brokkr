@@ -1,4 +1,6 @@
-# 0054 — The crossing: a realm publishes a file, and the realm that depends on it pins the bytes
+# 0057 — The crossing: a realm publishes a file, and the realm that depends on it pins the bytes
+
+> **Number.** Drafted as 0054 on the phase-2 branch; renumbered to 0057 during integration because shipped main already assigns 0054 to the DSH linked-worktree metadata decision. The proposal's semantics and status are unchanged.
 
 Status: proposed
 Date: 2026-09-09

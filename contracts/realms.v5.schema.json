@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/realms.v5.json",
   "title": "Forge realms map v5",
-  "description": "The world an invocation opens, with the crossings its realms publish and consume (decision 0054, deferred by decision 0023 ruling 7). v1, v2, v3 and v4 remain frozen. This version adds exactly two optional properties per realm: publishes, the files this realm offers other realms, each a name and a repository-relative path; and consumes, the crossings this realm depends on, each named by its publishing realm and pinned by a sha256 over the published file's raw bytes. Absent both, a v5 map reads exactly as a v4 map does. Brokkr fetches nothing: a crossing is a file the publishing realm owns.",
+  "description": "The world an invocation opens, with the crossings its realms publish and consume (decision 0057, deferred by decision 0023 ruling 7). v1, v2, v3 and v4 remain frozen. This version adds exactly two optional properties per realm: publishes, the files this realm offers other realms, each a name and a repository-relative path; and consumes, the crossings this realm depends on, each named by its publishing realm and pinned by a sha256 over the published file's raw bytes. Absent both, a v5 map reads exactly as a v4 map does. Brokkr fetches nothing: a crossing is a file the publishing realm owns.",
   "type": "object",
   "required": ["schema", "realms", "journal"],
   "additionalProperties": false,
@@ -25,7 +25,7 @@
           "boundary": { "enum": ["namespace", "seatbelt", "container", "harness", "open"], "description": "What stands between a box's hands and this realm's machine (decision 0046 ruling 1): namespace is decision 0043's bubblewrap user namespace (Linux, WSL2); seatbelt the same box built by sandbox-exec (macOS); container a pinned image with the worktree mounted; harness nothing of Brokkr's, the harness's own sandbox as its adapter fragment addresses it; open nothing at all. Absent reads namespace." },
           "publishes": {
             "type": "array",
-            "description": "The crossings this realm publishes (decision 0054 ruling 1): files this realm owns and other realms may pin. A crossing name is unique within the realm that publishes it.",
+            "description": "The crossings this realm publishes (decision 0057 ruling 1): files this realm owns and other realms may pin. A crossing name is unique within the realm that publishes it.",
             "items": {
               "type": "object",
               "required": ["name", "path"],
@@ -38,7 +38,7 @@
           },
           "consumes": {
             "type": "array",
-            "description": "The crossings this realm depends on (decision 0054 ruling 2), each named by its publishing realm and pinned by digest. A crossing name is used once within this list.",
+            "description": "The crossings this realm depends on (decision 0057 ruling 2), each named by its publishing realm and pinned by digest. A crossing name is used once within this list.",
             "items": {
               "type": "object",
               "required": ["name", "realm", "sha256"],
