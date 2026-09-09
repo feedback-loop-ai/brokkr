@@ -853,19 +853,16 @@ task:
       refuses the boundary tests, record the host proof as pending for
       the controller and never report a skipped boundary test as evidence —
       every requirement of this change.
-- [ ] 13.6 Validate the changed dependency graph with Rust 1.88 using
+- [ ] 13.6 Before the commit, validate the changed dependency graph with Rust
+      1.88 using
       `cargo check --workspace --all-targets --all-features --locked`, so the
       CLI test target and its dev-only Boa harness are compiled, plus
       `cargo deny check licenses` and `cargo audit`; confirm `boa_engine` is
       exactly 0.21.1 with default
       features disabled, appears only in `brokkr-cli`'s development graph,
-      and is absent from the release binary's production graph. Require the
-      controller's final CI evidence for workspace tests on Linux, macOS and
-      Windows plus the MSRV, license and audit jobs, with the remote MSRV job
-      using those same `--all-targets --all-features` arguments; until those
-      remote results exist record them as pending rather than green, and if
-      any platform or admission gate rejects Boa return upstream to design
-      instead of weakening the exact-served-code proof — every requirement
+      and is absent from the release binary's production graph; if a local
+      admission gate rejects Boa, return upstream to design instead of
+      weakening the exact-served-code proof — every requirement
       of this change.
 - [ ] 13.7 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
@@ -886,3 +883,13 @@ task:
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.
+
+Post-commit controller evidence is deliberately outside the tracked
+checkboxes above. After 13.9 fixes the candidate head, the controller records
+the final CI evidence for workspace tests on Linux, macOS and Windows and for
+the MSRV, license and audit jobs, with the remote MSRV job using the same
+`--all-targets --all-features` arguments as 13.6. Those results remain pending
+until they exist; they validate the unchanged commit produced by 13.9 and do
+not cause another tracked edit. If any remote platform or admission gate
+rejects Boa, the controller returns the change upstream to design instead of
+weakening the exact-served-code proof.
