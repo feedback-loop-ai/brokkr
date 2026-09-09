@@ -195,6 +195,17 @@ impl CrossingFailure {
     fn is_unpublished(&self) -> bool {
         matches!(self.fault, CrossingFault::Unpublished { .. })
     }
+
+    /// Whether this is a CONSUMER's pin that no longer matches, rather
+    /// than a PUBLISHER's unreadable file. A readout that lists a realm's
+    /// consumed crossings asks this rather than matching on the crossing's
+    /// name alone: a realm may publish `x` and consume another realm's `x`
+    /// (only consuming its OWN `x` is refused, ruling 3.6), so both faults
+    /// can sit on one report under one name, and the name alone would say
+    /// the wrong one moved.
+    pub fn moved(&self) -> bool {
+        matches!(self.fault, CrossingFault::Moved { .. })
+    }
 }
 
 /// A consumed pin that was never compared to anything, because the realm
@@ -209,6 +220,21 @@ pub struct UncheckedPin {
     /// The realm that publishes the crossing, whose line carries why.
     pub publisher: String,
     pub crossing: String,
+}
+
+/// Why the pin was never compared, worded ONCE for every surface that
+/// reports one — `brokkr doctor`'s warn line and `brokkr realms`' pin
+/// state — exactly as a moved pin is worded once by
+/// [`CrossingFailure::error`]. Each surface frames it in its own words
+/// ("pin not checked: …", "unchecked · …"); neither owns the reason.
+impl std::fmt::Display for UncheckedPin {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "realm '{}' publishes it and its file could not be read",
+            self.publisher
+        )
+    }
 }
 
 /// One realm's crossings, as `brokkr doctor` reports them: how many files
@@ -361,15 +387,20 @@ impl World {
         World::found(dir, named, World::load)
     }
 
-    /// The same world `brokkr doctor` reads, and nothing else does: a
-    /// crossing that has moved is a LINE, not the end of the readout.
+    /// The world the READ surfaces read — `brokkr doctor`, `brokkr realms`
+    /// and `brokkr muninn run`, and nothing else: a crossing that has
+    /// moved is a LINE, not the end of the readout.
     ///
     /// A doctor line reports and never refuses (decision 0046's Addendum),
     /// and folding a moved crossing into `World::discover`'s `Err` would
     /// throw away every house, dialect and boundary line under it — a
-    /// broken world where one contract moved. So doctor loads the world
-    /// and reads [`World::crossings_report`] beside it, while every verb
-    /// that starts or continues a run keeps [`World::load`]'s refusal.
+    /// broken world where one contract moved. The same argument reaches
+    /// every surface that only looks: a readout that refuses to describe
+    /// the world is at its least useful in exactly the world it was asked
+    /// about, and it protects nothing, because it starts nothing. So the
+    /// read surfaces load the world and read [`World::crossings_report`]
+    /// beside it, while every verb that starts or continues a run keeps
+    /// [`World::load`]'s refusal.
     ///
     /// Never used to pin a run: a world read this way may hold fewer
     /// resolved crossings than its map declares.

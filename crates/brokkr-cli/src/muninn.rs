@@ -34,11 +34,12 @@ use anyhow::{Context, Result};
 use brokkr_core::fold::fold;
 use brokkr_protocol::oneshot::{self, OneShot};
 use brokkr_runtime::bundle::expand_command;
-use brokkr_runtime::realms::Hearth;
+use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
+use crate::realms::Pin;
 use crate::render::Safe;
 
 /// The agent definition this command invokes.
@@ -82,6 +83,19 @@ pub struct Dossier {
     /// The realm is absent exactly when the world has one hearth, which
     /// is every world that never drew a second journal.
     pub facts: Vec<(Option<String>, String, u64)>,
+    /// Every `(realm, crossing)` the dossier states as a FINDING — the
+    /// closed set a proposal may cite for a contract, beside the closed
+    /// set it may cite for a run.
+    ///
+    /// A crossing is a fact about the MAP, not about any run: it has no
+    /// `run_id` and no sequence number to carry, and a realm the map names
+    /// before its first run — which `muninn run` already reads and
+    /// reports on — has no run whose head one could be borrowed from. So
+    /// it carries the citation it honestly has, the realm whose run would
+    /// refuse and the crossing that would refuse it, rather than a run
+    /// citation a reader would follow to a ruling that never mentioned a
+    /// contract (decision 0054; decision 0007's provenance discipline).
+    pub crossings: Vec<CitedCrossing>,
     /// Per run, the operator commands `brokkr-view` derives as legal.
     /// Keyed by run id alone, as the report cites it: a run id is unique
     /// within the journal it lives in, and where two hearths hold one id
@@ -111,12 +125,103 @@ impl Dossier {
         self.realm_of(run_id, seq).is_some()
     }
 
+    /// Whether the dossier states this crossing as a finding of this
+    /// realm. The crossing half of [`Dossier::realm_of`]'s question, and
+    /// the only thing a crossing citation is checked against.
+    fn states_crossing(&self, realm: &str, crossing: &str) -> bool {
+        self.crossings
+            .iter()
+            .any(|(known, named)| known == realm && named == crossing)
+    }
+
     fn admits(&self, run_id: &str, command: &str) -> bool {
         match self.commands.get(run_id) {
             Some(commands) => commands.iter().any(|known| known == command),
             None => false,
         }
     }
+}
+
+/// One realm's crossings, as the dossier states them (decision 0054;
+/// decision 0026 ruling 3, which makes every fact name the realm it was
+/// read for). Built only for a realm that draws a crossing at all, so a
+/// world that never drew one hands the seat the exact dossier it always
+/// handed it.
+///
+/// The realm here is the realm the MAP names, never a hearth label: a
+/// crossing is drawn between realms and is nothing to do with which
+/// journal a realm's runs land in, so it is named for what it is even in
+/// a one-hearth world, where the journal-derived facts beside it name no
+/// realm at all.
+pub struct RealmCrossings {
+    pub realm: String,
+    pub published: usize,
+    pub consumed: usize,
+    /// The consumed pins that no longer match the publisher's bytes —
+    /// each one a finding, charged to THIS realm.
+    pub moved: Vec<MovedPin>,
+    /// How many of this realm's pins could not be checked at all, because
+    /// the publisher's own file could not be read. Counted and never
+    /// filed as a finding: nothing is broken about an unchecked pin, only
+    /// unproven, and the publisher's own line is where that fault lives
+    /// (`ca0c765`). Counted rather than dropped, so `consumed` is never
+    /// read as "this many pins matched".
+    pub unchecked: usize,
+}
+
+/// One pin that no longer matches, with the refusal's own words.
+pub struct MovedPin {
+    pub crossing: String,
+    pub publisher: String,
+    /// What `World::load` would have refused this realm's next run with,
+    /// verbatim — never a second wording composed here.
+    pub detail: String,
+}
+
+/// A crossing citation: the realm that CONSUMES the crossing, and the
+/// crossing's name.
+type CitedCrossing = (String, String);
+
+/// Every realm of this world that draws a crossing, read off the same
+/// report `brokkr realms` and `brokkr doctor` read, through the same
+/// derivation (`crate::realms::crossings_of`). Nothing is resolved,
+/// hashed or compared here: a second computation is a second answer
+/// waiting to disagree with the one the loader already gave.
+///
+/// A world with no map at all draws none, which is every workspace that
+/// never wrote a `realms.json`.
+pub fn world_crossings(world: Option<&World>) -> Vec<RealmCrossings> {
+    let Some(world) = world else {
+        return Vec::new();
+    };
+    let mut crossings = Vec::new();
+    for realm in &world.map.realms {
+        let (published, consumed) = crate::realms::crossings_of(world.crossings_report(), realm);
+        if published.is_empty() && consumed.is_empty() {
+            continue;
+        }
+        let mut moved = Vec::new();
+        let mut unchecked = 0;
+        for entry in &consumed {
+            match &entry.pin {
+                Pin::Matching => {}
+                Pin::Moved(detail) => moved.push(MovedPin {
+                    crossing: entry.name.clone(),
+                    publisher: entry.publisher.clone(),
+                    detail: detail.clone(),
+                }),
+                Pin::Unchecked(_) => unchecked += 1,
+            }
+        }
+        crossings.push(RealmCrossings {
+            realm: realm.name.clone(),
+            published: published.len(),
+            consumed: consumed.len(),
+            moved,
+            unchecked,
+        });
+    }
+    crossings
 }
 
 /// One hearth this command reads: the journal, and the realm its runs
