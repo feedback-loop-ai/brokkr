@@ -18,10 +18,16 @@ implementation and review.
   and tool outputs. Read recognized Codex event content and DSH chunks when
   their canonical content is absent, then replace proven echoes when the
   canonical record arrives; retain file order within each bounded snapshot.
+  Decode DSH packed rows into their individual events and preserve fragment
+  boundaries. Assembled messages replace only chunks proved by recorded
+  citations, including stored citation ranges, within the same turn/step.
 - Resolve the selected participant's recorded kind, locator and home to
   its own retained file. Distinguish missing, invalid, ambiguous and
-  unreadable references; never substitute another seat, a delegated DSH
-  session or the newest file in a provider home. Codex uses the shipped
+  unreadable references. Refuse DSH projection as `unsupported-format` for
+  unknown required events or invalid packed-row/citation encodings, with no
+  prose and with the confirmed path and bounded-source diagnostics retained;
+  explicitly ignorable unknown events remain counted omissions. Never
+  substitute another seat, a delegated DSH session or the newest file in a provider home. Codex uses the shipped
   whole-token filename identity without a required content header; its
   provider-specific id guard accepts the engine's existing language.
 - Add `brokkr transcript --run <selector> --seat <label-or-key>` with
@@ -70,7 +76,8 @@ implementation and review.
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
   proposing the replacement of decision 0032 ruling 4's command-construction
-  binding stated in S2 and the successor's identity/JSON resolutions in S8;
+  binding stated in S2, the successor's identity/JSON resolutions in S8, and
+  the returned DSH format and refusal resolutions in S9;
   only the operator can accept it. No semantic production change is made in
   this specification phase.
 
@@ -231,6 +238,22 @@ from the commissioned base. Provider measurements, Rust delivery checks and
 external host boundary proof remain pending; no skipped or unavailable check
 is counted as passing evidence.
 
+On the return from design at `6ece1ea`, strict OpenSpec validation and delta
+parsing passed with all 20 requirements and 152 scenarios. All 125 prior
+scenario names remain; 27 new scenarios answer U1/U2 and their CLI/TUI
+consequences. Status reports proposal/specs/design present and tasks ready
+by file existence, with planning and apply completion false; it does not
+admit the historical returned design. All five commissioned Cargo commands
+were attempted with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2` and exited
+127 because Cargo is absent. The unchanged exact-coverage gate, with
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, exited 1 at
+`mktemp` because that directory is absent. No Rust, coverage or boundary
+proof ran. The command evidence is
+`.forge/specify/read-every-transcript-kind-design-return-validation.json`;
+whitespace, frozen-byte, accepted-decision and unchanged-coverage-script
+checks passed. Final host and delivery proof remain pending with the
+controller; the specification audit is not a replacement for those checks.
+
 ### S5 — Extra bounds are proposed policy, not provider measurements
 
 The existing 4,000,000-byte block budget is preserved. The new 32 MiB source
@@ -328,3 +351,51 @@ nor veto filename identity, and keep rejected-reference JSON separate from
 lookup permission. This is required content for that phase's decision draft,
 not acceptance of 0055 or permission to alter #226's adapters. No design or
 tasks artifact exists on this visit to amend or claim complete.
+
+### S9 — Return from design: U1 and U2 answered in the owning requirements
+
+Adopted `6ece1ea` and validated the existing change before amending it.
+`returned_from` names the design's **upstream** result: U1 and U2 are faults
+in this specification, not in triage, decision 0032 or #226. The proposal
+is amended first, followed by reading, command and TUI deltas. The fourteen
+clarification answers remain in force except the two precise DSH policies
+now refined by new format evidence: R3's universal omission rule gains the
+required-event refusal, and R2's step association requires actual citations.
+The original scenario names and reasons remain traceable.
+
+Both council positions were read in full. Adopt robustness's required-event
+refusal and citation-specific suppression, combined with the chief's
+persisted-row evidence. Reject simplicity's canonical-only reading and
+removal of diagnostics: those cuts would discard the settled interrupted
+content and format-drift answers. The chief's D1 reconciliation of the other
+claims remains applicable, including D9's Codex completed-item support under
+the existing response-item preference; neither finding reopens that policy.
+
+| Finding | Answer and owning scenarios |
+|---|---|
+| U1 — Unknown required DSH events | Reading R14 distinguishes a safe counted omission from `unsupported-format`, pins whole-prefix counts and source-only truncation on refusal, and keeps I/O/UTF-8 precedence. “A required unknown DSH event refuses all prose” and the marker/collision scenarios bind it. Command C6 preserves the selected reference/path/hint and refuses every turn request; TUI T5 clears both doors on the same transition. |
+| U2 — Physical rows and assembly citations | Reading R15 distinguishes physical rows from logical events, decodes text/reasoning/tool-argument packing without concatenating fragments, and defines ranged/empty/absent/partial citations. The packed/unpacked equivalence, malformed-row, range, scope and cap scenarios bind it. Command C7 and TUI T6 fix numbering, notices and selection invalidation after projection. |
+
+The tagged DSH `dsh-v0.1.2-rc.1` [session types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/core/session/src/types.ts),
+[JSONL writer](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/session/session-persistence-jsonl/src/format.ts)
+and [chunk codec](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.2-rc.1/packages/core/session/src/chunk-rows.ts)
+were read as public primary source on 2026-09-09. They support these storage
+and citation facts, not a live provider measurement. The direct range-codec
+fetch was unavailable; the citation admission/set rules in R15 are explicit
+Brokkr policy based on the writer's documented encoding and earlier-source
+contract, not a claim to duplicate every provider replay validator. This box
+still has no installed provider CLI or Cargo. S3's remaining Codex producer
+association evidence and S5's proposed bounds are preserved, not fabricated.
+
+The existing `design.md` is the historical council return at `6ece1ea`.
+Its U1/U2 remedies are now answered here and in the deltas; its D2–D9
+architecture remains applicable subject to these answers. Under S1 and the
+dialect's declared artifact scope, this specify visit commits proposal/specs
+only. The returned council must reconcile its admission/validation record
+with R14/R15, finish its remaining provider evidence, and author/register
+`docs/decisions/0055-read-every-transcript-kind.md` with `Status: proposed`
+before implementation. That decision must carry these refusal-state,
+physical-row/count/turn, timestamp, citation and audit-order rules with
+bindings to projector, CLI/TUI and privacy tests. It must preserve S2/S8 and
+all prior bindings. No proposed decision is accepted here, no task breakdown
+exists to amend, and drafting does not claim design admission or delivery.

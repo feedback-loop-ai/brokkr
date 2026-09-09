@@ -19,12 +19,17 @@ including reasoning, tool arguments and output in the new projections, with
 normal scrolling and the existing terminal sanitization.
 
 The pane and overlay SHALL visibly number turns from one in the same sequence
-as `brokkr transcript --turn`. Preview clipping due to terminal space SHALL
-not remove content from either reading door. Transcript selection SHALL not
+as `brokkr transcript --turn`, including separate readable logical members of
+one DSH packed row. Physical line numbers SHALL not become turn numbers.
+Preview clipping due to terminal space SHALL not remove content from either reading door. Transcript selection SHALL not
 change the journal checkpoint selection or reinterpret the seat's accounting.
-A participant with an unavailable reference SHALL show the common transcript
-fact and its specific unavailability explanation, with no stale prose or
-active door into another participant's content. A readable zero-turn result
+A participant with an unavailable reference or source SHALL show the common
+transcript fact and its specific unavailability explanation, with no stale
+prose or active reading door. In particular, DSH `unsupported-format` SHALL
+show the shared `DSH transcript format is not supported` explanation, retained
+path/hint and source diagnostics, while clearing every old turn and closing
+any open transcript overlay. A positive diagnostic count or source-cap flag
+SHALL not make a refused projection readable. A readable zero-turn result
 SHALL still permit opening the whole transcript's empty/capped explanation
 and any malformed-line or unrecognized-record notices.
 
@@ -47,6 +52,10 @@ and any malformed-line or unrecognized-record notices.
 #### Scenario: An unavailable seat cannot reuse the previous seat's pane
 - **WHEN** the operator moves from a readable Claude seat to an unavailable Codex, DSH or none-kind participant
 - **THEN** the pane clears the previous turns, explains the selected reference's unavailability and neither reading door exposes the old seat's prose
+
+#### Scenario: A packed row is readable through individual turns and the whole door
+- **WHEN** a readable DSH source contains three text fragments in one packed row and three reasoning fragments in another, within both budgets
+- **THEN** the pane exposes six separate assistant turns with the shared reconstructed stamps; Enter on turn three opens only its third text fragment and Enter with no selection opens all six in member order, agreeing with CLI whole and selected reads
 
 ### Requirement: Full-session information is truthful for its kind
 
@@ -110,8 +119,11 @@ The shared `transcript truncated (size cap)` notice SHALL appear in the pane,
 open-whole overlay, open-turn overlay and text command whenever the source
 projection was truncated, including a selected turn that itself fit in full.
 The JSON document SHALL carry the same notice in `notices` and
-`truncated: true`. A truncated zero-turn projection SHALL show the notice and
-allow its whole-transcript explanation to be opened. A malformed-line notice
+`truncated: true`. A readable truncated zero-turn projection SHALL show the
+notice and allow its whole-transcript explanation to be opened. An unavailable DSH
+snapshot SHALL show any retained source-cap/count notices in its pane beside
+the refusal/path/hint, with both reading doors disabled; notices SHALL not
+reopen an overlay or expose the previous snapshot. A malformed-line notice
 SHALL likewise accompany the shared `skipped_lines` count, and the shared
 unrecognized-record notice SHALL accompany a positive `unrecognized_records`
 count, in the reader's fixed notice order without exposing unknown or malformed
@@ -134,7 +146,7 @@ bounded readout so the operator can inspect the retained original separately.
 - **THEN** each pane and each reading door prints exactly `transcript truncated (size cap)`, matching text/JSON; Claude's separate full-session line still names `claude --resume <id>`, and no notice contains the old suffix
 
 #### Scenario: Unknown content remains distinguishable in the pane and doors
-- **WHEN** a readable file contains only recognized metadata and three unrecognized records
+- **WHEN** a readable file contains only recognized metadata and three unrecognized records, with top-level `ignorable: true` on unknown DSH events
 - **THEN** the pane shows `no readable turns` and `unrecognized transcript records: 3`, and Enter opens the same explanation with the available full-session information
 
 #### Scenario: A selected readable turn retains the unknown-record notice
@@ -163,7 +175,14 @@ header after its filename establishes eligibility. A grown file SHALL be
 re-derived under the shared caps, including event-only Codex content and
 unassembled readable DSH chunks. A refresh SHALL replace the previous bounded projection, not append
 its turns. Canonical replacements SHALL remove only associated fallbacks,
-using the reading capability's snapshot ordering. If replacement removes,
+using the reading capability's snapshot ordering. DSH SHALL decode complete
+packed rows and suppress only citation-proved chunks of the assembly's same
+turn/step; absent, empty or partial citations SHALL leave uncited fragments
+visible. Refresh SHALL replace a formerly readable snapshot with an
+`unsupported-format` result atomically before presenting any new indices,
+including when the unknown required event was appended without a journal
+change. Active refresh and final/manual reads SHALL continue to recheck that
+reference under the same bounds after refusal. If replacement removes,
 changes or reorders any previously displayed turn, the turn selection SHALL
 be cleared before the new projection is displayed, even when the file only
 grew. Any open transcript overlay SHALL close before displaying a projection
@@ -189,7 +208,7 @@ reads and read-only journal/provider access.
 - **THEN** a subsequent active-seat refresh adds the projected turn exactly once and preserves source order
 
 #### Scenario: Assembly replaces chunks while the journal is unchanged
-- **WHEN** a live DSH step first appends two readable chunks and a later refresh sees its complete assembled message without a journal-head change
+- **WHEN** a live DSH step first appends two readable chunks and a later refresh sees its complete assembled message citing both chunk sequences in that same turn/step without a journal-head change
 - **THEN** the first refresh shows both chunk turns and both reading doors can open them; the later refresh replaces them with the single assembled turn, clears any prior turn selection and closes an open transcript overlay before showing the replacement
 
 #### Scenario: Codex canonical arrival replaces only its associated fallback
@@ -203,6 +222,26 @@ reads and read-only journal/provider access.
 #### Scenario: Concluded sessions remain manually refreshable
 - **WHEN** a working participant concludes and the operator later requests an explicit refresh
 - **THEN** the conclusion received a final transcript read, idle automatic growth polling has stopped and the explicit refresh rechecks the same recorded identity
+
+#### Scenario: A required unknown DSH append clears both reading doors
+- **WHEN** a readable working DSH participant has a selected turn or open overlay and a refresh observes a new unknown required event in the bounded source without a journal-head change
+- **THEN** that refresh atomically clears all turns and the selection, closes the overlay and shows `unsupported-format`, `DSH transcript format is not supported`, the confirmed path/hint and shared counts/notices; neither door reveals the previous prose, and subsequent active/final/manual refreshes remain bounded reads of the same reference
+
+#### Scenario: An ignorable DSH append retains readable content and its notice
+- **WHEN** the same readable source instead appends an unknown event with top-level `ignorable: true`
+- **THEN** refresh retains its recognized turns and shows the increased physical-row unrecognized count in the pane and both doors, without treating the safely omitted event as semantic refusal
+
+#### Scenario: Ranged partial assembly invalidates old indices without losing uncited chunks
+- **WHEN** a working DSH source has displayed chunks 10, 11, 12 and 14, packed or ordinary, and later appends a same-step assembly citing `[[10, 12]]`
+- **THEN** refresh retains uncited chunk 14 as turn one and the assembly as turn two, clears any old selection and closes its overlay before showing those indices; CLI selection for the new snapshot yields the same turns
+
+#### Scenario: An absent assembly citation preserves earlier fragments
+- **WHEN** a readable DSH source appends an assembly with absent or empty citations and changes no earlier event
+- **THEN** refresh keeps every existing fragment and adds the assembly at its own position, preserving a prior selection under the unchanged-prefix rule; it does not treat the assembly's shared step as permission to remove fragments
+
+#### Scenario: Refused storage cannot reopen a capped empty explanation
+- **WHEN** a DSH snapshot has a source-cap flag and a complete invalid packed row or required unknown event within the prefix
+- **THEN** the pane shows the shared `unsupported-format` refusal, source-cap notice and physical-row counts with its confirmed path/hint, but no turn or whole-session door is active; it does not offer the readable-zero-turn behavior reserved for a successful capped projection
 
 ## Decisions
 
@@ -219,8 +258,10 @@ rules do not alter the journal's checkpoint selection or provider accounting.
 
 `transcript-reading` owns full-session values and notices; the TUI renders
 them in the pane and doors. Permissive unresolved hints and Claude-only
-truncation suffixes are removed. A zero-turn file with unsupported records
-has an explanation the operator can open, not an apparently empty session.
+truncation suffixes are removed. A readable zero-turn file with safely
+omittable unsupported records has an explanation the operator can open, not an apparently empty session. R14/T5
+now distinguish a refused DSH snapshot: it retains diagnostics in the pane
+and offers no reading door.
 The explicit 0055 amendment in proposal S2 is required for the additional
 Codex convenience; this rendering authorizes no provider execution.
 
@@ -246,3 +287,24 @@ consequences visible while preserving T1–T3's navigation, diagnostic,
 compatibility and stale-content rules. Proposed 0055 must bind these shared
 results to TUI and browser participant regression tests, without a provider
 execution or change to #226's launch behavior.
+
+### T5 / design return U1 — Refusal invalidates content even when the path survives
+
+Adopt R14/C6. A retained path or positive count is metadata, not permission to
+keep old prose. Atomically replace a readable snapshot with the shared
+unsupported-format state, clear selection and close both doors. Preserve the
+path/hint and source diagnostics in the pane, including source truncation,
+without confusing a refused projection with a readable empty one. An
+ignorable unknown event keeps the existing readable notice behavior. Proposed
+0055 must bind these distinctions to refresh and overlay-state tests.
+
+### T6 / design return U2 — Navigation follows decoded and cited content
+
+Adopt the exact same logical-event sequence as the command, including each
+packed fragment's timestamp. Reject row-level concatenation and step-wide
+replacement: both would make the terminal select different evidence from
+R15/C7. Positive citations remove only their proven chunks; any such change
+still invokes T1's selection/overlay invalidation. Empty or absent citations
+can be a pure append and cannot retarget a cursor by deleting earlier turns.
+Proposed 0055 must bind packed/ordinary equivalence, ranged partial assembly,
+refusal diagnostics and existing cap behavior to the shared TUI/CLI tests.

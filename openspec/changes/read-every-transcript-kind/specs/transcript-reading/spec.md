@@ -18,11 +18,19 @@ the shared reference eligibility and `full_session` result as specified below.
 Prose SHALL belong to this explicit local transcript
 read, never to the journal-derived run/participant models.
 
-A displayed turn SHALL be one content-bearing source record after the
-per-kind projection and duplicate suppression below, not a journal checkpoint
-or a provider's billable turn. A readable streaming fragment is one such source
-record; fragments SHALL not be concatenated into an invented assembled record.
-Its timestamp SHALL be the recorded timestamp or an empty string when absent; record order SHALL outrank timestamp order.
+A physical source record SHALL be one complete JSONL row. A logical event
+SHALL be the event represented by an ordinary row or one member decoded from
+a supported DSH packed row. A displayed turn SHALL be one content-bearing
+logical event after per-kind projection and duplicate suppression, not a
+physical line number, journal checkpoint or provider's billable turn. A
+readable streaming fragment is one logical event; fragments SHALL not be
+concatenated into an invented assembled message. Order SHALL be physical row
+order, then stored member order within a packed row, never a sort by time,
+sequence number or provider turn. Diagnostics SHALL count physical rows;
+turn numbering and the display budget SHALL apply to projected logical events.
+The timestamp SHALL be the recorded timestamp (DSH's numeric representation
+is pinned below) or an empty string when absent; source order SHALL outrank
+timestamp order.
 Blocks SHALL use `text`, `reasoning`, `tool`, `tool-result`, or `omitted`.
 User/assistant messages SHALL retain their roles; standalone reasoning and
 calls SHALL have role `assistant`, and standalone tool outputs role `tool`.
@@ -32,9 +40,9 @@ No turn SHALL be emitted with no visible blocks.
 
 Canonical preference SHALL be evaluated over the complete records in the
 bounded source snapshot before applying the display budget. A canonical
-record replaces only its proven fallback representations; it occupies its
-own file position and uses its own timestamp. Other records retain their
-relative file order. No lookup beyond the source cap SHALL establish a
+logical event replaces only its proven fallback representations; it occupies
+its own physical-row/member position and uses its own timestamp. Other
+records retain their relative file order. No lookup beyond the source cap SHALL establish a
 replacement, and display-capping a canonical record SHALL not restore an
 earlier fallback. A subsequent read is a fresh projection, not an append to
 the previous list of displayed turns.
@@ -564,34 +572,105 @@ or controller evidence during design before parser support is claimed.
 ### Requirement: DSH sessions expose assembled or provisional content once
 
 DSH SHALL read retained `user/message`, assembled `assistant/message`,
-`tool/call` and `tool/result` events in file order, including readable
-reasoning retained in assembled messages when present. For a recorded step
-with no complete readable assembled `assistant/message` in the bounded
-snapshot, each recognized `assistant/chunk` carrying text or readable
-reasoning SHALL project as its own assistant turn in chunk file order with
-its recorded timestamp. This rule applies between live steps and after
-interruption; no step-ending or assistant message is required for access to
-already retained chunk content. A later complete readable assembled message
-SHALL replace all its associated chunks in the new snapshot, at the
-assembled record's file position; chunks from other steps SHALL remain.
+`tool/call` and `tool/result` events in source order, including readable
+reasoning in assembled messages. It SHALL support ordinary event rows and
+`text-chunks`, `reasoning-chunks` and `tool-call-chunks` storage rows, including
+files mixing both encodings. Packed rows SHALL decode before event projection;
+they SHALL not be classified as unknown events or joined into one message.
+The supported packed representation is:
 
-Step association SHALL use the session's recorded turn and step identity
-(the pair, never `turn` alone), or its unambiguous step boundary sequence
-verified from provider source. Missing association SHALL not be guessed from
-text or timestamps: such readable chunks remain separate source turns, as
-with unassociated Codex events. Chunk payload mapping and boundary evidence
-SHALL be documented during design; an actual mirrored format that cannot be
-associated SHALL be returned upstream. Tool argument fragments SHALL not be
-promoted to invented complete calls. Request/context copies and
-lifecycle/accounting records SHALL supply no content. Dedicated call/result
-events SHALL own the displayed tool blocks; duplicate tool declarations embedded in
-an assembled message SHALL not be appended again. Message text and reasoning
-blocks SHALL preserve their recorded order. Calls and outputs SHALL retain
-recorded names, identifiers, arguments and textual results under the same
-inert-content and absent-partner rules as Codex.
+| Row | Logical members and recorded fields |
+|---|---|
+| `text-chunks` | `data.texts[k]` supplies one `assistant/chunk` with `chunk.type: "text-delta"`, its unchanged text and `data.index`. |
+| `reasoning-chunks` | `data.texts[k]` supplies one `assistant/chunk` with `chunk.type: "reasoning-delta"`, its unchanged text and `data.index`. |
+| `tool-call-chunks` | `data.args[k]` supplies one `assistant/chunk` with `chunk.type: "tool-call-delta"`, `chunk.argumentsDelta` equal to that raw fragment, and `chunk.index`, `chunk.id` and optional `chunk.name` from the corresponding data fields. It is not a completed call. |
+
+The envelope SHALL contain exactly `type`, `seq0`, `time0`, `data`.
+Text/reasoning data SHALL contain exactly `turn`, `step`, `index`, `dt`,
+`texts`; tool data SHALL contain exactly `turn`, `step`, `index`, `dt`,
+`args`, `id` and optional `name`. The three position fields SHALL be numeric;
+`texts`/`args` SHALL be nonempty arrays of strings, and `id` and a present
+`name` SHALL be strings. `dt` SHALL be an array with one fewer member than
+the payload array. `seq0` SHALL be a nonnegative safe integer, excluding
+negative zero. `time0` and every `dt` member SHALL be signed safe integers. Here safe integer
+means an exact integer of magnitude at most 9,007,199,254,740,991. For zero-based
+member k, sequence SHALL be `seq0 + k`, and time SHALL be `time0` plus the
+first k gaps. Every member SHALL keep the stored `data.turn` and `data.step`;
+its chunk index SHALL be the stored `data.index`. Every reconstructed
+sequence and time SHALL remain in its respective safe range. Negative time
+gaps SHALL preserve backwards clock movement, never reorder members. DSH `Turn.ts` SHALL be the event's signed base-ten epoch
+millisecond integer string, without an exponent, timezone conversion or
+padding; zero SHALL render as `"0"`, including a time recorded as negative
+zero. An ordinary DSH event's time SHALL be interpreted only when it is a
+signed safe integer; a missing or invalid value SHALL use an empty string.
+Packed-row validation SHALL complete for the entire physical row before any
+member can supply content or association. A valid JSON row violating this
+encoding SHALL cause `unsupported-format` and count once in
+`unrecognized_records`, never `skipped_lines`, even if early members are valid.
+
+Each recognized readable `assistant/chunk` SHALL project as its own assistant
+turn unless a complete readable assembly in the bounded snapshot proves it
+is a source. Text/reasoning deltas retain each fragment as recorded, including
+whitespace; an empty string supplies no block or turn. Tool-argument fragments,
+block boundaries, usage and finish chunks SHALL remain recognized quiet
+omissions, not assembled calls. Interrupted or live steps need no step-end or
+assistant message before retained text/reasoning can be read.
+
+Top-level `sourceEventSeqs` on a recognized `user/message`,
+`assistant/message` or `tool/result` SHALL accept an array of individual
+sequence integers and inclusive two-integer `[start, end]` ranges. Values
+SHALL be nonnegative safe integers excluding negative zero, range start
+SHALL not exceed end, and every cited value SHALL be less than the owning
+event's sequence. A nonempty list SHALL require that owning sequence to be a
+nonnegative safe integer excluding negative zero. An assembled
+`assistant/message` SHALL suppress only earlier readable chunks it cites
+within the same recorded `(data.turn, data.step)`; citations on a user message
+or tool result SHALL not suppress chunks or replay a surface replacement.
+A present invalid field (including null, a non-array, an invalid range, an
+invalid owning sequence for a nonempty list, or a self/future reference)
+SHALL cause `unsupported-format` and count its physical row once as
+unrecognized. An absent field records no
+association; `[]` explicitly cites no events. Neither SHALL suppress chunks.
+A partial citation list SHALL suppress only its proved subset. Duplicate,
+overlapping or out-of-order valid citation entries SHALL be treated as set
+membership; they SHALL neither duplicate nor reorder content. These are
+reader admission rules, not a claim to reproduce DSH's execution replay.
+
+A citation proves a chunk only when exactly one earlier logical event has
+that sequence in this file and its recorded turn/step pair matches the
+assembly. A missing, ambiguous, cross-step or non-chunk target SHALL cause
+no chunk suppression; gaps SHALL not be filled or searched outside the
+bounded snapshot. A shared step alone, text equality, a timestamp, adjacency
+or an inferred boundary SHALL not supply a missing citation. An assembly
+occupies its own source position and time, including one marked interrupted;
+uncited chunks and other steps' content retain their positions. An assembly
+outside the source prefix or without readable projected blocks SHALL not
+suppress chunks. Display capping SHALL not resurrect suppressed chunks.
+
+Citation ranges SHALL be tested against bounded observed event identities
+without expanding the integer interval or allocating space proportional to
+its width. Packed decoding work and storage SHALL be bounded by actual
+members of complete rows in the source prefix; no lookup, synthetic event
+or memory allocation SHALL depend on an unobserved sequence gap. The source
+cap counts encoded physical bytes, while the display cap and CLI/TUI turn
+indices count final logical-event projections. An incomplete or source-cap
+fragment of a packed row SHALL supply no members or associations. A complete
+row can supply several turns, and the display cap can stop between members
+without changing their individual text or numbering.
+
+Dedicated call/result events SHALL own a duplicated embedded tool block only
+on a proved matching recorded call id and turn/step; an unassociated embedded
+complete call/result remains visible under the absent-partner rule. Message
+text and reasoning blocks SHALL preserve their recorded order. Calls and
+outputs SHALL retain names, identifiers, arguments and textual results under
+the same inert-content rules as Codex. Request/context copies and recognized
+lifecycle/accounting records SHALL supply no content. The read SHALL remain
+an audit of retained events: `surfaceOp` compaction/replacement SHALL not
+remove or reorder earlier messages, tools or uncited chunks. It SHALL not
+substitute DSH's model-visible surface for the requested transcript.
 
 #### Scenario: A DSH step is assembled once
-- **WHEN** a session has a user message, several assistant chunks, an assembled assistant message containing text and reasoning, a tool call, its output and another assembled answer
+- **WHEN** a session has a user message, several assistant chunks, an assembled assistant message containing text and reasoning and citing every one of those same-step chunks, a tool call, its output and another assembled answer
 - **THEN** the user message, assembled blocks, call, result and answer appear once in source order; the chunks do not duplicate the assistant's text
 
 #### Scenario: An interrupted DSH step retains its chunks
@@ -599,28 +678,72 @@ inert-content and absent-partner rules as Codex.
 - **THEN** the two chunks remain readable as two ordered assistant turns through CLI and both TUI doors, with no fabricated assembled answer, and the partial append is not a malformed complete line
 
 #### Scenario: Assembly replaces only its own step's chunks
-- **WHEN** a later bounded snapshot contains an assembled message for step one and only readable chunks for step two within the same DSH turn
+- **WHEN** a later bounded snapshot contains an assembled message citing all its step-one chunks and only readable chunks for step two within the same DSH turn
 - **THEN** step one's chunks are replaced by its one assembled message and step two's chunks remain visible once in their source positions, without merging the two steps or changing journal accounting
 
 #### Scenario: A call repeated inside a message is not another operation
-- **WHEN** an assembled DSH message declares a tool call and the stream also contains its dedicated `tool/call` record
+- **WHEN** an assembled DSH message declares a tool call and the bounded stream also contains a complete dedicated `tool/call` record with that same recorded call id and turn/step
 - **THEN** the dedicated event supplies the one displayed call and the message still supplies its other text and reasoning
 
 #### Scenario: Missing reasoning and billing facts stay missing
 - **WHEN** a DSH assembled message carries answer text but no readable reasoning
 - **THEN** the answer appears without manufactured reasoning, and request settings or token counts are not substituted for reasoning text
 
+#### Scenario: Packed and unpacked interrupted fragments produce identical turns
+- **WHEN** an interrupted DSH file stores three text fragments in one `text-chunks` row at `seq0: 10`, `time0: 1000`, `dt: [-1, 5]` and three reasoning fragments in one `reasoning-chunks` row, and a second file stores the equivalent six ordinary events with no assembly
+- **THEN** both reads produce the same six assistant turns, blocks and order, with the first three stamps `"1000"`, `"999"`, `"1004"`, zero diagnostic counts and no concatenation; either file's turn three is the third text fragment
+
+#### Scenario: A packed tool-argument run is not a completed call
+- **WHEN** a valid `tool-call-chunks` row records several raw argument fragments and the bounded snapshot contains no completed call
+- **THEN** no tool call is invented, the row adds neither diagnostic count, and packing it or storing its equivalent ordinary chunks produces the same zero turns; a later complete dedicated call supplies its own turn
+
+#### Scenario: An incomplete packed row supplies no partial members
+- **WHEN** a source ends without a newline in the middle of a packed row after two syntactically complete member strings, or the 32 MiB source cap cuts that row there
+- **THEN** neither member projects or supplies a citation target, neither count increases for that fragment, and only the source-cap case reports truncation; a later complete row is validated and decoded afresh
+
+#### Scenario: Invalid packed encodings refuse rather than discard a run
+- **WHEN** a complete valid JSON packed row has a wrong `dt` length, a non-string member, invalid or overflowing sequence/time reconstruction, or a key outside the specified shape
+- **THEN** the entire DSH read returns `unsupported-format`, no turns, and one unrecognized physical row for that row with no malformed-line increment; setting `ignorable: true` on a malformed packed row does not bypass its storage validation
+
+#### Scenario: Ranged citations suppress only observed members
+- **WHEN** readable same-step chunks have sequence ids 10, 11, 12 and 14, and a later readable assembly at sequence 20 cites `sourceEventSeqs: [[10, 12]]`
+- **THEN** chunks 10 through 12 are suppressed, chunk 14 remains at its source position and the assembly appears once at its later position; the result is the same for citations `[10, 11, 12]`
+
+#### Scenario: Empty absent and partial citations preserve uncited content
+- **WHEN** three otherwise identical snapshots have two readable same-step chunks at sequences 10 and 11 and a later readable assembly with respectively `[]`, absent `sourceEventSeqs`, or `[10]`
+- **THEN** the first two retain both chunks followed by the assembly and the third retains chunk 11 followed by the assembly; a shared step or equal words cannot erase the uncited content
+
+#### Scenario: Citation scope and ambiguous identities do not invent association
+- **WHEN** an assembly cites a chunk in another step, a sequence shared by two earlier events, a non-chunk event or a sequence absent from the bounded snapshot
+- **THEN** those citations suppress no chunk; valid unique citations to earlier chunks of the assembly's own turn/step still suppress only those chunks, without sorting or completing the event log
+
+#### Scenario: Citation validation and large ranges have bounded outcomes
+- **WHEN** a readable assembly has null or malformed citations, a reversed range, a non-integer endpoint or a self/future sequence
+- **THEN** its row counts once as unrecognized and the read returns `unsupported-format` with no turns, not a guessed association
+- **AND** a valid range `[0, 9007199254740990]` on an assembly at sequence 9007199254740991 instead tests only the earlier events actually present, using no allocation or iteration proportional to that interval's width
+
+#### Scenario: Interrupted assembly and compaction keep the audit order
+- **WHEN** a complete readable interrupted assembly cites some same-step chunks and a later message carries a surface replacement citing earlier messages
+- **THEN** only the interrupted assembly's proved chunk sources disappear; uncited chunks, earlier messages and tool events retain audit order, and the later replacement message appears at its recorded position rather than rewriting history
+
+#### Scenario: The display cap can stop between packed members
+- **WHEN** a complete valid packed row yields a first text turn of exactly 4,000,000 UTF-8 bytes and a second nonempty text turn, while the encoded row fits the source cap
+- **THEN** turn one is retained, turn two is not, `truncated` is true and diagnostics count no unknown record; the packed row is fully validated but is neither one oversized turn nor a means to exceed the display cap
+
 ### Requirement: Partial records and read failures remain distinguishable
 
 Complete malformed JSON lines SHALL be skipped without repairing them,
 counted as `skipped_lines`, and reported by CLI/TUI with the exact notice
 `malformed transcript lines skipped: <n>` when the count is positive.
-Complete valid JSON records with an unrecognized type, envelope or content
-variant SHALL instead be counted in `unrecognized_records`, at most once per
-source record even when several blocks are unrecognized. A partially
-recognized message SHALL retain its supported blocks and count that record
-once for the unsupported portion. Valid JSON scalars and records with no
-recognizable envelope count as unrecognized, not malformed. For Claude, the
+Complete valid JSON physical rows with an unrecognized type, envelope or
+content variant SHALL instead be counted in `unrecognized_records`, at most
+once per physical row even when several blocks or logical events are
+unrecognized. DSH's required-event and storage refusals below additionally
+make that read unavailable; counting alone SHALL not imply success. A
+partially recognized message SHALL retain its supported blocks and count that record
+once for the unsupported portion. Valid JSON scalars and rows with no
+recognizable envelope count as unrecognized, not malformed; the DSH marker
+rule below decides whether such a row also refuses the read. For Claude, the
 closed classification table in "Claude content preserves the existing
 projection" SHALL determine every exemption; merely calling an unknown type
 metadata SHALL not exempt it. For Codex/DSH, recognized headers,
@@ -634,17 +757,58 @@ read completes it, and not counted as a malformed complete line. A complete
 valid JSON final line SHALL be readable even without a trailing newline.
 Invalid UTF-8 in consumed source bytes or a file I/O failure SHALL return
 `unreadable`, not replacement prose; the explicit source-cap boundary exception
-below still applies. Both counts SHALL describe all complete records
-examined within the bounded source snapshot, before display capping and
-`--turn` selection; neither counts an incomplete append or source-cap
-fragment. Counts start at zero when no source was read.
+below still applies. Both counts SHALL describe all complete physical rows
+examined within a successfully acquired and UTF-8-valid bounded source
+snapshot, before display capping and `--turn` selection; neither counts an
+incomplete append or source-cap fragment. Counts start at zero when no
+usable snapshot was acquired.
+
+For DSH, after recognizing the header and supported packed storage rows,
+a valid JSON row whose event type/envelope is unrecognized SHALL be omitted
+successfully only when it is an object with top-level `ignorable` exactly
+boolean `true`. Absent, false, null, string, numeric or nested markers SHALL
+not permit omission; a scalar cannot carry that marker. Such a required
+unknown row SHALL cause `unsupported-format`, with no projected prose from
+anywhere in the snapshot. A recognized event with an unsupported nested
+content/block/chunk variant SHALL keep the earlier supported-sibling and
+counted-omission rule; it is not an unknown event envelope. Recognized quiet
+event kinds SHALL be enumerated from evidence in design, not inferred from
+a type prefix or an arbitrary claim that a record is metadata. Invalid
+packed-row or citation encodings SHALL also cause `unsupported-format` as
+specified above, regardless of an ignorable marker.
+
+On `unsupported-format`, the reader SHALL keep the selected reference,
+legacy flag, confirmed path and its full-session hint, return no turns, and
+use the explanation `DSH transcript format is not supported`. It SHALL
+classify all complete physical rows of the usable bounded snapshot for both
+counts, including rows before and after the offending row; each offending
+valid-JSON row counts once as unrecognized. The read SHALL retain only
+observed source-cap truncation: no display projection or display-cap flag is
+claimed after semantic refusal. Notices SHALL use the same ordered strings
+for that source-cap flag and the two complete-prefix counts. A complete
+required unknown row after any would-be display cutoff SHALL still refuse
+the read. Malformed JSON lines remain skipped/countable, and incomplete
+appends remain provisional; neither proves an unknown required event exists.
+No record outside the source prefix SHALL affect refusal or association.
+
+Source I/O or consumed invalid UTF-8 SHALL take precedence over DSH semantic
+refusal. If either prevents a usable bounded snapshot, the result SHALL be
+`unreadable` with no turns, zero diagnostic counts and only source truncation
+already established by the cap probe (and its notice); no partial semantic
+scan or provider payload SHALL be exposed. A safely confirmed path/hint
+SHALL remain available. If a usable snapshot exists, `unsupported-format`
+SHALL precede display capping and any `--turn` request, including an otherwise
+in-range or out-of-range index. These checks SHALL execute no provider replay,
+repair, resumption or journal mutation.
 
 A readable file with no projected turns SHALL succeed with `no readable turns`,
-distinct from unavailability and from a cap that retained no complete turn. When `unrecognized_records` is positive, CLI text/JSON, the TUI pane and
-both reading overlays SHALL carry its count/notice even if some turns are
-readable; the zero-turn case SHALL not appear as an empty recording with no
-explanation. For CLI/TUI, notices SHALL be ordered: truncation, malformed-line
-count, unrecognized-record count, omitting only notices whose condition is
+distinct from unavailability and from a cap that retained no complete turn.
+When `unrecognized_records` is positive, CLI text/JSON and the TUI pane SHALL
+carry its count/notice; every open overlay of a readable projection SHALL
+also carry it. A refused DSH snapshot SHALL keep its notices in the pane/error
+output with both reading doors disabled. A successful zero-turn case SHALL
+not appear as an empty recording with no explanation. For CLI/TUI, notices
+SHALL be ordered: truncation, malformed-line count, unrecognized-record count, omitting only notices whose condition is
 false. The existing Claude browser response retains its three-field envelope;
 these added diagnostic fields belong to the explicit transcript CLI/TUI
 result, not that compatibility response.
@@ -654,11 +818,11 @@ result, not that compatibility response.
 - **THEN** the first read omits the incomplete record and the later read displays it once, without a permanent parse failure or fabricated content
 
 #### Scenario: Malformed records do not hide later valid content
-- **WHEN** a complete malformed JSON line precedes a valid user message and an unknown lifecycle record
+- **WHEN** a complete malformed JSON line precedes a valid user message and an unknown lifecycle record that is explicitly `ignorable: true` for DSH
 - **THEN** the user message remains readable, `skipped_lines` and `unrecognized_records` each equal one, and their notices report both omissions without quoting either payload
 
 #### Scenario: Unrecognized records cannot masquerade as an empty session
-- **WHEN** an owned readable file has a recognized session header followed by five thousand valid JSON records of an unsupported content type
+- **WHEN** an owned readable file has a recognized session header followed by five thousand valid JSON records of an unsupported content type, each explicitly `ignorable: true` if it is a DSH unknown event
 - **THEN** it succeeds with zero turns, `unrecognized_records: 5000`, `skipped_lines: 0` and `unrecognized transcript records: 5000` beside `no readable turns`; an empty file or one containing only recognized header/context records has both counts zero and no unknown-record notice
 
 #### Scenario: Partial support remains visible without quoting unknown payloads
@@ -673,6 +837,30 @@ result, not that compatibility response.
 - **WHEN** a valid retained file contains only headers and context records recognized for its kind
 - **THEN** it returns zero turns without an unavailability reason, and a missing file instead returns `not-found`
 
+#### Scenario: A required unknown DSH event refuses all prose
+- **WHEN** an owned DSH snapshot contains visible user/assistant content followed by one unknown event with no `ignorable` marker
+- **THEN** the whole read returns `unsupported-format`, no turns, the confirmed path/hint and selected reference, `unrecognized_records: 1`, `skipped_lines: 0`, `truncated: false` and exactly `unrecognized transcript records: 1`; it does not present the earlier content as a successful partial history
+
+#### Scenario: Only an explicit true marker permits an unknown DSH event
+- **WHEN** otherwise identical DSH snapshots give that unknown event top-level `ignorable` values true, false, null, `"true"`, 1, or omit the field
+- **THEN** only boolean true succeeds with the recognized turns and one counted unknown row; every other case returns `unsupported-format` with no turns and the same count, and an unknown scalar or an event with only a nested true marker is likewise refused
+
+#### Scenario: Known DSH event content keeps counted partial support
+- **WHEN** a recognized DSH assistant message contains readable text plus two unsupported blocks and valid association metadata
+- **THEN** the text remains readable, its one physical row adds one to `unrecognized_records`, and an absent ignorable marker does not turn the recognized envelope into an unknown required event
+
+#### Scenario: A refused DSH snapshot keeps complete-prefix diagnostics
+- **WHEN** a UTF-8-valid DSH source exceeds 32 MiB and its complete bounded rows contain one unknown required event between two malformed JSON lines and one later unknown ignorable event, followed by a cap-cut row
+- **THEN** it returns `unsupported-format`, zero turns, `truncated: true`, `skipped_lines: 2`, `unrecognized_records: 2` and notices in truncation/malformed/unrecognized order, preserving its path/hint; the cap-cut row contributes no count or event
+
+#### Scenario: An unconfirmed partial event cannot refuse a readable snapshot
+- **WHEN** a readable DSH prefix ends in an incomplete unknown-event JSON append or a packed row cut by the source cap, and contains no complete semantic-refusal record
+- **THEN** its retained complete content remains readable, the fragment adds neither diagnostic, and only the cap-cut case sets truncation; completing an unknown required event on a later read then produces `unsupported-format`
+
+#### Scenario: Source failure outranks semantic refusal
+- **WHEN** a DSH source contains an unknown required event but an I/O failure or invalid UTF-8 prevents a usable bounded snapshot
+- **THEN** it returns `unreadable`, no turns and zero counts, keeps any safely confirmed path/hint and only already-established source-cap truncation/notice; it neither quotes partial content nor classifies the unknown event from an incomplete scan
+
 ### Requirement: Every kind obeys the same source and display caps
 
 A read SHALL retain at most **4,000,000 UTF-8 bytes** summed over emitted
@@ -682,7 +870,8 @@ it SHALL NOT skip that turn to include later smaller turns. Equality with
 the budget SHALL fit. Independently, reading a selected source SHALL consume
 at most **33,554,432 bytes (32 MiB)** plus at most one byte solely to detect
 whether more source remains, without first allocating the whole file. Only
-complete records within that source prefix SHALL be parsed. A boundary
+complete physical rows within that source prefix SHALL be parsed; a packed
+row SHALL not be partially decoded at that boundary. A boundary
 splitting UTF-8 or JSON because of the cap SHALL be truncation, not malformed
 source.
 
@@ -753,17 +942,21 @@ state the behavior; proposal S3 names the missing installed-format proof.
 The measured stream in `crates/brokkr-protocol/src/adapters.rs` grows by
 chunks before each assembled message, with multiple steps under one turn.
 Waiting for assembly would hide an interrupted step's only retained words.
-Expose readable chunks as source turns, then replace only that step's chunks
-on assembly. Inventing an assembled answer or conflating a provider turn
-with a step is rejected. Payload mapping is still a design measurement, as
-S3 states; chunk visibility and replacement are now requirements.
+Expose readable chunks as logical-event turns. R15 now refines the original
+step association using new persisted-source evidence: replace only explicitly
+cited chunks of that step, never all chunks merely because an assembly
+exists. Inventing an assembled answer or conflating a provider turn with a
+step is rejected. The packed mapping and citation rules below answer U2;
+any remaining provider mappings stay design evidence under S3.
 
 ### R3 / clarification 3 — Unknown content is a separate counted omission
 
 An unknown type is valid JSON, so it is not a malformed line. It is also not
-proof that nothing was recorded. Count unknown records (including partially
-supported ones) without quoting their payloads. Recognized metadata and
-intentional omissions remain quiet. Reject the previous bare-empty rendering
+proof that nothing was recorded. Count unknown physical rows (including
+partially supported ones) without quoting their payloads. R14 refines the
+original universal-success rule for DSH using new provider evidence: unsafe
+unknown events also refuse projection, while safe omissions stay readable.
+Recognized metadata and intentional omissions remain quiet. Reject the previous bare-empty rendering
 for an all-unknown file: it hides format drift. The diagnostic is local read
 metadata, never journal telemetry. This changes an unpublished proposed
 `brokkr.transcript/v1` shape; no published/frozen schema is edited.
@@ -933,3 +1126,54 @@ Proposed 0055 must carry the per-kind languages, unchanged recording limit
 and refusal/prefix outcomes, with shared-reader and cross-surface tests as
 its enforcement binding. It proposes no change to decision 0030's launch or
 sandbox law and needs no sibling-worktree changes.
+
+### R14 / design return U1 — Required DSH unknowns refuse projection
+
+Adopt U1. The tagged DSH SessionEvent contract cited in proposal S9 makes
+only an explicit true marker evidence that an unknown event can be dropped.
+A counted but plausible partial conversation would not establish that its
+associations survived that event. The unsupported-format refusal preserves
+R3's JSON-vs-malformed distinction and local diagnostics; it changes only
+the unsupported DSH semantic cases, with the returned evidence as its reason.
+Unknown nested content within a recognized event still follows R3.
+
+Reject a generic `unreadable` for semantic refusal: successfully read bytes
+and an unsupported interpretation are different facts. Reject returning any
+turns, including an early selected turn, after required-unknown refusal.
+Whole-prefix counts and source-only truncation remain reproducible without
+claiming a valid display projection. An unusable I/O/UTF-8 snapshot instead
+has no complete-prefix classification and retains no partial counts. These
+choices are pinned by the marker, collision and refusal scenarios, not left
+to renderer order. No additional public fields or frozen schema changes are
+needed; the command delta closes the new reason token before publication.
+Proposed 0055 must bind these rules to shared refusal-state/diagnostic tests,
+CLI whole/selected errors and TUI stale-content clearing.
+
+### R15 / design return U2 — Decode physical storage before applying citations
+
+Adopt U2 with the tagged writer/codec/type evidence in proposal S9. A packed
+row preserves several logical events; its byte budget, diagnostic unit and
+projection unit must not be conflated. Preserve every readable fragment and
+its reconstructed timestamp. Reject concatenating a row, treating it as an
+ordinary unknown event, skipping a structurally invalid packed run, or
+expanding a citation range into attacker-sized synthetic history. Full-row
+validation can coexist with incremental member projection; resource use is
+bounded by retained bytes/members and observed identities.
+
+Refine R2: the recorded turn/step pair scopes a citation but cannot create
+one. SourceEventSeqs supplies the positive evidence; absent/empty/partial
+lists cannot silently erase uncited fragments. The inclusive range syntax
+comes from the persistence writer; treating valid entries as set membership
+and refusing malformed citation encodings are explicit reader policy. They
+are not unmeasured assertions about the provider's full replay validator.
+Identity ambiguity preserves content instead of guessing. Surface replacement
+and request reconstruction stay outside an audit transcript; only the proved
+chunk/tool echo relationships are suppressed.
+
+The packed/unpacked, row-boundary, malformed encoding, range/scope,
+interrupted-assembly and display-budget scenarios cover U2's owning outcomes.
+Proposed 0055 must record the physical-row diagnostic and source-cap unit,
+logical-event turn/display unit, exact timestamps, citation admission and
+bounded matching, and audit-order rule. Bind them to synthetic packed/plain
+projection equivalence, refusal/count tests and CLI/TUI selection/refresh
+conformance. Accepted decisions and provider originals remain unchanged.
