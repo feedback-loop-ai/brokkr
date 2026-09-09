@@ -96,7 +96,12 @@ implementation and review.
   is the presentation's own discovery-shaped state, so a refused transcript
   body — the route reports read and lookup failures with one envelope —
   silences its source until the next re-check instead of driving a request
-  loop. Codex/DSH browser transcript bodies remain outside scope.
+  loop. Every id-only request and growth watch additionally requires an
+  eligible drill, so an admitted Codex, DSH or foreign-home source is
+  displayed and re-checked without ever being drilled, and a successful
+  body — including a readable zero-turn one — ends the deferred repair, so
+  an admitted empty source is fetched once rather than once per re-check.
+  Codex/DSH browser transcript bodies remain outside scope.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly

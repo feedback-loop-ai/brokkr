@@ -162,6 +162,15 @@ session label or drill. Changing participant/reference eligibility SHALL
 clear a stale transcript and close its growth watch before another result
 is displayed.
 
+That gate is the drill's eligibility, and it is a property of the reference
+alone: a drill is eligible when the effective reference is a valid
+`claude-session` one whose canonical home is established to be the same as
+that local projects home, whatever the shared presentation's admission state.
+Every id-only body request, growth watch and `· session <id>` label below
+SHALL require an eligible drill as well as an admitted source. A Codex or DSH
+reference, and a Claude reference whose home equality cannot be established,
+are never eligible, however discoverable and readable their recorded file is.
+
 Stale browser prose SHALL also be invalidated when an admitted drill's
 admission is lost without any participant, reference or journal change.
 When a growth watch closes or errors, or an id-only body request is refused,
@@ -177,11 +186,11 @@ or cached. Recovery SHALL be an ordinary fresh presentation and body request
 once shared lookup admits a source again, never a restored cached body.
 
 If that fresh result still admits a unique safe source for the same
-participant and reference, and the refusal floor below does not silence that
-source, the page SHALL display the current turns from an ordinary body
-request and, while that participant is still working, SHALL open one new
-growth watch on the admitted source; a concluded participant SHALL open none,
-as today. That opening is an admission granted by the fresh shared result,
+participant and reference, the drill is still eligible, and the refusal floor
+below does not silence that source, the page SHALL display the current turns
+from an ordinary body request and, while that participant is still working,
+SHALL open one new growth watch on the admitted source; a concluded
+participant SHALL open none, as today. That opening is an admission granted by the fresh shared result,
 never a continuation of the closed stream, so a transport drop or a local
 server restart SHALL NOT silently end growth for a working seat.
 
@@ -193,8 +202,17 @@ unavailability reason is one of the reference and lookup tokens
 `unsafe-path`. A read-level outcome — `unreadable`, `unsupported-format` or a
 readable zero-turn source — belongs to the body: it SHALL NOT appear as this
 presentation's unavailability reason and SHALL NOT change its admission
-state, because the presentation reads no transcript source. An id-only body
-request is refused when it does not deliver a successful transcript body:
+state, because the presentation reads no transcript source. Admission is
+therefore kind-agnostic and cannot report the browser's own two gates: the
+equivalence tuple's `admission state` member carries this shared state alone,
+and its `drill eligibility` member carries the `claude-session` kind and the
+established home equality above, so a change in either repaints. An admitted
+source whose drill is ineligible SHALL keep its shared full-session
+information, hint and checkpoint fallback and SHALL drive no id-only request
+and no growth watch on any occasion, including a recurring re-check, so a
+discoverable Codex or DSH source is never drilled by a Claude-id lookup and
+never shows the body-failure prose. An id-only body request is refused when
+it does not deliver a successful transcript body:
 either specified 404 envelope, any other non-success status, a transport
 failure with no status, or a body the page cannot parse. Because those two
 404 envelopes are deliberately indistinguishable, the page SHALL NOT name a
@@ -245,15 +263,27 @@ drill eligibility all match. A re-check equivalent to the presentation
 currently displayed SHALL repaint no displayed turns and change nothing else
 it displays. Its only actions are the two deferred repairs, which mend a
 missing body or watch rather than a changed result: it SHALL perform one body
-request when the source is admitted and no turns are displayed for it, and it
-SHALL open one growth watch, within the bound above, when the participant is
-working, its source is admitted and no watch is open, so a deferred reopening
-resumes at the next re-check. A re-check that finds both missing SHALL make
-that body request first and open the watch only if it succeeded. A re-check
-that turns an unavailable presentation into an admitted one SHALL perform an
-ordinary fresh body request and, if it succeeds, open one growth watch for a
-working participant within that same bound; a re-check that loses admission
-SHALL apply the clearing rule above.
+request when the drill is eligible, the source is admitted and its body is
+missing, and it SHALL open one growth watch, within the bound above, when the
+participant is working, its drill is eligible, its source is admitted and no
+watch is open, so a deferred reopening resumes at the next re-check. A body is
+missing for a participant and reference when no body request for it has
+succeeded since the page last discarded its turns for them, and none is
+outstanding. A successful body mends it, including a readable zero-turn one —
+which the id-only route answers with HTTP 200 and an empty `turns` array — so
+the page SHALL display that success as it displays any other, with no turns,
+no unavailability reason and none of the body-failure prose, and no later
+equivalent re-check SHALL request that body again. Only a clear or a refusal
+makes that body missing once more: a refused request leaves it missing and is
+silenced by the floor above until the next re-check, so a permanently
+unreadable admitted source costs one request per interval while an admitted
+readable empty one costs a single request. A re-check that finds both missing
+SHALL make that body request first and open the watch only if it succeeded. A
+re-check that turns an unavailable presentation into an admitted one, or an
+ineligible drill into an eligible one, SHALL perform an ordinary fresh body
+request and, if it succeeds, open one growth watch for a working participant
+within that same bound; a re-check that loses admission SHALL apply the
+clearing rule above.
 
 The browser's selected-participant presentation result SHALL remain local
 and separate from existing inspect/seats/watch JSON and the three-field
@@ -303,6 +333,16 @@ rules in JavaScript is not.
 #### Scenario: A recorded custom Claude home cannot drill an ambient twin
 - **WHEN** a valid Claude participant records a readable file under `/retained/claude-projects` and the browser's different local projects home contains an unrelated file with the same id
 - **THEN** CLI/TUI read the recorded file, while the browser shows the same shared Claude hint and `browser transcript unavailable for this recorded home` with its checkpoint fallback; it offers no session drill and reads neither ambient twin nor a guessed browser route
+
+#### Scenario: An admitted Codex source drives no browser drill
+- **WHEN** a working participant's common `codex-thread` reference names one discoverable safe rollout under its recorded home, so the shared presentation admits that source with a null unavailability reason, and the operator leaves it selected across consecutive recurring re-checks
+- **THEN** the page shows its shared Codex full-session information and checkpoint fallback with no session label, and makes no id-only body request and opens no growth watch on selection or on any of those re-checks, because an admitted source without an eligible drill repairs nothing; it never requests `/api/session/<thread-id>` with that recorded thread id and never shows the body-failure prose
+- **AND** a working DSH participant with a discoverable session file, and a valid Claude participant whose recorded home is not the browser's local projects home, behave the same way, the latter keeping `browser transcript unavailable for this recorded home` while its own presentation state drives no body request or watch
+
+#### Scenario: An admitted empty body is fetched once, not once per re-check
+- **WHEN** an eligible Claude drill's admitted unique safe file is readable but projects no turns, so `/api/session/<id>` returns HTTP 200 with `session_id`, an empty `turns` array and `truncated: false`, and the participant's run then concludes so its journal head never moves again
+- **THEN** the page displays that successful empty body with no turns, no unavailability reason and none of the body-failure prose, and each later equivalent re-check performs no further body request and opens no growth watch, because the success mended the missing body and a concluded participant watches nothing
+- **AND** a further body request follows only a clear or a refusal — a participant, reference, eligibility or admission change, a watch closure, or a refused request — so an admitted readable empty source costs one body request rather than one per re-check interval
 
 ### Requirement: Discovery identifies one owned local file
 
@@ -1668,3 +1708,60 @@ re-check-first trace ungoverned, which is exactly the case R19 introduced.
 The bound now has one number — one automatic opening per participant per
 re-check interval — and its scenario pins the re-check-first trace beside the
 closure-first one. Proposed 0055 must carry the single counting rule.
+
+### R22 / ninth-pass clarification 1 — Admission alone never drills
+
+R20 defined admission in the shared reader's kind-agnostic vocabulary, whose
+ten reference and lookup tokens cannot express the browser's own two gates:
+the `claude-session` kind and the established home equality. The recovery
+branch and both deferred repairs then keyed on admission alone, so their
+literal reading drilled the very participants this requirement excludes — a
+Codex or DSH seat with a discoverable retained file, which is #222's own
+case, and a valid Claude seat whose recorded home is not the browser's. The
+outcome was visible, not merely wasteful: `/api/session/<codex-thread-id>` is
+a Claude-only lookup, its 404 would trip the refusal floor, and the page
+would show body-failure prose for a seat this requirement says must show its
+shared full-session information — one refused request per re-check, forever.
+
+Name the gate and require it beside admission. Drill eligibility is a
+property of the reference alone, so an ineligible drill's admitted source
+repairs nothing: no id-only request, no watch, on selection or on any
+re-check. Reading the "only for" gate as an implicit total constraint was
+rejected: it was the reading the amendment removed, and an unstated
+constraint cannot govern three explicit action rules. Widening admission to
+carry the kind and home gates was also rejected, because the presentation is
+the shared derivation's own result for every kind and CLI/TUI consume it
+unchanged; the browser's gates are client policy, which is why the
+equivalence tuple lists `drill eligibility` beside `admission state`. That
+tuple's two members are now defined: the shared state alone, and the client
+gate. Proposed 0055 must carry the eligibility gate on both repairs and the
+recovery branch, bound to a client proof that a selected working Codex
+participant with a discoverable rollout issues no body request and opens no
+watch across consecutive re-checks.
+
+### R23 / ninth-pass clarification 2 — A successful body is never missing
+
+The deferred body repair's gloss and its predicate disagreed for a source
+this change deliberately keeps readable with no turns: "mend a missing body"
+against "no turns are displayed for it". A readable zero-turn source stays
+admitted under R20 and the id-only route answers it with HTTP 200 and an
+empty `turns` array, reachable without an empty file from a source of only
+unrecognized records. Under the predicate a concluded seat with such a source
+would re-request its body at the re-check cadence forever, unbounded: the
+refusal floor cannot reach it, because that request follows a success.
+
+Adopt the gloss and state its predicate. A body is missing when no request
+for it has succeeded since the page last discarded its turns and none is
+outstanding; a successful body — including a zero-turn one — mends it, and
+only a clear or a refusal makes it missing again. The "outstanding" clause
+keeps a growth repaint's own in-flight request from reading as a missing
+body at a re-check that overlaps it. Repeated fetching of an admitted empty
+source was rejected: it buys nothing the growth watch does not already
+deliver for a working seat, and it costs a request per interval for every
+concluded seat whose transcript is empty or unrecognized. Showing the
+body-failure prose for that success was rejected too: the request succeeded,
+this change gives failures a deliberately unnameable reason, and the page
+would then claim a failure it did not observe. The tasks office's client
+proof therefore has one number for an admitted readable empty source: one
+body request, not one per re-check. Proposed 0055 must carry the missing-body
+definition and this single-fetch outcome.
