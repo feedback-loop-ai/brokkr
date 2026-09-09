@@ -526,7 +526,10 @@ digests answer for two different objects.
 
 Absent both properties a v5 map reads exactly as a v4 map, and every earlier
 map keeps loading unchanged, so a world that never drew a crossing notices
-nothing. The vocabulary is closed inside the new entries as it is at every
+nothing. Absent is the property being left out, and only that: both lists are
+typed `array` here, so a written `null` is refused by this file and refused by
+the loader too, rather than read as though the word had never been written.
+The vocabulary is closed inside the new entries as it is at every
 level above them: an unknown field there is refused, so a content type, a
 compatibility relation or any fetch configuration would have to arrive as
 `forge.realms/v6`. `brokkr-core` performs no I/O (decision 0003), so the

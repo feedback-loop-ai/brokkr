@@ -46,7 +46,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -256,6 +256,65 @@ pub struct ConsumedCrossing {
     pub sha256: String,
 }
 
+/// A crossing list as the map WROTE it: never named, named as `null`, or
+/// named as an array.
+///
+/// Serde reads a missing property and an explicit `null` alike into
+/// `None`, which would make "this realm never said the word" and "this
+/// realm said the word and named nothing" the same fact. They are not
+/// the same fact. The first is every realm that ever loaded; the second
+/// is a map saying something no version of the contract admits — v1
+/// through v4 have no such property at all, and `realms.v5` types both
+/// lists `array`. Held apart here, so the version gate sees a written
+/// `null` as written (decision 0054 ruling 3.5) and the map cannot be
+/// accepted where its own contract file would refuse it (ruling 3.7).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum CrossingList<T> {
+    /// The property was not written: a realm that drew no crossing,
+    /// which is what every realm did before the word existed.
+    #[default]
+    Absent,
+    /// The property was written as `null`, which is neither a list nor an
+    /// absence. Carried this far only so the refusal can name it.
+    Null,
+    /// The property was written as an array, read back exactly as given.
+    List(Vec<T>),
+}
+
+impl<T> CrossingList<T> {
+    /// Whether the map wrote the word at all. A written `null` counts,
+    /// which is the whole point: the version gate judges presence.
+    pub fn is_written(&self) -> bool {
+        !matches!(self, Self::Absent)
+    }
+
+    /// Whether the map wrote the word as `null`.
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+
+    /// The crossings written, or none at all — the one place absence is
+    /// read, so every reader spells "no crossings" the same way.
+    pub fn entries(&self) -> &[T] {
+        match self {
+            Self::List(entries) => entries,
+            Self::Absent | Self::Null => &[],
+        }
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for CrossingList<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Reached only when the property IS written; `serde(default)`
+        // answers for the absent case, and is the only way to reach
+        // `Absent` at all.
+        Ok(match Option::<Vec<T>>::deserialize(deserializer)? {
+            Some(entries) => Self::List(entries),
+            None => Self::Null,
+        })
+    }
+}
+
 /// One repository in the world.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -291,12 +350,12 @@ pub struct Realm {
     /// one. Absent means this realm publishes nothing, which is what
     /// every realm did before the word existed.
     #[serde(default)]
-    pub publishes: Option<Vec<PublishedCrossing>>,
+    pub publishes: CrossingList<PublishedCrossing>,
     /// The crossings this realm consumes, each pinned by digest —
     /// `forge.realms/v5` vocabulary (decision 0054 ruling 2), absent in
     /// every older map and refused in one.
     #[serde(default)]
-    pub consumes: Option<Vec<ConsumedCrossing>>,
+    pub consumes: CrossingList<ConsumedCrossing>,
 }
 
 impl Realm {
@@ -312,12 +371,12 @@ impl Realm {
     /// The one place that absence is read, so every reader spells "this
     /// realm publishes nothing" the same way.
     pub fn published(&self) -> &[PublishedCrossing] {
-        self.publishes.as_deref().unwrap_or_default()
+        self.publishes.entries()
     }
 
     /// The crossings this realm consumes: its own list, or none at all.
     pub fn consumed(&self) -> &[ConsumedCrossing] {
-        self.consumes.as_deref().unwrap_or_default()
+        self.consumes.entries()
     }
 }
 
@@ -499,16 +558,36 @@ impl RealmMap {
             // The two v5 lists, held to their version exactly as every
             // word before them is held to its own (decision 0054 ruling
             // 3). Presence is what is judged: a realm that draws no
-            // crossing is a realm as it was before the word existed.
-            for (field, present) in [
-                ("publishes", realm.publishes.is_some()),
-                ("consumes", realm.consumes.is_some()),
+            // crossing is a realm as it was before the word existed —
+            // and a realm that WROTE the word as `null` wrote it, which
+            // is why [`CrossingList`] keeps the two apart. A written
+            // `null` is refused on its own terms after the version gate
+            // has had its say, because under an older label the deeper
+            // fault is the word itself.
+            for (field, written, null) in [
+                (
+                    "publishes",
+                    realm.publishes.is_written(),
+                    realm.publishes.is_null(),
+                ),
+                (
+                    "consumes",
+                    realm.consumes.is_written(),
+                    realm.consumes.is_null(),
+                ),
             ] {
-                if present && older_than(&map.schema, SCHEMA_V5) {
+                if written && older_than(&map.schema, SCHEMA_V5) {
                     return Err(invalid(format!(
                         "realm '{}' names what it {field}, which is {SCHEMA_V5} vocabulary in a \
                          map calling itself {}",
                         realm.name, map.schema
+                    )));
+                }
+                if null {
+                    return Err(invalid(format!(
+                        "realm '{}' writes {field} as null; a crossing list is an array, and a \
+                         realm that draws no crossing leaves the word out",
+                        realm.name
                     )));
                 }
             }

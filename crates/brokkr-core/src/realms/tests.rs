@@ -37,8 +37,8 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 house: None,
                 dialect: None,
                 boundary: None,
-                publishes: None,
-                consumes: None,
+                publishes: CrossingList::Absent,
+                consumes: CrossingList::Absent,
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -539,8 +539,10 @@ fn a_v5_map_without_crossings_reads_exactly_as_a_v4_map() {
     assert_eq!(v5.realms[0].boundary(), Boundary::Harness);
     assert_eq!(v5.realms[0].house.as_deref(), Some("HOUSE.md"));
     assert_eq!(v5.realms[0].dialect.as_deref(), Some("openspec"));
-    assert_eq!(v5.realms[0].publishes, None);
-    assert_eq!(v5.realms[0].consumes, None);
+    assert_eq!(v5.realms[0].publishes, CrossingList::Absent);
+    assert_eq!(v5.realms[0].consumes, CrossingList::Absent);
+    assert!(!v5.realms[0].publishes.is_written());
+    assert!(!v5.realms[0].consumes.is_written());
     assert!(v5.realms[0].published().is_empty());
     assert!(v5.realms[0].consumed().is_empty());
 }
@@ -548,28 +550,78 @@ fn a_v5_map_without_crossings_reads_exactly_as_a_v4_map() {
 /// Ruling 3, the version gate: the two words are refused under every
 /// label that predates them, the way a v2 `journal` is refused in a v1
 /// map — and the refusal names the version that would admit them.
+///
+/// Judged for every way the word can be WRITTEN, an empty array and a
+/// `null` included: the gate answers for presence, not for content, so
+/// a map cannot slip v5 vocabulary under a v4 label by naming nothing
+/// with it.
 #[test]
 fn the_crossing_lists_are_v5_vocabulary_and_older_labels_refuse_them() {
     for label in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
         for field in ["publishes", "consumes"] {
-            let refusal = with(|map| {
-                map["schema"] = json!(label);
-                map["realms"][0][field] = match field {
-                    "publishes" => json!([{"name": "orders.api", "path": "orders.json"}]),
-                    _ => json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]),
-                };
-            });
-            assert!(
-                refusal.contains(&format!("realm 'brokkr' names what it {field}")),
-                "{label}/{field}: {refusal}"
-            );
-            assert!(refusal.contains(SCHEMA_V5), "{label}/{field}: {refusal}");
-            assert!(
-                refusal.contains(&format!("calling itself {label}")),
-                "{label}/{field}: {refusal}"
-            );
+            let written = |value: Value| {
+                with(|map| {
+                    map["schema"] = json!(label);
+                    map["realms"][0][field] = value.clone();
+                })
+            };
+            let entry = match field {
+                "publishes" => json!([{"name": "orders.api", "path": "orders.json"}]),
+                _ => json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]),
+            };
+            for value in [entry, json!([]), json!(null)] {
+                let refusal = written(value.clone());
+                assert!(
+                    refusal.contains(&format!("realm 'brokkr' names what it {field}")),
+                    "{label}/{field}={value}: {refusal}"
+                );
+                assert!(
+                    refusal.contains(SCHEMA_V5),
+                    "{label}/{field}={value}: {refusal}"
+                );
+                assert!(
+                    refusal.contains(&format!("calling itself {label}")),
+                    "{label}/{field}={value}: {refusal}"
+                );
+            }
         }
     }
+}
+
+/// Ruling 3, refusal 7: `null` is not an absence. `realms.v5` types both
+/// lists `array`, so a map writing `"publishes": null` is a map its own
+/// contract file refuses — and core refuses it too, rather than reading
+/// the word as though it had never been written and accepting a map no
+/// validator would.
+#[test]
+fn a_crossing_list_written_as_null_is_refused_rather_than_read_as_absent() {
+    for field in ["publishes", "consumes"] {
+        let refusal = crossing_refusal(|map| map["realms"][1][field] = json!(null));
+        assert!(
+            refusal.contains(&format!("realm 'beta' writes {field} as null")),
+            "{field}: {refusal}"
+        );
+        assert!(
+            refusal.contains("a crossing list is an array"),
+            "{field}: {refusal}"
+        );
+        assert!(
+            refusal.contains("leaves the word out"),
+            "{field}: {refusal}"
+        );
+    }
+    // Told apart from absence where it is read, and not by the accessor:
+    // a written null names no crossing, exactly as an absent word names
+    // none, and only presence separates them.
+    let null: CrossingList<PublishedCrossing> = serde_json::from_value(json!(null)).unwrap();
+    assert_eq!(null, CrossingList::Null);
+    assert!(null.is_written() && null.is_null() && null.entries().is_empty());
+    let absent = CrossingList::<ConsumedCrossing>::default();
+    assert_eq!(absent, CrossingList::Absent);
+    assert!(!absent.is_written() && !absent.is_null() && absent.entries().is_empty());
+    let empty: CrossingList<PublishedCrossing> = serde_json::from_value(json!([])).unwrap();
+    assert!(empty.is_written() && !empty.is_null() && empty.entries().is_empty());
+    assert!(format!("{null:?}").contains("Null"));
 }
 
 /// Ruling 1: a published crossing is a name in the realm-name grammar

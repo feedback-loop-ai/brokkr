@@ -1,4 +1,5 @@
 use super::*;
+use brokkr_core::realms::CrossingList;
 
 const MAP: &str = r#"{
   "schema": "forge.realms/v1",
@@ -394,8 +395,8 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
         house: known.house.clone(),
         dialect: known.dialect.clone(),
         boundary: None,
-        publishes: None,
-        consumes: None,
+        publishes: CrossingList::Absent,
+        consumes: CrossingList::Absent,
     };
     assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();

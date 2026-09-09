@@ -103,6 +103,18 @@ mechanism is named for what it does.
       whenever its own tree does, recording a dependency on itself as
       though it were a contract. The publishing realm's own use of its
       own file needs no vocabulary at all.
+   7. **either word is written as `null`.** A written `null` is not an
+      absence: `realms.v5` types both lists `array`, and v1 through v4
+      have no such property at all, so `"publishes": null` is a map that
+      its own contract file refuses at every version. It is refused here
+      too, by name — and, being written, it is judged by the version gate
+      first, so a v4 map cannot slip v5 vocabulary past that gate by
+      naming nothing with it. This is a rule about the reader as much as
+      the map: the obvious Rust shape reads a missing property and a
+      written `null` into the same `None`, which would have let a map be
+      accepted that no validator would accept, so the two states are held
+      apart in the type and the third state — a realm that never said the
+      word — stays the only absence there is.
 
    A published crossing is also held to its own shape — a name in the
    realm-name grammar, a non-empty repository-relative path — because a
