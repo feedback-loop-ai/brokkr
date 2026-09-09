@@ -1,20 +1,27 @@
 ## Context
 
-Adopt **read-every-transcript-kind** at `117628b`, issue #222, on shipped
+Adopt **read-every-transcript-kind** at `73797a6`, issue #222, on shipped
 main `5bc8cf305aaef9af269866cbf83f094939691399`. See
 [proposal.md](proposal.md) for motivation and the three capability deltas for
 requirements. This sitting belongs to run
-`close-issue-222-a-transcript-rea-df38565b`. Its supplied clarification result
-is `clear`; no new `returned_from` finding accompanies this sitting.
+`close-issue-222-a-transcript-rea-92d45f62`. Its supplied clarification result
+is `clear`; no new `returned_from` finding accompanies this sitting. The
+operator nevertheless names the immediately preceding clarification's two
+browser findings as settled input: R22 requires drill eligibility beside
+admission on every browser action, and R23 treats a successful zero-turn body
+as received rather than perpetually missing.
 
 The historical design at `6ece1ea` returned U1/U2 to specification. Those
 findings are now **answered**, not outstanding: reading R14/R15, command
 C6/C7 and TUI T5/T6 govern required unknown DSH events, packed rows and
 citations. R16/C8/T7 additionally settle opening-header version admission.
 S10 preserves citation-set membership despite the provider replay decoder's
-stricter ordering. This revision incorporates those answers throughout.
-All earlier reference, compatibility, fallback, diagnostic and browser
-answers remain in force. No requirement or scenario is removed.
+stricter ordering. R17-R21 settle browser invalidation, recovery, recurrence,
+admission and watch budgeting; checkpoint `73797a6` adds R22/R23's missing
+eligibility and successful-empty-body predicates. This revision incorporates
+all of those answers throughout. All earlier reference, compatibility,
+fallback and diagnostic answers remain in force. No requirement or scenario
+is removed.
 
 The existing code has the needed surface seams but the wrong transcript
 boundary. `ui.rs:167-316` owns Claude `Block`, `Turn`, discovery and parsing;
@@ -32,8 +39,8 @@ judgments. The registry ends at 0053 in this worktree. The controller's
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (413 lines) and
-`.forge/design/positions/simplicity.md` (259 lines), each against `117628b`.
+`.forge/design/positions/robustness.md` (456 lines) and
+`.forge/design/positions/simplicity.md` (326 lines), each against `73797a6`.
 They are run-local evidence, not artifacts to commit. D1 reconciles their
 current claims; the earlier sitting's rejected scope cuts remain recorded
 in proposal S9 and git history.
@@ -114,7 +121,12 @@ unchanged. No new provider dependency is needed.
 | Both: response preference plus content-bearing Codex completed events. | **Adopt historical D9.** Persistence policy stores completed items; calling them all lifecycle metadata would recreate unreadability. The existing R1 preference applies only to proved counterparts. |
 | Both: unknown Codex association preserves content, not guessed suppression. | **Adopt with an explicit evidence limit.** D5 pins the measured id relationships and declines unproved legacy suppression. This does not claim universal duplicate-free legacy support. |
 | Robustness: DSH ownership, then version admission, then event/storage classification. | **Adopt R14-R16 completely.** The current requirements already answer U1/U2; returning those same findings would be stale. |
-| Simplicity: five grouped decision rulings instead of copying 168 scenarios. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
+| Simplicity: five grouped decision rulings instead of copying 175 scenarios. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
+| Robustness: separate selected-reference, presentation and body result types. | **Combine the invariant with simplicity's smaller public surface.** Keep one public `TranscriptRead`; use a CLI-private, prose-free browser presentation payload whose constructor accepts only selection, validation and discovery facts. This makes a body or read-level reason unavailable at the transport boundary without adding a second public view-crate result. |
+| Robustness: model browser recovery as explicit states; simplicity: keep five private facts rather than a public state framework. | **Combine.** D9 defines the transition machine and its invariants, while implementation stores the key, generation, body-success/refusal state, exact watch handle and re-check budget as private client fields. Behavior is explicit and executable without a new crate, public taxonomy or generalized browser transport. |
+| Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
+| Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
+| Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
 | Both: author and file 0055 in this council commit. | **Adopt authorship; decline out-of-scope filing in this commit.** The rendered dialect names only `design.md`, and the office must commit exactly its artifacts. D10 supplies the full chief-authored decision and registry row for mechanical filing before any semantic production edit. This preserves the commission's proposed-decision prerequisite without adding an undeclared artifact to this phase. |
 
 The last distinction concerns artifact placement, not an unanswered behavior
@@ -143,8 +155,13 @@ facts, classify rows, associate content, cap turns and construct hints and
 notices. They access neither environment nor filesystem. `lib.rs` supplies
 read-only journal/world/participant facts; `ui.rs` supplies legacy-home,
 discovery and byte-snapshot facts. `render.rs`, `tui.rs` and `ui.html` paint
-those facts. Browser presentation serializes a narrow projection of the same
-result. `RunView` gains neither bodies nor local presentation fields.
+those facts. Browser presentation is a CLI-private transport struct built by
+the same pure selection, validation, discovery and hint helpers, but its
+constructor is not given body bytes, turns, blocks or read-level reasons. It
+serializes only the narrow fields in D9. This compile-time separation adopts
+the robustness invariant without promoting a second result into
+`brokkr-view`'s public model. `RunView` gains neither bodies nor local
+presentation fields.
 
 Private candidates need only physical row/member position, optional
 association keys, block positions and the projected turn. Suppression may
@@ -536,15 +553,21 @@ result opens its explanation; an unavailable result has no active door.
 
 Add one GET participant-presentation endpoint in existing `ui.rs`, keyed by
 full run id and an encoded participant-key component. `ui.html` uses
-`encodeURIComponent`; the server decodes once, validates selectors and
-resolves the exact participant in its read-only journal. It accepts no
-provider path or home override. Keep the existing loopback/Host/method guard.
+`encodeURIComponent`; the server decodes each component exactly once,
+rejects malformed or extra components, and resolves the exact participant in
+its read-only journal. It accepts no provider path or home override. Keep the
+existing loopback, Host and method guard.
 
-Serialize only selected reference, legacy/admission facts, unavailable
-reason/explanation, shared hint, and eligible Claude drill id/home-equality
-facts. If constructing that result required a content read for a semantic
-refusal, discard all body data at this transport boundary. Do not widen
-`RunView` or the three-field Claude body response. Render with `textContent`.
+Use a CLI-private presentation payload with selected reference, legacy,
+admission, lookup unavailability reason/explanation, shared hint, and eligible
+Claude drill id/home-equality facts. Construct it from reference
+selection/validation and bounded safe discovery only; it receives no selected
+body snapshot and never runs a content projector. DSH's bounded opening-header
+ownership check remains part of discovery and exposes no event prose. A
+read-level `unreadable`, `unsupported-format` or readable-empty outcome is
+therefore available only from the body route and cannot become the
+presentation reason. Do not widen `RunView` or the three-field Claude body
+response. Render every string with `textContent`.
 
 A drill is offered only for an already admitted Claude reference whose
 canonical home equals the server's local projects home. On unproved/different
@@ -552,15 +575,69 @@ home, use the specified home explanation and checkpoint fallback. Codex/DSH
 keep their shared hints and fallback without a Claude body request. A stale
 flat id cannot override any common reference or explicit non-Claude legacy
 provenance. The client Claude guard moves with the Rust leading-hex rule.
+Admission is the kind-agnostic selection/validation/discovery state;
+`drill_eligible` is the independent Claude-kind plus canonical-home-equality
+gate. Every `· session <id>` label, id-only body request and growth watch
+requires both. An admitted Codex, DSH or foreign-home Claude presentation
+therefore remains displayable and recurrently rechecked but creates zero
+Claude body requests and zero watches.
+
+Treat the page as a small private transition machine, implemented with
+ordinary client fields rather than a public framework:
+
+- the active key is full run id, participant key and complete effective
+  reference, never session id alone;
+- a monotonic generation guards every presentation/body response and every
+  watch callback;
+- body state distinguishes missing, pending, succeeded (including an empty
+  `turns` array) and refused in the current re-check interval;
+- the exact active `EventSource` handle is owned separately; and
+- a re-check epoch carries the one-automatic-watch-opening budget.
+
+Changing the active key, admission or drill eligibility bumps the generation,
+closes the exact old watch and clears its body/prose before painting the new
+presentation. A callback may mutate display or cache only when its key,
+generation and owned handle are still current; an old callback cannot close a
+new watch. Presentation and body HTTP responses use
+`Cache-Control: no-store`, and the corresponding fetches request equivalent
+freshness, so clearing client state cannot restore an HTTP-cached body.
 
 Keep the journal-independent `/api/session/<id>` and `/sse/session/<id>`
 selectors. Use shared safe discovery and projection, unchanged successful
-body/size-event shapes, and the exact specified 404 envelopes. Every SSE
-poll rechecks unique safe discovery; lost admission closes the stream before
-further old sizes are sent. The page clears cached body/watch and fetches
-fresh presentation on closure; it cannot blindly reconnect stale prose.
-Cancel or generation-guard outstanding requests on participant/reference
-changes. No general browser transcript transport is introduced.
+body/size-event shapes, and the exact specified 404 envelopes. Every SSE poll
+rechecks unique safe discovery; lost admission closes the stream before
+further old sizes are sent. The page closes the exact `EventSource` before
+handling its error and never delegates reconnection to the browser.
+
+On closure or body refusal, clear body/prose, bump the generation and request
+fresh presentation. If that result is not admitted or not drill-eligible,
+render its shared refusal/hint/fallback and do no body or watch work. If it
+still admits the same eligible drill and the refusal floor does not silence
+it, fetch one ordinary body, paint it on success, and open a watch only when
+the participant is working and that interval's opening remains. A refused
+body—either 404 envelope, another non-success status, transport failure or
+unparseable response—keeps the existing unqualified body-failure prose,
+because the envelopes do not identify a reason, and silences body/watch work
+for that key until the next recurring re-check.
+
+Run one recurring presentation timer tied to the active selection, at least as
+often as the existing runs poll, including for concluded participants.
+Re-rendering must not accumulate timers. Each tick starts one new interval and
+restores one automatic watch opening. An equivalent presentation—same
+reference, admission, reason, hint and drill eligibility—does not repaint. It
+may only repair a missing body and then, after body success, a missing watch
+for a working participant. A body is missing only when none has succeeded
+since turns were last discarded and none is outstanding. HTTP 200 marks it
+succeeded even when `turns` is empty; equivalent ticks do not fetch it again.
+A concluded participant continues presentation checks but never opens a
+watch. Every automatic opening, including one performed by the tick itself,
+spends the interval's single budget; a second immediate closure may refresh a
+body but leaves the watch closed until the next tick. Operator selection or a
+changed key/eligibility establishes new state rather than consuming the prior
+key's recovery budget.
+
+This design preserves the existing Claude routes without adding a Codex/DSH
+body route, durable cache, watcher service or general transcript transport.
 
 ### D10 — Chief-authored proposed decision 0055 and filing prerequisite
 
@@ -679,12 +756,32 @@ separate #226 work; hints execute nothing.
    hint. Path/home fragments use the reading delta's JSON-string-literal
    quoting. TUI, CLI and browser participant presentation consume the exact
    shared value; no other kind borrows a command and no display executes it.
-   Browser presentation stays separate from body/journal models, with shared
-   eligibility and home matching. Existing id-only Claude HTTP routes retain
-   successful envelopes and the specified 404/SSE-loss behavior.
+   Browser presentation stays separate from body/journal models and performs
+   selection, validation and discovery but no body projection. Its
+   kind-agnostic source admission and the browser's Claude-kind/local-home
+   drill eligibility remain distinct; every session label, id-only body
+   request and growth watch requires both, so Codex, DSH and foreign-home
+   sources never enter a Claude route. Active client work is keyed by run,
+   participant and complete effective reference and guarded by a generation.
+   Admission or eligibility loss closes the exact watch and clears prose
+   before repaint, and stale responses cannot restore it.
+
+   The selected participant receives a recurring presentation re-check at
+   least as often as the runs poll, including after conclusion. Each interval
+   permits at most one automatic watch opening, including one opened by the
+   re-check. A refused body silences further body/watch work until the next
+   interval; an equivalent result repairs only a missing body and then a
+   missing working-seat watch. A successful body, including HTTP 200 with zero
+   turns, is received until an explicit clear or refusal. Presentation/body
+   responses bypass HTTP caching. Existing id-only Claude HTTP routes retain
+   successful envelopes and the specified 404/SSE-loss behavior; Codex/DSH
+   body routes remain absent.
    **Enforcement binding:** CLI selector/text/JSON tests, shared-hint/notice
    conformance, headless TUI navigation and atomic-refresh tests, and existing
-   HTTP/browser endpoint/eligibility/watch regression suites.
+   HTTP endpoint tests plus executable client transition traces for
+   admission/eligibility loss, stale generations, admitted non-Claude and
+   foreign-home selections, zero-turn success, refusal floors, both watch
+   opening orders, recurring recovery and no-store refetch.
 
 5. **Reading retains private evidence and remains inert.** Only explicit
    local transcript reads expose requested prose; journal, checkpoints,
@@ -728,7 +825,7 @@ implementation proceeds.
 
 Use existing crate suites and synthetic test-owned homes. Do not copy a live
 operator session or edit the frozen evaluator corpus. Add table cases for
-every scenario, grouping related cases rather than creating 168 bespoke test
+every scenario, grouping related cases rather than creating 175 bespoke test
 functions. No parser-shaped mock in each renderer can replace cross-surface
 comparison of the same serialized `Turn` and metadata.
 
@@ -741,6 +838,7 @@ comparison of the same serialized `Turn` and metadata.
 | Local inert prose | D7/D9; journal hash/count and retained-file before/after assertions; readout/export/dossier sentinels and no-provider-launch assertions. |
 | Command run/seat selection; turn selection; JSON; text/errors | D3/D7; argument, world resolver, ambiguous-label, parent/leaf, all reason states and whole/selected stdout/stderr tests. |
 | TUI pane/doors; hints; notices; live refresh | D8; headless keys, scrolling and buffers, late appearance, pure append, assembly replacement, same-size rewrite, refusal/recovery, final/manual reads. |
+| Browser presentation, eligibility and recovery | D9; route-envelope tests plus executable client transitions over controlled presentation/body promises, EventSource open/error callbacks, recurring ticks, selection changes and out-of-order responses. |
 
 Provider tests must include event-only Codex, completed-item-only Codex,
 response/counterpart id pairs, id-less legacy records, repeated words and
@@ -752,6 +850,30 @@ empty/overlapping citations, required/ignorable events and unknown nested
 blocks. Browser tests preserve successful envelopes and verify exact refusal
 responses and stale-request/watch cancellation. Platform race tests replace
 ancestors and leaves, not just filenames before a preliminary metadata check.
+
+Browser proof is behavioral, not a set of `PAGE.contains` assertions. Drive
+the embedded client logic with controlled fetches, watches and timer ticks.
+Pin zero id-only requests and watches for admitted Codex/DSH/foreign-home
+presentations across re-checks; one total body request for a concluded
+successful zero-turn Claude body; one refused body request per interval for a
+persistently unreadable admitted Claude source; one automatic watch opening
+for both re-check-first and closure-first intervals; a second immediate
+closure repainting from a fresh body without opening another watch; admission
+loss with unchanged journal/reference clearing prose and rejecting an old
+response; recovery after admission returns; a no-store refetch; and identity
+or eligibility change resetting only the new key's state. Cross-surface tests
+compare the metadata subset only, and prove the presentation carries no turns,
+blocks or transcript prose.
+
+The inherited `tasks.md` predates R17-R23 and remains the next office's
+artifact. Its repair is mechanical from this design: task 10.2 must remove the
+instruction to read and discard body data; 10.3 must own admission/eligibility
+loss, generation clearing, one recurring timer, body-success state and the
+refusal/watch budgets; 10.4 must add the executable traces above; 2.6 must
+prove both retired Claude truncation suffixes absent; and 6.7's absent
+dedicated-partner case must keep its sole embedded block exactly once rather
+than claim two copies exist. None of these repairs changes a requirement or
+reopens a settled decision.
 
 Implementation owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
@@ -784,6 +906,10 @@ proof, PR/remote CI, publication, merging and issue closure.
   unavailable facts verbatim; no clickable execution or new command is added.
 - **[Decision filing is forgotten]** → D10 is a named pre-implementation task
   prerequisite, checked by analysis and the existing decision/index suite.
+- **[Browser recovery restores stale or wrong-provider prose]** → Keep
+  admission and drill eligibility separate, key state by full subject, guard
+  callbacks by generation, mark zero-turn success independently of array
+  length, bypass HTTP caching and prove the transition counts executably.
 
 ## Migration Plan
 
@@ -800,7 +926,13 @@ proof, PR/remote CI, publication, merging and issue closure.
    placement repair; this reader changes neither paths nor bytes. A rollback
    restores the earlier reader without altering retained evidence; Codex/DSH
    unreadability and the earlier Claude lookup behavior would return.
-4. Complete local checks, controller host proof and specification review
+4. Replace the browser participant drill atomically with the prose-free
+   presentation route and generation-guarded client state. Existing successful
+   Claude body/SSE envelopes remain compatible; the page begins recurring
+   presentation checks and disables native EventSource reconnection only after
+   the new transition tests pass. Rollback restores the old browser client and
+   routes together so neither side observes half of the recovery protocol.
+5. Complete local checks, controller host proof and specification review
    before delivery. Controller resolves shared-file overlap with #226;
    this work does not modify or import that sibling's worktree. Remote CI,
    publication, PR/merge and issue closure remain handoff actions.
@@ -820,24 +952,27 @@ be disguised as downstream success.
 
 Read the dialect manifest, design and return instructions and rendered
 `openspec instructions design --change read-every-transcript-kind --json`.
-It declares `design.md`; no workflow runner was invoked. Proposal and all
-three deltas were read, including all 20 requirements and 168 scenarios.
-Only the declared design artifact is changed and committed; the proposed
-0055 filing text is contained in it, with the remaining placement explicit.
+It declares `design.md`; no workflow runner was invoked. Proposal, all three
+deltas, the existing task breakdown and both current council positions were
+read completely. The deltas contain 20 requirements and 175 scenarios. Only
+the declared design artifact is changed and committed; proposed 0055 remains
+chief-authored between D10's markers with its registry row and mandatory
+pre-production filing explicit.
 
-Strict OpenSpec validation passed (exit 0). Artifact status recognizes the
-proposal, specs and design; `tasks.md` is still absent, so planning and the
-change are not complete. All 20 requirements and 168 scenarios are byte-for-
-byte unchanged from the adopted head. Whitespace and frozen/production-scope
-audits passed; the latter compares against the commissioned shipped base.
+`openspec validate read-every-transcript-kind --strict --no-interactive`
+passes (exit 0), and status reports every planning artifact present. All 20
+requirements, 175 scenarios, the proposal and `tasks.md` remain byte-for-byte
+unchanged from adopted checkpoint `73797a6`. `git diff --check` passes; the
+frozen set and `crates/`, `bundles/` and `scripts/` remain unchanged from
+the commissioned shipped base. The exact current diff is `design.md` only.
 
-The command evidence is recorded in
-`.forge/design/read-every-transcript-kind-df38565b-chief-validation.json`.
 Formatting, clippy, workspace tests and both bundle compilations were
-attempted with the commissioned concurrency limits, but Cargo is absent
-(exit 127). The unchanged exact-coverage script was attempted with those
-limits, `TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it stopped
-at `mktemp` because `/var/tmp` is absent (exit 1), before any coverage or
-boundary test ran. These delivery checks remain pending. Drafting claims
-neither implementation nor full-story completion. The phase result carries
+attempted with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; each exited
+127 because Cargo is absent. The unchanged exact-coverage gate was attempted
+with those limits, `TMPDIR=/var/tmp` and
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at `mktemp` because
+`/var/tmp` is absent, before coverage or boundary tests ran. These delivery
+checks remain pending and no unavailable or skipped check is counted as
+passing evidence. Drafting claims neither implementation nor full-story
+completion. The phase result carries
 `inputs.change: read-every-transcript-kind` for the next declared office.
