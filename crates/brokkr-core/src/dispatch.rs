@@ -202,13 +202,6 @@ pub enum DispatchError {
     ManifestKeyUnsupportedByDispatchLineage(String),
 }
 
-fn is_hex_64(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
 fn nonempty(value: &str) -> bool {
     !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
 }
@@ -285,15 +278,18 @@ impl DispatchEnvelopeV2 {
                 return Err(DispatchError::BadField(name));
             }
         }
-        if !is_hex_64(&self.canonical_digest)
-            || !is_hex_64(&self.looper.immutable_inputs_sha256)
-            || !is_hex_64(&self.repository.base_sha)
+        // One spelling of a digest's shape for every reader that judges
+        // one, so a dispatch pin and a realm's crossing pin (decision
+        // 0054 ruling 2) cannot drift apart on what "malformed" means.
+        if !canonical::is_sha256_hex(&self.canonical_digest)
+            || !canonical::is_sha256_hex(&self.looper.immutable_inputs_sha256)
+            || !canonical::is_sha256_hex(&self.repository.base_sha)
             || self
                 .repository
                 .candidate_sha
                 .as_deref()
-                .is_some_and(|sha| !is_hex_64(sha))
-            || !is_hex_64(&self.recipe.compiled_sha256)
+                .is_some_and(|sha| !canonical::is_sha256_hex(sha))
+            || !canonical::is_sha256_hex(&self.recipe.compiled_sha256)
         {
             return Err(DispatchError::BadField("sha256"));
         }

@@ -503,3 +503,35 @@ annotation present is byte-identical to the same run folded without it. What
 reads it is `brokkr_view::residual_findings`, which marks the named findings
 as superseded and leaves them in the journal and in every readout — a
 superseded finding is closed, never deleted.
+
+Decision 0054 (the crossing) adds one more file and changes none of the
+bytes above — `realms.v1` through `realms.v4` included, whose bytes are now
+all pinned by digest:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the crossings its realms publish and consume | `realms.v5.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (map loading — a crossing's own bytes are read by no slice yet) |
+
+`forge.realms/v5` is `v4` plus exactly two optional properties per realm.
+`publishes` is a list of `{name, path}`: the crossings this realm offers,
+each a FILE the realm owns, named repository-relative on the same terms
+`house` and `dialect` are named, its bytes the contract. `consumes` is a
+list of `{name, realm, sha256}`: a crossing this realm depends on, named by
+its publishing realm and pinned by a lowercase hex sha256 over the published
+file's RAW bytes — never over a canonical form, because a crossing may be a
+JSON schema, a `.proto` or a Markdown document and only the publisher's own
+format knows what canonicalising would mean. The map's own pin is unchanged
+and stays canonical JSON over the map (decision 0023 ruling 4); the two
+digests answer for two different objects.
+
+Absent both properties a v5 map reads exactly as a v4 map, and every earlier
+map keeps loading unchanged, so a world that never drew a crossing notices
+nothing. The vocabulary is closed inside the new entries as it is at every
+level above them: an unknown field there is refused, so a content type, a
+compatibility relation or any fetch configuration would have to arrive as
+`forge.realms/v6`. `brokkr-core` performs no I/O (decision 0003), so the
+digest is judged as a shape only — 64 lowercase hex characters — and the
+published file is neither read nor resolved by this contract's landing
+slice; a `consumes` entry is checked against the world's own realms and
+their `publishes` lists, and a realm consuming its own crossing is refused
+because a crossing is between realms.

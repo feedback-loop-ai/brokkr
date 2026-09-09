@@ -394,6 +394,8 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
         house: known.house.clone(),
         dialect: known.dialect.clone(),
         boundary: None,
+        publishes: None,
+        consumes: None,
     };
     assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
@@ -786,6 +788,59 @@ fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
         .unwrap();
     assert_eq!(replayed.realm_for(&beta).unwrap().name, "beta");
     assert_eq!(replayed.realm_for(&alpha).unwrap().name, "alpha");
+}
+
+/// Decision 0054, over the world Phase 2 slice (i) proved: two DISTINCT
+/// repositories, one of which publishes a file the other pins. The map
+/// loads, each realm answers with its own crossings, and the pin is the
+/// digest of the publisher's raw bytes — taken here by the test, because
+/// nothing in this slice reads that file. Verifying a pin against the
+/// bytes on disk is a later slice's work; this proves only that the
+/// vocabulary is expressible over a real world of two repositories.
+#[test]
+fn a_world_of_two_repositories_can_draw_a_crossing_between_them() {
+    let (dir, _, _) = two_repositories();
+    let crossing = dir.path().join("alpha/contracts/orders.v1.schema.json");
+    std::fs::create_dir_all(crossing.parent().unwrap()).unwrap();
+    std::fs::write(&crossing, "{\"title\": \"orders\"}\n").unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(&std::fs::read(&crossing).unwrap());
+    std::fs::write(
+        dir.path().join("realms.json"),
+        TWO_REPOSITORIES
+            .replace("forge.realms/v2", "forge.realms/v5")
+            .replace(
+                "\"journal\": \"state/alpha.db\"",
+                "\"journal\": \"state/alpha.db\",
+     \"publishes\": [{\"name\": \"orders.api\", \"path\": \"contracts/orders.v1.schema.json\"}]",
+            )
+            .replace(
+                "\"journal\": \"state/beta.db\"",
+                &format!(
+                    "\"journal\": \"state/beta.db\",
+     \"consumes\": [{{\"name\": \"orders.api\", \"realm\": \"alpha\", \"sha256\": \"{pin}\"}}]"
+                ),
+            ),
+    )
+    .unwrap();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    let (alpha, beta) = (&world.map.realms[0], &world.map.realms[1]);
+    assert_eq!(alpha.published()[0].name, "orders.api");
+    assert_eq!(alpha.published()[0].path, "contracts/orders.v1.schema.json");
+    assert!(alpha.consumed().is_empty());
+    assert_eq!(beta.consumed()[0].realm, "alpha");
+    assert_eq!(beta.consumed()[0].sha256, pin);
+    assert!(beta.published().is_empty());
+    // Two repositories still, each resolved to its own tree: the
+    // crossing changed the vocabulary, not the world.
+    assert_eq!(world.path_of(alpha), dir.path().join("alpha"));
+    assert_eq!(world.path_of(beta), dir.path().join("beta"));
+    // And the pinned world carries the crossings verbatim, so a run can
+    // testify to the contract it was built against.
+    let pinned = world.pin(Some(&dir.path().join("beta"))).unwrap();
+    assert_eq!(
+        pinned["map"]["realms"][1]["consumes"][0]["sha256"],
+        json!(pin)
+    );
 }
 
 #[test]
