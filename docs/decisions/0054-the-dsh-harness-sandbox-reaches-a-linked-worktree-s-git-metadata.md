@@ -409,7 +409,8 @@ only what the store holds as a VALUE.
    included. A refusal that invited the operator to read the directory
    would run the box's choices on the host, outside every box, by the
    driver's own suggestion. The reclaim is handed over in words instead:
-   delete every name except `objects`, `refs` and `packed-refs`, write
+   delete every name except `objects`, `refs` and `packed-refs`; remove
+   `objects/info` too and recreate it with only `alternates`, then write
    the shared object store's path into `objects/info/alternates` and
    `ref: <branch>` into `HEAD`.
 

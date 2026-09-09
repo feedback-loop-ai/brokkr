@@ -311,7 +311,8 @@ are in it and nowhere else, but points no git at it: a surviving
 `commondir` would redirect `--git-dir` at a repository the seat built,
 whose configuration names the commands git then runs. It says what the
 directory is and hands the reclaim over in words — delete every name
-except `objects`, `refs` and `packed-refs`, then write the shared
+except `objects`, `refs` and `packed-refs`; remove `objects/info` too and
+recreate it with only `alternates`, then write the shared
 `objects` path into `objects/info/alternates` and `ref: <branch>` into
 `HEAD` — and it is a repository again.
 

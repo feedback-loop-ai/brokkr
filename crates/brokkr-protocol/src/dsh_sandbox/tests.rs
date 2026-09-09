@@ -1377,6 +1377,7 @@ fn the_private_store_copy_carries_trees_files_and_absences() {
 /// repository configuration, the ref store and the object store from
 /// wherever it lands. So the driver keeps the objects and the refs and
 /// writes everything else afresh.
+#[cfg(unix)]
 #[test]
 fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
     let dir = tempfile::tempdir().unwrap();
@@ -1520,6 +1521,7 @@ fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
 /// that stopped at the first such name would leave the rest of what the
 /// box wrote, `commondir` among it. So the driver takes the access back
 /// before it sweeps.
+#[cfg(unix)]
 #[test]
 fn a_store_the_box_locked_is_still_reclaimed() {
     use std::os::unix::fs::PermissionsExt;
@@ -1637,6 +1639,7 @@ fn a_store_the_driver_could_not_take_back_is_not_offered_to_git() {
         "{kept}"
     );
     assert!(kept.contains("ref: refs/heads/slice"), "{kept}");
+    assert!(kept.contains("remove `objects/info` too"), "{kept}");
 }
 
 /// A real repository, a real linked worktree, and a real private store:

@@ -830,7 +830,7 @@ impl SeatGitStore {
     /// `objects/info`.
     ///
     /// A directory the box made unwritable is taken back first
-    /// ([`restore_access`]), because an unlink writes the directory that
+    /// (`restore_access`), because an unlink writes the directory that
     /// holds the name: without it, one `chmod` inside the store would
     /// end the sweep wherever it happened to be and leave the rest of
     /// what the box wrote in place.
@@ -843,6 +843,7 @@ impl SeatGitStore {
         // runs as. A reclaim that gave up there would leave whatever it
         // had not reached yet — `commondir` among it — in place, so the
         // access the box could take away is taken back first.
+        #[cfg(unix)]
         restore_access(store);
         for entry in std::fs::read_dir(store)? {
             let entry = entry?;
@@ -892,6 +893,7 @@ fn remove(path: &Path) -> std::io::Result<()> {
 /// the box's to choose. A path this cannot stat, read or chmod is left
 /// to the removal that follows, which reports the failure the reclaim
 /// answers for.
+#[cfg(unix)]
 fn restore_access(root: &Path) {
     use std::os::unix::fs::PermissionsExt;
 
@@ -990,7 +992,8 @@ pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> Strin
              invite git to read it: a `commondir` the seat left redirects any `--git-dir` at a \
              repository the seat built, whose configuration names the commands git then runs. \
              Take the directory back by hand before reading it — delete every name in it except \
-             `objects`, `refs` and `packed-refs`, then write `{alternates}` into its \
+             `objects`, `refs` and `packed-refs`; remove `objects/info` too and recreate it with \
+             only `alternates`, then write `{alternates}` into its \
              `objects/info/alternates` and `ref: {reference}` into its `HEAD` — and it is a \
              repository again, with {reference} at the seat's commit. Nothing removes that \
              directory afterwards; it is the operator's to delete once the commits are safe"
