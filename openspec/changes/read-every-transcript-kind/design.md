@@ -1,27 +1,34 @@
 ## Context
 
-Adopt **read-every-transcript-kind** at `73797a6`, issue #222, on shipped
-main `5bc8cf305aaef9af269866cbf83f094939691399`. See
-[proposal.md](proposal.md) for motivation and the three capability deltas for
-requirements. This sitting belongs to run
-`close-issue-222-a-transcript-rea-92d45f62`. Its supplied clarification result
-is `clear`; no new `returned_from` finding accompanies this sitting. The
-operator nevertheless names the immediately preceding clarification's two
-browser findings as settled input: R22 requires drill eligibility beside
-admission on every browser action, and R23 treats a successful zero-turn body
-as received rather than perpetually missing.
+Adopt **read-every-transcript-kind** at current planning HEAD `6e71cac`,
+including checkpoint `73797a6` and its subsequent design/task repairs, for
+issue #222 on shipped main `5bc8cf305aaef9af269866cbf83f094939691399`.
+See [proposal.md](proposal.md) for motivation and the three capability deltas
+for requirements. This sitting belongs to run
+`close-issue-222-a-transcript-rea-92d45f62`; clarification is `clear`.
+
+`returned_from` is the second analyze visit and reports two planning defects.
+First, D11 requires executable traces of the embedded browser controller but
+selects no seam or runtime that `cargo test --workspace` can exercise. Second,
+the task plan omits the specified operator reselection transition when the
+operator selects the already active subject. Both findings are valid and are
+answered here: D9/D11 select exact served-controller execution through a
+pinned dev-only Rust ECMAScript engine, D10 carries that proof and dependency
+into proposed 0055, and D9 makes every operator selection an unconditional
+new generation and re-check interval. The dependent task repair is stated in
+D11 for the tasks office that follows this artifact in the dialect graph.
 
 The historical design at `6ece1ea` returned U1/U2 to specification. Those
-findings are now **answered**, not outstanding: reading R14/R15, command
-C6/C7 and TUI T5/T6 govern required unknown DSH events, packed rows and
-citations. R16/C8/T7 additionally settle opening-header version admission.
-S10 preserves citation-set membership despite the provider replay decoder's
-stricter ordering. R17-R21 settle browser invalidation, recovery, recurrence,
-admission and watch budgeting; checkpoint `73797a6` adds R22/R23's missing
-eligibility and successful-empty-body predicates. This revision incorporates
-all of those answers throughout. All earlier reference, compatibility,
-fallback and diagnostic answers remain in force. No requirement or scenario
-is removed.
+findings are **answered**, not outstanding: reading R14/R15, command C6/C7
+and TUI T5/T6 govern required unknown DSH events, packed rows and citations.
+R16/C8/T7 additionally settle opening-header version admission. S10 preserves
+citation-set membership despite the provider replay decoder's stricter
+ordering. R17-R21 settle browser invalidation, recovery, recurrence, admission
+and watch budgeting; R22 requires drill eligibility beside admission on every
+browser action, and R23 treats a successful zero-turn body as received rather
+than perpetually missing. This revision preserves all of those answers and
+all earlier reference, compatibility, fallback and diagnostic answers. No
+requirement or scenario is removed.
 
 The existing code has the needed surface seams but the wrong transcript
 boundary. `ui.rs:167-316` owns Claude `Block`, `Turn`, discovery and parsing;
@@ -39,19 +46,28 @@ judgments. The registry ends at 0053 in this worktree. The controller's
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (456 lines) and
-`.forge/design/positions/simplicity.md` (326 lines), each against `73797a6`.
-They are run-local evidence, not artifacts to commit. D1 reconciles their
-current claims; the earlier sitting's rejected scope cuts remain recorded
-in proposal S9 and git history.
+`.forge/design/positions/robustness.md` (268 lines) and
+`.forge/design/positions/simplicity.md` (303 lines), each against `6e71cac`.
+They are run-local evidence, not artifacts to commit. D1 reconciles every
+material claim; the earlier sitting's rejected scope cuts remain recorded in
+proposal S9 and git history.
 
-The chief can run OpenSpec, Python and Node through the workspace tool, but
-this box exposes no Cargo, rustup, Codex, DSH or Claude executable. A bounded
-public-source fetch from inside the box also failed DNS resolution. Provider
-help reported by robustness (Codex 0.153.4, DSH 0.1.2-rc.1, Claude 2.1.266)
-is council-reported evidence, not a fresh chief measurement. Accepted 0030
-independently records the Codex resume spelling. No hint is live resumption,
-credential, session-ownership or sandbox-reimposition proof for #226.
+The workspace tool exposes OpenSpec, Python and Node, but no Cargo, rustup,
+Codex, DSH or Claude executable. Provider help reported by the earlier council
+(Codex 0.153.4, DSH 0.1.2-rc.1, Claude 2.1.266) is council-reported evidence,
+not a fresh chief measurement. Accepted 0030 independently records the Codex
+resume spelling. No hint is live resumption, credential, session-ownership or
+sandbox-reimposition proof for #226.
+
+The robustness position's test-engine facts were independently checked against
+Boa's tagged primary metadata. `boa_engine` 0.21.1 declares Rust 1.88.0 and
+`Unlicense OR MIT`; its only default features are `float16` and `xsum`. The
+design therefore pins `boa_engine = "=0.21.1"` with default features disabled
+as a CLI dev-dependency. Its documented context can evaluate script source and
+drain queued jobs. This is versioned source evidence, not proof that the
+unmodified workspace currently resolves or passes that new dependency: Cargo
+is absent here, so implementation must obtain lockfile, MSRV, license, audit
+and all-platform evidence before treating the seam as viable.
 
 The chief rechecked `.forge/controller-dsh-transcript-storage-interface.json`:
 all 42 captured source texts match their SHA-256 values. It records installed
@@ -95,14 +111,17 @@ requires a paid model experiment, transcript copying or global settings.
 
 **Goals:** give every commissioned local reader the same typed answer;
 separate authority, safely opened bytes and interpretation; retain interrupted
-content; make every failure and refresh transition testable; preserve the
-existing Claude content and successful HTTP envelope.
+content; make every failure and refresh transition testable; execute the exact
+served browser controller under the workspace's ordinary Cargo tests; preserve
+the existing Claude content and successful HTTP envelope.
 
 **Non-Goals:** a provider plugin API, a new crate, replaying provider execution,
 joining seats or attempts, a persistent body cache, a file watcher, Codex/DSH
 browser body routes, media fetching, accounting changes, or #226's launch
-and resumption work. Frozen contracts, policy, reference and fixtures stay
-unchanged. No new provider dependency is needed.
+and resumption work. The controller harness is not full DOM, rendering or
+browser-SSE conformance and adds no Node/browser service or shipped JavaScript
+runtime. Frozen contracts, policy, reference and fixtures stay unchanged. No
+new provider or production-runtime dependency is needed.
 
 ## Decisions
 
@@ -123,7 +142,10 @@ unchanged. No new provider dependency is needed.
 | Robustness: DSH ownership, then version admission, then event/storage classification. | **Adopt R14-R16 completely.** The current requirements already answer U1/U2; returning those same findings would be stale. |
 | Simplicity: five grouped decision rulings instead of copying 175 scenarios. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
 | Robustness: separate selected-reference, presentation and body result types. | **Combine the invariant with simplicity's smaller public surface.** Keep one public `TranscriptRead`; use a CLI-private, prose-free browser presentation payload whose constructor accepts only selection, validation and discovery facts. This makes a body or read-level reason unavailable at the transport boundary without adding a second public view-crate result. |
-| Robustness: model browser recovery as explicit states; simplicity: keep five private facts rather than a public state framework. | **Combine.** D9 defines the transition machine and its invariants, while implementation stores the key, generation, body-success/refusal state, exact watch handle and re-check budget as private client fields. Behavior is explicit and executable without a new crate, public taxonomy or generalized browser transport. |
+| Robustness: model browser recovery as explicit states; simplicity: keep five private facts rather than a public state framework. | **Combine.** D9 defines the transition machine and its invariants, while implementation stores the key, generation, body-success/refusal state, exact watch handle and re-check budget as private client fields. No new crate, public taxonomy or generalized browser transport follows. |
+| Robustness: isolate a dependency-injected controller and execute the exact served JavaScript with pinned, default-feature-free Boa. | **Adopt.** Promise ordering, generation capture and exact `EventSource` ownership live in the JavaScript applier, so executing only a policy description cannot prove the shipped controller. Boa 0.21.1 is Rust, matches the workspace MSRV and has a compatible license; D9/D11 confine it to a dev-only harness over exact `PAGE` bytes. |
+| Simplicity: ship a Rust-owned JSON transition table, execute it with Rust and leave a generic JavaScript applier unexecuted. | **Reject with reason.** It reduces the dependency graph but proves neither the applier's first-match behavior nor its async generation/handle capture. Executing a second Rust applier duplicates semantics; not executing the JavaScript applier leaves the returned finding open. The source-string-only fallback is rejected for the same reason. |
+| Both: same-subject operator reselection is an event, not an equivalence no-op. | **Adopt.** Every explicit selection starts a fresh generation and interval even when the full subject key is equal; D9 fixes the reset order and D11 requires the adversarial stale-callback trace. |
 | Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
 | Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
 | Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
@@ -133,6 +155,15 @@ The last distinction concerns artifact placement, not an unanswered behavior
 or a claimed acceptance. Tasks must make filing a prerequisite, not leave it
 until documentation cleanup. No semantic production change is authorized to
 precede the filed proposal. Decisions 0054/0056 remain the controller's.
+
+A Node/headless-browser job is rejected because the normal Cargo and release
+paths promise no Node or service and #222 does not own a new CI runtime. V8,
+`deno_core` and QuickJS bindings add larger native/runtime surfaces without
+more acceptance coverage than the isolated controller needs. Source-token
+assertions alone are rejected because they cannot order promises or watch
+callbacks. The chosen Boa seam is the smallest option presented that executes
+the shipped controller itself under `cargo test --workspace`; its dependency
+cost is explicit rather than hidden.
 
 ### D2 — One pure model, one existing I/O home
 
@@ -594,6 +625,15 @@ ordinary client fields rather than a public framework:
 - the exact active `EventSource` handle is owned separately; and
 - a re-check epoch carries the one-automatic-watch-opening budget.
 
+Isolate those facts and transitions in one start/end-delimited block inside the
+served `ui.html`. The block exposes one private
+`createTranscriptController(effects)` factory. Presentation/body requests,
+watch open/close, timer scheduling/cancellation, prose clearing and painting
+are injected effects; production supplies thin adapters around `fetch`,
+`EventSource`, timers and DOM text nodes. The controller reaches no ambient
+browser global internally. D11 executes that exact block from `PAGE`; there is
+no copied JavaScript fixture, Rust transition twin or JSON policy interpreter.
+
 Changing the active key, admission or drill eligibility bumps the generation,
 closes the exact old watch and clears its body/prose before painting the new
 presentation. A callback may mutate display or cache only when its key,
@@ -620,6 +660,16 @@ unparseable response—keeps the existing unqualified body-failure prose,
 because the envelopes do not identify a reason, and silences body/watch work
 for that key until the next recurring re-check.
 
+An explicit `operator_select(subject)` is edge-triggered, not an equality
+check. It always increments the generation, closes the exact watch owned by the
+prior generation, clears body/prose and pending work, clears the refusal floor,
+begins a new re-check interval with one automatic-opening budget, and requests
+a fresh no-store presentation. This sequence applies when `subject` equals the
+active full key as well as when it differs; presentation equivalence may
+suppress a background repaint but may never erase an operator action. Any late
+body, presentation or watch callback from the preceding selection remains
+inert under the generation/owned-handle guards.
+
 Run one recurring presentation timer tied to the active selection, at least as
 often as the existing runs poll, including for concluded participants.
 Re-rendering must not accumulate timers. Each tick starts one new interval and
@@ -632,9 +682,9 @@ succeeded even when `turns` is empty; equivalent ticks do not fetch it again.
 A concluded participant continues presentation checks but never opens a
 watch. Every automatic opening, including one performed by the tick itself,
 spends the interval's single budget; a second immediate closure may refresh a
-body but leaves the watch closed until the next tick. Operator selection or a
-changed key/eligibility establishes new state rather than consuming the prior
-key's recovery budget.
+body but leaves the watch closed until the next tick. Every operator selection,
+including same-subject reselection, establishes new state rather than consuming
+the prior generation's refusal floor or recovery budget.
 
 This design preserves the existing Claude routes without adding a Codex/DSH
 body route, durable cache, watcher service or general transcript transport.
@@ -644,11 +694,13 @@ body route, durable cache, watcher service or general transcript transport.
 This phase's rendered output is `design.md` only. The following is the
 complete proposed decision text, with its index row, ready to file as
 `docs/decisions/0055-read-every-transcript-kind.md` before production edits.
-The tasks office must make that mechanical filing and registry check its
-first prerequisite; it must not change these rulings while copying them.
-This supplies authorship within the declared artifact and explicitly leaves
-filing pending. No accepted decision is amended and no acceptance is claimed.
-The dependency bindings below are proposed with the rest of 0055.
+The tasks office must make that mechanical filing and registry check its first
+prerequisite; it must not change these rulings while copying them. It must also
+carry the exact test-only dependency and controller-harness work below into the
+implementation breakdown. This supplies authorship within the declared
+artifact and explicitly leaves filing pending. No accepted decision is amended
+and no acceptance is claimed. The dependency bindings below are proposed with
+the rest of 0055.
 
 <!-- proposed-decision-0055:start -->
 
@@ -692,9 +744,10 @@ separate #226 work; hints execute nothing.
    symlinks/reparse points and nonregular sources, retain checked handles and
    report paths losslessly. Source input is at most 32 MiB plus one overflow
    probe byte. Pure view derivation has no I/O. A narrow local-reader
-   dependency exception permits target-specific `rustix` fs and `windows-sys`
-   filesystem bindings already in the lockfile; no provider SDK, new runtime
-   or broad filesystem framework follows.
+   production-dependency exception permits target-specific `rustix` fs and
+   `windows-sys` filesystem bindings already in the lockfile; no provider SDK,
+   shipped JavaScript runtime or broad filesystem framework follows. Ruling 4
+   separately permits one pinned dev-only test engine for exact client proof.
    **Enforcement binding:** handle-based resolver, entry/header/source-bound
    tests, competing-failure/uniqueness tests, Unix/Windows ancestor/leaf race
    and nonregular-source tests; frozen-file and dependency/license gates.
@@ -772,16 +825,28 @@ separate #226 work; hints execute nothing.
    re-check. A refused body silences further body/watch work until the next
    interval; an equivalent result repairs only a missing body and then a
    missing working-seat watch. A successful body, including HTTP 200 with zero
-   turns, is received until an explicit clear or refusal. Presentation/body
-   responses bypass HTTP caching. Existing id-only Claude HTTP routes retain
-   successful envelopes and the specified 404/SSE-loss behavior; Codex/DSH
-   body routes remain absent.
+   turns, is received until an explicit clear or refusal. Every explicit
+   operator selection starts a new generation and interval even when it
+   reselects the identical subject: it closes the prior owned watch, clears
+   body/prose, pending work and the refusal floor, restores one opening budget
+   and fetches fresh presentation. Late callbacks from the prior generation
+   remain inert. Presentation/body responses bypass HTTP caching. Existing
+   id-only Claude HTTP routes retain successful envelopes and the specified
+   404/SSE-loss behavior; Codex/DSH body routes remain absent.
+
+   The served page isolates this policy in one dependency-injected controller
+   block. Tests extract and execute those exact `PAGE` bytes using the exact
+   `boa_engine` 0.21.1 CLI dev-dependency with default features disabled,
+   controlled effect adapters and drained Promise jobs. Boa is not linked into
+   the release binary and adds no Node or browser service, but its lockfile,
+   MSRV, license, audit and all-platform Cargo results are admission evidence.
    **Enforcement binding:** CLI selector/text/JSON tests, shared-hint/notice
-   conformance, headless TUI navigation and atomic-refresh tests, and existing
-   HTTP endpoint tests plus executable client transition traces for
-   admission/eligibility loss, stale generations, admitted non-Claude and
-   foreign-home selections, zero-turn success, refusal floors, both watch
-   opening orders, recurring recovery and no-store refetch.
+   conformance, headless TUI navigation and atomic-refresh tests, existing HTTP
+   endpoint and thin-adapter source tests, and Boa-executed exact served-client
+   transition traces for admission/eligibility loss, stale generations,
+   admitted non-Claude and foreign-home selections, zero-turn success, refusal
+   floors, both watch opening orders, recurring recovery, no-store refetch and
+   identical-subject operator reselection.
 
 5. **Reading retains private evidence and remains inert.** Only explicit
    local transcript reads expose requested prose; journal, checkpoints,
@@ -803,8 +868,12 @@ symlinks. The reader offers no home override and reorganizes nothing.
 DSH's invalid-depth refusal is deliberately stricter than the shipped
 adapter; its version/citation policy is an audit policy, not execution replay.
 Unproved Codex associations can remain visible twice, preserving evidence.
-Only the operator accepts this proposal. Filing it does not certify live
-resumption, implementation tests or controller host/remote gates.
+Exact browser-controller proof adds the pinned default-feature-free
+`boa_engine` 0.21.1 development dependency and its lockfile graph; it does not
+enter the released binary or permit Node, a browser service or an additional
+production language. Only the operator accepts this proposal. Filing it does
+not certify dependency admission, live resumption, implementation tests or
+controller host/remote gates.
 
 <!-- proposed-decision-0055:end -->
 
@@ -838,7 +907,7 @@ comparison of the same serialized `Turn` and metadata.
 | Local inert prose | D7/D9; journal hash/count and retained-file before/after assertions; readout/export/dossier sentinels and no-provider-launch assertions. |
 | Command run/seat selection; turn selection; JSON; text/errors | D3/D7; argument, world resolver, ambiguous-label, parent/leaf, all reason states and whole/selected stdout/stderr tests. |
 | TUI pane/doors; hints; notices; live refresh | D8; headless keys, scrolling and buffers, late appearance, pure append, assembly replacement, same-size rewrite, refusal/recovery, final/manual reads. |
-| Browser presentation, eligibility and recovery | D9; route-envelope tests plus executable client transitions over controlled presentation/body promises, EventSource open/error callbacks, recurring ticks, selection changes and out-of-order responses. |
+| Browser presentation, eligibility and recovery | D9; HTTP/adapter tests plus Boa execution of the exact marker-delimited controller bytes extracted from `PAGE`, with injected presentation/body promises, watch callbacks, timer ticks, selections and out-of-order responses. |
 
 Provider tests must include event-only Codex, completed-item-only Codex,
 response/counterpart id pairs, id-less legacy records, repeated words and
@@ -851,29 +920,57 @@ blocks. Browser tests preserve successful envelopes and verify exact refusal
 responses and stale-request/watch cancellation. Platform race tests replace
 ancestors and leaves, not just filenames before a preliminary metadata check.
 
-Browser proof is behavioral, not a set of `PAGE.contains` assertions. Drive
-the embedded client logic with controlled fetches, watches and timer ticks.
-Pin zero id-only requests and watches for admitted Codex/DSH/foreign-home
-presentations across re-checks; one total body request for a concluded
-successful zero-turn Claude body; one refused body request per interval for a
-persistently unreadable admitted Claude source; one automatic watch opening
-for both re-check-first and closure-first intervals; a second immediate
-closure repainting from a fresh body without opening another watch; admission
-loss with unchanged journal/reference clearing prose and rejecting an old
-response; recovery after admission returns; a no-store refetch; and identity
-or eligibility change resetting only the new key's state. Cross-surface tests
-compare the metadata subset only, and prove the presentation carries no turns,
-blocks or transcript prose.
+Browser proof is behavioral, not a set of `PAGE.contains` assertions. Mark
+one controller block exactly once in `ui.html`, extract those exact served bytes
+from the existing `PAGE = include_str!("ui.html")`, and evaluate them with
+`boa_engine` 0.21.1 from `brokkr-cli`'s dev-dependencies using default features
+disabled. The evaluated block must expose only
+`createTranscriptController(effects)`. Deterministic fake effects resolve or
+refuse presentation/body promises, open and close identity-bearing fake
+watches, deliver callbacks in adversarial order, tick the recurring timer and
+record clear/paint/request/open/close effects. Drain Boa's Promise jobs after
+each delivered event and assert both the effect trace and the controller's
+small state snapshot before advancing. There is no copied `.js` fixture and no
+Rust implementation of the controller transitions.
 
-The inherited `tasks.md` predates R17-R23 and remains the next office's
-artifact. Its repair is mechanical from this design: task 10.2 must remove the
-instruction to read and discard body data; 10.3 must own admission/eligibility
-loss, generation clearing, one recurring timer, body-success state and the
-refusal/watch budgets; 10.4 must add the executable traces above; 2.6 must
-prove both retired Claude truncation suffixes absent; and 6.7's absent
-dedicated-partner case must keep its sole embedded block exactly once rather
-than claim two copies exist. None of these repairs changes a requirement or
-reopens a settled decision.
+The production effect adapter remains in those same served bytes but outside
+the extracted controller block. Focused source assertions prove it constructs
+the controller exactly once, uses `encodeURIComponent`, requests no-store
+presentation/body reads, owns `EventSource` and timer handles, and paints
+untrusted strings through `textContent`; Rust HTTP tests prove the actual route
+and SSE envelopes. This division executes the concurrent policy that can
+restore stale prose while avoiding a false claim that Boa supplies a DOM,
+network stack, layout engine or browser-level SSE conformance.
+
+The executable traces pin zero id-only requests and watches for admitted
+Codex/DSH/foreign-home presentations across re-checks; one total body request
+for a concluded successful zero-turn Claude body; one refused body request per
+interval for a persistently unreadable admitted Claude source; one automatic
+watch opening for both re-check-first and closure-first intervals; a second
+immediate closure repainting from a fresh body without opening another watch;
+admission loss with unchanged journal/reference clearing prose and rejecting
+an old response; recovery after admission returns; a no-store refetch; and
+identity or eligibility change resetting only the new key's state. A separate
+trace first exhausts the refusal floor and watch budget, then explicitly
+reselects the identical subject and proves a fresh generation, presentation,
+body and eligible opening while late body/watch callbacks from the prior
+selection remain inert. Cross-surface tests compare the metadata subset only,
+and prove the presentation carries no turns, blocks or transcript prose.
+
+The current `tasks.md` at `6e71cac` already carries the R17-R23, A5-A7 and
+truncation/absent-partner repairs. It remains the dependent artifact of the
+next dialect office and must now be updated from this returned design: task
+10.3 must isolate the exact controller factory and make every operator
+selection, including same-subject reselection, reset generation, owned watch,
+body/pending state, refusal floor and interval budget in the order D9 states;
+task 10.4 must add the exact `boa_engine` 0.21.1 dev-dependency with
+default features disabled and its lockfile work, execute the
+marker-delimited `PAGE` block with injected effects and drained jobs, and add
+the identical-subject adversarial trace. Its closing gates must explicitly
+cover MSRV, licenses, audit and all three operating systems for the changed
+dependency graph. None of these repairs changes a requirement or reopens a
+settled decision; editing `tasks.md` in this office would violate the rendered
+artifact boundary and dependency order.
 
 Implementation owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
@@ -906,10 +1003,20 @@ proof, PR/remote CI, publication, merging and issue closure.
   unavailable facts verbatim; no clickable execution or new command is added.
 - **[Decision filing is forgotten]** → D10 is a named pre-implementation task
   prerequisite, checked by analysis and the existing decision/index suite.
+- **[The test engine expands the dependency and platform risk]** → Pin
+  `boa_engine` exactly at 0.21.1, disable default features and keep it in
+  `brokkr-cli` dev-dependencies only. Require the changed lockfile to pass Rust
+  1.88 MSRV, license, audit and all-three-OS Cargo gates; if it cannot, return to
+  design for another exact-code mechanism rather than weakening D11.
+- **[The harness is mistaken for full browser conformance]** → Execute only the
+  exact dependency-injected controller bytes and deterministic async effects;
+  keep DOM text-node, URL, no-store and HTTP/SSE envelope checks at their real
+  adapter/route boundaries and claim no layout or browser networking proof.
 - **[Browser recovery restores stale or wrong-provider prose]** → Keep
   admission and drill eligibility separate, key state by full subject, guard
-  callbacks by generation, mark zero-turn success independently of array
-  length, bypass HTTP caching and prove the transition counts executably.
+  callbacks by generation and owned handle, treat same-subject selection as a
+  reset event, mark zero-turn success independently of array length, bypass
+  HTTP caching and prove each transition from the exact served controller.
 
 ## Migration Plan
 
@@ -927,11 +1034,14 @@ proof, PR/remote CI, publication, merging and issue closure.
    restores the earlier reader without altering retained evidence; Codex/DSH
    unreadability and the earlier Claude lookup behavior would return.
 4. Replace the browser participant drill atomically with the prose-free
-   presentation route and generation-guarded client state. Existing successful
-   Claude body/SSE envelopes remain compatible; the page begins recurring
-   presentation checks and disables native EventSource reconnection only after
-   the new transition tests pass. Rollback restores the old browser client and
-   routes together so neither side observes half of the recovery protocol.
+   presentation route, marker-delimited dependency-injected controller and
+   thin production adapters. Add the exact pinned Boa dev-dependency and
+   lockfile together, and require the exact served-byte traces—including
+   same-subject reselection—before enabling recurring presentation checks or
+   disabling native EventSource reconnection. Existing successful Claude
+   body/SSE envelopes remain compatible. Rollback restores the old browser
+   client and routes together and removes the test-only dependency/lock delta,
+   so neither side observes half of the recovery protocol.
 5. Complete local checks, controller host proof and specification review
    before delivery. Controller resolves shared-file overlap with #226;
    this work does not modify or import that sibling's worktree. Remote CI,
@@ -960,11 +1070,13 @@ chief-authored between D10's markers with its registry row and mandatory
 pre-production filing explicit.
 
 `openspec validate read-every-transcript-kind --strict --no-interactive`
-passes (exit 0), and status reports every planning artifact present. All 20
-requirements, 175 scenarios, the proposal and `tasks.md` remain byte-for-byte
-unchanged from adopted checkpoint `73797a6`. `git diff --check` passes; the
-frozen set and `crates/`, `bundles/` and `scripts/` remain unchanged from
-the commissioned shipped base. The exact current diff is `design.md` only.
+passes (exit 0), and status reports every planning artifact present. That
+presence is structural evidence, not an analyze verdict. All 20 requirements,
+175 scenarios, the proposal, three deltas and `tasks.md` remain byte-for-byte
+unchanged from the adopted current HEAD `6e71cac`. `git diff --check` passes;
+the frozen set, accepted decisions, `crates/`, `bundles/` and `scripts/` remain
+unchanged from the commissioned shipped base. The exact sitting diff is
+`design.md` only.
 
 Formatting, clippy, workspace tests and both bundle compilations were
 attempted with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; each exited
