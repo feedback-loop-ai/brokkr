@@ -97,8 +97,9 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 | Contract | File | Consumers |
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
-| Specification dialect | `dialect.v1.schema.json` | superseded for new files by v2, below; bytes frozen |
-| Specification dialect, with the install identity | `dialect.v2.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
+| Specification dialect | `dialect.v1.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the install identity | `dialect.v2.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the archive instruction | `dialect.v3.schema.json` | brokkr-runtime (loading, map checks, boxed dialect steps and the smith's fold) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are
@@ -108,6 +109,31 @@ maps artifact and judge phases to framework artifacts, instructions,
 validators, dependency order and lifecycle commands. The loader checks the
 map and pins the resolved JSON content, not merely its declaration. A v2 map
 remains byte- and behavior-compatible.
+
+Decision 0042's addendum of 2026-09-06 adds `dialect.v3`, v2 plus one thing:
+a dialect that folds a change into a living truth tree declares the
+instruction its archive step carries. The archive command's `instructions`
+is a dialect-relative Markdown file rendered into the smith's implement
+prompt, where it tells the smith to append one `## Provenance` line per
+capability the change touched — the archived directory's name and the day it
+was folded, appended and never rewritten. A dialect with no truth tree
+declares the archive `unsupported` and names no instruction. v1 and v2 are
+not edited; their bytes stay frozen beside v3.
+
+A dialect FILE is v3, and only v3: it is written today, so it is written at
+the version this build writes, and an older declaration may not be used to
+escape what v3 requires. A dialect PIN may be any of the three. A dialect is
+not only a file on disk — a run pins its resolved content into the manifest,
+and a resume rehydrates that pin — and `realms.json` has declared a dialect
+since 2026-09-04, so runs have pinned `brokkr.dialect/v1` and `v2` bodies. A
+build that read v3 everywhere would strand every one of them, and would say
+so only as an untagged-variant mismatch. So `Dialect::parse` reads a file and
+`Dialect::parse_pinned` reads a pin; both refuse a version they do not read
+BY ITS VERSION, before the bytes are given a shape, and both hold each read
+version to its own shape: `tool.install` is absent at v1 and required from
+v2, and the archive command's `instructions` is absent below v3 and required
+at v3. An older dialect therefore folds exactly as it did on the day it was
+pinned — carrying no provenance instruction, because then there was none.
 
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six

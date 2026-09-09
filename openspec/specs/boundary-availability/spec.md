@@ -135,3 +135,7 @@ shipped gates require Linux.
 #### Scenario: init without bubblewrap
 - **WHEN** `brokkr init` runs on a machine without `bwrap` on PATH
 - **THEN** its warning names the scaffolded seats, `namespace`, bubblewrap, and `harness` as the road a realm may declare, and cites decision 0046
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

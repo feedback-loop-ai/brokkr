@@ -122,3 +122,7 @@ unchanged.
 #### Scenario: The erratum line
 - **WHEN** the decision file is read
 - **THEN** a `## Erratum` heading precedes exactly one line naming v4, v3, #202 and decision 0034 rulings 6 and 7, and the decisions index test passes without a change to `docs/decisions/README.md`
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

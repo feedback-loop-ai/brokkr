@@ -45,3 +45,7 @@ field SHALL be unchanged (decision 0046 ruling 5's enforcement binding).
 #### Scenario: Every other argv is unchanged
 - **WHEN** the engine composes the argv of a seat, a panel member and a sequence step that never declared `driver.confine`
 - **THEN** each argv equals what the engine composed before the deletion
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

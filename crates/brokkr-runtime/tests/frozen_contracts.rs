@@ -171,6 +171,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/dialect.v2.schema.json",
             "Brokkr specification dialect v2",
         ),
+        // Decision 0042's addendum of 2026-09-06: the archive step appends
+        // the change that wrote each capability, so the dialect's archive
+        // operation carries the instruction that says how. v3 lands beside
+        // v1 and v2, whose bytes are pinned above and did not move.
+        (
+            "contracts/dialect.v3.schema.json",
+            "Brokkr specification dialect v3",
+        ),
         // Decision 0034 freezes the previously conventional accounting
         // record as its own v1 contract; no older frozen file moves.
         (

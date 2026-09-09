@@ -129,6 +129,7 @@ either needs a jointly agreed v2-lineage manifest version.
 | The world's map | `realms.v1.schema.json` | `forge.realms/v1`: realms (name, path, default branch) and the world's single `journal`. |
 | The world's map, many hearths | `realms.v2.schema.json` | `v2` = `v1` plus exactly one thing: a realm may name its own `journal`, falling back to the world's when it does not. `v1` maps are read exactly as they always were, and the one new word is refused under a `v1` label. |
 | Named boundary | `realms.v4.schema.json`, `run-manifest.v9.schema.json`, `seat-record.v4.schema.json`, `effect-boundary.v1.schema.json` | The realm selects the boundary, the manifest pins it, and effects and readouts retain it. Earlier versions remain unchanged. |
+| Specification dialect | `dialect.v1.schema.json`, `dialect.v2.schema.json`, `dialect.v3.schema.json` | `v2` = `v1` plus the tool's install identity; `v3` = `v2` plus the archive step's instruction. A dialect FILE is written and read at v3 only. A dialect PIN — a run embeds its resolved dialect in the manifest, and a resume rehydrates it — is read at any of the three, so a run pinned before a version landed still resumes and still folds exactly as it did. Each version is held to its own shape: a field is refused under a label that predates it. |
 | Finding closure | `operator-supersede.v1.schema.json` | The operator names the residual findings being closed and may cite the closing run. |
 | Evaluator behavior | `fixtures/evaluator/corpus.ndjson` | Frozen contract data. Never regenerated, only versioned. |
 

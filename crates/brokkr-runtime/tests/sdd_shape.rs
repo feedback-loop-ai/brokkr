@@ -51,6 +51,24 @@ fn artifact_work_refuses_the_bootstrap_realm_and_accepts_a_declared_dialect() {
 }
 
 #[test]
+fn the_implement_prompt_carries_the_dialects_archive_instruction() {
+    // Decision 0042's addendum of 2026-09-06: the archive step is the
+    // step that records which change wrote which capability, so the
+    // dialect that promotes a truth tree renders its instruction to the
+    // smith who folds the change.
+    let dialect = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let bundle = compile(Some(&dialect)).unwrap();
+    let prompt = &bundle.dialect_prompts["implement"];
+    assert!(prompt.contains("## Provenance"), "{prompt}");
+    assert!(
+        prompt.contains("never rewrite, reorder or remove"),
+        "{prompt}"
+    );
+}
+
+#[test]
 fn every_artifact_phase_ends_in_the_boxed_dialect_validator() {
     let dialect = Dialect::load(&root().join("dialects/openspec.json"))
         .unwrap()
