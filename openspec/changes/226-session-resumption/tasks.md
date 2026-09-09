@@ -618,18 +618,23 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [x] 8.10 Planner tests in `adapters/tests.rs` built from the captured
-      grammar: the exact resume argv per adapter; the complete current
+- [ ] 8.10 Complete each provider-local planner guard and its tests in
+      `adapters/tests.rs` from the captured grammar: exact arity plus
+      duplicate and precedence checks for every authoritative restriction,
+      on cold and resume paths, without introducing a generic provider
+      grammar. For Claude, independently refuse a second or last-wins
+      permission mode, tools list, strictness/MCP document, allowed-tools
+      list, model or effort control rather than appending `extra` wholesale.
+      Also cover the exact resume argv per adapter; the complete current
       class, model and effort on the resume path; the generated fragment
-      admitted where passthrough of the same shape is not; a settings
-      conflict declined; no ambient continuation on the cold or gate
-      path; a nonpersistent shape declared nonresumable; a changed CLI or
-      wrapper version disabling resume; identifier injection refused;
-      DSH's retained directory not offered as a handle; a DSH profile or
-      wrapper override declining the resume with a bounded reason; an
-      unsupported hands request still refused; and neither resume nor
-      cold able to honour the class ending in refusal — safety / AS2,
-      safety / AS3, site / SR3.
+      admitted where passthrough of the same shape is not; no ambient
+      continuation on the cold or gate path; a nonpersistent shape declared
+      nonresumable; a changed CLI or wrapper version disabling resume;
+      identifier injection refused; DSH's retained directory not offered as
+      a handle; a DSH profile or wrapper override declining the resume with a
+      bounded reason; an unsupported hands request still refused; and neither
+      resume nor cold able to honour the class ending in refusal — safety /
+      AS2, safety / AS3, site / SR3.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
@@ -685,14 +690,19 @@ saved for the phase commit.
       backfilled value; a legacy Codex row resumes without rewriting the
       checkpoint; a legacy composite and a DSH-directory-only history
       each start cold — evidence / LE4, evidence / LE5.
-- [x] 9.7 Launch conformance across every built-in adapter in
-      `adapters/tests.rs` and `crates/brokkr-cli/tests/driver_conformance.rs`:
-      the no-offer cold launch, the safe work-site resume where
-      supported, the declined offer, the proven pre-work cold
-      replacement, a missing confirmation, a malformed record and the
-      privacy bound; one panel member resuming while another starts cold
-      keeps each member's own launch and the aggregate substitutes
-      neither; exec reports no model launch — evidence / LE1, evidence / LE5.
+- [ ] 9.7 Close the shared terminal guard and prove launch conformance across
+      every built-in adapter in `adapters/tests.rs` and
+      `crates/brokkr-cli/tests/driver_conformance.rs`: a different or missing
+      required root followed by a clean exit, and the same mismatch followed
+      by an otherwise valid delivered result, each ends failed or indeterminate
+      without an accepted successful seat, a guessed launch or a cold
+      replacement; retain any delivered file only for diagnosis. Also cover
+      the no-offer cold launch, the safe work-site resume where supported, the
+      declined offer, the proven pre-work cold replacement, a missing
+      confirmation, a malformed record and the privacy bound; one panel member
+      resuming while another starts cold keeps each member's own launch and the
+      aggregate substitutes neither; exec reports no model launch — safety /
+      AS4, evidence / LE1, evidence / LE5.
 
 ## 10. Provider evidence — investigation first, then dated live proof
 
@@ -1195,19 +1205,42 @@ this artifact's. No provider CLI was probed and no provider evidence was created
 Frozen contracts, policy, reference, fixtures, production code, living specs and
 the sibling fire's files have no diff from the commissioned base.
 
+## Current tasks visit — council reconciliation, 2026-09-09
+
+The design council reconciliation at `35fa9ae` supplies new implementation
+evidence after the earlier task visit: Claude's planner rejects competing
+conversation selectors but otherwise appends `extra` without the
+restriction-by-restriction duplicate, arity and precedence checks required by
+AS3, and a different-root `LaunchHold` outcome can suppress launch evidence
+while still allowing the invocation's ordinary clean/result outcome to be
+accepted. The design locates these gaps in existing tasks 8.10 and 9.7 rather
+than adding or renumbering work.
+
+This visit therefore returns **8.10** and **9.7** to pending and makes their
+acceptance evidence explicit. Task 8.10 now requires the provider-local guard
+and independently asserted Claude permission/tool/MCP/model/effort cases on
+both cold and resume paths. Task 9.7 now requires the shared terminal guard and
+the clean-exit and valid-result mismatch variants, with no accepted success,
+guessed launch or replacement. Its citations now include `safety / AS4`, the
+requirement whose different-session scenario owns that behavior. All other
+identifiers, dependency order and citations remain intact; F1–F7 are not
+reopened, and the five deltas still contain 20 requirements covered by the 102
+tasks.
+
+No implementation or frozen artifact is changed in this phase. The next smith
+works 8.10 before 9.7, then resumes the already-open provider-proof and delivery
+tasks in their stated order. The task truth is now **90 complete / 12 pending**.
+
 ## Progress
 
 ### Implement — 2026-09-09, run `close-issue-226-only-codex-resum-805ec715`
 
-**92 of 102 delivery tasks are ticked.** Ten stay unchecked — the eight
-provider-proof and enablement tasks, plus 15.5 and 15.8 — each with its
-reason below. The ticks are this visit's own reconciliation, not a
-memory: they were derived by reading the worktree and re-running the
-checks, which is exactly what task 12.2's recovery clause asks of a
-successor. (An earlier draft of this paragraph counted 94 and eight; the
-count is corrected here against the file's own checkboxes rather than
-left to be re-derived, which is the same reconciliation one paragraph
-later.)
+**90 of 102 delivery tasks are ticked.** Twelve stay unchecked — the two
+conformance repairs returned by the current tasks visit, the eight provider-proof
+and enablement tasks, plus 15.5 and 15.8 — each with its reason below. The
+predecessor's 92/10 count was correct for `75ae68e`; the design evidence at
+`35fa9ae` invalidated the proof behind 8.10 and 9.7, so current evidence returns
+them to pending as task 12.2 requires.
 
 **This visit began inside the failure #226 describes.** The tree held
 about five thousand uncommitted lines — the seat-record v5 contract, the
@@ -1259,6 +1292,13 @@ every planning visit before it also recorded.
 
 Unchecked, and why:
 
+- **8.10 and 9.7, implementation conformance.** Current code inspection in the
+  reconciled design shows that Claude still accepts duplicate or last-wins
+  authoritative restriction controls through `extra`, and that a different
+  resumed root can suppress a launch row without overriding an otherwise
+  successful invocation result. The tasks now name the missing provider-local
+  validation, shared terminal guard and distinguishing tests. No tasks-phase
+  edit pretends those production fixes or checks have already run.
 - **10.5–10.8, live provider proof, and 11.1–11.4, the enablement they
   gate.** This seat's sandbox refuses to *execute* any provider CLI.
   `claude`, `codex`, `dsh` and `claude-lanetally` all resolve on PATH —
