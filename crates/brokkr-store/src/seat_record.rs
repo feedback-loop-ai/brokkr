@@ -25,11 +25,13 @@ const SCHEMA_V1: &str = include_str!("seat-record.v1.schema.json");
 const SCHEMA_V2: &str = include_str!("seat-record.v2.schema.json");
 const SCHEMA_V3: &str = include_str!("seat-record.v3.schema.json");
 const SCHEMA_V4: &str = include_str!("seat-record.v4.schema.json");
+const SCHEMA_V5: &str = include_str!("seat-record.v5.schema.json");
 
 const CONTRACT_V1: &str = "contracts/seat-record.v1.schema.json";
 const CONTRACT_V2: &str = "contracts/seat-record.v2.schema.json";
 const CONTRACT_V3: &str = "contracts/seat-record.v3.schema.json";
 const CONTRACT_V4: &str = "contracts/seat-record.v4.schema.json";
+const CONTRACT_V5: &str = "contracts/seat-record.v5.schema.json";
 
 /// The engine line in which seat-record v2 landed. A run whose
 /// `run/started` manifest names an older engine is read under v1.
@@ -63,6 +65,22 @@ const V2_ENGINE: (u64, u64, u64) = (0, 8, 0);
 /// v3, and every engine before the line is dispatched to v3 exactly.
 const V4_ENGINE: (u64, u64, u64) = (0, 9, 0);
 
+/// The engine line in which seat-record v5 landed (proposed decision
+/// 0056 ruling 7, under the `boundary-record` requirement's amended
+/// dispatch). Drawn at the 0.10 line on the same argument as `V2_ENGINE`
+/// and `V4_ENGINE`: `engine` carries no position within a line, v5 adds
+/// only optional properties and widens only existing enums, so every
+/// record the shipped 0.10.0 engine already wrote — the codex launch row
+/// carrying `launch: resumed` with no root among them — validates under
+/// v5 exactly as it did under v4, and every engine before the line is
+/// dispatched to v4 exactly.
+///
+/// The two conditions v5 adds are scoped on `site_ref`, the one
+/// within-row fact only an engine enacting 0056 writes, precisely so
+/// that widening this boundary to cover already-written 0.10.0 rows
+/// refuses none of them.
+const V5_ENGINE: (u64, u64, u64) = (0, 10, 0);
+
 /// Which seat-record contract a record is judged against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeatRecordVersion {
@@ -70,6 +88,7 @@ pub enum SeatRecordVersion {
     V2,
     V3,
     V4,
+    V5,
 }
 
 impl SeatRecordVersion {
@@ -84,8 +103,10 @@ impl SeatRecordVersion {
         // stays a published, pinned contract and a version a caller can
         // name directly to judge a record against it; it is simply never
         // what dispatch chooses. `V2_ENGINE` still draws v1's boundary,
-        // and `V4_ENGINE` draws v3's (decision 0046).
+        // `V4_ENGINE` draws v3's (decision 0046), and `V5_ENGINE` draws
+        // v4's (proposed decision 0056 ruling 7).
         match semver_triple(engine) {
+            Some(version) if version >= V5_ENGINE => SeatRecordVersion::V5,
             Some(version) if version >= V4_ENGINE => SeatRecordVersion::V4,
             Some(version) if version >= V2_ENGINE => SeatRecordVersion::V3,
             _ => SeatRecordVersion::V1,
@@ -100,6 +121,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V2 => CONTRACT_V2,
             SeatRecordVersion::V3 => CONTRACT_V3,
             SeatRecordVersion::V4 => CONTRACT_V4,
+            SeatRecordVersion::V5 => CONTRACT_V5,
         }
     }
 
@@ -109,6 +131,7 @@ impl SeatRecordVersion {
             SeatRecordVersion::V2 => SCHEMA_V2,
             SeatRecordVersion::V3 => SCHEMA_V3,
             SeatRecordVersion::V4 => SCHEMA_V4,
+            SeatRecordVersion::V5 => SCHEMA_V5,
         }
     }
 }
@@ -141,6 +164,7 @@ static VALIDATOR_V1: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V2: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V3: OnceLock<jsonschema::Validator> = OnceLock::new();
 static VALIDATOR_V4: OnceLock<jsonschema::Validator> = OnceLock::new();
+static VALIDATOR_V5: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 fn compile(version: SeatRecordVersion) -> jsonschema::Validator {
     let schema: Value =
@@ -154,6 +178,7 @@ fn validator(version: SeatRecordVersion) -> &'static jsonschema::Validator {
         SeatRecordVersion::V2 => VALIDATOR_V2.get_or_init(|| compile(SeatRecordVersion::V2)),
         SeatRecordVersion::V3 => VALIDATOR_V3.get_or_init(|| compile(SeatRecordVersion::V3)),
         SeatRecordVersion::V4 => VALIDATOR_V4.get_or_init(|| compile(SeatRecordVersion::V4)),
+        SeatRecordVersion::V5 => VALIDATOR_V5.get_or_init(|| compile(SeatRecordVersion::V5)),
     }
 }
 
@@ -280,6 +305,7 @@ mod tests {
             (CONTRACT_V2, SCHEMA_V2),
             (CONTRACT_V3, SCHEMA_V3),
             (CONTRACT_V4, SCHEMA_V4),
+            (CONTRACT_V5, SCHEMA_V5),
         ] {
             let published = std::fs::read(workspace.join(relative)).unwrap();
             assert_eq!(
@@ -447,9 +473,16 @@ mod tests {
         // 0.9 line and everything after it reads v4.
         assert_eq!(SeatRecordVersion::of_engine("0.9.0"), SeatRecordVersion::V4);
         assert_eq!(SeatRecordVersion::of_engine("0.9.1"), SeatRecordVersion::V4);
+        // Proposed decision 0056 ruling 7 moved the top of this ladder:
+        // the 0.10 line and everything after it reads v5, on the same
+        // superset argument, so a release-candidate of 1.0.0 does too.
         assert_eq!(
             SeatRecordVersion::of_engine("1.0.0-rc.1"),
-            SeatRecordVersion::V4
+            SeatRecordVersion::V5
+        );
+        assert_eq!(
+            SeatRecordVersion::of_engine("0.10.0"),
+            SeatRecordVersion::V5
         );
         assert_eq!(SeatRecordVersion::of_engine("0.7.9"), SeatRecordVersion::V1);
         assert_eq!(SeatRecordVersion::of_engine("0.7"), SeatRecordVersion::V1);
@@ -577,6 +610,248 @@ mod tests {
             ),
         ])
         .unwrap();
+    }
+
+    /// A confirmed root, as proposed decision 0056 ruling 3 records it:
+    /// the complete provider id, the version OBSERVED when it opened,
+    /// and whether that root persists.
+    fn root(id: &str) -> Value {
+        json!({
+            "kind":"claude-session", "id": id,
+            "harness_version":"2.1.266", "persistent": true
+        })
+    }
+
+    const SITE: &str = "5c1e0000000000000000000000000000000000000000000000000000000051fe";
+    const INSTANCE: &str = "1a2b000000000000000000000000000000000000000000000000000000003c4d";
+
+    /// v5's three added fields and five added refusal tokens are v5's
+    /// and only v5's: v4 is a closed schema, so each is refused under it
+    /// rather than quietly admitted. This is the same test the effort
+    /// and boundary fields each got when they landed.
+    #[test]
+    fn the_root_the_stamps_and_the_new_refusals_belong_to_v5_alone() {
+        let launched = json!({
+            "step":"harness-started", "harness":"claude", "launch":"resumed",
+            "site_ref": SITE, "instance_ref": INSTANCE,
+            "root_session": root("019c4b7e-0000-7000-8000-000000000001")
+        });
+        validate_seat_record(&launched, 5, SeatRecordVersion::V5).unwrap();
+        assert_eq!(
+            validate_seat_record(&launched, 5, SeatRecordVersion::V4)
+                .unwrap_err()
+                .contract,
+            CONTRACT_V4,
+            "v4 is closed: a v5-only field is refused, never quietly admitted"
+        );
+
+        for token in [
+            "unsupported-resume",
+            "unverified-harness",
+            "restrictions-unavailable",
+            "instance-changed",
+            "nonpersistent-session",
+        ] {
+            let row = json!({
+                "step":"harness-started", "launch":"cold", "resume_refusal": token
+            });
+            validate_seat_record(&row, 6, SeatRecordVersion::V5).unwrap();
+            assert!(
+                validate_seat_record(&row, 6, SeatRecordVersion::V4).is_err(),
+                "{token} is v5's own token"
+            );
+        }
+        // The five v4 tokens keep their meaning under v5.
+        for token in [
+            "invalid-session-id",
+            "sandbox-unavailable",
+            "unsupported-sandbox",
+            "incompatible-argv",
+            "harness-refused",
+        ] {
+            validate_seat_record(
+                &json!({"step":"harness-started", "launch":"cold", "resume_refusal": token}),
+                6,
+                SeatRecordVersion::V5,
+            )
+            .unwrap();
+        }
+    }
+
+    /// The bounds on a root, each one a hazard rather than a formality:
+    /// an over-long or flag-shaped id would be truncated or read as a
+    /// selector, and a permission mode offered as a `sandbox` is a
+    /// vocabulary from another provider (design D4 declines it).
+    #[test]
+    fn a_root_is_bounded_closed_and_never_another_providers_vocabulary() {
+        for invalid in [
+            json!({"step":"s", "root_session":{
+                "kind":"claude-session", "id":"a".repeat(81),
+                "harness_version":"2.1.266", "persistent": true}}),
+            json!({"step":"s", "root_session":{
+                "kind":"claude-session", "id":"--resume",
+                "harness_version":"2.1.266", "persistent": true}}),
+            json!({"step":"s", "root_session":{
+                "kind":"claude-session", "id":"",
+                "harness_version":"2.1.266", "persistent": true}}),
+            // A kind the mapping does not name, and the transcript's
+            // `none` is not a root kind.
+            json!({"step":"s", "root_session":{
+                "kind":"none", "id":"abc",
+                "harness_version":"2.1.266", "persistent": true}}),
+            // Every required part is required: absence is not "unknown".
+            json!({"step":"s", "root_session":{"kind":"claude-session", "id":"abc"}}),
+            json!({"step":"s", "root_session":{
+                "kind":"claude-session", "id":"abc",
+                "harness_version":"2.1.266", "persistent":"yes"}}),
+            // Closed: no field behind the four this contract admits.
+            json!({"step":"s", "root_session":{
+                "kind":"claude-session", "id":"abc", "harness_version":"2.1.266",
+                "persistent": true, "home":"/home/someone/.claude"}}),
+            // The stamps are digests, not display tags.
+            json!({"step":"s", "site_ref":"implement:alpha"}),
+            json!({"step":"s", "instance_ref":"ABCD"}),
+            // Codex's three classes, and nothing from another provider.
+            json!({"step":"s", "sandbox":"acceptEdits"}),
+        ] {
+            assert!(
+                validate_seat_record(&invalid, 7, SeatRecordVersion::V5).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    /// The compatibility rule v5 exists to keep (design D4's superset
+    /// rule, task repairs F1 and F5): the 0.10 line dispatches to v5, so
+    /// v5 also judges rows the shipped 0.10.0 engine ALREADY wrote. An
+    /// unconditional resumed-requires-root rule would have refused them
+    /// at append, export, import verification and offline verification.
+    /// Both new conditions are therefore scoped on `site_ref`, the one
+    /// within-row fact only an engine enacting 0056 writes.
+    ///
+    /// The refusal-bearing rows are synthetic contract counterexamples,
+    /// not observed provider telemetry: one validator behind
+    /// `lib.rs`'s fence judges third-party driver checkpoints too, and
+    /// v4 admits `launch` and `resume_refusal` independently over a free
+    /// `step` string, so both shapes are valid v4 rows a driver outside
+    /// this tree could have written.
+    #[test]
+    fn valid_unstamped_history_survives_v5_and_a_stamped_row_does_not() {
+        // Exactly what shipped `codex_started` writes on a rejoin.
+        let historical = json!({
+            "step":"harness-started", "harness":"codex",
+            "launch":"resumed", "sandbox":"workspace-write"
+        });
+        // The two shapes a third-party driver could have written under
+        // v4, which an unconditional rule would newly refuse.
+        let bare_refusal = json!({"step":"resume-declined", "resume_refusal":"incompatible-argv"});
+        let resumed_with_refusal = json!({
+            "step":"harness-started", "launch":"resumed",
+            "resume_refusal":"incompatible-argv"
+        });
+
+        for unstamped in [&historical, &bare_refusal, &resumed_with_refusal] {
+            validate_seat_record(unstamped, 2, SeatRecordVersion::V4).unwrap();
+            validate_seat_record(unstamped, 2, SeatRecordVersion::V5)
+                .unwrap_or_else(|e| panic!("{unstamped} must stay valid under v5: {e}"));
+
+            // The same row, once this engine stamps it, IS refused.
+            let mut stamped = unstamped.clone();
+            stamped["site_ref"] = json!(SITE);
+            let refused = validate_seat_record(&stamped, 3, SeatRecordVersion::V5).unwrap_err();
+            assert_eq!((refused.seq, refused.path.as_str()), (3, "/"));
+            assert_eq!(refused.contract, CONTRACT_V5);
+        }
+
+        // A stamped row that obeys both conditions is admitted.
+        validate_seat_record(
+            &json!({
+                "step":"harness-started", "harness":"codex", "launch":"resumed",
+                "site_ref": SITE, "instance_ref": INSTANCE,
+                "root_session":{"kind":"codex-thread", "id":"019c4b7e",
+                                "harness_version":"0.153.4", "persistent": true}
+            }),
+            4,
+            SeatRecordVersion::V5,
+        )
+        .unwrap();
+        validate_seat_record(
+            &json!({
+                "step":"harness-started", "launch":"cold",
+                "resume_refusal":"unverified-harness", "site_ref": SITE
+            }),
+            5,
+            SeatRecordVersion::V5,
+        )
+        .unwrap();
+    }
+
+    /// The whole dispatch matrix at all four version boundaries, and the
+    /// one direction that matters for the amended `boundary-record`
+    /// requirement: a v5-only field under a 0.9-line manifest is refused
+    /// under v4 rather than selecting v5 from its presence. There is no
+    /// per-record version marker; the run's engine decides.
+    #[test]
+    fn the_zero_ten_line_reads_v5_and_the_nine_line_still_reads_v4() {
+        for (engine, want) in [
+            ("0.7.9", SeatRecordVersion::V1),
+            ("0.8.0", SeatRecordVersion::V3),
+            ("0.8.99", SeatRecordVersion::V3),
+            ("0.9.0", SeatRecordVersion::V4),
+            ("0.9.1", SeatRecordVersion::V4),
+            ("0.9.99", SeatRecordVersion::V4),
+            ("0.10.0", SeatRecordVersion::V5),
+            ("0.10.1", SeatRecordVersion::V5),
+            ("1.0.0", SeatRecordVersion::V5),
+            ("not a version", SeatRecordVersion::V1),
+        ] {
+            assert_eq!(SeatRecordVersion::of_engine(engine), want, "{engine}");
+        }
+
+        let stamped = event(
+            2,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint":{"step":"harness-started", "site_ref": SITE}}),
+        );
+        validate_events(&[started("0.10.0"), stamped.clone()]).unwrap();
+        let refused = validate_events(&[started("0.9.1"), stamped]).unwrap_err();
+        assert_eq!((refused.seq, refused.contract), (2, CONTRACT_V4));
+
+        // The tagged 0.9.0/0.9.1 no-boundary example stays exactly what
+        // it was: v5's arrival moves nothing in the 0.9 line.
+        validate_events(&[
+            started("0.9.1"),
+            event(
+                2,
+                EventType::EffectCheckpointed,
+                json!({"checkpoint":{"step":"seat-turn", "turn":1, "model":"claude-opus-5"}}),
+            ),
+        ])
+        .unwrap();
+
+        // v5 keeps the boundary's authority and its refusal behavior.
+        validate_events(&[
+            started("0.10.0"),
+            event(
+                2,
+                EventType::EffectCheckpointed,
+                json!({"checkpoint":{
+                    "step":"harness-started", "model":"claude-opus-5",
+                    "boundary":"namespace", "site_ref": SITE
+                }}),
+            ),
+        ])
+        .unwrap();
+        let refused = validate_events(&[
+            started("0.10.0"),
+            event(
+                2,
+                EventType::EffectSucceeded,
+                json!({"result":{"result":"pass", "model":"claude-opus-5", "boundary":"chroot"}}),
+            ),
+        ])
+        .unwrap_err();
+        assert_eq!((refused.seq, refused.contract), (2, CONTRACT_V5));
     }
 
     /// The dispatch, exercised both ways over the same record: a run

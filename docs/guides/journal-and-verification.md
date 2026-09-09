@@ -111,10 +111,63 @@ engine will not guess at.
 LaneTally join surface, computed from journal checkpoints with stable
 seat ids.
 
+## Seat record v5: the launch, its root, and the two engine stamps
+
+`contracts/seat-record.v5.schema.json` is `v4`'s vocabulary plus three
+optional checkpoint properties and five refusal tokens (proposed
+decision [0056](../decisions/0056-same-instance-session-resumption.md)
+ruling 7):
+
+- **`site_ref`** and **`instance_ref`** — the engine's two structural
+  stamps, 64 lowercase hex each. The first says *which* invocation site
+  wrote the row: outer seat, selected case, body kind and the full
+  member/step path, so a label reused under a different parent is a
+  different site. The second says *whose* it was: the agent, provider,
+  model, effort and chain index, the driver identity and pinned command
+  template, the adapter declaration, the engine, the pinned bundle, the
+  class, the boundary and the hands declaration. Both are stamped by the
+  engine on exactly the terms `boundary` already is — a record that
+  names a `model` carries them, a record that names none carries
+  neither, and a value a driver wrote is replaced. Neither carries a
+  resolved credential, a provider-home path or a private argv.
+- **`root_session`** — the provider-confirmed root a launch stood on: its
+  `kind` (`codex-thread`, `claude-session` or `dsh-session`), its
+  complete `id`, the `harness_version` OBSERVED when it opened, an
+  optional `wrapper_digest`, and whether it is `persistent`. Distinct
+  from decision 0032's `transcript`, which is a retained locator: a
+  storage directory is not a provider handle.
+- Five refusal tokens beside v4's five: `unsupported-resume`,
+  `unverified-harness`, `restrictions-unavailable`, `instance-changed`
+  and `nonpersistent-session`. `launch` keeps its two words, and
+  `sandbox` keeps codex's three classes — a permission mode from
+  another provider is not admitted there.
+
+**The dispatch, and what it does not do.** The store selects v5 for the
+0.10 engine line and later, v4 for the 0.9 line, v3 for the 0.8 line and
+v1 for older or unparseable engines — identically at append, export,
+import verification and offline verification, because a record is
+validated against the version its run's engine wrote and there is no
+per-record version marker. That boundary covers rows the shipped 0.10.0
+engine ALREADY wrote, including a codex launch row carrying
+`launch: resumed` with no root. So v5's two new conditions are scoped on
+`site_ref`, the one within-row fact only an engine enacting 0056 writes:
+a *stamped* row that says it resumed carries its root, and a *stamped*
+row names a refused offer only beside the cold launch that refusal
+produced. An unstamped row keeps its v4 meaning exactly, and no valid
+v1–v4 row is rewritten, back-filled or newly refused — the tagged 0.9.0
+and 0.9.1 journals that carry no `boundary` included. The unconditional
+form of both conditions binds where the records are produced, in the
+adapter's launch lifecycle, because one validator judges third-party
+driver checkpoints as well as this tree's.
+
+Published and embedded v1–v4 bytes do not move; v5 lands beside them as
+a new numbered file, which is the only way a frozen contract ever
+changes.
+
 ## The boundary on the record, and the word *unboxed*
 
 Every seat record that names a `model` carries `boundary` beside it
-(`seat-record.v4`, decision
+(`seat-record.v4` and, from the 0.10 line, `seat-record.v5`; decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 3): one of
 `namespace`, `seatbelt`, `container`, `harness` or `open` — the realm's
 word for what stood between that seat's hands and the machine — or

@@ -62,5 +62,33 @@
       "--allowedTools",
       "mcp__brokkr__workspace"
     ]
+  },
+  "resume": {
+    "boxed-workspace": {
+      "status": "unmeasured",
+      "identity": {
+        "version": "2.1.266",
+        "applies_to": "2.1.266"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "namespace",
+        "seatbelt",
+        "container"
+      ],
+      "hands": "boxed",
+      "evidence": {
+        "interface": ".forge/controller-host-provider-interface.json (2026-09-09) and the installed 2.1.266 help: -r/--resume [value], --permission-mode, --tools, --strict-mcp-config, --mcp-config, --allowedTools, --no-session-persistence, --system-prompt-snapshot"
+      },
+      "reason": "the interface is captured but nothing has been measured about a RESUMED invocation: whether --permission-mode, --tools \"\", --strict-mcp-config and the boxed workspace fragment are actually enforced on a rejoin is exactly what decision 0030 found codex silently dropping",
+      "limitations": [
+        "no measurement of root-opening semantics on a rejoin: that --resume <id> continues that exact session rather than starting a copy is asserted by help, not observed",
+        "no measurement of current-only accounting: whether a resumed print stream replays historical turns is unknown, so the accounting evidence reference is absent",
+        "--system-prompt-snapshot defaults to on and replays the recorded prompt verbatim on every resume, so the current task stays on the current user-input path",
+        "--bg with --resume may start a COPY of a running session, per the installed help; background, cloud, teleport, worktree, fork and continue selectors are refused on every path"
+      ]
+    }
   }
 }

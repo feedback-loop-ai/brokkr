@@ -1038,3 +1038,97 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
         .is_ok());
     }
 }
+
+/// Proposed decision 0056 ruling 1 (design D2): two structurally
+/// different sites of one selected body may not flatten to one address.
+///
+/// The hazard is not the resume digest — that is derived from structure
+/// and cannot alias. It is everything that already keys on the FLAT
+/// label: `select_candidates` inserts it into a `BTreeMap`, `argv_for`
+/// selects by it, and `site_boundary` and `mark_hands` read
+/// `bundle.hands` under it. Step `a:b` with member `c` and step `a` with
+/// member `b:c` both spell `a:b:c`, so one site would answer for the
+/// other's candidate, hands identity and boundary. An ambiguous bundle
+/// fails before spawn, naming both.
+#[test]
+fn two_sites_that_flatten_to_one_address_are_refused_at_compile_time() {
+    // A panel of two, twice: only the FIRST step declares its own
+    // vocabulary — the final step is the seat boundary and receives the
+    // seat's.
+    let step = |name: &str, first: &str, second: &str, results: Option<Value>| {
+        let mut step = json!({
+            "name": name, "aggregate": "unanimous-pass",
+            "panel": {
+                first: {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+                second: {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+            },
+        });
+        if let Some(results) = results {
+            step["results"] = results;
+        }
+        step
+    };
+    let seat = |steps: Value| {
+        let mut config = Fixture::config();
+        config["seats"]["work"] = json!({"results": ["pass", "fail"], "sequence": steps});
+        config
+    };
+    let mut policy = Fixture::policy();
+    policy["rules"][0]["result"] = json!("pass");
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"WORK-FAIL", "from":"work", "result":"fail", "next":"review",
+        "reason":"the panel did not agree"
+    }));
+
+    let fixture = Fixture::new();
+    let config = seat(json!([
+        step("a:b", "c", "other", Some(json!(["pass", "fail"]))),
+        step("a", "b:c", "another", None),
+    ]));
+    let message = error(fixture.compile(&config, &policy));
+    assert!(
+        message.contains("addresses two different sites as 'a:b:c'"),
+        "{message}"
+    );
+    assert!(message.contains("member 'c' of step 'a:b'"), "{message}");
+    assert!(message.contains("member 'b:c' of step 'a'"), "{message}");
+
+    // The ordinary case the check must NOT touch: the same member name
+    // under two different steps. `review:alpha` and `design:alpha` are
+    // two distinct strings, and nothing about repeated member names,
+    // chain progression or the historical meaning of a display tag
+    // moves.
+    let fixture = Fixture::new();
+    let config = seat(json!([
+        step("review", "alpha", "beta", Some(json!(["pass", "fail"]))),
+        step("design", "alpha", "beta", None),
+    ]));
+    assert!(fixture.compile(&config, &policy).is_ok());
+}
+
+/// And every bundle this tree ships walks clean, which is the other half
+/// of the same check: a rule that refused a shipped recipe would be a
+/// rule nobody could adopt.
+#[test]
+fn every_shipped_bundle_addresses_its_sites_unambiguously() {
+    let root = workspace_root();
+    for directory in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(directory)).unwrap() {
+            let path = entry.unwrap().path();
+            if !path.join("bundle.json").is_file() {
+                continue;
+            }
+            let bundle = Bundle::compile_with(&path, &root.join("agents"), &root.join("adapters"));
+            // A recipe that needs a realm dialect refuses for that
+            // reason, not this one; what is asserted here is that NO
+            // bundle refuses for an ambiguous address.
+            if let Err(error) = bundle {
+                assert!(
+                    !error.to_string().contains("addresses two different sites"),
+                    "{}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+}

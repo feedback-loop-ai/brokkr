@@ -160,34 +160,40 @@ fn workspace() -> PathBuf {
 /// This correction moves the two triage descendants together: artifact
 /// validation retries now bind to journal-counted failures instead of every
 /// return into the phase.
+/// Proposed decision 0056 moves every bundle whose sites resolve through
+/// `adapters/claude.json`, `adapters/codex.json`, `adapters/dsh.json` or
+/// `adapters/lanetally.json`: each now declares what has been MEASURED
+/// about resuming it, and an adapter declaration is bundle data. Only
+/// `recipes/research-dsh` is unmoved, because its lane resolves through
+/// no declaration this change edited.
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
-        "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
+        "009c0c243996bfa170049b2cf4a038383bb06c57da0a34af1a61f2ab985be0cf",
     ),
     (
         "recipes/node",
-        "130f25c37f1a381fda5bb298dd9ddc9db376747d77bd139ec0c2f24f4983db94",
+        "6806cd4f876f1a6e453382c4833cb684f4c09d20f78f8f2d3de9ccca72bce16d",
     ),
     (
         "recipes/preflight",
-        "055613a1c359e83b8e15374a4a2408d84d931c6e1d4ce73245d5859d96329f9f",
+        "7c068bfb50a2d341d1eb6e51cdd3b95e3f19a6a023b514005cb2ae7723c6ac55",
     ),
     (
         "recipes/night-shift",
-        "ef129108b90730c2327aac50a13bdcfd2cfb43791885f02371896da6982e2d1e",
+        "8b04dc683c781bceae87681299665eb7625b1143c9bb6c056c15273ed8d45272",
     ),
     (
         "recipes/wager-harness",
-        "e32e6e449f0243fb0620e68673c7209bf1323f792c84cf3e5e3be0f56ae1dd50",
+        "6bb20130c6814516b72421531ba29473bb1aac3654ce9afccc616942f1098939",
     ),
     (
         "recipes/triage",
-        "9b206fac6916f148655e0c4ef12f77cd1c2a3fdbe7b9f9b46289bc0eac5ea2e2",
+        "81e1e76eed90176479f20b449c7b9ac482bbb63bdc8fb23f6f48ac4ebed814d6",
     ),
     (
         "recipes/research",
-        "79502fc17ade00d84a6eff8185a8c5d05740be2e0dffc277f3ebcdc8e8eaadaf",
+        "4bdb4a6561d5fd621beb2252db312f4ee0fd58517406eca5848bb8480e7b8418",
     ),
     (
         "recipes/research-dsh",
@@ -195,7 +201,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "bundles/verify",
-        "3983105a23fa0070ff10ed79c009fa37a23e2cb79fda0ddcf005d44c17d9eb0d",
+        "ff6b15429d9fadd82f047541418cf1c3ff9c3ed8152cd67848846cecc5647f0e",
     ),
 ];
 

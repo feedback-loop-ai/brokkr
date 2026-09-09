@@ -48,5 +48,27 @@
   },
   "hands": {
     "unsupported": "the LaneTally session-capture wrapper passes flags through to claude, but the pass-through of --mcp-config, --tools and --strict-mcp-config has not been measured; unsupported until it is."
+  },
+  "resume": {
+    "wrapper-work-site": {
+      "status": "unmeasured",
+      "identity": {
+        "unknown": "no wrapper measurement exists: the installed claude-lanetally has no captured version, and no LaneTally version command is invented to obtain one"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "harness",
+        "open",
+        "not applicable"
+      ],
+      "hands": "none",
+      "reason": "a wrapper is qualified on its own wrapper, never on what it wraps; claude's captured interface says nothing about what this wrapper forwards, and support by analogy is exactly what this field refuses",
+      "limitations": [
+        "unmeasured: the wrapper's identity, what it forwards to claude, how the underlying claude version is read through a measured interface, and where the ledger capture marker is attributed on a rejoin",
+        "the hands deferral above is a separate matter and is not what blocks this shape"
+      ]
+    }
   }
 }

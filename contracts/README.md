@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v4.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v5.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -503,3 +503,36 @@ annotation present is byte-identical to the same run folded without it. What
 reads it is `brokkr_view::residual_findings`, which marks the named findings
 as superseded and leaves them in the journal and in every readout — a
 superseded finding is closed, never deleted.
+
+Proposed decision 0056 (same-instance session resumption) adds one file and
+changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Seat record with the confirmed root and the engine's two structural stamps | `seat-record.v5.schema.json` | the adapters' launch lifecycle, the engine's stamp, brokkr-store append/export/verify, every seat readout |
+
+`seat-record.v5` is `v4`'s vocabulary plus three optional properties on the
+checkpoint — `site_ref` and `instance_ref`, the engine's structural site and
+owner digests, and `root_session`, the closed object naming the
+provider-confirmed root a rejoin stands on (its `kind`, its complete `id`,
+the `harness_version` OBSERVED when it opened, an optional `wrapper_digest`,
+and whether it is `persistent`) — plus five refusal tokens beside v4's five:
+`unsupported-resume`, `unverified-harness`, `restrictions-unavailable`,
+`instance-changed` and `nonpersistent-session`. `launch` keeps its two words
+and `sandbox` keeps codex's three classes; a permission mode from another
+provider is not admitted there. `v4` is not edited; its bytes are pinned by
+the embedded-copy test and by `frozen_contracts.rs`, and did not move.
+
+The store dispatches the 0.10 engine line and later to v5, the 0.9 line to
+v4 and the 0.8 line to v3, on the same rule every version before it stated:
+a record is validated against the version its run's engine wrote, at append,
+export, import verification and offline verification alike. That boundary
+covers rows the shipped 0.10.0 engine ALREADY wrote — the codex launch row
+carrying `launch: resumed` with no root among them — so v5's two new
+conditions are scoped on `site_ref`, the one within-row fact only an engine
+enacting 0056 writes: a *stamped* row that says it resumed carries its root,
+and a *stamped* row names a refused offer only beside the cold launch that
+refusal produced. An unstamped row keeps its v4 meaning exactly. The
+unconditional form of both binds where the records are produced, in the
+adapter's launch lifecycle, because one validator judges third-party driver
+checkpoints as well as this tree's.

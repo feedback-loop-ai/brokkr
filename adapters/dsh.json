@@ -46,5 +46,32 @@
   "mcp": "unsupported",
   "hands": {
     "unsupported": "dsh 0.1.0-rc.6 replaces its tool surface only through a profile plugin (presentAs/restrict/guard/register on the scoped tools service); no CLI flag disables its shell and file tools or adds an MCP server, so the one boxed tool cannot be expressed without a plugin. Re-measured on 0.1.2-rc.1 (2026-09-04): the launcher and headless flags are unchanged; the tools plugin reads a DSH_TOOLS_MODE environment value whose vocabulary the release does not document, so it is not relied on. The plugin is the next slice."
+  },
+  "resume": {
+    "headless-work": {
+      "status": "unsupported",
+      "identity": {
+        "version": "0.1.2-rc.1",
+        "applies_to": "0.1.2-rc.1"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "not applicable"
+      ],
+      "hands": "none",
+      "evidence": {
+        "interface": ".forge/controller-dsh-resume-source-interface.json (2026-09-09): 40 hashed installed source files"
+      },
+      "reason": "the headless runner mints its own agent: lib/index.js calls agents.create with session-${randomUUID()} and applies its followup to that agent, and its whole config schema is {task}",
+      "limitations": [
+        "the launcher's --resume <session> appears only in a TUI-profile example and reaches the app verbatim; headless startup parses one positional, the task, and --help",
+        "dsh-agent-loop admits Config.agents[].resumeSessionId and dsh-agent exposes agents.resume, but they restore a CONFIGURED agent and the headless caller does not run its admitted task on that agent",
+        "closing that gap needs a mechanism this change is not authorized to use: replacing the installed runner plugin, monkey-patching agents.create, overriding UUID generation, editing the installed package or substituting the TUI",
+        "the retained per-invocation transcript directory is a locator, not a provider handle; no measured equivalence exists",
+        "the separate hands/tools plugin deferral above is a different matter and is not what blocks this shape"
+      ]
+    }
   }
 }

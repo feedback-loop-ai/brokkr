@@ -561,7 +561,29 @@ fn adapter_json(grants: &Grants) -> String {
         "efforts": ["low", "medium", "high", "xhigh", "max"],
         "effort_flag": "--effort",
         "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
-        "mcp": {"flag": "--mcp-config", "servers": {}}
+        "mcp": {"flag": "--mcp-config", "servers": {}},
+        // What has been MEASURED about resuming this provider here, in
+        // this workspace, on this machine: nothing (proposed decision
+        // 0056 ruling 5). The scaffold could omit the key — absence
+        // reads as unmeasured and enables nothing — and writes it
+        // anyway, because a stranger's first adapter should show the
+        // shape a measurement would go into, and because "nobody has
+        // looked" is a different statement from "we looked and it
+        // cannot". Filling it in is the operator's own measurement, and
+        // only a `supported` entry naming a measured version and all
+        // four evidence references ever enables a rejoin.
+        "resume": {
+            "boxed-workspace": {
+                "status": "unmeasured",
+                "identity": {"unknown": "this workspace has measured no resumed invocation"},
+                "classes": ["work"],
+                "boundaries": ["namespace", "seatbelt", "container"],
+                "hands": "boxed",
+                "reason": "scaffolded, never measured: whether a resumed session enforces \
+                           this seat's permission mode, tool list and MCP config is exactly \
+                           what has to be observed before a retry may rejoin one"
+            }
+        }
     });
     format!(
         "{}\n",

@@ -299,6 +299,32 @@ fn names_map(bundle: &Path) -> Value {
         .clone()
 }
 
+/// Proposed decision 0056 ruling 5: a scaffolded workspace declares the
+/// same assessment shape every shipped adapter does, and declares it
+/// honestly — unmeasured, with an explicitly unknown identity and its
+/// reason. It loads, it compiles, and it enables nothing.
+#[test]
+fn the_scaffolded_adapter_declares_an_honest_unmeasured_resume_assessment() {
+    let (_dir, bundle) = scaffold_from("rust");
+    let adapter = read_json(&bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json"));
+    let shape = &adapter["resume"]["boxed-workspace"];
+    assert_eq!(shape["status"], "unmeasured");
+    assert!(
+        shape["identity"]["unknown"].is_string(),
+        "the identity is explicitly unknown, not invented: {shape}"
+    );
+    assert!(
+        shape["identity"].get("version").is_none(),
+        "a scaffold has measured no version to claim: {shape}"
+    );
+    assert!(
+        shape["reason"].as_str().is_some_and(|r| !r.is_empty()),
+        "and it says what has not been measured: {shape}"
+    );
+    // It loads, and the seat it serves compiles and would invoke cold.
+    compiles(&bundle);
+}
+
 /// Compile the scaffold against ITS OWN roots — the property init proves
 /// when it prints its digest, asserted here from the outside.
 fn compiles(bundle: &Path) -> Bundle {

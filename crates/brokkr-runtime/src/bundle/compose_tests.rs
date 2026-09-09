@@ -1051,22 +1051,27 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// declared tool vocabulary gained `webfetch` and `websearch`, and every
 /// bundle here pins that adapter through an agent or an inline gate. No
 /// recipe charter, table or hire moved.
+/// Proposed decision 0056 moves all four again for the same reason: the
+/// `resume` assessment is adapter DATA, so it rides the declaration
+/// digest every one of these bundles pins. That is not incidental — a
+/// declaration edit moving bundle identity is what makes an in-flight
+/// run refuse the offer rather than resume under a changed rule.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
+        "009c0c243996bfa170049b2cf4a038383bb06c57da0a34af1a61f2ab985be0cf",
     ),
     (
         "recipes/panel-review",
-        "1cbd4b2047d568fe8bf7335d39715a551a37c2718934f9c3d937586aebe36122",
+        "51d6a2911cfb2616e4417823da74e6fa79eeda64ba63b98c64fcc2e69ee6135a",
     ),
     (
         "bundles/self",
-        "d1de6784822d55081e786d064065f153309677119a7684dd62ed721e0aab9e4f",
+        "121c421967b077042e47e7d9d37ac9adac088d492ea16af3b1d9115d276467b7",
     ),
     (
         "bundles/verify",
-        "3983105a23fa0070ff10ed79c009fa37a23e2cb79fda0ddcf005d44c17d9eb0d",
+        "ff6b15429d9fadd82f047541418cf1c3ff9c3ed8152cd67848846cecc5647f0e",
     ),
 ];
 
@@ -1182,7 +1187,12 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "9b206fac6916f148655e0c4ef12f77cd1c2a3fdbe7b9f9b46289bc0eac5ea2e2",
+        // Moved by proposed decision 0056: an adapter's `resume` assessment
+        // is adapter data, so it rides the declaration digest the manifest
+        // pins — which is exactly what makes a declaration edit spawn cold.
+        // Its ruling 10 moves it again through the SDD smith's charter,
+        // which every phase of this route resolves.
+        "81e1e76eed90176479f20b449c7b9ac482bbb63bdc8fb23f6f48ac4ebed814d6",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

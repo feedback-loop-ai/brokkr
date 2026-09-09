@@ -19,7 +19,8 @@ use thiserror::Error;
 
 use super::{
     valid_name, Adapter, Agent, EgressClass, HarnessHands, McpNeed, McpSupport, ResultDoor,
-    ToolPermissions, TrustTier, NAME_GRAMMAR,
+    ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus, ToolPermissions,
+    TrustTier, NAME_GRAMMAR,
 };
 use crate::bundle::Limits;
 
@@ -759,6 +760,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "tool_permissions",
             "mcp",
             "hands",
+            "resume",
         ],
         &what,
     )?;
@@ -898,7 +900,211 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hands_gap,
         harness,
         mcp,
+        resume: resume_assessment(map, &what)?,
         digest: sha256_bytes(&std::fs::read(path)?),
+    })
+}
+
+/// How long a measured reason, limitation or evidence reference may be.
+/// Bounded for the reason every other adapter-side string is: this data
+/// is pinned by the adapter digest and quoted in refusals, and an
+/// unbounded field there is a paragraph where a fact belongs. Wider than
+/// a tool name or a refusal token because these lines have to name a
+/// dated capture, a file and a line, or a measured behaviour — and a
+/// reason too short to be checkable is worse than none.
+const RESUME_TEXT_LIMIT: usize = 400;
+
+/// Proposed decision 0056 ruling 5's assessment, per named execution
+/// shape.
+///
+/// Two outcomes are held apart deliberately, and they are not the same
+/// outcome (task repairs F2 and F6):
+///
+/// - **Absent.** No `resume` key at all, or a shape this assessment does
+///   not name, resolves to `unmeasured`. The adapter loads, the site
+///   compiles and it invokes cold. Every adapter written before this
+///   ruling — including every `brokkr init` scaffold in the field — is
+///   in this arm, and none of them becomes an error.
+/// - **Present and malformed.** A bare `true`, a status outside the
+///   three tokens, a `supported` entry without a measured identity or
+///   missing one of its four evidence references, an `unsupported` entry
+///   with no measured reason, an assessment carrying neither identity
+///   form, an unknown identity with no reason: each is a REFUSAL naming
+///   the offending field, never a silent downgrade to `unmeasured`. An
+///   authoring error must not be able to pass itself off as honest
+///   ignorance.
+///
+/// An explicitly unknown identity inside a well-formed `unmeasured`
+/// entry is not malformed: it IS the honest declaration, and refusing it
+/// would make the preparatory declarations of an unmeasured shape
+/// unwritable. Neither outcome ever enables resume.
+fn resume_assessment(
+    map: &Map<String, Value>,
+    what: &str,
+) -> Result<ResumeAssessment, LibraryError> {
+    let Some(declared) = map.get("resume") else {
+        return Ok(ResumeAssessment::default());
+    };
+    let what = format!("{what} 'resume'");
+    let Some(shapes) = declared.as_object() else {
+        return invalid(format!(
+            "{what} must be an object of named execution shapes; a bare value cannot say \
+             WHICH shape was measured, and a shape nobody named enables nothing"
+        ));
+    };
+    let mut assessed = BTreeMap::new();
+    for (name, value) in shapes {
+        if !valid_name(name) {
+            return invalid(format!(
+                "{what} names shape '{name}', which does not match {NAME_GRAMMAR}"
+            ));
+        }
+        let what = format!("{what} '{name}'");
+        let raw = object(value, &what)?;
+        only_keys(
+            raw,
+            &[
+                "status",
+                "identity",
+                "classes",
+                "boundaries",
+                "hands",
+                "evidence",
+                "limitations",
+                "reason",
+            ],
+            &what,
+        )?;
+        let status = match raw.get("status").and_then(Value::as_str) {
+            Some("unmeasured") => ResumeStatus::Unmeasured,
+            Some("unsupported") => ResumeStatus::Unsupported,
+            Some("supported") => ResumeStatus::Supported,
+            _ => {
+                return invalid(format!(
+                    "{what} needs 'status': one of unmeasured, unsupported, supported"
+                ))
+            }
+        };
+        let identity = resume_identity(raw, &what)?;
+        let classes = string_array(raw, "classes", &what)?;
+        named(&classes, "classes", &what)?;
+        let boundaries = string_array(raw, "boundaries", &what)?;
+        let hands = string(raw, "hands", &what)?;
+        let evidence = resume_evidence(raw, &what)?;
+        let limitations = match raw.get("limitations") {
+            None => Vec::new(),
+            Some(_) => string_array(raw, "limitations", &what)?,
+        };
+        for limitation in &limitations {
+            bounded_reason(limitation, "limitations", &what)?;
+        }
+        let reason = match raw.get("reason") {
+            None => None,
+            Some(_) => {
+                let reason = string(raw, "reason", &what)?;
+                bounded_reason(&reason, "reason", &what)?;
+                Some(reason)
+            }
+        };
+        // The two rules that keep a declaration from enabling itself.
+        if status == ResumeStatus::Supported {
+            if !identity.is_measured() {
+                return invalid(format!(
+                    "{what} is 'supported' with an unknown identity; only a MEASURED identity \
+                     can support enablement, because the per-invocation version check needs a \
+                     pinned version to compare the observed one against"
+                ));
+            }
+            if !evidence.complete() {
+                return invalid(format!(
+                    "{what} is 'supported' and must name all four evidence references — \
+                     interface, restrictions, root, accounting; one of them does not imply \
+                     the others"
+                ));
+            }
+        }
+        if status == ResumeStatus::Unsupported && reason.is_none() {
+            return invalid(format!(
+                "{what} is 'unsupported' and needs its measured 'reason'; \"we looked and it \
+                 cannot\" is a different statement from \"nobody looked\""
+            ));
+        }
+        assessed.insert(
+            name.clone(),
+            ResumeShape {
+                status,
+                identity,
+                classes,
+                boundaries,
+                hands,
+                evidence,
+                limitations,
+                reason,
+            },
+        );
+    }
+    Ok(ResumeAssessment::new(assessed))
+}
+
+fn bounded_reason(text: &str, key: &str, what: &str) -> Result<(), LibraryError> {
+    if text.is_empty() || text.chars().count() > RESUME_TEXT_LIMIT {
+        return invalid(format!(
+            "{what} '{key}' must be a bounded non-empty line of at most \
+             {RESUME_TEXT_LIMIT} characters"
+        ));
+    }
+    Ok(())
+}
+
+/// Exactly one of the two identity forms, and nothing between them.
+fn resume_identity(raw: &Map<String, Value>, what: &str) -> Result<ResumeIdentity, LibraryError> {
+    let what = format!("{what} 'identity'");
+    let Some(identity) = raw.get("identity").and_then(Value::as_object) else {
+        return invalid(format!(
+            "{what} is required: either the measured form \
+             {{\"version\": ..., \"applies_to\": ...}} or the explicit \
+             {{\"unknown\": \"<measured reason>\"}}"
+        ));
+    };
+    if identity.contains_key("unknown") {
+        only_keys(identity, &["unknown"], &what)?;
+        let reason = string(identity, "unknown", &what)?;
+        bounded_reason(&reason, "unknown", &what)?;
+        return Ok(ResumeIdentity::Unknown { reason });
+    }
+    only_keys(identity, &["version", "applies_to"], &what)?;
+    Ok(ResumeIdentity::Measured {
+        version: string(identity, "version", &what)?,
+        applies_to: string(identity, "applies_to", &what)?,
+    })
+}
+
+fn resume_evidence(raw: &Map<String, Value>, what: &str) -> Result<ResumeEvidence, LibraryError> {
+    let Some(evidence) = raw.get("evidence") else {
+        return Ok(ResumeEvidence::default());
+    };
+    let what = format!("{what} 'evidence'");
+    let evidence = object(evidence, &what)?;
+    only_keys(
+        evidence,
+        &["interface", "restrictions", "root", "accounting"],
+        &what,
+    )?;
+    let read = |key: &str| -> Result<Option<String>, LibraryError> {
+        match evidence.get(key) {
+            None => Ok(None),
+            Some(_) => {
+                let value = string(evidence, key, &what)?;
+                bounded_reason(&value, key, &what)?;
+                Ok(Some(value))
+            }
+        }
+    };
+    Ok(ResumeEvidence {
+        interface: read("interface")?,
+        restrictions: read("restrictions")?,
+        root: read("root")?,
+        accounting: read("accounting")?,
     })
 }
 

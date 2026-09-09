@@ -1320,6 +1320,8 @@ impl Bundle {
             }
         }
 
+        refuse_aliasing_sites(&seats)?;
+
         let select_records: Map<String, Value> = seats
             .iter()
             .filter_map(|(site, seat)| match &seat.body {
@@ -1357,6 +1359,54 @@ impl Bundle {
     pub fn manifest_digest(&self) -> String {
         brokkr_core::canonical::sha256_hex(&self.manifest)
     }
+}
+
+/// Two structurally different sites of one selected body may not
+/// flatten to one address (proposed decision 0056 ruling 1; design D2).
+///
+/// The check is scoped to the lookup scopes that actually key on the
+/// flattened label: `select_candidates` inserts it into a `BTreeMap`,
+/// `argv_for` selects by it, `site_boundary` and `mark_hands` consult
+/// `bundle.hands` under it, and the per-site resume plan is keyed by it.
+/// So step `a:b` with member `c` and step `a` with member `b:c` — both
+/// spelled `a:b:c` — could select each other's candidate, hands identity
+/// and boundary before any resume digest exists. An ambiguous bundle
+/// fails at compile time, naming both sites.
+///
+/// Ordinary repeated member names under different steps are untouched:
+/// `review`/`alpha` and `design`/`alpha` flatten to two distinct
+/// strings, and nothing about chain progression or the historical
+/// meaning of a display tag moves.
+fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileError> {
+    for (phase, seat) in seats {
+        // Each selectable body, with the case that selects it. Selection
+        // never nests, so every entry here resolves — the `filter_map`
+        // carries that fact rather than a branch nothing can take.
+        let bodies: Vec<(Option<&str>, &SeatBody)> = match &seat.body {
+            SeatBody::Select { cases, default, .. } => cases
+                .iter()
+                .map(|(case, body)| (Some(case.as_str()), body))
+                .chain(default.as_deref().map(|body| (Some("default"), body)))
+                .collect(),
+            body => vec![(None, body)],
+        };
+        let executable = bodies
+            .into_iter()
+            .filter_map(|(case, body)| body.selected(None).map(|(body, _)| (case, body)));
+        for (case, executable) in executable {
+            let sites =
+                crate::engine::resume::structural_sites(executable, phase, case, seat.has_gate);
+            if let Some((label, both)) = crate::engine::resume::flat_address_collision(&sites) {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{phase}' addresses two different sites as '{label}': {both}. \
+                     The selection, the argv lookup, the hands map and the boundary map all \
+                     key on that one string, so one site would answer for the other; rename \
+                     one of them"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn body_manifest(body: &SeatBody) -> Value {
@@ -1621,6 +1671,10 @@ fn resolve_reference(
                 argv: entry.argv.clone(),
                 hands_fragment: entry.hands_fragment.clone(),
                 harness: entry.harness.clone(),
+                // The hands law reads argv, class and boundary; the
+                // resume assessment is not one of its terms, and this
+                // projection is discarded after that judgment.
+                resume: Default::default(),
             })
             .collect();
         enforce_model_policy(
@@ -1668,6 +1722,7 @@ fn resolve_reference(
             argv: expand_command(dir, &candidate.argv),
             hands_fragment: candidate.hands_fragment.clone(),
             harness: candidate.harness.clone(),
+            resume: candidate.resume.clone(),
         });
     }
     context

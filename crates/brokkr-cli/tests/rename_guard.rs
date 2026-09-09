@@ -191,7 +191,9 @@ fn retired_name(line: &str) -> bool {
         || RETIRED_CRATES.iter().any(|name| line.contains(name))
 }
 
-/// Decision 0046's living specs quote these exact schema titles as data.
+/// Decision 0046's living specs quote these exact schema titles as data,
+/// and proposed 0056's `boundary-record` amendment quotes v5's beside
+/// v4's, because a new contract version keeps its siblings' spelling.
 /// Remove only the quoted title, so a retired marquee elsewhere on the
 /// same line remains an offense. Contract bodies already stay outside
 /// the prose walk; their names do not become new product prose when cited.
@@ -202,6 +204,7 @@ fn without_contract_titles(file: &str, line: &str) -> String {
             "`Forge run manifest v9`",
             "`Forge effect boundary v1`",
             "`Forge seat record v4`",
+            "`Forge seat record v5`",
             "`Forge realms map v4`",
         ] {
             prose = prose.replace(title, "");
@@ -405,6 +408,7 @@ fn a_quoted_contract_title_is_data_and_never_licenses_retired_prose() {
         "Forge run manifest v9",
         "Forge effect boundary v1",
         "Forge seat record v4",
+        "Forge seat record v5",
         "Forge realms map v4",
     ] {
         let citation = format!("The contract title is `{title}`.");

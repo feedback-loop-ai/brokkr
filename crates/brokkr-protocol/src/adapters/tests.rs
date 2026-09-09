@@ -1537,6 +1537,7 @@ fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
         &s(&["--effort", "high", "-s", "workspace-write"]),
         "/w",
         Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        &enabled_assessment(CODEX_SHAPE, "0.153.4", "namespace", "boxed"),
     );
     assert!(
         launch
@@ -1548,7 +1549,37 @@ fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
     );
     // And the pin does not read as an argv a resume cannot carry: a
     // dropped session over its own effort pin would be a regression.
-    assert!(launch.resume_refusal.is_none(), "{:?}", launch.command);
+    // (The refusal here is the version probe's — this test does not run
+    // a codex — so what is asserted is only that the pin is NOT the
+    // reason: an incompatible-argv refusal would be.)
+    assert_ne!(
+        launch.refusal,
+        Some("incompatible-argv"),
+        "{:?}",
+        launch.command
+    );
+}
+
+/// A private start context whose named shape is measured, enabled and
+/// qualified for the site's own boundary and hands mode — the shape the
+/// engine composes from an adapter declaration that says `supported`.
+fn enabled_assessment(shape: &str, version: &str, boundary: &str, hands: &str) -> Value {
+    json!({
+        "boundary": boundary,
+        "hands": hands,
+        "resume_context": {"assessment": {shape: {
+            "status": "supported",
+            "identity": {"version": version, "applies_to": version},
+            "classes": ["work"],
+            "boundaries": [boundary],
+            "hands": hands,
+            "evidence": {
+                "interface": "i", "restrictions": "r", "root": "o", "accounting": "a"
+            },
+            "limitations": [],
+            "reason": null
+        }}}
+    })
 }
 
 #[test]
@@ -1632,22 +1663,60 @@ fn dsh_model_overlay_reports_a_file_it_cannot_stage_or_write() {
 /// needs a plausible one.
 const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 
+/// The version every codex shim here reports, and the one the enabled
+/// assessments below are qualified against. A shim that answers
+/// `--version` with anything else is a shim whose resume is disabled
+/// with `unverified-harness`, which is the point of the check.
+const CODEX_VERSION: &str = "0.153.4";
+
+/// The version-answering preamble every provider shim needs, now that
+/// an enabled shape probes its executable once per invocation. It exits
+/// before the argv recorder, so the probe is never counted as an
+/// attempt: what a test asserts about spawns stays what it was.
+#[cfg(unix)]
+fn version_preamble(banner: &str) -> String {
+    format!("case \"$1\" in --version|-V|-v) printf '{banner}\\n'; exit 0 ;; esac\n")
+}
+
 /// A stand-in codex that records the argv it was given and the prompt it
 /// was fed, then answers with the two events the fold reads.
 #[cfg(unix)]
 fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std::path::PathBuf {
     let argv = argv.display();
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     executable(
         dir,
         name,
         &format!(
-            "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\n\
+            "#!/bin/sh\n{version}for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\n\
              cat >> {argv}.stdin\n\
              printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
              printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":100,\
              \"cached_input_tokens\":96,\"output_tokens\":4}}}}\\n'\n"
         ),
     )
+}
+
+/// The seat input an ENABLED work shape sees: this site's own boundary
+/// and hands mode, and a measured assessment qualified against the
+/// version the shim reports. Without one of these every offer is
+/// declined `unsupported-resume`, which is the fail-closed default and
+/// what an unmeasured provider gets.
+fn enabled_input(shape: &str, version: &str, workdir: &std::path::Path) -> Value {
+    let mut input = enabled_assessment(shape, version, "namespace", "boxed");
+    input["workdir"] = json!(workdir);
+    input
+}
+
+/// The launch row of one invocation — the one row per executing model
+/// site proposed decision 0056 ruling 7 admits. Read by step rather than
+/// by index, because the locator now precedes it: a launch is published
+/// when the harness names its session, not before it spawns.
+fn launch_rows(emitted: &[Value]) -> Vec<&Value> {
+    emitted
+        .iter()
+        .filter(|event| event["step"] == "harness-started")
+        .collect()
 }
 
 #[cfg(unix)]
@@ -1725,7 +1794,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
             AdapterKind::Codex,
             &extra,
             "the prompt",
-            &json!({"workdir": dir.path()}),
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
             Some(THREAD),
             &[],
             &mut |event| emitted.push(event.clone()),
@@ -1751,10 +1820,18 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
         std::fs::read_to_string(format!("{}.stdin", argv.display())).unwrap(),
         "the prompt"
     );
+    // The launch is published only once the harness names the exact
+    // thread it was handed — which is why it stands behind the locator
+    // row, not in front of the spawn — and it carries the class
+    // re-imposed on it and the root it stands on.
+    let launches = launch_rows(&emitted);
+    assert_eq!(launches.len(), 1, "{emitted:?}");
     assert_eq!(
-        emitted[0],
+        *launches[0],
         json!({"step":"harness-started", "harness":"codex", "launch":"resumed",
-               "sandbox":"read-only"}),
+               "sandbox":"read-only",
+               "root_session":{"kind":"codex-thread", "id": THREAD,
+                               "harness_version": CODEX_VERSION, "persistent": true}}),
         "the launch says it rejoined under the declared class"
     );
     // The fold still reads the thread out of the resumed stream, so the
@@ -1855,7 +1932,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
                 AdapterKind::Codex,
                 &extra,
                 "prompt",
-                &json!({"workdir": dir.path()}),
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
                 Some(session),
                 &[],
                 &mut |event| emitted.push(event.clone()),
@@ -1870,16 +1947,18 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         ];
         cold.extend(extra.iter().cloned());
         assert_eq!(recorded(&argv), cold, "{case}: the cold argv, unchanged");
-        assert_eq!(emitted[0]["launch"], "cold", "{case}: {}", emitted[0]);
+        let launch = launch_rows(&emitted);
+        assert_eq!(launch.len(), 1, "{case}: one launch per site: {emitted:?}");
+        assert_eq!(launch[0]["launch"], "cold", "{case}: {}", launch[0]);
         assert_eq!(
-            emitted[0]["resume_refusal"], refusal,
+            launch[0]["resume_refusal"], refusal,
             "{case}: {}",
-            emitted[0]
+            launch[0]
         );
         assert!(
-            emitted[0].get("session_id").is_none(),
-            "{case}: a cold launch rejoined nothing: {}",
-            emitted[0]
+            launch[0].get("root_session").is_none(),
+            "{case}: a launch refused before the version probe records no root: {}",
+            launch[0]
         );
     }
 }
@@ -1894,11 +1973,12 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let shim = executable(
         dir.path(),
         "codex-refusing",
         &format!(
-            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+            "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
              case \"$*\" in\n\
              *resume*) printf 'Error: no rollout found for thread id\\n' >&2; exit 1 ;;\n\
              esac\n\
@@ -1913,7 +1993,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
             AdapterKind::Codex,
             &extra,
             "prompt",
-            &json!({"workdir": dir.path()}),
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
             Some(THREAD),
             &[],
             &mut |event| emitted.push(event.clone()),
@@ -1926,13 +2006,15 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     assert!(attempts[0].contains("resume"), "{attempts:?}");
     assert!(!attempts[1].contains("resume"), "{attempts:?}");
     assert!(attempts[1].contains("--sandbox read-only"), "{attempts:?}");
-    let launches: Vec<&Value> = emitted
-        .iter()
-        .filter(|event| event["step"] == "harness-started")
-        .collect();
-    assert_eq!(launches[0]["launch"], "resumed");
+    // ONE launch row, and it is the replacement's. The rejoin never
+    // reached a confirmation — the harness named no thread — so it
+    // published nothing: proposed decision 0056 ruling 7 refuses to
+    // guess `resumed` from a flag, and the row that would have said so
+    // before the child spawned is gone.
+    let launches = launch_rows(&emitted);
+    assert_eq!(launches.len(), 1, "{emitted:?}");
     assert_eq!(
-        *launches[1],
+        *launches[0],
         json!({"step":"harness-started", "harness":"codex", "launch":"cold",
                "resume_refusal":"harness-refused"})
     );
@@ -1953,11 +2035,12 @@ fn a_resume_that_started_and_failed_is_not_respawned_cold() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let shim = executable(
         dir.path(),
         "codex-failing",
         &format!(
-            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+            "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
              printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
              exit 3\n",
             argv = argv.display()
@@ -1970,7 +2053,7 @@ fn a_resume_that_started_and_failed_is_not_respawned_cold() {
             AdapterKind::Codex,
             &extra,
             "prompt",
-            &json!({"workdir": dir.path()}),
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
             Some(THREAD),
             &[],
             &mut |event| emitted.push(event.clone()),
@@ -1979,7 +2062,19 @@ fn a_resume_that_started_and_failed_is_not_respawned_cold() {
     });
     assert_eq!(recorded(&argv).len(), 1, "one session, one attempt");
     assert_eq!(invocation.exit_code, 3);
-    assert_eq!(emitted[0]["sandbox"], "workspace-write");
+    let launches = launch_rows(&emitted);
+    assert_eq!(launches.len(), 1, "{emitted:?}");
+    // The harness named the exact thread it was handed, so this IS a
+    // confirmed rejoin — and it carries the class re-imposed on it and
+    // the root it stands on, with the version observed at this
+    // invocation (proposed decision 0056 rulings 6 and 7).
+    assert_eq!(launches[0]["launch"], "resumed");
+    assert_eq!(launches[0]["sandbox"], "workspace-write");
+    assert_eq!(
+        launches[0]["root_session"],
+        json!({"kind":"codex-thread", "id": THREAD,
+               "harness_version": CODEX_VERSION, "persistent": true})
+    );
     assert!(
         !emitted.iter().any(|event| event["launch"] == "cold"),
         "{emitted:?}"
@@ -2094,11 +2189,15 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
     let result = dir.path().join("result.json");
     std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
     let start = |id: &str| {
+        let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+        input["result_path"] = json!(result);
+        input["allowed_results"] = json!(["complete"]);
+        input["feature"] = json!("f");
+        input["phase"] = json!("work");
         serde_json::to_string(&json!({
             "proto":"forge-driver/v1", "msg_id":id, "type":"start",
             "effect_id":"fx", "attempt_id":id, "seat":"work",
-            "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results":["complete"], "feature":"f", "phase":"work"},
+            "input": input,
         }))
         .unwrap()
     };
@@ -2124,28 +2223,978 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
 
-    // Codex declares what it can honour; the others still declare none.
+    // Every MODEL adapter declares offer receipt now (proposed decision
+    // 0056 ruling 4), which is what lets a claude or dsh retry be told
+    // about its own session and answer honestly — issue #226's
+    // complaint. Exec declares none: no model turn, no session.
     assert_eq!(messages[0]["supports"], json!(["resume"]));
-    assert_eq!(AdapterKind::Claude.supports(), Vec::<String>::new());
-    assert_eq!(AdapterKind::Dsh.supports(), Vec::<String>::new());
+    for kind in [
+        AdapterKind::Claude,
+        AdapterKind::Lanetally,
+        AdapterKind::Codex,
+        AdapterKind::Dsh,
+    ] {
+        assert_eq!(kind.supports(), vec!["resume".to_string()], "{kind:?}");
+    }
+    assert_eq!(AdapterKind::Exec.supports(), Vec::<String>::new());
 
     let launches: Vec<&Value> = messages
         .iter()
         .filter(|message| message["data"]["step"] == "harness-started")
         .collect();
-    assert_eq!(launches.len(), 2, "one launch per seat");
+    assert_eq!(launches.len(), 2, "one launch per seat: {messages:?}");
     assert_eq!(launches[0]["data"]["launch"], "resumed");
-    assert!(launches[0]["data"].get("session_id").is_none());
+    assert_eq!(launches[0]["data"]["root_session"]["id"], THREAD);
+    assert!(launches[0]["data"].get("resume_refusal").is_none());
     assert_eq!(
         launches[1]["data"]["launch"], "cold",
         "the offer was spent by the first seat: {}",
         launches[1]
     );
     assert!(
-        launches[1]["data"].get("reason").is_none(),
+        launches[1]["data"].get("resume_refusal").is_none(),
         "nobody offered the second seat anything to refuse: {}",
         launches[1]
     );
+}
+
+/// Proposed decision 0056 ruling 5's version qualification, at the codex
+/// arm: a measurement expires with its version, and the CLI that
+/// actually answers is the one that decides.
+///
+/// The offer passes every other check — the class travels, the argv is
+/// safe, the identifier is a plain thread id — and is still declined,
+/// because the installed CLI is not the one the assessment was measured
+/// against. The observed version is recorded rather than the desired
+/// pin, so the next reader sees what was actually there.
+#[cfg(unix)]
+#[test]
+fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    // The shim answers a DIFFERENT version than the assessment's.
+    let shim = executable(
+        dir.path(),
+        "codex-moved",
+        &format!(
+            "#!/bin/sh\n{}for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\n\
+             cat >/dev/null\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n",
+            version_preamble("codex-cli 0.160.0"),
+            argv = argv.display()
+        ),
+    );
+    let mut emitted = Vec::new();
+    with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &["--sandbox".to_string(), "read-only".into()],
+            "prompt",
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+    assert!(
+        !recorded(&argv).iter().any(|part| part == "resume"),
+        "the cold argv, unchanged: {:?}",
+        recorded(&argv)
+    );
+    let launches = launch_rows(&emitted);
+    assert_eq!(launches.len(), 1, "{emitted:?}");
+    assert_eq!(launches[0]["launch"], "cold");
+    assert_eq!(launches[0]["resume_refusal"], "unverified-harness");
+    assert_eq!(
+        launches[0]["root_session"]["harness_version"], "0.160.0",
+        "the OBSERVED version is recorded, never the desired pin: {}",
+        launches[0]
+    );
+}
+
+/// The grammars a launch fact is bounded by, and the one door a launch
+/// is published through (proposed decision 0056 rulings 3 and 7).
+///
+/// Every bound here is a hazard rather than a formality: an identifier
+/// that does not fit its record field is REFUSED rather than truncated
+/// into a different valid-looking identifier, and a version nobody can
+/// compare is treated as no version at all.
+#[test]
+fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
+    for (id, ok) in [
+        ("019c4b7e-0000-7000-8000-000000000001", true),
+        ("codex_thread_1", true),
+        ("a", true),
+        ("", false),
+        ("-leading-dash", false),
+        ("_leading-underscore", false),
+        ("has space", false),
+        ("has/slash", false),
+        ("a".repeat(80).as_str(), true),
+        ("a".repeat(81).as_str(), false),
+    ] {
+        assert_eq!(recordable_session_id(id), ok, "{id:?}");
+    }
+    for (version, ok) in [
+        ("0.153.4", true),
+        ("2.1.266", true),
+        ("0.1.2-rc.1", true),
+        ("1.0.0+build", true),
+        ("", false),
+        (".1.2", false),
+        ("(Claude", false),
+        ("a".repeat(80).as_str(), true),
+        ("a".repeat(81).as_str(), false),
+    ] {
+        assert_eq!(recordable_version(version), ok, "{version:?}");
+    }
+    for (id, ok) in [
+        ("019c4b7e-0000-7000-8000-000000000001", true),
+        ("", false),
+        ("--resume", false),
+        // Well-formed at both ends and unusable in the middle: a picker
+        // search term, a path, a shell word.
+        ("a session", false),
+        ("../../etc/passwd", false),
+        ("a;rm -rf /", false),
+        ("a".repeat(81).as_str(), false),
+    ] {
+        assert_eq!(plain_claude_session(id), ok, "{id:?}");
+    }
+
+    // A wrapper digest rides the root where one was measured, and is
+    // absent for a plain harness.
+    let wrapped = RootSession {
+        kind: "claude-session",
+        id: "019c4b7e".into(),
+        harness_version: "2.1.266".into(),
+        wrapper_digest: Some("f".repeat(64)),
+        persistent: true,
+    };
+    assert_eq!(wrapped.value()["wrapper_digest"], "f".repeat(64));
+    let plain = RootSession {
+        wrapper_digest: None,
+        ..wrapped
+    };
+    assert!(plain.value().get("wrapper_digest").is_none());
+
+    // The root is LATCHED: a second, different announcement is a
+    // delegated child or a second session, never a correction of the
+    // first, and it publishes nothing further.
+    let plan = |version: Option<&str>| LaunchPlan {
+        command: Vec::new(),
+        rejoining: None,
+        refusal: None,
+        sandbox: None,
+        kind: "claude-session",
+        harness_version: version.map(str::to_string),
+        wrapper_digest: None,
+        persistent: true,
+        confirms_from_locator: true,
+    };
+    let mut rows = Vec::new();
+    let mut hold = LaunchHold::new("claude", plan(Some("2.1.266")));
+    assert_eq!(
+        hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone())),
+        Confirmation::Fresh
+    );
+    assert_eq!(
+        hold.confirm("a-child-session", &mut |row: &Value| rows.push(row.clone())),
+        Confirmation::Fresh,
+        "the latch answers with the outcome it already had"
+    );
+    hold.finish(&mut |row: &Value| rows.push(row.clone()));
+    assert_eq!(
+        rows.len(),
+        1,
+        "one launch per executing model site: {rows:?}"
+    );
+    assert_eq!(rows[0]["root_session"]["id"], "019c4b7e");
+
+    // Without an observed version there is nothing to record a root
+    // with, so the launch is still reported and the next retry simply
+    // gets no offer.
+    let mut rows = Vec::new();
+    let mut hold = LaunchHold::new("claude", plan(None));
+    hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone()));
+    assert_eq!(rows[0]["launch"], "cold");
+    assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
+
+    // Nor with a version the record's own grammar cannot hold.
+    let mut rows = Vec::new();
+    let mut hold = LaunchHold::new("claude", plan(Some("(Claude Code)")));
+    hold.confirm("019c4b7e", &mut |row: &Value| rows.push(row.clone()));
+    assert!(rows[0].get("root_session").is_none(), "{}", rows[0]);
+
+    // The confirmation door is the transcript row, and only for a
+    // harness whose locator IS its session identifier. A dsh-shaped plan
+    // confirms nothing from a retained directory.
+    let mut rows = Vec::new();
+    let mut hold = LaunchHold::new(
+        "deepseek",
+        LaunchPlan {
+            confirms_from_locator: false,
+            ..plan(Some("0.1.2-rc.1"))
+        },
+    );
+    hold.observe(
+        &json!({"step":"transcript", "transcript":{"locator":"2026/09/09/seat"}}),
+        &mut |row: &Value| rows.push(row.clone()),
+    );
+    assert_eq!(rows.len(), 1, "the transcript row itself, and no launch");
+    assert_eq!(rows[0]["step"], "transcript");
+}
+
+/// The version probe, over the three banner shapes the installed CLIs
+/// actually print, and over a child that fails.
+#[cfg(unix)]
+#[test]
+fn the_version_probe_reads_the_number_out_of_each_measured_banner() {
+    let dir = tempfile::tempdir().unwrap();
+    for (case, body, expected) in [
+        ("codex", "printf 'codex-cli 0.153.4\\n'", Some("0.153.4")),
+        (
+            "claude",
+            "printf '2.1.266 (Claude Code)\\n'",
+            Some("2.1.266"),
+        ),
+        ("dsh", "printf '0.1.2-rc.1\\n'", Some("0.1.2-rc.1")),
+        // A leading blank line is skipped; a banner with no version-shaped
+        // token at all is no version, not a recorded banner.
+        ("padded", "printf '\\n  0.9.9\\n'", Some("0.9.9")),
+        ("wordy", "printf 'the latest and greatest\\n'", None),
+        ("empty", "true", None),
+        ("failing", "printf '1.2.3\\n'; exit 1", None),
+    ] {
+        let shim = executable(
+            dir.path(),
+            &format!("probe-{case}"),
+            &format!("#!/bin/sh\n{body}\n"),
+        );
+        assert_eq!(
+            observed_version(&[shim.to_string_lossy().into_owned()]).as_deref(),
+            expected,
+            "{case}"
+        );
+    }
+    // A binary that is not there answers nothing, which disables resume
+    // rather than enabling it on a guess.
+    assert_eq!(
+        observed_version(&[dir.path().join("absent").to_string_lossy().into_owned()]),
+        None
+    );
+}
+
+/// The claude resume argv, whole (proposed decision 0056 ruling 6): the
+/// print/stream-json shape this driver has always used, the seat's own
+/// composed restriction plan unchanged, and `--resume <owned-id>` — and
+/// nothing else. What makes "the class is re-imposed, never inherited"
+/// checkable here is that the resume argv is the COLD argv plus one
+/// pair: there is no flag on the warm path that the cold path does not
+/// also carry.
+#[cfg(unix)]
+#[test]
+fn a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector() {
+    const CLAUDE_VERSION: &str = "2.1.266";
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // A shim, never the operator's installed CLI: the version probe is a
+    // real child process, and a unit test that asked the machine what
+    // claude it had would pass or fail on the machine.
+    let dir = tempfile::tempdir().unwrap();
+    let bin = executable(
+        dir.path(),
+        "claude",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble(&format!("{CLAUDE_VERSION} (Claude Code)"))
+        ),
+    );
+    let bin = bin.to_str().unwrap();
+    let restrictions = [
+        "--permission-mode",
+        "acceptEdits",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ];
+    let extra: Vec<String> = restrictions.iter().map(|part| part.to_string()).collect();
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let enabled = enabled_input(CLAUDE_SHAPE, CLAUDE_VERSION, std::path::Path::new("/w"));
+
+    let cold = claude_launch(bin, &extra, None, &enabled, CLAUDE_SHAPE, None).unwrap();
+    assert_eq!(
+        cold.command[..5],
+        [
+            bin.to_string(),
+            "-p".into(),
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into()
+        ]
+    );
+    assert_eq!(cold.command[5..], extra[..]);
+    assert!(cold.rejoining.is_none() && cold.refusal.is_none());
+
+    // The warm argv is that, plus the one pair — in that order, with the
+    // prompt still on stdin.
+    let warm = claude_launch(bin, &extra, Some(session), &enabled, CLAUDE_SHAPE, None).unwrap();
+    let mut expected = cold.command.clone();
+    expected.push("--resume".into());
+    expected.push(session.to_string());
+    assert_eq!(warm.command, expected);
+    assert_eq!(warm.rejoining.as_deref(), Some(session));
+    assert!(warm.refusal.is_none());
+
+    // Every reason an offer is declined, one at a time, each landing on
+    // the same cold argv.
+    for (case, extra, session, refusal) in [
+        (
+            "a forged identifier never reaches an argv",
+            extra.clone(),
+            "--dangerously-skip-permissions",
+            "invalid-session-id",
+        ),
+        (
+            "an explicitly nonpersistent shape has no root to rejoin",
+            [extra.clone(), s(&["--no-session-persistence"])].concat(),
+            session,
+            "nonpersistent-session",
+        ),
+    ] {
+        let launch =
+            claude_launch(bin, &extra, Some(session), &enabled, CLAUDE_SHAPE, None).unwrap();
+        assert!(launch.rejoining.is_none(), "{case}");
+        assert_eq!(launch.refusal, Some(refusal), "{case}");
+        assert!(
+            !launch.command.iter().any(|part| part == "--resume"),
+            "{case}: the cold argv carries no selector"
+        );
+    }
+
+    // An unmeasured shape declines every offer with the token that says
+    // so, and spends no version probe to find out.
+    let unmeasured = json!({"workdir": "/w", "boundary": "namespace", "hands": "boxed"});
+    let launch =
+        claude_launch(bin, &extra, Some(session), &unmeasured, CLAUDE_SHAPE, None).unwrap();
+    assert_eq!(launch.refusal, Some("unsupported-resume"));
+
+    // A shape measured under ANOTHER boundary or hands mode is not
+    // measured HERE, and either half alone is enough to say so: the
+    // site's word and the site's hands mode are two facts, and a
+    // measurement covers a shape only when it covers both.
+    for (case, boundary, hands) in [
+        ("neither", "namespace", "boxed"),
+        ("the boundary alone", "namespace", "none"),
+        ("the hands mode alone", "harness", "boxed"),
+    ] {
+        let mut elsewhere = enabled_assessment(CLAUDE_SHAPE, CLAUDE_VERSION, "harness", "none");
+        elsewhere["boundary"] = json!(boundary);
+        elsewhere["hands"] = json!(hands);
+        let launch =
+            claude_launch(bin, &extra, Some(session), &elsewhere, CLAUDE_SHAPE, None).unwrap();
+        assert_eq!(
+            launch.refusal,
+            Some("restrictions-unavailable"),
+            "{case} differs from what was measured"
+        );
+    }
+
+    // And a `supported` entry with no measured current-work boundary
+    // cannot buy a rejoin whose totals nobody can attribute (ruling 9).
+    let mut unaccounted = enabled.clone();
+    unaccounted["resume_context"]["assessment"][CLAUDE_SHAPE]["evidence"]
+        .as_object_mut()
+        .unwrap()
+        .remove("accounting");
+    let launch =
+        claude_launch(bin, &extra, Some(session), &unaccounted, CLAUDE_SHAPE, None).unwrap();
+    assert_eq!(launch.refusal, Some("unsupported-resume"));
+
+    // A `supported` entry with no measured identity cannot LOAD — the
+    // adapter loader refuses it — so this arm is only ever reached by
+    // data that came by some other road. It still fails closed.
+    let mut identityless = enabled.clone();
+    identityless["resume_context"]["assessment"][CLAUDE_SHAPE]["identity"] = json!({});
+    let launch = claude_launch(
+        bin,
+        &extra,
+        Some(session),
+        &identityless,
+        CLAUDE_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(launch.refusal, Some("unverified-harness"));
+
+    // An enabled shape whose executable is not there answers no version,
+    // which disables the rejoin rather than enabling it on a guess.
+    let absent = dir.path().join("claude-does-not-exist");
+    let launch = claude_launch(
+        absent.to_str().unwrap(),
+        &extra,
+        Some(session),
+        &enabled,
+        CLAUDE_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(launch.refusal, Some("unverified-harness"));
+}
+
+/// Ruling 6's other half, and the one that bites hardest on a COLD path:
+/// a seat argument that selects, copies or relocates a conversation is
+/// refused before any provider work, warm or cold.
+///
+/// An ambient `--continue` left in a seat's passthrough would silently
+/// rejoin whatever conversation the working directory last held — which
+/// nobody chose, and which the engine did not offer. Dropping it in
+/// silence would be worse: the seat would run under a restriction plan
+/// the operator believes applies to a fresh session.
+#[test]
+fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_work() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let enabled = enabled_input(CLAUDE_SHAPE, "2.1.266", std::path::Path::new("/w"));
+    for conflicting in [
+        "-c",
+        "--continue",
+        "-r",
+        "--resume",
+        "--session-id",
+        "--fork-session",
+        "--from-pr",
+        "--teleport",
+        "--bg",
+        "--background",
+        "--cloud",
+        "-w",
+        "--worktree",
+        // The joined spelling is the same declaration and gets the same
+        // answer: only the flag's NAME decides.
+        "--session-id=019c4b7e-0000-7000-8000-000000000001",
+    ] {
+        for session in [None, Some("019c4b7e-0000-7000-8000-000000000001")] {
+            let Err(error) = claude_launch(
+                "claude",
+                &s(&["--permission-mode", "acceptEdits", conflicting]),
+                session,
+                &enabled,
+                CLAUDE_SHAPE,
+                None,
+            ) else {
+                panic!("{conflicting} must refuse before any provider work");
+            };
+            assert!(error.contains(conflicting), "{conflicting}: {error}");
+            assert!(
+                error.contains("refused before any provider work"),
+                "{conflicting}: {error}"
+            );
+        }
+    }
+}
+
+/// Proposed decision 0056 ruling 7's confirmation rule, and ruling 8's
+/// single replacement, driven through shim sequences.
+///
+/// The cases are the ones a launch can actually take, and the one that
+/// matters most is the third: a provider that names a DIFFERENT root
+/// than the one it was handed publishes no launch at all and buys no
+/// replacement. Neither `cold` nor `resumed` would be true of it, and a
+/// second execution on a guess is how one attempt becomes two billed
+/// sessions.
+#[cfg(unix)]
+#[test]
+fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    let other = "01a06183-0000-0000-0000-000000000000";
+    for (case, announced, exit, launch, spawns) in [
+        (
+            "the exact root it was handed",
+            THREAD,
+            0,
+            Some(("resumed", true)),
+            1,
+        ),
+        ("a different root than the one offered", other, 0, None, 1),
+        (
+            "no root at all, non-zero: the one proven replacement",
+            "",
+            1,
+            Some(("cold", false)),
+            2,
+        ),
+        // No root and a CLEAN exit is not a refusal, it is uncertainty:
+        // the invocation ended without saying which session it was in.
+        // Ruling 8's permission is spent only on measured machine
+        // session-rejection evidence, and an exit status of zero is not
+        // that evidence — so nothing is re-run and nothing is claimed.
+        (
+            "no root at all, exit zero: uncertain, and left alone",
+            "",
+            0,
+            None,
+            1,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let argv = dir.path().join("argv");
+        let announce = if announced.is_empty() {
+            String::new()
+        } else {
+            format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{announced}\"}}\\n'\n")
+        };
+        let shim = executable(
+            dir.path(),
+            "codex",
+            &format!(
+                "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+                 case \"$*\" in *resume*) {announce}exit {exit} ;; esac\n\
+                 printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n",
+                argv = argv.display()
+            ),
+        );
+        let mut emitted = Vec::new();
+        with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &["--sandbox".to_string(), "read-only".into()],
+                "prompt",
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                Some(THREAD),
+                &[],
+                &mut |event| emitted.push(event.clone()),
+            )
+            .unwrap()
+        });
+        assert_eq!(recorded(&argv).len(), spawns, "{case}");
+        let launches = launch_rows(&emitted);
+        match launch {
+            None => assert!(
+                launches.is_empty(),
+                "{case}: an unconfirmed rejoin publishes nothing: {emitted:?}"
+            ),
+            Some((word, rooted)) => {
+                assert_eq!(launches.len(), 1, "{case}: one launch per site");
+                assert_eq!(launches[0]["launch"], word, "{case}");
+                assert_eq!(
+                    launches[0].get("root_session").is_some(),
+                    rooted,
+                    "{case}: {}",
+                    launches[0]
+                );
+            }
+        }
+    }
+}
+
+/// Ruling 8's fourth term, which is decision 0053 ruling 7 one ruling
+/// later: where a harness's machine fields and the seat's own delivery
+/// disagree, the delivered work wins.
+///
+/// A resume that looked refused but wrote its result file is not re-run
+/// cold. Doing so would discard finished work and charge the attempt
+/// twice for it — and the seat's result contract, not the harness's
+/// stream, is what says the work happened.
+#[cfg(unix)]
+#[test]
+fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let result = dir.path().join("result.json");
+    std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    let shim = executable(
+        dir.path(),
+        "codex",
+        &format!(
+            "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\nexit 1\n",
+            argv = argv.display()
+        ),
+    );
+    let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+    input["result_path"] = json!(result);
+    let mut emitted = Vec::new();
+    let invocation = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &["--sandbox".to_string(), "read-only".into()],
+            "prompt",
+            &input,
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .unwrap()
+    });
+    assert_eq!(
+        recorded(&argv).len(),
+        1,
+        "one session, one attempt: the seat delivered"
+    );
+    assert_eq!(invocation.exit_code, 1);
+    assert!(
+        launch_rows(&emitted).is_empty(),
+        "and nothing guessed a launch for it: {emitted:?}"
+    );
+}
+
+/// Ruling 8's second and third terms, and ruling 9's accounting
+/// boundary, in the two shapes that separate them.
+///
+/// A rejoin that produced a TURN has begun work, so no replacement is
+/// authorized however it ended — re-running it would bill one attempt
+/// for two sessions. A rejoin that produced nothing is replaced once,
+/// and the replacement reports only its own turns: the rejected child's
+/// unconfirmed usage goes with the child.
+#[cfg(unix)]
+#[test]
+fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    for (case, rejected, spawns, usage) in [
+        (
+            "a rejoin that turned is not re-run, whatever it exits with",
+            "printf '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":900,\
+             \"cached_input_tokens\":10,\"output_tokens\":90}}\\n'\n"
+                .to_string(),
+            1,
+            900,
+        ),
+        (
+            "a rejoin that began nothing is replaced once",
+            String::new(),
+            2,
+            7,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let argv = dir.path().join("argv");
+        let shim = executable(
+            dir.path(),
+            "codex",
+            &format!(
+                "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+                 case \"$*\" in *resume*)\n{rejected}exit 1 ;; esac\n\
+                 printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
+                 printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":7,\
+                 \"cached_input_tokens\":1,\"output_tokens\":3}}}}\\n'\n",
+                argv = argv.display()
+            ),
+        );
+        let mut emitted = Vec::new();
+        let invocation = with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &["--sandbox".to_string(), "read-only".into()],
+                "prompt",
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                Some(THREAD),
+                &[],
+                &mut |event| emitted.push(event.clone()),
+            )
+            .unwrap()
+        });
+        assert_eq!(recorded(&argv).len(), spawns, "{case}");
+        assert_eq!(
+            invocation.session_meta["input_tokens"], usage,
+            "{case}: the reported totals are one invocation's, never two summed"
+        );
+        assert!(
+            launch_rows(&emitted).len() <= 1,
+            "{case}: one launch per executing model site: {emitted:?}"
+        );
+    }
+}
+
+/// dsh's arm, measured against its installed source rather than its
+/// launcher's TUI example (proposed decision 0056 ruling 5).
+///
+/// The launcher forwards everything after its own flags to the booted
+/// app verbatim, so `dsh --profile tui --resume <session>` says nothing
+/// about headless — whose startup parses one positional, the task, and
+/// whose runner calls `agents.create` with a fresh random id. So an
+/// offer is declined with the token that says the shape has no supported
+/// resume interface, and the retained transcript DIRECTORY is never
+/// mistaken for a provider handle.
+#[test]
+fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
+    // No assessment: the fail-closed default every unmeasured shape gets.
+    let bare = json!({"workdir": "/w"});
+    assert_eq!(dsh_resume_refusal(&bare, None), None, "no offer, no reason");
+    assert_eq!(
+        dsh_resume_refusal(&bare, Some("session-019c4b7e")),
+        Some("unsupported-resume")
+    );
+    // And even an assessment that somehow said `supported` could not be
+    // honoured by this arm: it confirms no provider root, so a launch it
+    // called `resumed` would be a guess.
+    let enabled = enabled_input(DSH_SHAPE, "0.1.2-rc.1", std::path::Path::new("/w"));
+    assert_eq!(
+        dsh_resume_refusal(&enabled, Some("session-019c4b7e")),
+        Some("unsupported-resume")
+    );
+}
+
+/// The dsh arm end to end: the launch row it writes when an offer was
+/// made, and what a driver that cannot spawn at all leaves behind.
+///
+/// dsh emits its locator and its launch row BEFORE it spawns — the
+/// retained directory is created by this driver, not announced by the
+/// harness — so a missing `dsh` binary is the one built-in path where
+/// decision 0053's buffered rows are flushed after `accepted` and before
+/// the failure. That ordering is the thing being pinned.
+#[cfg(unix)]
+#[test]
+fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_spawn() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+
+    let result = dir.path().join("result.json");
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Dsh,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+        }),
+        Some("session-019c4b7e"),
+        &mut |body| messages.push(body),
+    );
+
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+
+    let accepted = messages
+        .iter()
+        .position(|body| matches!(body, Body::Accepted { .. }))
+        .expect("an unclassified failure keeps its accepted");
+    let rows: Vec<&Value> = messages
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } => Some(data),
+            _ => None,
+        })
+        .collect();
+    let first_row = messages
+        .iter()
+        .position(|body| matches!(body, Body::Checkpoint { .. }))
+        .expect("the held rows are flushed");
+    assert!(
+        accepted < first_row,
+        "the held rows are flushed after accepted: {messages:?}"
+    );
+    assert_eq!(rows[0]["step"], "transcript");
+    assert_eq!(rows[1]["step"], "harness-started");
+    assert_eq!(rows[1]["launch"], "cold");
+    assert_eq!(
+        rows[1]["resume_refusal"], "unsupported-resume",
+        "an offer reached the one arm that has no supported route for it: {}",
+        rows[1]
+    );
+}
+
+/// The offer is correlated, and an offer that does not correlate reaches
+/// no provider and survives to no later start (proposed decision 0056
+/// ruling 4). Each case drives the real adapter loop and reads what
+/// actually came back on the wire.
+#[cfg(unix)]
+#[test]
+fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = codex_shim(dir.path(), "codex", &argv);
+    let result = dir.path().join("result.json");
+    std::fs::write(&result, "{\"result\":\"complete\"}").unwrap();
+    let start = |attempt: &str| {
+        let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+        input["result_path"] = json!(result);
+        input["allowed_results"] = json!(["complete"]);
+        input["feature"] = json!("f");
+        input["phase"] = json!("work");
+        serde_json::to_string(&json!({
+            "proto":"forge-driver/v1", "msg_id":attempt, "type":"start",
+            "effect_id":"fx", "attempt_id":attempt, "seat":"work", "input": input,
+        }))
+        .unwrap()
+    };
+    let hello = serde_json::to_string(&Message::new(Body::Hello {
+        engine_version: "test".into(),
+    }))
+    .unwrap();
+    let offer = |effect: &str, attempt: &str, handle: &str| {
+        serde_json::to_string(&Message::new(Body::Resume {
+            effect_id: effect.into(),
+            attempt_id: attempt.into(),
+            session_ref: handle.into(),
+        }))
+        .unwrap()
+    };
+    let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    let drive = |input: String| -> Vec<Value> {
+        let mut output = Vec::new();
+        with_codex_bin(&shim, || {
+            serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
+        });
+        String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    };
+    let refused = |messages: &[Value]| -> bool {
+        messages.iter().any(|message| {
+            message["type"] == "result"
+                && message["status"] == "failed"
+                && message["error"]
+                    .as_str()
+                    .is_some_and(|error| error.starts_with("resume exchange refused"))
+        })
+    };
+    let launched = |messages: &[Value]| -> bool {
+        messages
+            .iter()
+            .any(|message| message["data"]["step"] == "harness-started")
+    };
+
+    for (case, wire) in [
+        // The offer names another attempt of the same effect.
+        (
+            "wrong attempt",
+            format!(
+                "{hello}\n{}\n{}\n",
+                offer("fx", "other", THREAD),
+                start("a1")
+            ),
+        ),
+        // The offer names another effect entirely.
+        (
+            "wrong effect",
+            format!(
+                "{hello}\n{}\n{}\n",
+                offer("other", "a1", THREAD),
+                start("a1")
+            ),
+        ),
+        // Two offers, one start: nothing on the wire says which the
+        // engine meant, so neither is used.
+        (
+            "duplicate",
+            format!(
+                "{hello}\n{}\n{}\n{}\n",
+                offer("fx", "a1", THREAD),
+                offer("fx", "a1", "01a06183-0000-0000-0000-000000000000"),
+                start("a1")
+            ),
+        ),
+        // A resume before capabilities were negotiated.
+        (
+            "unnegotiated",
+            format!("{}\n{hello}\n{}\n", offer("fx", "a1", THREAD), start("a1")),
+        ),
+        // A malformed envelope: correlated, but with no handle at all.
+        (
+            "malformed",
+            format!(
+                "{hello}\n{}\n{}\n",
+                serde_json::to_string(&json!({
+                    "proto":"forge-driver/v1", "msg_id":"m", "type":"resume",
+                    "effect_id":"fx", "attempt_id":"a1"
+                }))
+                .unwrap(),
+                start("a1")
+            ),
+        ),
+        // A handle longer than the record's own field can hold. It is
+        // refused whole rather than truncated into a different
+        // valid-looking identifier.
+        (
+            "oversized",
+            format!(
+                "{hello}\n{}\n{}\n",
+                offer("fx", "a1", &"a".repeat(81)),
+                start("a1")
+            ),
+        ),
+        // A third offer behind two: the exchange is already poisoned and
+        // stays poisoned. Nothing un-poisons it but a new invocation.
+        (
+            "poisoned stays poisoned",
+            format!(
+                "{hello}\n{}\n{}\n{}\n{}\n",
+                offer("fx", "a1", THREAD),
+                offer("fx", "a1", "01a06183-0000-0000-0000-000000000000"),
+                offer("fx", "a1", THREAD),
+                start("a1")
+            ),
+        ),
+        // Each half of the correlation, missing on its own. An offer
+        // that cannot say which attempt it belongs to belongs to none.
+        (
+            "no effect id",
+            format!("{hello}\n{}\n{}\n", offer("", "a1", THREAD), start("a1")),
+        ),
+        (
+            "no attempt id",
+            format!("{hello}\n{}\n{}\n", offer("fx", "", THREAD), start("a1")),
+        ),
+        (
+            "an empty handle",
+            format!("{hello}\n{}\n{}\n", offer("fx", "a1", ""), start("a1")),
+        ),
+    ] {
+        let messages = drive(wire);
+        assert!(refused(&messages), "{case}: {messages:?}");
+        assert!(
+            !launched(&messages),
+            "{case}: a poisoned exchange launches no provider, and is never \
+             repaired into a cold execution: {messages:?}"
+        );
+    }
+
+    // And the poison does not survive to a later start: a second start
+    // with nothing in front of it is an ordinary cold start.
+    let messages = drive(format!(
+        "{hello}\n{}\n{}\n{}\n",
+        offer("fx", "other", THREAD),
+        start("a1"),
+        start("a2")
+    ));
+    let launches: Vec<&Value> = messages
+        .iter()
+        .filter(|message| message["data"]["step"] == "harness-started")
+        .collect();
+    assert_eq!(launches.len(), 1, "{messages:?}");
+    assert_eq!(launches[0]["data"]["launch"], "cold");
+    assert!(launches[0]["data"].get("resume_refusal").is_none());
 }
 
 // A stand-in launcher that behaves like dsh's headless profile does:
@@ -2857,12 +3906,15 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
 
     let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
-    // The launch checkpoint (decision 0030) comes first; the thread id
-    // is the very next thing journaled, before any turn.
-    assert_eq!(emitted[0]["step"], "harness-started");
-    assert_eq!(emitted[1]["step"], "transcript");
-    assert_eq!(emitted[1]["transcript"]["kind"], "codex-thread");
-    assert_eq!(emitted[1]["transcript"]["locator"], thread);
+    // The thread id is the first thing journaled, before any turn, and
+    // the launch checkpoint stands directly behind it: proposed decision
+    // 0056 ruling 7 publishes a launch when the harness names its own
+    // session, which is the same event that supplies the locator.
+    assert_eq!(emitted[0]["step"], "transcript");
+    assert_eq!(emitted[0]["transcript"]["kind"], "codex-thread");
+    assert_eq!(emitted[0]["transcript"]["locator"], thread);
+    assert_eq!(emitted[1]["step"], "harness-started");
+    assert_eq!(emitted[1]["launch"], "cold");
     assert_eq!(emitted.last().unwrap()["step"], "turn-completed");
     let meta = &invocation.session_meta;
     assert_eq!(meta["transcript"]["locator"], thread);
@@ -2947,7 +3999,9 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
         &[],
         "the prompt",
         dir.path().to_str().unwrap(),
-        &mut |event| emitted.push(event.clone()),
+        &json!({}),
+        None,
+        &mut |event: &Value| emitted.push(event.clone()),
         |child| {
             passes += 1;
             if passes == 1 {
@@ -3684,13 +4738,20 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
 }
 
 /// Decision 0053: a driver that cannot be invoked at all is not a
-/// classified provider refusal, so it keeps its `accepted`; the launch
-/// row it buffered while the session was opening is flushed after that
-/// `accepted` before the failure result. Codex emits `harness-started`
-/// before it spawns, so a missing codex binary reaches exactly this path.
+/// classified provider refusal, so it keeps its `accepted` and fails.
+///
+/// It also publishes NO launch row, and that is proposed decision 0056
+/// ruling 7 rather than an omission: a launch is a fact about what this
+/// adapter DID, and a plan whose child never spawned did neither the
+/// fresh-session path nor a rejoin. Before this ruling codex emitted
+/// `harness-started` with `launch: cold` before it spawned, so a missing
+/// binary journaled a cold launch for an attempt in which nothing
+/// launched. The flush ordering that row used to prove is proven by the
+/// exec arm below, which really does emit a pre-spawn row, and by the
+/// held-window test above.
 #[cfg(unix)]
 #[test]
-fn a_codex_that_cannot_spawn_flushes_its_launch_row_after_accepting() {
+fn a_codex_that_cannot_spawn_reports_no_launch_and_keeps_its_accepted() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
@@ -3709,17 +4770,17 @@ fn a_codex_that_cannot_spawn_flushes_its_launch_row_after_accepting() {
             &mut |body| messages.push(body),
         )
     });
-    let accepted = messages
-        .iter()
-        .position(|body| matches!(body, Body::Accepted { .. }))
-        .expect("an unclassified failure keeps its accepted");
-    let launch = messages
-        .iter()
-        .position(|body| matches!(body, Body::Checkpoint { .. }))
-        .expect("the buffered launch row is flushed");
     assert!(
-        accepted < launch,
-        "the launch row is flushed after accepted: {messages:?}"
+        messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "an unclassified failure keeps its accepted: {messages:?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Checkpoint { .. })),
+        "nothing spawned, so nothing launched and no row says it did: {messages:?}"
     );
     let Body::Result {
         status: ResultStatus::Failed,
@@ -3939,9 +5000,12 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
         .collect();
     assert_eq!(
         steps[..3],
-        ["harness-started", "transcript", "turn-started"],
-        "the held rows are flushed in their own order, ahead of the row \
-         that flushed them: {steps:?}"
+        ["transcript", "harness-started", "turn-started"],
+        "the held rows are flushed in their own OBSERVED order, ahead of \
+         the row that flushed them. The locator now precedes the launch \
+         because both come from the same announcement and the launch is \
+         published only once that announcement confirms which session \
+         this is (proposed decision 0056 ruling 7): {steps:?}"
     );
     let transcript = messages
         .iter()

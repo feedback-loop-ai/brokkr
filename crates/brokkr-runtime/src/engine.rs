@@ -1060,7 +1060,7 @@ impl Engine {
         // `driver` label is untouched: a display string is not a control
         // channel, and five consumers plus the engine would otherwise
         // have to parse a packed grammar to make a control decision.
-        let (selection, provenance) = select_candidates(events, effect_id, body);
+        let (mut selection, provenance, chains) = select_candidates(events, effect_id, body);
         let gate = seat
             .body
             .selected_is_gate(state.strategy.as_deref(), seat.has_gate);
@@ -1102,11 +1102,13 @@ impl Engine {
         if let Some(entries) = self.boundary_entries(body, &site_name, gate) {
             started["boundary"] = entries;
         }
-        // Which session — if any — this attempt may rejoin, decided from
-        // journaled facts before anything spawns (decision 0030). The
-        // `started` payload IS the identity the offer is judged against,
-        // which is why the question is asked here, after the driver
-        // label and the provenance are in it.
+        // Which session — if any — each EXECUTING MODEL SITE of this
+        // attempt may rejoin, decided from journaled facts before
+        // anything spawns (decision 0030, generalised by proposed
+        // decision 0056 ruling 1 to all four work topologies). The
+        // `started` payload is what the legacy comparison is judged
+        // against, which is why the question is asked here, after the
+        // driver label and the provenance are in it.
         //
         // The offer itself adds no field to the payload. It is a pure
         // function of this journal and the pinned bundle, so recording
@@ -1114,16 +1116,19 @@ impl Engine {
         // the driver DID with the offer, is the driver's own checkpoint
         // to journal. The engine widens no event vocabulary to say
         // something the record already answers.
-        let offer = match single {
-            Some(_) => resume_offer(
-                events,
-                &self.bundle,
-                seat_name,
-                &started,
-                self.store.started_here(&self.run_id)?,
-            ),
-            None => None,
-        };
+        let started_here = self.store.started_here(&self.run_id)?;
+        selection.plans = self.site_plans(
+            events,
+            body,
+            seat_name,
+            selected_case,
+            &site_name,
+            gate,
+            &selection,
+            &chains,
+            &started,
+            started_here,
+        );
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -1161,6 +1166,7 @@ impl Engine {
             // settled above, where the session question needed them.
             ExecutableBody::Single { .. } => {
                 let spawn = single.expect("a single seat composed its command");
+                let plan = selection.plan(&None);
                 let run = self.run_driver(
                     effect_id,
                     &attempt_id,
@@ -1169,7 +1175,7 @@ impl Engine {
                     input,
                     deadline,
                     None,
-                    offer,
+                    plan,
                 )?;
                 let boundary = self.site_boundary(&site_name);
                 self.conclude_single(effect_id, &attempt_id, run, &selection, boundary)
@@ -1219,6 +1225,80 @@ impl Engine {
         {
             input["result_delivery"] = json!("last-message");
         }
+    }
+
+    /// Every executing model site of this attempt, with its structural
+    /// identity, its owner identity and the session — if any — it may
+    /// rejoin (proposed decision 0056 rulings 1 and 2).
+    ///
+    /// Asked once, here, for the same reason the single seat's question
+    /// was always asked here: the answer is a pure function of the
+    /// journal, the pinned bundle and the local origin, all of which are
+    /// settled before anything spawns. Composite dispatch then reads the
+    /// answers rather than re-deriving them on a worker thread that
+    /// holds no journal.
+    #[allow(clippy::too_many_arguments)]
+    fn site_plans(
+        &self,
+        events: &[EventEnvelope],
+        body: ExecutableBody<'_>,
+        seat_name: &str,
+        case: Option<&str>,
+        site_name: &str,
+        gate: bool,
+        selection: &Selection,
+        chains: &ChainIndexes,
+        started: &Value,
+        started_here: bool,
+    ) -> BTreeMap<Site, SitePlan> {
+        let holds = pinned_bundle_holds(events, &self.bundle);
+        let mut plans = BTreeMap::new();
+        for entry in resume::structural_sites(body, seat_name, case, gate) {
+            let label = match &entry.site {
+                None => site_name.to_string(),
+                Some(tag) => format!("{site_name}:{tag}"),
+            };
+            let context = resume::SiteContext {
+                site_ref: entry.key.digest(),
+                instance_ref: resume::InstanceKey::new(
+                    selection.get(&entry.site),
+                    chains.get(&entry.site).copied(),
+                    argv_for(selection, &entry.site, &entry.command),
+                    &self.bundle.manifest,
+                    &label,
+                    ENGINE_VERSION,
+                    entry.class,
+                    self.site_boundary(&label),
+                )
+                .digest(),
+                class: entry.class,
+            };
+            let offer = offer_for_site(
+                events,
+                &entry.key,
+                &context,
+                seat_name,
+                started_here,
+                holds,
+                started,
+            );
+            let originating_harness = offer
+                .as_ref()
+                .and_then(|_| resume::originating_harness_version(events, &context.site_ref));
+            let assessment = selection
+                .get(&entry.site)
+                .map_or(Value::Null, |candidate| candidate.resume.value());
+            plans.insert(
+                entry.site,
+                SitePlan {
+                    context,
+                    offer,
+                    assessment,
+                    originating_harness,
+                },
+            );
+        }
+        plans
     }
 
     /// The boundary that stands at one site: the run's word for a site
@@ -1460,10 +1540,13 @@ impl Engine {
 
     /// Spawn one driver and run one attempt, journaling its live
     /// checkpoints as they stream — member-tagged when `member_tag`
-    /// names a sequence step. `session_ref` is the seat's prior session,
-    /// offered to a driver that declares it can rejoin one (decision
-    /// 0030). Appends NO terminal effect event: the caller owns the
-    /// attempt's conclusion.
+    /// names a sequence step. `plan` is this site's resume plan: the
+    /// session it may rejoin, offered to a driver that declares it can
+    /// receive one (decision 0030, proposed 0056 ruling 4), and the two
+    /// engine stamps every checkpoint of a model site carries. `None`
+    /// for a site with no model turn — an exec dispatch or a dialect
+    /// step — which is stamped with neither. Appends NO terminal effect
+    /// event: the caller owns the attempt's conclusion.
     #[allow(clippy::too_many_arguments)]
     fn run_driver(
         &mut self,
@@ -1471,13 +1554,24 @@ impl Engine {
         attempt_id: &str,
         driver_seat: &str,
         spawn: &SiteSpawn,
-        input: Value,
+        mut input: Value,
         deadline: std::time::Duration,
         member_tag: Option<&str>,
-        session_ref: Option<String>,
+        plan: Option<&SitePlan>,
     ) -> Result<DriverRun, EngineError> {
         let workdir = self.workdir();
         let boundary = self.site_boundary(driver_seat);
+        let session_ref = plan.and_then(|plan| plan.offer.clone());
+        // The private start context (design D5): which resume assessment
+        // this site selected and, when an offer travels, the harness
+        // version its root was opened under. It rides the existing
+        // `Start.input` object under one key, separate from the rendered
+        // `context` and the phase inputs, and never reaches the prompt.
+        if let Some(plan) = plan {
+            input["resume_context"] =
+                resume::start_context(plan.assessment.clone(), plan.originating_harness.as_deref());
+        }
+        let stamp = plan.map(|plan| plan.context.clone());
         let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(process) => process,
@@ -1507,6 +1601,14 @@ impl Engine {
                         Some(tag) => tag_member(data.clone(), tag),
                     };
                     let checkpoint = stamp_boundary(checkpoint, boundary);
+                    // The engine's two structural stamps, on the same
+                    // terms as the boundary: a record that names a model
+                    // carries them, a record that names none carries
+                    // neither, and a driver's value never survives.
+                    let checkpoint = match &stamp {
+                        Some(context) => context.stamp(checkpoint),
+                        None => resume::unstamped(checkpoint),
+                    };
                     match store.append_next(
                         &run_id,
                         EventType::EffectCheckpointed,
@@ -1705,10 +1807,22 @@ impl Engine {
                     selection.get(&site),
                     input["result_path"].as_str().unwrap_or_default(),
                 );
+                // Each member's OWN offer and stamps, never the panel's:
+                // selection is per site, not per aggregate (proposed
+                // decision 0056 ruling 1).
+                let plan = selection.plan(&site);
+                if let Some(plan) = plan {
+                    input["resume_context"] = resume::start_context(
+                        plan.assessment.clone(),
+                        plan.originating_harness.as_deref(),
+                    );
+                }
                 MemberRun {
                     name: member.name.clone(),
                     driver_seat: label.clone(),
                     boundary: self.site_boundary(&label),
+                    offer: plan.and_then(|plan| plan.offer.clone()),
+                    context: plan.map(|plan| plan.context.clone()),
                     spawn,
                     input,
                 }
@@ -1768,12 +1882,15 @@ impl Engine {
                                 // kill.
                                 deadline_killed: false,
                             },
-                            Ok(process) => process.run_attempt(
+                            Ok(process) => process.run_attempt_resuming(
                                 ENGINE_VERSION,
                                 effect_id,
                                 attempt_id,
                                 &run.driver_seat,
                                 run.input.clone(),
+                                // This member's own offer, decided in
+                                // `site_plans` before anything spawned.
+                                run.offer.clone(),
                                 // Live telemetry: hand each checkpoint to the
                                 // main thread — the store has one writer.
                                 |data| {
@@ -1796,11 +1913,17 @@ impl Engine {
                 if checkpoint_error.is_some() || refusal.is_some() {
                     continue;
                 }
-                let boundary = runs
+                let owner = runs
                     .iter()
-                    .find(|run| format!("{tag_prefix}{}", run.name) == member)
-                    .and_then(|run| run.boundary);
+                    .find(|run| format!("{tag_prefix}{}", run.name) == member);
+                let boundary = owner.and_then(|run| run.boundary);
                 let checkpoint = stamp_boundary(tag_member(checkpoint, &member), boundary);
+                // The member's own stamp, applied by the one journal
+                // writer from the context its worker handed over.
+                let checkpoint = match owner.and_then(|run| run.context.as_ref()) {
+                    Some(context) => context.stamp(checkpoint),
+                    None => resume::unstamped(checkpoint),
+                };
                 match store.append_next(
                     &run_id,
                     EventType::EffectCheckpointed,
@@ -1987,10 +2110,12 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
-                    // A sequence step is not a seat: decision 0030 hands
-                    // a session back to the same SEAT of the same run,
-                    // and a step's session has no such identity to be
-                    // matched by. Steps start cold, as they always did.
+                    // A sequence step now HAS such an identity: proposed
+                    // decision 0056 ruling 1 gives it a structural site
+                    // key, so a work-class step rejoins its own session
+                    // and a gate-class step never does. Under decision
+                    // 0030 alone there was nothing to match a step's
+                    // session by, and every step started cold.
                     match self.run_driver(
                         effect_id,
                         attempt_id,
@@ -1999,7 +2124,7 @@ impl Engine {
                         input,
                         deadline,
                         Some(&step.name),
-                        None,
+                        selection.plan(&site),
                     )? {
                         DriverRun::SpawnFailed(error) => {
                             start_failures.push(site);
@@ -3428,7 +3553,70 @@ type Site = Option<String>;
 /// attempt, derived from journaled facts BEFORE anything spawns. Inline
 /// sites are absent from this map, which is what keeps their execute
 /// path exactly as it was.
-type Selection = BTreeMap<Site, Candidate>;
+/// Everything this attempt decided per site before anything spawned: the
+/// candidate each agent-resolved site runs, and — for each executing
+/// MODEL site — the resume plan proposed decision 0056 gives it.
+///
+/// One value rather than two because they are one decision, taken at one
+/// moment from one journal, and every composite dispatch that needs the
+/// candidate needs the plan beside it. Inline sites are absent from
+/// `candidates`, which is what keeps their execute path exactly as it
+/// was; dialect steps and exec sites are absent from `plans`, because a
+/// site with no model turn carries no stamp and receives no offer.
+#[derive(Debug, Default)]
+struct Selection {
+    candidates: BTreeMap<Site, Candidate>,
+    plans: BTreeMap<Site, SitePlan>,
+}
+
+impl Selection {
+    fn new() -> Selection {
+        Selection::default()
+    }
+
+    fn get(&self, site: &Site) -> Option<&Candidate> {
+        self.candidates.get(site)
+    }
+
+    fn insert(&mut self, site: Site, candidate: Candidate) {
+        self.candidates.insert(site, candidate);
+    }
+
+    fn contains_key(&self, site: &Site) -> bool {
+        self.candidates.contains_key(site)
+    }
+
+    /// This site's resume plan, or `None` for a site that has no model
+    /// turn to plan for.
+    fn plan(&self, site: &Site) -> Option<&SitePlan> {
+        self.plans.get(site)
+    }
+}
+
+/// How far along its chain each agent-resolved site walked for this
+/// attempt, beside the candidate that choice produced. Part of the
+/// site's owner identity: a chain fallback is a different instance, and
+/// the session the first candidate opened is not the second's to rejoin.
+type ChainIndexes = BTreeMap<Site, usize>;
+
+/// One executing model site's resume plan, decided before anything
+/// spawns: its two engine stamps, the session it may rejoin, and the
+/// harness version that session was opened under.
+#[derive(Debug)]
+struct SitePlan {
+    context: resume::SiteContext,
+    offer: Option<String>,
+    /// The selected adapter's typed resume assessment for this site
+    /// (design D5), carried into the driver's private start context.
+    /// `Value::Null` where no adapter answers for the site — an inline
+    /// command — which the adapter reads as unmeasured, never as
+    /// implicit support.
+    assessment: Value,
+    /// Read off the same row the offer came from, so the adapter can
+    /// refuse a rejoin whose CLI has moved underneath it (proposed
+    /// decision 0056 ruling 5). Absent when no offer is made.
+    originating_harness: Option<String>,
+}
 
 /// Every invocation site of a seat body, with the site's fallback chain.
 /// Inline sites carry an empty chain.
@@ -3503,8 +3691,9 @@ fn select_candidates(
     events: &[EventEnvelope],
     effect_id: &str,
     body: ExecutableBody<'_>,
-) -> (Selection, Option<Value>) {
+) -> (Selection, Option<Value>, ChainIndexes) {
     let mut selection = Selection::new();
+    let mut chains = ChainIndexes::new();
     let mut provenance = Vec::new();
     for (site, chain) in invocation_sites(body) {
         if chain.is_empty() {
@@ -3526,55 +3715,11 @@ fn select_candidates(
             "provider": candidate.provider,
             "chain_index": index,
         }));
+        chains.insert(site.clone(), index);
         selection.insert(site, candidate);
     }
     let provenance = (!provenance.is_empty()).then_some(Value::Array(provenance));
-    (selection, provenance)
-}
-
-/// The session this seat is holding in THIS run: the last transcript
-/// locator any attempt of this seat journaled, with that attempt.
-///
-/// Journaled checkpoints are the only channel read — `state =
-/// fold(events)`. A driver has its harness's locator in hand from the
-/// harness's first message, but since decision 0053 the row reaches the
-/// record with the attempt's FIRST WORK checkpoint, which the driver
-/// flushes it ahead of: a checkpoint before then would put a provider's
-/// pre-session refusal on decision 0016's mid-session side and strand the
-/// chain. So an attempt killed on its deadline after its first turn still
-/// hands its thread to the retry that follows, and one killed before that
-/// turn hands nothing — the window ruling 8 names, and the price it puts
-/// a figure on.
-fn seat_session(events: &[EventEnvelope], seat: &str) -> Option<(String, String)> {
-    let effects: Vec<&str> = events
-        .iter()
-        .filter(|event| event.event_type == EventType::EffectRequested)
-        .filter(|event| event.payload.get("seat").and_then(Value::as_str) == Some(seat))
-        .filter_map(|event| event.payload.get("effect_id").and_then(Value::as_str))
-        .collect();
-    events
-        .iter()
-        .rev()
-        .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .filter(|event| {
-            event
-                .payload
-                .get("effect_id")
-                .and_then(Value::as_str)
-                .is_some_and(|effect_id| effects.contains(&effect_id))
-        })
-        .find_map(|event| {
-            let checkpoint = event.payload.get("checkpoint")?;
-            // Decision 0032's common shape is first. The old flat id stays
-            // readable so a run opened before the ruling can still resume.
-            let session = checkpoint
-                .pointer("/transcript/locator")
-                .and_then(Value::as_str)
-                .filter(|locator| !locator.is_empty())
-                .or_else(|| checkpoint.get("session_id").and_then(Value::as_str))?;
-            let attempt = event.attempt_id.clone()?;
-            Some((attempt, session.to_string()))
-        })
+    (selection, provenance, chains)
 }
 
 /// Is the bundle this attempt runs under the one the run pinned at its
@@ -3595,63 +3740,52 @@ fn pinned_bundle_holds(events: &[EventEnvelope], bundle: &Bundle) -> bool {
         .is_some_and(|pinned| pinned == bundle.manifest)
 }
 
-/// The session id this attempt may be handed, or `None` — which is the
-/// answer for every attempt whose seat holds no session, and for every
-/// attempt that is not the instance that opened the one it holds.
+/// The session one site may rejoin, from this run's durable evidence.
 ///
-/// A session is one model's memory of one tree, held by the credential
-/// and client that opened it. Handing it anywhere else is a terms
-/// violation before it is a bug, so this offers one only when every
-/// journaled fact about the two attempts agrees (decision 0030 ruling 4):
+/// A free function rather than a method because it reads nothing but its
+/// arguments: the same journal, the same key and the same origin answer
+/// the same way in any process, which is what makes an operator's retry
+/// after a park derive the offer its predecessor would have (proposed
+/// decision 0056 ruling 2). `admitted` is the engine's two gross checks
+/// — the run started on this installation and the pinned bundle still
+/// holds — passed in already answered because only the engine can ask
+/// them.
 ///
-/// - the same run and the same seat, by construction — `seat_session`
-///   reads this run's journal and only this seat's effects, so a retry
-///   and a phase-machine re-entry qualify and nothing else does;
-/// - the same driver binary and the same resolved candidate, by
-///   comparing the `driver` label and the `provenance` this attempt is
-///   about to journal against the ones the attempt that opened the
-///   session did. A decision-0016 chain fallback moves the provenance;
-///   a bundle that names a different driver moves the label;
-/// - the same adapter declarations and the same engine, by the run's own
-///   pin.
-///
-/// Only these two fields are compared, and deliberately so: `effect_id`
-/// and `attempt_id` differ on every attempt by definition, and they are
-/// the only other fields a single seat's start event carries.
-///
-/// `started_here` carries the axis the journal cannot: the same machine
-/// and the same account. It is beyond the ruling's list, which is a
-/// floor and not a ceiling — withholding an offer needs no permission —
-/// and it is here because decision 0027 made runs portable. A journal
-/// exported mid-flight and adopted elsewhere resumes as a first-class
-/// run, by design indistinguishable INSIDE the chain, so no comparison
-/// of journaled facts can tell that the attempt which opened the thread
-/// ran under another machine's credential. Codex would refuse such a
-/// thread today (its rollouts are local), but a driver whose provider
-/// keeps sessions server-side would not be, and by then the offer has
-/// been made. The store answers it instead, from bookkeeping that an
-/// export does not carry.
-fn resume_offer(
+/// The legacy comparison it hands down is decision 0030's own: a
+/// checkpoint with no engine stamp predates proposed 0056, so the only
+/// ownership evidence it has is the `driver` label and the `provenance`
+/// of the attempt that wrote it. New evidence uses `instance_ref`
+/// instead, which a SIBLING member's chain movement does not disturb.
+fn offer_for_site(
     events: &[EventEnvelope],
-    bundle: &Bundle,
+    key: &resume::SiteKey,
+    context: &resume::SiteContext,
     seat: &str,
-    started: &Value,
     started_here: bool,
+    pinned_bundle_holds: bool,
+    started: &Value,
 ) -> Option<String> {
-    if !started_here || !pinned_bundle_holds(events, bundle) {
-        return None;
-    }
-    let (attempt, session) = seat_session(events, seat)?;
-    let opened_by = events
-        .iter()
-        .rev()
-        .filter(|event| event.event_type == EventType::EffectStarted)
-        .find(|event| event.attempt_id.as_deref() == Some(attempt.as_str()))
-        .map(|event| &event.payload)?;
-    let same_instance = ["driver", "provenance"]
-        .iter()
-        .all(|field| opened_by.get(field) == started.get(field));
-    same_instance.then_some(session)
+    resume::eligible_offer(
+        events,
+        key,
+        context,
+        seat,
+        started_here,
+        pinned_bundle_holds,
+        |event: &EventEnvelope| {
+            event
+                .attempt_id
+                .as_deref()
+                .and_then(|attempt| {
+                    events
+                        .iter()
+                        .rev()
+                        .filter(|e| e.event_type == EventType::EffectStarted)
+                        .find(|e| e.attempt_id.as_deref() == Some(attempt))
+                })
+                .is_some_and(|opened| resume::legacy_instance_holds(&opened.payload, started))
+        },
+    )
 }
 
 /// The argv to spawn for one invocation site: the selected candidate's,
@@ -3725,6 +3859,12 @@ struct MemberRun {
     name: String,
     driver_seat: String,
     boundary: Option<Boundary>,
+    /// This member's own eligible session, if the engine offered one.
+    offer: Option<String>,
+    /// This member's own structural identity, handed beside its
+    /// checkpoints to the single journal writer for stamping — the
+    /// worker threads never touch the store.
+    context: Option<resume::SiteContext>,
     spawn: SiteSpawn,
     input: Value,
 }
@@ -4490,6 +4630,8 @@ fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
         })
         .unwrap_or(json!({}))
 }
+
+pub(crate) mod resume;
 
 #[cfg(test)]
 mod agent_tests;

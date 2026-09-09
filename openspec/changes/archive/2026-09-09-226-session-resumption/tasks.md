@@ -68,7 +68,7 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [ ] 1.1 Write `docs/decisions/0056-same-instance-session-resumption.md`
+- [x] 1.1 Write `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
       the alternatives design D1–D9 rejected, and ten numbered rulings
@@ -88,11 +88,11 @@ saved for the phase commit.
       no accepted decision into a different meaning. Check the ruling against
       design D10/D12 and the modified requirement — safety / AS1, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 1.2 Append the registry row to `docs/decisions/README.md` in number
+- [x] 1.2 Append the registry row to `docs/decisions/README.md` in number
       order with status `proposed`, and run
       `cargo test -p brokkr-cli --test decisions_index` so the derived
       index test proves the row is present exactly once — safety / AS1.
-- [ ] 1.3 State in 0056 the two limits the design refuses to hide: the
+- [x] 1.3 State in 0056 the two limits the design refuses to hide: the
       local fingerprint cannot authenticate a provider account or detect
       a swapped credential home (`site / SR5`), and a charter instruction
       is not an engine guarantee that a model obeys it
@@ -100,7 +100,7 @@ saved for the phase commit.
 
 ## 2. Seat record v5 (design D4)
 
-- [ ] 2.1 Write `contracts/seat-record.v5.schema.json` as v4 plus the
+- [x] 2.1 Write `contracts/seat-record.v5.schema.json` as v4 plus the
       optional checkpoint properties of D4's table — `site_ref` and
       `instance_ref` (64 lowercase hex), and the closed `root_session`
       object with `kind` (`codex-thread | claude-session | dsh-session`),
@@ -116,10 +116,10 @@ saved for the phase commit.
       published v5 file adds no unconditional requirement that a v4-valid
       row could fail: every added property is optional and every added
       enum member widens (design D4's superset rule) — evidence / LE2.
-- [ ] 2.2 Copy the same bytes to `crates/brokkr-store/src/seat-record.v5.schema.json`
+- [x] 2.2 Copy the same bytes to `crates/brokkr-store/src/seat-record.v5.schema.json`
       and add `SCHEMA_V5`/`CONTRACT_V5` beside their four siblings in
       `crates/brokkr-store/src/seat_record.rs` — evidence / LE2.
-- [ ] 2.3 Add `SeatRecordVersion::V5` and dispatch it from **0.10.0**
+- [x] 2.3 Add `SeatRecordVersion::V5` and dispatch it from **0.10.0**
       in `SeatRecordVersion::of_engine` under the F7 boundary-record
       amendment: 0.9.0 up to but excluding 0.10.0 selects v4, 0.8.0 up to
       but excluding 0.9.0 selects v3, and older/unparseable engines keep
@@ -128,7 +128,7 @@ saved for the phase commit.
       No package version is bumped. Verify the dispatch matrix in 2.6
       through all four fences — evidence / LE2, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 2.4 Extend the built-in conformance in `seat_record.rs`, scoping
+- [x] 2.4 Extend the built-in conformance in `seat_record.rs`, scoping
       the one constraint that history cannot satisfy. 2.3 sends the whole
       **0.10.0** line to v5, and `version_of` derives that version from
       the run's engine string, so v5 also judges rows the shipped 0.10.0
@@ -161,7 +161,7 @@ saved for the phase commit.
       0.10.0 row.
       Diagnostics name contract and JSON pointer and never echo the
       rejected value — evidence / LE2, evidence / LE5.
-- [ ] 2.5 Use the one dispatch and validator at append, export, import
+- [x] 2.5 Use the one dispatch and validator at append, export, import
       verification and offline verification through
       `crates/brokkr-store/src/lib.rs`'s existing fence, so a private
       field, invalid enum or oversized identifier is refused before
@@ -176,7 +176,7 @@ saved for the phase commit.
       evidence for `resumed` and a refusal only with `cold`, and no
       added constraint invalidates historical rows — evidence / LE2,
       evidence / LE5.
-- [ ] 2.6 Tests in `crates/brokkr-store/src/tests.rs`: a v4 row and a v5
+- [x] 2.6 Tests in `crates/brokkr-store/src/tests.rs`: a v4 row and a v5
       row each validate against their own contract; an old 0.10.0 row
       with none of the new fields still validates under v5; the
       historical regression — a 0.10.0 codex checkpoint with
@@ -202,7 +202,7 @@ saved for the phase commit.
       Keep the synthetic third-party counterexamples labelled as
       contract tests, not provider telemetry — evidence / LE2, evidence / LE5,
       boundary / The seat record carries the boundary as seat-record/v4.
-- [ ] 2.7 Pin the v1–v4 seat-record bytes in
+- [x] 2.7 Pin the v1–v4 seat-record bytes in
       `crates/brokkr-runtime/tests/frozen_contracts.rs` if any are not
       pinned yet, and assert `contracts/seat-record.v5.schema.json` exists
       beside them with title `Forge seat record v5`, exactly as decision
@@ -212,7 +212,7 @@ saved for the phase commit.
       tests and compare the frozen files to the commissioned base —
       evidence / LE2, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 2.8 Extend the existing integration coverage in
+- [x] 2.8 Extend the existing integration coverage in
       `crates/brokkr-runtime/src/engine/boundary_tests.rs` and store
       record tests for the amended requirement’s boundary scenarios
       under v5: boxed exec finishing/success records carry namespace;
@@ -230,7 +230,7 @@ saved for the phase commit.
 
 ## 3. Structural site identity (design D2)
 
-- [ ] 3.1 Add private `SiteKey`, `InstanceKey` and `ConfirmedSession` to
+- [x] 3.1 Add private `SiteKey`, `InstanceKey` and `ConfirmedSession` to
       `crates/brokkr-runtime/src/engine.rs`. `SiteKey` carries the outer
       seat, the selected case (with explicit absence for an unselected
       body), the body kind and the tagged path — single, panel member,
@@ -238,11 +238,11 @@ saved for the phase commit.
       name and index components taken off the compiled body walk. Never
       split a display tag on `:` to recover ancestry; never case-fold a
       recovered name — site / SR1.
-- [ ] 3.2 Derive `site_ref` as canonical JSON through the existing
+- [x] 3.2 Derive `site_ref` as canonical JSON through the existing
       `brokkr_core::canonical` SHA-256, domain-separated with
       `brokkr.resume-site/v1`, to 64 lowercase hex; the run journal
       supplies run scope — site / SR1.
-- [ ] 3.3 Build `InstanceKey` from this site's agent, provider, model,
+- [x] 3.3 Build `InstanceKey` from this site's agent, provider, model,
       effort and chain index, the normalized driver identity, the pinned
       unexpanded command-template digest, the adapter digest, the engine
       version, the pinned bundle identity, the class, the boundary and
@@ -253,13 +253,13 @@ saved for the phase commit.
       No resolved credential, provider-home content or private argv
       enters this identity. Missing required identity yields no key and
       therefore no offer — site / SR2.
-- [ ] 3.4 Compose a per-invocation site context — key, selected
+- [x] 3.4 Compose a per-invocation site context — key, selected
       candidate, current class, current restrictions — where the actual
       site is composed, and carry it through single dispatch, `MemberRun`
       and sequence model dispatch. Panel workers hand the context key
       beside their checkpoints to the single journal writer for stamping.
       A reused completed step invokes no driver and gains no launch — site / SR1.
-- [ ] 3.5 Add the compile-time uniqueness check for the existing
+- [x] 3.5 Add the compile-time uniqueness check for the existing
       flattened `Site` addresses within their actual candidate and
       boundary lookup scopes in `crates/brokkr-runtime/src/bundle.rs`, so
       step `a:b`/member `c` and step `a`/member `b:c` cannot alias; an
@@ -267,11 +267,11 @@ saved for the phase commit.
       sites. Ordinary repeated member names under different steps stay
       valid, and chain progression and historical tag meanings do not
       move — site / SR2.
-- [ ] 3.6 Tests in `crates/brokkr-runtime/src/bundle/tests.rs`: the
+- [x] 3.6 Tests in `crates/brokkr-runtime/src/bundle/tests.rs`: the
       colliding pair is refused at compile time; two panels each holding
       an `alpha` still compile; every bundle under `recipes/` and
       `bundles/` walks clean — site / SR2.
-- [ ] 3.7 Tests in `crates/brokkr-runtime/src/engine/resume_tests.rs`:
+- [x] 3.7 Tests in `crates/brokkr-runtime/src/engine/resume_tests.rs`:
       the canonical key is stable across process runs and moves for each
       identity axis of 3.3 taken one at a time; two sites with the same
       display tag and different ancestry produce different `site_ref` —
@@ -279,7 +279,7 @@ saved for the phase commit.
 
 ## 4. The eligibility query and its four topologies (design D1, D3)
 
-- [ ] 4.1 Replace `seat_session`/`resume_offer` in `engine.rs` with a
+- [x] 4.1 Replace `seat_session`/`resume_offer` in `engine.rs` with a
       pure query over this run's durable evidence: require a work-class
       model site, an unchanged pinned manifest and `Store::started_here`;
       find the newest checkpoint carrying confirmed root evidence for
@@ -287,33 +287,33 @@ saved for the phase commit.
       requested seat and durable start; require the engine-stamped site
       and instance facts. Keep the existing manifest refusal and
       indeterminate recovery ahead of dispatch — site / SR2, site / SR5.
-- [ ] 4.2 Compare the newest session's `instance_ref` with the current
+- [x] 4.2 Compare the newest session's `instance_ref` with the current
       instance and stop there: an incompatible or ambiguous newest owner
       denies the offer and the query never searches behind it for an
       older matching owner. A failed invocation that recorded no session
       supplies no replacement; a start carrying only an assigned creation
       ID is not session-bearing evidence — site / SR2.
-- [ ] 4.3 Stamp `site_ref` and `instance_ref` from the invoking context
+- [x] 4.3 Stamp `site_ref` and `instance_ref` from the invoking context
       when the engine writes a checkpoint, overwriting or removing any
       driver-supplied value exactly as the boundary stamp already does.
       An aggregate record never establishes a member's session
       ownership — site / SR2, evidence / LE5.
-- [ ] 4.4 Offer the complete validated provider ID through `Body::Resume`
+- [x] 4.4 Offer the complete validated provider ID through `Body::Resume`
       at all four executing work topologies — the single seat, each panel
       member, each sequence model step and each member of a sequence
       panel — replacing the three `session_ref: None` call sites of
       `run_driver`. Pass the originating harness identity to the
       adapter's private start context for group 8's version check — site / SR1.
-- [ ] 4.5 Withhold the offer from every gate-class invocation, including
+- [x] 4.5 Withhold the offer from every gate-class invocation, including
       the single gate that the shipped code offers one today: a single
       seat or panel uses its selected compiled class, a sequence step its
       own compiled class, and a panel member inherits its enclosing
       panel's class. An office name and the presence of a later gate step
       decide nothing (decision 0042 ruling 2) — site / SR1.
-- [ ] 4.6 Keep deterministic exec and dialect validation steps outside
+- [x] 4.6 Keep deterministic exec and dialect validation steps outside
       the capability: no offer, no negotiation, no model launch — site / SR1,
       evidence / LE1.
-- [ ] 4.7 Tests in `engine/resume_tests.rs` asserting the actual wire
+- [x] 4.7 Tests in `engine/resume_tests.rs` asserting the actual wire
       offers and their absence: a single site's retry then re-entry gets
       A then B and the first cold invocation gets nothing; two panel
       members each get only their own; a sequence with a work author, a
@@ -326,12 +326,12 @@ saved for the phase commit.
       denies the offer; an imported or unverifiable origin denies it on
       every later retry; a composite checkpoint without an unambiguous
       site stamp denies it — site / SR1, site / SR2.
-- [ ] 4.8 Gate tests in the same suite for all four gate topologies —
+- [x] 4.8 Gate tests in the same suite for all four gate topologies —
       single gate, gate-panel member, gate model step, member of a gate
       panel step — on retry, re-entry and operator retry, each proving no
       offer and a fresh launch; plus the corrected historical single-gate
       case, whose journal rows are left unchanged — site / SR1, evidence / LE5.
-- [ ] 4.9 Recovery tests in `engine/resume_tests.rs` and
+- [x] 4.9 Recovery tests in `engine/resume_tests.rs` and
       `crates/brokkr-runtime/tests/recovery.rs`: a fresh engine process
       derives the same offer from the same journal, bundle and origin; an
       effect whose execution is indeterminate stays parked and the
@@ -340,34 +340,34 @@ saved for the phase commit.
 
 ## 5. The correlated one-use offer (design D5, protocol half)
 
-- [ ] 5.1 Advertise `resume` as offer receipt from all four model
+- [x] 5.1 Advertise `resume` as offer receipt from all four model
       adapters in `AdapterKind::supports` in
       `crates/brokkr-protocol/src/adapters.rs`; exec advertises none.
       Receipt is not a claim that any offered session can be resumed — site / SR4.
-- [ ] 5.2 Replace `serve_io`'s uncorrelated `offered: Option<String>`
+- [x] 5.2 Replace `serve_io`'s uncorrelated `offered: Option<String>`
       with a `PendingOffer { effect_id, attempt_id, handle }` whose
       handle is size-bounded. A matching start consumes it exactly once;
       an empty pending state is an ordinary cold start — site / SR4.
-- [ ] 5.3 Poison the exchange on a duplicate offer, malformed
+- [x] 5.3 Poison the exchange on a duplicate offer, malformed
       correlation, wrong effect or attempt, a resume before negotiation
       or a malformed resume envelope: launch no provider, send a bounded
       protocol failure when the correlation is known, otherwise end the
       exchange without pretending a provider refused. Never repair a
       poisoned exchange into a cold execution. Cancellation, shutdown,
       EOF and a completed invocation discard pending state — site / SR4.
-- [ ] 5.4 Treat a correlated string that fails the provider ID grammar as
+- [x] 5.4 Treat a correlated string that fails the provider ID grammar as
       a declined offer with `invalid-session-id`, whose cold substitute
       independently passes current policy — site / SR4, evidence / LE1.
-- [ ] 5.5 Keep driver protocol v1 and `run_attempt_resuming`'s ordering
+- [x] 5.5 Keep driver protocol v1 and `run_attempt_resuming`'s ordering
       in `crates/brokkr-protocol/src/process.rs` unchanged; a driver that
       does not advertise receipt is sent only its normal start, and the
       handle never travels in the prompt, the rendered context or a
       policy input — site / SR4.
-- [ ] 5.6 Carry the current attempt's prompt, result destination and
+- [x] 5.6 Carry the current attempt's prompt, result destination and
       scoped hands configuration with every rejoin, so an old
       conversation's remembered result path or grant cannot select this
       attempt's output or permissions — site / SR4, safety / AS2.
-- [ ] 5.7 Tests in `crates/brokkr-protocol/src/process/tests.rs` and
+- [x] 5.7 Tests in `crates/brokkr-protocol/src/process/tests.rs` and
       `crates/brokkr-protocol/src/adapters/tests.rs`: negotiation then
       one correlated offer then one start; a second start with no offer
       in front of it starts cold; an offer whose effect or attempt
@@ -375,13 +375,13 @@ saved for the phase commit.
       later start; two conflicting offers before one start reach none;
       cancel, shutdown and EOF discard the pending offer; the private
       start context is not rendered into the prompt — site / SR4.
-- [ ] 5.8 Extend `crates/brokkr-cli/tests/driver_conformance.rs` with the
+- [x] 5.8 Extend `crates/brokkr-cli/tests/driver_conformance.rs` with the
       receipt capability and the one-use exchange for every built-in
       model adapter — site / SR4, evidence / LE5.
 
 ## 6. Adapter support declarations (design D5, declaration half)
 
-- [ ] 6.1 Add the typed `resume` assessment to the adapter declaration in
+- [x] 6.1 Add the typed `resume` assessment to the adapter declaration in
       `crates/brokkr-runtime/src/agents.rs`: per named execution shape, a
       status of `unmeasured | unsupported | supported`, an assessed
       identity, the applicable classes, boundaries and hands mode, the
@@ -418,17 +418,17 @@ saved for the phase commit.
       it as an authoring error would make the preparatory declarations
       of 6.4 unwritable. Neither outcome ever enables resume
       (design D5) — safety / AS1.
-- [ ] 6.2 Validate that shape in the loader and let the existing adapter
+- [x] 6.2 Validate that shape in the loader and let the existing adapter
       content digest pin it, so a declaration edit moves bundle identity
       as it does today. The shape stays closed and compact — the
       admission-relevant fields of 6.1 and nothing behind them: no
       evidence database, no probe DSL, no version-range resolver and no
       path by which a declaration enables itself (design D5, D10) — safety / AS1.
-- [ ] 6.3 Carry the selected assessment through `Candidate`/`SiteSpawn`
+- [x] 6.3 Carry the selected assessment through `Candidate`/`SiteSpawn`
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
       handle. No new wire type is added — safety / AS1, site / SR4.
-- [ ] 6.4 Write the assessments into `adapters/codex.json`,
+- [x] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change, each one loadable now under one of 6.1's two identity
@@ -449,12 +449,12 @@ saved for the phase commit.
       identities and group 11 flips the statuses; neither is a
       prerequisite of writing them.
       `adapters/exec.json` gains no assessment — safety / AS1.
-- [ ] 6.5 Update the scaffolded adapter text in
+- [x] 6.5 Update the scaffolded adapter text in
       `crates/brokkr-cli/src/init.rs` and its expectations in
       `crates/brokkr-cli/tests/init_stacks.rs` and
       `crates/brokkr-cli/tests/init_doctor.rs` so a scaffolded workspace
       declares the same shape — safety / AS1.
-- [ ] 6.6 Tests in `crates/brokkr-runtime/src/agents/tests.rs`, holding
+- [x] 6.6 Tests in `crates/brokkr-runtime/src/agents/tests.rs`, holding
       6.1's two outcomes apart: each of the three statuses parses; an
       adapter with **no** `resume` key loads, resolves to `unmeasured`,
       and its site compiles and invokes cold; an `unmeasured` assessment
@@ -473,34 +473,34 @@ saved for the phase commit.
 
 ## 7. The launch lifecycle (design D7, evidence half)
 
-- [ ] 7.1 Model the invocation as `plan -> child spawned -> exact root
+- [x] 7.1 Model the invocation as `plan -> child spawned -> exact root
       confirmed -> current work -> terminal` in the shared part of
       `adapters.rs`, with explicit resume outcomes: confirmed,
       conclusively rejected before work, failed after
       confirmation or work, and uncertain — evidence / LE1.
-- [ ] 7.2 Publish `launch: cold` only when the adapter actually took the
+- [x] 7.2 Publish `launch: cold` only when the adapter actually took the
       fresh-session path, and `launch: resumed` only after provider
       evidence confirms the exact offered root before first work. A
       resume flag, a preassigned creation ID, a known old handle,
       surviving edits, replayed transcript rows and an exit status of
       zero prove nothing on their own. A confirmed fresh creation stays
       cold even when the engine or adapter chose its ID — evidence / LE1.
-- [ ] 7.3 Emit a bounded refusal reason exactly when an offer was
+- [x] 7.3 Emit a bounded refusal reason exactly when an offer was
       declined and the launch is cold; invent no refusal where no offer
       was made; label no unconfirmed resume cold or resumed by
       guesswork — evidence / LE1, evidence / LE2.
-- [ ] 7.4 Hold root and launch candidates before `run_seat`'s existing
+- [x] 7.4 Hold root and launch candidates before `run_seat`'s existing
       first-work boundary, then flush `Accepted`, then the held confirmed
       launch and location facts in observed order, then the first work
       checkpoint. Publish one final launch per executing model site, not
       one per internal spawn. New root evidence uses a pre-work lifecycle
       step that must not satisfy `begins_work` — evidence / LE3.
-- [ ] 7.5 Keep the classified pre-session refusal path exactly as shipped
+- [x] 7.5 Keep the classified pre-session refusal path exactly as shipped
       under proposed 0053: a conclusive provider refusal before work and
       without delivery retains a failed result with no `Accepted` and no
       checkpoints, including no launch row, and a kill inside the held
       window loses those rows — evidence / LE3.
-- [ ] 7.6 Permit one cold launch after a local decline, and one cold
+- [x] 7.6 Permit one cold launch after a local decline, and one cold
       replacement after a provider-rejected resume, and only on measured
       machine session-rejection evidence establishing that no session
       opened, no turn or tool action ran and no result was delivered. A
@@ -509,20 +509,20 @@ saved for the phase commit.
       invocation outcome first: an error-shaped notice followed by work
       or clean delivery is not a rejection, and its delivered work is
       retained — safety / AS4.
-- [ ] 7.7 Clear the rejected child's held launch, root, locator,
+- [x] 7.7 Clear the rejected child's held launch, root, locator,
       model/effort and accounting candidates before the single
       replacement, report that replacement as cold with `harness-refused`,
       and never recurse. A failed replacement reports its own outcome;
       if it is itself a classified pre-work refusal, 7.5's
       no-checkpoint exception applies — safety / AS4, evidence / LE1.
-- [ ] 7.8 Share one outer driver process, its process-tree watchdog and
+- [x] 7.8 Share one outer driver process, its process-tree watchdog and
       the original deadline across both launches and the version check of
       8.1: the replacement gets only the remaining budget, no new attempt
       ID, no new chain slot and no new timer. Cancellation or deadline
       termination prevents a later replacement from starting, and a
       watchdog kill keeps `deadline_killed` rather than becoming a
       failure to start because acceptance was held — safety / AS5.
-- [ ] 7.9 Tests in `crates/brokkr-protocol/src/adapters/tests.rs` driving
+- [x] 7.9 Tests in `crates/brokkr-protocol/src/adapters/tests.rs` driving
       shim sequences: confirmation then work; conclusive rejection then
       one replacement; an error notice followed by delivery; a different
       root than the one offered; a post-work failure; a failed
@@ -530,13 +530,13 @@ saved for the phase commit.
       arriving near the deadline; a watchdog kill before any checkpoint;
       and the held-row order `Accepted`, launch, location, first work — safety / AS4,
       safety / AS5, evidence / LE3.
-- [ ] 7.10 Tests that a kill inside the held window fabricates nothing on
+- [x] 7.10 Tests that a kill inside the held window fabricates nothing on
       recovery and that group 4's query then offers nothing from that
       attempt — evidence / LE3, site / SR5.
 
 ## 8. Provider planners (design D6)
 
-- [ ] 8.1 Probe the selected executable's version once per invocation
+- [x] 8.1 Probe the selected executable's version once per invocation
       through its measured version interface, with bounded output inside
       the existing deadline, and compare the observed version with the
       pinned assessment and with the originating root's recorded
@@ -546,14 +546,14 @@ saved for the phase commit.
       unreadable identity disables resume with `unverified-harness`. The
       observed version is recorded, never the desired pin. No per-attempt
       model experiment runs — safety / AS1.
-- [ ] 8.2 Compose the restriction plan in the engine from the declaration
+- [x] 8.2 Compose the restriction plan in the engine from the declaration
       argv, the model and effort, the generated current hands fragment,
       the result door and the scoped resources, preserving provenance
       before flattening, and compare the actual expanded fragment against
       that plan in the adapter. User passthrough that merely resembles
       generated MCP settings is not authorized by resemblance — safety / AS2,
       safety / AS3.
-- [ ] 8.3 Apply a measured resume allow-list with exact arity, duplicate
+- [x] 8.3 Apply a measured resume allow-list with exact arity, duplicate
       and precedence checks. Competing selectors, forks,
       background, cloud or worktree launch, extra positional handles and
       unknown restriction or profile overrides are not forwarded. Apply
@@ -563,19 +563,19 @@ saved for the phase commit.
       incompatibility may select a known safe cold spelling;
       cold-inadmissible settings refuse rather than drop a restriction — safety / AS3,
       safety / AS2.
-- [ ] 8.4 Refuse an offered handle carrying a flag-like prefix, control
+- [x] 8.4 Refuse an offered handle carrying a flag-like prefix, control
       characters, path traversal, shell syntax or a value outside the
       measured grammar: it is never passed as a selector, never truncated
       into another handle and never echoed into the journal — safety / AS3,
       evidence / LE2.
-- [ ] 8.5 Codex: keep `codex exec resume --json`, the workdir through
+- [x] 8.5 Codex: keep `codex exec resume --json`, the workdir through
       `current_dir`, `-c sandbox_mode=...`, the pinned effort and the safe
       passthrough of `codex_resume_blocker`, and admit exact
       engine-generated MCP fragments separately from arbitrary `-c`.
       Re-express the class and effort on every rejoin, including decision
       0030's safe class override, rather than inheriting the old
       thread's — safety / AS2, safety / AS3.
-- [ ] 8.6 Claude: build the print/stream-json resume path with exactly
+- [x] 8.6 Claude: build the print/stream-json resume path with exactly
       `--resume <owned-id>` and the current restriction plan — permission
       mode, model and effort, `--tools ""`, strict MCP config, the
       current MCP document and the allowed workspace tool where boxed —
@@ -590,11 +590,11 @@ saved for the phase commit.
       blindly. Retain an explicit no-persistence setting and declare that
       shape nonresumable with `nonpersistent-session` — safety / AS2,
       safety / AS3.
-- [ ] 8.7 LaneTally: share Claude's parsing where the measurement covers
+- [x] 8.7 LaneTally: share Claude's parsing where the measurement covers
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [ ] 8.8 DSH: keep the admitted headless profile, the Rust-owned
+- [x] 8.8 DSH: keep the admitted headless profile, the Rust-owned
       per-invocation overlay, the model and effort settings and the
       retained transcript scope, and add owned-session selection only
       through the supported settings or extension route that task 10.3
@@ -604,7 +604,7 @@ saved for the phase commit.
       headless, and the retained directory is not treated as a provider
       handle. An unsupported hands shape stays refused — safety / AS1,
       safety / AS2, safety / AS3.
-- [ ] 8.9 Implement SR3's two identity origins: harvest the
+- [x] 8.9 Implement SR3's two identity origins: harvest the
       provider-generated root for the known Claude and Codex paths, and
       support a fresh engine- or adapter-assigned creation ID only where
       a measured creation interface requires one. Assignment is
@@ -618,7 +618,7 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 Planner tests in `adapters/tests.rs` built from the captured
+- [x] 8.10 Planner tests in `adapters/tests.rs` built from the captured
       grammar: the exact resume argv per adapter; the complete current
       class, model and effort on the resume path; the generated fragment
       admitted where passthrough of the same shape is not; a settings
@@ -630,7 +630,7 @@ saved for the phase commit.
       unsupported hands request still refused; and neither resume nor
       cold able to honour the class ending in refusal — safety / AS2,
       safety / AS3, site / SR3.
-- [ ] 8.11 Assignment tests: a confirmed assigned creation reports
+- [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
       produces no session-existence proof and populates no transcript or
@@ -641,7 +641,7 @@ saved for the phase commit.
 
 ## 9. Accounting and legacy compatibility (design D8)
 
-- [ ] 9.1 Establish a measured restored-history/current-work boundary in
+- [x] 9.1 Establish a measured restored-history/current-work boundary in
       each enabled planner before its usage and tool folds run,
       preferring the provider's turn or event cursor. The cursor or
       interval each planner uses is the one 10.1–10.4 establish for it,
@@ -651,23 +651,23 @@ saved for the phase commit.
       accounting capture the owned pre-followup offset or sequence
       through the existing bounded path, and never treat a byte count as
       root confirmation — evidence / LE4.
-- [ ] 9.2 Count only the current invocation's new turns, tools, targets
+- [x] 9.2 Count only the current invocation's new turns, tools, targets
       and reported usage, filtering replayed tools and targets too.
       Rotation, truncation, a missing cursor or uncertain attribution
       omits the affected measurement, or refuses the resume when no
       current-work boundary can be established at all; a lifetime total
       without an established baseline stays absent rather than guessed,
       subtracted or replaced by zero — evidence / LE4.
-- [ ] 9.3 Keep the inclusive input and cache-read subsets, cache writes,
+- [x] 9.3 Keep the inclusive input and cache-read subsets, cache writes,
       completion deduplication, served model and effort conventions and
       LaneTally's capture identity exactly as they are, and keep a
       rejected resume's unconfirmed usage out of the cold replacement's
       accounting — evidence / LE4.
-- [ ] 9.4 Never read historical transcript text to reconstruct a prompt
+- [x] 9.4 Never read historical transcript text to reconstruct a prompt
       or a line of reasoning; retain the existing transcript kinds,
       locators, homes, size caps, retention and path checks; leave #222's
       readers alone — site / SR3, evidence / LE4.
-- [ ] 9.5 Legacy lookup: an unambiguous local single-work-site Codex row
+- [x] 9.5 Legacy lookup: an unambiguous local single-work-site Codex row
       may offer its thread through the established kind and flat-ID
       mapping, subject to every instance, manifest and origin check and
       the current adapter-version qualification. Legacy composites and
@@ -676,7 +676,7 @@ saved for the phase commit.
       equated with a session. A new row without confirmed root cannot
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
-- [ ] 9.6 Tests: a replayed stream of ten historical turns followed by
+- [x] 9.6 Tests: a replayed stream of ten historical turns followed by
       two new ones records two; an unattributable lifetime total is
       omitted with the limitation documented; a DSH followup over
       retained storage journals only new events; a LaneTally resume keeps
@@ -685,7 +685,7 @@ saved for the phase commit.
       backfilled value; a legacy Codex row resumes without rewriting the
       checkpoint; a legacy composite and a DSH-directory-only history
       each start cold — evidence / LE4, evidence / LE5.
-- [ ] 9.7 Launch conformance across every built-in adapter in
+- [x] 9.7 Launch conformance across every built-in adapter in
       `adapters/tests.rs` and `crates/brokkr-cli/tests/driver_conformance.rs`:
       the no-offer cold launch, the safe work-site resume where
       supported, the declined offer, the proven pre-work cold
@@ -723,14 +723,14 @@ establishes still produces its construction, validation and shim work
 while its proof is pending; interface evidence never enables a shape by
 itself (`safety / AS1`).
 
-- [ ] 10.1 Codex interface on installed **0.153.4** (or the actual
+- [x] 10.1 Codex interface on installed **0.153.4** (or the actual
       installed replacement): `codex exec resume --help` and the
       installed help or source for `--json`, `-c sandbox_mode`, effort
       configuration, safe passthrough and the thread positional,
       recording the observed version and the allowed argv shape. 0030's
       0.148.0 measurement is historical regression scope, not current
       qualification. Prerequisite of 8.5 — safety / AS1.
-- [ ] 10.2 Claude interface on **2.1.266**: the resume selector and its
+- [x] 10.2 Claude interface on **2.1.266**: the resume selector and its
       arity, the restriction flags and their precedence — permission
       mode, model and effort, `--tools ""`, strict MCP config, the boxed
       workspace fragment — the persistence setting, the excluded
@@ -738,7 +738,7 @@ itself (`safety / AS1`).
       emits, from installed help and
       `.forge/controller-host-provider-interface.json`. Prerequisite of
       8.6 and 8.7 — safety / AS1, safety / AS2.
-- [ ] 10.3 DSH source and interface: installed
+- [x] 10.3 DSH source and interface: installed
       `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-agent`, the settings
       surface and the Cordis loader and extension exports that headless
       consumes, with package versions, exports, relevant implementation
@@ -776,7 +776,7 @@ itself (`safety / AS1`).
       the route requires a forbidden mechanism; in the latter case record
       the measured limitation and report **AS1 upstream**, naming
       `proposal.md` and `adapter-resume-safety` as owners — safety / AS1.
-- [ ] 10.4 LaneTally interface: wrapper identity, what it forwards to
+- [x] 10.4 LaneTally interface: wrapper identity, what it forwards to
       Claude, how the underlying Claude version is read through a
       measured interface, and the capture marker's attribution point. No
       LaneTally version command is invented. Prerequisite of 8.7 — safety / AS1.
@@ -819,14 +819,14 @@ itself (`safety / AS1`).
 - [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
       interface and 10.8's proof, with its measured reason. Never mark it
       supported by analogy — safety / AS1.
-- [ ] 11.5 Record in each declaration and in
+- [x] 11.5 Record in each declaration and in
       `docs/guides/provider-adapters.md` which shapes remain unmeasured
       and disabled, with their reasons; a disabled shape and a shim-only
       proof are both labelled as such — safety / AS1, evidence / LE5.
 
 ## 12. The SDD charter (design D9)
 
-- [ ] 12.1 Change `agents/charters/implementer-sdd.md` once: before a
+- [x] 12.1 Change `agents/charters/implementer-sdd.md` once: before a
       group, record it as in progress and name its focused acceptance
       checks; when a task's implementation and its required focused
       checks pass, persist its tick and concise evidence before the next
@@ -836,7 +836,7 @@ itself (`safety / AS1`).
       Name the dialect's task artifact generically — no framework path,
       no repository command (decision 0042 ruling 6) — progress / PM1,
       progress / PM3.
-- [ ] 12.2 Add the recovery clause to the same charter: on retry or
+- [x] 12.2 Add the recovery clause to the same charter: on retry or
       re-entry, resumed or cold, read the change's current specification,
       design and task artifacts and the current worktree before
       continuing; reconcile ticks against surviving edits and cited
@@ -845,13 +845,13 @@ itself (`safety / AS1`).
       uncommitted edits merely because the successor does not remember
       authoring them; never read another session's private transcript.
       Current evidence outranks memory — progress / PM2.
-- [ ] 12.3 Leave `agents/charters/implementer.md` unchanged, and leave
+- [x] 12.3 Leave `agents/charters/implementer.md` unchanged, and leave
       `dialects/openspec.json`, `dialects/speckit.json`, their
       instruction directories and the copies under
       `crates/brokkr-cli/dialects/` with their existing phase maps and
       task formats: neither dialect gains an implement phase or a
       duplicate timing rule — progress / PM3.
-- [ ] 12.4 Re-record the charter digest in
+- [x] 12.4 Re-record the charter digest in
       `crates/brokkr-runtime/tests/library_data.rs` from the test's own
       reported pair, and update the rendered-prompt expectations in
       `crates/brokkr-runtime/tests/sdd_shape.rs` and
@@ -860,7 +860,7 @@ itself (`safety / AS1`).
       verification and worktree reconciliation, with OpenSpec's numbered
       `tasks.md` checkboxes and spec-kit's phased rows each supplied by
       the dialect — progress / PM3.
-- [ ] 12.5 A deterministic recovery exercise in a temporary worktree: a
+- [x] 12.5 A deterministic recovery exercise in a temporary worktree: a
       completed group with recorded progress, a second group marked in
       progress, an interruption before any commit, and a successor
       reading group one's checked work and group two's incomplete status
@@ -868,21 +868,21 @@ itself (`safety / AS1`).
       evidence identifies it as an exercise and an instruction check, not
       a claim that a live model always obeys — progress / PM1,
       progress / PM2.
-- [ ] 12.6 A test that a judge's rendered prompts grant no task edit: the
+- [x] 12.6 A test that a judge's rendered prompts grant no task edit: the
       review offices report findings to the owning artifact and leave the
       task file and the tree unchanged — progress / PM3.
 
 ## 13. Prose
 
-- [ ] 13.1 `docs/guides/provider-adapters.md`: the offer, the assessment
+- [x] 13.1 `docs/guides/provider-adapters.md`: the offer, the assessment
       shape, what each adapter's declaration says today, the measured
       limitations, and the held-window limitation that a kill before
       first work leaves no session evidence — safety / AS1, evidence / LE3.
-- [ ] 13.2 `docs/guides/driver-authoring.md`: how a third-party driver
+- [x] 13.2 `docs/guides/driver-authoring.md`: how a third-party driver
       advertises receipt, what a correlated one-use offer looks like on
       the wire, and that not advertising it means never being handed a
       handle — site / SR4.
-- [ ] 13.3 `docs/guides/journal-and-verification.md`: seat-record v5, its
+- [x] 13.3 `docs/guides/journal-and-verification.md`: seat-record v5, its
       new optional fields, its five added refusal tokens, the 0.10.0
       dispatch boundary across append, export, import verification and
       offline verification, and the guarantee that valid historical
@@ -891,20 +891,20 @@ itself (`safety / AS1`).
       against D4 and the modified boundary-record requirement — evidence / LE2,
       evidence / LE5, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 13.4 State the two honest limits in the guides as well as in 0056:
+- [x] 13.4 State the two honest limits in the guides as well as in 0056:
       the local origin check does not authenticate a provider account,
       and a charter instruction is not an engine guarantee — site / SR5,
       progress / PM3.
 
 ## 14. Re-pins
 
-- [ ] 14.1 Re-record the moved witness digests in
+- [x] 14.1 Re-record the moved witness digests in
       `crates/brokkr-runtime/tests/witness_digests.rs` from the tests'
       own reported left/right pairs — the adapter declarations of group 6
       and the charter of group 12 move every identity that consults
       them — and change no pin the tests did not report — safety / AS1,
       progress / PM3.
-- [ ] 14.2 Compile `bundles/self` and `bundles/verify` and reconcile any
+- [x] 14.2 Compile `bundles/self` and `bundles/verify` and reconcile any
       manifest digest the compile reports — safety / AS1.
 
 ## 15. Gates, fold and commit
@@ -913,12 +913,12 @@ The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
 `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
 
-- [ ] 15.1 `cargo fmt --all -- --check` — every requirement of this change.
-- [ ] 15.2 `cargo clippy --workspace --all-targets --all-features --locked
+- [x] 15.1 `cargo fmt --all -- --check` — every requirement of this change.
+- [x] 15.2 `cargo clippy --workspace --all-targets --all-features --locked
       -- -D warnings` — every requirement of this change.
-- [ ] 15.3 `cargo test --workspace --all-features --locked` — every
+- [x] 15.3 `cargo test --workspace --all-features --locked` — every
       requirement of this change.
-- [ ] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+- [x] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
       and `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`
       — every requirement of this change.
 - [ ] 15.5 `TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash
@@ -926,7 +926,7 @@ into capability truth (`progress / PM4`). Run them with
       unchanged. Inside a nested sandbox this is pending host proof, not
       a pass, and skipped boundary tests prove nothing — every
       requirement of this change.
-- [ ] 15.6 Fold the change **before** the commit, so the moved change and
+- [x] 15.6 Fold the change **before** the commit, so the moved change and
       the four new capability files and the updated `boundary-record` land
       in the same head as the code they describe (decision 0042 ruling 6, design Migration Plan 4
       then 5): run the dialect's archive operation, then append one
@@ -950,7 +950,7 @@ into capability truth (`progress / PM4`). Run them with
       all five touched capabilities and the retained provenance entry —
       progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 15.7 Commit the completed work unsigned, in the repository's
+- [x] 15.7 Commit the completed work unsigned, in the repository's
       message style, with no push and no merge. This is the last write:
       it carries the code, the tests, the proposed decision, the archived
       change, all five touched capability files (four new and the amended
@@ -1197,29 +1197,136 @@ the sibling fire's files have no diff from the commissioned base.
 
 ## Progress
 
-Implementation has not begun. All 102 delivery tasks remain unchecked after
-the successor F7 planning repair and this visit's design reconciliation. Prerequisites, stated as they bind rather
-than by group number:
+### Implement — 2026-09-09, run `close-issue-226-only-codex-resum-805ec715`
 
-- **Preparable from the repository alone**: groups 1–7, tasks 8.1–8.4,
-  and groups 12, 13 and 14, plus the investigation tasks 10.1–10.4 to
-  whatever depth installed help, installed source and the dated `.forge/`
-  captures reach.
-- **Blocked on that investigation**: 8.5–8.9 each need their provider's
-  interface from 10.1–10.4, and 8.8 in particular is not written before
-  10.3 names DSH's supported route; 9.1–9.3 need the measured
-  current-work boundary from the same four tasks. 8.10, 8.11 and 9.6
-  follow their subjects.
-- **Blocked on dated controller host evidence**: 10.5–10.8, and group 11
-  entirely, which flips no declaration without them. Group 6 is *not*
-  blocked, and not on the investigation either: 6.1's two identity forms
-  are what make 6.4's four declarations writable today — Codex and
-  Claude against measured identities that do not qualify the installed
-  version, DSH and LaneTally against the explicit unknown identity with
-  a bounded reason. 10.1–10.4 refine those identities and group 11 flips
-  the statuses; a group 6 declaration written now is honest without
-  either.
-- **Blocked on the host**: 15.5's coverage gate. Inside a nested sandbox
-  it is pending host proof, and skipped boundary tests prove nothing.
-- **The controller's, not this fire's**: everything named in 15.8, whose
-  results do not exist yet.
+**92 of 102 delivery tasks are ticked.** Ten stay unchecked — the eight
+provider-proof and enablement tasks, plus 15.5 and 15.8 — each with its
+reason below. The ticks are this visit's own reconciliation, not a
+memory: they were derived by reading the worktree and re-running the
+checks, which is exactly what task 12.2's recovery clause asks of a
+successor. (An earlier draft of this paragraph counted 94 and eight; the
+count is corrected here against the file's own checkboxes rather than
+left to be re-derived, which is the same reconciliation one paragraph
+later.)
+
+**This visit began inside the failure #226 describes.** The tree held
+about five thousand uncommitted lines — the seat-record v5 contract, the
+engine's `resume` module, the four provider planners, the launch
+lifecycle, the adapter declarations, the charter and the guides — beside
+a `## Progress` section reading *implementation has not begun* and 0 of
+102 ticked. The predecessor died mid-phase with its session, and the
+artifact it left said nothing about what it had done. Reconciled by
+reading the code and running its checks rather than by trusting either
+the artifact or a memory this seat does not have. No surviving edit was
+discarded.
+
+Repaired in this visit, none of them a change of plan: a `useless_format`
+in the group 7 shim tests, and two group 3 helpers that had been appended
+*after* `resume.rs`'s test module, which
+`clippy::items_after_test_module` refuses — both formatting-level repairs
+to the code the predecessor wrote. The third surfaced only at the fold:
+`crates/brokkr-cli/tests/rename_guard.rs` keeps a list of contract titles
+that living specs may quote as data, and the folded `boundary-record`
+amendment quotes `Forge seat record v5` beside v4's. The title is v5's
+real one — task 2.1 requires the v4 file's spelling — so the guard's data
+list gains the row, exactly as it holds v4's, v9's and the two v1/v4
+siblings. The guard's own test that a quoted title never licenses retired
+prose covers the new row too. No requirement moved.
+
+Green on this worktree, in the order group 15 names them: `cargo fmt
+--all -- --check` (15.1), `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` (15.2), `cargo test --workspace
+--all-features --locked` (15.3, 66 test binaries, 0 failures), both
+bundle compiles (15.4, and 14.2's manifest digests needed no further
+reconciliation), and after the fold, `cargo test -p brokkr-cli --test
+provenance` (15.6) and the whole suite again.
+
+**The fold (15.6) was performed by hand, because the sandbox refuses to
+execute `openspec` as it refuses every other binary outside this
+worktree.** It replicates what the archive operation does, checked
+against the `2026-09-06-boundary-named-slice-i` precedent line by line:
+the change directory moved under `openspec/changes/archive/` with `git
+mv`; each ADDED delta copied to `openspec/specs/<capability>/spec.md`
+with the title line added and `## ADDED Requirements` retitled
+`## Requirements`; the MODIFIED `boundary-record` requirement replacing
+its living predecessor in place, with that capability's other two
+requirements and its `2026-09-06-boundary-named-slice-i` provenance line
+untouched; and one appended provenance line per capability in the
+spelling `dialects/openspec/archive.md` gives. The fold's own gate,
+`crates/brokkr-cli/tests/provenance.rs`, walks both directions and
+passes. `openspec validate --strict` has no result from this seat, as
+every planning visit before it also recorded.
+
+Unchecked, and why:
+
+- **10.5–10.8, live provider proof, and 11.1–11.4, the enablement they
+  gate.** This seat's sandbox refuses to *execute* any provider CLI.
+  `claude`, `codex`, `dsh` and `claude-lanetally` all resolve on PATH —
+  `/home/vyanakiev/.local/bin/claude`, `/home/vyanakiev/.volta/bin/codex`,
+  `/home/vyanakiev/.volta/bin/dsh`,
+  `/home/vyanakiev/.local/bin/claude-lanetally` — and every invocation of
+  one, down to `--version`, is denied, as are reads outside this
+  worktree. So no root-opening semantics, restriction enforcement or
+  current-only accounting could be observed on any installed version, and
+  under AS1 no declaration may flip on interface evidence alone. All four
+  shapes therefore stay as group 6 wrote them: Codex and Claude
+  `unmeasured` against measured identities that do not qualify the
+  installed CLI, LaneTally `unmeasured` with the explicit unknown
+  identity, DSH `unsupported` with its measured reason. **This is a
+  missing measurement, not a measurement of absence**, and it is the one
+  thing standing between this change and the commission's enabled
+  delivery minimum. The engine, the wire, the planners, the argv and the
+  refusal paths are built and proven against deterministic shims; what
+  they wait on is a host that may run the CLIs.
+- **10.3 is ticked, and it reports AS1 upstream.** The investigation half
+  reached its stated end: the installed source establishes `agents.resume`,
+  `Config.agents[].resumeSessionId`/`resumeWith` and the persistence-loading
+  factory, and it establishes that captured `dsh-headless` validates only
+  `task`, mints its own `session-${randomUUID()}` and applies its followup,
+  `firstSeq` and summary to *that* agent. No supported declarative route
+  connects the admitted headless caller to an owned root. Closing it needs
+  a mechanism this change is forbidden: replacing the runner plugin,
+  monkey-patching `agents.create`, overriding UUID generation, editing the
+  installed package or substituting the TUI. **The exact upstream
+  requirement** is therefore: `dsh-headless` must accept a session or
+  resume identifier in its config schema and route its admitted task,
+  followup and event interval to the restored agent rather than to a
+  freshly created one. Recorded in `adapters/dsh.json` and
+  `docs/guides/provider-adapters.md`; the shape is declared `unsupported`
+  with that reason rather than narrowed away.
+- **15.5, the exact coverage gate.** Not run, and not claimed. The
+  sandbox refuses to execute `scripts/coverage-exact.sh` at all, and
+  refuses the `TMPDIR`/`BROKKR_REQUIRE_BOUNDARY_EVIDENCE` prefix the
+  commission specifies with it. The gate's substance was attempted
+  directly instead, three times, on the pinned `nightly-2026-09-05` with
+  the installed `cargo-llvm-cov 0.9.0`: each run compiled and executed
+  most of the workspace and then died inside its own instrumented target
+  directory — twice on
+  `target/llvm-cov-target/debug/build/brokkr-cli/<hash>/out/brokkr-<hash>`
+  not existing when cargo went to run it, once on a dependency graph that
+  could not be moved into place, all `os error 2`. The sanctioned script
+  avoids this by pointing `CARGO_LLVM_COV_TARGET_DIR` at a fresh
+  directory under `TMPDIR`, which is the environment variable this seat
+  may not set. **Every failure was the harness, not a threshold.**
+
+  A fourth attempt, after clearing `target/llvm-cov-target` by hand,
+  completed. Its report was then evaluated by the gate's OWN arithmetic
+  rather than by LLVM's summary percentages — which count compiler
+  instantiations, not source lines, and are therefore not what the gate
+  reads: `cargo llvm-cov report --branch --lcov` over the whole
+  workspace has **zero `DA` records with no hits and zero `BRDA` records
+  with no hits**. That is the gate's literal integer equality on lines
+  and branches. Its function half follows: it collapses symbols by file
+  and start line and asks for one covered instance, and a source
+  function with none would have left uncovered lines, of which there are
+  none.
+
+  What that is NOT, and what stays unchecked: the gate's own run, on the
+  host, with `TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`,
+  where the boundary tests create a namespace instead of being skipped
+  inside a box. That result does not exist here and only the controller
+  can produce it. A skipped boundary test would prove nothing either
+  way, and the gate was not lowered or edited.
+- **15.8, the controller's.** Host validation, remote CI on the final
+  head, integration with the #222 fire's shared-file overlap, the PR, the
+  merge, publication and the closing of #226. Their results do not exist.

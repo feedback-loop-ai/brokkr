@@ -29,6 +29,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         argv,
         hands_fragment: hands_fragment.iter().map(|part| part.to_string()).collect(),
         harness,
+        resume: Default::default(),
     }
 }
 
@@ -1771,6 +1772,8 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
             rewalk: Some(layer.join("scripts")),
             refusal: None,
         },
+        offer: None,
+        context: None,
         input: json!({}),
     }];
     let deadline = std::time::Duration::from_secs(5);
@@ -1940,13 +1943,32 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
         .any(|event| event.event_type == EventType::EffectSucceeded));
     let failed = events.last().unwrap();
     assert_eq!(failed.event_type, EventType::EffectFailed);
+    // The contract named is the one this run's engine wrote: the 0.10
+    // line reads v5 (proposed decision 0056 ruling 7's amendment to the
+    // boundary-record dispatch). The boundary's own authority is
+    // unchanged — `chroot` is not one of decision 0046's five words
+    // under either version.
     assert!(
         failed.payload["error"]
             .as_str()
             .unwrap()
-            .contains("seat-record.v4"),
+            .contains("seat-record.v5"),
         "{failed:?}"
     );
+    for version in [
+        brokkr_store::SeatRecordVersion::V4,
+        brokkr_store::SeatRecordVersion::V5,
+    ] {
+        assert!(
+            brokkr_store::validate_seat_record(
+                &json!({"result":"complete", "model":"m", "boundary":"chroot"}),
+                2,
+                version,
+            )
+            .is_err(),
+            "{version:?} refuses a word that is not the realm's"
+        );
+    }
     assert!(
         !failed.payload["error"].as_str().unwrap().contains("chroot"),
         "invalid values stay out of diagnostics"

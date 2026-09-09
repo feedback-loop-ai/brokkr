@@ -1,0 +1,492 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/seat-record.v5.json",
+  "title": "Forge seat record v5",
+  "description": "v4's vocabulary (decisions 0034, 0035, 0042 and 0046) plus the facts proposed decision 0056 needs to say WHICH session a launch rejoined and WHOSE it was: site_ref and instance_ref, the engine's two structural stamps, and root_session, the provider-confirmed root a resumed launch stands on. v4 is not edited; this is a new file beside it, and a record is validated against the version its run's engine wrote (the 0.10 line and later read v5, the 0.9 line reads v4). Every added property is optional and every added enum member widens, so every valid v4 record is a valid v5 record: a 0.10.0 row written before this contract — including a codex launch row carrying launch: resumed with no root_session, and a third-party driver's row carrying a refusal reason on its own — stays valid and is never rewritten or back-filled. The two new conditions are scoped on site_ref, the one within-row fact only an engine enacting 0056 writes: a stamped row carrying launch: resumed must carry root_session, and a stamped row may carry resume_refusal only beside launch: cold. The unconditional form of both — every resumed launch this engine publishes stands on confirmed root evidence, and a refusal reason is only ever emitted beside a cold launch — binds where the records are produced, in the adapter's launch lifecycle, not by refusing rows another producer already wrote.",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/checkpoint"
+    },
+    {
+      "$ref": "#/definitions/result"
+    }
+  ],
+  "definitions": {
+    "positive_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "model": {
+      "description": "The harness-reported served model, never a configured pin. The only non-provider values are the two sentinels ruled by decision 0031. It is the provider's claim, not proof (decision 0035 ruling 2): no harness discloses quantization, hardware routing, or a substitution made at peak load, and the same string comes back whichever happened.",
+      "oneOf": [
+        {
+          "enum": [
+            "not reported",
+            "not applicable"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        }
+      ]
+    },
+    "effort": {
+      "description": "The effort configured for the model, as the harness echoes it back (decision 0035 ruling 3). CONFIGURATION, never a report: no harness discloses a served effort, so this is the setting that applied after every profile and plugin layer — read from the harness's own echo, never from the bundle's pin, and never presented as a measurement of what the model did. A harness whose lanes carry a real effort control but echo no value writes decision 0031's 'not reported'; a driver with no model turn writes 'not applicable'. The two sentinels are reused rather than reinvented, and the distinction between them is load-bearing: a control that exists but goes unreported is not a control that does not exist.",
+      "oneOf": [
+        {
+          "enum": [
+            "not reported",
+            "not applicable"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      ]
+    },
+    "boundary": {
+      "description": "Which boundary stood at this seat's site (decision 0046 ruling 3): one of the five words of decision 0046 ruling 1, or decision 0031's sentinel not applicable for a site without hands. Stamped by the engine, the only party that knows which boundary it built; a driver's value never survives the stamp. v5 changes nothing about it.",
+      "enum": [
+        "namespace",
+        "seatbelt",
+        "container",
+        "harness",
+        "open",
+        "not applicable"
+      ]
+    },
+    "root_session": {
+      "description": "The provider-confirmed root session this launch stands on (proposed decision 0056 ruling 3). Constructed only after measured provider evidence confirms the exact root opened; a resume flag, a preassigned creation id, an argv echo or an exit status of zero is not confirmation. Distinct from transcript, which is decision 0032's retained locator: a storage directory is not a provider handle.",
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "harness_version",
+        "persistent"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Which provider's session this is. LaneTally retains claude's kind, because its wrapper wraps that harness.",
+          "enum": [
+            "codex-thread",
+            "claude-session",
+            "dsh-session"
+          ]
+        },
+        "id": {
+          "description": "The COMPLETE provider identifier, never truncated to fit. Each provider's own grammar is narrower than this bound; an identifier that cannot fit losslessly is not recorded and not offered.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        },
+        "harness_version": {
+          "description": "The version of the CLI or wrapper OBSERVED at the invocation that opened this root, read through that harness's measured version interface. Never the version the declaration wished for: a later invocation compares what it observes against this, and a change disables resume rather than assuming the interface held.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
+        "wrapper_digest": {
+          "description": "The measured digest of a wrapper's own identity where one stands between the engine and the harness. Absent for plain claude, codex and dsh.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "persistent": {
+          "description": "Whether this root persists after the invocation ends, from the established semantics of the shape that opened it. A root that does not persist establishes the site's newest owner and can never be offered.",
+          "type": "boolean"
+        }
+      }
+    },
+    "transcript": {
+      "description": "Decision 0032's retained, harness-owned locator. It carries an id or path and never transcript content.",
+      "type": "object",
+      "required": [
+        "kind",
+        "locator",
+        "home"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "claude-session",
+            "codex-thread",
+            "dsh-session",
+            "none"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "home": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "const": ""
+              },
+              "home": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    "record_fields": {
+      "model": {
+        "$ref": "#/definitions/model"
+      },
+      "effort": {
+        "$ref": "#/definitions/effort"
+      },
+      "turn": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "num_turns": {
+        "$ref": "#/definitions/positive_count"
+      },
+      "input_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "All reported input tokens, inclusive of cache_read_tokens."
+      },
+      "output_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "All reported output tokens, inclusive of reasoning_output_tokens."
+      },
+      "cache_read_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "The cache-read subset of input_tokens; never a second addend."
+      },
+      "cache_write_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "Tokens the harness reports as written to or created in its cache."
+      },
+      "reasoning_output_tokens": {
+        "$ref": "#/definitions/positive_count",
+        "description": "The reasoning subset of output_tokens, in the way cache_read_tokens is a subset of input_tokens; never a second addend. The three harnesses report it at different granularities and this field admits all three without inventing the others. Where a harness reports no figure for this record the field is ABSENT — never zero, and never back-filled from a run total."
+      },
+      "total_cost_usd": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "session_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      },
+      "transcript": {
+        "$ref": "#/definitions/transcript"
+      },
+      "tool": {
+        "description": "A bounded harness tool identifier, never its arguments or command.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      },
+      "target": {
+        "description": "A bounded file-path-only target for the tool call; never a command, URL, tool argument object, or prose.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": [
+        "step"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "boundary": {
+          "$ref": "#/definitions/boundary"
+        },
+        "effort": {
+          "$ref": "#/definitions/effort"
+        },
+        "turn": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "reasoning_output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "root_session": {
+          "$ref": "#/definitions/root_session"
+        },
+        "site_ref": {
+          "description": "The engine's structural site stamp (proposed decision 0056 ruling 1): the digest of this invocation's run-scoped site path — outer seat, selected case, body kind and full member/step path. Stamped by the engine exactly as boundary is; a driver's value never survives the stamp. Its presence is what tells a reader that the row was written by an engine enacting 0056, which is why the two conditions below are scoped on it.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "instance_ref": {
+          "description": "The engine's owner stamp (proposed decision 0056 ruling 2): the digest of the adapter instance that ran this site — agent, provider, model, effort, chain index, driver identity, command template, adapter declaration, engine version, pinned bundle, class, boundary and hands declaration. Carries no resolved credential, provider-home content or private argv.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "harness": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+        },
+        "capture": {
+          "enum": [
+            "lanetally"
+          ]
+        },
+        "launch": {
+          "enum": [
+            "cold",
+            "resumed"
+          ]
+        },
+        "resume_refusal": {
+          "description": "Why an offer that was made could not be taken. v4's five tokens name a bad identifier, a missing or unsupported codex sandbox class, an argv that cannot travel and a harness that rejected the handle. v5 adds five more: unsupported-resume for a shape whose adapter declares no safe resume interface, unverified-harness for a CLI or wrapper identity that is missing, changed or unreadable, restrictions-unavailable for a shape whose current restrictions cannot be re-imposed on a rejoin, instance-changed for a detectable owner or client drift, and nonpersistent-session for a root the shape does not persist.",
+          "enum": [
+            "invalid-session-id",
+            "sandbox-unavailable",
+            "unsupported-sandbox",
+            "incompatible-argv",
+            "harness-refused",
+            "unsupported-resume",
+            "unverified-harness",
+            "restrictions-unavailable",
+            "instance-changed",
+            "nonpersistent-session"
+          ]
+        },
+        "sandbox": {
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "indeterminate"
+          ]
+        },
+        "session_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "inner_checkpoints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "result": {
+          "type": "object"
+        }
+      },
+      "dependencies": {
+        "tool": [
+          "turn"
+        ],
+        "target": [
+          "turn",
+          "tool"
+        ]
+      },
+      "allOf": [
+        {
+          "description": "A row this engine stamped that says it resumed carries the root it rejoined. Scoped on site_ref so no row another producer wrote — including every valid 0.10.0 row written before this contract — is newly refused.",
+          "if": {
+            "required": [
+              "site_ref",
+              "launch"
+            ],
+            "properties": {
+              "launch": {
+                "const": "resumed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "root_session"
+            ]
+          }
+        },
+        {
+          "description": "A row this engine stamped names a refused offer only beside the cold launch that refusal produced. Scoped on site_ref for the same reason.",
+          "if": {
+            "required": [
+              "site_ref",
+              "resume_refusal"
+            ]
+          },
+          "then": {
+            "required": [
+              "launch"
+            ],
+            "properties": {
+              "launch": {
+                "const": "cold"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "description": "A successful typed phase result plus the seat record reported beside it. result, inputs, and notes are phase-machine/report fields, not permission for harness prose in accounting fields.",
+      "type": "object",
+      "required": [
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "notes": {},
+        "state": {
+          "description": "The dialect state command's output for this step, captured by the exec driver beside notes (decision 0042). Part of the separately governed typed report, like result, inputs and notes: this contract admits the field and governs none of its content. Absent on every record but a dialect step's, and on a dialect step whose dialect declares no state command."
+        },
+        "model": {
+          "$ref": "#/definitions/model"
+        },
+        "boundary": {
+          "$ref": "#/definitions/boundary"
+        },
+        "effort": {
+          "$ref": "#/definitions/effort"
+        },
+        "num_turns": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "input_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_read_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "cache_write_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "reasoning_output_tokens": {
+          "$ref": "#/definitions/positive_count"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcript"
+        },
+        "seat_input": {}
+      }
+    }
+  }
+}

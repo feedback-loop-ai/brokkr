@@ -235,3 +235,78 @@ Of claude, codex and dsh, then, a `harness` gate stands on codex today
 and on claude once measured. A dsh work seat with hands may run under
 `open` at its harness's default; its gate refuses under `namespace`
 for the untrusted tier and under `harness` for the missing gate fragment.
+
+## Resume — what has been measured, per named shape
+
+A work site's retry is offered the session that site's own earlier
+attempt opened (decision 0030, generalised by proposed decision 0056).
+The engine decides *whether to offer*; the adapter decides *whether it
+can be taken*. Those are two different questions, and the second one is
+answered from measurement, per named execution shape, in the
+declaration's `resume` key:
+
+| Field | Meaning |
+|---|---|
+| `status` | `unmeasured`, `unsupported` or `supported`. Only `supported` ever enables a rejoin. |
+| `identity` | Either `{"version": …, "applies_to": …}` — what was measured, and the installed version it is claimed to apply to — or `{"unknown": "<reason>"}`. Only a measured identity can support enablement. |
+| `classes`, `boundaries`, `hands` | The site facts the measurement covers. A shape measured under another boundary or hands mode is not measured *here*. |
+| `evidence` | Four independent references: `interface`, `restrictions`, `root`, `accounting`. A `supported` entry names all four. |
+| `reason`, `limitations` | Bounded prose. Required of every `unsupported` entry. |
+
+An **absent** `resume` key, or a shape the assessment does not name,
+reads as `unmeasured`: the adapter loads, the site compiles, and the
+invocation is cold. Data that is **present and malformed** — a bare
+`true`, a status outside the three words, a `supported` entry without a
+measured identity or missing one of its four evidence references, an
+`unsupported` entry with no measured reason — is a loader refusal naming
+the field. An authoring error must not be able to pass itself off as
+honest ignorance.
+
+The four requirements are separate because one does not imply the
+others. A captured `--help` is not enforcement — decision 0030's own
+measurement found a codex thread opened `-s read-only` writing files on
+a bare resume. One denied write is not permission binding, native-tool
+removal, MCP exclusion and grant renewal. And whether a resumed stream
+replays the turns you already paid for is a fact about that provider:
+until it is measured, a rejoin cannot be enabled at all, because nobody
+could attribute its totals.
+
+A measurement also expires with its version. Each invocation of an
+enabled shape probes its executable's version once, through that
+harness's measured version interface, and compares it with the pinned
+assessment *and* with the version the offered root was opened under. A
+missing, unreadable or changed identity disables the rejoin with
+`unverified-harness`.
+
+### What the four shipped adapters say today
+
+| Adapter | Shape | Status | Why |
+|---|---|---|---|
+| `codex` | `work-site` | `unmeasured` | Decision 0030 measured **0.148.0**; the installed CLI is **0.153.4**. The interface, restriction and root evidence are 0030's and are retained as regression scope; no accounting evidence exists on any version. |
+| `claude` | `boxed-workspace` | `unmeasured` | The 2.1.266 interface is captured — `--resume`, `--permission-mode`, `--tools`, `--strict-mcp-config`, `--mcp-config`, `--no-session-persistence` — but nothing about a *resumed* invocation is measured: whether those restrictions are enforced on a rejoin is exactly what decision 0030 found codex silently dropping. |
+| `dsh` | `headless-work` | `unsupported` | Measured against installed source. `dsh-headless`'s runner calls `agents.create` with a fresh random id and applies its followup to that agent; its whole config schema is `{task}`. `dsh-agent-loop` does admit `Config.agents[].resumeSessionId`, but that restores a *configured* agent, and the headless caller does not run its admitted task on it. The launcher's `--resume <session>` appears only in a **TUI** example and reaches the app verbatim. Closing the gap needs a mechanism this ruling does not authorize. |
+| `lanetally` | `wrapper-work-site` | `unmeasured` | Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
+
+So today every shipped shape spawns cold **and says so**, with the
+reason in the record. That is the part of issue #226 that no measurement
+was waiting on: before this, claude and dsh reported no `launch` field
+at all, and an operator could not tell a warm retry from a cold one.
+
+Three limits this guide will not hide:
+
+- **A kill inside the held window leaves no session evidence.** The
+  launch and locator rows are held until work begins (decision 0053
+  ruling 8), so an attempt killed between the harness's announcement and
+  its first turn journals neither, and its retry starts cold. That is
+  ruling 1's price, named.
+- **The local origin check is not account authentication.**
+  `Store::started_here` says the run was created on this machine and
+  account. It cannot ask a provider who owns a session, and cannot see a
+  credential home re-pointed between two attempts a second apart. The
+  engine fails closed on a detectable owner rejection and does not
+  inspect credentials to invent a stronger guarantee.
+- **A charter instruction is not an engine guarantee.** The SDD smith is
+  told to persist task progress before the next group and to reconcile
+  it against the worktree on recovery; the tests prove both dialects'
+  smiths are told, and that an interrupted exercise recovers from what is
+  on disk. Whether a live model obeys is judgment's to check.

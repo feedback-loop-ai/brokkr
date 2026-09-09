@@ -487,10 +487,15 @@ fn conformance_across_all_builtin_adapters() {
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
-                // Transcript, three tool turns, session-finished.
+                // Transcript, the launch row proposed decision 0056
+                // ruling 7 requires of every model adapter, three tool
+                // turns, session-finished. The launch row is what issue
+                // #226 found missing here: claude and dsh reported no
+                // launch field at all.
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
@@ -539,10 +544,14 @@ fn conformance_across_all_builtin_adapters() {
                 ]
             } else {
                 // A silent Claude-shaped stream still reports the common
-                // transcript shape before its finishing checkpoint.
+                // transcript shape and its own launch row before the
+                // finishing checkpoint. The launch is a fact about what
+                // this adapter DID — it took the fresh-session path —
+                // so a stream that said nothing does not erase it.
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "result",
@@ -604,35 +613,51 @@ fn conformance_across_all_builtin_adapters() {
                     "{label}: the locator is journaled at init: {}",
                     out[2]
                 );
+                // The launch row rides directly behind the locator, one
+                // per executing model site (proposed decision 0056
+                // ruling 7). No offer was made here, so the launch is
+                // cold, it names no refusal — a reason without an offer
+                // would be invented — and it carries no root, because
+                // this shape's assessment is not enabled and no version
+                // was observed to record one with. Issue #226's
+                // complaint was that this row did not exist.
                 assert_eq!(
                     out[3]["data"],
+                    json!({"step": "harness-started", "harness": "claude",
+                           "launch": "cold", "model": "not reported",
+                           "effort": "not reported"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
                            "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
-                    out[3]
+                    out[4]
                 );
                 assert_eq!(
-                    out[4]["data"],
+                    out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
                            "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
-                    out[4]
+                    out[5]
                 );
                 assert_eq!(
-                    out[5]["data"],
+                    out[6]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
                            "target": "src/out.rs", "model": "claude-fable-5-1",
                            "effort": "high"}),
                     "{label}: {}",
-                    out[5]
+                    out[6]
                 );
-                let finished = &out[6]["data"];
+                let finished = &out[7]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
                 assert_eq!(finished["transcript"], *transcript, "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
@@ -649,7 +674,7 @@ fn conformance_across_all_builtin_adapters() {
                 // absence is decision 0035 ruling 4 in the journal, not
                 // an omission: never zero, never back-filled per turn.
                 assert_eq!(finished["reasoning_output_tokens"], 4, "{label}");
-                for turn in &out[3..6] {
+                for turn in &out[4..7] {
                     assert!(
                         turn["data"].get("reasoning_output_tokens").is_none(),
                         "{label}: a claude turn invents no reasoning count: {turn}"
@@ -663,35 +688,51 @@ fn conformance_across_all_builtin_adapters() {
                 // plus the constant ledger-capture marker and the
                 // list-price cost flowing through unchanged.
                 assert_eq!(out[2]["data"]["step"], "transcript", "{label}: {}", out[2]);
+                // The launch row rides directly behind the locator, one
+                // per executing model site (proposed decision 0056
+                // ruling 7). No offer was made here, so the launch is
+                // cold, it names no refusal — a reason without an offer
+                // would be invented — and it carries no root, because
+                // this shape's assessment is not enabled and no version
+                // was observed to record one with. Issue #226's
+                // complaint was that this row did not exist.
                 assert_eq!(
                     out[3]["data"],
+                    json!({"step": "harness-started", "harness": "claude",
+                           "launch": "cold", "model": "not reported",
+                           "effort": "not reported"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
                            "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
-                    out[3]
+                    out[4]
                 );
                 assert_eq!(
-                    out[4]["data"],
+                    out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
                            "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
-                    out[4]
+                    out[5]
                 );
                 assert_eq!(
-                    out[5]["data"],
+                    out[6]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
                            "target": "src/out.rs", "model": "claude-fable-5-1",
                            "effort": "high"}),
                     "{label}: {}",
-                    out[5]
+                    out[6]
                 );
-                let finished = &out[6]["data"];
+                let finished = &out[7]["data"];
                 assert_eq!(
                     finished["step"], "claude-lanetally-session-finished",
                     "{label}"
@@ -709,19 +750,28 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["cache_read_tokens"], 13, "{label}");
                 assert_eq!(finished["cache_write_tokens"], 4, "{label}");
             } else if codex && case == "obedient" {
-                // Nobody offered this attempt a session, so the launch
-                // is cold and says so with no reason to give: a reason
-                // exists only where an offer could not be taken.
+                // The locator comes first now and the launch row behind
+                // it, because proposed decision 0056 ruling 7 publishes
+                // a launch only once the harness has named its own
+                // session — which is the same moment the locator is
+                // recorded. Before this change the row was emitted
+                // before the child even spawned, which said `resumed`
+                // ahead of any evidence that a rejoin had happened.
                 assert_eq!(
                     out[2]["data"],
-                    json!({"step":"harness-started", "harness":"codex", "launch":"cold",
+                    json!({"step":"transcript", "transcript": transcript,
                            "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[2]
                 );
+                // Nobody offered this attempt a session, so the launch
+                // is cold and says so with no reason to give: a reason
+                // exists only where an offer could not be taken. No
+                // root either — the shape's assessment is not enabled,
+                // so no version was observed to record one with.
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step":"transcript", "transcript": transcript,
+                    json!({"step":"harness-started", "harness":"codex", "launch":"cold",
                            "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[3]
