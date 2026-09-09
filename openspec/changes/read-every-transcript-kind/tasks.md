@@ -27,8 +27,12 @@ task:
   it, and use synthetic test-owned homes and files. The frozen evaluator
   corpus is never regenerated or reused for transcript examples, and no
   live operator session is copied into the tree.
-- No test, reader or hint starts a provider process, writes a journal
-  event, creates a directory or changes a retained byte.
+- No reader, hint or renderer under test starts a provider process, writes a
+  journal event, creates a directory or changes a retained byte, and no test
+  mutates real operator evidence. Test setup may create and mutate only its
+  own synthetic test-owned homes and files between reader invocations so the
+  required appearance, append, shrink, disappearance, replacement and
+  same-length-rewrite transitions are exercised.
 - Related cases are grouped into table-driven tests rather than 175
   bespoke functions (D11); a mark repeated at several call sites is one
   helper, because the coverage gate is literal.
@@ -631,8 +635,11 @@ task:
       reading body bytes or running a content projector; serialize only the
       selected reference, legacy and admission facts, lookup-unavailability
       reason and explanation, shared hint and Claude drill eligibility, carry
-      no turns, blocks, transcript prose or read-level reason, and send
-      `Cache-Control: no-store` —
+      no turns, blocks, transcript prose or body-stage outcome; allow the
+      discovery-refusal constructor to carry `unreadable` when directory I/O
+      or the bounded DSH opening-header I/O/UTF-8 check prevents discovery
+      from establishing a safe unique source, and send `Cache-Control:
+      no-store` —
       transcript-reading / Browser participant drills obey shared
       eligibility.
 - [ ] 10.3 Rewrite the page's participant block in
@@ -741,8 +748,15 @@ task:
       admitted Codex, DSH and foreign-home Claude selections make zero id-only
       requests and watches across re-checks; a concluded successful zero-turn
       Claude body makes one total request; a persistently unreadable admitted
-      Claude source makes one refused request per interval; re-check-first and
-      closure-first traces each open exactly one automatic watch per interval;
+      Claude source makes one refused request per interval; a distinct
+      discovery-refusal trace supplies an otherwise valid DSH reference whose
+      bounded opening-header I/O/UTF-8 check cannot establish unique ownership
+      and proves closed admission, shared `unreadable` plus its explanation,
+      null path/session label and DSH hint, checkpoint fallback, zero id-only
+      body requests and zero watches while every recurring tick performs only
+      fresh bounded presentation discovery; table cases prove the same result
+      when directory I/O defeats Claude or Codex uniqueness; re-check-first
+      and closure-first traces each open exactly one automatic watch per interval;
       a second immediate closure repaints from a fresh body without opening a
       second watch; admission loss with unchanged participant/reference/
       journal clears cached and displayed prose, closes the exact old watch
@@ -839,17 +853,20 @@ task:
       refuses the boundary tests, record the host proof as pending for
       the controller and never report a skipped boundary test as evidence —
       every requirement of this change.
-- [ ] 13.6 Validate the changed dependency graph with Rust 1.88
-      `cargo check --workspace --locked`, `cargo deny check licenses` and
-      `cargo audit`; confirm `boa_engine` is exactly 0.21.1 with default
+- [ ] 13.6 Validate the changed dependency graph with Rust 1.88 using
+      `cargo check --workspace --all-targets --all-features --locked`, so the
+      CLI test target and its dev-only Boa harness are compiled, plus
+      `cargo deny check licenses` and `cargo audit`; confirm `boa_engine` is
+      exactly 0.21.1 with default
       features disabled, appears only in `brokkr-cli`'s development graph,
       and is absent from the release binary's production graph. Require the
       controller's final CI evidence for workspace tests on Linux, macOS and
-      Windows plus the MSRV, license and audit jobs; until those remote results
-      exist record them as pending rather than green, and if any platform or
-      admission gate rejects Boa return upstream to design instead of
-      weakening the exact-served-code proof — every requirement of this
-      change.
+      Windows plus the MSRV, license and audit jobs, with the remote MSRV job
+      using those same `--all-targets --all-features` arguments; until those
+      remote results exist record them as pending rather than green, and if
+      any platform or admission gate rejects Boa return upstream to design
+      instead of weakening the exact-served-code proof — every requirement
+      of this change.
 - [ ] 13.7 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
