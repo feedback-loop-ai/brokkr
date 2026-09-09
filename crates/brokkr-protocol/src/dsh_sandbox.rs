@@ -357,8 +357,8 @@ fn writable_binds(profile: &[String]) -> Result<Vec<WritableBind<'_>>, String> {
         let Some(shape) = profile_flag(flag) else {
             return Err(format!(
                 "the dsh sandbox profile carries {flag}, which this runner does not read; it \
-                 refuses rather than guess how many arguments follow it, or which host path \
-                 the box could write through it"
+                 refuses rather than guess how many arguments follow it, which host path the \
+                 box could write through it, or what further options it carries"
             ));
         };
         if index + shape.arity >= profile.len() {
@@ -828,8 +828,22 @@ impl SeatGitStore {
     /// directory this store does not own, and following one is how a
     /// reclaim would come to delete the shared repository's own
     /// `objects/info`.
+    ///
+    /// A directory the box made unwritable is taken back first
+    /// ([`restore_access`]), because an unlink writes the directory that
+    /// holds the name: without it, one `chmod` inside the store would
+    /// end the sweep wherever it happened to be and leave the rest of
+    /// what the box wrote in place.
     fn reclaim(&self) -> std::io::Result<()> {
         let store = self.store.path();
+        // The box held this directory read-write, which includes the
+        // right to make part of it unwritable: a seat that drops the
+        // write bit on the store itself, or on any directory it created
+        // inside it, stops every unlink below at the same uid the driver
+        // runs as. A reclaim that gave up there would leave whatever it
+        // had not reached yet — `commondir` among it — in place, so the
+        // access the box could take away is taken back first.
+        restore_access(store);
         for entry in std::fs::read_dir(store)? {
             let entry = entry?;
             let kept = !entry.file_type()?.is_symlink()
@@ -861,6 +875,43 @@ fn remove(path: &Path) -> std::io::Result<()> {
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
         Ok(_) => std::fs::remove_file(path),
         Err(_) => Ok(()),
+    }
+}
+
+/// Take back, over the whole store, the access the box could have
+/// dropped: `remove_dir_all` unlinks a name by WRITING the directory
+/// that holds it, so one `chmod` on a directory the seat created is
+/// enough to make the driver's own removal fail with `EACCES` at the
+/// same uid. Every directory in the store is widened to `u+rwx`, which
+/// only ever adds access to a directory this driver created and is about
+/// to delete or re-author.
+///
+/// The walk reads `symlink_metadata` and descends only into real
+/// directories, so a symlink is a leaf here and no mode outside the
+/// store is touched. It is iterative rather than recursive: the depth is
+/// the box's to choose. A path this cannot stat, read or chmod is left
+/// to the removal that follows, which reports the failure the reclaim
+/// answers for.
+fn restore_access(root: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let mode = metadata.permissions().mode() | 0o700;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
+        pending.extend(
+            std::fs::read_dir(&path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path()),
+        );
     }
 }
 
@@ -900,21 +951,51 @@ fn promotion_ref(store: &Path) -> String {
 /// failures, and anything that goes wrong between the seat's last command
 /// and the promotion. Dropping a `SeatGitStore` unlinks it, so a failure
 /// path that returns without calling this loses the work silently.
+///
+/// It says how to read the commits only when the reclaim SUCCEEDED. A
+/// store the driver could not take back is still named — the commits are
+/// in it and nowhere else — but a `git --git-dir=<store>` an operator
+/// pastes into a terminal reads whatever repository a surviving
+/// `commondir` points at, with the `core.pager` that repository's
+/// configuration chose. So the refusal says what the directory is and
+/// what to strip out of it by hand, and offers no command against it.
 pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> String {
     let reference = store.reference.clone();
+    let alternates = alternates_line(&store.common_dir).trim_end().to_string();
     // The store is about to outlive the seat and be read by a human's
     // own `git`, so it is reclaimed here too: the path in this message
     // must name a repository the DRIVER authored, not one the box did.
-    // A reclaim that cannot finish changes nothing about where the
-    // commits are, and this is already the failure path.
-    let _ = store.reclaim();
+    let reclaimed = store.reclaim();
     let path = store.kept();
-    format!(
-        "dsh driver: {problem}. The seat's commits are not lost: its private git store is kept \
-         at {path}, and `git --git-dir={path} log {reference}` still reads them. Nothing removes \
-         that directory afterwards; it is the operator's to delete once the commits are safe",
-        path = path.display()
-    )
+    let path = path.display();
+    match reclaimed {
+        Ok(()) => format!(
+            "dsh driver: {problem}. The seat's commits are not lost: its private git store is \
+             kept at {path}, and `git --git-dir={path} log {reference}` still reads them. \
+             Nothing removes that directory afterwards; it is the operator's to delete once the \
+             commits are safe"
+        ),
+        // The sweep did not finish, so what git would resolve THERE is
+        // still partly the box's: a `commondir` it left aims
+        // `--git-dir={path}` at a repository the seat built, and the
+        // configuration read out of that repository names the commands
+        // git runs. Inviting the operator to read this directory would
+        // run the seat's choices on the host, outside every box. So the
+        // path is named — the commits are in it and nowhere else — and
+        // the reclaim is handed over in words instead.
+        Err(error) => format!(
+            "dsh driver: {problem}. The seat's commits are not lost: its private git store is \
+             kept at {path}. But the driver could not take that directory back from the box \
+             ({error}), so it is NOT a repository the driver authored and this refusal will not \
+             invite git to read it: a `commondir` the seat left redirects any `--git-dir` at a \
+             repository the seat built, whose configuration names the commands git then runs. \
+             Take the directory back by hand before reading it — delete every name in it except \
+             `objects`, `refs` and `packed-refs`, then write `{alternates}` into its \
+             `objects/info/alternates` and `ref: {reference}` into its `HEAD` — and it is a \
+             repository again, with {reference} at the seat's commit. Nothing removes that \
+             directory afterwards; it is the operator's to delete once the commits are safe"
+        ),
+    }
 }
 
 /// What a promotion moved, for the line the driver leaves in the seat's

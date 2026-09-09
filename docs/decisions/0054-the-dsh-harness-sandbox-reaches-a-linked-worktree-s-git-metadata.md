@@ -380,10 +380,38 @@ only what the store holds as a VALUE.
    `objects/info`. `symlink_metadata` never follows the last component,
    so the link is unlinked and the target is untouched.
 
+   **The reclaim takes back the ACCESS the box could drop, before it
+   removes anything.** Read-write over a directory includes the right to
+   make part of it unwritable, and an unlink WRITES the directory holding
+   the name: one `chmod 0500` on a directory the seat created inside the
+   store — or on the store itself — makes the driver's own
+   `remove_dir_all` fail with `EACCES`, at the same uid. A sweep that
+   stopped there would leave whatever it had not reached, `commondir`
+   among it, in a directory the driver then calls its own. So every
+   directory in the store is widened to `u+rwx` first, by an iterative
+   walk that reads `symlink_metadata` and descends only into real
+   directories — a link is a leaf, so no mode outside the store is
+   touched, and the depth is the box's to choose rather than the stack's.
+
    The reclaim runs on the KEPT-store path as well. A promotion that
    cannot happen names the store's path so a human can read the commits
    out of it, and that path must name a repository the driver authored,
    not one the box did.
+
+   **A store the driver could NOT take back is named, and no git is
+   pointed at it.** The refusal offers
+   `git --git-dir=<store> log <ref>` only when the reclaim succeeded. On
+   the failure path it still names the path — the commits are there and
+   nowhere else — and then says what the directory is: not a repository
+   the driver authored, because a `commondir` the seat left redirects any
+   `--git-dir` at a repository the seat built, and the configuration read
+   out of THAT repository names the commands git runs, `core.pager`
+   included. A refusal that invited the operator to read the directory
+   would run the box's choices on the host, outside every box, by the
+   driver's own suggestion. The reclaim is handed over in words instead:
+   delete every name except `objects`, `refs` and `packed-refs`, write
+   the shared object store's path into `objects/info/alternates` and
+   `ref: <branch>` into `HEAD`.
 
    **The compare-and-swap is against the BASELINE, recorded before the
    seat started.** The branch is this seat's for the seat's whole life,
@@ -418,13 +446,17 @@ only what the store holds as a VALUE.
    `other_checkout_on`, `bare_repository`, `reproducible_ref_backend`,
    `stage_seat_store`, `promote_seat_commits` and `keep_store` in
    `brokkr-protocol::dsh_sandbox`; `SeatGitStore::reclaim`, `remove`,
-   `alternates_line`, `KEPT_IN_STORE` and `promotion_ref` for the reclaim
-   and the per-seat anchor; the promotion call in `invoke_dsh_with`
+   `restore_access`, `alternates_line`, `KEPT_IN_STORE` and
+   `promotion_ref` for the reclaim and the per-seat anchor; the promotion call in `invoke_dsh_with`
    after the child exits and `dsh_failure_before_promotion` on the poll
    loop's error arm; tests over a real repository for the promotion, for
    an untouched store, for a store whose branch the seat deleted, for a
    `git` that cannot run and for each of the three steps failing, for a
-   store the driver cannot reclaim, for a host that moved the branch while
+   store the driver cannot reclaim — with a test that locks a tree inside
+   a store and its top directory and reclaims it anyway, and one that
+   reads both kept-store refusals, the reclaimed store's command and the
+   unreclaimed store's path with no command against it — for a host that
+   moved the branch while
    the seat ran, for a bare parent, and for a ref backend the store cannot
    reproduce; a test that plants a `commondir`, a `shallow`, an
    `info/grafts`, a `hooks` directory, a `config.worktree`, an unnamed
@@ -548,6 +580,7 @@ workspace and nothing outside it. What it may try, and what stops it:
 | Create `<store>/commondir`, so the promotion's `git --git-dir=<store>` and its `upload-pack` take their config, `HEAD`, ref store and `alternates` from a directory the seat built in its own workspace — one file that defeats every mask over the store at once | Removed by the reclaim, which keeps only `objects`, `refs` and `packed-refs` and re-authors `HEAD`, `config` and `objects/info/alternates`. Measured both ways: git really does follow it, and the reclaim really does take it back |
 | Write `<store>/shallow`, so the promotion's fetch records the seat's history boundary in the SHARED repository and truncates the parent's history | Removed by the reclaim. `<common>/shallow` is asserted absent after the boxed proof |
 | Write `<store>/info/grafts`, or a commit-graph under `<store>/objects/info`, so the promotion walks a history the seat rewrote | Removed by the reclaim: `info` goes with every other unkept name, and `objects/info` is removed and rebuilt with the driver's `alternates` alone |
+| `chmod` a directory the seat created inside `<store>`, or `<store>` itself, so the driver's own `remove_dir_all` fails with `EACCES` and the sweep stops with `commondir` still in place — and the kept-store refusal then invites the operator to read the box's repository with git | The reclaim widens every directory in the store to `u+rwx` before it removes anything (ruling 5), proved with a locked tree and a locked store; and a reclaim that still cannot finish makes the refusal name the path with NO command against it |
 | Name something under `<store>` this decision has no word for — a file a later git version reads | Removed by the reclaim: the keep list is `objects`, `refs`, `packed-refs`, and everything else goes whether or not it was enumerated |
 | Replace a KEPT name in the store with a symlink to the shared repository, so the reclaim's own removal walks into it and destroys `<common>/objects/info` | `symlink_metadata` never follows the last component, and a symlink at a kept name is not kept: the link is unlinked, the target untouched. The proof reads the shared `packed-refs` back byte-identical through exactly this attempt |
 | Plant a malformed object in the pack the promotion fetches, so the shared object store carries it | The fetch runs `-c fetch.fsckObjects=true`, so every object in the received pack is validated before it lands |

@@ -1512,6 +1512,133 @@ fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
     repo.git(&repo.main, &["fsck", "--no-progress", "--no-dangling"]);
 }
 
+/// A seat owns its private store read-write for its whole life, and that
+/// includes taking access AWAY: `chmod 0500` on a directory it created
+/// inside the store — or on the store itself — makes the driver's own
+/// `remove_dir_all` fail with `EACCES`, because both run as the same
+/// uid and an unlink WRITES the directory holding the name. A reclaim
+/// that stopped at the first such name would leave the rest of what the
+/// box wrote, `commondir` among it. So the driver takes the access back
+/// before it sweeps.
+#[test]
+fn a_store_the_box_locked_is_still_reclaimed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::linked(dir.path());
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+    repo.git_with_common(&staged, &["add", "b.txt"]);
+    repo.git_with_common(&staged, &["commit", "-q", "-m", "boxed"]);
+    let committed = repo.git_with_common(&staged, &["rev-parse", "HEAD"]);
+
+    // The redirection the reclaim exists for, whose configuration names
+    // a command git would run for a human reading this store.
+    let evil = dir.path().join("evil common");
+    std::fs::create_dir_all(evil.join("refs/heads")).unwrap();
+    std::fs::write(
+        evil.join("config"),
+        "[core]\n\trepositoryformatversion = 0\n\tbare = true\n\thooksPath = /evil-hooks\n",
+    )
+    .unwrap();
+    std::fs::write(evil.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    std::fs::write(evil.join("refs/heads/slice"), format!("{}\n", repo.base)).unwrap();
+    std::fs::write(store.join("commondir"), format!("{}\n", evil.display())).unwrap();
+
+    // And the lock beside it: a tree the driver cannot unlink out of,
+    // locked one level down as well so the repair is not only at the
+    // top, plus the store's own directory — which is where the unlink of
+    // `commondir` itself has to happen.
+    let locked = store.join("locked");
+    std::fs::create_dir_all(locked.join("deeper")).unwrap();
+    std::fs::write(locked.join("deeper/held"), "x\n").unwrap();
+    let lock = |path: &Path| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o500)).unwrap();
+    };
+    lock(&locked.join("deeper"));
+    lock(&locked);
+    lock(&store);
+    assert!(
+        std::fs::remove_dir_all(&locked).is_err(),
+        "the lock does not hold on this filesystem, so this proof measures nothing"
+    );
+
+    staged.reclaim().unwrap();
+
+    assert!(!locked.exists(), "a locked tree survived the reclaim");
+    assert!(
+        !store.join("commondir").exists(),
+        "the redirection survived the reclaim"
+    );
+    // Git agrees: the store is its own common directory again, carries
+    // no configuration the box chose, and answers with the seat's commit.
+    let store_git = |args: &[&str]| {
+        let mut argv = vec!["--git-dir", store.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        repo.git(&repo.main, &argv)
+    };
+    assert_eq!(
+        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+        store.display().to_string()
+    );
+    assert_eq!(store_git(&["config", "--get", "core.hooksPath"]), "");
+    assert_eq!(
+        store_git(&["rev-parse", "--verify", "refs/heads/slice"]),
+        committed
+    );
+}
+
+/// The refusal that KEEPS a store names where the commits are — and
+/// offers a command to read them only when the store is a repository the
+/// DRIVER authored. A reclaim that could not finish leaves whatever the
+/// box wrote in place, and an operator who pasted `git --git-dir=<store>`
+/// out of the refusal would let a surviving `commondir` choose the
+/// repository, its configuration, and the commands that configuration
+/// runs. So that message names the path, says what the directory is, and
+/// hands the reclaim over in words instead.
+#[test]
+fn a_store_the_driver_could_not_take_back_is_not_offered_to_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::linked(dir.path());
+
+    // A store the driver did take back: read it with this command.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    let kept = keep_store(staged, "the promotion refused");
+    assert!(kept.contains("the promotion refused"), "{kept}");
+    assert!(
+        kept.contains(&format!(
+            "git --git-dir={} log refs/heads/slice",
+            store.display()
+        )),
+        "{kept}"
+    );
+    std::fs::remove_dir_all(&store).unwrap();
+
+    // A store it could not: the same path, because the commits are still
+    // the operator's to recover, and no command against it.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    std::fs::remove_dir_all(&store).unwrap();
+    let kept = keep_store(staged, "the promotion refused");
+    assert!(kept.contains(&store.display().to_string()), "{kept}");
+    // Not one command an operator could paste points git at this
+    // directory: `--git-dir` appears only as the thing a surviving
+    // `commondir` would redirect, never with a path bound to it.
+    assert!(!kept.contains("--git-dir="), "{kept}");
+    assert!(
+        kept.contains("NOT a repository the driver authored"),
+        "{kept}"
+    );
+    // And the reclaim in words is the reclaim the driver would have run.
+    assert!(
+        kept.contains(alternates_line(&repo.scope.common_dir).trim_end()),
+        "{kept}"
+    );
+    assert!(kept.contains("ref: refs/heads/slice"), "{kept}");
+}
+
 /// A real repository, a real linked worktree, and a real private store:
 /// the promotion moves the ONE branch the worktree owns, leaves every
 /// other ref where the host had it, and says so.

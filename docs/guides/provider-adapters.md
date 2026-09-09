@@ -295,8 +295,25 @@ config, the ref store and the object store from wherever it lands — so
 one file a seat creates inside its own store would otherwise steer the
 promotion's `rev-parse` and its `upload-pack` at a repository the seat
 built. A symlink at a kept name is removed rather than followed. The
-same reclaim runs on the kept-store path, so the directory a failed
-promotion names is one the driver authored.
+reclaim also takes back the ACCESS the box could drop: a seat owns the
+store read-write for its whole life and can `chmod` a directory it
+created there, and an unlink writes the directory holding the name, so
+without that step one locked directory would end the sweep wherever it
+happened to be. Every directory in the store is widened to `u+rwx`
+first, through `symlink_metadata` so no mode outside the store is
+touched.
+
+The same reclaim runs on the kept-store path, so the directory a failed
+promotion names is one the driver authored — and that refusal offers
+`git --git-dir=<store> log <ref>` only when the reclaim SUCCEEDED. If it
+could not finish, the message still names the path, because the commits
+are in it and nowhere else, but points no git at it: a surviving
+`commondir` would redirect `--git-dir` at a repository the seat built,
+whose configuration names the commands git then runs. It says what the
+directory is and hands the reclaim over in words — delete every name
+except `objects`, `refs` and `packed-refs`, then write the shared
+`objects` path into `objects/info/alternates` and `ref: <branch>` into
+`HEAD` — and it is a repository again.
 
 The compare-and-swap is against the BASELINE the driver recorded for that
 branch before the seat started, not against a value read after the seat
