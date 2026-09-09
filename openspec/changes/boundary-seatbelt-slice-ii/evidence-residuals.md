@@ -72,3 +72,52 @@ conformance. No design or tasks artifacts exist in this change yet.
 guarantees are not demonstrated, remain OPEN and block Seatbelt activation
 and completion. The full workspace suite and exact coverage were not run in
 this focused audit, and no native macOS test was run or claimed.
+
+
+## Feasibility preparation validated — 2026-09-10
+
+Source candidate: `71522bde7d6ad012d2d4620aae4c72a9b17f7065`.
+The five deltas now follow the accepted 0046 observables; design and executable
+tasks exist. SEATBELT-SPEC-RECONCILIATION is resolved in the source candidate.
+This documentation inventory does not mutate historical journal findings.
+
+The operator's section A baseline is verified from the archive and all five
+logs at evidence commit `9137783a0f8f31ad3c05ecbecac9d1b26f568833`: macOS
+26.6.2 arm64, source `bb0bc39520f064ff7abe62ec517f52922bab6b53`, launcher
+readiness and both exact refusal tests passed. The SHA-256 matches the #253
+comment. Intel and all native containment guarantees remain unmeasured.
+
+The new standalone Rust experiment and `scripts/validate-seatbelt-macos.sh
+--lifetime` are ready for native measurement. The allow-default profile tests
+the original-process-group candidate only; it is not an implemented boundary
+or full MCP/exec acceptance suite. See the experiment README for scope and
+exit codes. Its evidence format cannot authorize activation or close R3.
+
+Local validation on the isolated source candidate:
+
+- Portable matrix: all 12 candidate cases ran, 3 observed cleanup and 9
+  recorded survivors; the separate no-cleanup negative control was detected.
+  All 13 fixtures had verified cleanup after their verdict. Native=false.
+- Standalone unit tests: 2 passed. Rust 1.88 metadata compilation and stable
+  warning-free compilation passed. Native runner wrong-host refusal returned
+  2 and retained a complete error log, exit code and non-success manifest.
+- Workspace all-features locked tests: 1,290 passed across 64 result groups,
+  zero failures. Formatting, clippy with warnings denied, self/verify bundle
+  compilation, OpenSpec strict validation and diff whitespace checks passed.
+- Exact coverage passed: 21,335/21,335 lines; 3,328/3,328 branches;
+  2,025/2,025 logical functions. The standalone nonproduction experiment is
+  outside the Cargo workspace; these figures cover existing production code,
+  not native macOS bindings or the experiment itself.
+
+The final workspace/coverage commands used command-local Git configuration
+`commit.gpgsign=false` for disposable test commits. Coverage used `TMPDIR=/var/tmp`
+to avoid RAM-backed /tmp capacity limits and temporary fixtures beneath a
+repository/home. The earlier resource-constrained/inconclusive runs were not
+credited. No global configuration, gate threshold or coverage exclusion changed.
+The historical erratum test now bounds its assertion to that section, allowing
+the accepted addendum without weakening its one-line/content checks.
+
+[Portable measurement details](../../../docs/evidence/issue-253/portable-lifetime-2026-09-10/measurement.json)
+record source/binary-independent fixture facts and verified cleanup. The native
+operator must now run the pinned candidate and attach its archive to #253.
+R1–R4 remain OPEN; production Seatbelt remains unavailable.
