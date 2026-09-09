@@ -172,3 +172,7 @@ bundle with no hands site SHALL print a manifest with neither key
 #### Scenario: A plain bundle prints none
 - **WHEN** `brokkr compile` runs over a bundle with no hands site
 - **THEN** the printed manifest carries neither `hands` nor `boundary`
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

@@ -484,8 +484,11 @@ fn pinned_dialect(pin: &Value) -> Result<Option<DialectPin>, WorldError> {
         )));
     }
     let text = serde_json::to_string(&content).expect("JSON serializes");
-    let (mut dialect, _) =
-        Dialect::parse(source, &text).map_err(|error| WorldError::Unpinned(error.to_string()))?;
+    // A pin is read at the version it was written, not at the version
+    // this build writes: the run pinned its world and a resume gets that
+    // world back (decision 0042's dialect versions, `dialect::SCHEMAS`).
+    let (mut dialect, _) = Dialect::parse_pinned(source, &text)
+        .map_err(|error| WorldError::Unpinned(error.to_string()))?;
     let instructions = value
         .get("instructions")
         .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no instructions".into()))?;

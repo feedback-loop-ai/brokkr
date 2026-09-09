@@ -232,3 +232,7 @@ stay bash 3.2-compatible (decision 0046 ruling 3; decision 0038's gate).
 #### Scenario: The binding is pinned
 - **WHEN** the contributing test reads the gate script
 - **THEN** it finds the bindings that read `effect/started.boundary` and the word `unboxed`
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

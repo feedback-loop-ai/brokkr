@@ -582,3 +582,7 @@ amended by the boxed-marker fix).
 #### Scenario: No door means unsupported
 - **WHEN** a harness's read-only mode is measured to leave no way to deliver the result
 - **THEN** its adapter declares `hands.harness.gate` unsupported with that reason, and a `harness` gate on it is refused at compile
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06
