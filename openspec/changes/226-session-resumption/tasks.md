@@ -7,8 +7,9 @@ on it, the query before the wire that carries it, the wire before the
 adapters that receive it, the shared launch lifecycle before the four
 provider planners, accounting after the planners that feed it, the
 charter after the engine work it describes, then the prose, then the
-re-pins, then the local gates, final re-archive, delivery commit action
-and controller-owned host proof.
+re-pins, then the local gates, final tracked reconciliation while the change
+is active, the final re-archive artifact operation, the delivery commit action
+and controller-owned evidence outside the tracked task state.
 
 Execution order is that order with one declared exception, because two
 groups consume what group 10 produces. Group 10 is split at its own
@@ -923,7 +924,7 @@ itself (`safety / AS1`).
       The successful pre-return compiles do not cover later planner or
       declaration edits — safety / AS1.
 
-## 15. Gates, re-archive, commit and controller validation
+## 15. Gates, final artifact operation, commit and controller evidence
 
 The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
@@ -950,50 +951,58 @@ into capability truth (`progress / PM4`). Run them with
       line when the reopened active change is finalized — progress / PM4,
       boundary / The seat record carries the boundary as seat-record/v4.
 - [ ] 15.6 After 8.10, 9.7, groups 10–11 and 14.1–15.4 are complete, validate
-      the active change strictly, then perform the **final re-archive only**
-      required by proposal answer I: move
-      `openspec/changes/226-session-resumption` back to
-      `openspec/changes/archive/2026-09-09-226-session-resumption` without
-      invoking a fold, changing any living capability, or appending
-      provenance. Run `crates/brokkr-cli/tests/provenance.rs` against that
-      archived state and assert bidirectionally that all five living
-      capabilities still name this archive exactly once, that no sixth or
-      duplicate capability/provenance was created, and that `boundary-record`
-      retains its earlier provenance and historical examples — progress / PM4,
-      boundary / The seat record carries the boundary as seat-record/v4.
-- [ ] 15.7 After 15.6 and its focused provenance check pass, reconcile every
-      other task tick and draft the final `## Progress` state against the
-      worktree and its evidence. Stage only the intended delivery paths and
-      inspect the staged diff. Then, in one final tracked-file edit, tick this
-      readiness task and set `## Progress` to the resulting truth; stage that
-      edit, re-inspect the final staged diff, and require no unstaged tracked
-      changes. The staged tree must contain the remaining implementation and
-      declaration changes, refreshed pins and green local gates, the
-      re-archived change, final local ticks and progress, and no second
-      capability fold — progress / PM1, progress / PM4, boundary /
+      the **active** change strictly. Reconcile every earlier task tick and the
+      final `## Progress` account against the worktree and its evidence, stage
+      only the intended delivery paths, and inspect the staged diff. Tick 15.6
+      while the change is still active; at that point 15.7 must be the only
+      unchecked tracked task and no ordinary artifact edit remains — progress /
+      PM1, progress / PM4.
+- [ ] 15.7 Perform the **final re-archive only** required by proposal answer I
+      as the final artifact operation. While the change is still active and
+      after 15.6 passes, make the last tracked artifact edit: tick 15.7 and set
+      `## Progress` to the completed repository-local task truth. Then, without
+      another tracked-file edit, move
+      `openspec/changes/226-session-resumption` to
+      `openspec/changes/archive/2026-09-09-226-session-resumption`; do not invoke
+      a fold, change a living capability, or append provenance. Validate the
+      archived change strictly, run `crates/brokkr-cli/tests/provenance.rs`, and
+      assert bidirectionally that all five living capabilities name this archive
+      exactly once, that no sixth or duplicate capability/provenance exists, and
+      that `boundary-record` retains its earlier provenance and historical
+      examples. Stage the move and inspect the complete staged diff. If either
+      read-only archived check fails, reopen the same change before repairing
+      any tracked artifact; never edit the archived task file in place —
+      progress / PM1, progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 
-**Post-task phase action — delivery commit.** Once 15.7 is checked and staged,
-commit that exact tree unsigned in the repository's message style, with no push
-or merge. Verify that `HEAD` contains 15.7's tick and final progress state and
+**Post-task phase action — delivery commit.** Once 15.7 is checked and the
+archived tree is staged and its read-only checks pass, commit that exact tree
+unsigned in the repository's message style, with no push or merge. Verify that
+`HEAD` contains the checked archived task artifact and final progress state and
 that `git status --short` is empty. If the commit fails, the phase action is not
 complete and the head must not be handed off. Do not edit this file merely to
 record the successful commit: that would make the tree dirty again. This is an
-action after the local task checkboxes, not a checkbox that circularly requires
-its own checked state to be present in the commit (`progress / PM1`, `progress /
-PM4`).
+action after all tracked task checkboxes and the final artifact operation, not
+a checkbox that circularly requires its own checked state to be present in the
+commit (`progress / PM1`, `progress / PM4`).
 
-- [ ] 15.8 Hand the final committed head and local evidence to the controller,
-      then obtain the controller's host run of
-      `env TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash
-      scripts/coverage-exact.sh` against **that exact head**, with the gate
-      unchanged. Inside a nested sandbox this remains pending host proof, not
-      a pass, and skipped boundary tests prove nothing — every requirement of
-      this change.
-- [ ] 15.9 Leave the remaining controller-owned delivery results pending until
-      they actually exist: integration with the #222 fire's shared-file
-      overlap, remote CI on the resulting final integrated head, completed-run
-      publication, the PR, the merge and the closing of #226 — progress / PM4.
+**Post-commit controller handoff evidence — deliberately not tracked task
+checkboxes.** Hand the final committed head and local evidence to the controller.
+The controller records these results in its journal or other evidence outside
+this committed task artifact, so observing them never changes the head they
+validate:
+
+- **Pending host exact coverage:** run `env TMPDIR=/var/tmp
+  BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh` against
+  that exact committed head with the gate unchanged. An in-box run or skipped
+  boundary test is not this proof.
+- **Pending integration and shipping evidence:** integrate the #222 shared-file
+  overlap, require remote CI on the resulting final integrated head, publish the
+  completed run, open and merge the PR, and close #226 only when those results
+  exist. These remain controller-owned handoff conditions, not OpenSpec task
+  completion state.
+
+No post-commit controller result authorizes editing this archived artifact.
 
 ## Prior tasks-phase validation — 2026-09-09
 
@@ -1155,7 +1164,7 @@ Coverage of `boundary / The seat record carries the boundary as seat-record/v4`:
 
 | Scenario | Tasks / verification |
 |---|---|
-| A boxed exec gate's record carries the word | 2.8 runtime boundary integration; 15.3 workspace proof and 15.8 host proof. |
+| A boxed exec gate's record carries the word | 2.8 runtime boundary integration; 15.3 workspace proof and the post-commit controller host-coverage evidence. |
 | A site without hands carries the sentinel | 2.8 runtime boundary integration. |
 | The engine's word wins | 2.8 current-word overwrite and no-model removal. |
 | A panel's aggregate carries none, a sequence's ending result its step's word | 2.8 composite markers/results. |
@@ -1358,7 +1367,8 @@ Unchecked, and why:
   freshly created one. Recorded in `adapters/dsh.json` and
   `docs/guides/provider-adapters.md`; the shape is declared `unsupported`
   with that reason rather than narrowed away.
-- **Current 15.8 (then 15.5), the exact coverage gate.** Not run, and not claimed. The
+- **Then-current 15.8 (originally 15.5), now post-commit controller evidence,
+  the exact coverage gate.** Not run, and not claimed. The
   sandbox refuses to execute `scripts/coverage-exact.sh` at all, and
   refuses the `TMPDIR`/`BROKKR_REQUIRE_BOUNDARY_EVIDENCE` prefix the
   commission specifies with it. The gate's substance was attempted
@@ -1391,7 +1401,8 @@ Unchecked, and why:
   inside a box. That result does not exist here and only the controller
   can produce it. A skipped boundary test would prove nothing either
   way, and the gate was not lowered or edited.
-- **The then-current controller handoff task, now 15.9.** Host validation,
+- **The then-current controller handoff task, later 15.9 and now post-commit
+  controller evidence.** Host validation,
   remote CI on the final
   head, integration with the #222 fire's shared-file overlap, the PR, the
   merge, publication and the closing of #226. Their results do not exist.
@@ -1405,45 +1416,70 @@ declaration edits. Its finalization order was nevertheless still defective.
 This returned visit adopts both new findings and repairs only their earliest
 owning artifact, this breakdown.
 
-- **F8 (HIGH), current 15.5–15.9.** Host exact coverage is controller-owned
-  validation of the final committed head under proposal Delivery obligations
-  and design Migration Plan 5. It is no longer a prerequisite of re-archive or
-  commit. The checked one-time fold is current 15.5; current 15.6 requires only
-  remaining implementation, re-pins and local gates 15.1–15.4 before strict
-  validation and the final re-archive. After the delivery commit, current 15.8
-  hands that exact head to the controller and requires the sanctioned host
-  coverage command there. Current 15.9 retains the other controller-owned
-  results. Thus coverage can neither validate a pre-final tree nor prevent the
-  commit the controller needs in order to validate the final tree.
-- **F9 (MEDIUM), current 15.7 and the post-task phase action.** A commit cannot
-  truthfully be its own checkbox while also containing that checkbox's final
-  tick and leaving a clean tree. Current 15.7 is instead a finite pre-commit
-  readiness task: reconcile ticks and progress, stage and inspect the complete
-  intended tree, then make its own tick/progress update the last tracked edit.
-  The unsigned delivery commit is an explicit post-task phase action. Success is
-  checked read-only by inspecting `HEAD` and clean status; no post-commit task
-  edit is made merely to record it.
+- **F8 (HIGH), then-current 15.5–15.9.** Host exact coverage is
+  controller-owned validation of the final committed head under proposal
+  Delivery obligations and design Migration Plan 5. It is no longer a
+  prerequisite of re-archive or commit. The checked one-time fold is 15.5;
+  then-current 15.6 required remaining implementation, re-pins and local gates
+  15.1–15.4 before strict validation and final re-archive. The then-current
+  15.8–15.9 placed controller evidence after the commit. That resolved the
+  pre-final-tree coverage dependency, but F10 below establishes that those
+  entries cannot remain checkboxes.
+- **F9 (MEDIUM), then-current 15.7 and the post-task phase action.** A commit
+  cannot truthfully be its own checkbox while also containing that checkbox's
+  final tick and leaving a clean tree. The repair correctly made the unsigned
+  delivery commit a post-task action and prohibited a post-commit edit merely
+  to record it. F10 preserves that answer while correcting the artifact
+  ordering and remaining post-commit checkboxes.
+
+### F10 — Archived task closure and exact-head handoff
+
+The latest HIGH finding is adopted on new evidence from the F8/F9 ordering.
+Their repair left two distinct contradictions: 15.6 archived before 15.7's
+tracked edit, and then-current 15.8–15.9 remained unchecked after archive.
+Decision 0042 ruling 4 requires archived strict verification and makes an
+unticked task fail that verification. Checking either controller item later
+would mutate the exact committed head whose host coverage or remote CI it was
+meant to prove. This is not a reopening of the settled separation between
+commit and coverage; it is the consequence of applying the archived-task rule
+to that repaired sequence.
+
+Current 15.6 now completes reconciliation and every ordinary tracked edit while
+the change is active. Current 15.7 makes its own tick and the final progress
+account the last tracked artifact edit while active, then re-archives the change
+as the final artifact operation. Archived validation and provenance checks are
+read-only; a failure requires reopening the same change before any repair. The
+delivery commit follows as an untracked phase action, preserving F9.
+
+The former 15.8–15.9 obligations are not waived or narrowed. They are now
+explicit post-commit controller handoff evidence with no checkboxes: sanctioned
+host exact coverage validates the exact committed delivery head, while
+integration, remote CI on the final integrated head, publication, PR, merge and
+issue closure stay pending until the controller records their real results
+outside this artifact. No such result may cause a post-commit edit here.
 
 No proposal, delta, design, living capability, provenance, provider
 declaration, production file, frozen artifact or sibling-fire file changes in
-this tasks-phase repair. Proposal answer I and design Migration Plan 4–5 already
-own the corrected order, so no upstream amendment is required.
+this return. Proposal answer I's remaining pre-archive delivery obligations are
+the repository-local tracked tasks; its controller-owned external checks remain
+post-commit handoff conditions. Design Migration Plan 4–5 already orders final
+artifact operation, commit, then controller handoff, so the defect is confined
+to this owning breakdown.
 
-The task truth remains **83 complete / 20 pending across 103 tasks**. Pending
-work is dependency-ordered: provider-local conformance, shared terminal
-conformance, live provider proof, evidence-gated enablement, refreshed pins and
-local gates, final re-archive/provenance validation, pre-commit reconciliation,
-the post-task delivery commit, then controller host coverage and remaining
-handoff results. The post-task commit is deliberately not counted as a task
-checkbox.
+The current task truth is **83 complete / 18 pending across 101 tracked
+tasks**. Pending tracked work is dependency-ordered: provider-local
+conformance, shared terminal conformance, live provider proof, evidence-gated
+enablement, refreshed pins and local gates, active-change reconciliation and
+the final re-archive artifact operation. The post-task delivery commit and
+controller evidence are deliberately outside the checkbox count.
 
 Validation for this repair passed: `openspec validate
 226-session-resumption --strict --no-interactive` accepts the active change,
-and `openspec status --change 226-session-resumption --json` reports all four
-planning artifacts done and planning complete. A structural check finds 103
-unique task identifiers with the stated 83/20 split. Every checkbox still names
-its served requirement; the post-task action names PM1/PM4, and the five living
-capabilities retain exactly one provenance line for this archive plus the
-earlier `boundary-record` provenance. No Rust or provider test was run in this
-tasks phase: their refreshed commands remain delivery tasks 15.1–15.4 and the
-controller-owned host gate is current 15.8.
+`openspec status --change 226-session-resumption --json` reports planning
+complete, and a structural check finds 101 unique task identifiers with the
+stated 83/18 split. Every checkbox still names its served requirement; the
+post-task action names PM1/PM4, and the five living capabilities retain exactly
+one provenance line for this archive plus the earlier `boundary-record`
+provenance. No Rust or provider test is required for this task-artifact-only
+repair; their refreshed commands remain delivery tasks 15.1–15.4, and host
+coverage remains mandatory controller evidence.
