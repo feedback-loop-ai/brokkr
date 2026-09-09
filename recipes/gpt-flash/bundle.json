@@ -1,0 +1,373 @@
+{
+  "name": "gpt-flash",
+  "description": "GPT Sol plans, DeepSeek Flash 4.1 implements, and Astra rules final review.",
+  "extends": "triage",
+  "override": {
+    "bundle": [
+      "description"
+    ],
+    "seats": [
+      "triage",
+      "implement",
+      "review",
+      "specify",
+      "clarify",
+      "design",
+      "tasks",
+      "analyze"
+    ]
+  },
+  "seats": {
+    "triage": {
+      "results": [
+        "chore",
+        "feature",
+        "design",
+        "engine",
+        "escalate"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 1,
+        "timeout_seconds": 1800
+      },
+      "agent": "gpt-flash-triage"
+    },
+    "implement": {
+      "results": [
+        "complete",
+        "broken",
+        "blocked",
+        "oversized"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 7200
+      },
+      "select": {
+        "on": "strategy",
+        "cases": {
+          "chore": {
+            "agent": "gpt-flash-implementer",
+            "class": "work"
+          },
+          "feature": {
+            "agent": "gpt-flash-implementer",
+            "class": "work"
+          },
+          "design": {
+            "agent": "gpt-flash-implementer-sdd",
+            "class": "work"
+          },
+          "engine": {
+            "agent": "gpt-flash-implementer-engine",
+            "class": "work"
+          }
+        }
+      }
+    },
+    "review": {
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "inputs": [
+        "spec_defect",
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 7200
+      },
+      "select": {
+        "on": "strategy",
+        "cases": {
+          "chore": {
+            "sequence": [
+              {
+                "aggregate": "review-panel",
+                "panel": {
+                  "correctness": {
+                    "agent": "review-correctness",
+                    "class": "gate"
+                  },
+                  "security": {
+                    "agent": "gpt-flash-review-security",
+                    "class": "gate"
+                  }
+                },
+                "name": "positions",
+                "results": [
+                  "clean",
+                  "residual",
+                  "security-hold"
+                ]
+              },
+              {
+                "name": "chief",
+                "agent": "gpt-flash-review-chief",
+                "class": "gate"
+              }
+            ]
+          },
+          "feature": {
+            "sequence": [
+              {
+                "aggregate": "review-panel",
+                "panel": {
+                  "correctness": {
+                    "agent": "review-correctness",
+                    "class": "gate"
+                  },
+                  "security": {
+                    "agent": "gpt-flash-review-security",
+                    "class": "gate"
+                  }
+                },
+                "name": "positions",
+                "results": [
+                  "clean",
+                  "residual",
+                  "security-hold"
+                ]
+              },
+              {
+                "name": "chief",
+                "agent": "gpt-flash-review-chief",
+                "class": "gate"
+              }
+            ]
+          },
+          "design": {
+            "sequence": [
+              {
+                "name": "positions",
+                "results": [
+                  "clean",
+                  "residual",
+                  "security-hold"
+                ],
+                "aggregate": "review-panel",
+                "panel": {
+                  "correctness": {
+                    "agent": "review-correctness",
+                    "class": "gate"
+                  },
+                  "security": {
+                    "agent": "gpt-flash-review-security",
+                    "class": "gate"
+                  },
+                  "spec-compliance": {
+                    "agent": "review-spec-compliance",
+                    "class": "gate"
+                  }
+                }
+              },
+              {
+                "name": "chief",
+                "agent": "gpt-flash-review-chief",
+                "class": "gate"
+              }
+            ]
+          },
+          "engine": {
+            "sequence": [
+              {
+                "name": "positions",
+                "results": [
+                  "clean",
+                  "residual",
+                  "security-hold"
+                ],
+                "aggregate": "review-panel",
+                "panel": {
+                  "adversarial": {
+                    "agent": "gpt-flash-review-adversarial",
+                    "class": "gate"
+                  },
+                  "correctness": {
+                    "agent": "review-correctness",
+                    "class": "gate"
+                  },
+                  "security": {
+                    "agent": "gpt-flash-review-security",
+                    "class": "gate"
+                  },
+                  "spec-compliance": {
+                    "agent": "review-spec-compliance",
+                    "class": "gate"
+                  }
+                }
+              },
+              {
+                "name": "chief",
+                "agent": "gpt-flash-review-chief",
+                "class": "gate"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "specify": {
+      "results": [
+        "drafted",
+        "fail",
+        "upstream"
+      ],
+      "inputs": [
+        "change"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "author",
+          "results": [
+            "drafted",
+            "upstream"
+          ],
+          "agent": "gpt-flash-chief-architect",
+          "class": "work"
+        },
+        {
+          "name": "validate",
+          "dialect": "validate"
+        }
+      ]
+    },
+    "clarify": {
+      "results": [
+        "clear",
+        "ambiguous"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "check",
+          "results": [
+            "clear",
+            "ambiguous"
+          ],
+          "dialect": "check"
+        },
+        {
+          "name": "judge",
+          "agent": "gpt-flash-clarifier",
+          "class": "gate"
+        }
+      ]
+    },
+    "design": {
+      "results": [
+        "drafted",
+        "fail",
+        "upstream"
+      ],
+      "inputs": [
+        "change"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "positions",
+          "results": [
+            "pass",
+            "fail"
+          ],
+          "aggregate": "unanimous-pass",
+          "panel": {
+            "simplicity": {
+              "agent": "position-simplicity",
+              "class": "work"
+            },
+            "robustness": {
+              "agent": "position-robustness",
+              "class": "work"
+            }
+          }
+        },
+        {
+          "name": "chief",
+          "results": [
+            "drafted",
+            "upstream"
+          ],
+          "agent": "gpt-flash-chief-architect",
+          "class": "work"
+        },
+        {
+          "name": "validate",
+          "dialect": "validate"
+        }
+      ]
+    },
+    "tasks": {
+      "results": [
+        "drafted",
+        "fail",
+        "upstream"
+      ],
+      "inputs": [
+        "change"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "author",
+          "results": [
+            "drafted",
+            "upstream"
+          ],
+          "agent": "gpt-flash-task-planner",
+          "class": "work"
+        },
+        {
+          "name": "validate",
+          "dialect": "validate"
+        }
+      ]
+    },
+    "analyze": {
+      "results": [
+        "consistent",
+        "drift"
+      ],
+      "inputs": [
+        "drift_in"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "sequence": [
+        {
+          "name": "check",
+          "results": [
+            "consistent",
+            "drift"
+          ],
+          "dialect": "check"
+        },
+        {
+          "name": "judge",
+          "agent": "gpt-flash-analyst",
+          "class": "gate"
+        }
+      ]
+    }
+  }
+}

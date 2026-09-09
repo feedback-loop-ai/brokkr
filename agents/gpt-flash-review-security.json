@@ -1,0 +1,28 @@
+{
+  "description": "Review panel member: the adversarial security read of the change.",
+  "charter": "charters/review-security.md",
+  "models": [
+    "opus"
+  ],
+  "efforts": {
+    "opus": "xhigh"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
+  }
+}
