@@ -53,8 +53,11 @@ implementation and review.
   transcript retention, terminal sanitization and accepted contracts. Count
   unrecognized records separately from malformed lines, using the closed Claude
   omission list in the reading delta so intentional omissions stay quiet and
-  new record/block kinds remain visible as counted omissions. Retire Claude's
-  truncation suffix; every kind uses exactly `transcript truncated (size cap)`.
+  new record/block kinds remain visible as counted omissions. Retire both
+  shipped Claude truncation suffixes, the TUI's
+  ` — claude --resume carries the rest` and the browser's
+  ` — resume the session for the rest`; every kind uses exactly
+  `transcript truncated (size cap)`.
 - **BREAKING**: require a leading hexadecimal character in Claude ids
   everywhere they are read or used in a convenience command, including the
   existing Claude browser drill and its client guard. Leading-hyphen ids that
@@ -77,7 +80,11 @@ implementation and review.
   The id-only HTTP routes remain journal-independent Claude lookups. A
   participant whose recorded Claude home differs from the routes' local
   projects home keeps its shared hint but gets no drill into the wrong home.
-  Codex/DSH browser transcript bodies remain outside scope.
+  Losing an admitted drill's lookup admission, without any participant,
+  reference or journal change, clears the page's cached body and growth
+  watch and shows the current shared refusal instead of stale prose; a
+  superseded in-flight response cannot restore it. Codex/DSH browser
+  transcript bodies remain outside scope.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
   design must author it and register it before implementation, explicitly
@@ -551,3 +558,72 @@ Command evidence is in
 Host proof and delivery checks remain pending with the controller; this
 specification validation is not implementation evidence or a clarification
 verdict. Earlier evidence files are preserved.
+
+### S12 — Successor adoption grounds the browser's stale-content rule
+
+Run `close-issue-222-a-transcript-rea-04d01419` adopts the committed change
+at `8336e11`, including every earlier repair through the task breakdown.
+Strict OpenSpec validation passed before amendment; the tree was clean and
+descends from the commissioned base `5bc8cf3`. This run's context carries no
+`returned_from` finding: triage ruled `design` and specify is its first seat.
+Neither the earlier clarification-budget exhaustion nor the provider quota
+failure is a verdict on this specification, and this structural validation
+replaces no later phase's independent judgment.
+
+All prior answers stay in force: S1–S11, R1–R16, C1–C8 and T1–T7, the closed
+Claude omission list, Codex filename identity and id language, the rejected
+reference echo, the DSH ownership/version/packed/citation rules, the proposed
+bounds and the explicit limits of provider evidence in S3 and S5. The change
+identifier remains `read-every-transcript-kind`. `docs/decisions/` still ends
+at 0053 on this base, so reserved 0055 is free and the controller's 0054 and
+0056 reservations are untouched.
+
+The commission carries three open analysis findings from run
+`close-issue-222-a-transcript-rea-df38565b`. A6 (task 6.7's absent-partner
+wording) and A7's missing browser truncation task are work for the tasks
+office; reading already retires that browser sentence, so A7 needs no new
+rule. A5 is different in kind: the behavior it requires existed only in
+council design D9, never in a requirement this office owns, which is why the
+breakdown had nothing to derive it from. That omission is this
+specification's fault, so the owning requirement now states the rule and one
+scenario binds it.
+
+| Amendment | Reason and owning place |
+|---|---|
+| Browser admission loss clears cached prose | Reading's browser requirement and R17 make the page close the watch without reconnecting, discard its cached and displayed turns, re-request the shared presentation and render the current refusal; a superseded response restores neither. "A closed growth stream cannot leave stale browser prose" pins the outcome and its recovery. |
+| The retired browser suffix is named | The cap requirement now names the shipped `transcript truncated (size cap) — resume the session for the rest` literal beside the TUI suffix, so R6's settled answer has an exact target instead of an unnamed existing sentence. |
+
+Evidence at base `5bc8cf3`: `crates/brokkr-cli/src/ui.html:757-782` keys
+`transcriptCache` by session id, invalidates it only in the session stream's
+`onmessage`, and installs no `onerror`, so a closed stream reconnects by
+default and the previous body stays displayed; `ui.html:1118` closes the
+session watch from the run stream without discarding that cache; and
+`ui.html:814` holds the browser truncation literal named above. This is
+shipped-source inspection, not a live browser, provider or transcript
+measurement.
+
+Neither amendment changes an accepted decision, a frozen byte, the command
+or TUI delta, or the design and tasks artifacts this office does not own.
+The returned council must reconcile its existing D9 clause with R17 and carry
+the rule into proposed 0055; the tasks office still owes A5's client task and
+proof, A6's split expected outcomes and A7's renderer task and assertion.
+Under S1 and the rendered dialect, this visit commits proposal and specs only
+and claims no clarification, design admission or delivery.
+
+Validation of this adoption: strict validation and delta parsing pass with
+20 requirements and 169 scenarios, each carrying scenarios. All 168 earlier
+scenario names survive, and the command and TUI deltas are byte-identical.
+`git diff --check` passes. `contracts/`, `policy/`, `reference/`, `fixtures/`,
+`docs/decisions/`, `crates/`, `scripts/`, `bundles/` and `openspec/specs/`
+are byte-identical to the commissioned base. All five commissioned Cargo
+commands were attempted with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`
+and exited 127 because Cargo is absent from this box, whose PATH holds only
+`openspec`, `node`, `python3` and `git` and whose `HOME` holds no provider
+home. Unchanged exact coverage was attempted with those limits,
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at
+`mktemp` because `/var/tmp` does not exist here. No Rust, coverage or
+boundary proof ran, and no unavailable check is counted as passing evidence.
+This visit's record is
+`.forge/specify/read-every-transcript-kind-04d01419-validation.json`;
+earlier evidence files are preserved. Host proof, remote CI and delivery
+remain the controller's pending work.

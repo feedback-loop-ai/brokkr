@@ -162,6 +162,20 @@ session label or drill. Changing participant/reference eligibility SHALL
 clear a stale transcript and close its growth watch before another result
 is displayed.
 
+Stale browser prose SHALL also be invalidated when an admitted drill's
+admission is lost without any participant, reference or journal change.
+When a growth watch closes or errors, or an id-only body request is refused,
+the browser SHALL close that watch without reconnecting it to the same
+source, discard its cached and displayed turns for that id, request the
+shared presentation result again and render the current shared
+unavailability, hint and checkpoint fallback. It SHALL NOT keep showing the
+previous source's turns, reopen a watch on a refused source, or treat a
+closed stream as continued admission. A body or presentation response whose
+request has been superseded by another participant, reference or admission
+state SHALL NOT be displayed or cached. Recovery SHALL be an ordinary fresh
+presentation and body request once shared lookup admits a source again,
+never a restored cached body.
+
 The browser's selected-participant presentation result SHALL remain local
 and separate from existing inspect/seats/watch JSON and the three-field
 Claude session response. It SHALL not add transcript prose to journal-derived
@@ -181,6 +195,11 @@ rules in JavaScript is not.
 #### Scenario: An eligible Claude browser participant uses the shared hint
 - **WHEN** a common or eligible legacy Claude reference identifies the unique readable file `abcd-1234.jsonl` under the same canonical home as the browser's local projects root
 - **THEN** the page shows `· session abcd-1234`, the shared `full session: claude --resume abcd-1234` value and the shared Claude turns; a working participant can use the existing growth route without deriving a second command
+
+#### Scenario: A closed growth stream cannot leave stale browser prose
+- **WHEN** an admitted Claude browser drill is displaying turns and watching growth, and a second qualifying file appears, discovery exceeds its bound, or the selected file becomes a symlink, so the next poll closes the stream while the participant, its recorded reference and the journal head are unchanged
+- **THEN** the page closes that watch without reconnecting to the same source, discards its cached and displayed turns, requests the shared presentation again and shows the current `ambiguous-source`, `discovery-limit` or `unsafe-path` explanation beside the shared Claude hint and checkpoint fallback; a superseded in-flight response restores neither those turns nor the closed watch
+- **AND** when shared lookup later admits a unique safe source again, an ordinary fresh presentation and body request displays the current turns and may reopen the watch, without reusing the discarded cache
 
 #### Scenario: A recorded custom Claude home cannot drill an ambient twin
 - **WHEN** a valid Claude participant records a readable file under `/retained/claude-projects` and the browser's different local projects home contains an unrelated file with the same id
@@ -999,8 +1018,11 @@ Exceeding either budget SHALL set `truncated` true and supply the shared
 notice `transcript truncated (size cap)` exactly, with no provider suffix.
 The shipped Claude suffix ` — claude --resume carries the rest` SHALL be
 retired; the separate full-session value carries that convenience. The
-existing Claude browser truncation sentence SHALL likewise use the exact
-shared notice. A first over-limit turn SHALL produce zero retained turns with that notice. Reaching EOF exactly at a
+shipped browser sentence
+`transcript truncated (size cap) — resume the session for the rest` SHALL
+likewise become exactly the shared notice, retiring its
+` — resume the session for the rest` suffix. A first over-limit turn SHALL
+produce zero retained turns with that notice. Reaching EOF exactly at a
 limit without omitted content SHALL not claim truncation. The budgets SHALL
 apply before `--turn` selection; choosing one turn SHALL not bypass the
 whole-transcript bound. Header discovery SHALL have the separate bounds
@@ -1374,3 +1396,33 @@ source-cap and failure-precedence tests, CLI whole/selected text/JSON states
 and TUI refusal/recovery tests. No live provider experiment is required to
 choose this policy, and the captured source supplies no new Codex association
 proof or evidence of #226's resumption behavior.
+
+### R17 / specify adoption — Lost admission is not continued browser admission
+
+The browser's stale-clearing rule was bound only to a changing participant
+or reference, so an already admitted drill whose shared lookup later refuses
+had no stated client behavior. At base `5bc8cf3`,
+`crates/brokkr-cli/src/ui.html:757-782` keys `transcriptCache` by session id
+and drops an entry only inside `sessionSource.onmessage`; `closeSessionWatch`
+closes the stream without discarding that entry, and the session stream has
+no `onerror` handler, so the browser `EventSource` reconnects by default. The
+run stream's handler at `ui.html:1118` closes the session watch but likewise
+drops no cached body. Under R11's new refusals the server correctly closes
+the stream and answers 404 while the page keeps displaying the former
+source's turns. Leaving that to a renderer choice is rejected: the TUI
+already clears refused content under T5/T7, and the same evidence must not
+remain visible in the browser merely because it was fetched before the
+refusal.
+
+Reconnecting the watch to the same source is rejected, because shared lookup
+has refused it and a retry is either a 404 loop or a silent return to
+ambiguous evidence. Discarding the cache and re-requesting the shared
+presentation keeps one owner for eligibility, refusal and hint. Superseded
+responses are excluded because an in-flight body can otherwise land after
+the refusal and restore exactly the prose it removed. Recovery is an ordinary
+fresh read rather than a revived cache, so the page cannot display a snapshot
+the current lookup would not admit. This adds no browser transcript
+transport, route, wire field or Codex/DSH browser body, changes no accepted
+decision and does not reopen R10's eligibility or R11's refusal answers.
+Proposed 0055 must carry this browser stale-content rule and bind it to a
+client admission-loss test with unchanged participant, reference and journal.
