@@ -293,12 +293,39 @@ task:
       allocating by its width, entries validated whole on each surface
       event, and suppression only of uniquely identified, earlier,
       readable chunks of a readable assembly's own recorded turn and
-      step; absent, empty, partial, cross-step, ambiguous and non-chunk
-      citations suppress nothing, user and tool-result citations and
-      `surfaceOp` rewrite no history, and an invalid field refuses the
-      read with one unrecognized row — transcript-reading / DSH sessions
-      expose assembled or provisional content once.
-- [ ] 6.5 Implement the required-unknown rule after header admission: a
+      step. A partial list is not all-or-nothing: it suppresses exactly
+      the subset it proves and leaves every uncited chunk at its own
+      source position, so `[10]` over readable chunks 10 and 11 retains
+      chunk 11 and then the assembly. An absent field and an empty `[]`
+      suppress nothing at all, and a missing, cross-step, ambiguous or
+      non-chunk target inside an otherwise valid list proves only itself
+      away while that list's other proved targets still disappear.
+      Duplicate, overlapping and out-of-order entries are set membership
+      that neither duplicates nor reorders content; user and tool-result
+      citations and `surfaceOp` rewrite no history; and an invalid field
+      refuses the read with one unrecognized row — transcript-reading /
+      DSH sessions expose assembled or provisional content once.
+- [ ] 6.5 Associate dedicated DSH `tool/call` and `tool/result` events
+      with the tool blocks embedded in assembled messages, at block level
+      and on recorded evidence only: a dedicated event owns an embedded
+      `tool-call` or `tool-result` block solely when the dedicated
+      event's recorded `callId` equals the identifier the block itself
+      stores (the tool-result block's `toolCallId` under D6) and the
+      dedicated event's recorded `(turn, step)` equals the owning
+      message's pair; no identifier is inferred where the row records
+      none. The dedicated event then supplies the one displayed
+      call or result at its own source position and timestamp, its owning
+      message keeps every other text, reasoning and unmatched block in
+      recorded order, and a turn is not emitted once its only block is
+      suppressed. An embedded complete call or result whose partner is
+      absent, whose call id collides with two dedicated events, or whose
+      turn/step disagrees stays visible under the absent-partner rule;
+      dedicated events never suppress one another, and no textual,
+      positional, timestamp or recency matcher is added — this is the
+      once-only projection that the citation rule of 6.4 does not cover —
+      transcript-reading / DSH sessions expose assembled or provisional
+      content once.
+- [ ] 6.6 Implement the required-unknown rule after header admission: a
       valid JSON row with an unrecognized event envelope is a counted
       omission only when it is an object carrying top-level `ignorable`
       exactly boolean `true`; otherwise the whole read returns
@@ -307,7 +334,7 @@ task:
       truncation, while source I/O and UTF-8 failure outrank it and
       header refusal precedes it — transcript-reading / Partial records
       and read failures remain distinguishable.
-- [ ] 6.6 Tests, table driven over both ordinary and packed encodings:
+- [ ] 6.7 Tests, table driven over both ordinary and packed encodings:
       version `0`, `0.0`, `0e0`, `-0`, absent, null, false, `"0"`, array,
       object, `1`, `-1` and `0.5`; depth zero, omitted, positive,
       negative, string and floating; a header-only file at EOF without a
@@ -317,11 +344,28 @@ task:
       `"1004"` and their reasoning counterparts with zero counts; a wrong
       `dt` length, a non-string member and an overflowing reconstruction;
       a tool-argument run that invents no call; an incomplete and a
-      cap-cut packed row supplying no members; citations `[[10, 12]]`,
-      `[10, 11, 12]`, `[[12, 14], [10, 12], 11]`, `[]`, absent, `[10]`,
-      cross-step, ambiguous, self, future, reversed and
-      `[0, 9007199254740990]`; the display cap stopping between members;
-      an unknown event with `ignorable` true, false, null, `"true"`, `1`
+      cap-cut packed row supplying no members; citations with the exact
+      retained turn sequence and one-based indices pinned for each, in
+      both encodings — `[[10, 12]]` and `[10, 11, 12]` over readable
+      same-step chunks 10, 11, 12 and 14 retaining chunk 14 then the
+      assembly, `[[12, 14], [10, 12], 11]` over the same four retaining
+      the assembly alone with zero counts and no notices, `[]` and an
+      absent field over chunks 10 and 11 retaining both then the
+      assembly, and the partial `[10]` over those two retaining chunk 11
+      then the assembly — plus cross-step, ambiguous, missing and
+      non-chunk targets suppressing only themselves within a list whose
+      other proved targets still disappear, and self, future, reversed
+      and `[0, 9007199254740990]`; the display cap stopping between
+      members; a dedicated `tool/call` sharing an embedded block's call
+      id and turn/step showing that call once while its message keeps its
+      text and reasoning blocks in order; the same pair with a differing
+      call id, a differing turn/step and no dedicated record at all, each
+      keeping both copies; two dedicated events colliding on one call id
+      keeping every record; a dedicated `tool/result` matching an
+      embedded result block whether it precedes or follows its message;
+      and an assembled message whose only block is so suppressed emitting
+      no empty turn; an unknown event with `ignorable` true, false, null,
+      `"true"`, `1`
       and absent; a recognized envelope with two unsupported blocks; and
       the capped snapshot returning `unsupported-format` with
       `skipped_lines: 2`, `unrecognized_records: 2` and all three notices
@@ -550,10 +594,16 @@ task:
       shared identifier guard, safe discovery and Claude projection,
       keeping them journal-independent lookups under the server's local
       projects home: every reference, discovery or read failure returns
-      HTTP 404 with `{"error":"session not found"}` for an invalid id and
-      `{"error":"transcript not found"}` otherwise, before an event-stream
-      header is written; an admitted stream keeps its size-event and
-      heartbeat shape, revalidates unique safe discovery on each poll and
+      HTTP 404 with the existing JSON error envelope before a body or an
+      event-stream header is written, with the two routes' mappings kept
+      apart rather than merged — `/api/session/<id>` answers
+      `{"error":"session not found"}` for an invalid id and
+      `{"error":"transcript not found"}` for a valid id whose lookup or
+      read fails, while every `/sse/session/<id>` admission refusal,
+      an invalid id included, answers `{"error":"transcript not found"}`
+      as shipped `crates/brokkr-cli/src/ui.rs:429` already does; an
+      admitted stream keeps its size-event and heartbeat shape,
+      revalidates unique safe discovery on each poll and
       closes on loss without reporting another size — transcript-reading /
       Discovery identifies one owned local file; Browser participant
       drills obey shared eligibility.
@@ -589,9 +639,13 @@ task:
       stale flat id; an eligible Claude participant showing the shared
       hint and turns; a recorded custom Claude home showing the
       home explanation beside the shared hint and drilling nothing;
-      `-abc` refused by client, page, API and SSE; `a-bC09` keeping the
-      existing envelope and stream; the three lookup refusals answering
-      404 with no turns and no stream header; an admitted stream losing
+      `-abc` refused by client, page, API and SSE, asserting the exact
+      bodies `{"error":"session not found"}` from the API and
+      `{"error":"transcript not found"}` from SSE with no stream header;
+      `a-bC09` keeping the existing envelope and stream; the three
+      lookup refusals answering
+      404 with `{"error":"transcript not found"}` on both routes, no
+      turns and no stream header; an admitted stream losing
       its unique source mid-watch; and the retired holder sentence absent
       from the page — transcript-reading / Browser participant drills obey
       shared eligibility.
@@ -610,12 +664,22 @@ task:
       while JSON keeps escaped strings — transcript-reading / Transcript
       prose stays local and inert.
 - [ ] 11.2 Prove one derivation in
-      `crates/brokkr-cli/tests/transcript_surfaces.rs`: for one synthetic
-      source of each kind, the command's whole read, its `--turn`
-      selection, the TUI pane, both overlays and the browser presentation
-      carry the same serialized turns, blocks, numbering, notices, hint
-      and unavailability, including a readable zero-turn result, a
-      truncated result, a counted-omission result and each DSH refusal —
+      `crates/brokkr-cli/tests/transcript_surfaces.rs`, comparing each
+      surface only where it is authorized to carry content: for one
+      synthetic source of each kind, the command's whole read, its
+      `--turn` selection, the TUI pane and both overlays carry the same
+      serialized turns, blocks, numbering, notices, hint and
+      unavailability — the `--turn` comparisons scoped to the requested
+      index — including a readable zero-turn result, a truncated result,
+      a counted-omission result and each DSH refusal, while Claude's
+      existing `/api/session/<id>` body agrees on turns and `truncated`
+      over the same source and keeps its three-field envelope. The
+      browser participant presentation is compared only on the shared
+      metadata it transports — selected reference, `legacy` and admission
+      facts, unavailable reason, explanation, hint and Claude drill
+      eligibility — and is asserted to carry no turns, blocks or
+      transcript prose for any of the three kinds, so this proof cannot
+      be satisfied by widening that transport (10.2, D9) —
       transcript-reading / One transcript derivation serves the local
       readers; transcript-command / JSON exposes a distinct local
       transcript document; transcript-tui / Every readable kind reaches
