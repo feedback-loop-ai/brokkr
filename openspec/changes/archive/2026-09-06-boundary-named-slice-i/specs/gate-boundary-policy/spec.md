@@ -89,8 +89,10 @@ model gate is admitted only when every link of its resolved chain
 declares `hands.harness.gate` as a fragment, and refused otherwise
 naming the link, the provider and the missing declaration; under `open`
 a model gate is refused naming decision 0046 ruling 4. A work-class site
-with hands under `harness` SHALL be refused as a capability gap when a
-link declares no `hands.harness.work` fragment. A gate-class site
+with hands under `open` SHALL be admitted asking no fragment of any
+link, running at the harness's default. A work-class site with hands
+under `harness` SHALL be refused as a capability gap when a link
+declares no `hands.harness.work` fragment. A gate-class site
 without hands has no box whose boundary could be named and SHALL compile
 as it does today under every boundary. Ruling 4's own binding —
 `model_policy_tests.rs`, "a `harness` gate on codex admitted, on dsh
@@ -124,6 +126,10 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 #### Scenario: An open model gate is refused
 - **WHEN** a gate-class agent site with hands compiles under `open`, whatever its adapter declares
 - **THEN** compilation is refused naming decision 0046 ruling 4
+
+#### Scenario: An open work-class chain site asks no fragment
+- **WHEN** a work-class agent site with hands resolves to a chain whose links declare no `hands.harness` fragment, and the bundle compiles under `open`
+- **THEN** compilation succeeds, asking no fragment of any link
 
 #### Scenario: A seatbelt gate is admitted at compile
 - **WHEN** a gate-class agent site with hands compiles under `seatbelt`, and again under `container`

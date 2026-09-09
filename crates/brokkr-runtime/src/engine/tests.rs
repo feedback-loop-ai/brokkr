@@ -733,6 +733,7 @@ pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),
         accepted: true,
+        deadline_killed: false,
     }
 }
 
