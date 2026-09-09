@@ -3789,8 +3789,9 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // compiles under harness like `fast`.
     // Sixteen with release preparation: its boxed work office reaches the
     // missing claude harness.work fragment before its reviewer.
-    assert_eq!(dirs.len(), 16, "{dirs:?}");
-    let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
+    // Seventeen with GPT/Flash, which inherits triage's dialect steps.
+    assert_eq!(dirs.len(), 17, "{dirs:?}");
+    let dialect_bundles = ["recipes/gpt-flash", "recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
     for dir in &dirs {
@@ -3892,7 +3893,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
                             "{name}: {refusal}"
                         );
                     }
-                    "recipes/night-shift" | "recipes/triage" => {
+                    "recipes/gpt-flash" | "recipes/night-shift" | "recipes/triage" => {
                         assert_refused_at_the_dialect_step(&name, &refusal);
                     }
                     other => panic!("{other} refuses under harness: {refusal}"),
@@ -3905,6 +3906,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     assert_eq!(
         refused,
         [
+            "recipes/gpt-flash",
             "recipes/night-shift",
             "recipes/panel-review",
             "recipes/release",
@@ -3978,6 +3980,11 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
     }
     assert_eq!(
         refused,
-        ["recipes/night-shift", "recipes/release", "recipes/triage"]
+        [
+            "recipes/gpt-flash",
+            "recipes/night-shift",
+            "recipes/release",
+            "recipes/triage"
+        ]
     );
 }

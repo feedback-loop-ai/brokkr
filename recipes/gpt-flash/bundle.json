@@ -4,7 +4,8 @@
   "extends": "triage",
   "override": {
     "bundle": [
-      "description"
+      "description",
+      "cost"
     ],
     "seats": [
       "triage",
@@ -369,5 +370,6 @@
         }
       ]
     }
-  }
+  },
+  "cost": "variable"
 }
