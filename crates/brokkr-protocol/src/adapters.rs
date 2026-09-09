@@ -15,10 +15,13 @@
 //! spelling for one more release (decision 0019, `legacy`).
 
 use std::io::{BufRead, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+use crate::dsh_sandbox;
+use crate::hands::GitFacts;
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
@@ -2055,7 +2058,31 @@ fn invoke_dsh_with(
         dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
     })?;
     let root = root_dir.as_path();
-    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root)?;
+    // The dsh harness sandbox confines writes to the session workspace
+    // (decision 0054). A linked worktree's git metadata lives outside it,
+    // so the driver resolves the two git directories through Git NOW —
+    // before the seat can edit anything — and, when the seat's mode
+    // confines writes, points dsh's sandbox provider at the scoped
+    // runner that can reach them. A seat that cannot commit refuses
+    // here, before it spends an implementation.
+    let facts = if workdir.is_empty() {
+        GitFacts::default()
+    } else {
+        crate::hands::git_facts(Path::new(workdir))
+    };
+    let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
+    // The private git store is named in every command's runner argv, so
+    // it is held here for the seat's whole life and handed to the
+    // promotion below, which is the only way anything the seat committed
+    // reaches the shared repository.
+    let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
+    let sandbox_row = staged.as_ref().map(|(row, _, _)| row.clone());
+    let overlay = dsh_seat_overlay_with(
+        model.as_deref(),
+        effort.as_deref(),
+        root,
+        sandbox_row.as_deref(),
+    )?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
     transcript.record(&locator, &mut session_meta, emit);
@@ -2075,13 +2102,27 @@ fn invoke_dsh_with(
     ];
     command.extend(passthrough);
     command.push(prompt.into());
-    let child = Command::new(&command[0])
+    let mut child = Command::new(&command[0]);
+    child
         .args(&command[1..])
         .current_dir(if workdir.is_empty() { "." } else { workdir })
+        // Seat commits are unsigned (CONTRIBUTING): the host's own
+        // `commit.gpgsign` is outranked for every git call this seat
+        // makes, and the signing wrapper and its key stay outside the
+        // harness's sandbox.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    // The seat commits under the host's identity, resolved outside the
+    // sandbox the way the namespace box resolves it (decision 0043
+    // ruling 6).
+    for (key, value) in &facts.identity {
+        child.env(key, value);
+    }
+    let child = child.spawn();
     let mut child = io_context(child, "could not invoke the agent CLI")?;
     let stderr_pipe = child.stderr.take().expect("piped");
     let stderr_thread = std::thread::spawn(move || {
@@ -2092,10 +2133,17 @@ fn invoke_dsh_with(
     });
     let mut turns = 0u64;
     let mut tail = DshTail::default();
-    let exit_code = poll_until_exit(
+    let exit_code = match poll_until_exit(
         || wait(&mut child),
         || drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit),
-    )?;
+    ) {
+        Ok(code) => code,
+        // Everything the seat committed is in the private store and
+        // nowhere else until the promotion below moves it. Returning here
+        // would drop the store — and the seat's work with it — behind a
+        // spawn-level error naming neither (decision 0054 ruling 5).
+        Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
+    };
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     // No pin lands in session_meta: "model" there is only ever what the
@@ -2109,14 +2157,42 @@ fn invoke_dsh_with(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
+    let mut stderr = redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default());
+    // The seat wrote its objects and moved its branch inside the private
+    // common directory the driver staged; the shared repository was
+    // read-only to it throughout. This is where the ONE ref the worktree
+    // owns crosses over, outside every box (decision 0054 ruling 5). A
+    // promotion that cannot happen is a driver failure with the store's
+    // path in it, never a silent loss of the seat's commits.
+    if let Some((_, scope, staged)) = staged {
+        if let Some(promotion) = dsh_sandbox::promote_seat_commits(staged, &scope)? {
+            stderr.push_str(&promotion.summary());
+            stderr.push('\n');
+        }
+    }
     Ok(Invocation {
         exit_code,
         session_meta,
         stdout: String::new(),
-        stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
+        stderr,
         state: None,
         refusal: None,
     })
+}
+
+/// A driver failure that reaches a seat BEFORE its promotion keeps the
+/// private store and names it, exactly as a promotion that cannot happen
+/// does: the store holds the only copy of the seat's commits until the
+/// promotion moves them. A seat with no scoped store has nothing to lose,
+/// so its failure travels unchanged.
+fn dsh_failure_before_promotion(
+    problem: String,
+    staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
+) -> String {
+    match staged {
+        Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
+        None => problem,
+    }
 }
 
 /// The one dsh stderr stream the journal may not quote.
@@ -2487,12 +2563,147 @@ impl DshSeatOverlay {
     }
 }
 
-fn dsh_seat_overlay(
+/// The git metadata a dsh `workspace-write` seat cannot reach, resolved
+/// by the trusted driver before the seat starts (decision 0054). `None`
+/// when the workspace's git directory already sits inside the writable
+/// root, when the mode needs no writes, or when the workspace is not a
+/// repository. The session cwd — not the repository toplevel — is the
+/// provider's writable root, so a git directory outside it is the defect
+/// whether the seat's cwd is a linked worktree or a subdirectory.
+///
+/// A scope this returns is not automatically served: `dsh_sandbox_row_for`
+/// asks `scope_refusal` first, because only a linked worktree Git itself
+/// created can be bound without widening the boundary (decision 0054
+/// ruling 3).
+fn dsh_git_runner_scope(
+    workdir: &str,
+    facts: &GitFacts,
+    mode: &str,
+) -> Option<dsh_sandbox::GitScope> {
+    let common = facts.common_dir.as_ref()?;
+    // The git paths are absolute; a relative `--repo .` resolves against
+    // the driver's cwd, which is the workspace itself. Both sides are
+    // canonicalized so a symlinked or nested spelling agrees with the
+    // workspace dsh itself canonicalizes for its profile.
+    let workspace = std::path::absolute(workdir).unwrap_or_else(|_| PathBuf::from(workdir));
+    let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
+    let common = std::fs::canonicalize(common).unwrap_or_else(|_| common.clone());
+    if common.starts_with(&workspace) {
+        return None;
+    }
+    if mode == "read-only" || mode == "danger-full-access" {
+        return None;
+    }
+    let git_dir = facts.git_dir.clone().unwrap_or_else(|| common.clone());
+    Some(dsh_sandbox::GitScope {
+        workspace,
+        git_dir: std::fs::canonicalize(&git_dir).unwrap_or(git_dir),
+        common_dir: common,
+    })
+}
+
+/// The scoped-runner row for one seat, the scope it was written for and
+/// the host state it names, or `None` when the seat's git metadata
+/// already sits inside the writable workspace. A seat whose linked
+/// worktree cannot reach its git directory refuses here, before it spends
+/// an implementation.
+///
+/// The caller must hold the staged store for the seat's whole life:
+/// dropping it unlinks the private common directory every command in the
+/// seat is writing into, and the empty file they mount over `config` and
+/// `config.worktree`. It is handed to `promote_seat_commits` afterwards,
+/// which is how the seat's branch reaches the shared repository.
+fn dsh_sandbox_row_for(
+    workdir: &str,
+    facts: &GitFacts,
+    mode: &str,
+) -> Result<Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>, String> {
+    let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
+        return Ok(None);
+    };
+    // A layout the scoped runner will not serve refuses here, before the
+    // seat spends an implementation, rather than at the seat's first
+    // commit (decision 0054).
+    if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
+        return Err(format!("dsh driver: {problem}"));
+    }
+    let bwrap = dsh_bwrap()?;
+    let program = dsh_runner_program();
+    let staged = dsh_sandbox::stage_seat_store(&scope)?;
+    let row = dsh_sandbox::sandbox_row(&program, &bwrap, &staged, &scope)?;
+    Ok(Some((row, scope, staged)))
+}
+
+/// The bwrap binary the scoped runner needs, or the refusal that names
+/// why the seat cannot start. A present-but-unusable bubblewrap is not
+/// support: dsh would have fallen back to its Landlock rung, which
+/// cannot express an extra writable root either. The path is absolute,
+/// so the runner executes exactly this binary rather than searching
+/// `PATH` again inside the seat.
+#[cfg(target_os = "linux")]
+fn dsh_bwrap_on(path: &std::ffi::OsStr) -> Result<PathBuf, String> {
+    let bwrap = crate::hands::bwrap_on(path).map_err(|problem| {
+        format!(
+            "dsh driver: {problem}; a linked worktree's git metadata lies outside the seat's \
+             writable workspace and this driver will not run the seat without a scoped runner"
+        )
+    })?;
+    let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
+    dsh_sandbox::require_usable_bwrap(&bwrap)?;
+    Ok(bwrap)
+}
+
+#[cfg(target_os = "linux")]
+fn dsh_bwrap() -> Result<PathBuf, String> {
+    dsh_bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn dsh_bwrap() -> Result<PathBuf, String> {
+    Err(format!(
+        "dsh driver: this host ({}) has no bubblewrap-compatible runner for a linked \
+         worktree's git metadata; use a standalone checkout, or a realm boundary that can \
+         write the git directory",
+        std::env::consts::OS
+    ))
+}
+
+/// The runner program the sandbox row names: the override a test or a
+/// non-`PATH` installation sets, else this binary, else the name a
+/// `PATH` lookup resolves. The `dsh-sandbox-runner` verb is appended by
+/// the row, never stored here. The executable arrives as the host's own
+/// answer rather than as a rendered error, so the one way it can fail
+/// needs no translation step of its own.
+fn dsh_runner_program_from(
+    override_value: Option<String>,
+    executable: std::io::Result<PathBuf>,
+) -> String {
+    if let Some(program) = override_value {
+        return program;
+    }
+    match executable {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => "brokkr".to_string(),
+    }
+}
+
+fn dsh_runner_program() -> String {
+    dsh_runner_program_from(
+        crate::legacy::env("BROKKR_DSH_RUNNER", None),
+        std::env::current_exe(),
+    )
+}
+
+/// The seat overlay with the scoped sandbox row a linked-worktree seat
+/// needs (decision 0054). It is one patch file because `--patch` is the
+/// launcher's only override channel.
+fn dsh_seat_overlay_with(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    sandbox: Option<&str>,
 ) -> Result<DshSeatOverlay, String> {
-    dsh_seat_overlay_in(model, effort, root, || {
+    dsh_seat_overlay_in(model, effort, root, sandbox, || {
         tempfile::Builder::new()
             .prefix("brokkr-dsh-seat-")
             .suffix(".yml")
@@ -2510,6 +2721,7 @@ fn dsh_seat_overlay_in(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    sandbox: Option<&str>,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<DshSeatOverlay, String> {
     let mut rows = dsh_transcript_row(root)?;
@@ -2534,6 +2746,9 @@ fn dsh_seat_overlay_in(
         }
         _ => None,
     };
+    if let Some(sandbox) = sandbox {
+        rows.push_str(sandbox);
+    }
     let mut patch = match model {
         Some(model) => dsh_model_overlay_in(model, create)?,
         None => io_context(create(), "could not stage the dsh seat overlay")?,
