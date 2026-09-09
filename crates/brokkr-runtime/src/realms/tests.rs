@@ -800,7 +800,7 @@ fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
 /// and must stand on the crossing this module already resolves, rather
 /// than on a second fixture that could drift away from it.
 pub(crate) fn published_by_alpha(dir: &Path, bytes: &str) -> (PathBuf, String) {
-    let crossing = dir.join("alpha/contracts/orders.v1.schema.json");
+    let crossing = dir.join("alpha").join("contracts/orders.v1.schema.json");
     std::fs::create_dir_all(crossing.parent().unwrap()).unwrap();
     std::fs::write(&crossing, bytes).unwrap();
     let pin = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
