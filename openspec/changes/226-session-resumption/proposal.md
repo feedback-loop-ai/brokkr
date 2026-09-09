@@ -273,6 +273,21 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   as proof of existence. Proposed 0056 must state this ownership/existence rule;
   any new record representation must obey LE2's additive-version requirement.
 
+- **I — An unfinished delivery remains the same active change.** The
+  implementation commit archived `226-session-resumption` while ten required
+  tasks remained honestly unchecked. OpenSpec resolves `status`, `show` and
+  phase validation only in the active change namespace, so the returned
+  validator could not adopt the commissioned identifier even though the
+  archive and folded living specifications survived. This visit reopens that
+  same identifier; it does not author a competing change, repeat the already
+  completed capability fold or append duplicate provenance. The living
+  specifications remain the authoritative folded state. The surviving design,
+  task progress and implementation remain evidence for their owning phases,
+  and the change is archived again only after its remaining delivery
+  obligations are resolved. Treating the missing active directory as proof
+  that the change never existed is rejected because commit `75ae68e` records
+  both the fold and the premature archive.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
