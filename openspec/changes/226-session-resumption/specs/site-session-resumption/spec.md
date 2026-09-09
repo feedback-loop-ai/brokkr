@@ -1,25 +1,43 @@
 ## Purpose
 
-Keep the memory of each model invocation with the adapter instance that opened
-it, across retries and re-entry, without transferring a session to another
-site, candidate or installation (decision 0030; proposed extension reserved
-as decision 0056).
+Keep each model work site's memory with the adapter instance that opened it
+across retries and re-entry, without transferring sessions or carrying a prior
+judgment into a fresh gate invocation (decisions 0030, 0041 and 0042; proposed
+extension reserved as decision 0056).
 
 ## ADDED Requirements
 
-### Requirement: SR1 Every model invocation site receives its own eligible offer
+### Requirement: SR1 Every model work site receives its own eligible offer
 
-The engine SHALL offer the latest durably recorded provider session, subject to SR2,
-to each model invocation site on retry and phase re-entry, including operator
-retry after a park in a new engine process. A site SHALL distinguish its run,
-outer seat, selected body and full member/step path: a single seat, a panel
-member, a sequence model step, or a member of a sequence panel. A label reused
-under a different parent SHALL NOT identify the same site. Deterministic exec
-and dialect validation steps SHALL NOT receive provider session offers.
+The engine SHALL offer the latest durably recorded provider session, subject
+to SR2, to each work-class model invocation site on retry and phase re-entry,
+including operator retry after a park in a new engine process. A site SHALL
+distinguish its run, outer seat, selected body and full member/step path: a
+single seat, a panel member, a sequence model step, or a member of a sequence
+panel. A label reused under a different parent SHALL NOT identify the same
+site. Deterministic exec and dialect validation steps SHALL NOT receive
+provider session offers.
+
+Every gate-class model invocation SHALL start without a session offer, even
+when its previous owned session would pass SR2. This applies to a single gate,
+each member of a gate panel, a gate model step and each member of a gate panel
+step, on retry, re-entry and operator retry alike. A single seat or panel uses
+its selected compiled class; sequence steps use their own compiled class and
+members inherit their enclosing panel's class. Office names and a later gate
+step SHALL NOT make a work-class author or position a gate.
+
+Extending the existing single-seat gate resume to other judges is rejected:
+decision 0042 ruling 2 requires the next judge to be fresh and blind, reading
+recorded answers from the artifacts. That later, specific judging rule bounds
+0030's work-session continuity. The single-gate offer is removed as well; a
+prior judging session is not authority for the next verdict. Judges still
+receive their normally rendered current inputs and artifacts, never a prior
+provider transcript or a synthesized continuation prompt.
 
 Offer selection SHALL be per site, not per panel or sequence aggregate.
-Composite execution order, join rules, completed-step reuse and gate policy
-SHALL remain unchanged: this requirement governs invocations that actually run.
+Composite execution order, join rules and completed-step reuse SHALL remain
+unchanged: this requirement governs invocations that actually run. Gate
+admission, immutability and existing park/fallback rules SHALL remain in force.
 
 #### Scenario: A single site's retry and re-entry
 - **GIVEN** a local run whose work seat records session A and later session B under the same eligible instance
@@ -27,24 +45,42 @@ SHALL remain unchanged: this requirement governs invocations that actually run.
 - **THEN** the wire offers A to the retry and B to the re-entry, and offers nothing to the original cold invocation
 
 #### Scenario: Independent panel members
-- **GIVEN** panel members alpha and beta record different sessions
+- **GIVEN** work-class panel members alpha and beta record different sessions
 - **WHEN** the panel invokes those members again
 - **THEN** each receives only its own eligible session, regardless of which member most recently checkpointed
 
 #### Scenario: Model steps and a nested panel
-- **GIVEN** a sequence contains a model author, a deterministic validator, and a panel with alpha and beta
+- **GIVEN** a sequence contains a work-class model author, a deterministic gate validator, and a work-class panel with alpha and beta
 - **WHEN** those sites run again after retry or re-entry
 - **THEN** the author and each panel member receive their respective eligible sessions and the validator receives none
 
 #### Scenario: Repeated labels do not alias
-- **GIVEN** two sequence panels each have a member called alpha, and another seat also has an alpha member
+- **GIVEN** two work-class sequence panels each have a member called alpha, and another work-class seat also has an alpha member
 - **WHEN** any alpha member retries
 - **THEN** sessions belonging to the other full site paths are never offered to it
 
 #### Scenario: A sibling changes candidate
-- **GIVEN** alpha's instance is unchanged but beta's selected model changes within the same pinned panel
+- **GIVEN** alpha's instance is unchanged but beta's selected model changes within the same pinned work-class panel
 - **WHEN** both members are invoked
 - **THEN** alpha remains eligible for its own session, while beta never receives the session opened by its previous candidate
+
+#### Scenario: A judge returns to a revised artifact
+- **GIVEN** a gate's previous invocation recorded an owned session and the author has revised the artifact to answer its finding
+- **WHEN** that single gate, gate-panel member, gate model step or nested gate-panel member runs again, including after operator retry
+- **THEN** the engine sends no resume offer and the built-in adapter takes its fresh-session path under the same current gate restrictions
+- **AND** the judge reads the current artifact and its recorded answers afresh; its old provider conversation is not carried into the new session and a previous verdict does not substitute for current judgment
+- **AND** the accepted launch is cold with no resume-refusal reason because no offer was made
+
+#### Scenario: A work author and its judging step have different eligibility
+- **GIVEN** a sequence includes work-class council positions, a work-class chief author and a gate-class judge or validator
+- **WHEN** the sequence invokes them again
+- **THEN** each work model site can receive its own eligible session even though the sequence contains a gate, and each gate model site receives none
+- **AND** a deterministic validator has no model launch or session at all
+
+#### Scenario: Historical single-gate behavior is corrected
+- **GIVEN** a local single-seat Codex gate has sufficient legacy session and ownership evidence for the old single-seat offer path
+- **WHEN** it retries under the new eligibility rule
+- **THEN** no session is offered, just as for every composite gate; historical journal rows are left unchanged
 
 ### Requirement: SR2 An offer preserves all established instance identity checks
 
@@ -113,7 +149,7 @@ provider handle under a measured mapping (decisions 0030, 0032 and 0034).
 - **THEN** the next eligible offer still identifies the site's root session
 
 #### Scenario: A legacy Codex handle is sufficient
-- **GIVEN** an old local single-seat checkpoint supplies a valid Codex thread identifier in its established flat or typed locator form and all ownership checks pass
+- **GIVEN** an old local single-work-seat checkpoint supplies a valid Codex thread identifier in its established flat or typed locator form and all ownership checks pass
 - **WHEN** that site retries
 - **THEN** it remains eligible for the exact thread, without rewriting the historical checkpoint
 
@@ -177,7 +213,7 @@ claiming the engine authenticates provider session ownership.
 #### Scenario: Operator retry in a new engine process
 - **GIVEN** a local run parks after a session-bearing attempt
 - **WHEN** the operator retries with the same pinned instance in a fresh process
-- **THEN** every invoked model site derives its own eligible offer from the durable record
+- **THEN** every invoked work-class model site derives its own eligible offer from the durable record, while gate sites still receive no offer
 
 #### Scenario: Interruption before durable session evidence
 - **WHEN** an initial invocation is killed after the provider announces a handle but before held pre-work rows reach the journal

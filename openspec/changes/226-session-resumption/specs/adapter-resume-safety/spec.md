@@ -18,10 +18,30 @@ deterministic shim observations and live enforcement probes, with date and
 bounded reproducible observations. Help that lists a flag proves its interface,
 not its enforcement.
 
-Each measured safe supported shape SHALL be implemented. Unsupported shapes
-SHALL be declared with their measured reason, and unavailable or unmeasured
-evidence SHALL be labelled as such. An adapter SHALL NOT enable a path on an
-assumption about inherited settings, treat a missing measurement as a measured
+Each measured safe supported work-site shape SHALL be implemented. At minimum,
+Claude SHALL take eligible work-site offers with its complete shipped boxed workspace
+hands fragment under an already-supported boxed boundary, and DSH SHALL take
+eligible offers in its already-admitted headless work shape. Each minimum
+requires dated provider evidence of exact root-session rejoin, current
+restriction enforcement and current-invocation accounting, alongside the
+implementation and its deterministic tests. Existing measured Codex work-site
+support SHALL be preserved; LaneTally SHALL be assessed independently. This
+minimum does not admit DSH hands, promote trust or open a new boundary.
+
+Unavailable enforcement evidence SHALL keep the affected resume shape disabled
+and the requirement incomplete. A common implementation or provider-specific
+code prepared behind a disabled declaration SHALL NOT count as supported
+resume or full feature delivery. With no identified provider interface evidence,
+provider-specific argv SHALL NOT be invented; common offer/launch plumbing and
+its tests SHALL still be implemented. A measured inability to satisfy a minimum
+SHALL be reported as a failed requirement for return to the owning specification,
+not silently converted into completion or permission to weaken restrictions.
+The zero-measurement, cold-only interpretation is rejected because it preserves
+the work-session loss the feature is required to fix (decision 0030).
+
+Unsupported shapes SHALL be declared with their measured reason, and unavailable
+or unmeasured evidence SHALL be labelled as such. An adapter SHALL NOT enable a
+path on an assumption about inherited settings, treat a missing measurement as a measured
 CLI defect, or leave a measured safe path cold merely to avoid the work.
 Support declarations and packaged equivalents SHALL agree with the behavior;
 guides and proposed decision 0056 SHALL record limitations and evidence.
@@ -40,9 +60,22 @@ as historical rather than relabelled as current probes.
 - **WHEN** versioned interface and effective enforcement evidence establish safe rejoin for one adapter and boundary/class combination
 - **THEN** that combination takes eligible offers and its declaration, tests and documentation describe the measured support
 
-#### Scenario: The provider is unavailable in the box
-- **WHEN** the authoring environment exposes no installed provider binary or source
-- **THEN** the artifacts name the missing measurement and the later evidence obligation, and claim neither a successful probe nor a provider limitation
+#### Scenario: No provider can be measured during implementation
+- **GIVEN** the implementation seat's own availability check finds no installed provider binary/source or supplied dated measurement for the new Claude and DSH paths
+- **WHEN** it prepares the change without that external evidence
+- **THEN** common session/launch plumbing and deterministic tests under `crates/brokkr-runtime` and `crates/brokkr-protocol`, adapter support declarations under `adapters/`, their packaged equivalents where present, provider guides and the proposed decision record carry the preparable change
+- **AND** each affected declaration says that evidence is unmeasured and resume is disabled pending installed-provider proof; it does not assert a measured CLI defect, invent resume argv or silently inherit permissions
+- **AND** the task artifact keeps provider measurement and enablement unchecked and hands off the missing CLI identity, invocation, root confirmation, enforcement and accounting observations; declaration-gated preparation cannot be reported as full delivery
+
+#### Scenario: Host evidence later establishes the missing safe path
+- **GIVEN** common plumbing is prepared but Claude or DSH resume is disabled for missing evidence
+- **WHEN** dated installed-provider evidence establishes the required interface, exact-session confirmation, all current restrictions and current-only accounting
+- **THEN** the corresponding measured path is implemented and enabled, its declarations and documentation agree, and its measurement and implementation tasks can complete only with their cited verification
+- **AND** remaining unmeasured shapes stay disabled; deterministic shim success alone cannot enable them
+
+#### Scenario: Measurements rule out a required minimum
+- **WHEN** measured provider behavior shows that no safe path satisfies the required Claude boxed-workspace or DSH headless-work shape
+- **THEN** the adapter remains cold with truthful evidence, and delivery reports the unmet AS1 requirement for the specification's normal return path instead of claiming that a safe decline closes the feature
 
 #### Scenario: Wrapper evidence is independent
 - **WHEN** Claude's resume path is measured but LaneTally's actual wrapper forwarding and capture behavior are not

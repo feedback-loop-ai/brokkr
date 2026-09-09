@@ -29,6 +29,12 @@ executed again. Exec SHALL report no model launch.
 - **WHEN** Codex, Claude, DSH and LaneTally each start model work through their fresh-session path without an offer
 - **THEN** each publishes launch cold without a resume-refusal reason
 
+#### Scenario: A gate starts fresh on re-entry
+- **GIVEN** SR1 withholds a prior session because the invocation is gate class
+- **WHEN** the model adapter's fresh-session invocation becomes accepted with a known launch outcome
+- **THEN** it publishes launch cold without a resume-refusal reason, including for single gates and members or steps of composite gates
+- **AND** no old gate session is selected through ambient continue or resume arguments
+
 #### Scenario: Confirmed exact rejoin
 - **WHEN** an adapter's measured provider evidence confirms the exact offered session before the invocation's first work is reported
 - **THEN** its launch record says resumed and its session evidence identifies that root handle
@@ -172,8 +178,11 @@ reading or CLI/TUI derivation (decisions 0031, 0034 and 0035).
 Every emitted launch-bearing checkpoint and successful result SHALL pass the
 same append-time, export and verification contracts as other seat evidence.
 Conformance SHALL cover each built-in model adapter's no-offer cold launch,
-safe resume, declined offer and proven pre-work cold replacement where
-supported, plus missing confirmation, malformed records and privacy bounds.
+safe work-site resume, declined offer and proven pre-work cold replacement
+where supported, plus missing confirmation, malformed records and privacy
+bounds. Gate-site tests SHALL prove no offer and fresh launch for every
+admitted gate topology; they SHALL NOT assume that work-site resume eligibility
+extends to judges.
 Wire/site tests SHALL establish that a record belongs to the invocation that
 actually received the offer; aggregate records SHALL NOT invent a member's
 launch state.
@@ -184,7 +193,7 @@ Deterministic shims SHALL be labelled as protocol/accounting evidence and
 SHALL NOT be cited as live provider enforcement proof (decision 0034).
 
 #### Scenario: Each composite member keeps its launch
-- **WHEN** one panel member resumes and another starts cold, including inside a sequence
+- **WHEN** one work-class panel member resumes and another starts cold, including inside a sequence
 - **THEN** each member's tagged evidence retains its own launch, and the aggregate does not substitute one member's state for the other
 
 #### Scenario: Historical launch absence
