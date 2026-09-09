@@ -1,47 +1,52 @@
 ## Context
 
-This design adopts **226-session-resumption** at `f826dbe`, retaining the
+This design adopts the existing **226-session-resumption** change, reopened at
+`667086a` over its implementation commit `75ae68e`, while retaining the
 commissioned shipped base `5bc8cf305aaef9af269866cbf83f094939691399`, answers
 A–H, task repairs F1–F6 and F7's committed specification repair at `c56fa73`.
 See [proposal.md](proposal.md) for motivation and scope. The current run,
-`close-issue-226-only-codex-resum-805ec715`, has returned `clear` from
+`close-issue-226-only-codex-resum-dafafa41`, has returned `clear` from
 clarification; its quota-failed predecessors supplied no clarification verdict.
-This is the successor design visit, not a new change or a production enactment.
+This is a council reconciliation of the adopted design, not a new change or a
+second production enactment.
 
 Both current council positions were read in full:
 `.forge/design/positions/robustness.md` and
 `.forge/design/positions/simplicity.md`. D10 records their current claims and
-evidence-based dispositions. In particular, simplicity now accepts additive v5,
-structural identity and the full measured provider minimum; the earlier
-council's objections are not attributed to this sitting. No `returned_from`
-finding accompanies this visit; D12 preserves the resolved F7 return and its
-dependent obligations. Controller integration of PR250 and #222 remains separate.
+evidence-based dispositions. They agree on additive v5, structural identity,
+the full measured provider minimum and reuse of the existing resume/hold seams.
+Their remaining tension is implementation scale: robustness asks that two
+fail-closed outcomes be made unmistakable, while simplicity correctly argues
+that each fits the existing provider-specific planner and first-work hold. No
+`returned_from` finding accompanies this visit; D12 preserves the resolved F7
+return and its dependent obligations. Controller integration of PR250 and #222
+remains separate.
 
-Reusable foundations are `engine.rs::{resume_offer, pinned_bundle_holds}`,
-`Store::started_here`, `DriverProcess::run_attempt_resuming` and negotiated
-`Body::Resume`. Generalisation also exposes actual gaps:
+The implementation at this head already contains the reusable architecture:
+`engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
+ConfirmedSession}`, `Store::started_here`, negotiated `Body::Resume` with a
+correlated `PendingOffer`, provider-specific planners, `LaunchHold`, and
+`SeatRecordVersion::of_engine`. Its task record truthfully shows **92 of 102**
+complete. The ten open tasks are live provider proof 10.5–10.8, the dependent
+enablements 11.1–11.4, host exact coverage 15.5 and controller handoff 15.8.
+Codex and Claude remain `unmeasured`, LaneTally remains independently
+`unmeasured`, and DSH is `unsupported`; none is delivery evidence.
 
-- `seat_session` selects a locator by outer seat, without checking its kind.
-  `Site = Option<String>` and `tag_member` flatten ancestry into `step:member`.
-  Comparing the whole provenance array also lets a sibling's candidate change
-  deny an otherwise valid offer.
-- Single seats receive offers without a gate-class test; panel members call
-  `run_attempt`, and sequence model steps pass `None` to `run_driver`.
-- `serve_io` stores an uncorrelated last handle; a second offer replaces it.
-  Codex emits resumed before invocation and can subsequently emit cold for
-  that same invocation.
-- Claude/LaneTally share stream folding and `session_id` capture. DSH tails a
-  retained per-invocation directory, which is not a provider ID. All three
-  currently lack `launch`.
-- `run_seat` holds launch/location checkpoints until first work, preserving
-  the shipped refusal/watchdog behavior described by proposed 0053. Moving
-  this hold would reopen #219 and is unnecessary here.
+Current code inspection also confirms the two council seams. A different-root
+`LaunchHold` outcome suppresses a launch row, but the adapter invocation can
+still return its ordinary exit/result outcome; D7 requires that mismatch to
+prevent successful acceptance. Claude rejects competing conversation selectors,
+but otherwise appends `extra` wholesale; D5 requires adapter-specific duplicate,
+arity and precedence checks for every authoritative restriction before the
+shape can be enabled. These are downstream conformance gaps already owned by
+D5/D7/D11 and the existing tasks, not grounds for a second lifecycle subsystem
+or a generic provider grammar.
 
 Read: README, house rules, decisions 0004/0005/0009/0030/0034/0042, applicable
 0043/0046 rulings and shipped 0053 behavior; runtime dispatch/ownership,
 protocol and adapter code; adapter declarations; seat-record v4 and store
 dispatch; SDD charter; the five deltas, surviving tasks and specification
-history. The registry still ends at 0053. The commission reserves 0054/0055
+history. The registry carries proposed 0056. The commission reserves 0054/0055
 for other fires and **0056** for this change.
 
 The controller evidence index now names three captures. The two proposal
@@ -49,17 +54,20 @@ capture hashes were rechecked, along with the newer
 `.forge/controller-dsh-resume-source-interface.json`, captured
 **2026-09-09T07:43:14.783176+00:00**, SHA-256
 `62aba46649b6919117e3f4882ccb63f19aa87445274f6821883997e682c56d95`.
-All 40 contained source hashes match their captured text. D6 uses its concrete
-agent resume and declarative configuration interfaces without claiming an
-established headless caller route. The older four-file headless capture's
-unexamined-extension limit describes that capture, not today's evidence shelf.
+All 40 contained source hashes match their captured text. D6 uses the concrete
+agent-resume and declarative configuration interfaces to identify the missing
+headless caller route; it does not claim live enforcement. The older four-file
+headless capture's unexamined-extension limit describes that capture, not the
+completed 40-file source trace.
 
 Claude's captured help says background resume can copy a running session,
 invalid settings can be ignored in print mode, and a recorded system prompt
 can survive later launch text. These facts support restricting execution shape
 and keeping the current task in the current invocation's user input. Help and
-installed source are interface evidence only. This box has OpenSpec 1.12.0 but
-no provider CLI, Cargo or rustc on PATH. No live provider behavior is claimed.
+installed source are interface evidence only. On this visit, the exact bare
+`codex`, `claude`, `dsh`, `claude-lanetally`, `cargo` and `rustc` version
+commands each returned command-not-found inside the workspace hands. No live
+provider behavior or Rust validation is claimed from this design seat.
 
 ## Goals / Non-Goals
 
@@ -94,11 +102,12 @@ inferring wrapper support from Claude.
 
 **Alternative rejected:** declaring DSH unsupported from its headless startup
 alone and treating launch reporting as closure contradicts AS1 and answer F.
-Both current positions reject that reduction. The newer capture establishes
-more session interfaces, but neither a resume API nor a declaratively restored
-agent proves that the admitted headless task runs on that root. D6 bounds the
-remaining consumer trace; a demonstrated inability returns the exact unmet
-requirement instead of a narrower downstream claim of success.
+Both current positions reject that reduction. The complete installed source
+trace establishes lower session interfaces but also establishes that the
+headless caller still creates a fresh agent and cannot direct its admitted task
+to the configured restored one. D6 records the exact required upstream caller
+seam. That measured unsupported state blocks full delivery; it does not
+authorize a narrower downstream claim of success.
 
 **Bindings:** SR1/AS1; class-aware runtime dispatch and required provider proof.
 No earlier specification fault is established by the council's size objections.
@@ -372,7 +381,7 @@ and measured confirmation/accounting rules.
 | Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Current 0.153.4 resume help, class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. 0030's 0.148.0 measurement remains historical regression scope. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
-| DSH | Keep admitted headless profile, Rust-owned per-invocation overlay, model/effort settings and retained scope. Integrate selection through an established supported settings/extension route. Existing startup has no resume flag and runner always mints a new ID. | Installed session/agent/settings exports and supported configuration route to load the existing root; confirmation, restrictions and current-event cursor. Supplied files do not establish that route. |
+| DSH | Keep the admitted headless profile, Rust-owned per-invocation overlay, model/effort settings and retained scope. Installed 0.1.2-rc.1 has no supported caller route from its `{task}` headless config to a restored agent, so this shape remains disabled without inventing one. | A later supported `dsh-headless` interface must accept a session/resume identifier and route the admitted task, followup and event interval to that restored root; then exact-root, restriction and current-event proof is required before enablement. |
 
 Claude creates with its harvested provider ID by default. Bare `-r`, continue,
 fork, user `--session-id`, `--from-pr`, `--teleport`, background/cloud selectors
@@ -383,50 +392,45 @@ the current task/result instruction on the current user-input path.
 its relation to the current class must be measured if used. Preserve an
 explicit no-persistence setting; such a root cannot become a persistent offer.
 
-The newer DSH capture narrows the investigation. In captured
-`@deepseek-ai/dsh-agent/lib/index.js:557`, `agents.resume(options)` delegates
-to the registered factory. `dsh-agent-loop/lib/index.js:1049` admits
+The completed DSH interface trace is conclusive for the installed package. In
+captured `@deepseek-ai/dsh-agent/lib/index.js:557`, `agents.resume(options)`
+delegates to the registered factory. `dsh-agent-loop/lib/index.js:1049` admits
 `Config.agents[].resumeSessionId`; its constructor at :1096–1119 calls
 `resumeWith` when persistence becomes available. At :1349–1378 the factory
 loads through `sessionPersistence.prepare` and publishes with source `resume`.
-These are real source interfaces, not invented configuration. However,
-`dsh-headless/lib/index.js` still validates only `task`, calls `agents.create`
-with a random ID, and applies its followup/`firstSeq`/summary to that newly
-created agent. Restoring a second configured agent does not route that task
-to it. The loader's ability to mount plugins and resolve configuration proves
-neither the missing caller connection nor effective restrictions. This is the
-precise remaining seam task 10.3 must establish; this inspection completes
-neither 10.3 nor its live-proof task 10.7.
+These are real lower-level source interfaces, not an invented configuration.
+However, `dsh-headless/lib/index.js` validates only `task`, calls
+`agents.create` with a random ID, and applies its followup, `firstSeq` and
+summary to that newly created agent. Restoring a second configured agent does
+not route the admitted headless task to it. Task 10.3's bounded trace therefore
+correctly records installed `dsh-headless` 0.1.2-rc.1 as unsupported; task 10.7
+cannot supply same-root live proof over a caller route this package lacks.
 
-DSH investigation is a concrete prerequisite, not indefinite search. Read
-controller captures of installed `@deepseek-ai/dsh-session`,
-`@deepseek-ai/dsh-agent`, settings and the Cordis loader/extension exports used
-by headless, including package versions, exports/types, relevant implementation
-and hashes. Trace (1) root load versus creation, (2) supported per-invocation
-configuration routing headless to that root, (3) replacement of restored
-model/settings/tool state by the current plan, and (4) the new followup's event
-interval. Captured headless `firstSeq`/`summarize` demonstrates an internal
-interval, not an exposed resume hook.
+The exact upstream requirement is now fixed: `dsh-headless` must accept a
+session or resume identifier in its supported per-invocation configuration
+schema and route its admitted task, followup and event interval to the restored
+agent instead of the `session-${randomUUID()}` agent it currently mints. That
+surface must also permit the current model/settings/restriction plan to replace
+restored state. Lower-level `agents.resume`, configured-agent restoration and
+the TUI selector do not satisfy this headless caller requirement.
 
 The allowed integration is Rust construction of supported declarative
 settings/patch data consumed by the installed CLI. Do not embed a new JavaScript
 runner in that data, monkey-patch `agents.create`, override UUID generation,
 edit installed packages or substitute TUI. An exported Session API alone does
-not make it callable through the admitted headless route. Stop investigation
-when the supported route and its consumers establish success, or when those
-relevant interfaces have been traced and the route requires a forbidden
-mechanism. In the latter case record the measured limitation and return **AS1
-upstream**, naming proposal and `adapter-resume-safety` as owners. Missing
-controller source is missing evidence, not proof of impossibility.
+not make it callable through the admitted headless route. A later installed
+version may satisfy the exact requirement through supported declarative data;
+if so, re-open construction and live proof from that interface. Until then,
+retain the measured limitation and report **AS1 upstream** at delivery, naming
+proposal and `adapter-resume-safety` as owners, without patching the provider or
+narrowing the minimum.
 
-A supported route reuses the same retained root without copying history.
-Current-only accounting may observe new bytes/provider sequences through the
-existing owned, bounded path; it cannot load old transcripts to manufacture
-context. Preserve read caps and path checks. This design invents no DSH config
-keys, confirmation events or rejection codes. Answer F already requires the
-source-measurement/integration task that determines them. If the observed route
-requires another architecture, return to design before implementing it.
-Unimplemented or disabled DSH support cannot satisfy the minimum.
+A future supported route must reuse the same retained root without copying
+history. Current-only accounting may observe new bytes/provider sequences
+through the existing owned, bounded path; it cannot load old transcripts to
+manufacture context. Preserve read caps and path checks. This design invents no
+DSH config keys, confirmation events or rejection codes. Unimplemented or
+disabled DSH support cannot satisfy the minimum.
 
 Use a bounded cold/resume probe per materially different required shape,
 combining root, current-scope access and accounting observations where possible.
@@ -596,8 +600,8 @@ numbered rulings and enforcement bindings are:
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `03e243164c96e45970080fc5bad402f13b61285d6cc550c3bf72a99df619f3e1`.
-- Simplicity SHA-256: `10a9c77e4bf2c258e16d50c969efa80a24a0082d16fea624a7827de94d5ec868`.
+- Robustness SHA-256: `962804144359ac49bdfab49657d2579037db1713f0233574ee3a92d5646233cc`.
+- Simplicity SHA-256: `2e63945c0588a5b76decb310d3fb6bd258ca1eb0362e187907b1bc1550677341`.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -607,18 +611,20 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Current position / claim | Disposition and evidence |
 |---|---|
 | Both: the full Claude boxed, DSH headless and remeasured Codex minimum; all work topologies and fresh gates. | Adopt D1/D6. AS1/SR1 and accepted 0042 define the minimum. A support declaration or quota failure cannot narrow it. |
-| Robustness: typed structural ownership; simplicity §1: private structural values, equality digests and one pure reverse scan. | Combine D2/D3. `Site` and `seat_session` currently lose ancestry/root kind, while the existing journal/manifest/origin guards can be reused. Keep per-site candidate projection so sibling chain movement does not change the owner. |
+| Robustness: typed structural ownership; simplicity §1: private structural values, equality digests and one pure reverse scan. | Combine D2/D3. The pre-change `Site` and `seat_session` lost ancestry/root kind; the implemented `SiteKey`, `InstanceKey`, checkpoint stamp and existing journal/manifest/origin guards close that gap without a second store. Keep per-site candidate projection so sibling chain movement does not change the owner. |
 | Robustness: effect-start site table and numbered extension; simplicity §1/cut 1: confirmed checkpoints suffice. | Adopt the checkpoint association, reject the duplicate start table. Engine stamps plus the validated attempt/start link prove the originating site and instance without another store, reducer field or migration (D3). |
 | Both: newest incompatible/nonpersistent owner stops the query; no resurrection or aggregate/child borrowing. | Adopt D3/D8. Ownership is checked after choosing the latest confirmed root, with the narrow existing single-Codex compatibility path only. |
 | Simplicity cut 6: omit compile-time flat-tag rejection unless an existing lookup cannot distinguish sites. | Retain D2's scoped rejection: `Selection`, `argv_for` and `bundle.hands` actually use flattened keys. This meets the position's stated exception; tasks 3.5–3.6 remain necessary. No broad naming ban follows. |
-| Robustness: correlated pending state; simplicity §2/cut 4: repair the existing wire without protocol v2. | Combine D5. `serve_io` currently overwrites an uncorrelated string; `Body::Resume` already has both correlation IDs. Poison invalid exchanges and consume once, retaining negotiation and current-start data. No new phase or policy input. |
+| Robustness: correlated pending state; simplicity §2/cut 4: repair the existing wire without protocol v2. | Combine D5. The pre-change `serve_io` overwrote an uncorrelated string; the implemented `PendingOffer` spends `Body::Resume`'s existing correlation IDs, poisons invalid exchanges and consumes once. No new phase or policy input. |
 | Both: smallest additive v5, F7's single manifest-derived dispatch and historical compatibility. | Adopt D4/D12 at all four fences. F1/F5's conditions apply only to stamped new rows at the store, while every current producer obeys them. Boundary remains engine-stamped; published/embedded v1–v4 and tagged history stay frozen. |
 | Robustness: settle refusal names with provider plans; simplicity §3: retain five selected tokens and no extra permission/argv/history fields. | Retain D4's already-selected bounded vocabulary. Provider-specific semantics must fit truthfully or return to design; no downstream private token is allowed. |
 | Both: provider-generated roots by default, fresh assignment only through a measured creation interface; simplicity cut 2: no durable intent. | Adopt D3. Unconfirmed assignment stays in memory, never in captured-session fields; the accepted pre-confirmation crash window needs no new durable protocol. |
 | Robustness: detailed support assessments and independent restriction proof; simplicity §4/cut 3: compact pinned data and four explicit planners. | Combine D5/D6. Keep only admission-relevant closed assessment data, including F2/F6's loadable unknown form. Retain separate evidence for interface, restrictions, root/persistence and accounting, including wrapper identity where applicable; no probe DSL, automatic enablement or generic planner language. |
 | Both: provider-specific selectors, current restriction reconstruction and cold/gate selector protection. | Adopt D5/D6. Generated hands provenance and captured CLI precedence require exact parsing; a cold fallback cannot carry ambient continue or competing settings. LaneTally cannot inherit Claude qualification or substitute plain Claude. |
-| Both: use DSH's installed declarative/session route only if it reaches the admitted headless caller. | Adopt D6's bounded trace and exact upstream return condition. Captured `agents[].resumeSessionId` establishes configured restoration, while the headless consumer still selects a fresh agent. Neither declaration-based success nor impossibility is claimed from that gap alone. |
-| Robustness: explicit launch state and no speculative resumed row; simplicity §5: extend the existing first-work hold. | Combine D7. The existing buffer provides ordering, but current `codex_started` emits intent before confirmation. Hold one confirmed outcome; root mismatch or uncertainty cannot authorize another execution. Preserve shipped 0053 refusal and kill-window behavior. |
+| Robustness: Claude's selector-only guard does not reject duplicate or last-wins permission/tool/MCP controls; simplicity §4/cut 3: keep explicit provider planners, not a generic grammar engine. | Combine under D5/D6. Each planner performs closed, measured arity, duplicate and precedence validation for every authoritative restriction. For Claude, a second permission mode, tools list, strictness/MCP document, allowed-tools list, model or effort control is a pre-work refusal on cold and resume paths; merely constructing warm argv as cold argv plus `--resume` is insufficient. This is an adapter-local parser and test matrix, not a cross-provider DSL. |
+| Both: use DSH's installed declarative/session route only if it reaches the admitted headless caller. | Adopt D6's completed bounded trace and exact upstream condition. Configured restoration exists, but installed 0.1.2-rc.1 cannot route the admitted headless task to that agent. Retain `unsupported`, keep 10.7/11.3 incomplete, and require the named upstream caller seam before proof or enablement. |
+| Robustness: explicit launch state and no speculative resumed row; simplicity §5: extend the existing first-work hold. | Combine D7. The implemented `LaunchHold` supplies confirmation ordering without a second public lifecycle type. Retain shipped 0053 refusal and kill-window behavior, and close the distinct terminal-mismatch seam in the next row. |
+| Robustness: a different-root confirmation currently suppresses the launch row but can still return an ordinary successful invocation; simplicity §5/cut 2: one local guard is enough, with no new lifecycle subsystem. | Combine under D7. Keep the private explicit outcome already represented by `LaunchHold`, and make mismatch/required-confirmation absence override the ordinary success path to failed or indeterminate while preserving any delivered file for diagnosis. It publishes no guessed launch, authorizes no cold replacement and cannot produce an accepted successful seat. Test clean exit and valid-result variants, not only launch-row absence. |
 | Both: one conclusively rejected pre-work replacement under the original deadline/process tree. | Adopt D7. No generic retry engine or asynchronous cancel protocol; `serve_io` invokes synchronously and the runtime watchdog owns process termination. Stderr, an advisory or nonzero exit alone cannot authorize duplicate work. |
 | Both: measured current-event cursor, private transcript boundaries and narrow legacy migration. | Adopt D8. Replayed turns/tools/totals are not new accounting; omit unattributable measurements. No transcript seeding, reader changes, backfill or second provider-session ledger. |
 | Robustness: in-progress/completed recovery; simplicity §6: one SDD charter edit. | Combine D9. PM1–PM3 already require those states in the dialect task artifact. Keep focused evidence before the next group, reconcile surviving edits on either warm or cold recovery, and leave judges read-only. No engine progress service; tests prove distribution and an interruption exercise, not model obedience. |
@@ -627,11 +633,13 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Both: local origin is not account authentication, LaneTally can remain unmeasured/cold, and unsupported required shapes block delivery. | Adopt D5/D6/D8 and Risks. Detectable owner rejection fails closed; do not inspect credentials to invent a stronger guarantee. LaneTally's truthful evidence is still required. |
 | Both: keep scope within #226; simplicity cut 8 rejects release work, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
 
-No new specification defect is established by these current positions. F7's
-upstream defect has already been repaired at its owner; its consequences remain
-binding below. The retained tasks cover these dispositions without amendment,
-so this design seat leaves their 102 completion markers and dependency repairs
-intact. This does not supply the later tasks/analysis judgment or provider proof.
+No new specification or task-breakdown defect is established by these current
+positions. F7's upstream defect has already been repaired at its owner; its
+consequences remain binding below. Existing AS3, LE1 and tasks 8.10/9.7 already
+own the two newly highlighted conformance gaps, so this design seat does not
+duplicate or renumber work. The downstream seat must reconcile their checked
+markers against the implementation and re-open them with reasons if the required
+tests and behavior are absent. The ten evidence/delivery tasks remain unchecked.
 
 ### D11 — Verify transitions and trace every requirement
 
@@ -651,8 +659,8 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH directory mismatch, unsafe/oversized IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, settings conflicts, no ambient cold/gate continuation, nonpersistence, changed CLI/wrapper. Separate installed enforcement/root/accounting observations for every enabled shape. |
-| AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
 | LE4 | Only current turns/tools/targets/usage, replay, unknown baseline, rotated/truncated source, completion deduplication and LaneTally capture. Retain transcript caps. |
@@ -734,8 +742,10 @@ amendment; D10 records this sitting's dispositions without reopening F7.
    confirmation. Enable measured shapes only; keep declarations, packaged copies,
    guides and instruction identities coherent. No private-run migration or global
    provider settings change.
-4. Obtain controller evidence and deliver Claude, DSH and preserved Codex support,
-   resolving upstream impossibility before claiming completion. Finish tests,
+4. Obtain controller evidence and deliver Claude and preserved Codex support.
+   DSH support additionally waits for an installed `dsh-headless` release exposing
+   D6's exact caller seam; then prove and enable it without changing the minimum.
+   Resolve that upstream dependency before claiming completion. Finish tests,
    house validation and specification review. The smith performs the declared
    archive/provenance operation as its final artifact task, folding four new
    capabilities and the modified `boundary-record`, retaining its existing
@@ -755,8 +765,10 @@ facts are not current references to replace.
 ## Open Questions
 
 No scope or safety ruling is left to implementation discretion. D6's missing
-observations are required evidence tasks with explicit admission/return
-conditions, not optional questions or claims of support. Evidence requiring
+Claude/Codex/LaneTally observations are required evidence tasks with explicit
+admission/return conditions, not optional questions or claims of support. DSH's
+installed headless caller gap is answered by the exact upstream requirement in
+D6; it is not an invitation to invent a local route. Evidence requiring
 different ancestry, record representation, execution architecture or a smaller
 provider minimum returns to the earliest owning artifact.
 
@@ -832,7 +844,35 @@ caller connection. No workflow runner, archive or live provider probe was run.
   match the commissioned base. The three capture hashes were rechecked;
   source evidence and synthetic tests supply no live resume qualification.
 
-The design is drafted. Provider investigation, measured enablement, proposed
-0056 enactment, implementation and the remaining judged/delivery phases retain
-their existing requirements. Controller integration, full host validation,
-remote results, publication and issue closure remain pending their own evidence.
+## Current council reconciliation validation — 2026-09-09
+
+This visit read the dialect's repository instructions and
+`openspec instructions design --change 226-session-resumption --json` through
+the workspace hands; it did not invoke a workflow runner. Both current council
+positions were read in full and pinned above by their rechecked hashes. D10
+adopts or combines every claim that survives repository evidence and rejects
+the extra session store, public lifecycle vocabulary, generic provider grammar,
+evidence database, protocol version and task renumbering with reasons.
+
+- `openspec validate 226-session-resumption --strict --no-interactive` passes,
+  and `openspec status --change 226-session-resumption --json` reports all four
+  planning artifacts complete.
+- The task record remains 92 complete / 10 pending. This design records the two
+  implementation conformance seams for downstream reconciliation without
+  changing a checked marker in the wrong phase.
+- Exact bare version invocations of `codex`, `claude`, `dsh`,
+  `claude-lanetally`, `cargo` and `rustc` each returned command-not-found in the
+  workspace hands. The required provider proofs and Rust checks therefore did
+  not run here; supplied interface captures and deterministic shims are not
+  relabelled as live enforcement.
+- The exact host coverage command,
+  `env TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`,
+  exited 1 because the boxed workspace has no `/var/tmp`. It supplies no host
+  boundary proof, and task 15.5 remains pending.
+- `git diff --check` passes. This visit changes only `design.md`; frozen v1–v4
+  contracts, fixtures, production policy and reference bytes remain untouched.
+  No archive, provider setting, sibling tree, push, merge or issue state changed.
+
+The reconciled design is drafted. Full delivery remains blocked on the exact
+DSH upstream caller seam and on the pending provider/host evidence; neither is
+converted into a smaller requirement.
