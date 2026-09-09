@@ -20,8 +20,11 @@ completed work needs a truthful task marker before the phase's final commit.
   cross-instance reuse; deterministic exec steps hold no provider session.
 - Assess Codex, Claude, DSH and LaneTally separately. Deliver working, measured
   resume for Claude's boxed workspace work shape and DSH's already-admitted
-  headless work shape, preserving Codex support. Implement every measured safe
-  shape; declare unsupported or unmeasured shapes honestly. Cold-only,
+  headless work shape, preserving Codex work-site coverage after installed-version
+  remeasurement. DSH headless session-selection investigation and integration
+  through supported settings/extension interfaces are in scope; the deferred
+  hands/tools plugin remains separate. Implement every measured safe shape;
+  declare unsupported or unmeasured shapes honestly. Cold-only,
   declaration-gated preparation does not close #226. Re-impose current
   restrictions, hands and model/effort settings on every rejoin; inherited
   permissions and argument parsing do not prove safety.
@@ -86,10 +89,46 @@ The issue's 47 cold/19 resumed Codex launches and interrupted 340-turn Claude
 session are supplied historical evidence, not repeated measurements or targets.
 
 This box resolves OpenSpec 1.12.0 but none of `codex`, `claude`, `dsh`,
-`claude-lanetally`, `cargo` or `rustc` on PATH. Current provider interface
-and enforcement facts remain unmeasured. Later evidence must distinguish
-installed help/source, deterministic shims and necessary bounded enforcement
-probes. Missing evidence proves neither safe support nor a CLI defect.
+`claude-lanetally`, `cargo` or `rustc` on PATH. That local limit does not erase
+supplied host evidence. Two controller captures, read on this return, establish
+current interface facts without establishing safe resume:
+
+- `.forge/controller-host-provider-interface.json`, measured
+  **2026-09-09T06:19:17Z**, records Claude **2.1.266** at
+  `/home/vyanakiev/.local/bin/claude`, **codex-cli 0.153.4** and DSH
+  **0.1.2-rc.1** at their recorded Volta paths, with successful version/help
+  results. SHA-256:
+  `f61a65b3128a0655cbb3eb0ccef35990438a1a936ed9b14b1ba598c0e94750db`.
+  Claude lists `-r, --resume [value]`: the value is optional and omission
+  opens an interactive picker. It also lists `-c/--continue`,
+  `--session-id <uuid>`, `--fork-session`, `--permission-mode`,
+  `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--tools`
+  (`""` disables native tools), `--no-session-persistence`, and
+  `--print`/`--output-format`. These identify argv work that is now owed;
+  session assignment and flag parsing alone prove neither creation nor safe
+  continuation. Codex's capture is top-level help, not `exec resume` help.
+  DSH's launcher shows `--resume <session>` only in a TUI-profile example.
+- `.forge/controller-dsh-headless-source-interface.json`, measured
+  **2026-09-09T06:29:10Z**, records `dsh --profile headless --help` and
+  four hashed files from installed `@deepseek-ai/dsh-headless` 0.1.2-rc.1:
+  `package.json`, `lib/startup.js`, `lib/index.js`, `cordis.patch.yml`.
+  Capture SHA-256:
+  `2750a127c6aa0fbe3d2a8a3195f0427c1ba07e7bc4ec370e3ea8d74cd2ff2206`.
+  Headless startup accepts only task/help; the runner unconditionally calls
+  `agents.create` with `session-${randomUUID()}`. Its runner configuration
+  supplies a task, not a session selector. This disproves simply forwarding
+  the launcher's TUI example to headless. It does not establish that supported
+  session/settings/extension interfaces cannot rejoin: the capture explicitly
+  leaves those interfaces for investigation.
+
+Neither capture measures resumed restriction enforcement, exact-root rejoin,
+current-only accounting or a safe pre-work rejection classifier. The complete
+Claude boxed fragment and the DSH supported session route still need that
+proof. LaneTally has no supplied wrapper measurement. Codex's accepted 0030
+resume measurements identify **0.148.0**, while its separate shipped effort
+comment cites **0.153.0**; neither is a resume measurement of installed
+**0.153.4**. Installed-version remeasurement is required before delivery, per
+answer G. Deterministic shims remain distinct from provider enforcement proof.
 
 ## Impact
 
@@ -120,10 +159,12 @@ are outside this change.
 
 ## Decisions
 
-These are specification answers to clarification findings A-D, recorded on
-2026-09-09. Their observable answers are scenarios in the owning deltas. They
-are inputs to the council's `design.md` Decisions and proposed decision 0056,
-not a claim that the operator has accepted a new decision.
+These specification answers were recorded on 2026-09-09. Answers A-D are
+retained from the prior return; E-H answer every new finding in the second
+`clarify` return, incorporating the controller evidence above. Their observable
+answers are scenarios in the owning deltas. The council must carry these
+choices into `design.md` Decisions and the numbered rulings of proposed
+0056; this is not a claim of operator acceptance.
 
 - **A — Missing measurements are an incomplete delivery, not an exemption.**
   AS1 requires measured, enabled Claude boxed-workspace and DSH headless-work
@@ -157,6 +198,52 @@ not a claim that the operator has accepted a new decision.
   the existing charter already owns implement-time task completion, and those
   templates already own the required paths and formats.
 
+- **E — Supplied interface evidence creates work; enforcement still gates use.**
+  The stale claim that no provider interface evidence exists is withdrawn.
+  Claude's captured explicit-handle and restriction flags must inform its
+  launch construction and deterministic tests; a missing enforcement probe
+  no longer excuses that argv work. AS1 separates interface availability from
+  enablement. AS3 explicitly forbids bare `-r/--resume` pickers, continue,
+  forks and conflicting `--session-id` assignments. Unsupported DSH headless
+  syntax is not inferred from the launcher's TUI example.
+- **F — The DSH headless minimum stands, with session extensions in scope.**
+  Choose finding F's first reading: investigate installed `dsh-headless`,
+  `dsh-session` and the agent/settings interfaces and implement a supported
+  headless session-selection route if that evidence establishes one. This is
+  part of #226, including a per-invocation settings/extension integration where
+  supported, not the deferred plugin that replaces native tools with hands.
+  The required 0056 ruling must preserve that distinction and the minimum.
+  Reducing the minimum to Claude or treating the absent headless flag as proof
+  of impossibility is rejected: only the startup/runner surface has been
+  examined. No TUI substitution, new non-Rust production runner, provider
+  installation patch or new hands admission is authorized. If the supported
+  interfaces cannot meet the minimum within those rules, AS1 fails and returns
+  with the measured reason; investigation is owed before such a conclusion.
+- **G — Version drift requires remeasurement before delivery.** Historical
+  evidence is retained as history and regression scope, not a perpetual grant
+  for later provider versions. A changed installed CLI/wrapper version keeps
+  its affected resume shape disabled until its interface, effective current
+  restrictions, exact-root confirmation and accounting are re-established.
+  For installed codex-cli 0.153.4, 0030's 0.148.0 evidence is insufficient to
+  enable resume. Preserving Codex support means completing that remeasurement
+  and retaining the previously supported work shapes in the delivered change;
+  disabling them pending proof is incomplete preparation. The contrary
+  enabled-until-contradicted rule is rejected because the original measurement
+  itself found silently dropped restrictions. Proposed 0056 must state this
+  qualification explicitly, without rewriting accepted 0030's historical facts.
+- **H — A requested identity is not evidence that a session exists.** SR3
+  permits either a provider-generated root handle or a fresh ID assigned by
+  the owning engine/adapter through a measured provider creation interface.
+  Both require provider evidence confirming the actual root and its owner,
+  durably recorded under LE3, before SR2 admits a later offer. A preassigned
+  UUID in a start payload is only intent, even if durable before spawn; a kill
+  before durable provider confirmation leaves no offer from that attempt.
+  AS3 bars arbitrary assignments that redirect an offer and `--fork-session`;
+  SR5 and LE1/LE3 apply the same confirmation window to both mechanisms.
+  This rejects both harvest-only syntax restrictions and treating assignment
+  as proof of existence. Proposed 0056 must state this ownership/existence rule;
+  any new record representation must obey LE2's additive-version requirement.
+
 ## Delivery obligations
 
 This phase authors proposal and deltas in dialect order. Design, tasks,
@@ -189,39 +276,65 @@ PR/CI/merge and issue closure. Work seats commit unsigned and never push; only
 actual external results complete pending handoff checks. Do not start other
 runs or alter global provider settings.
 
-If the implementation seat also lacks installed provider binaries/source, it
-must recheck and record its own availability. It must still prepare the Rust
+The implementation seat must recheck its own availability and read the supplied
+controller captures before calling anything unmeasured. It must prepare Rust
 engine/protocol offer and launch plumbing and deterministic tests, update
-`adapters/{codex,claude,dsh,lanetally}.json` and any packaged representations
-with explicit evidence status, and record the missing proof in the provider
-guides and proposed `docs/decisions/0056-*.md`. Design must define a support
-declaration that prevents unmeasured shapes from executing resume; adding that
-declaration does not claim support. Provider-specific launch construction may
-be prepared only from identified interface evidence, never invented from a
-shim. With neither installed help/source nor a supplied dated measurement,
-no speculative Claude/DSH resume argv is implemented; common plumbing still is.
-Known historical Codex paths retain their measured scope.
+`adapters/{codex,claude,dsh,lanetally}.json` and packaged representations with
+explicit evidence status, and record proof and limitations in the provider
+guides and proposed `docs/decisions/0056-*.md`. Provider-specific construction
+uses identified help/source; unmeasured enforcement keeps resume disabled,
+without cancelling interface work that the evidence supports.
+
+The council design and smith's breakdown must include these separate evidence
+and implementation obligations:
+
+- Use Claude 2.1.266's captured interface to construct and test explicit-handle
+  resume and the complete current boxed fragment, selector validation, root
+  confirmation and current-event accounting. A shim proves the chosen protocol
+  cases, not the as-yet-unmeasured provider confirmation or enforcement behavior.
+- Investigate installed `@deepseek-ai/dsh-headless`, `@deepseek-ai/dsh-session`
+  and their agent/settings/extension dependencies through controller-supplied
+  source with versions and hashes. Establish whether a supported per-invocation
+  route can select/load the existing root session instead of minting a new one,
+  retain model/effort and transcript scope, and separate historical events from
+  this followup. Implement the supported route when established. Do not invent
+  `dsh --profile headless --resume`; the supplied startup has no such flag.
+  Source/session-extension investigation and integration are in scope despite
+  the separate hands/tools-plugin deferral in `adapters/dsh.json`.
+- Obtain current `codex exec resume --help` and a bounded sandbox-enforcement
+  cold/resume probe from the controller on 0.153.4 (or the actual installed
+  replacement), recording exact invocation, allowed argv, class re-imposition,
+  same-root confirmation and current-only accounting. The historical 0030
+  work shapes remain delivery obligations; new shapes need their own proof.
+- Test both SR3 identity mechanisms if implemented, including an assigned ID
+  persisted before spawn, a kill before durable confirmation and a successful
+  confirmed creation. Configuration alone must never produce an offer or a
+  resumed fact. Design must specify the representation without editing frozen
+  contracts or publishing an unconfirmed value as session evidence.
 
 The AS1 measurement/enablement tasks stay unchecked until dated controller host
 evidence supplies CLI identity, exact invocation, same-root confirmation,
 current restriction enforcement and current-only accounting for each required
-shape. The controller receives the missing shapes and observations required;
-no seat reaches outside the box for a provider home. Prepared but gated code is
-partial work, not a lawful close for #226. A measured impossibility is reported
-as a failed specification requirement for the normal return path, with its
-reason; it cannot silently reduce the minimum or relax 0030's safety rule.
+shape, including Codex after version drift. The controller receives the missing
+observations above and retains the cited raw captures with delivery evidence;
+no seat reaches outside the box for provider source or homes. Prepared but gated
+code is partial work, not a lawful close for #226. A measured impossibility is
+reported as a failed specification requirement for the normal return path,
+with its reason; it cannot silently reduce the minimum or relax 0030's safety.
 
 ## Specification validation — 2026-09-09
 
-The return pass re-ran the initial draft's checks and records their limits:
+This returned specify pass adopts the existing change and records these results:
 
 - `openspec validate 226-session-resumption --strict --no-interactive` passed.
-  Capability/requirement checks cover four deltas, 19 requirements and 96
-  scenarios. Findings A-D are answered by this author in the owning scenarios;
-  no later clarification or analysis verdict is claimed.
+  The four deltas contain **19 requirements and 112 scenarios**, each with
+  WHEN/THEN outcomes. Findings E-H are answered in the owning scenarios and
+  the Decisions above; prior answers A-D remain coherent. No later judged
+  clarification or analysis verdict is claimed.
 - Status reports proposal/specs done, design ready and tasks awaiting design;
   planning and implementation are not complete. Decision 0056 remains reserved
-  for the proposed record preceding production semantic changes.
+  for the proposed record preceding production semantic changes. No design,
+  task breakdown or decision document is authored by this specify seat.
 - All five required Cargo commands were attempted with `CARGO_BUILD_JOBS=2`
   and `RUST_TEST_THREADS=2` and exited 127 because `cargo` is unavailable.
   Formatting, clippy, workspace tests and both bundle compilations have no
@@ -230,10 +343,12 @@ The return pass re-ran the initial draft's checks and records their limits:
   and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, exited 1: temporary-directory
   creation failed because `/var/tmp` is absent in this box. No coverage or
   boundary proof was obtained; controller host validation remains pending.
-- The availability check again resolves OpenSpec 1.12.0 but none of `codex`,
-  `claude`, `dsh`, `claude-lanetally`, `cargo` or `rustc`. This return supplies
-  no new installed-provider interface or enforcement evidence.
+- The availability check resolves OpenSpec 1.12.0 but none of `codex`,
+  `claude`, `dsh`, `claude-lanetally`, `cargo` or `rustc`. This pass
+  incorporates the two dated controller interface/source captures, whose
+  hashes match the evidence section. It performs no live provider enforcement
+  probe; the identified remaining observations are explicit delivery obligations.
 - `git diff --check` is clean. Frozen paths have no diff from the commissioned
   base; CI, release admission and coverage still consume
-  `rust-nightly-version.txt`. Only this proposal and its four deltas change
-  on this return; existing change metadata is retained.
+  `rust-nightly-version.txt`. This return changes the proposal and three
+  affected deltas; the progress delta and existing change metadata are retained.

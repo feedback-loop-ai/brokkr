@@ -13,9 +13,12 @@ Codex, Claude, DSH and LaneTally SHALL implement the same launch semantics on
 their model invocation paths. A launch checkpoint SHALL carry
 `launch: cold` when the adapter actually takes the fresh-session path, and
 `launch: resumed` only after provider evidence confirms rejoining the exact
-offered root session. Passing a resume flag, knowing an old handle, retaining
-edits, receiving historical transcript rows or seeing a process exit zero
-SHALL NOT by itself prove a rejoin.
+offered root session. Passing a resume flag, preassigning a creation ID,
+knowing an old handle, retaining edits, receiving historical transcript rows or
+seeing a process exit zero SHALL NOT by itself prove a rejoin. A provider's
+confirmed fresh creation remains cold even when the engine/adapter chose its
+ID; assignment SHALL NOT be reported as captured session evidence before SR3's
+provider confirmation.
 
 Every invocation that becomes accepted with a known launch outcome SHALL
 publish that outcome under LE3's ordering. An offered session that is declined
@@ -42,6 +45,11 @@ executed again. Exec SHALL report no model launch.
 #### Scenario: Requesting resume proves nothing alone
 - **WHEN** the process receives a resume argument but dies or begins work without the confirmation required by its measured interface
 - **THEN** no resumed fact is published, the uncertainty or failure is reported, and no internal cold replacement repeats that work
+
+#### Scenario: A provider confirms an assigned cold identity
+- **WHEN** a measured fresh-creation path assigns an ID and provider evidence confirms that exact new root before the invocation is accepted
+- **THEN** its published launch is cold, its confirmed session evidence identifies that root, and later eligibility still requires SR2 and durable publication under LE3
+- **AND** the matching creation ID never by itself produces launch resumed
 
 #### Scenario: An unsupported offer is declined
 - **WHEN** a model adapter receives an owned offer but its invocation cannot safely take it and the safe cold path starts
@@ -75,6 +83,13 @@ old one, with matching embedding, version dispatch, compatibility and
 append/export/verify tests. A semantic mismatch SHALL NOT be hidden by mapping
 everything to a convenient existing refusal token (decision 0034).
 
+If creation intent is persisted before provider confirmation, its representation
+SHALL be distinguished from confirmed session facts in an admitted record
+version. It SHALL NOT add a private field to frozen payloads or place an
+unconfirmed assigned ID into captured-session fields. Design SHALL specify an
+additive version first if no existing admitted representation can express that
+distinction. Assignment does not relax identifier bounds or privacy rules.
+
 #### Scenario: A bounded reason explains a safe decline
 - **WHEN** an invalid handle, unavailable restriction, unsupported class, incompatible argument shape or measured harness rejection causes a cold launch
 - **THEN** the record uses the corresponding truthful admitted token and the human explanation is in the reviewed adapter evidence
@@ -86,6 +101,11 @@ everything to a convenient existing refusal token (decision 0034).
 #### Scenario: A fact needs a new vocabulary
 - **WHEN** council design establishes that a required launch fact cannot fit v4 without changing its meaning
 - **THEN** the design specifies an additive version and its compatibility behavior before implementation, and all existing frozen bytes remain intact
+
+#### Scenario: Persisting a creation request does not widen frozen records
+- **WHEN** a design chooses to persist a preassigned creation ID before provider confirmation
+- **THEN** it specifies an admitted representation of intent distinct from confirmed session evidence, using an additive version if necessary
+- **AND** it neither silently adds a field to a frozen payload nor publishes the request as a confirmed session ID
 
 #### Scenario: Private values fail at the fence
 - **WHEN** a driver emits an unknown field, invalid enum, oversized identifier or private payload in its launch evidence
@@ -110,7 +130,9 @@ failure-to-start and chain behavior do not change. Its failure reason SHALL
 remain bounded and preserve the available refusal evidence. The absence of a
 launch checkpoint on that path SHALL mean no durable launch checkpoint was
 reported, not cold or resumed by inference. A kill while rows are held has the
-same evidence limitation; documentation SHALL name this window.
+same evidence limitation; documentation SHALL name this window. Preassigning
+an ID SHALL NOT bypass withholding, flush a checkpoint early, reconstruct a
+lost confirmation or make an unconfirmed start into a session-bearing record.
 
 Demanding a launch checkpoint before acceptance is rejected for this path:
 a checkpoint would move the refusal across the structural boundary and recreate
@@ -129,6 +151,12 @@ evidence, not a blanket exemption for an adapter's normal cold and resumed work
 #### Scenario: A killed opening window
 - **WHEN** the driver is killed while holding launch and session facts before the first work checkpoint
 - **THEN** those facts are not fabricated from configuration on recovery, the absence is documented, and the watchdog kill does not become a provider failure to start
+
+#### Scenario: Assigned identity does not bypass held confirmation
+- **GIVEN** a cold invocation's assigned ID is already durable as creation intent and its provider confirmation is still held before work
+- **WHEN** a conclusive pre-work provider refusal or a kill prevents those held facts from being published
+- **THEN** no launch or confirmed-session checkpoint is fabricated from the assignment, and SR5 supplies no offer from that attempt
+- **AND** the classified refusal retains its no-Accepted/no-checkpoint path, while a kill retains its existing watchdog or crash outcome
 
 #### Scenario: An advisory is followed by real work
 - **WHEN** an error-shaped provider event is followed by work or valid clean delivery

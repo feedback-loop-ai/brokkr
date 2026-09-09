@@ -94,7 +94,9 @@ ownership evidence SHALL yield no offer, never a guessed match.
 The engine SHALL consider the latest session-bearing invocation of that site
 and then check its ownership. It SHALL NOT search behind an incompatible
 latest owner to resurrect an older candidate's session. A failure that records
-no session SHALL NOT invent a replacement handle. Eligibility SHALL remain a
+no session SHALL NOT invent a replacement handle. A start that contains only
+an assigned creation ID SHALL NOT count as session-bearing evidence or replace
+the last provider-confirmed session. Eligibility SHALL remain a
 derivation of durable evidence and local origin, not a new policy input or a
 model's claim about its identity (decisions 0004, 0007 and 0030).
 
@@ -123,10 +125,34 @@ model's claim about its identity (decisions 0004, 0007 and 0030).
 ### Requirement: SR3 The offered handle names the provider's own session
 
 A resumable handle SHALL be the complete, validated identifier or selector
-captured for the site's root provider session. It SHALL NOT be derived by
-truncating an identifier, selecting an ambient latest session, or treating a
-transcript storage directory as a provider handle without measured equivalence.
-Delegated child sessions SHALL NOT replace the root session.
+of the site's provider-confirmed root session. Two identity origins are admitted:
+a provider-generated identifier captured when the root opens, or a fresh
+identifier assigned by the owning engine/adapter through a measured provider
+creation interface. Each supported path SHALL identify which mechanism it uses.
+Assignment SHALL be specific to that site's cold creation, never an arbitrary
+user selector, an ID borrowed from another session or a way to create a copy.
+A resumed invocation SHALL select the existing confirmed root, not assign a new
+identity, recreate the session or fork it. A shared open/create interface can
+qualify only when measured behavior loads and continues the exact existing root;
+accepting a caller-supplied ID alone SHALL NOT establish that behavior.
+
+For either origin, eligibility SHALL require measured provider evidence that
+the root actually opened under the originating site's instance, and that
+evidence SHALL be durably recorded under adapter-launch-evidence LE3. For an
+assigned ID, the provider-confirmed root SHALL match the assigned value exactly.
+An assigned ID in configuration, argv or a durable pre-spawn start is creation
+intent only: it SHALL NOT prove that the session exists or be published as a
+captured session fact. A configuration echo without measured root-opening
+semantics SHALL NOT count as confirmation. Assignment alone granting resume
+eligibility is rejected because the provider might never have created a session
+(decision 0030 ruling 4).
+
+A handle SHALL NOT be derived by truncating an identifier, selecting an ambient
+latest session, or treating a transcript storage directory as a provider handle
+without measured equivalence. Delegated child sessions SHALL NOT replace the
+root session. Persisted creation intent, if used, SHALL remain distinguishable
+from confirmed session evidence within the admitted versioned record vocabulary;
+no frozen record acquires a new field implicitly.
 
 Existing transcript kinds, locators, homes, size caps, retention and privacy
 boundaries SHALL be preserved. Resume SHALL NOT fork or copy a session, seed
@@ -134,6 +160,25 @@ a fresh prompt from its transcript, search another site's private transcript,
 or replace #222's transcript readers. Legacy evidence SHALL remain readable;
 it SHALL admit an offer only when its kind and ownership establish the exact
 provider handle under a measured mapping (decisions 0030, 0032 and 0034).
+
+#### Scenario: The provider generates the root identity
+- **WHEN** a cold invocation receives a provider-generated root ID with measured opening semantics and its confirmed session evidence reaches the durable journal
+- **THEN** that complete handle can be offered on an eligible retry after all SR2 checks pass; no preassignment is required
+
+#### Scenario: The owning instance assigns a fresh creation identity
+- **GIVEN** a measured provider creation interface accepts an engine/adapter-assigned fresh ID for this work site
+- **WHEN** provider evidence confirms that exact root opened and that confirmation becomes durable under LE3
+- **THEN** the handle is eligible under the same SR2 ownership rules as a provider-generated ID, and that creation's launch remains cold
+- **AND** a later resume rejoins that confirmed root through a measured resume interface, including a shared open/create API only if it demonstrably loads that existing root; it neither forks nor creates another session with the same text
+
+#### Scenario: Assignment is echoed without confirmed creation
+- **WHEN** a generated ID appears in a start, argv, configuration echo or an event whose root-opening semantics are unmeasured
+- **THEN** it supplies no session-existence proof and no new eligible handle, even if the request was durably recorded
+- **AND** existing transcript fields and session IDs are not populated from that assignment as if the provider had confirmed them
+
+#### Scenario: The provider disagrees with the assigned identity
+- **WHEN** a cold creation request assigns one ID but provider evidence identifies a different root
+- **THEN** the assigned ID is never offered or recorded as confirmed, and the mismatch follows the observed failure or uncertainty path without relabelling the different root as the requested session
 
 #### Scenario: DSH locator and provider identifier differ
 - **GIVEN** a DSH invocation records a retained directory locator and a distinct root provider session identifier
@@ -204,6 +249,15 @@ A crash after effect start without a determinate terminal outcome SHALL retain
 existing indeterminate parking; resume support SHALL NOT authorize automatic
 re-execution of that effect (decisions 0006 and 0030).
 
+SR3's two identity mechanisms SHALL have the same durability threshold. An ID
+assigned before spawn, even if persisted as creation intent, SHALL NOT survive
+an interruption as an offer unless provider confirmation also became durable
+under LE3. Recovery SHALL NOT probe a guessed-to-exist session or reconstruct
+lost provider confirmation from the start payload. A later authorized retry
+without any confirmed prior session SHALL create a fresh session; a creation
+assignment from the interrupted attempt SHALL NOT be reused as a resume selector.
+An older confirmed session, if any, remains subject to SR2's unchanged checks.
+
 Provider ownership checks SHALL remain the adapter's last line of defense:
 an unrecognised handle or detectable credential/client change SHALL not be
 resumed. The existing local fingerprint cannot establish undetectable token or
@@ -216,8 +270,19 @@ claiming the engine authenticates provider session ownership.
 - **THEN** every invoked work-class model site derives its own eligible offer from the durable record, while gate sites still receive no offer
 
 #### Scenario: Interruption before durable session evidence
-- **WHEN** an initial invocation is killed after the provider announces a handle but before held pre-work rows reach the journal
-- **THEN** the next invocation has no offer from that attempt and follows the safe cold path; memory-only evidence is not reconstructed
+- **WHEN** an initial invocation is killed after the provider announces a generated or preassigned root handle but before held pre-work confirmation rows reach the journal
+- **THEN** a later invocation authorized under the existing retry rules has no offer from that attempt and follows the safe cold path; memory-only evidence is not reconstructed
+
+#### Scenario: An assigned ID is durable before the provider opens
+- **GIVEN** a site's initial cold invocation has an assigned ID persisted as creation intent before spawn and no earlier confirmed session
+- **WHEN** it is killed before spawn or before provider confirmation becomes durable
+- **THEN** existing crash/indeterminate parking still applies, and a later authorized retry receives no offer from the assignment
+- **AND** that retry uses a fresh cold creation identity, not the abandoned ID as a resume selector; durable intent does not prove existence
+
+#### Scenario: An assigned root is confirmed durably before interruption
+- **GIVEN** the provider confirmed a site's assigned root ID and the confirmation reached the journal under LE3 before interruption
+- **WHEN** a later retry or re-entry is authorized under the existing execution rules
+- **THEN** it derives the same owned offer as for a provider-generated root, subject to SR2, without treating session evidence as authority to re-execute an indeterminate effect
 
 #### Scenario: Uncertain execution remains parked
 - **WHEN** the engine recovers an effect whose execution is indeterminate
