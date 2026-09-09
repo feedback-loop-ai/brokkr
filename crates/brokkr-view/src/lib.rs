@@ -24,6 +24,7 @@
 //! (decision 0001).
 
 pub mod js;
+pub mod transcript;
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -296,7 +297,7 @@ pub struct Provenance {
 
 /// The common driver transcript reference (decision 0032). It contains
 /// paths or ids only; transcript prose never enters the journal or view.
-#[derive(Serialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct Transcript {
     pub kind: String,
     pub locator: String,
