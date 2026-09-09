@@ -1,14 +1,26 @@
 ## Context
 
-Adopt **read-every-transcript-kind** at current planning HEAD `6e71cac`,
-including checkpoint `73797a6` and its subsequent design/task repairs, for
+Adopt **read-every-transcript-kind** at current planning HEAD `d9ac098`,
+including commissioned task checkpoint `9298e8d`, checkpoint `73797a6` and
+their subsequent specification/design/task repairs, for
 issue #222 on shipped main `5bc8cf305aaef9af269866cbf83f094939691399`.
 See [proposal.md](proposal.md) for motivation and the three capability deltas
 for requirements. This sitting belongs to run
-`close-issue-222-a-transcript-rea-92d45f62`; clarification is `clear`.
+`current-successor-commission-com-8e9313f6`; clarification is `clear`.
 
-`returned_from` is the second analyze visit and reports two planning defects.
-First, D11 requires executable traces of the embedded browser controller but
+The successor commission supplies findings F1-F3. F1 is valid at its earliest
+owner: R20 had assigned every `unreadable` outcome to a body route even though
+shared discovery can establish `unreadable` before admission and DSH has no
+browser body route. Commit `d9ac098` already repairs proposal S15, the owning
+admission requirement/scenario and R24; D2, D9-D11 and proposed 0055 below now
+carry that stage distinction so the repair is not lost downstream. F2 and F3
+are valid task-owned defects: the test-mutation prohibition must be scoped to
+the reader/system under test and real operator evidence, and the Rust 1.88
+gate must compile the Boa-bearing test target. This artifact records the exact
+dependent repairs without editing `tasks.md` out of dialect order.
+
+The inherited design's earlier `returned_from` was the second analyze visit and
+reported two planning defects. First, D11 requires executable traces of the embedded browser controller but
 selects no seam or runtime that `cargo test --workspace` can exercise. Second,
 the task plan omits the specified operator reselection transition when the
 operator selects the already active subject. Both findings are valid and are
@@ -46,18 +58,20 @@ judgments. The registry ends at 0053 in this worktree. The controller's
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (268 lines) and
-`.forge/design/positions/simplicity.md` (303 lines), each against `6e71cac`.
+`.forge/design/positions/robustness.md` (338 lines) and
+`.forge/design/positions/simplicity.md` (299 lines), each against `d9ac098`.
 They are run-local evidence, not artifacts to commit. D1 reconciles every
 material claim; the earlier sitting's rejected scope cuts remain recorded in
 proposal S9 and git history.
 
 The workspace tool exposes OpenSpec, Python and Node, but no Cargo, rustup,
-Codex, DSH or Claude executable. Provider help reported by the earlier council
-(Codex 0.153.4, DSH 0.1.2-rc.1, Claude 2.1.266) is council-reported evidence,
-not a fresh chief measurement. Accepted 0030 independently records the Codex
-resume spelling. No hint is live resumption, credential, session-ownership or
-sandbox-reimposition proof for #226.
+Codex, DSH or Claude executable. The current simplicity position reports those
+tools from its harness, but they are not reachable through this office's only
+authorized workspace boundary and therefore are not fresh chief validation.
+Provider help reported by councils remains council-reported evidence. Accepted
+0030 independently records the Codex resume spelling. No hint is live
+resumption, credential, session-ownership or sandbox-reimposition proof for
+#226.
 
 The robustness position's test-engine facts were independently checked against
 Boa's tagged primary metadata. `boa_engine` 0.21.1 declares Rust 1.88.0 and
@@ -140,7 +154,7 @@ new provider or production-runtime dependency is needed.
 | Both: response preference plus content-bearing Codex completed events. | **Adopt historical D9.** Persistence policy stores completed items; calling them all lifecycle metadata would recreate unreadability. The existing R1 preference applies only to proved counterparts. |
 | Both: unknown Codex association preserves content, not guessed suppression. | **Adopt with an explicit evidence limit.** D5 pins the measured id relationships and declines unproved legacy suppression. This does not claim universal duplicate-free legacy support. |
 | Robustness: DSH ownership, then version admission, then event/storage classification. | **Adopt R14-R16 completely.** The current requirements already answer U1/U2; returning those same findings would be stale. |
-| Simplicity: five grouped decision rulings instead of copying 175 scenarios. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
+| Simplicity: five grouped decision rulings instead of copying the scenario catalogue. | **Adopt.** D10 authors the proposed ruling text and enforcement bindings; the capability scenarios remain the detailed acceptance contract. |
 | Robustness: separate selected-reference, presentation and body result types. | **Combine the invariant with simplicity's smaller public surface.** Keep one public `TranscriptRead`; use a CLI-private, prose-free browser presentation payload whose constructor accepts only selection, validation and discovery facts. This makes a body or read-level reason unavailable at the transport boundary without adding a second public view-crate result. |
 | Robustness: model browser recovery as explicit states; simplicity: keep five private facts rather than a public state framework. | **Combine.** D9 defines the transition machine and its invariants, while implementation stores the key, generation, body-success/refusal state, exact watch handle and re-check budget as private client fields. No new crate, public taxonomy or generalized browser transport follows. |
 | Robustness: isolate a dependency-injected controller and execute the exact served JavaScript with pinned, default-feature-free Boa. | **Adopt.** Promise ordering, generation capture and exact `EventSource` ownership live in the JavaScript applier, so executing only a policy description cannot prove the shipped controller. Boa 0.21.1 is Rust, matches the workspace MSRV and has a compatible license; D9/D11 confine it to a dev-only harness over exact `PAGE` bytes. |
@@ -148,6 +162,10 @@ new provider or production-runtime dependency is needed.
 | Both: same-subject operator reselection is an event, not an equivalence no-op. | **Adopt.** Every explicit selection starts a fresh generation and interval even when the full subject key is equal; D9 fixes the reset order and D11 requires the adversarial stale-callback trace. |
 | Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
 | Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
+| Robustness: make R24's discovery/body `unreadable` distinction structural; simplicity: add no new public outcome, route, state or token. | **Combine.** Discovery can yield the existing `unreadable` token before admission; only an admitted arm can proceed to a body-stage failure. Private constructors enforce that split, while `TranscriptRead` remains the only public result and the browser presentation remains prose-free. D2, D7 and D9 state the legal construction and D11 proves both traces. |
+| Both: scope the no-mutation convention to the system under test and real operator evidence while allowing synthetic fixture creation and mutation. | **Adopt as a downstream task repair.** The reader/hints/renderers never create or mutate retained evidence; test setup may create and mutate only its own synthetic homes/files between reader invocations. This preserves the production read-only boundary and makes the required append, shrink, disappearance, replacement and same-length rewrite tests possible. |
+| Robustness: use Rust 1.88 `cargo test --no-run`; simplicity: add `--all-targets` to the existing MSRV check. | **Combine on the smaller sufficient gate.** Run `cargo check --workspace --all-targets --all-features --locked` under the CI-installed Rust 1.88 toolchain, locally as `cargo +1.88.0 ...` when available. `--all-targets` compiles the CLI test target and its dev-only Boa dependency; `--all-features` matches the workspace admission surface. The existing remote MSRV job receives the same arguments, so no second job is needed. A production-only check is rejected because it never compiles the promised harness. |
+| Simplicity: treat host-visible Cargo/rustup/provider executables as current design evidence. | **Reject for this sitting.** Direct checks through the authorized workspace tool return command-not-found for each executable. Outside-harness availability cannot turn an unperformed workspace/MSRV/provider proof green; the tasks may run those gates when their execution boundary supplies the tools. |
 | Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
 | Both: author and file 0055 in this council commit. | **Adopt authorship; decline out-of-scope filing in this commit.** The rendered dialect names only `design.md`, and the office must commit exactly its artifacts. D10 supplies the full chief-authored decision and registry row for mechanical filing before any semantic production edit. This preserves the commission's proposed-decision prerequisite without adding an undeclared artifact to this phase. |
 
@@ -175,11 +193,15 @@ closed internally while serializing the required strings.
 
 Use `TranscriptKind`, `Unavailable` and a local `TranscriptRead` with
 constructors for readable and refused results. Its selected reference and
-legacy flag are distinct from lookup admission. It owns confirmed path,
-turns, source/display truncation facts, counts, ordered notices, refusal and
-explanation, and `full_session`. CLI serialization adds run id, exact seat
-key and requested index without serializing private state. The thirteen
-reason tokens are exactly the command delta's vocabulary.
+legacy flag are distinct from lookup admission. A private `DiscoveryOutcome`
+has only a refused arm carrying discovery-stage reasons and an admitted arm
+carrying the safely opened source facts; body acquisition accepts only the
+admitted arm. Thus the same public `unreadable` token cannot erase which stage
+established it. `TranscriptRead` owns confirmed path, turns, source/display
+truncation facts, counts, ordered notices, refusal and explanation, and
+`full_session`. CLI serialization adds run id, exact seat key and requested
+index without serializing private state. The thirteen reason tokens are
+exactly the command delta's vocabulary.
 
 Pure functions select/validate a supplied reference, admit supplied snapshot
 facts, classify rows, associate content, cap turns and construct hints and
@@ -188,8 +210,9 @@ read-only journal/world/participant facts; `ui.rs` supplies legacy-home,
 discovery and byte-snapshot facts. `render.rs`, `tui.rs` and `ui.html` paint
 those facts. Browser presentation is a CLI-private transport struct built by
 the same pure selection, validation, discovery and hint helpers, but its
-constructor is not given body bytes, turns, blocks or read-level reasons. It
-serializes only the narrow fields in D9. This compile-time separation adopts
+constructor is not given body bytes, turns, blocks or body-stage outcomes. It
+can receive discovery-stage `unreadable` only from the discovery refusal arm
+and serializes only the narrow fields in D9. This compile-time separation adopts
 the robustness invariant without promoting a second result into
 `brokkr-view`'s public model. `RunView` gains neither bodies nor local
 presentation fields.
@@ -595,10 +618,15 @@ Claude drill id/home-equality facts. Construct it from reference
 selection/validation and bounded safe discovery only; it receives no selected
 body snapshot and never runs a content projector. DSH's bounded opening-header
 ownership check remains part of discovery and exposes no event prose. A
-read-level `unreadable`, `unsupported-format` or readable-empty outcome is
-therefore available only from the body route and cannot become the
-presentation reason. Do not widen `RunView` or the three-field Claude body
-response. Render every string with `textContent`.
+discovery-stage `unreadable`—directory I/O, or bounded DSH opening-header
+I/O/UTF-8 failure that prevents a safe unique answer—is therefore the
+presentation's own unavailability reason and closes admission. Only an
+`unreadable` established after safe unique discovery, `unsupported-format`,
+or a readable-empty outcome belongs to body-stage derivation and cannot become
+the presentation reason. The shared token is stage-typed by construction: the
+presentation constructor accepts a discovery refusal but no admitted-body
+outcome. Do not widen `RunView` or the three-field Claude body response.
+Render every string with `textContent`.
 
 A drill is offered only for an already admitted Claude reference whose
 canonical home equals the server's local projects home. On unproved/different
@@ -748,9 +776,15 @@ separate #226 work; hints execute nothing.
    `windows-sys` filesystem bindings already in the lockfile; no provider SDK,
    shipped JavaScript runtime or broad filesystem framework follows. Ruling 4
    separately permits one pinned dev-only test engine for exact client proof.
+   Directory I/O, or the bounded DSH opening-header I/O/UTF-8 check, can
+   return discovery-stage `unreadable` when it prevents a safe unique answer;
+   that refusal has no confirmed source path and closes browser presentation
+   admission. An I/O/UTF-8 failure after safe unique discovery is instead a
+   body-stage `unreadable` and does not retroactively erase admission.
    **Enforcement binding:** handle-based resolver, entry/header/source-bound
    tests, competing-failure/uniqueness tests, Unix/Windows ancestor/leaf race
-   and nonregular-source tests; frozen-file and dependency/license gates.
+   and nonregular-source tests, plus browser traces for both unreadable stages;
+   frozen-file and dependency/license gates.
 
 3. **Projection is a bounded audit interpretation, with explicit admission.**
    Preserve Claude's closed content/omission table. Decode Codex responses
@@ -816,6 +850,9 @@ separate #226 work; hints execute nothing.
    request and growth watch requires both, so Codex, DSH and foreign-home
    sources never enter a Claude route. Active client work is keyed by run,
    participant and complete effective reference and guarded by a generation.
+   Discovery-stage `unreadable` is its shared presentation refusal and closes
+   admission; body-stage `unreadable` after a safe unique Claude discovery
+   remains on the id-only route and follows the refusal floor below.
    Admission or eligibility loss closes the exact watch and clears prose
    before repaint, and stale responses cannot restore it.
 
@@ -844,8 +881,9 @@ separate #226 work; hints execute nothing.
    conformance, headless TUI navigation and atomic-refresh tests, existing HTTP
    endpoint and thin-adapter source tests, and Boa-executed exact served-client
    transition traces for admission/eligibility loss, stale generations,
-   admitted non-Claude and foreign-home selections, zero-turn success, refusal
-   floors, both watch opening orders, recurring recovery, no-store refetch and
+   discovery-stage unreadability, admitted non-Claude and foreign-home
+   selections, body-stage unreadability, zero-turn success, refusal floors,
+   both watch opening orders, recurring recovery, no-store refetch and
    identical-subject operator reselection.
 
 5. **Reading retains private evidence and remains inert.** Only explicit
@@ -907,7 +945,7 @@ comparison of the same serialized `Turn` and metadata.
 | Local inert prose | D7/D9; journal hash/count and retained-file before/after assertions; readout/export/dossier sentinels and no-provider-launch assertions. |
 | Command run/seat selection; turn selection; JSON; text/errors | D3/D7; argument, world resolver, ambiguous-label, parent/leaf, all reason states and whole/selected stdout/stderr tests. |
 | TUI pane/doors; hints; notices; live refresh | D8; headless keys, scrolling and buffers, late appearance, pure append, assembly replacement, same-size rewrite, refusal/recovery, final/manual reads. |
-| Browser presentation, eligibility and recovery | D9; HTTP/adapter tests plus Boa execution of the exact marker-delimited controller bytes extracted from `PAGE`, with injected presentation/body promises, watch callbacks, timer ticks, selections and out-of-order responses. |
+| Browser presentation, eligibility and recovery | D9; HTTP/adapter tests plus Boa execution of the exact marker-delimited controller bytes extracted from `PAGE`, with injected presentation/body promises, discovery-stage and body-stage unreadability, watch callbacks, timer ticks, selections and out-of-order responses. |
 
 Provider tests must include event-only Codex, completed-item-only Codex,
 response/counterpart id pairs, id-less legacy records, repeated words and
@@ -957,20 +995,33 @@ body and eligible opening while late body/watch callbacks from the prior
 selection remain inert. Cross-surface tests compare the metadata subset only,
 and prove the presentation carries no turns, blocks or transcript prose.
 
-The current `tasks.md` at `6e71cac` already carries the R17-R23, A5-A7 and
-truncation/absent-partner repairs. It remains the dependent artifact of the
-next dialect office and must now be updated from this returned design: task
-10.3 must isolate the exact controller factory and make every operator
-selection, including same-subject reselection, reset generation, owned watch,
-body/pending state, refusal floor and interval budget in the order D9 states;
-task 10.4 must add the exact `boa_engine` 0.21.1 dev-dependency with
-default features disabled and its lockfile work, execute the
-marker-delimited `PAGE` block with injected effects and drained jobs, and add
-the identical-subject adversarial trace. Its closing gates must explicitly
-cover MSRV, licenses, audit and all three operating systems for the changed
-dependency graph. None of these repairs changes a requirement or reopens a
-settled decision; editing `tasks.md` in this office would violate the rendered
-artifact boundary and dependency order.
+A separate discovery-refusal trace supplies an otherwise valid selected DSH
+reference whose bounded opening-header I/O/UTF-8 check cannot establish unique
+ownership. It must paint shared `unreadable`, its explanation, the null DSH
+hint and checkpoint fallback with closed admission, null path/session label, zero
+id-only body requests and zero watches; every recurring tick performs only a
+fresh bounded presentation discovery. Table cases apply the same result to
+directory I/O that defeats Claude or Codex uniqueness. This is distinct from
+the admitted-Claude body-unreadable trace above.
+
+The current `tasks.md` at checkpoint `9298e8d` already carries the R17-R23,
+A5-A7 and truncation/absent-partner repairs. It remains the dependent artifact
+of the next dialect office and must now receive exactly these successor
+repairs in addition to preserving its settled controller work:
+
+- scope the preamble's mutation prohibition to the reader/system under test
+  and real operator evidence, explicitly permitting test setup to create and
+  mutate only synthetic test-owned homes/files between calls;
+- change task 10.2's exclusion from every "read-level reason" to every
+  body-stage outcome, allowing the discovery refusal constructor to carry
+  `unreadable`, and add the discovery-refusal trace above to task 10.6; and
+- change task 13.6 and the implementation-owned CI MSRV step to Rust 1.88
+  `cargo check --workspace --all-targets --all-features --locked`, retaining
+  the license, audit, release-graph and all-platform obligations.
+
+These repairs change no product requirement or settled decision. Editing
+`tasks.md` in this office would violate the rendered artifact boundary and
+dependency order.
 
 Implementation owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
@@ -1017,13 +1068,24 @@ proof, PR/remote CI, publication, merging and issue closure.
   callbacks by generation and owned handle, treat same-subject selection as a
   reset event, mark zero-turn success independently of array length, bypass
   HTTP caching and prove each transition from the exact served controller.
+- **[One `unreadable` token collapses two stages]** → Construct presentation
+  refusals only from selection/validation/discovery and body outcomes only
+  after an admitted safe source; prove DSH/directory discovery refusal
+  separately from admitted Claude body failure.
+- **[Test safety wording forbids its own fixtures]** → Scope immutability to
+  the system under test and real operator evidence; test setup owns and may
+  mutate only synthetic fixtures between invocations.
+- **[MSRV passes without compiling the controller harness]** → Add
+  `--all-targets --all-features` to the Rust 1.88 workspace check locally and
+  in CI so the dev-only Boa graph and controller test source are compiled.
 
 ## Migration Plan
 
 1. The tasks office first includes filing the chief-authored proposed 0055
-   and its index row before production edits, then decomposes this admitted
-   design in dependency order. Independent analysis judges that breakdown;
-   this sitting does not supply its verdict or author `tasks.md`.
+   and its index row before production edits, then applies D11's F1-F3
+   dependent repairs and keeps the remaining admitted breakdown in dependency
+   order. Independent analysis judges that breakdown; this sitting does not
+   supply its verdict or author `tasks.md`.
 2. Implementation extracts the pure Claude projection, adds the typed reader
    and Codex/DSH decoding, completes safe filesystem acquisition, adds the
    command, then connects TUI/browser presentation and the proving suites.
@@ -1064,7 +1126,7 @@ Read the dialect manifest, design and return instructions and rendered
 `openspec instructions design --change read-every-transcript-kind --json`.
 It declares `design.md`; no workflow runner was invoked. Proposal, all three
 deltas, the existing task breakdown and both current council positions were
-read completely. The deltas contain 20 requirements and 175 scenarios. Only
+read completely. The deltas contain 20 requirements and 176 scenarios. Only
 the declared design artifact is changed and committed; proposed 0055 remains
 chief-authored between D10's markers with its registry row and mandatory
 pre-production filing explicit.
@@ -1072,8 +1134,9 @@ pre-production filing explicit.
 `openspec validate read-every-transcript-kind --strict --no-interactive`
 passes (exit 0), and status reports every planning artifact present. That
 presence is structural evidence, not an analyze verdict. All 20 requirements,
-175 scenarios, the proposal, three deltas and `tasks.md` remain byte-for-byte
-unchanged from the adopted current HEAD `6e71cac`. `git diff --check` passes;
+176 scenarios, the proposal, three deltas and 73 unchecked tasks remain
+byte-for-byte unchanged from the adopted current HEAD `d9ac098`.
+`git diff --check` passes;
 the frozen set, accepted decisions, `crates/`, `bundles/` and `scripts/` remain
 unchanged from the commissioned shipped base. The exact sitting diff is
 `design.md` only.
