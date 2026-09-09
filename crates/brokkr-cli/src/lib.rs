@@ -724,11 +724,58 @@ fn report(error: &anyhow::Error) -> ExitCode {
 
 /// The binary's entry: one parse, one command set, one set of exit
 /// codes. There is one bin now — decision 0019 ruling 9's shim is gone.
+///
+/// The dsh sandbox runner is dispatched before clap: dsh invokes it with
+/// bubblewrap's own argv, including the bare `--` that separates the
+/// profile from the command, and clap cannot both parse a verb and
+/// preserve that separator. It is not a user-facing command and never
+/// appears in `--help`.
 pub fn main() -> ExitCode {
+    if let Some(args) = dsh_sandbox_runner_args() {
+        return dsh_sandbox_runner(args);
+    }
     match run(Cli::parse()) {
         Ok(code) => code,
         Err(e) => report(&e),
     }
+}
+
+fn dsh_sandbox_runner_args() -> Option<Vec<String>> {
+    let mut argv = std::env::args();
+    let _program = argv.next();
+    argv.next()
+        .filter(|verb| verb == brokkr_protocol::dsh_sandbox::RUNNER_VERB)
+        .map(|_| argv.collect())
+}
+
+/// Run the dsh sandbox runner whole: it builds bubblewrap's argv from the
+/// profile dsh handed it and `exec`s it, so the runner process is
+/// replaced and the seat sees one process. Every refusal prints the
+/// prefix dsh classifies as a runner failure, never a denied command.
+fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
+    let signature = brokkr_protocol::dsh_sandbox::RUNNER_FAILURE_SIGNATURE;
+    match brokkr_protocol::dsh_sandbox::runner_argv(&args) {
+        Ok(argv) => exec_bwrap(&argv, signature),
+        Err(problem) => {
+            eprintln!("{signature}{problem}");
+            ExitCode::from(127)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    let (program, rest) = (&argv[0], &argv[1..]);
+    let error = std::process::Command::new(program).args(rest).exec();
+    eprintln!("{signature}{error}");
+    ExitCode::from(127)
+}
+
+#[cfg(not(unix))]
+fn exec_bwrap(_argv: &[String], signature: &str) -> ExitCode {
+    eprintln!("{signature}the dsh sandbox runner is Linux-only");
+    ExitCode::from(127)
 }
 
 /// The transcript's own liveness, asked beside the journal head's: a

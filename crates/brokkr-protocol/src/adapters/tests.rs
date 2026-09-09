@@ -3,6 +3,26 @@ use crate::transcript::{dsh_home, dsh_home_from};
 use std::path::Path;
 use std::sync::Mutex;
 
+/// A host path spelled the way THIS platform spells an absolute one.
+/// `dsh_git_runner_scope` absolutizes the workdir against the host, and
+/// Windows calls a rooted path with no drive letter relative — so it
+/// answers `/work/wt` with the current drive prepended, and a literal
+/// `/work/wt` on the other side of the comparison is measuring the
+/// fixture rather than the driver. Only the prefix differs; every Rust
+/// path API takes forward slashes on Windows too.
+#[cfg(windows)]
+macro_rules! absolute {
+    ($path:literal) => {
+        concat!("C:", $path)
+    };
+}
+#[cfg(not(windows))]
+macro_rules! absolute {
+    ($path:literal) => {
+        $path
+    };
+}
+
 static ADAPTER_ENV: Mutex<()> = Mutex::new(());
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
@@ -996,11 +1016,45 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "a/b c/d",
     ] {
         assert!(
-            dsh_seat_overlay(Some(bad), None, root).is_err(),
+            dsh_seat_overlay_with(Some(bad), None, root, None).is_err(),
             "{bad:?} must be refused"
         );
     }
-    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), None, root).is_ok());
+    assert!(dsh_seat_overlay_with(Some("deepseek-v4-flash"), None, root, None).is_ok());
+}
+
+/// A transcript root the overlay cannot write as one YAML scalar refuses
+/// the seat before the launcher starts, through the same
+/// `dsh_seat_overlay_with` the invocation propagates (decision 0054's
+/// early-refusal discipline). The root is the operator's harness home, so
+/// the failure is reachable without moving any other test's environment.
+#[cfg(unix)]
+#[test]
+fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home\nline");
+    std::fs::create_dir_all(&home).unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let mut emitted = Vec::new();
+    let refused = match invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": dir.path()}),
+        None,
+        &[],
+        &mut |event| emitted.push(event.clone()),
+    ) {
+        Ok(_) => panic!("a transcript root that spans a line must refuse the seat"),
+        Err(problem) => problem,
+    };
+    assert!(refused.contains("spans more than one line"), "{refused}");
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 /// An effort pinned with no model beside it is refused, not dropped: the
@@ -1010,10 +1064,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 #[test]
 fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused = dsh_seat_overlay(None, Some("high"), root).unwrap_err();
+    let refused = dsh_seat_overlay_with(None, Some("high"), root, None).unwrap_err();
     assert!(refused.contains("needs a `--model` beside it"), "{refused}");
 
-    let overlay = dsh_seat_overlay(Some("dashscope/qwen3.8-max"), Some("xhigh"), root).unwrap();
+    let overlay =
+        dsh_seat_overlay_with(Some("dashscope/qwen3.8-max"), Some("xhigh"), root, None).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert_eq!(written.matches("- id: ").count(), 3, "{written}");
     assert!(
@@ -1570,10 +1625,11 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         (routed.provider, routed.model),
         ("meta-contributor", "meta/muse-spark-1.3-contributor")
     );
-    let file = dsh_seat_overlay(
+    let file = dsh_seat_overlay_with(
         Some("meta-contributor/meta/muse-spark-1.3-contributor"),
         Some("xhigh"),
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -1591,10 +1647,11 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         "{document}"
     );
     // The overlay carries the named route, not the default one.
-    let file = dsh_seat_overlay(
+    let file = dsh_seat_overlay_with(
         Some("dashscope/qwen3.8-max"),
         None,
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -2454,13 +2511,15 @@ fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
 #[test]
 fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused =
-        dsh_seat_overlay_in(None, None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
+    let refused = dsh_seat_overlay_in(None, None, root, None, || {
+        Err(std::io::Error::other("no tmp"))
+    })
+    .unwrap_err();
     assert!(
         refused.contains("could not stage the dsh seat overlay"),
         "{refused}"
     );
-    let sealed = dsh_seat_overlay_in(None, None, root, || {
+    let sealed = dsh_seat_overlay_in(None, None, root, None, || {
         let staged = tempfile::NamedTempFile::new()?;
         let (_, path) = staged.into_parts();
         let readonly = std::fs::File::open(&path)?;
@@ -2523,6 +2582,541 @@ fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
     let blocked = tempfile::tempdir().unwrap();
     std::fs::write(blocked.path().join("sessions"), b"not a directory").unwrap();
     assert!(dsh_transcript_root_under(Some(blocked.path().to_path_buf())).is_err());
+}
+
+/// Decision 0054: the driver resolves the two git directories through
+/// Git and only a workspace-write seat whose git metadata lies outside
+/// the writable root needs the scoped runner.
+#[test]
+fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
+    let linked = GitFacts {
+        git_dir: Some(PathBuf::from(absolute!("/main/.git/worktrees/wt"))),
+        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        identity: Vec::new(),
+    };
+    let scope = dsh_git_runner_scope(absolute!("/work/wt"), &linked, "workspace-write")
+        .expect("a linked worktree needs the runner");
+    assert_eq!(scope.workspace, PathBuf::from(absolute!("/work/wt")));
+    assert_eq!(
+        scope.git_dir,
+        PathBuf::from(absolute!("/main/.git/worktrees/wt"))
+    );
+    assert_eq!(scope.common_dir, PathBuf::from(absolute!("/main/.git")));
+
+    // The workspace's own git directory is already inside the writable
+    // root, so a primary checkout needs nothing.
+    let primary = GitFacts {
+        git_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
+        common_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
+        identity: Vec::new(),
+    };
+    assert!(dsh_git_runner_scope(absolute!("/repo"), &primary, "workspace-write").is_none());
+    // A subdirectory of a checkout cannot reach the git directory the
+    // session cwd does not contain, but its git directory IS the shared
+    // repository: the driver refuses rather than mounting the whole shared
+    // `.git` writable (decision 0054).
+    assert!(dsh_git_runner_scope(absolute!("/repo/src"), &primary, "workspace-write").is_some());
+    let refused =
+        dsh_sandbox_row_for(absolute!("/repo/src"), &primary, "workspace-write").unwrap_err();
+    assert!(
+        refused.contains("shared repository's own git directory"),
+        "{refused}"
+    );
+    assert!(refused.starts_with("dsh driver: "), "{refused}");
+    // No writes to confine, and not a repository at all.
+    for mode in ["read-only", "danger-full-access"] {
+        assert!(dsh_git_runner_scope(absolute!("/work/wt"), &linked, mode).is_none());
+    }
+    assert!(dsh_git_runner_scope(
+        absolute!("/work/wt"),
+        &GitFacts::default(),
+        "workspace-write"
+    )
+    .is_none());
+    // A workdir that is not a path at all names no writable root to be
+    // outside of, so there is nothing to scope.
+    assert!(dsh_git_runner_scope("", &linked, "workspace-write").is_none());
+    // A repository that reports a common directory but no per-worktree
+    // one is read as the shared directory itself — which `scope_refusal`
+    // then refuses, rather than the driver guessing a worktree name.
+    let shared_only = GitFacts {
+        git_dir: None,
+        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        identity: Vec::new(),
+    };
+    let scope =
+        dsh_git_runner_scope(absolute!("/work/wt"), &shared_only, "workspace-write").unwrap();
+    assert_eq!(scope.git_dir, scope.common_dir);
+    assert!(dsh_sandbox::scope_refusal(&scope)
+        .unwrap()
+        .contains("shared repository's own git directory"));
+}
+
+#[test]
+fn the_scoped_runner_program_prefers_the_override_then_this_binary_then_the_name() {
+    assert_eq!(
+        dsh_runner_program_from(
+            Some("/opt/brokkr".into()),
+            Err(std::io::Error::other("unused"))
+        ),
+        "/opt/brokkr"
+    );
+    assert_eq!(
+        dsh_runner_program_from(None, Ok(PathBuf::from("/usr/bin/brokkr"))),
+        "/usr/bin/brokkr"
+    );
+    assert_eq!(
+        dsh_runner_program_from(None, Err(std::io::Error::other("gone"))),
+        "brokkr"
+    );
+}
+
+/// The other half of decision 0054 ruling 7: a host that is not Linux
+/// has no bwrap-compatible sandbox for the driver to refine, so a
+/// linked-worktree seat refuses at START — naming the host and the two
+/// remedies — rather than running and failing at its first commit. The
+/// supported-platform arms are proved beside this one; this is the arm
+/// macOS and Windows take, and it is measured where they run.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn a_host_without_bubblewrap_refuses_the_scoped_runner_at_seat_start() {
+    let refused = dsh_bwrap().unwrap_err();
+    assert!(refused.starts_with("dsh driver: "), "{refused}");
+    assert!(refused.contains(std::env::consts::OS), "{refused}");
+    assert!(
+        refused.contains("no bubblewrap-compatible runner"),
+        "{refused}"
+    );
+    assert!(refused.contains("standalone checkout"), "{refused}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_scoped_runner_refuses_a_missing_or_unusable_bubblewrap() {
+    let empty = tempfile::tempdir().unwrap();
+    let refused = dsh_bwrap_on(empty.path().as_os_str()).unwrap_err();
+    assert!(refused.contains("no `bwrap` on PATH"), "{refused}");
+    assert!(refused.contains("will not run the seat"), "{refused}");
+
+    let fake_dir = tempfile::tempdir().unwrap();
+    let fake = fake_dir.path().join("bwrap");
+    std::fs::write(&fake, "#!/bin/sh\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = dsh_bwrap_on(fake_dir.path().as_os_str()).unwrap_err();
+    assert!(
+        refused.contains("cannot build the empty-root namespace"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn the_seat_overlay_carries_the_scoped_sandbox_row() {
+    let root = tempfile::tempdir().unwrap();
+    // The worktree the row is written for has to exist far enough for the
+    // driver to read the branch it owns; the store's copies of a shared
+    // directory that is not there are simply empty.
+    std::fs::create_dir_all(root.path().join("wt")).unwrap();
+    let scope = dsh_sandbox::GitScope {
+        workspace: root.path().join("wt"),
+        git_dir: root.path().join("main/.git/worktrees/wt"),
+        common_dir: root.path().join("main/.git"),
+    };
+    std::fs::create_dir_all(&scope.git_dir).unwrap();
+    std::fs::write(scope.git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    let staged = dsh_sandbox::stage_seat_store(&scope).unwrap();
+    let row =
+        dsh_sandbox::sandbox_row("/opt/brokkr", Path::new("/opt/bwrap"), &staged, &scope).unwrap();
+    let overlay = dsh_seat_overlay_with(None, None, root.path(), Some(&row)).unwrap();
+    let written = std::fs::read_to_string(overlay.path()).unwrap();
+    assert!(
+        written.contains("- id: session-persistence-jsonl\n"),
+        "{written}"
+    );
+    assert!(written.contains("- id: sandbox\n"), "{written}");
+    assert!(written.contains("      - '/opt/brokkr'\n"), "{written}");
+    assert!(written.contains("      - '--workspace'\n"), "{written}");
+    assert!(written.contains("      - '--bwrap'\n"), "{written}");
+    assert!(written.contains("      - '/opt/bwrap'\n"), "{written}");
+    assert!(written.contains("      - '--store'\n"), "{written}");
+    assert!(
+        written.contains(&format!("      - '{}'\n", staged.store_path().display())),
+        "{written}"
+    );
+    assert!(written.contains("      - '--trusted'\n"), "{written}");
+    assert!(
+        written.contains(&format!("      - '{}'\n", staged.trusted_path().display())),
+        "{written}"
+    );
+
+    // Without the row the overlay names no sandbox at all.
+    let plain = dsh_seat_overlay_with(None, None, root.path(), None).unwrap();
+    let written = std::fs::read_to_string(plain.path()).unwrap();
+    assert!(!written.contains("- id: sandbox\n"), "{written}");
+}
+
+/// A driver failure that reaches the seat BEFORE its promotion — the
+/// `wait` that errors, which the poll loop treats as terminal — keeps the
+/// private store rather than unlinking the only copy of what the seat
+/// committed, and names it. A seat with no scoped store has nothing to
+/// lose, so its failure travels unchanged.
+#[test]
+fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
+    assert_eq!(
+        dsh_failure_before_promotion("agent CLI did not conclude".to_string(), None),
+        "agent CLI did not conclude"
+    );
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("wt")).unwrap();
+    let scope = dsh_sandbox::GitScope {
+        workspace: root.path().join("wt"),
+        git_dir: root.path().join("main/.git/worktrees/wt"),
+        common_dir: root.path().join("main/.git"),
+    };
+    std::fs::create_dir_all(&scope.git_dir).unwrap();
+    std::fs::write(scope.git_dir.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    let staged = dsh_sandbox::stage_seat_store(&scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    let refused = dsh_failure_before_promotion(
+        "agent CLI did not conclude: no child processes".to_string(),
+        Some(("- id: sandbox\n".to_string(), scope, staged)),
+    );
+    assert!(refused.contains("no child processes"), "{refused}");
+    assert!(refused.contains(&store.display().to_string()), "{refused}");
+    assert!(refused.contains("refs/heads/slice"), "{refused}");
+    assert!(store.exists(), "the store is kept, not discarded");
+    std::fs::remove_dir_all(&store).unwrap();
+}
+
+/// The whole driver decision on a real linked worktree: the row is built
+/// where bubblewrap can stand in, and the refusal names the reason where
+/// it cannot.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "user.name", "Host Operator"]);
+    git(&main, &["config", "user.email", "host@example.invalid"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+    let worktree = dir.path().join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "slice",
+        ],
+    );
+
+    let facts = crate::hands::git_facts(&worktree);
+    match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
+        Ok(Some((row, _, staged))) => {
+            assert!(row.contains("- id: sandbox\n"), "{row}");
+            // The staged store is a real private common directory and the
+            // row names it, so every command in the seat writes its refs
+            // and objects there rather than into the shared repository.
+            assert!(row.contains("      - '--store'\n"), "{row}");
+            assert!(
+                row.contains(&format!("      - '{}'\n", staged.store_path().display())),
+                "{row}"
+            );
+            assert_eq!(staged.reference(), "refs/heads/slice");
+            assert!(staged
+                .store_path()
+                .join("objects/info/alternates")
+                .is_file());
+            // The mask beside it is a real empty file, so every command
+            // masks the per-worktree config with something git can read
+            // and nothing can fill.
+            assert!(row.contains("      - '--trusted'\n"), "{row}");
+            assert_eq!(
+                std::fs::metadata(staged.trusted_path().join("config-mask"))
+                    .unwrap()
+                    .len(),
+                0
+            );
+            assert!(row.contains("      - '--git-dir'\n"), "{row}");
+            assert!(row.contains("      - '--common-dir'\n"), "{row}");
+            assert!(
+                row.contains(worktree.to_string_lossy().as_ref()),
+                "the row names the session workspace: {row}"
+            );
+            // The bubblewrap the driver probed travels as an absolute
+            // path, so the runner never searches PATH again.
+            assert!(row.contains("      - '--bwrap'\n"), "{row}");
+            let bwrap = crate::hands::require_bwrap().expect("a usable bwrap was probed");
+            let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
+            assert!(
+                row.contains(&format!("      - '{}'\n", bwrap.display())),
+                "{row}"
+            );
+        }
+        Ok(None) => panic!("a linked worktree must need the scoped runner"),
+        Err(problem) => {
+            // This host has no usable bubblewrap: the refusal says so
+            // instead of starting a seat that cannot commit.
+            assert!(
+                problem.contains("bubblewrap") || problem.contains("no `bwrap` on PATH"),
+                "{problem}"
+            );
+        }
+    }
+
+    // The borrowed back-pointer, refused at the FIRST gate: a workspace
+    // whose own `.git` is a symlink to the real worktree's, and then a
+    // plain copy of the same file. Git resolves the worktree's real
+    // metadata for both, and the driver refuses before the seat starts
+    // rather than writing a row that binds another worktree's objects
+    // and refs read-write (decision 0054 ruling 3).
+    let alias = dir.path().join("alias");
+    std::fs::create_dir_all(&alias).unwrap();
+    std::os::unix::fs::symlink(worktree.join(".git"), alias.join(".git")).unwrap();
+    let alias_facts = crate::hands::git_facts(&alias);
+    assert_eq!(
+        std::fs::canonicalize(alias_facts.common_dir.clone().unwrap()).unwrap(),
+        std::fs::canonicalize(facts.common_dir.clone().unwrap()).unwrap(),
+        "git really does resolve the victim's metadata through the alias"
+    );
+    let refused =
+        dsh_sandbox_row_for(alias.to_str().unwrap(), &alias_facts, "workspace-write").unwrap_err();
+    assert!(refused.starts_with("dsh driver: "), "{refused}");
+    assert!(refused.contains("symbolic link"), "{refused}");
+    std::fs::remove_file(alias.join(".git")).unwrap();
+    std::fs::copy(worktree.join(".git"), alias.join(".git")).unwrap();
+    let refused =
+        dsh_sandbox_row_for(alias.to_str().unwrap(), &alias_facts, "workspace-write").unwrap_err();
+    assert!(refused.contains("another worktree's metadata"), "{refused}");
+}
+
+/// The gpgsign triple and the host identity reach the dsh child, so a
+/// seat's commit is unsigned and attributed to the operator.
+#[cfg(unix)]
+#[test]
+fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.name", "Host Operator"],
+        vec!["config", "user.email", "host@example.invalid"],
+    ] {
+        let out = Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+    let dump = dir.path().join("env");
+    let fake = executable(
+        dir.path(),
+        "dsh",
+        &format!("#!/bin/sh\nenv > {}\n", dump.display()),
+    );
+    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+
+    invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": repo}),
+        None,
+        &[],
+        &mut |_| {},
+    )
+    .unwrap();
+
+    match prior_bin {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+
+    let seen = std::fs::read_to_string(&dump).unwrap();
+    assert!(seen.contains("GIT_CONFIG_COUNT=1"), "{seen}");
+    assert!(seen.contains("GIT_CONFIG_KEY_0=commit.gpgsign"), "{seen}");
+    assert!(seen.contains("GIT_CONFIG_VALUE_0=false"), "{seen}");
+    assert!(seen.contains("GIT_AUTHOR_NAME=Host Operator"), "{seen}");
+    assert!(
+        seen.contains("GIT_COMMITTER_EMAIL=host@example.invalid"),
+        "{seen}"
+    );
+}
+
+/// The whole driver hand-off on a real linked worktree, without a model
+/// loop and without a namespace: the driver stages the private common
+/// directory, names it in the `--patch` row, and — after the child exits
+/// — promotes the one branch the worktree owns out of it. The fake `dsh`
+/// reads the store's path out of the row the driver wrote, exactly as the
+/// runner would, and commits through it.
+#[cfg(unix)]
+#[test]
+fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "user.name", "Host Operator"]);
+    git(&main, &["config", "user.email", "host@example.invalid"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "--no-gpg-sign", "-m", "base"]);
+    let worktree = dir.path().join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "slice",
+        ],
+    );
+    git(&main, &["branch", "sibling"]);
+    let base = git(&main, &["rev-parse", "HEAD"]);
+    let git_dir = crate::hands::git_facts(&worktree).git_dir.unwrap();
+
+    // The fake dsh does what the runner's mount does: it points the
+    // worktree's `commondir` at the private store the row names, commits,
+    // and puts the pointer back. It also moves a sibling's branch, which
+    // then lives only in the store.
+    let fake = executable(
+        dir.path(),
+        "dsh",
+        &format!(
+            "#!/bin/sh\nset -e\nprev=\"\"\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"--patch\" ]; then patch=\"$a\"; fi\n  prev=\"$a\"\ndone\n\
+             store=$(grep -A 1 -e '--store' \"$patch\" | tail -n 1 | sed -e \"s/^ *- '//\" -e \"s/'$//\")\n\
+             real=$(cat '{gitdir}/commondir')\nprintf '%s\\n' \"$store\" > '{gitdir}/commondir'\n\
+             echo boxed > b.txt\ngit add b.txt\ngit commit -q -m 'seat commit'\n\
+             git update-ref refs/heads/sibling HEAD\n\
+             printf '%s\\n' \"$real\" > '{gitdir}/commondir'\nexit 0\n",
+            gitdir = git_dir.display()
+        ),
+    );
+    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("BROKKR_DSH_BIN", &fake);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+    std::env::set_var("DSH_PERMISSION_MODE", "workspace-write");
+
+    let run = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": worktree}),
+        None,
+        &[],
+        &mut |_| {},
+    );
+
+    // A seat that committed nothing — a verify or review seat reusing the
+    // same worktree — leaves the branch where it was and says nothing.
+    let idle = executable(dir.path(), "idle-dsh", "#!/bin/sh\nexit 0\n");
+    std::env::set_var("BROKKR_DSH_BIN", &idle);
+    let quiet = invoke(
+        AdapterKind::Dsh,
+        &[],
+        "p",
+        &json!({"workdir": worktree}),
+        None,
+        &[],
+        &mut |_| {},
+    );
+
+    match prior_bin {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+    std::env::remove_var("DSH_PERMISSION_MODE");
+
+    match run {
+        Ok(run) => {
+            // The seat's branch came out of the private store; the
+            // sibling's branch stayed in it and went away with it.
+            let promoted = git(&worktree, &["rev-parse", "HEAD"]);
+            assert_ne!(promoted, base);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/slice"]), promoted);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/sibling"]), base);
+            assert_eq!(git(&worktree, &["log", "-1", "--format=%s"]), "seat commit");
+            assert!(
+                run.stderr
+                    .contains("promoted the seat's commits to refs/heads/slice"),
+                "the seat's stderr names the ref that moved: {}",
+                run.stderr
+            );
+            let quiet = quiet.unwrap();
+            assert!(!quiet.stderr.contains("promoted"), "{}", quiet.stderr);
+            assert_eq!(git(&main, &["rev-parse", "refs/heads/slice"]), promoted);
+        }
+        Err(problem) => {
+            // No usable bubblewrap here: the driver refuses at seat start
+            // rather than running a seat that cannot deliver.
+            assert!(
+                problem.contains("bubblewrap") || problem.contains("bwrap"),
+                "{problem}"
+            );
+        }
+    }
 }
 
 #[test]
