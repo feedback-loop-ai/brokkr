@@ -49,7 +49,9 @@
 //! git directories, the bubblewrap the driver probed, and the empty file
 //! the driver staged as a config mask. The runner executes that absolute
 //! bubblewrap itself; it never searches `PATH` for one, so the boundary
-//! is the binary the driver measured.
+//! is the binary the driver measured, and it refuses a mask the profile
+//! it was handed would let the box write, so the mask's read-only-ness
+//! is measured against that profile rather than believed of it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -91,8 +93,9 @@ pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
     }
     let mut argv = vec![paths.bwrap.to_string_lossy().into_owned()];
     argv.extend(profile.iter().cloned());
-    if workspace_writable(profile, &scope.workspace) {
-        argv.extend(scoped_git_binds(&scope, &paths.mask)?);
+    let binds = writable_binds(profile);
+    if workspace_writable(&binds, &scope.workspace) {
+        argv.extend(scoped_git_binds(&scope, &paths.mask, &binds)?);
     }
     argv.push("--".to_string());
     argv.extend(command.iter().cloned());
@@ -173,24 +176,39 @@ fn split_profile(rest: &[String]) -> Result<(&[String], &[String]), String> {
     Ok((&rest[..split], &rest[split + 1..]))
 }
 
-/// True when the profile binds the session workspace read-write, which
-/// is what `workspace-write` means to the provider. A `read-only`
-/// profile carries no such bind, and the runner then adds nothing.
-fn workspace_writable(profile: &[String], workspace: &Path) -> bool {
+/// Every read-write bind in the profile the runner was handed, as
+/// (source, destination). Two questions are answered from this one
+/// reading of the argv it was actually given, rather than from what a
+/// dsh version's `bwrapProfileArgs` is expected to emit: which grant
+/// makes this a `workspace-write` seat, and which host paths the box can
+/// WRITE — every source here, because a read-write bind lets the box
+/// write the host file under it through the destination it is mounted
+/// at.
+fn writable_binds(profile: &[String]) -> Vec<(&Path, &Path)> {
+    let mut binds = Vec::new();
     let mut index = 0;
     while index + 2 < profile.len() {
         if matches!(profile[index].as_str(), "--bind" | "--bind-try") {
-            let source = Path::new(&profile[index + 1]);
-            let destination = Path::new(&profile[index + 2]);
-            if source == destination && same_path(source, workspace) {
-                return true;
-            }
+            binds.push((
+                Path::new(&profile[index + 1]),
+                Path::new(&profile[index + 2]),
+            ));
             index += 3;
         } else {
             index += 1;
         }
     }
-    false
+    binds
+}
+
+/// True when the profile binds the session workspace read-write at its
+/// own path, which is what `workspace-write` means to the provider. A
+/// `read-only` profile carries no such bind, and the runner then adds
+/// nothing.
+fn workspace_writable(binds: &[(&Path, &Path)], workspace: &Path) -> bool {
+    binds
+        .iter()
+        .any(|(source, destination)| source == destination && same_path(source, workspace))
 }
 
 /// Path identity for the bind check: resolved where both resolve, so a
@@ -368,10 +386,18 @@ fn recorded_worktree(scope: &GitScope) -> Option<PathBuf> {
 
 /// Why the staged mask file cannot stand in for the per-worktree
 /// `config` and `config.worktree`, or `None`. It must be a real, empty,
-/// regular file the seat cannot reach: a bind is only as read-only as
-/// its SOURCE is unreachable, and a mask source inside the writable
-/// workspace would let the box fill the file it is being masked with.
-fn mask_refusal(mask: &Path, workspace: &Path) -> Option<String> {
+/// regular file the box cannot WRITE: a bind is only as read-only as its
+/// source is unreachable, and a mask the box can fill through its source
+/// path is a config the box wrote, whatever the mount over it says.
+///
+/// Which paths the box can write is read from the profile the runner was
+/// handed — the source of every read-write bind in it — plus the
+/// read-write set this runner is about to add itself. The seat's own
+/// workspace is one of those profile sources, so it needs no separate
+/// arm; naming the whole set is what keeps the answer from resting on a
+/// belief about a dsh version's profile, such as `/tmp` being replaced
+/// by a fresh tmpfs.
+fn mask_refusal(mask: &Path, scope: &GitScope, binds: &[(&Path, &Path)]) -> Option<String> {
     let problem = match std::fs::symlink_metadata(mask) {
         Err(error) => format!("cannot be read ({error})"),
         Ok(meta) if !meta.file_type().is_file() => {
@@ -385,12 +411,19 @@ fn mask_refusal(mask: &Path, workspace: &Path) -> Option<String> {
                 .to_string()
         }
         Ok(meta) if meta.len() != 0 => format!("is not empty ({} bytes)", meta.len()),
-        Ok(_) if within(mask, workspace) => {
-            "lies inside the seat's own writable workspace, where a boxed command could fill \
-             the very file the mask stands for"
-                .to_string()
+        Ok(_) => {
+            // Nothing the box can write covers the mask: it is a mask.
+            let root = binds
+                .iter()
+                .map(|(source, _)| *source)
+                .chain([scope.git_dir.as_path(), scope.common_dir.as_path()])
+                .find(|root| within(mask, root))?;
+            format!(
+                "lies under {}, which this seat's box can write, so a boxed command could fill \
+                 the very file the mask stands for",
+                root.display()
+            )
         }
-        Ok(_) => return None,
     };
     Some(format!("the config mask {} {problem}", mask.display()))
 }
@@ -398,7 +431,11 @@ fn mask_refusal(mask: &Path, workspace: &Path) -> Option<String> {
 /// The scoped write set, in mount order: later binds sit over earlier
 /// ones, so a mask always follows the bind it hides. Refuses a scope
 /// that [`scope_refusal`] rejects rather than mounting it wider.
-fn scoped_git_binds(scope: &GitScope, mask_source: &Path) -> Result<Vec<String>, String> {
+fn scoped_git_binds(
+    scope: &GitScope,
+    mask_source: &Path,
+    binds: &[(&Path, &Path)],
+) -> Result<Vec<String>, String> {
     // A primary checkout keeps its whole git directory under the
     // workspace the provider already made writable: nothing to add.
     if scope.common_dir.starts_with(&scope.workspace) {
@@ -407,7 +444,7 @@ fn scoped_git_binds(scope: &GitScope, mask_source: &Path) -> Result<Vec<String>,
     if let Some(problem) = scope_refusal(scope) {
         return Err(problem);
     }
-    if let Some(problem) = mask_refusal(mask_source, &scope.workspace) {
+    if let Some(problem) = mask_refusal(mask_source, scope, binds) {
         return Err(problem);
     }
     let mut argv = Vec::new();
@@ -482,9 +519,10 @@ fn mask(argv: &mut Vec<String>, source: &Path, path: &Path) {
 /// Stage the empty regular file the runner masks a linked worktree's
 /// per-worktree `config` and `config.worktree` with. The driver holds it
 /// for the seat's whole life and names it in the runner's argv, so every
-/// command in the seat masks with a file no boxed command can reach: it
-/// lives outside the session workspace, and the seat's own `/tmp` is a
-/// fresh tmpfs of dsh's making.
+/// command in the seat masks with the same file. Where it lands is the
+/// host's temporary directory; whether the box can WRITE it there is not
+/// assumed from dsh's profile but measured against that profile on every
+/// command, and a reachable mask is refused ([`mask_refusal`]).
 pub fn stage_mask_file() -> Result<tempfile::NamedTempFile, String> {
     stage_mask_file_in(|| {
         tempfile::Builder::new()

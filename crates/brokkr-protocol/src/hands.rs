@@ -511,6 +511,17 @@ pub fn box_argv(
     // on its next git invocation. The per-worktree directory lies under
     // the shared one for a linked worktree, so binding the common
     // directory covers both.
+    //
+    // KNOWN OPEN, and wider than the harness runner beside it: binding
+    // the whole common directory read-write leaves every worktree's
+    // `config.worktree`, `commondir` and `gitdir` writable, so in a
+    // repository carrying `extensions.worktreeConfig` a boxed command can
+    // write `<common>/worktrees/<name>/config.worktree` and the host's
+    // next `git` there honours a `core.hooksPath` the box chose. The
+    // scoped dsh runner closes that for the harness sandbox
+    // (`dsh_sandbox`, decision 0054); narrowing THIS write set is a
+    // change under decision 0043 and takes its own number — see 0054's
+    // consequences, which record it rather than fixing it silently.
     if let Some(common) = &git.common_dir {
         if !common.starts_with(workdir) {
             argv.extend([s("--bind"), host_path(common), namespace_path(common)]);

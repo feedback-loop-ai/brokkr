@@ -193,9 +193,21 @@ Alternatives weighed:
    every git command in the seat, in exactly the repositories the mask
    exists for. The driver holds the staged file for the seat's whole
    life and names it in the runner's argv; the runner refuses a mask that
-   is missing, is not a regular file, is not empty, or lies inside the
-   seat's own writable workspace, because a bind is only as read-only as
-   its source is unreachable.
+   is missing, is not a regular file, is not empty, or is WRITABLE from
+   inside the box, because a bind is only as read-only as its source is
+   unreachable.
+
+   **Which paths the box can write is measured from the profile, not
+   assumed of it.** The runner refuses a mask lying under the source of
+   any `--bind` / `--bind-try` in the argv it was handed — the seat's
+   workspace is one of those, so it needs no rule of its own — and under
+   the read-write set the runner itself adds. The staged file lands in
+   the host's temporary directory, which dsh 0.1.2-rc.1 replaces with a
+   fresh tmpfs inside the box; but `writableRoots` is documented as the
+   workspace PLUS the platform temp areas, so a provider version that
+   ever bound one of them read-write would hand the box a path to the
+   mask's source. Reading the profile is what keeps that from becoming a
+   silent widening: the run refuses instead.
 
    The runner's own flags (`--workspace`, `--git-dir`, `--common-dir`,
    `--bwrap`, `--mask`) are the driver's trusted paths, and a profile
@@ -204,14 +216,15 @@ Alternatives weighed:
    workspace bind (a `read-only` seat) gets no added bind.
 
    **Enforcement binding:** `brokkr-protocol::dsh_sandbox`
-   (`runner_argv`, `scope_refusal`, `mask_refusal`, `scoped_git_binds`,
-   `stage_mask_file`, `sandbox_row`); the `--patch` row
-   `dsh_seat_overlay_with` composes; `brokkr dsh-sandbox-runner`
-   dispatched before clap in `brokkr-cli`; unit tests over the argv, the
-   row, every refusal arm, and a behavioral test that stages and commits
-   in a real linked worktree under dsh's real bwrap profile, rooted
-   outside the profile's `/tmp` tmpfs and asserting the host's bytes
-   back.
+   (`runner_argv`, `scope_refusal`, `mask_refusal`, `writable_binds`,
+   `scoped_git_binds`, `stage_mask_file`, `sandbox_row`); the `--patch` row `dsh_seat_overlay_with` composes;
+   `brokkr dsh-sandbox-runner` dispatched before clap in `brokkr-cli`;
+   unit tests over the argv, the row, every refusal arm — including a
+   mask a read-write bind in the profile, or the runner's own write set,
+   would reach — and a behavioral test that stages and commits in a real
+   linked worktree under dsh's real bwrap profile, rooted outside the
+   profile's `/tmp` tmpfs, writing to the mask's source path from inside
+   the box and asserting the host's bytes back.
 
 5. **Unsupported hosts refuse at seat start, not at commit time, and the
    runner execs the bubblewrap the driver probed.** A host that is not
@@ -278,7 +291,7 @@ workspace and nothing outside it. What it may try, and what stops it:
 | Reach a repository through a symlinked alias so the paths compare unequal | Every comparison resolves symlinks before comparing — but never a path the seat owns against a path the seat owns (see the two rows above) |
 | Rewrite `commondir` or `gitdir` from inside the box, so the HOST's next `git` reads a config the box wrote | Both bound read-only and hard: write is `EROFS`, unlink and rename over the mount point are `EBUSY` |
 | Create `config.worktree` so `extensions.worktreeConfig` makes the host honour a `core.hooksPath` the box chose | Masked with an empty read-only regular file, whether or not the host file exists |
-| Fill the mask itself through its source path | The source is staged outside the workspace and refused if it is inside one; dsh's own profile replaces `/tmp` with a fresh tmpfs, so the box has no path to it |
+| Fill the mask itself through its source path | The runner refuses a mask under the source of ANY read-write bind in the profile it was handed, and under its own scoped write set, so the answer is measured per command rather than resting on dsh's `/tmp` being a fresh tmpfs — which it is on 0.1.2-rc.1, proved by the box writing to the source path while the host's file reads back empty |
 | Plant a hook the host later runs | `hooks` is an empty tmpfs, per-worktree and shared |
 | Write a sibling worktree's checkout, index or `HEAD` | Nothing under `<common>/worktrees/<other>` is bound, and the sibling's checkout directory is not in the write set |
 | Write the parent checkout, or any credential path | Neither is bound; the profile's root is read-only |
@@ -315,6 +328,15 @@ workspace and nothing outside it. What it may try, and what stops it:
   does mean a seat can leave a worktree unusable for its successors. The
   remedy is `git worktree repair`, and the refusal arrives before an
   implementation is spent rather than after it.
+
+  **What that refusal protects is the next SEAT, not a host `git` run in
+  the same worktree.** Every work boundary gives a seat its own worktree
+  to write, `.git` file included, so a host command run there afterwards
+  follows whatever that file names — a residual of handing a model a
+  worktree at all, not of this runner's binds, and the same under the
+  namespace boundary. It is named here because the checks above could be
+  misread as covering it: they gate what the RUNNER mounts, and a host
+  invocation goes nowhere near them.
 - **The masks create empty files on the host when they were absent.**
   Bubblewrap creates the mount point for a missing destination; the box
   sees an empty read-only file, and the host file stays empty. The
@@ -343,6 +365,11 @@ workspace and nothing outside it. What it may try, and what stops it:
   harness-owned sandbox, so it is recorded as a known-open path in the
   sibling module rather than silently fixed: tightening the namespace
   box is a change under 0043, with its own issue and its own number.
+  **The record now lives at the code, not only here** — `box_argv`'s
+  ruling-6 block carries a `KNOWN OPEN` note naming the path, so a reader
+  of the write set meets it there. Filing the issue is the operator's:
+  this seat cannot open one, and a seat that could should not, since the
+  fix is a ruling under 0043 rather than a patch under this number.
 
 ## The question this decision asks
 

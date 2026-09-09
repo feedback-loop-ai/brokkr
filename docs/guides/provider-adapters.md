@@ -253,7 +253,11 @@ the worktree's `commondir` and `gitdir` read-only, so a boxed command can
 neither write a program the host later runs nor redirect git at a
 `config` it wrote. The mask source is a real empty file the driver
 stages, never `/dev/null`: bubblewrap binds a source with `MS_NODEV`, and
-a device node the box cannot open makes git call every command fatal.
+a device node the box cannot open makes git call every command fatal. A
+mask is only a mask while the box cannot WRITE its source, and the runner
+measures that from the profile it was handed rather than assuming it: a
+mask lying under any `--bind`/`--bind-try` source in that profile, or
+under the runner's own write set, refuses the command.
 
 **One layout is served, and it is proved.** Git resolves both directories
 by following the workspace's own `.git` file — a file the model can write
@@ -286,7 +290,10 @@ DIRECTORY and every sibling's per-worktree metadata (`HEAD`, `index`,
 commit must write `refs`, `logs` and `packed-refs`, so a seat can move a
 branch a sibling worktree has checked out. That residual is inherent to
 sharing a ref store through a kernel bind and is recorded in decision
-0054's threat model.
+0054's threat model. The checks gate what the runner MOUNTS for a seat: a
+seat still owns its own worktree, `.git` file included, so a host `git`
+run in a worktree a model has written follows whatever that file names —
+true of every work boundary, named in 0054's consequences.
 
 The driver also passes the absolute `bwrap` it probed and the staged mask
 as trusted argv paths, and the runner execs that binary rather than

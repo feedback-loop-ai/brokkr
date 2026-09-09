@@ -575,7 +575,7 @@ fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
 }
 
 /// The mask is only a mask while its SOURCE is an empty regular file the
-/// box cannot reach. Every way that can fail is refused rather than
+/// box cannot write. Every way that can fail is refused rather than
 /// mounted, because each one turns the mask into something else: an
 /// unreadable path git calls fatal, a config the box can fill, or a
 /// config with content nobody wrote.
@@ -616,14 +616,89 @@ fn a_mask_that_is_not_an_unreachable_empty_regular_file_is_refused() {
     assert!(refused.contains("is not empty"), "{refused}");
 
     // Inside the seat's own writable workspace, a boxed command could fill
-    // the very file the mask stands for.
+    // the very file the mask stands for. The workspace is refused because
+    // the PROFILE binds it read-write, not because it is spelled
+    // `--workspace`: the refusal names the bind it read.
     let inside = layout.scope.workspace.join("mask");
     std::fs::write(&inside, "").unwrap();
     let refused = refuse(&inside);
+    assert!(refused.contains("this seat's box can write"), "{refused}");
     assert!(
-        refused.contains("inside the seat's own writable"),
+        refused.contains(&layout.scope.workspace.display().to_string()),
         "{refused}"
     );
+}
+
+/// A mask staged outside the workspace is only unreachable while the
+/// profile keeps it so. dsh 0.1.2-rc.1 replaces `/tmp` with a fresh
+/// tmpfs, which is why the host's temporary directory is where the
+/// driver stages the file — but `writableRoots` is documented as the
+/// workspace PLUS the platform temp areas, so a later provider that
+/// binds one of them read-write would hand the box a path to the mask's
+/// source. The runner reads the profile it was actually given rather
+/// than trusting that shape: any read-write bind covering the mask
+/// refuses the command, and the scoped write set the runner adds itself
+/// refuses it too.
+#[test]
+fn a_mask_the_profile_would_let_the_box_write_is_refused() {
+    let layout = Layout::linked();
+    let staged = layout.dir.path().join("staged-mask");
+    std::fs::write(&staged, "").unwrap();
+    let refuse_with = |profile: &[String], mask: &Path| {
+        runner_argv(&runner_args_for(
+            Path::new(BWRAP),
+            &layout.scope,
+            mask,
+            profile,
+            &["true"],
+        ))
+    };
+
+    // The profile dsh composes today leaves it alone.
+    let plain = dsh_workspace_write_profile(&layout.scope.workspace);
+    assert!(refuse_with(&plain, &staged).is_ok());
+
+    // A profile that also binds the directory the mask was staged in —
+    // the temp-area case — makes the mask a file the box can fill, at
+    // either spelling of the bind and wherever it is mounted.
+    for (flag, destination) in [
+        ("--bind", layout.dir.path().display().to_string()),
+        ("--bind-try", layout.dir.path().display().to_string()),
+        ("--bind", "/elsewhere".to_string()),
+    ] {
+        let mut profile = plain.clone();
+        profile.extend([
+            flag.to_string(),
+            layout.dir.path().display().to_string(),
+            destination.clone(),
+        ]);
+        let refused = refuse_with(&profile, &staged).unwrap_err();
+        assert!(refused.contains("this seat's box can write"), "{refused}");
+        assert!(
+            refused.contains(&layout.dir.path().display().to_string()),
+            "{flag} {destination}: {refused}"
+        );
+    }
+
+    // A read-only bind of the same directory is not a way to write it.
+    let mut read_only = plain.clone();
+    read_only.extend([
+        "--ro-bind".to_string(),
+        layout.dir.path().display().to_string(),
+        layout.dir.path().display().to_string(),
+    ]);
+    assert!(refuse_with(&read_only, &staged).is_ok());
+
+    // The runner's OWN write set counts as well: the per-worktree git
+    // directory and the shared one are read-write for the commit, so a
+    // mask staged under either is a mask the box can fill.
+    for root in [&layout.scope.git_dir, &layout.scope.common_dir] {
+        let inside = root.join("staged-mask");
+        std::fs::write(&inside, "").unwrap();
+        let refused = refuse_with(&plain, &inside).unwrap_err();
+        assert!(refused.contains("this seat's box can write"), "{refused}");
+        std::fs::remove_file(&inside).unwrap();
+    }
 }
 
 #[test]
@@ -832,8 +907,14 @@ fn the_staged_mask_is_an_empty_regular_file() {
     let meta = std::fs::metadata(mask.path()).unwrap();
     assert!(meta.is_file());
     assert_eq!(meta.len(), 0);
-    // It is what the runner's own check accepts, from outside any workspace.
-    assert!(mask_refusal(mask.path(), Path::new("/no/such/workspace")).is_none());
+    // It is what the runner's own check accepts, under a scope and a
+    // profile that reach none of it.
+    let scope = GitScope {
+        workspace: PathBuf::from("/no/such/workspace"),
+        git_dir: PathBuf::from("/no/such/main/.git/worktrees/wt"),
+        common_dir: PathBuf::from("/no/such/main/.git"),
+    };
+    assert!(mask_refusal(mask.path(), &scope, &[]).is_none());
 
     let refused = stage_mask_file_in(|| {
         Err(std::io::Error::new(
@@ -1014,6 +1095,7 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
          echo evil > '{worktree_config}' 2>/dev/null || true\n\
          echo evil > '{worktree_plain_config}' 2>/dev/null || true\n\
          if echo evil > '{sibling_config}' 2>/dev/null; then echo SIBLING_CONFIG_WRITABLE; else echo SIBLING_CONFIG_READONLY; fi\n\
+         echo evil > '{mask_source}' 2>/dev/null || true\n\
          echo evil > '{scratch}'\n\
          if mv '{scratch}' '{commondir}' 2>/dev/null; then echo COMMONDIR_REPLACED; else echo COMMONDIR_INTACT; fi\n\
          rm -f '{scratch}'\n\
@@ -1026,6 +1108,7 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         sibling_index = main.join(".git/worktrees/sibling/HEAD").display(),
         hook = main.join(".git/hooks/post-checkout").display(),
         common = main.join(".git").display(),
+        mask_source = config_mask.path().display(),
         scratch = git_dir.join("probe-scratch").display(),
         commondir = commondir_file.display(),
         gitdir = gitdir_file.display(),
@@ -1102,6 +1185,12 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         let seen = std::fs::read_to_string(git_dir.join(masked)).unwrap_or_default();
         assert!(seen.is_empty(), "{masked}: {seen}");
     }
+    // The box tried to fill the mask through its SOURCE path, and the
+    // host's file is still the empty one the driver staged: under dsh's
+    // own profile that path lands in the box's fresh `/tmp` tmpfs and
+    // reaches nothing. That is a property of the profile rather than of
+    // the runner, which is why the runner also refuses a mask any bind in
+    // the profile it is handed would make writable.
     assert_eq!(std::fs::metadata(config_mask.path()).unwrap().len(), 0);
     assert!(
         !std::fs::read_to_string(main.join(".git/worktrees/sibling/config.worktree"))
