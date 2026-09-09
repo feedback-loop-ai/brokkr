@@ -99,10 +99,25 @@ const AUTHORED_CHARTERS: [&str; 6] = [
 /// strategy-selected seats land. Decision 0044 ruling 4 seats the
 /// researcher: the one office that reads the field and holds the fetch
 /// grant, authored here like muninn and triage.
-const AGENTS: [&str; 20] = [
+const AGENTS: [&str; 35] = [
     "analyst",
     "chief-architect",
     "clarifier",
+    "gpt-flash-analyst",
+    "gpt-flash-chief-architect",
+    "gpt-flash-clarifier",
+    "gpt-flash-implementer",
+    "gpt-flash-implementer-engine",
+    "gpt-flash-implementer-sdd",
+    "gpt-flash-position-robustness",
+    "gpt-flash-position-simplicity",
+    "gpt-flash-review-adversarial",
+    "gpt-flash-review-chief",
+    "gpt-flash-review-correctness",
+    "gpt-flash-review-security",
+    "gpt-flash-review-spec-compliance",
+    "gpt-flash-task-planner",
+    "gpt-flash-triage",
     "implementer",
     "implementer-engine",
     "implementer-sdd",
@@ -208,7 +223,8 @@ fn every_shipped_agent_resolves_at_compile_time() {
             resolution.notices.is_empty(),
             "{name} ships with no capability gap"
         );
-        if name == "muninn" {
+        // The GPT/Flash recipe deliberately pins one model per office.
+        if name == "muninn" || name.starts_with("gpt-flash-") {
             assert_eq!(resolution.candidates.len(), 1);
         } else {
             assert!(
