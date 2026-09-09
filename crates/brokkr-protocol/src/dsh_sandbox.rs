@@ -288,7 +288,9 @@ struct ProfileFlag {
 /// its source is a file descriptor the runner cannot turn back into a
 /// host path, so it cannot answer whether the staged files are reachable
 /// through it. An option this runner cannot MEASURE is refused for the
-/// same reason as one whose arity it does not know.
+/// same reason as one whose arity it does not know. `--args FD` is also
+/// absent: it hides further options, including writable binds, in an
+/// opaque descriptor that this scan cannot inspect.
 fn profile_flag(flag: &str) -> Option<ProfileFlag> {
     let plain = |arity| Some(ProfileFlag { arity, writes: &[] });
     match flag {
@@ -311,12 +313,12 @@ fn profile_flag(flag: &str) -> Option<ProfileFlag> {
         | "--as-pid-1"
         | "--disable-userns"
         | "--assert-userns-disabled" => plain(0),
-        "--args" | "--argv0" | "--userns" | "--userns2" | "--pidns" | "--uid" | "--gid"
-        | "--hostname" | "--chdir" | "--unsetenv" | "--lock-file" | "--sync-fd"
-        | "--remount-ro" | "--exec-label" | "--file-label" | "--proc" | "--dev" | "--tmpfs"
-        | "--mqueue" | "--dir" | "--seccomp" | "--add-seccomp-fd" | "--block-fd"
-        | "--userns-block-fd" | "--info-fd" | "--json-status-fd" | "--cap-add" | "--cap-drop"
-        | "--perms" | "--size" | "--overlay-src" | "--tmp-overlay" | "--ro-overlay" => plain(1),
+        "--argv0" | "--userns" | "--userns2" | "--pidns" | "--uid" | "--gid" | "--hostname"
+        | "--chdir" | "--unsetenv" | "--lock-file" | "--sync-fd" | "--remount-ro"
+        | "--exec-label" | "--file-label" | "--proc" | "--dev" | "--tmpfs" | "--mqueue"
+        | "--dir" | "--seccomp" | "--add-seccomp-fd" | "--block-fd" | "--userns-block-fd"
+        | "--info-fd" | "--json-status-fd" | "--cap-add" | "--cap-drop" | "--perms" | "--size"
+        | "--overlay-src" | "--tmp-overlay" | "--ro-overlay" => plain(1),
         "--setenv" | "--ro-bind" | "--ro-bind-try" | "--ro-bind-fd" | "--file" | "--bind-data"
         | "--ro-bind-data" | "--symlink" | "--chmod" => plain(2),
         "--bind" | "--bind-try" | "--dev-bind" | "--dev-bind-try" => Some(ProfileFlag {

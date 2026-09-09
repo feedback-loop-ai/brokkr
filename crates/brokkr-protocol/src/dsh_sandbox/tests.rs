@@ -434,7 +434,6 @@ fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
         ("--as-pid-1", 0, &[]),
         ("--disable-userns", 0, &[]),
         ("--assert-userns-disabled", 0, &[]),
-        ("--args", 1, &[]),
         ("--argv0", 1, &[]),
         ("--userns", 1, &[]),
         ("--userns2", 1, &[]),
@@ -510,6 +509,10 @@ fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
     // the staged files are reachable through it, so it refuses the
     // command instead of stepping over it.
     assert!(profile_flag("--bind-fd").is_none());
+    // Descriptor-sourced options can hide writable binds from the scan.
+    assert!(profile_flag("--args").is_none());
+    let hidden_options = ["--args", "3", "--bind", "/w", "/w"].map(str::to_string);
+    assert!(writable_binds(&hidden_options).is_err());
 
     // A read-write option the old scan did not know is now read as one,
     // and an option outside the table refuses rather than being skipped.

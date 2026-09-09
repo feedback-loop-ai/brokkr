@@ -308,7 +308,11 @@ seat's commits keeps the store and names its path and the branch to read
 it at: the promotion's own failures, and anything that goes wrong between
 the seat's last command and the promotion. Nothing sweeps a kept store
 afterwards — it holds the only copy of those commits — so deleting it is
-the operator's once the work is safe, and the refusal says so.
+the operator's once the work is safe, and the refusal says so. A fetch
+followed by a failed branch update or anchor deletion can also leave
+`refs/brokkr/dsh-promotion-<seat>` in the shared repository. After recovering
+its commits, remove that particular anchor with `git update-ref -d <ref>`;
+`git branch` and `git tag` do not list these anchors.
 
 A BARE parent repository is served: its `HEAD` is the branch a clone
 would follow rather than a checkout, `git worktree add` serves it, and
@@ -354,7 +358,8 @@ directory lies under any read-write bind in that profile (`--bind`,
 runner's own write set, the command refuses. Stepping over the rest of
 the profile needs each option's arity, so the runner carries a complete
 bubblewrap 0.11 table and refuses an option outside it rather than
-guessing — including `--bind-fd`, whose arity it knows and whose source
+guessing — including `--args`, which hides further options in a descriptor,
+and `--bind-fd`, whose arity it knows and whose source
 is a file descriptor it cannot turn back into a host path to measure.
 
 **One layout is served, and it is proved.** Git resolves both directories

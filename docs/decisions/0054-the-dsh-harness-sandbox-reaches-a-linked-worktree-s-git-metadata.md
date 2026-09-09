@@ -450,6 +450,8 @@ only what the store holds as a VALUE.
    exhaustively and an option outside it is a refusal rather than a skip.
    dsh 0.1.2-rc.1 emits seven of them.
 
+   `--args FD` is refused because descriptor-sourced options can hide
+   writable binds from this scan.
    `--bind-fd FD DEST` is read-write and is deliberately NOT in the
    table. Its arity is known, but its source is a file descriptor the
    runner cannot turn back into a host path, so it cannot measure whether
