@@ -1,3 +1,19 @@
+## Current operator disposition — 2026-09-09
+
+R1–R4 are ruled by the accepted
+[0046 addendum](../../../docs/decisions/0046-the-boundary-is-named.md#accepted-addendum--seatbelt-observables-and-proof-obligations).
+Private overlay snapshots with explicit locators and denied-read masks are
+permitted; no surviving payload remains mandatory; private Git hooks qualify
+only with independent write protection and native adversarial evidence.
+
+The operator explicitly requires demonstrated guarantees, with missing proof
+recorded as residuals. See [the evidence inventory](evidence-residuals.md).
+No native enforcement result is supplied by this acceptance. Seatbelt remains
+unbuilt. Reconcile the existing deltas to the accepted observables, then prove
+native descendant lifetime before proceeding with the full implementation.
+The upstream questions and returned-visit validation below are historical;
+they do not override the accepted addendum or represent new test results.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
