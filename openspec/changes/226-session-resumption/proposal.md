@@ -42,8 +42,11 @@ completed work needs a truthful task marker before the phase's final commit.
   charter, applying to both OpenSpec and spec-kit. Persist completed, locally
   verified task progress before the next group, independently of commits.
   Reconcile markers with surviving edits on recovery; pending work and
-  verification remain visibly pending. The non-SDD implementer is outside this
-  progress rule; dialects continue to own task paths and formats.
+  verification remain visibly pending. Complete every repository-local tracked
+  task while the change is active and keep exact-head controller evidence as a
+  mandatory handoff condition outside tracked checkboxes, so recording the
+  result cannot change the head it validates. The non-SDD implementer is outside
+  this progress rule; dialects continue to own task paths and formats.
 - Require proposed decision **0056**, with alternatives, numbered rulings and
   enforcement bindings, including progress timing. Its document and registry
   entry must precede production semantic changes; only the operator accepts it.
@@ -60,8 +63,9 @@ completed work needs a truthful task marker before the phase's final commit.
   provider handle validation and bounded refusal fallback.
 - `adapter-launch-evidence`: confirmed launch facts, refusal timing, privacy,
   compatibility and usage accounting.
-- `sdd-progress-markers`: durable mid-phase progress and honest recovery
-  without permitting judges to edit artifacts.
+- `sdd-progress-markers`: durable mid-phase progress, honest recovery and
+  exact-head handoff evidence that never requires judges or controllers to edit
+  an archived artifact.
 
 ### Modified Capabilities
 
@@ -188,9 +192,9 @@ are outside this change.
 
 ## Decisions
 
-These specification answers were recorded on 2026-09-09. Answers A-D are
-retained from the prior return; E-H answer every new finding in the second
-`clarify` return, incorporating the controller evidence above. Their observable
+These specification answers were recorded across the returns on 2026-09-09
+and 2026-09-10. Answers A–H remain settled; I adopts the same reopened change
+and is revised here with C to answer the latest clarification. Their observable
 answers are scenarios in the owning deltas. The council must carry these
 choices into `design.md` Decisions and the numbered rulings of proposed
 0056; this is not a claim of operator acceptance.
@@ -212,12 +216,21 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   authority to contradict fresh judging. A work-class council position or
   artifact author is still a work site; the compiled site class decides,
   never an office name or the presence of a later validator.
-- **C — Progress is standing behavior; delivery commands belong to the change.**
-  PM1 applies to each current change's dialect task artifact. PM4 retains
-  requirement coverage, truthful verification and frozen-fixture protection.
-  Run-specific commands, resource limits and controller responsibilities live
-  below and must become explicit tasks, not be archived into capability truth.
-  Decision 0042's one-way fold makes the old placement a specification fault.
+- **C — Progress is standing behavior; delivery particulars belong to the
+  change.** PM1 applies to each current change's dialect task artifact. PM4
+  retains requirement coverage, truthful verification, frozen-fixture
+  protection and the distinction between tracked repository-local work and
+  exact-head handoff evidence. Run-specific commands, resource limits and
+  repository-local responsibilities below become explicit tracked tasks. A
+  controller result whose subject is the immutable delivery commit or a later
+  integrated head remains mandatory, but is stated as a non-checkbox handoff
+  condition and recorded in the controller journal or evidence store keyed to
+  that head. Its absence blocks the corresponding delivery, publication or
+  closure claim; it does not leave an archived OpenSpec task unticked or cause a
+  post-commit artifact edit. Requiring every controller responsibility to be a
+  tracked task is rejected because exact-head proof would invalidate itself
+  when its checkbox changed. Decision 0042's one-way fold makes either hidden
+  standing commands or an unfinishable archived task a specification fault.
 - **D — The SDD office owns progress timing; the dialect owns its artifact.**
   PM3 places the rule once in `agents/charters/implementer-sdd.md`, with no
   framework paths in that charter, as 0042 ruling 6 requires. OpenSpec and
@@ -273,20 +286,40 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   as proof of existence. Proposed 0056 must state this ownership/existence rule;
   any new record representation must obey LE2's additive-version requirement.
 
-- **I — An unfinished delivery remains the same active change.** The
-  implementation commit archived `226-session-resumption` while ten required
-  tasks remained honestly unchecked. OpenSpec resolves `status`, `show` and
-  phase validation only in the active change namespace, so the returned
-  validator could not adopt the commissioned identifier even though the
-  archive and folded living specifications survived. This visit reopens that
-  same identifier; it does not author a competing change, repeat the already
-  completed capability fold or append duplicate provenance. The living
-  specifications remain the authoritative folded state. The surviving design,
-  task progress and implementation remain evidence for their owning phases,
-  and the change is archived again only after its remaining delivery
-  obligations are resolved. Treating the missing active directory as proof
-  that the change never existed is rejected because commit `75ae68e` records
-  both the fold and the premature archive.
+- **I — An unfinished delivery remains the same active change, and its final
+  archive uses the dialect operation once more.** The implementation commit
+  archived `226-session-resumption` while required repository-local tasks
+  remained honestly unchecked. OpenSpec resolves `status`, `show` and phase
+  validation only in the active namespace, so the returned validator could not
+  adopt the commissioned identifier even though the archive and folded living
+  specifications survived. Reopening that same identifier preserves the
+  surviving design, task progress, implementation and one provenance entry per
+  affected capability; it does not author a competing change.
+
+  Every tracked task and its final progress account is completed while the
+  change is active. The normal `openspec archive 226-session-resumption --yes`
+  operation is then the final artifact operation, followed only by read-only
+  archived verification and the delivery commit. On an already-folded,
+  task-only return whose deltas still equal living truth, the operation is
+  idempotent: it reports zero spec updates, moves the change, leaves living
+  capability bytes and the single provenance entries unchanged, and permits
+  archived all-ticked verification. A scratch probe of the inherited state
+  established exactly that behavior. Manual `git mv` is rejected because it
+  bypasses decision 0042's declared archive operation; `--skip-specs` is
+  rejected for this return because PM4 is now repaired at specification level
+  and OpenSpec reserves that option for changes without spec-level behavior.
+
+  This specify return therefore makes PM4 a complete `MODIFIED` requirement
+  while retaining the already-folded PM1–PM3 additions in the same delta. At
+  final archive the normal operation updates only PM4; the other requirements
+  and capabilities already equal living truth. The existing provenance pointer
+  is retained exactly once rather than appended again. Controller host coverage,
+  integration, remote CI, publication, merge and issue closure occur after the
+  immutable heads they judge exist and are recorded outside the task artifact.
+  Treating the missing active directory as proof that the change never existed,
+  omitting the PM4 fold, or appending duplicate provenance is rejected because
+  commit `75ae68e` records the first fold and this return records the later
+  requirement repair.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -303,9 +336,34 @@ version/fence, frozen-byte and historical-compatibility scenarios. Design D4,
 D10 and D11, task coverage, and archive/provenance obligations follow that
 amendment. Changing only downstream dispatch or deleting the tagged 0.9.0/0.9.1
 example is rejected: the former leaves contradictory requirements and the
-latter erases a historical fact that was never the conflict. The four adopted
-ADDED deltas, answers A–H and repairs F1–F6 retain their meaning. This is a
-specification amendment, not operator acceptance of proposed 0056.
+latter erases a historical fact that was never the conflict. The four originally adopted capability deltas, answers A–H and repairs
+F1–F6 retain their meaning. This is a specification amendment, not operator
+acceptance of proposed 0056.
+
+### F10 clarification return — exact-head evidence and the second archive
+
+Both returned questions are adopted as defects in the earlier F10 account.
+First, its claim that proposal answer C needed no amendment conflicted with
+PM4's blanket rule that unavailable external proof stays an unticked task.
+Answer C and PM4 now distinguish attainable pre-archive task evidence from
+mandatory exact-head controller evidence. The latter is explicit in the
+proposal and task prose but has no checkbox; its real result is recorded
+outside the repository artifact and still gates every delivery or closure claim.
+
+Second, answer I and Delivery obligations previously demanded both a manual
+no-fold move and a fresh five-capability fold with another provenance append.
+Neither is retained. OpenSpec probes provide the deciding evidence: the normal
+archive operation against an all-ticked copy of the inherited, already-folded
+change archived successfully with zero spec updates and unchanged living bytes;
+changing the still-`ADDED` PM4 then made the same operation refuse the duplicate
+requirement without changing files. The repaired delta therefore retains the
+three already-folded progress additions as additions and moves the changed PM4
+block under `MODIFIED Requirements`. The eventual normal archive can apply that
+one repair, no-op the identical deltas and retain the existing provenance lines
+once. `--skip-specs` would strand the repair, while a manual move would evade the
+dialect operation. The downstream design and task visits must replace both old
+instructions with this order; doing so here would cross the specification
+office's artifact wall.
 
 ## Delivery obligations
 
@@ -314,14 +372,21 @@ clarification, analysis, full implementation and specification review remain
 mandatory. Clarification answers belong in scenarios; analysis choices belong
 in design's `## Decisions`. Council positions require explicit reconciliation,
 and earlier artifact faults return upstream. The smith performs the normal
-archive/provenance operation as the final artifact task, folding all five
-capability deltas: four new capabilities and the modified `boundary-record`.
-Keep boundary-record’s existing provenance and append this change’s entry;
-validate the folded artifacts and bidirectional provenance before committing
-the complete delivery.
+archive operation as the final artifact task,
+after every tracked repository-local task and progress edit is complete while
+the change is active. Because the original archive already folded all five
+capabilities and recorded this change's provenance once, the returned archive
+reconciles the repaired PM4 `MODIFIED` requirement and treats every identical
+delta as a no-op. It retains the existing change provenance once in all five
+living capabilities and boundary-record's earlier provenance; it does not append
+another line. Strict archived validation and bidirectional provenance checks are
+read-only and precede the delivery commit.
 
 The smith's breakdown must carry these commission-specific obligations, with
-separate unchecked tasks for unavailable measurements and validation. Extend
+separate unchecked tasks for measurements and validation attainable before the
+final artifact operation. Exact delivery-head and integrated-head controller
+results are mandatory non-checkbox handoff conditions, recorded outside the
+tracked artifact after those heads exist. Extend
 the existing Rust protocol, adapter, runtime, conformance and instruction suites
 as applicable. Run the following with the commissioned limits:
 
@@ -503,3 +568,46 @@ clarification, design reconciliation, tasks/analysis, proposed decision 0056,
 implementation, verification and review remain delivery work. Source captures
 are still interface evidence only; no live resume, enforcement or accounting
 proof is claimed.
+
+## Current successor specify return — F10 clarification, 2026-09-10
+
+This visit adopts `226-session-resumption` and answers both ambiguities returned
+from clarify in their earliest owning specification artifacts. Proposal answers
+C and I, the Delivery obligations, and complete PM4 now separate tracked
+repository-local closure from mandatory exact-head controller evidence and
+select the normal archive operation for the returned fold. The other nineteen
+requirements, their scenarios, provider minimum, ownership, work/gate split,
+current-only accounting, v5 dispatch and answers A–H remain unchanged.
+
+- `openspec validate 226-session-resumption --strict --no-interactive` passes.
+  `openspec show 226-session-resumption --json --deltas-only` parses **20
+  requirements / 125 scenarios**: 18 ADDED and two MODIFIED requirements across
+  the same five capability deltas. PM4 is the only changed delta requirement;
+  its complete original scenarios remain and two archive scenarios are added.
+- An isolated probe copied the inherited active change and living truth, ticked
+  every task in the copy, and ran the normal archive operation. With inherited
+  deltas it archived and passed strict archived verification with zero spec
+  updates and byte-identical living capabilities. With repaired PM4 represented
+  as ADDED it refused the duplicate without changing files. With repaired PM4
+  represented as MODIFIED it archived, passed strict archived verification and
+  reported exactly one modified requirement; the other four living capability
+  files were byte-identical and every capability retained exactly one provenance
+  pointer for this change.
+- The selected operation is therefore `openspec archive
+  226-session-resumption --yes` after all tracked tasks are complete. A manual
+  move is not the dialect operation, and `--skip-specs` would omit this PM4
+  repair. Archived validation, the delivery commit and controller evidence
+  follow without editing the archived task artifact.
+- `openspec status --change 226-session-resumption --json` still reports the
+  proposal, specs, design and tasks present. The existing design and task
+  instructions are downstream artifacts and deliberately remain untouched by
+  this specify office; their phase visits must adopt answers C/I and PM4 before
+  implementation resumes. Current task truth remains 83 checked / 18 unchecked
+  across 101 tracked tasks.
+- `git diff --check` passes. Frozen contracts, policy, reference, fixtures,
+  living capabilities, production code and provider declarations are untouched.
+  `cargo fmt --all -- --check` was attempted with the commissioned job/thread
+  limits and exited 127 because `cargo` is absent from this boxed workspace;
+  no Rust validation is claimed by this specification visit. No archive,
+  workflow runner, provider probe, push or merge was performed against the real
+  change.

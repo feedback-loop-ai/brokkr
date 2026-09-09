@@ -129,6 +129,8 @@ not be represented as an automatic engine guarantee (decisions 0041 and 0042).
 - **WHEN** delivery exercises a temporary worktree with a completed group, recorded progress and interruption before commit
 - **THEN** the persisted artifact demonstrates PM1 and PM2's recovery behavior, and the evidence identifies the exercise and instruction checks without claiming a live model always obeys them
 
+## MODIFIED Requirements
+
 ### Requirement: PM4 Task completion does not stand in for delivery proof
 
 The breakdown SHALL link each task to the named requirement it serves, and
@@ -142,14 +144,33 @@ implementation check or completion obligation required by the selected dialect,
 recipe and realm house rules. Findings SHALL be resolved in their owning
 artifacts; a completed group or specification draft SHALL NOT claim that later
 phases have passed. A missing tool, failed check or skipped required check
-SHALL NOT count as passing evidence. A task dependent on unavailable external
-proof SHALL remain pending until that proof exists.
+SHALL NOT count as passing evidence. A tracked task whose required proof can be
+obtained before the final artifact operation SHALL remain pending until that
+proof exists.
+
+A mandatory external result whose subject is the immutable delivery commit or a
+later integrated head SHALL instead be explicit non-checkbox handoff evidence.
+It SHALL be recorded by the responsible controller in a journal or evidence
+store outside the tracked change artifact and keyed to the exact head it judges;
+recording the result SHALL NOT mutate that head. Until the real result exists,
+the corresponding host-validation, integration, publication, merge or closure
+claim SHALL remain pending. Its absence SHALL NOT leave an archived task
+unticked after every repository-local tracked obligation is complete.
+
+All tracked task and progress edits SHALL finish while an OpenSpec change is
+active, and the dialect's archive operation SHALL remain the final artifact
+operation. Archived validation and later exact-head evidence SHALL be read-only
+with respect to that artifact. A failed archived check SHALL require reopening
+the same change before repair; later controller evidence SHALL NOT be written
+back into an archived task file.
 
 Per-commission commands, resource limits, signing instructions and handoff
 owners SHALL be recorded in the change's planning artifacts and task breakdown
 (the proposal and tasks under OpenSpec), not promoted as standing capability
-requirements. A task marker SHALL distinguish completed preparation from pending
-delivery checks without redefining either.
+requirements. Repository-local obligations SHALL be tracked as tasks. Exact-head
+controller obligations SHALL be stated explicitly in non-checkbox handoff prose
+and distinguished from completed task preparation without redefining or waiving
+either kind of evidence.
 
 #### Scenario: Group checks pass while workspace validation is pending
 - **WHEN** a completed task's focused verification passes but the full workspace suite has not run
@@ -170,5 +191,17 @@ delivery checks without redefining either.
 - **AND** a later commission can choose different delivery settings without amending this capability
 
 #### Scenario: External results do not yet exist
-- **WHEN** work is locally prepared and committed but a required external validation or publication step has no result
-- **THEN** its task remains pending, and neither a checked implementation task nor a local commit is reported as external completion
+- **GIVEN** every repository-local tracked obligation is complete and the dialect requires every archived task checkbox to be ticked
+- **WHEN** host coverage, integration, remote CI, publication, merge or closure must judge an immutable delivery or integrated head and its real result does not yet exist
+- **THEN** the change archives with all tracked tasks complete while that mandatory condition remains explicitly pending as non-checkbox controller evidence keyed to the head outside the tracked artifact
+- **AND** neither the archived verification, a checked implementation task nor a local commit is reported as the missing external result
+
+#### Scenario: An unchanged returned fold closes idempotently
+- **GIVEN** an OpenSpec change was folded once, retains exactly one provenance pointer in each affected living capability, and is reopened only to complete repository-local tracked work without changing any delta
+- **WHEN** all tracked tasks are completed while active and the normal dialect archive operation runs as the final artifact operation
+- **THEN** it moves the same change to the archive with zero specification updates, leaves living capability bytes and provenance pointers unchanged, and permits strict archived verification of the all-ticked task artifact
+
+#### Scenario: A returned specification repair updates only its owner
+- **GIVEN** an already-folded OpenSpec change is reopened and a returned finding changes one requirement while its other deltas still equal living truth
+- **WHEN** the repaired requirement is represented as MODIFIED and the normal dialect archive operation runs after every tracked task is complete
+- **THEN** it replaces that living requirement, treats the identical deltas as no-ops, retains the existing provenance pointer exactly once in every affected capability, and makes no post-archive task edit
